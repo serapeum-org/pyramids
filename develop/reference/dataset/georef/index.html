@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -3716,10 +3716,32 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#pyramids.dataset.engines.Georef.geolocation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        geolocation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pyramids.dataset.engines.Georef.has_gcps" class="md-nav__link">
     <span class="md-ellipsis">
       
         has_gcps
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pyramids.dataset.engines.Georef.has_geolocation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        has_geolocation
       
     </span>
   </a>
@@ -3742,6 +3764,17 @@
     <span class="md-ellipsis">
       
         rpcs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pyramids.dataset.engines.Georef.geolocate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        geolocate
       
     </span>
   </a>
@@ -6301,10 +6334,32 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#pyramids.dataset.engines.Georef.geolocation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        geolocation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pyramids.dataset.engines.Georef.has_gcps" class="md-nav__link">
     <span class="md-ellipsis">
       
         has_gcps
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pyramids.dataset.engines.Georef.has_geolocation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        has_geolocation
       
     </span>
   </a>
@@ -6327,6 +6382,17 @@
     <span class="md-ellipsis">
       
         rpcs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pyramids.dataset.engines.Georef.geolocate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        geolocate
       
     </span>
   </a>
@@ -6943,7 +7009,147 @@ attaches both, and warps from them into an affine-geotransform raster.</p>
 <span class="normal"><a href="#__codelineno-0-485">485</a></span>
 <span class="normal"><a href="#__codelineno-0-486">486</a></span>
 <span class="normal"><a href="#__codelineno-0-487">487</a></span>
-<span class="normal"><a href="#__codelineno-0-488">488</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-70" name="__codelineno-0-70"></a><span class="k">class</span><span class="w"> </span><span class="nc">Georef</span><span class="p">(</span><span class="n">_Engine</span><span class="p">[</span><span class="s2">&quot;Dataset&quot;</span><span class="p">]):</span>
+<span class="normal"><a href="#__codelineno-0-488">488</a></span>
+<span class="normal"><a href="#__codelineno-0-489">489</a></span>
+<span class="normal"><a href="#__codelineno-0-490">490</a></span>
+<span class="normal"><a href="#__codelineno-0-491">491</a></span>
+<span class="normal"><a href="#__codelineno-0-492">492</a></span>
+<span class="normal"><a href="#__codelineno-0-493">493</a></span>
+<span class="normal"><a href="#__codelineno-0-494">494</a></span>
+<span class="normal"><a href="#__codelineno-0-495">495</a></span>
+<span class="normal"><a href="#__codelineno-0-496">496</a></span>
+<span class="normal"><a href="#__codelineno-0-497">497</a></span>
+<span class="normal"><a href="#__codelineno-0-498">498</a></span>
+<span class="normal"><a href="#__codelineno-0-499">499</a></span>
+<span class="normal"><a href="#__codelineno-0-500">500</a></span>
+<span class="normal"><a href="#__codelineno-0-501">501</a></span>
+<span class="normal"><a href="#__codelineno-0-502">502</a></span>
+<span class="normal"><a href="#__codelineno-0-503">503</a></span>
+<span class="normal"><a href="#__codelineno-0-504">504</a></span>
+<span class="normal"><a href="#__codelineno-0-505">505</a></span>
+<span class="normal"><a href="#__codelineno-0-506">506</a></span>
+<span class="normal"><a href="#__codelineno-0-507">507</a></span>
+<span class="normal"><a href="#__codelineno-0-508">508</a></span>
+<span class="normal"><a href="#__codelineno-0-509">509</a></span>
+<span class="normal"><a href="#__codelineno-0-510">510</a></span>
+<span class="normal"><a href="#__codelineno-0-511">511</a></span>
+<span class="normal"><a href="#__codelineno-0-512">512</a></span>
+<span class="normal"><a href="#__codelineno-0-513">513</a></span>
+<span class="normal"><a href="#__codelineno-0-514">514</a></span>
+<span class="normal"><a href="#__codelineno-0-515">515</a></span>
+<span class="normal"><a href="#__codelineno-0-516">516</a></span>
+<span class="normal"><a href="#__codelineno-0-517">517</a></span>
+<span class="normal"><a href="#__codelineno-0-518">518</a></span>
+<span class="normal"><a href="#__codelineno-0-519">519</a></span>
+<span class="normal"><a href="#__codelineno-0-520">520</a></span>
+<span class="normal"><a href="#__codelineno-0-521">521</a></span>
+<span class="normal"><a href="#__codelineno-0-522">522</a></span>
+<span class="normal"><a href="#__codelineno-0-523">523</a></span>
+<span class="normal"><a href="#__codelineno-0-524">524</a></span>
+<span class="normal"><a href="#__codelineno-0-525">525</a></span>
+<span class="normal"><a href="#__codelineno-0-526">526</a></span>
+<span class="normal"><a href="#__codelineno-0-527">527</a></span>
+<span class="normal"><a href="#__codelineno-0-528">528</a></span>
+<span class="normal"><a href="#__codelineno-0-529">529</a></span>
+<span class="normal"><a href="#__codelineno-0-530">530</a></span>
+<span class="normal"><a href="#__codelineno-0-531">531</a></span>
+<span class="normal"><a href="#__codelineno-0-532">532</a></span>
+<span class="normal"><a href="#__codelineno-0-533">533</a></span>
+<span class="normal"><a href="#__codelineno-0-534">534</a></span>
+<span class="normal"><a href="#__codelineno-0-535">535</a></span>
+<span class="normal"><a href="#__codelineno-0-536">536</a></span>
+<span class="normal"><a href="#__codelineno-0-537">537</a></span>
+<span class="normal"><a href="#__codelineno-0-538">538</a></span>
+<span class="normal"><a href="#__codelineno-0-539">539</a></span>
+<span class="normal"><a href="#__codelineno-0-540">540</a></span>
+<span class="normal"><a href="#__codelineno-0-541">541</a></span>
+<span class="normal"><a href="#__codelineno-0-542">542</a></span>
+<span class="normal"><a href="#__codelineno-0-543">543</a></span>
+<span class="normal"><a href="#__codelineno-0-544">544</a></span>
+<span class="normal"><a href="#__codelineno-0-545">545</a></span>
+<span class="normal"><a href="#__codelineno-0-546">546</a></span>
+<span class="normal"><a href="#__codelineno-0-547">547</a></span>
+<span class="normal"><a href="#__codelineno-0-548">548</a></span>
+<span class="normal"><a href="#__codelineno-0-549">549</a></span>
+<span class="normal"><a href="#__codelineno-0-550">550</a></span>
+<span class="normal"><a href="#__codelineno-0-551">551</a></span>
+<span class="normal"><a href="#__codelineno-0-552">552</a></span>
+<span class="normal"><a href="#__codelineno-0-553">553</a></span>
+<span class="normal"><a href="#__codelineno-0-554">554</a></span>
+<span class="normal"><a href="#__codelineno-0-555">555</a></span>
+<span class="normal"><a href="#__codelineno-0-556">556</a></span>
+<span class="normal"><a href="#__codelineno-0-557">557</a></span>
+<span class="normal"><a href="#__codelineno-0-558">558</a></span>
+<span class="normal"><a href="#__codelineno-0-559">559</a></span>
+<span class="normal"><a href="#__codelineno-0-560">560</a></span>
+<span class="normal"><a href="#__codelineno-0-561">561</a></span>
+<span class="normal"><a href="#__codelineno-0-562">562</a></span>
+<span class="normal"><a href="#__codelineno-0-563">563</a></span>
+<span class="normal"><a href="#__codelineno-0-564">564</a></span>
+<span class="normal"><a href="#__codelineno-0-565">565</a></span>
+<span class="normal"><a href="#__codelineno-0-566">566</a></span>
+<span class="normal"><a href="#__codelineno-0-567">567</a></span>
+<span class="normal"><a href="#__codelineno-0-568">568</a></span>
+<span class="normal"><a href="#__codelineno-0-569">569</a></span>
+<span class="normal"><a href="#__codelineno-0-570">570</a></span>
+<span class="normal"><a href="#__codelineno-0-571">571</a></span>
+<span class="normal"><a href="#__codelineno-0-572">572</a></span>
+<span class="normal"><a href="#__codelineno-0-573">573</a></span>
+<span class="normal"><a href="#__codelineno-0-574">574</a></span>
+<span class="normal"><a href="#__codelineno-0-575">575</a></span>
+<span class="normal"><a href="#__codelineno-0-576">576</a></span>
+<span class="normal"><a href="#__codelineno-0-577">577</a></span>
+<span class="normal"><a href="#__codelineno-0-578">578</a></span>
+<span class="normal"><a href="#__codelineno-0-579">579</a></span>
+<span class="normal"><a href="#__codelineno-0-580">580</a></span>
+<span class="normal"><a href="#__codelineno-0-581">581</a></span>
+<span class="normal"><a href="#__codelineno-0-582">582</a></span>
+<span class="normal"><a href="#__codelineno-0-583">583</a></span>
+<span class="normal"><a href="#__codelineno-0-584">584</a></span>
+<span class="normal"><a href="#__codelineno-0-585">585</a></span>
+<span class="normal"><a href="#__codelineno-0-586">586</a></span>
+<span class="normal"><a href="#__codelineno-0-587">587</a></span>
+<span class="normal"><a href="#__codelineno-0-588">588</a></span>
+<span class="normal"><a href="#__codelineno-0-589">589</a></span>
+<span class="normal"><a href="#__codelineno-0-590">590</a></span>
+<span class="normal"><a href="#__codelineno-0-591">591</a></span>
+<span class="normal"><a href="#__codelineno-0-592">592</a></span>
+<span class="normal"><a href="#__codelineno-0-593">593</a></span>
+<span class="normal"><a href="#__codelineno-0-594">594</a></span>
+<span class="normal"><a href="#__codelineno-0-595">595</a></span>
+<span class="normal"><a href="#__codelineno-0-596">596</a></span>
+<span class="normal"><a href="#__codelineno-0-597">597</a></span>
+<span class="normal"><a href="#__codelineno-0-598">598</a></span>
+<span class="normal"><a href="#__codelineno-0-599">599</a></span>
+<span class="normal"><a href="#__codelineno-0-600">600</a></span>
+<span class="normal"><a href="#__codelineno-0-601">601</a></span>
+<span class="normal"><a href="#__codelineno-0-602">602</a></span>
+<span class="normal"><a href="#__codelineno-0-603">603</a></span>
+<span class="normal"><a href="#__codelineno-0-604">604</a></span>
+<span class="normal"><a href="#__codelineno-0-605">605</a></span>
+<span class="normal"><a href="#__codelineno-0-606">606</a></span>
+<span class="normal"><a href="#__codelineno-0-607">607</a></span>
+<span class="normal"><a href="#__codelineno-0-608">608</a></span>
+<span class="normal"><a href="#__codelineno-0-609">609</a></span>
+<span class="normal"><a href="#__codelineno-0-610">610</a></span>
+<span class="normal"><a href="#__codelineno-0-611">611</a></span>
+<span class="normal"><a href="#__codelineno-0-612">612</a></span>
+<span class="normal"><a href="#__codelineno-0-613">613</a></span>
+<span class="normal"><a href="#__codelineno-0-614">614</a></span>
+<span class="normal"><a href="#__codelineno-0-615">615</a></span>
+<span class="normal"><a href="#__codelineno-0-616">616</a></span>
+<span class="normal"><a href="#__codelineno-0-617">617</a></span>
+<span class="normal"><a href="#__codelineno-0-618">618</a></span>
+<span class="normal"><a href="#__codelineno-0-619">619</a></span>
+<span class="normal"><a href="#__codelineno-0-620">620</a></span>
+<span class="normal"><a href="#__codelineno-0-621">621</a></span>
+<span class="normal"><a href="#__codelineno-0-622">622</a></span>
+<span class="normal"><a href="#__codelineno-0-623">623</a></span>
+<span class="normal"><a href="#__codelineno-0-624">624</a></span>
+<span class="normal"><a href="#__codelineno-0-625">625</a></span>
+<span class="normal"><a href="#__codelineno-0-626">626</a></span>
+<span class="normal"><a href="#__codelineno-0-627">627</a></span>
+<span class="normal"><a href="#__codelineno-0-628">628</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-70" name="__codelineno-0-70"></a><span class="k">class</span><span class="w"> </span><span class="nc">Georef</span><span class="p">(</span><span class="n">_Engine</span><span class="p">[</span><span class="s2">&quot;Dataset&quot;</span><span class="p">]):</span>
 <a id="__codelineno-0-71" name="__codelineno-0-71"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Ground-control-point and RPC georeferencing for a :class:`Dataset`.</span>
 <a id="__codelineno-0-72" name="__codelineno-0-72"></a>
 <a id="__codelineno-0-73" name="__codelineno-0-73"></a><span class="sd">    A normal raster is georeferenced by an affine geotransform. Raw imagery</span>
@@ -7362,6 +7568,146 @@ attaches both, and warps from them into an affine-geotransform raster.</p>
 <a id="__codelineno-0-486" name="__codelineno-0-486"></a>            <span class="n">error_message</span><span class="o">=</span><span class="s2">&quot;GDAL could not warp the dataset from its GCPs.&quot;</span><span class="p">,</span>
 <a id="__codelineno-0-487" name="__codelineno-0-487"></a>            <span class="n">pin</span><span class="o">=</span><span class="n">lazy</span><span class="p">,</span>
 <a id="__codelineno-0-488" name="__codelineno-0-488"></a>        <span class="p">)</span>
+<a id="__codelineno-0-489" name="__codelineno-0-489"></a>
+<a id="__codelineno-0-490" name="__codelineno-0-490"></a>    <span class="nd">@property</span>
+<a id="__codelineno-0-491" name="__codelineno-0-491"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">geolocation</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-492" name="__codelineno-0-492"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;The dataset&#39;s GDAL ``GEOLOCATION`` metadata domain, or ``None``.</span>
+<a id="__codelineno-0-493" name="__codelineno-0-493"></a>
+<a id="__codelineno-0-494" name="__codelineno-0-494"></a><span class="sd">        Geolocation arrays are per-pixel longitude/latitude grids (the swath /</span>
+<a id="__codelineno-0-495" name="__codelineno-0-495"></a><span class="sd">        curvilinear georeferencing model), exposed by GDAL as the ``GEOLOCATION``</span>
+<a id="__codelineno-0-496" name="__codelineno-0-496"></a><span class="sd">        metadata domain. Returns the domain mapping (``X_DATASET``/``Y_DATASET``</span>
+<a id="__codelineno-0-497" name="__codelineno-0-497"></a><span class="sd">        pointing at the coordinate arrays, ``SRS``, band/offset/step keys) or</span>
+<a id="__codelineno-0-498" name="__codelineno-0-498"></a><span class="sd">        ``None`` when the dataset carries no such domain. Built on</span>
+<a id="__codelineno-0-499" name="__codelineno-0-499"></a><span class="sd">        :meth:`~pyramids.dataset.Dataset.get_meta_data`; on a ``NetCDF`` variable</span>
+<a id="__codelineno-0-500" name="__codelineno-0-500"></a><span class="sd">        the domain is read from the classic GDAL handle (see</span>
+<a id="__codelineno-0-501" name="__codelineno-0-501"></a><span class="sd">        :meth:`Dataset._geolocation_source`).</span>
+<a id="__codelineno-0-502" name="__codelineno-0-502"></a>
+<a id="__codelineno-0-503" name="__codelineno-0-503"></a><span class="sd">        Returns:</span>
+<a id="__codelineno-0-504" name="__codelineno-0-504"></a><span class="sd">            dict[str, str] | None: The ``GEOLOCATION`` domain, or ``None``.</span>
+<a id="__codelineno-0-505" name="__codelineno-0-505"></a>
+<a id="__codelineno-0-506" name="__codelineno-0-506"></a><span class="sd">        Examples:</span>
+<a id="__codelineno-0-507" name="__codelineno-0-507"></a><span class="sd">            - A plain raster carries no geolocation arrays:</span>
+<a id="__codelineno-0-508" name="__codelineno-0-508"></a><span class="sd">                ```python</span>
+<a id="__codelineno-0-509" name="__codelineno-0-509"></a><span class="sd">                &gt;&gt;&gt; import numpy as np</span>
+<a id="__codelineno-0-510" name="__codelineno-0-510"></a><span class="sd">                &gt;&gt;&gt; from pyramids.dataset import Dataset</span>
+<a id="__codelineno-0-511" name="__codelineno-0-511"></a><span class="sd">                &gt;&gt;&gt; ds = Dataset.create_from_array(</span>
+<a id="__codelineno-0-512" name="__codelineno-0-512"></a><span class="sd">                ...     np.zeros((2, 2)), top_left_corner=(0, 0), cell_size=1.0, epsg=4326</span>
+<a id="__codelineno-0-513" name="__codelineno-0-513"></a><span class="sd">                ... )</span>
+<a id="__codelineno-0-514" name="__codelineno-0-514"></a><span class="sd">                &gt;&gt;&gt; ds.geolocation is None</span>
+<a id="__codelineno-0-515" name="__codelineno-0-515"></a><span class="sd">                True</span>
+<a id="__codelineno-0-516" name="__codelineno-0-516"></a>
+<a id="__codelineno-0-517" name="__codelineno-0-517"></a><span class="sd">                ```</span>
+<a id="__codelineno-0-518" name="__codelineno-0-518"></a><span class="sd">        &quot;&quot;&quot;</span>
+<a id="__codelineno-0-519" name="__codelineno-0-519"></a>        <span class="n">source</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">_geolocation_source</span><span class="p">()</span>
+<a id="__codelineno-0-520" name="__codelineno-0-520"></a>        <span class="n">domain</span> <span class="o">=</span> <span class="n">cast</span><span class="p">(</span><span class="s2">&quot;dict[str, str]&quot;</span><span class="p">,</span> <span class="n">source</span><span class="o">.</span><span class="n">get_meta_data</span><span class="p">(</span><span class="s2">&quot;GEOLOCATION&quot;</span><span class="p">))</span>
+<a id="__codelineno-0-521" name="__codelineno-0-521"></a>        <span class="k">return</span> <span class="n">domain</span> <span class="ow">or</span> <span class="kc">None</span>
+<a id="__codelineno-0-522" name="__codelineno-0-522"></a>
+<a id="__codelineno-0-523" name="__codelineno-0-523"></a>    <span class="nd">@property</span>
+<a id="__codelineno-0-524" name="__codelineno-0-524"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">has_geolocation</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<a id="__codelineno-0-525" name="__codelineno-0-525"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Whether the dataset carries geolocation arrays (a ``GEOLOCATION`` domain).</span>
+<a id="__codelineno-0-526" name="__codelineno-0-526"></a>
+<a id="__codelineno-0-527" name="__codelineno-0-527"></a><span class="sd">        Returns:</span>
+<a id="__codelineno-0-528" name="__codelineno-0-528"></a><span class="sd">            bool: ``True`` when :attr:`geolocation` is present, else ``False``.</span>
+<a id="__codelineno-0-529" name="__codelineno-0-529"></a>
+<a id="__codelineno-0-530" name="__codelineno-0-530"></a><span class="sd">        Examples:</span>
+<a id="__codelineno-0-531" name="__codelineno-0-531"></a><span class="sd">            - A plain raster has no geolocation arrays:</span>
+<a id="__codelineno-0-532" name="__codelineno-0-532"></a><span class="sd">                ```python</span>
+<a id="__codelineno-0-533" name="__codelineno-0-533"></a><span class="sd">                &gt;&gt;&gt; import numpy as np</span>
+<a id="__codelineno-0-534" name="__codelineno-0-534"></a><span class="sd">                &gt;&gt;&gt; from pyramids.dataset import Dataset</span>
+<a id="__codelineno-0-535" name="__codelineno-0-535"></a><span class="sd">                &gt;&gt;&gt; ds = Dataset.create_from_array(</span>
+<a id="__codelineno-0-536" name="__codelineno-0-536"></a><span class="sd">                ...     np.zeros((2, 2)), top_left_corner=(0, 0), cell_size=1.0, epsg=4326</span>
+<a id="__codelineno-0-537" name="__codelineno-0-537"></a><span class="sd">                ... )</span>
+<a id="__codelineno-0-538" name="__codelineno-0-538"></a><span class="sd">                &gt;&gt;&gt; ds.has_geolocation</span>
+<a id="__codelineno-0-539" name="__codelineno-0-539"></a><span class="sd">                False</span>
+<a id="__codelineno-0-540" name="__codelineno-0-540"></a>
+<a id="__codelineno-0-541" name="__codelineno-0-541"></a><span class="sd">                ```</span>
+<a id="__codelineno-0-542" name="__codelineno-0-542"></a><span class="sd">        &quot;&quot;&quot;</span>
+<a id="__codelineno-0-543" name="__codelineno-0-543"></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">geolocation</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+<a id="__codelineno-0-544" name="__codelineno-0-544"></a>
+<a id="__codelineno-0-545" name="__codelineno-0-545"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">geolocate</span><span class="p">(</span>
+<a id="__codelineno-0-546" name="__codelineno-0-546"></a>        <span class="bp">self</span><span class="p">,</span>
+<a id="__codelineno-0-547" name="__codelineno-0-547"></a>        <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-0-548" name="__codelineno-0-548"></a>        <span class="n">to_epsg</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-549" name="__codelineno-0-549"></a>        <span class="n">method</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">DEFAULT_RESAMPLING</span><span class="p">,</span>
+<a id="__codelineno-0-550" name="__codelineno-0-550"></a>        <span class="n">cell_size</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-551" name="__codelineno-0-551"></a>        <span class="n">lazy</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-552" name="__codelineno-0-552"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dataset</span><span class="p">:</span>
+<a id="__codelineno-0-553" name="__codelineno-0-553"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Warp the dataset **from its geolocation arrays** onto a regular grid.</span>
+<a id="__codelineno-0-554" name="__codelineno-0-554"></a>
+<a id="__codelineno-0-555" name="__codelineno-0-555"></a><span class="sd">        Resamples a swath / curvilinear raster whose georeferencing is carried by</span>
+<a id="__codelineno-0-556" name="__codelineno-0-556"></a><span class="sd">        per-pixel longitude/latitude arrays (the GDAL ``GEOLOCATION`` domain) onto</span>
+<a id="__codelineno-0-557" name="__codelineno-0-557"></a><span class="sd">        a north-up affine grid — the geolocation-array analogue of</span>
+<a id="__codelineno-0-558" name="__codelineno-0-558"></a><span class="sd">        :meth:`georeference` (GCPs) and :meth:`orthorectify` (RPCs). The arrays are</span>
+<a id="__codelineno-0-559" name="__codelineno-0-559"></a><span class="sd">        read automatically from the ``GEOLOCATION`` domain.</span>
+<a id="__codelineno-0-560" name="__codelineno-0-560"></a>
+<a id="__codelineno-0-561" name="__codelineno-0-561"></a><span class="sd">        GDAL&#39;s geolocation warping assumes a continuous source-to-target mapping;</span>
+<a id="__codelineno-0-562" name="__codelineno-0-562"></a><span class="sd">        products with large discontinuities (e.g. a dateline-crossing swath) can</span>
+<a id="__codelineno-0-563" name="__codelineno-0-563"></a><span class="sd">        produce artefacts.</span>
+<a id="__codelineno-0-564" name="__codelineno-0-564"></a>
+<a id="__codelineno-0-565" name="__codelineno-0-565"></a><span class="sd">        Args:</span>
+<a id="__codelineno-0-566" name="__codelineno-0-566"></a><span class="sd">            to_epsg: Target CRS for the output. ``None`` warps into the geolocation</span>
+<a id="__codelineno-0-567" name="__codelineno-0-567"></a><span class="sd">                arrays&#39; own CRS (their ``SRS`` key); otherwise reprojects to</span>
+<a id="__codelineno-0-568" name="__codelineno-0-568"></a><span class="sd">                ``to_epsg`` in the same pass (any form</span>
+<a id="__codelineno-0-569" name="__codelineno-0-569"></a><span class="sd">                :func:`pyramids.base.crs.sr_from_user_input` accepts).</span>
+<a id="__codelineno-0-570" name="__codelineno-0-570"></a><span class="sd">            method: Resampling method (see :meth:`Spatial.to_crs`). Default</span>
+<a id="__codelineno-0-571" name="__codelineno-0-571"></a><span class="sd">                ``&quot;nearest neighbor&quot;``.</span>
+<a id="__codelineno-0-572" name="__codelineno-0-572"></a><span class="sd">            cell_size: Output pixel size in target-CRS units (both axes). ``None``</span>
+<a id="__codelineno-0-573" name="__codelineno-0-573"></a><span class="sd">                lets GDAL pick a size that preserves the source resolution.</span>
+<a id="__codelineno-0-574" name="__codelineno-0-574"></a><span class="sd">            lazy: ``True`` returns a VRT-backed view (pixels warped per read);</span>
+<a id="__codelineno-0-575" name="__codelineno-0-575"></a><span class="sd">                ``False`` (default) materialises the result in memory.</span>
+<a id="__codelineno-0-576" name="__codelineno-0-576"></a>
+<a id="__codelineno-0-577" name="__codelineno-0-577"></a><span class="sd">        Returns:</span>
+<a id="__codelineno-0-578" name="__codelineno-0-578"></a><span class="sd">            Dataset: The regularly-gridded raster as a base ``Dataset``.</span>
+<a id="__codelineno-0-579" name="__codelineno-0-579"></a>
+<a id="__codelineno-0-580" name="__codelineno-0-580"></a><span class="sd">        Raises:</span>
+<a id="__codelineno-0-581" name="__codelineno-0-581"></a><span class="sd">            GeolocationArrayError: the dataset has no ``GEOLOCATION`` domain, or the</span>
+<a id="__codelineno-0-582" name="__codelineno-0-582"></a><span class="sd">                domain is missing the required ``X_DATASET`` / ``Y_DATASET`` arrays.</span>
+<a id="__codelineno-0-583" name="__codelineno-0-583"></a><span class="sd">            CRSError: ``to_epsg`` is not a recognisable CRS.</span>
+<a id="__codelineno-0-584" name="__codelineno-0-584"></a><span class="sd">            ValueError: ``method`` is not a known resampling method.</span>
+<a id="__codelineno-0-585" name="__codelineno-0-585"></a><span class="sd">            RuntimeError: GDAL could not build the warp.</span>
+<a id="__codelineno-0-586" name="__codelineno-0-586"></a>
+<a id="__codelineno-0-587" name="__codelineno-0-587"></a><span class="sd">        Examples:</span>
+<a id="__codelineno-0-588" name="__codelineno-0-588"></a><span class="sd">            - Geolocate needs a ``GEOLOCATION`` domain (a plain raster has none):</span>
+<a id="__codelineno-0-589" name="__codelineno-0-589"></a><span class="sd">                ```python</span>
+<a id="__codelineno-0-590" name="__codelineno-0-590"></a><span class="sd">                &gt;&gt;&gt; import numpy as np</span>
+<a id="__codelineno-0-591" name="__codelineno-0-591"></a><span class="sd">                &gt;&gt;&gt; from pyramids.dataset import Dataset</span>
+<a id="__codelineno-0-592" name="__codelineno-0-592"></a><span class="sd">                &gt;&gt;&gt; ds = Dataset.create_from_array(</span>
+<a id="__codelineno-0-593" name="__codelineno-0-593"></a><span class="sd">                ...     np.zeros((2, 2)), top_left_corner=(0, 0), cell_size=1.0, epsg=4326</span>
+<a id="__codelineno-0-594" name="__codelineno-0-594"></a><span class="sd">                ... )</span>
+<a id="__codelineno-0-595" name="__codelineno-0-595"></a><span class="sd">                &gt;&gt;&gt; ds.has_geolocation</span>
+<a id="__codelineno-0-596" name="__codelineno-0-596"></a><span class="sd">                False</span>
+<a id="__codelineno-0-597" name="__codelineno-0-597"></a>
+<a id="__codelineno-0-598" name="__codelineno-0-598"></a><span class="sd">                ```</span>
+<a id="__codelineno-0-599" name="__codelineno-0-599"></a><span class="sd">        &quot;&quot;&quot;</span>
+<a id="__codelineno-0-600" name="__codelineno-0-600"></a>        <span class="n">source</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">_geolocation_source</span><span class="p">()</span>
+<a id="__codelineno-0-601" name="__codelineno-0-601"></a>        <span class="n">domain</span> <span class="o">=</span> <span class="n">cast</span><span class="p">(</span><span class="s2">&quot;dict[str, str]&quot;</span><span class="p">,</span> <span class="n">source</span><span class="o">.</span><span class="n">get_meta_data</span><span class="p">(</span><span class="s2">&quot;GEOLOCATION&quot;</span><span class="p">))</span>
+<a id="__codelineno-0-602" name="__codelineno-0-602"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">domain</span><span class="p">:</span>
+<a id="__codelineno-0-603" name="__codelineno-0-603"></a>            <span class="k">raise</span> <span class="n">GeolocationArrayError</span><span class="p">(</span>
+<a id="__codelineno-0-604" name="__codelineno-0-604"></a>                <span class="s2">&quot;dataset has no geolocation arrays (no GEOLOCATION metadata domain).&quot;</span>
+<a id="__codelineno-0-605" name="__codelineno-0-605"></a>            <span class="p">)</span>
+<a id="__codelineno-0-606" name="__codelineno-0-606"></a>        <span class="n">missing</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;X_DATASET&quot;</span><span class="p">,</span> <span class="s2">&quot;Y_DATASET&quot;</span><span class="p">}</span> <span class="o">-</span> <span class="nb">set</span><span class="p">(</span><span class="n">domain</span><span class="p">)</span>
+<a id="__codelineno-0-607" name="__codelineno-0-607"></a>        <span class="k">if</span> <span class="n">missing</span><span class="p">:</span>
+<a id="__codelineno-0-608" name="__codelineno-0-608"></a>            <span class="k">raise</span> <span class="n">GeolocationArrayError</span><span class="p">(</span>
+<a id="__codelineno-0-609" name="__codelineno-0-609"></a>                <span class="sa">f</span><span class="s2">&quot;GEOLOCATION domain is missing required arrays: </span><span class="si">{</span><span class="nb">sorted</span><span class="p">(</span><span class="n">missing</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-610" name="__codelineno-0-610"></a>            <span class="p">)</span>
+<a id="__codelineno-0-611" name="__codelineno-0-611"></a>        <span class="n">warp_kwargs</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">=</span> <span class="p">{</span>
+<a id="__codelineno-0-612" name="__codelineno-0-612"></a>            <span class="s2">&quot;format&quot;</span><span class="p">:</span> <span class="s2">&quot;VRT&quot;</span> <span class="k">if</span> <span class="n">lazy</span> <span class="k">else</span> <span class="s2">&quot;MEM&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-613" name="__codelineno-0-613"></a>            <span class="s2">&quot;resampleAlg&quot;</span><span class="p">:</span> <span class="n">resolve_resampling</span><span class="p">(</span><span class="n">method</span><span class="p">),</span>
+<a id="__codelineno-0-614" name="__codelineno-0-614"></a>            <span class="s2">&quot;xRes&quot;</span><span class="p">:</span> <span class="n">cell_size</span><span class="p">,</span>
+<a id="__codelineno-0-615" name="__codelineno-0-615"></a>            <span class="s2">&quot;yRes&quot;</span><span class="p">:</span> <span class="n">cell_size</span><span class="p">,</span>
+<a id="__codelineno-0-616" name="__codelineno-0-616"></a>            <span class="s2">&quot;geoloc&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-0-617" name="__codelineno-0-617"></a>        <span class="p">}</span>
+<a id="__codelineno-0-618" name="__codelineno-0-618"></a>        <span class="k">if</span> <span class="n">to_epsg</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-619" name="__codelineno-0-619"></a>            <span class="n">warp_kwargs</span><span class="p">[</span><span class="s2">&quot;dstSRS&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">_dst_srs_arg</span><span class="p">(</span><span class="n">sr_from_user_input</span><span class="p">(</span><span class="n">to_epsg</span><span class="p">))</span>
+<a id="__codelineno-0-620" name="__codelineno-0-620"></a>        <span class="c1"># Only a lazy (VRT) result reads through to the source, so only it needs</span>
+<a id="__codelineno-0-621" name="__codelineno-0-621"></a>        <span class="c1"># the pin; a materialised MEM result owns its pixels.</span>
+<a id="__codelineno-0-622" name="__codelineno-0-622"></a>        <span class="k">return</span> <span class="n">warp_to_dataset</span><span class="p">(</span>
+<a id="__codelineno-0-623" name="__codelineno-0-623"></a>            <span class="n">source</span><span class="p">,</span>
+<a id="__codelineno-0-624" name="__codelineno-0-624"></a>            <span class="n">gdal</span><span class="o">.</span><span class="n">WarpOptions</span><span class="p">(</span><span class="o">**</span><span class="n">warp_kwargs</span><span class="p">),</span>
+<a id="__codelineno-0-625" name="__codelineno-0-625"></a>            <span class="n">access</span><span class="o">=</span><span class="s2">&quot;read_only&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-626" name="__codelineno-0-626"></a>            <span class="n">error_message</span><span class="o">=</span><span class="s2">&quot;GDAL could not geolocate the dataset.&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-627" name="__codelineno-0-627"></a>            <span class="n">pin</span><span class="o">=</span><span class="n">lazy</span><span class="p">,</span>
+<a id="__codelineno-0-628" name="__codelineno-0-628"></a>        <span class="p">)</span>
 </code></pre></div></td></tr></table></div>
               </details>
 
@@ -7535,6 +7881,73 @@ attaches both, and warps from them into an affine-geotransform raster.</p>
 
 
 
+<h3 id="pyramids.dataset.engines.Georef.geolocation" class="doc doc-heading"><a href="#pyramids.dataset.engines.Georef.geolocation" class="toclink">
+            <code class="highlight language-python"><span class="n">geolocation</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+</a><a href="#pyramids.dataset.engines.Georef.geolocation" class="headerlink" title="Permanent link">#</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>The dataset's GDAL <code>GEOLOCATION</code> metadata domain, or <code>None</code>.</p>
+<p>Geolocation arrays are per-pixel longitude/latitude grids (the swath /
+curvilinear georeferencing model), exposed by GDAL as the <code>GEOLOCATION</code>
+metadata domain. Returns the domain mapping (<code>X_DATASET</code>/<code>Y_DATASET</code>
+pointing at the coordinate arrays, <code>SRS</code>, band/offset/step keys) or
+<code>None</code> when the dataset carries no such domain. Built on
+:meth:<code>~pyramids.dataset.Dataset.get_meta_data</code>; on a <code>NetCDF</code> variable
+the domain is read from the classic GDAL handle (see
+:meth:<code>Dataset._geolocation_source</code>).</p>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="dict">dict</span>[<span title="str">str</span>, <span title="str">str</span>] | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>dict[str, str] | None: The <code>GEOLOCATION</code> domain, or <code>None</code>.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <ul>
+<li>A plain raster carries no geolocation arrays:
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="o">...</span>     <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">)),</span> <span class="n">top_left_corner</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="n">cell_size</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="o">...</span> <span class="p">)</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">ds</span><span class="o">.</span><span class="n">geolocation</span> <span class="ow">is</span> <span class="kc">None</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="kc">True</span>
+</code></pre></div></li>
+</ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
 <h3 id="pyramids.dataset.engines.Georef.has_gcps" class="doc doc-heading"><a href="#pyramids.dataset.engines.Georef.has_gcps" class="toclink">
             <code class="highlight language-python"><span class="n">has_gcps</span></code>
 
@@ -7571,6 +7984,65 @@ attaches both, and warps from them into an affine-geotransform raster.</p>
           </tr>
       </tbody>
     </table>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="pyramids.dataset.engines.Georef.has_geolocation" class="doc doc-heading"><a href="#pyramids.dataset.engines.Georef.has_geolocation" class="toclink">
+            <code class="highlight language-python"><span class="n">has_geolocation</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+</a><a href="#pyramids.dataset.engines.Georef.has_geolocation" class="headerlink" title="Permanent link">#</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Whether the dataset carries geolocation arrays (a <code>GEOLOCATION</code> domain).</p>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+<th>Name</th>          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+<td><code>bool</code></td>            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>True</code> when :attr:<code>geolocation</code> is present, else <code>False</code>.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <ul>
+<li>A plain raster has no geolocation arrays:
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="o">...</span>     <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">)),</span> <span class="n">top_left_corner</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="n">cell_size</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="o">...</span> <span class="p">)</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">ds</span><span class="o">.</span><span class="n">has_geolocation</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="kc">False</span>
+</code></pre></div></li>
+</ul>
 
     </div>
 
@@ -7695,6 +8167,379 @@ with raw high-resolution satellite imagery.</p>
 
 
 
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pyramids.dataset.engines.Georef.geolocate" class="doc doc-heading"><a href="#pyramids.dataset.engines.Georef.geolocate" class="toclink">
+            <code class="highlight language-python"><span class="n">geolocate</span><span class="p">(</span><span class="o">*</span><span class="p">,</span> <span class="n">to_epsg</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="n">DEFAULT_RESAMPLING</span><span class="p">,</span> <span class="n">cell_size</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">lazy</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span></code>
+
+</a><a href="#pyramids.dataset.engines.Georef.geolocate" class="headerlink" title="Permanent link">#</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Warp the dataset <strong>from its geolocation arrays</strong> onto a regular grid.</p>
+<p>Resamples a swath / curvilinear raster whose georeferencing is carried by
+per-pixel longitude/latitude arrays (the GDAL <code>GEOLOCATION</code> domain) onto
+a north-up affine grid — the geolocation-array analogue of
+:meth:<code>georeference</code> (GCPs) and :meth:<code>orthorectify</code> (RPCs). The arrays are
+read automatically from the <code>GEOLOCATION</code> domain.</p>
+<p>GDAL's geolocation warping assumes a continuous source-to-target mapping;
+products with large discontinuities (e.g. a dateline-crossing swath) can
+produce artefacts.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>to_epsg</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span> | <span title="str">str</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Target CRS for the output. <code>None</code> warps into the geolocation
+arrays' own CRS (their <code>SRS</code> key); otherwise reprojects to
+<code>to_epsg</code> in the same pass (any form
+:func:<code>pyramids.base.crs.sr_from_user_input</code> accepts).</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>method</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Resampling method (see :meth:<code>Spatial.to_crs</code>). Default
+<code>"nearest neighbor"</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code><span title="pyramids.base._utils.DEFAULT_RESAMPLING">DEFAULT_RESAMPLING</span></code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>cell_size</code>
+            </td>
+            <td>
+                  <code><span title="float">float</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Output pixel size in target-CRS units (both axes). <code>None</code>
+lets GDAL pick a size that preserves the source resolution.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>lazy</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>True</code> returns a VRT-backed view (pixels warped per read);
+<code>False</code> (default) materialises the result in memory.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+<th>Name</th>          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+<td><code>Dataset</code></td>            <td>
+                  <code><a class="autorefs autorefs-internal" title="&lt;code&gt;pyramids.dataset.Dataset&lt;/code&gt; (&lt;code&gt;pyramids.dataset.dataset.Dataset&lt;/code&gt;)" href="../#pyramids.dataset.Dataset">Dataset</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The regularly-gridded raster as a base <code>Dataset</code>.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="pyramids.base._errors.GeolocationArrayError">GeolocationArrayError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>the dataset has no <code>GEOLOCATION</code> domain, or the
+domain is missing the required <code>X_DATASET</code> / <code>Y_DATASET</code> arrays.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="CRSError">CRSError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>to_epsg</code> is not a recognisable CRS.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="ValueError">ValueError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>method</code> is not a known resampling method.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="RuntimeError">RuntimeError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>GDAL could not build the warp.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <ul>
+<li>Geolocate needs a <code>GEOLOCATION</code> domain (a plain raster has none):
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="o">...</span>     <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">)),</span> <span class="n">top_left_corner</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="n">cell_size</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="o">...</span> <span class="p">)</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">ds</span><span class="o">.</span><span class="n">has_geolocation</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="kc">False</span>
+</code></pre></div></li>
+</ul>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/pyramids/dataset/engines/georef.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-545">545</a></span>
+<span class="normal"><a href="#__codelineno-0-546">546</a></span>
+<span class="normal"><a href="#__codelineno-0-547">547</a></span>
+<span class="normal"><a href="#__codelineno-0-548">548</a></span>
+<span class="normal"><a href="#__codelineno-0-549">549</a></span>
+<span class="normal"><a href="#__codelineno-0-550">550</a></span>
+<span class="normal"><a href="#__codelineno-0-551">551</a></span>
+<span class="normal"><a href="#__codelineno-0-552">552</a></span>
+<span class="normal"><a href="#__codelineno-0-553">553</a></span>
+<span class="normal"><a href="#__codelineno-0-554">554</a></span>
+<span class="normal"><a href="#__codelineno-0-555">555</a></span>
+<span class="normal"><a href="#__codelineno-0-556">556</a></span>
+<span class="normal"><a href="#__codelineno-0-557">557</a></span>
+<span class="normal"><a href="#__codelineno-0-558">558</a></span>
+<span class="normal"><a href="#__codelineno-0-559">559</a></span>
+<span class="normal"><a href="#__codelineno-0-560">560</a></span>
+<span class="normal"><a href="#__codelineno-0-561">561</a></span>
+<span class="normal"><a href="#__codelineno-0-562">562</a></span>
+<span class="normal"><a href="#__codelineno-0-563">563</a></span>
+<span class="normal"><a href="#__codelineno-0-564">564</a></span>
+<span class="normal"><a href="#__codelineno-0-565">565</a></span>
+<span class="normal"><a href="#__codelineno-0-566">566</a></span>
+<span class="normal"><a href="#__codelineno-0-567">567</a></span>
+<span class="normal"><a href="#__codelineno-0-568">568</a></span>
+<span class="normal"><a href="#__codelineno-0-569">569</a></span>
+<span class="normal"><a href="#__codelineno-0-570">570</a></span>
+<span class="normal"><a href="#__codelineno-0-571">571</a></span>
+<span class="normal"><a href="#__codelineno-0-572">572</a></span>
+<span class="normal"><a href="#__codelineno-0-573">573</a></span>
+<span class="normal"><a href="#__codelineno-0-574">574</a></span>
+<span class="normal"><a href="#__codelineno-0-575">575</a></span>
+<span class="normal"><a href="#__codelineno-0-576">576</a></span>
+<span class="normal"><a href="#__codelineno-0-577">577</a></span>
+<span class="normal"><a href="#__codelineno-0-578">578</a></span>
+<span class="normal"><a href="#__codelineno-0-579">579</a></span>
+<span class="normal"><a href="#__codelineno-0-580">580</a></span>
+<span class="normal"><a href="#__codelineno-0-581">581</a></span>
+<span class="normal"><a href="#__codelineno-0-582">582</a></span>
+<span class="normal"><a href="#__codelineno-0-583">583</a></span>
+<span class="normal"><a href="#__codelineno-0-584">584</a></span>
+<span class="normal"><a href="#__codelineno-0-585">585</a></span>
+<span class="normal"><a href="#__codelineno-0-586">586</a></span>
+<span class="normal"><a href="#__codelineno-0-587">587</a></span>
+<span class="normal"><a href="#__codelineno-0-588">588</a></span>
+<span class="normal"><a href="#__codelineno-0-589">589</a></span>
+<span class="normal"><a href="#__codelineno-0-590">590</a></span>
+<span class="normal"><a href="#__codelineno-0-591">591</a></span>
+<span class="normal"><a href="#__codelineno-0-592">592</a></span>
+<span class="normal"><a href="#__codelineno-0-593">593</a></span>
+<span class="normal"><a href="#__codelineno-0-594">594</a></span>
+<span class="normal"><a href="#__codelineno-0-595">595</a></span>
+<span class="normal"><a href="#__codelineno-0-596">596</a></span>
+<span class="normal"><a href="#__codelineno-0-597">597</a></span>
+<span class="normal"><a href="#__codelineno-0-598">598</a></span>
+<span class="normal"><a href="#__codelineno-0-599">599</a></span>
+<span class="normal"><a href="#__codelineno-0-600">600</a></span>
+<span class="normal"><a href="#__codelineno-0-601">601</a></span>
+<span class="normal"><a href="#__codelineno-0-602">602</a></span>
+<span class="normal"><a href="#__codelineno-0-603">603</a></span>
+<span class="normal"><a href="#__codelineno-0-604">604</a></span>
+<span class="normal"><a href="#__codelineno-0-605">605</a></span>
+<span class="normal"><a href="#__codelineno-0-606">606</a></span>
+<span class="normal"><a href="#__codelineno-0-607">607</a></span>
+<span class="normal"><a href="#__codelineno-0-608">608</a></span>
+<span class="normal"><a href="#__codelineno-0-609">609</a></span>
+<span class="normal"><a href="#__codelineno-0-610">610</a></span>
+<span class="normal"><a href="#__codelineno-0-611">611</a></span>
+<span class="normal"><a href="#__codelineno-0-612">612</a></span>
+<span class="normal"><a href="#__codelineno-0-613">613</a></span>
+<span class="normal"><a href="#__codelineno-0-614">614</a></span>
+<span class="normal"><a href="#__codelineno-0-615">615</a></span>
+<span class="normal"><a href="#__codelineno-0-616">616</a></span>
+<span class="normal"><a href="#__codelineno-0-617">617</a></span>
+<span class="normal"><a href="#__codelineno-0-618">618</a></span>
+<span class="normal"><a href="#__codelineno-0-619">619</a></span>
+<span class="normal"><a href="#__codelineno-0-620">620</a></span>
+<span class="normal"><a href="#__codelineno-0-621">621</a></span>
+<span class="normal"><a href="#__codelineno-0-622">622</a></span>
+<span class="normal"><a href="#__codelineno-0-623">623</a></span>
+<span class="normal"><a href="#__codelineno-0-624">624</a></span>
+<span class="normal"><a href="#__codelineno-0-625">625</a></span>
+<span class="normal"><a href="#__codelineno-0-626">626</a></span>
+<span class="normal"><a href="#__codelineno-0-627">627</a></span>
+<span class="normal"><a href="#__codelineno-0-628">628</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-545" name="__codelineno-0-545"></a><span class="k">def</span><span class="w"> </span><span class="nf">geolocate</span><span class="p">(</span>
+<a id="__codelineno-0-546" name="__codelineno-0-546"></a>    <span class="bp">self</span><span class="p">,</span>
+<a id="__codelineno-0-547" name="__codelineno-0-547"></a>    <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-0-548" name="__codelineno-0-548"></a>    <span class="n">to_epsg</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-549" name="__codelineno-0-549"></a>    <span class="n">method</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">DEFAULT_RESAMPLING</span><span class="p">,</span>
+<a id="__codelineno-0-550" name="__codelineno-0-550"></a>    <span class="n">cell_size</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-551" name="__codelineno-0-551"></a>    <span class="n">lazy</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-552" name="__codelineno-0-552"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dataset</span><span class="p">:</span>
+<a id="__codelineno-0-553" name="__codelineno-0-553"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Warp the dataset **from its geolocation arrays** onto a regular grid.</span>
+<a id="__codelineno-0-554" name="__codelineno-0-554"></a>
+<a id="__codelineno-0-555" name="__codelineno-0-555"></a><span class="sd">    Resamples a swath / curvilinear raster whose georeferencing is carried by</span>
+<a id="__codelineno-0-556" name="__codelineno-0-556"></a><span class="sd">    per-pixel longitude/latitude arrays (the GDAL ``GEOLOCATION`` domain) onto</span>
+<a id="__codelineno-0-557" name="__codelineno-0-557"></a><span class="sd">    a north-up affine grid — the geolocation-array analogue of</span>
+<a id="__codelineno-0-558" name="__codelineno-0-558"></a><span class="sd">    :meth:`georeference` (GCPs) and :meth:`orthorectify` (RPCs). The arrays are</span>
+<a id="__codelineno-0-559" name="__codelineno-0-559"></a><span class="sd">    read automatically from the ``GEOLOCATION`` domain.</span>
+<a id="__codelineno-0-560" name="__codelineno-0-560"></a>
+<a id="__codelineno-0-561" name="__codelineno-0-561"></a><span class="sd">    GDAL&#39;s geolocation warping assumes a continuous source-to-target mapping;</span>
+<a id="__codelineno-0-562" name="__codelineno-0-562"></a><span class="sd">    products with large discontinuities (e.g. a dateline-crossing swath) can</span>
+<a id="__codelineno-0-563" name="__codelineno-0-563"></a><span class="sd">    produce artefacts.</span>
+<a id="__codelineno-0-564" name="__codelineno-0-564"></a>
+<a id="__codelineno-0-565" name="__codelineno-0-565"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-566" name="__codelineno-0-566"></a><span class="sd">        to_epsg: Target CRS for the output. ``None`` warps into the geolocation</span>
+<a id="__codelineno-0-567" name="__codelineno-0-567"></a><span class="sd">            arrays&#39; own CRS (their ``SRS`` key); otherwise reprojects to</span>
+<a id="__codelineno-0-568" name="__codelineno-0-568"></a><span class="sd">            ``to_epsg`` in the same pass (any form</span>
+<a id="__codelineno-0-569" name="__codelineno-0-569"></a><span class="sd">            :func:`pyramids.base.crs.sr_from_user_input` accepts).</span>
+<a id="__codelineno-0-570" name="__codelineno-0-570"></a><span class="sd">        method: Resampling method (see :meth:`Spatial.to_crs`). Default</span>
+<a id="__codelineno-0-571" name="__codelineno-0-571"></a><span class="sd">            ``&quot;nearest neighbor&quot;``.</span>
+<a id="__codelineno-0-572" name="__codelineno-0-572"></a><span class="sd">        cell_size: Output pixel size in target-CRS units (both axes). ``None``</span>
+<a id="__codelineno-0-573" name="__codelineno-0-573"></a><span class="sd">            lets GDAL pick a size that preserves the source resolution.</span>
+<a id="__codelineno-0-574" name="__codelineno-0-574"></a><span class="sd">        lazy: ``True`` returns a VRT-backed view (pixels warped per read);</span>
+<a id="__codelineno-0-575" name="__codelineno-0-575"></a><span class="sd">            ``False`` (default) materialises the result in memory.</span>
+<a id="__codelineno-0-576" name="__codelineno-0-576"></a>
+<a id="__codelineno-0-577" name="__codelineno-0-577"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-578" name="__codelineno-0-578"></a><span class="sd">        Dataset: The regularly-gridded raster as a base ``Dataset``.</span>
+<a id="__codelineno-0-579" name="__codelineno-0-579"></a>
+<a id="__codelineno-0-580" name="__codelineno-0-580"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-581" name="__codelineno-0-581"></a><span class="sd">        GeolocationArrayError: the dataset has no ``GEOLOCATION`` domain, or the</span>
+<a id="__codelineno-0-582" name="__codelineno-0-582"></a><span class="sd">            domain is missing the required ``X_DATASET`` / ``Y_DATASET`` arrays.</span>
+<a id="__codelineno-0-583" name="__codelineno-0-583"></a><span class="sd">        CRSError: ``to_epsg`` is not a recognisable CRS.</span>
+<a id="__codelineno-0-584" name="__codelineno-0-584"></a><span class="sd">        ValueError: ``method`` is not a known resampling method.</span>
+<a id="__codelineno-0-585" name="__codelineno-0-585"></a><span class="sd">        RuntimeError: GDAL could not build the warp.</span>
+<a id="__codelineno-0-586" name="__codelineno-0-586"></a>
+<a id="__codelineno-0-587" name="__codelineno-0-587"></a><span class="sd">    Examples:</span>
+<a id="__codelineno-0-588" name="__codelineno-0-588"></a><span class="sd">        - Geolocate needs a ``GEOLOCATION`` domain (a plain raster has none):</span>
+<a id="__codelineno-0-589" name="__codelineno-0-589"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-590" name="__codelineno-0-590"></a><span class="sd">            &gt;&gt;&gt; import numpy as np</span>
+<a id="__codelineno-0-591" name="__codelineno-0-591"></a><span class="sd">            &gt;&gt;&gt; from pyramids.dataset import Dataset</span>
+<a id="__codelineno-0-592" name="__codelineno-0-592"></a><span class="sd">            &gt;&gt;&gt; ds = Dataset.create_from_array(</span>
+<a id="__codelineno-0-593" name="__codelineno-0-593"></a><span class="sd">            ...     np.zeros((2, 2)), top_left_corner=(0, 0), cell_size=1.0, epsg=4326</span>
+<a id="__codelineno-0-594" name="__codelineno-0-594"></a><span class="sd">            ... )</span>
+<a id="__codelineno-0-595" name="__codelineno-0-595"></a><span class="sd">            &gt;&gt;&gt; ds.has_geolocation</span>
+<a id="__codelineno-0-596" name="__codelineno-0-596"></a><span class="sd">            False</span>
+<a id="__codelineno-0-597" name="__codelineno-0-597"></a>
+<a id="__codelineno-0-598" name="__codelineno-0-598"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-599" name="__codelineno-0-599"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-600" name="__codelineno-0-600"></a>    <span class="n">source</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">_geolocation_source</span><span class="p">()</span>
+<a id="__codelineno-0-601" name="__codelineno-0-601"></a>    <span class="n">domain</span> <span class="o">=</span> <span class="n">cast</span><span class="p">(</span><span class="s2">&quot;dict[str, str]&quot;</span><span class="p">,</span> <span class="n">source</span><span class="o">.</span><span class="n">get_meta_data</span><span class="p">(</span><span class="s2">&quot;GEOLOCATION&quot;</span><span class="p">))</span>
+<a id="__codelineno-0-602" name="__codelineno-0-602"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">domain</span><span class="p">:</span>
+<a id="__codelineno-0-603" name="__codelineno-0-603"></a>        <span class="k">raise</span> <span class="n">GeolocationArrayError</span><span class="p">(</span>
+<a id="__codelineno-0-604" name="__codelineno-0-604"></a>            <span class="s2">&quot;dataset has no geolocation arrays (no GEOLOCATION metadata domain).&quot;</span>
+<a id="__codelineno-0-605" name="__codelineno-0-605"></a>        <span class="p">)</span>
+<a id="__codelineno-0-606" name="__codelineno-0-606"></a>    <span class="n">missing</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;X_DATASET&quot;</span><span class="p">,</span> <span class="s2">&quot;Y_DATASET&quot;</span><span class="p">}</span> <span class="o">-</span> <span class="nb">set</span><span class="p">(</span><span class="n">domain</span><span class="p">)</span>
+<a id="__codelineno-0-607" name="__codelineno-0-607"></a>    <span class="k">if</span> <span class="n">missing</span><span class="p">:</span>
+<a id="__codelineno-0-608" name="__codelineno-0-608"></a>        <span class="k">raise</span> <span class="n">GeolocationArrayError</span><span class="p">(</span>
+<a id="__codelineno-0-609" name="__codelineno-0-609"></a>            <span class="sa">f</span><span class="s2">&quot;GEOLOCATION domain is missing required arrays: </span><span class="si">{</span><span class="nb">sorted</span><span class="p">(</span><span class="n">missing</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-610" name="__codelineno-0-610"></a>        <span class="p">)</span>
+<a id="__codelineno-0-611" name="__codelineno-0-611"></a>    <span class="n">warp_kwargs</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">=</span> <span class="p">{</span>
+<a id="__codelineno-0-612" name="__codelineno-0-612"></a>        <span class="s2">&quot;format&quot;</span><span class="p">:</span> <span class="s2">&quot;VRT&quot;</span> <span class="k">if</span> <span class="n">lazy</span> <span class="k">else</span> <span class="s2">&quot;MEM&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-613" name="__codelineno-0-613"></a>        <span class="s2">&quot;resampleAlg&quot;</span><span class="p">:</span> <span class="n">resolve_resampling</span><span class="p">(</span><span class="n">method</span><span class="p">),</span>
+<a id="__codelineno-0-614" name="__codelineno-0-614"></a>        <span class="s2">&quot;xRes&quot;</span><span class="p">:</span> <span class="n">cell_size</span><span class="p">,</span>
+<a id="__codelineno-0-615" name="__codelineno-0-615"></a>        <span class="s2">&quot;yRes&quot;</span><span class="p">:</span> <span class="n">cell_size</span><span class="p">,</span>
+<a id="__codelineno-0-616" name="__codelineno-0-616"></a>        <span class="s2">&quot;geoloc&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-0-617" name="__codelineno-0-617"></a>    <span class="p">}</span>
+<a id="__codelineno-0-618" name="__codelineno-0-618"></a>    <span class="k">if</span> <span class="n">to_epsg</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-619" name="__codelineno-0-619"></a>        <span class="n">warp_kwargs</span><span class="p">[</span><span class="s2">&quot;dstSRS&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">_dst_srs_arg</span><span class="p">(</span><span class="n">sr_from_user_input</span><span class="p">(</span><span class="n">to_epsg</span><span class="p">))</span>
+<a id="__codelineno-0-620" name="__codelineno-0-620"></a>    <span class="c1"># Only a lazy (VRT) result reads through to the source, so only it needs</span>
+<a id="__codelineno-0-621" name="__codelineno-0-621"></a>    <span class="c1"># the pin; a materialised MEM result owns its pixels.</span>
+<a id="__codelineno-0-622" name="__codelineno-0-622"></a>    <span class="k">return</span> <span class="n">warp_to_dataset</span><span class="p">(</span>
+<a id="__codelineno-0-623" name="__codelineno-0-623"></a>        <span class="n">source</span><span class="p">,</span>
+<a id="__codelineno-0-624" name="__codelineno-0-624"></a>        <span class="n">gdal</span><span class="o">.</span><span class="n">WarpOptions</span><span class="p">(</span><span class="o">**</span><span class="n">warp_kwargs</span><span class="p">),</span>
+<a id="__codelineno-0-625" name="__codelineno-0-625"></a>        <span class="n">access</span><span class="o">=</span><span class="s2">&quot;read_only&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-626" name="__codelineno-0-626"></a>        <span class="n">error_message</span><span class="o">=</span><span class="s2">&quot;GDAL could not geolocate the dataset.&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-627" name="__codelineno-0-627"></a>        <span class="n">pin</span><span class="o">=</span><span class="n">lazy</span><span class="p">,</span>
+<a id="__codelineno-0-628" name="__codelineno-0-628"></a>    <span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
 
 <div class="doc doc-object doc-function">
 
