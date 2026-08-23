@@ -27,6 +27,7 @@ from pyramids.base._utils import (
     import_dask,
     import_zarr,
     lazy_extra_hint,
+    resolve_resampling,
 )
 from pyramids.base.crs import crs_spec, epsg_from_user_input
 from pyramids.base.remote import cloud_config_from_env
@@ -3371,6 +3372,11 @@ class DatasetCollection:
         """
         if not isinstance(alignment_src, Dataset):
             raise TypeError("alignment_src input should be a Dataset object")
+        # Validate the method here so an invalid name fails fast at call time,
+        # matching `Dataset.align` and the `Raises:` contract above — regardless of
+        # `compute` (the deferred graph would otherwise only raise at `.compute()`)
+        # or timestep count (an empty collection never runs a per-step align).
+        resolve_resampling(method)
         from pyramids.dataset.ops.reproject import Aligner
 
         if alignment_src.epsg is not None:

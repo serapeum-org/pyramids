@@ -225,6 +225,25 @@ class TestAlign:
         with pytest.raises(ValueError):
             cube.align(mask_obj, method="not-a-real-method")
 
+    def test_align_invalid_method_raises_before_compute(self, three_files):
+        """`compute=False` still rejects a bad method at call time, not at compute.
+
+        Test scenario:
+            The up-front `resolve_resampling` guard must fire before the deferred
+            graph is built, so `align(ref, method="<bad>", compute=False)` raises
+            `ValueError` immediately rather than returning a `Delayed` that only
+            fails when computed.
+        """
+        ref = Dataset.create_from_array(
+            np.zeros((2, 3), dtype=np.float32),
+            top_left_corner=(0.0, 4.0),
+            cell_size=2.0,
+            epsg=4326,
+        )
+        collection = DatasetCollection.from_files(three_files)
+        with pytest.raises(ValueError, match="does not exist"):
+            collection.align(ref, method="not-a-real-method", compute=False)
+
     def test_align_no_epsg_reference_method_passthrough(self, three_files):
         """`method=` reaches the direct (non-`Aligner`) path for a no-EPSG reference.
 
