@@ -8,7 +8,7 @@ Owns the Bands family of operations on a Dataset. Accessed as
 from __future__ import annotations
 
 import warnings
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast, overload
 
@@ -519,6 +519,11 @@ class Bands(_Engine["Dataset"]):
         if len(bands) == 0:
             raise ValueError("select requires at least one band; got an empty list.")
         count = self._ds.band_count
+        if count == 0:
+            raise ValueError(
+                "this dataset has no bands to select; if it is a NetCDF container, "
+                "extract a variable first (e.g. with get_variable)."
+            )
         names = self._ds.band_names
         indices: list[int] = []
         for selector in bands:
@@ -547,7 +552,9 @@ class Bands(_Engine["Dataset"]):
             indices.append(one_based)
         return indices
 
-    def select(self, bands: Sequence[int | str], *, lazy: bool = False) -> Dataset:
+    def select(
+        self, bands: list[int | str] | tuple[int | str, ...], *, lazy: bool = False
+    ) -> Dataset:
         """Return a new Dataset with a subset of bands, in the requested order.
 
         Copies the chosen bands (via GDAL ``Translate`` with a ``bandList``) into a
