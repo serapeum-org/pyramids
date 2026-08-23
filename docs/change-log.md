@@ -1,6 +1,29 @@
 ﻿# Change log
 
 
+## 0.55.0 (2026-08-23)
+
+### Feat
+
+- **dataset**: add scaled reads, band select, geolocation warp, and an accessor hook (#1041)
+- **dataset**: add subdataset enumeration/open and dataset-level metadata domains (#1040)
+- **dataset**: expose per-band metadata via band_meta_data (#1038)
+- **dataset**: pass GDAL open options through the raster read stack (#1037)
+- **dataset**: warn on outside-template rasterize + add snap_to_template mode (#46) (#1026)
+- **dataset**: add snap_to_template rasterize mode and warn on out-of-template features
+
+### Fix
+
+- **netcdf**: georeference curvilinear variables to their real lon/lat extent (#1042)
+- **cog**: gate the predictor on sample width and promote sub-byte NBITS (#1035)
+- **dataset**: preserve category names, RAT, and metadata across warp and align (#1036)
+- **netcdf**: copy the in-memory backing store before mutating variables (#1020)
+- **netcdf**: write CF-complete coordinates and grid_mapping from the multidim writers (#1018)
+
+### Refactor
+
+- **io**: decompose read_array into ReadRequest and ReadStrategy (#1022)
+
 ## 0.54.0 (2026-08-21)
 
 ### BREAKING CHANGE
