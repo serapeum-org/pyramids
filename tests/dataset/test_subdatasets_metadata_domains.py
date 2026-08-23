@@ -223,26 +223,30 @@ class TestMetadataDomains:
         """An xml:* domain returns a list of XML strings, mirroring GDAL."""
         plain._raster.SetMetadata(["<root>hi</root>"], "xml:TEST")
         result = plain.get_meta_data("xml:TEST")
-        assert result == ["<root>hi</root>"], f"xml domain must be a list, got {result!r}"
+        assert result == ["<root>hi</root>"], (
+            f"xml domain must be a list, got {result!r}"
+        )
 
     def test_set_meta_data_writes_xml_domain_as_list(self, plain):
         """An xml:* domain round-trips through set_meta_data as a single-element list."""
         plain.set_meta_data(["<root>v</root>"], domain="xml:FOO")
         result = plain.get_meta_data("xml:FOO")
-        assert result == ["<root>v</root>"], f"xml domain must round-trip, got {result!r}"
+        assert result == ["<root>v</root>"], (
+            f"xml domain must round-trip, got {result!r}"
+        )
 
     def test_set_meta_data_empty_dict_empties_keys_but_keeps_domain(self, plain):
         """Assigning {} empties a domain's keys while the domain name stays listed."""
         plain.set_meta_data({"A": "1"}, domain="D")
         plain.set_meta_data({}, domain="D")
-        assert plain.get_meta_data("D") == {}, "an empty dict must empty the domain keys"
+        assert plain.get_meta_data("D") == {}, (
+            "an empty dict must empty the domain keys"
+        )
         assert "D" in plain.meta_data_domains, "the emptied domain name is still listed"
 
     def test_meta_data_domains_normalizes_none(self, plain, mocker):
         """A GDAL handle returning None for the domain list normalises to []."""
-        mocker.patch.object(
-            plain._raster, "GetMetadataDomainList", return_value=None
-        )
+        mocker.patch.object(plain._raster, "GetMetadataDomainList", return_value=None)
         assert plain.meta_data_domains == [], "None must normalise to an empty list"
 
     def test_meta_data_setter_still_merges(self, plain):

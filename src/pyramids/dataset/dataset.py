@@ -2153,7 +2153,9 @@ class Dataset(RasterBase):
         """
         subs = self.subdatasets
         if isinstance(key, bool):
-            raise TypeError(f"key must be an int index or a str name, not bool: {key!r}")
+            raise TypeError(
+                f"key must be an int index or a str name, not bool: {key!r}"
+            )
         if isinstance(key, int):
             name = subs[key].name  # negative indices follow Python list semantics
         elif isinstance(key, str):
