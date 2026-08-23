@@ -74,15 +74,22 @@ def test_roms_curvilinear_geotransform_is_geographic_not_index(sample):
 
 
 def test_rasm_curvilinear_geotransform_is_geographic_not_index(sample):
-    """RASM Tair (2-D xc/yc) reports a real lon/lat bbox affine + EPSG:4326, not index space (#1039)."""
+    """RASM Tair reports a real geographic bbox affine + EPSG:4326, not index space (#1039).
+
+    RASM is a circumpolar grid (2-D xc/yc reach the North Pole), so its longitude bbox
+    legitimately spans the full 0..360 circle with no antimeridian gap — this test pins the
+    tight real latitude window and the real (sub-degree) north-up pixel height; the
+    antimeridian-decline path is covered by test_curvilinear_bbox_declines_for_antimeridian.
+    """
     nc = NetCDF.read_file(sample(RASM))
     try:
         tair = nc.get_variable("Tair")
-        xmin, dx, _, ymax, _, dy = tair.geotransform
+        _, _, _, ymax, _, dy = tair.geotransform
         ymin = ymax + dy * tair.rows
         assert tair.epsg == 4326, f"curvilinear CRS must stay WGS84, got {tair.epsg}"
-        assert (xmin, dx, dy) != (0.0, 1.0, -1.0), "geotransform is still index-space"
-        assert -91.0 <= ymin < ymax <= 91.0, f"lat not geographic: [{ymin}, {ymax}]"
+        assert -1.0 < dy < 0.0, f"pixel height must be real degrees north-up, got {dy}"
+        assert 16.0 <= ymin < 18.0, f"south edge not at the real RASM latitude: {ymin}"
+        assert 88.0 < ymax <= 90.5, f"north edge must reach the pole, got {ymax}"
     finally:
         nc.close()
 
@@ -111,6 +118,67 @@ def test_none5v_not_confidently_curvilinear_stays_index_and_ungeoreferenced(samp
         )
         assert ymax == float(data.rows), (
             f"index-space origin must be (0, rows={data.rows}), got ymax={ymax}"
+        )
+    finally:
+        nc.close()
+
+
+def _synthetic_curvilinear(lon2d, lat2d, epsg=4326):
+    """A create_from_array NetCDF variable carrying explicit 2-D curvilinear coords.
+
+    Returns ``(nc, var)``; the caller closes ``nc``. Exercises the
+    ``_curvilinear_bbox_geotransform`` decline paths that no on-disk fixture reaches.
+    """
+    ny, nx = lon2d.shape
+    nc = NetCDF.create_from_array(
+        arr=np.zeros((1, ny, nx), dtype="float32"),
+        geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, float(ny), 0.0, -1.0), epsg=epsg),
+        variable_name="c",
+    )
+    var = nc.get_variable("c")
+    var._curvilinear_coords = (lon2d.astype(float), lat2d.astype(float))
+    return nc, var
+
+
+def test_curvilinear_bbox_declines_for_antimeridian():
+    """A dateline-crossing curvilinear grid declines the bbox affine, not a globe span (#1039 M1)."""
+    ny, nx = 8, 12
+    lon_row = ((np.arange(nx) + 172.0 + 180.0) % 360.0) - 180.0  # 172..179, -180..-169
+    lon2d = np.tile(lon_row, (ny, 1))
+    lat2d = np.tile(np.linspace(9.0, -9.0, ny).reshape(ny, 1), (1, nx))
+    nc, var = _synthetic_curvilinear(lon2d, lat2d)
+    try:
+        assert var._curvilinear_bbox_geotransform(var) is None, (
+            "an antimeridian grid must decline, not span the globe in longitude"
+        )
+    finally:
+        nc.close()
+
+
+def test_curvilinear_bbox_declines_for_projected_crs():
+    """2-D lon/lat under a projected CRS declines — no degrees affine stamped under metres (#1039 L1)."""
+    ny, nx = 6, 8
+    lon2d = np.tile(np.linspace(-3.0, 3.0, nx), (ny, 1))
+    lat2d = np.tile(np.linspace(3.0, -3.0, ny).reshape(ny, 1), (1, nx))
+    nc, var = _synthetic_curvilinear(lon2d, lat2d, epsg=32632)
+    try:
+        assert var._curvilinear_bbox_geotransform(var) is None, (
+            "degrees coords must not be stamped under a projected CRS"
+        )
+    finally:
+        nc.close()
+
+
+def test_curvilinear_bbox_declines_for_fill_sentinel_coords():
+    """A large finite _FillValue sentinel in the 2-D coords declines, not an inflated bbox (#1039 L2)."""
+    ny, nx = 6, 8
+    lon2d = np.tile(np.linspace(-3.0, 3.0, nx), (ny, 1))
+    lon2d[0, 0] = 9.969209968386869e36  # NetCDF default _FillValue, unmasked
+    lat2d = np.tile(np.linspace(3.0, -3.0, ny).reshape(ny, 1), (1, nx))
+    nc, var = _synthetic_curvilinear(lon2d, lat2d)
+    try:
+        assert var._curvilinear_bbox_geotransform(var) is None, (
+            "a fill-sentinel longitude must not inflate the bounding box"
         )
     finally:
         nc.close()
