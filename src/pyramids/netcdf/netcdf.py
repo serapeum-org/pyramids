@@ -5072,9 +5072,11 @@ class NetCDF(Dataset):
         geotransform is immutable (``SetGeoTransform`` is a no-op on it), hence the VRT wrapper.
 
         A no-op when: the cube isn't a variable subset; the view is already georeferenced (the
-        common case — the derived geotransform matches); the file has no 1-D lon/lat matching
-        the grid shape (curvilinear 2-D coordinates, named coordinate variables, etc.); or the
-        CRS is geostationary. In that last case the 1-D ``x`` / ``y`` are **scan angles** (radians,
+        common case — the derived geotransform matches); the file has no coordinate evidence to
+        georeference the grid at all; or the CRS is geostationary. A curvilinear variable (2-D
+        lon/lat, no 1-D coordinate) is **not** a no-op here — it is re-georeferenced to a
+        bounding-box affine over its 2-D coordinates rather than left in index space (#1039).
+        In the geostationary case the 1-D ``x`` / ``y`` are **scan angles** (radians,
         packed with a ``scale_factor``), not projected coordinates, so a coordinate-derived
         geotransform is meaningless — it would overwrite the projected metre grid that
         :meth:`_normalize_geostationary_geotransform` just installed with a raw index-space one.
@@ -5150,13 +5152,15 @@ class NetCDF(Dataset):
         )
 
     def _coordinate_derived_geotransform(self, cube: NetCDF) -> tuple | None:
-        """Real-world geotransform from the parent's 1-D lon/lat, or ``None`` if not applicable.
+        """Real-world geotransform from the parent's lon/lat coordinates, or ``None``.
 
         Returns the north-up affine implied by the parent container's 1-D ``lon``/``lat`` (or
         ``x``/``y``) coordinate variables when they (a) match the subset's grid shape, (b) index the
         subset's spatial dimensions by name (CF coordinate-variable convention — guards a same-shaped
         but different staggered/rotated axis from adopting the wrong coordinates), and (c) actually
-        differ from the subset's current (index-space) geotransform. Otherwise ``None``.
+        differ from the subset's current (index-space) geotransform. When no 1-D coordinate indexes
+        the grid — a curvilinear variable whose lon/lat are 2-D — falls back to a bounding-box affine
+        over those 2-D coordinates (:meth:`_curvilinear_bbox_geotransform`, #1039). Otherwise ``None``.
         """
         result = None
         lon, lon_name = self._first_coordinate(("lon", "x"))
@@ -5186,7 +5190,106 @@ class NetCDF(Dataset):
                 abs(float(a) - float(b)) < 1e-6 for a, b in zip(real_gt, current)
             ):
                 result = real_gt
+        else:
+            # No usable 1-D coordinate indexes the grid: a curvilinear variable carries its
+            # lon/lat as 2-D arrays. Derive a north-up bounding-box affine from those so it is
+            # georeferenced to its real geographic extent rather than the index-space
+            # placeholder GDAL falls back to for a grid it cannot express affinely (#1039).
+            result = self._curvilinear_bbox_geotransform(cube)
         return result
+
+    def _curvilinear_bbox_geotransform(self, cube: NetCDF) -> tuple | None:
+        """North-up bounding-box affine from a variable's 2-D curvilinear lon/lat.
+
+        A curvilinear grid stores longitude/latitude as 2-D arrays (e.g. ROMS
+        ``lon_rho``/``lat_rho``, RASM ``xc``/``yc``) and has no single affine
+        geotransform, so GDAL's classic driver falls back to an index-space one. Reporting
+        that tagged with the grid's real CRS is a fabricated georeference that misplaces the
+        data (#1039). Derive instead a north-up affine spanning the real lon/lat bounding
+        box, so the variable is georeferenced to its true geographic extent. This is an
+        approximation of the curved grid — for a non-wrapping grid the bounding box is placed
+        correctly, individual cells only approximately — but it reflects the data's real
+        location instead of pixel indices, and pairs honestly with the WGS 84 CRS the
+        coordinates already imply. A grid that *narrowly* straddles the antimeridian — its
+        longitudes leave a >180° gap, so raw min/max would span nearly the whole globe —
+        declines instead. A *wide* dateline-crossing grid (>180° of coverage, hence no such
+        gap) cannot be told apart from a legitimate wide grid by coordinates alone, so it is
+        approximated like any other and may be misplaced in longitude; its exact answer is the
+        GEOLOCATION domain (#1033).
+
+        Args:
+            cube: The variable subset whose 2-D coordinates georeference the grid.
+
+        Returns:
+            tuple | None: The north-up bounding-box affine
+            ``(x_min - x_cell/2, x_cell, 0, y_max + y_cell/2, 0, -y_cell)`` — the origin is the
+            north-west pixel *edge*, half a cell out from the extreme coordinate centres. Or
+            ``None`` when the CRS is not geographic, the variable is not curvilinear, its 2-D
+            coordinates are unreadable / mis-shaped / degenerate / out of geographic range, or
+            the grid crosses the antimeridian — leaving the caller's fallback in place.
+        """
+        # A degrees bounding box is only meaningful under a geographic CRS. A projected or
+        # rotated grid whose 2-D aux coords are lon/lat would otherwise get a degrees affine
+        # stamped under its metre CRS; this also skips the resolver read for a variable that
+        # carries no geographic CRS at all (round-1 review L1/N3).
+        crs = cube.crs
+        if not crs or not sr_from_wkt(crs).IsGeographic():
+            return None
+        with warnings.catch_warnings():
+            # The georeference path legitimately uses the resolver's model-name coordinate
+            # fallback; its plot-side "set the CF coordinates attribute / pass coords="
+            # DeprecationWarning does not apply here (there is no coords= on the read path), so
+            # silence that one warning for this internal resolution rather than surface it on
+            # every load of a non-CF-compliant curvilinear variable (round-2 review M1).
+            warnings.filterwarnings("ignore", category=DeprecationWarning)
+            curv = NetCDFPlot(cube)._resolve_curvilinear_coords(cube, coords=None)
+        if curv is None:
+            return None
+        lon2d = np.asarray(curv[0], dtype="f8")
+        lat2d = np.asarray(curv[1], dtype="f8")
+        expected = (cube.rows, cube.columns)
+        if (
+            lon2d.ndim != 2
+            or lat2d.ndim != 2
+            or lon2d.shape != expected
+            or lat2d.shape != expected
+            or cube.rows < 2
+            or cube.columns < 2
+            or not np.isfinite(lon2d).any()
+            or not np.isfinite(lat2d).any()
+        ):
+            return None
+        x_min, x_max = float(np.nanmin(lon2d)), float(np.nanmax(lon2d))
+        y_min, y_max = float(np.nanmin(lat2d)), float(np.nanmax(lat2d))
+        # Masked cells can carry a large finite _FillValue sentinel (ReadAsArray is raw), which
+        # np.nanmax would pick up. Reject a box outside plausible geographic bounds rather than
+        # trust a fabricated extent (round-1 review L2).
+        if (
+            not np.isfinite([x_min, x_max, y_min, y_max]).all()
+            or x_max <= x_min
+            or y_max <= y_min
+            or x_min < -360.0
+            or x_max > 360.0
+            or y_min < -90.0
+            or y_max > 90.0
+        ):
+            return None
+        # A grid that narrowly straddles the antimeridian stores longitudes clustered at both
+        # ends with a wide empty gap between, so raw min/max span nearly the whole globe and
+        # misplace the domain in x. Decline (leave the index-space placeholder) rather than
+        # fabricate a globe-spanning affine. A contiguous grid — including a genuinely
+        # circumpolar one whose longitudes fill the circle without a gap — has no such gap and
+        # is kept. This gap test cannot catch a *wide* dateline crossing (>180° coverage, gap
+        # <180°) without also falsely declining a polar grid whose meridians converge, so that
+        # rarer case is approximated rather than declined (#1039; GEOLOCATION is #1033). The
+        # cheap span pre-check keeps the sort off the common narrow-domain path.
+        if (x_max - x_min) > 180.0:
+            finite_lon = np.sort(lon2d[np.isfinite(lon2d)].ravel())
+            if finite_lon.size >= 2 and float(np.max(np.diff(finite_lon))) > 180.0:
+                return None
+        x_cell = (x_max - x_min) / (cube.columns - 1)
+        y_cell = (y_max - y_min) / (cube.rows - 1)
+        return (x_min - x_cell / 2, x_cell, 0.0, y_max + y_cell / 2, 0.0, -y_cell)
 
     def _attach_variable_metadata(
         self, cube: NetCDF, md_arr, spatial_dim_indices: tuple[int, int] | None

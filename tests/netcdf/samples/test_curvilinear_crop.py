@@ -7,6 +7,8 @@ bounding ``(row, col)`` index window — keeping the windowed 2-D coordinates so
 curvilinear.
 """
 
+import warnings
+
 import geopandas as gpd
 import numpy as np
 import pytest
@@ -23,6 +25,7 @@ pytestmark = pytest.mark.core
 
 ROMS = "cf__8v__1d3-2d3-3d1-4d1__curv-stag.nc"
 RASM = "none__4v__1d1-2d2-3d1__curv.nc"
+NONE5V = "none__5v__1d2-2d2-3d1__curv.nc"
 
 
 def _fc(coords):
@@ -48,6 +51,170 @@ def test_roms_curvilinear_crop_masks_and_windows(sample):
         )
         assert -91.5 <= float(np.nanmin(lon)) and float(np.nanmax(lon)) <= -87.5
         assert 27.0 <= float(np.nanmin(lat)) and float(np.nanmax(lat)) <= 31.0
+    finally:
+        nc.close()
+
+
+def test_roms_curvilinear_geotransform_is_geographic_not_index(sample):
+    """ROMS salt reports a real lon/lat bounding-box affine, not the index grid (#1039).
+
+    The 2-D lon_rho/lat_rho span the Gulf of Mexico, so the geotransform must cover that real
+    extent (north-up) and keep EPSG:4326 — never the fabricated index placeholder (0,1,0,N,0,-1).
+    """
+    nc = NetCDF.read_file(sample(ROMS))
+    try:
+        salt = nc.get_variable("salt")
+        xmin, dx, _, ymax, _, dy = salt.geotransform
+        xmax = xmin + dx * salt.columns
+        ymin = ymax + dy * salt.rows
+        assert salt.epsg == 4326, f"curvilinear CRS must stay WGS84, got {salt.epsg}"
+        assert dx > 0, f"x pixel width must be positive, got dx={dx}"
+        assert dy < 0, f"y pixel height must be negative (north-up), got dy={dy}"
+        assert -95.0 <= xmin < xmax <= -87.0, f"lon not geographic: [{xmin}, {xmax}]"
+        assert 27.0 <= ymin < ymax <= 31.0, f"lat not geographic: [{ymin}, {ymax}]"
+    finally:
+        nc.close()
+
+
+def test_rasm_curvilinear_geotransform_is_geographic_not_index(sample):
+    """RASM Tair reports a real geographic bbox affine + EPSG:4326, not index space (#1039).
+
+    RASM is a circumpolar grid (2-D xc/yc reach the North Pole), so its longitude bbox
+    legitimately spans the full 0..360 circle with no antimeridian gap — this test pins the
+    tight real latitude window and the real (sub-degree) north-up pixel height; the
+    antimeridian-decline path is covered by test_curvilinear_bbox_declines_for_antimeridian.
+    """
+    nc = NetCDF.read_file(sample(RASM))
+    try:
+        tair = nc.get_variable("Tair")
+        _, _, _, ymax, _, dy = tair.geotransform
+        ymin = ymax + dy * tair.rows
+        assert tair.epsg == 4326, f"curvilinear CRS must stay WGS84, got {tair.epsg}"
+        assert -1.0 < dy < 0.0, f"pixel height must be real degrees north-up, got {dy}"
+        assert 16.0 <= ymin < 18.0, f"south edge not at the real RASM latitude: {ymin}"
+        assert 88.0 < ymax <= 90.5, f"north edge must reach the pole, got {ymax}"
+    finally:
+        nc.close()
+
+
+def test_curvilinear_georeference_emits_no_deprecation_warning(sample):
+    """Deriving a curvilinear geotransform must not surface the plot-side deprecation (#1039 M1).
+
+    ROMS resolves its 2-D coords via the model-name fallback, whose plot-side ``coords=``
+    DeprecationWarning does not apply on the read path — get_variable must not raise it.
+    """
+    nc = NetCDF.read_file(sample(ROMS))
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            salt = nc.get_variable("salt")
+            gt = salt.geotransform
+        assert salt.epsg == 4326, f"CRS must stay WGS84, got {salt.epsg}"
+        assert gt[0] < -87.0, f"must be georeferenced geographically, got x_min={gt[0]}"
+    finally:
+        nc.close()
+
+
+def test_none5v_not_confidently_curvilinear_stays_index_and_ungeoreferenced(sample):
+    """A file whose 2-D lat/lon don't resolve as curvilinear keeps the index grid + no CRS (#1039).
+
+    ``none__5v`` (McIDAS image bands) carries 2-D lat/lon, but the curvilinear resolver rejects them, so
+    ``_curvilinear_bbox_geotransform`` must decline (its ``curv is None`` guard) and leave the caller's
+    fallback in place: the ``data`` variable keeps the index-space placeholder ``(0, 1, 0, rows, 0, -1)``
+    and reports no EPSG — the else-branch fallback must never fabricate a geographic affine or a CRS here.
+    """
+    nc = NetCDF.read_file(sample(NONE5V))
+    try:
+        data = nc.get_variable("data")
+        resolved = NetCDFPlot(data)._resolve_curvilinear_coords(data, coords=None)
+        assert resolved is None, (
+            "guard premise: the resolver must reject none__5v's 2-D coords"
+        )
+        assert data.epsg is None, (
+            f"ungeoreferenced file must keep epsg None, got {data.epsg}"
+        )
+        xmin, dx, _, ymax, _, dy = data.geotransform
+        assert (xmin, dx, dy) == (0.0, 1.0, -1.0), (
+            f"geotransform must stay index-space, got {data.geotransform}"
+        )
+        assert ymax == float(data.rows), (
+            f"index-space origin must be (0, rows={data.rows}), got ymax={ymax}"
+        )
+    finally:
+        nc.close()
+
+
+def _synthetic_curvilinear(lon2d, lat2d, epsg=4326):
+    """A create_from_array NetCDF variable carrying explicit 2-D curvilinear coords.
+
+    Returns ``(nc, var)``; the caller closes ``nc``. Exercises the
+    ``_curvilinear_bbox_geotransform`` decline paths that no on-disk fixture reaches.
+    """
+    ny, nx = lon2d.shape
+    nc = NetCDF.create_from_array(
+        arr=np.zeros((1, ny, nx), dtype="float32"),
+        geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, float(ny), 0.0, -1.0), epsg=epsg),
+        variable_name="c",
+    )
+    var = nc.get_variable("c")
+    var._curvilinear_coords = (lon2d.astype(float), lat2d.astype(float))
+    return nc, var
+
+
+def test_curvilinear_bbox_declines_for_antimeridian():
+    """A dateline-crossing curvilinear grid declines the bbox affine, not a globe span (#1039 M1)."""
+    ny, nx = 8, 12
+    lon_row = ((np.arange(nx) + 172.0 + 180.0) % 360.0) - 180.0  # 172..179, -180..-169
+    lon2d = np.tile(lon_row, (ny, 1))
+    lat2d = np.tile(np.linspace(9.0, -9.0, ny).reshape(ny, 1), (1, nx))
+    nc, var = _synthetic_curvilinear(lon2d, lat2d)
+    try:
+        assert var._curvilinear_bbox_geotransform(var) is None, (
+            "an antimeridian grid must decline, not span the globe in longitude"
+        )
+    finally:
+        nc.close()
+
+
+def test_curvilinear_bbox_declines_for_projected_crs():
+    """2-D lon/lat under a projected CRS declines — no degrees affine stamped under metres (#1039 L1)."""
+    ny, nx = 6, 8
+    lon2d = np.tile(np.linspace(-3.0, 3.0, nx), (ny, 1))
+    lat2d = np.tile(np.linspace(3.0, -3.0, ny).reshape(ny, 1), (1, nx))
+    nc, var = _synthetic_curvilinear(lon2d, lat2d, epsg=32632)
+    try:
+        assert var._curvilinear_bbox_geotransform(var) is None, (
+            "degrees coords must not be stamped under a projected CRS"
+        )
+    finally:
+        nc.close()
+
+
+def test_curvilinear_bbox_declines_for_fill_sentinel_coords():
+    """A large finite _FillValue sentinel in the 2-D coords declines, not an inflated bbox (#1039 L2)."""
+    ny, nx = 6, 8
+    lon2d = np.tile(np.linspace(-3.0, 3.0, nx), (ny, 1))
+    lon2d[0, 0] = 9.969209968386869e36  # NetCDF default _FillValue, unmasked
+    lat2d = np.tile(np.linspace(3.0, -3.0, ny).reshape(ny, 1), (1, nx))
+    nc, var = _synthetic_curvilinear(lon2d, lat2d)
+    try:
+        assert var._curvilinear_bbox_geotransform(var) is None, (
+            "a fill-sentinel longitude must not inflate the bounding box"
+        )
+    finally:
+        nc.close()
+
+
+def test_curvilinear_bbox_declines_for_all_nan_coords():
+    """All-NaN 2-D coords decline cleanly, with no numpy 'All-NaN slice' warning (#1039 N2)."""
+    lon2d = np.full((6, 8), np.nan)
+    lat2d = np.full((6, 8), np.nan)
+    nc, var = _synthetic_curvilinear(lon2d, lat2d)
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            result = var._curvilinear_bbox_geotransform(var)
+        assert result is None, "all-NaN coords must decline to the index-space fallback"
     finally:
         nc.close()
 
