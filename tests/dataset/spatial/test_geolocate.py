@@ -137,8 +137,10 @@ class TestGeolocateNetCDF:
         """A lazy geolocate pins its source and reads after the wrapper is dropped."""
         from pyramids.netcdf import NetCDF
 
-        out = NetCDF.read_file(CURV).get_variable("Tair").geolocate(
-            to_epsg=4326, lazy=True
+        out = (
+            NetCDF.read_file(CURV)
+            .get_variable("Tair")
+            .geolocate(to_epsg=4326, lazy=True)
         )
         assert out._warp_source is not None
         assert out.read_array().shape[0] == out.band_count

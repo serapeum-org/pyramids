@@ -207,6 +207,7 @@ def register_dataset_accessor(name: str):
 
     return decorator
 
+
 # Sentinel for `Dataset.from_band_files(no_data_value=...)` so the helper can
 # tell "caller didn't pass one — inherit from the source rasters" apart from
 # "caller explicitly passed `None`" (which means "stamp no no-data sentinel").

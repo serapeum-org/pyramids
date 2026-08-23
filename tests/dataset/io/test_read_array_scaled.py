@@ -105,9 +105,7 @@ class TestReadArrayScaled:
     def test_scaled_false_is_unchanged(self, scaled_single, scaled_multi):
         """`scaled=False` (default) is byte-identical to a plain read."""
         for ds in (scaled_single, scaled_multi):
-            np.testing.assert_array_equal(
-                ds.read_array(scaled=False), ds.read_array()
-            )
+            np.testing.assert_array_equal(ds.read_array(scaled=False), ds.read_array())
 
     def test_lazy_scaled_matches_eager(self, scaled_multi, tmp_path):
         """A lazy (chunks) scaled read computes to the same values as the eager one."""
