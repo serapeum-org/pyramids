@@ -455,3 +455,30 @@ class TestStrategySelection:
         assert isinstance(select(req), LazyRead), (
             "chunks must take precedence over out_shape"
         )
+
+    @pytest.mark.parametrize(
+        "combo",
+        [
+            {},
+            {"chunks": 4},
+            {"out_shape": (2, 2)},
+            {"boundless": True},
+            {"threadsafe": True},
+        ],
+        ids=["eager", "lazy", "decimated", "boundless", "threadsafe"],
+    )
+    def test_scaled_does_not_change_strategy_selection(self, combo):
+        """``scaled`` is a post-dispatch transform, so it never alters the matched path.
+
+        Args:
+            combo: A per-path option set that selects one strategy.
+
+        Test scenario:
+            For each option combination, ``scaled=True`` selects the same strategy
+            class as ``scaled=False`` — no strategy branches on ``scaled``.
+        """
+        without = type(select(make_request(scaled=False, **combo)))
+        with_scaled = type(select(make_request(scaled=True, **combo)))
+        assert with_scaled is without, (
+            f"scaled changed the path: {without} vs {with_scaled}"
+        )

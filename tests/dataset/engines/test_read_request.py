@@ -61,6 +61,21 @@ class TestReadRequest:
         assert req.resampling == "nearest", "resampling should round-trip"
         assert req.boundless is False, "boundless should round-trip"
 
+    def test_scaled_roundtrips_and_is_universally_legal(self):
+        """``scaled`` round-trips and adds no ``__post_init__`` guard.
+
+        Test scenario:
+            ``scaled=True`` is stored verbatim and is legal alongside every other
+            option (it is a post-dispatch transform, not part of the matrix), so it
+            never introduces a new incompatibility.
+        """
+        assert make_request(scaled=True).scaled is True, "scaled should round-trip"
+        make_request(scaled=True, masked=True)
+        make_request(scaled=True, chunks=4)
+        make_request(scaled=True, out_shape=(4, 4), resampling="bilinear")
+        make_request(scaled=True, boundless=True, fill_value=0)
+        make_request(scaled=True, threadsafe=True)
+
     @pytest.mark.parametrize(
         "resampling",
         ["nearest", "NEAREST", " nearest ", "Nearest"],
