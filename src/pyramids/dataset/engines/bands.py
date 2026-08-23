@@ -526,35 +526,47 @@ class Bands(_Engine["Dataset"]):
                 "extract a variable first (e.g. with get_variable)."
             )
         names = self._ds.band_names
-        indices: list[int] = []
-        for selector in bands:
-            if isinstance(selector, bool):
-                raise TypeError(
-                    f"band selector must be an int or str, not bool: {selector!r}"
-                )
-            if isinstance(selector, numbers.Integral):
-                # numbers.Integral admits numpy ints too (bool is rejected above);
-                # normalize to a plain int for GDAL's bandList.
-                selector = int(selector)
-                if not 1 <= selector <= count:
-                    raise ValueError(
-                        f"band index {selector} is out of range for a {count}-band "
-                        f"dataset (valid 1..{count})."
-                    )
-                one_based = selector
-            elif isinstance(selector, str):
-                if selector not in names:
-                    raise ValueError(
-                        f"{selector!r} is not a band name; available: {names}"
-                    )
-                one_based = names.index(selector) + 1
-            else:
-                raise TypeError(
-                    "band selector must be an int index or str name, got "
-                    f"{type(selector).__name__}"
-                )
-            indices.append(one_based)
+        indices = [self._resolve_one_selector(sel, count, names) for sel in bands]
         return indices
+
+    def _resolve_one_selector(self, selector: Any, count: int, names: list[str]) -> int:
+        """Resolve a single band selector to a validated 1-based GDAL index.
+
+        Args:
+            selector: A 1-based ``int`` index (numpy ints accepted) or a band-name
+                ``str`` matched against ``names``.
+            count: The dataset's band count, for range validation.
+            names: The dataset's band names, for name resolution.
+
+        Returns:
+            The 1-based GDAL band index for ``selector``.
+
+        Raises:
+            TypeError: ``selector`` is a ``bool`` or an unsupported type.
+            ValueError: an index is out of range, or a name is not among ``names``.
+        """
+        if isinstance(selector, bool):
+            raise TypeError(
+                f"band selector must be an int or str, not bool: {selector!r}"
+            )
+        if isinstance(selector, numbers.Integral):
+            # numbers.Integral admits numpy ints too; normalize to a plain int.
+            one_based = int(selector)
+            if not 1 <= one_based <= count:
+                raise ValueError(
+                    f"band index {one_based} is out of range for a {count}-band "
+                    f"dataset (valid 1..{count})."
+                )
+        elif isinstance(selector, str):
+            if selector not in names:
+                raise ValueError(f"{selector!r} is not a band name; available: {names}")
+            one_based = names.index(selector) + 1
+        else:
+            raise TypeError(
+                "band selector must be an int index or str name, got "
+                f"{type(selector).__name__}"
+            )
+        return one_based
 
     def select(
         self, bands: list[int | str] | tuple[int | str, ...], *, lazy: bool = False
