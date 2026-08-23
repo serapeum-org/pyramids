@@ -200,3 +200,51 @@ class TestAccessorLifecycle:
         del ds
         gc.collect()
         assert ref() is None, "the accessor's weak proxy must not leak the Dataset"
+
+    def test_invalidated_on_update_inplace_netcdf(self, cleanup_accessors):
+        """The NetCDF `_update_inplace` override also drops the cached accessor."""
+        from pyramids.netcdf import NetCDF
+
+        built = []
+
+        @register_dataset_accessor("summary10")
+        class Summary:
+            def __init__(self, ds):
+                built.append(1)
+                self._ds = ds
+
+        var = NetCDF.read_file(
+            "tests/data/netcdf/none__4v__1d1-2d2-3d1__curv.nc"
+        ).get_variable("Tair")
+        _ = var.summary10
+        assert "summary10" in var.__dict__ and built == [1]
+        var._update_inplace(var.raster)  # exercises the NetCDF override branch
+        assert "summary10" not in var.__dict__, "NetCDF override must drop the cache"
+        built.clear()
+        _ = var.summary10
+        assert built == [1], "rebuilt fresh after the NetCDF swap"
+
+    def test_pickle_rebuilds_accessor(self, tmp_path, cleanup_accessors):
+        """A cached accessor is not pickled and rebuilds lazily after unpickle."""
+        import pickle
+
+        @register_dataset_accessor("summary11")
+        class Summary:
+            def __init__(self, ds):
+                self._ds = ds
+
+            def n(self):
+                return self._ds.band_count
+
+        path = tmp_path / "p.tif"
+        Dataset.create_from_array(
+            np.zeros((2, 2), dtype="float32"),
+            top_left_corner=(0, 0),
+            cell_size=1.0,
+            epsg=4326,
+        ).to_file(str(path))
+        ds = Dataset.read_file(str(path))
+        _ = ds.summary11
+        restored = pickle.loads(pickle.dumps(ds))
+        assert "summary11" not in restored.__dict__, "accessor must not be pickled"
+        assert restored.summary11.n() == 1, "rebuilds lazily after unpickle"
