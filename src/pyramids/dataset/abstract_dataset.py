@@ -821,7 +821,7 @@ class RasterBase(ABC):
         ]
 
     @property
-    def metadata_domains(self) -> list[str]:
+    def meta_data_domains(self) -> list[str]:
         """The GDAL metadata domains this dataset actually exposes.
 
         Returns:
@@ -842,7 +842,7 @@ class RasterBase(ABC):
         ``NetCDFMetadata`` while this returns the raw default-domain dict. Other
         domains expose GDAL's named metadata, e.g. ``"IMAGE_STRUCTURE"``
         (``COMPRESSION`` / ``INTERLEAVE`` / ``NBITS``) or ``"RPC"``. Use
-        :attr:`metadata_domains` to see which domains exist.
+        :attr:`meta_data_domains` to see which domains exist.
 
         Args:
             domain: The GDAL metadata domain to read; ``""`` (default) is the
