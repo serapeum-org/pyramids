@@ -151,8 +151,6 @@ class TestSelectNetCDF:
         """Selecting bands on a 0-band NetCDF container points at get_variable."""
         from pyramids.netcdf import NetCDF
 
-        container = NetCDF.read_file(
-            "tests/data/netcdf/none__4v__1d1-2d2-3d1__curv.nc"
-        )
+        container = NetCDF.read_file("tests/data/netcdf/none__4v__1d1-2d2-3d1__curv.nc")
         with pytest.raises(ValueError, match="container"):
             container.select_bands([1])
