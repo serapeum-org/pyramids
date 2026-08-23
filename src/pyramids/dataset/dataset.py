@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import warnings
 import weakref
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from numbers import Number
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Unpack, cast
@@ -91,12 +91,16 @@ _COLLABORATOR_ATTRS = (
 
 # Registry of third-party accessors registered via `register_dataset_accessor`
 # (name -> accessor class), plus the set of names a registration must not shadow.
-# `_RESERVED_ACCESSOR_NAMES` is seeded from the built-in engines; `pyramids.netcdf`
-# adds its own engine names (`_NETCDF_COLLABORATOR_ATTRS`) at import time. Engines
-# are *instance* attributes (set in `__init__`), so they are invisible to
+# `_RESERVED_ACCESSOR_NAMES` is seeded from the built-in engines. Engines are
+# *instance* attributes (set in `__init__`), so they are invisible to
 # `hasattr(Dataset, name)` — the reserved set is how a name clash with them is caught.
+# The NetCDF-specific engine names are seeded here too so they are reserved even
+# before `pyramids.netcdf` is imported (that module's circular-import carveout means
+# importing `pyramids.dataset` alone does not pull it in); `pyramids.netcdf` re-adds
+# them on import (idempotent), which also covers any names added there in future.
 _ACCESSOR_REGISTRY: dict[str, type] = {}
 _RESERVED_ACCESSOR_NAMES: set[str] = set(_COLLABORATOR_ATTRS)
+_RESERVED_ACCESSOR_NAMES.update({"interop", "varops", "selection"})
 
 
 class _CachedAccessor:
@@ -138,7 +142,7 @@ def _invalidate_cached_accessors(ds: Any) -> None:
         ds.__dict__.pop(name, None)
 
 
-def register_dataset_accessor(name: str):
+def register_dataset_accessor(name: str) -> Callable[[type], type]:
     """Register a custom accessor on `Dataset` (and, by inheritance, `NetCDF`).
 
     An xarray/pandas-style extension hook: a third-party package attaches a custom
