@@ -164,6 +164,19 @@ class TestMetadataDomains:
         plain.set_meta_data({"C": "3"}, domain="D")
         assert plain.get_meta_data("D") == {"C": "3"}, "set_meta_data must replace"
 
+    def test_set_meta_data_default_domain_writes_and_refreshes(self, plain):
+        """Writing the default domain updates it and refreshes the CF/EPSG caches."""
+        plain.set_meta_data({"X": "1"})
+        assert plain.get_meta_data() == {"X": "1"}, "default domain must be written"
+        assert plain.epsg == 4326, "CRS must survive the default-domain write"
+
+    def test_metadata_domains_normalizes_none(self, plain, mocker):
+        """A GDAL handle returning None for the domain list normalises to []."""
+        mocker.patch.object(
+            plain._raster, "GetMetadataDomainList", return_value=None
+        )
+        assert plain.metadata_domains == [], "None must normalise to an empty list"
+
     def test_meta_data_setter_still_merges(self, plain):
         """The existing `meta_data` setter is unchanged (per-key merge)."""
         plain.meta_data = {"A": "1"}
