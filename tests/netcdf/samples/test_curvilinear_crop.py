@@ -52,6 +52,40 @@ def test_roms_curvilinear_crop_masks_and_windows(sample):
         nc.close()
 
 
+def test_roms_curvilinear_geotransform_is_geographic_not_index(sample):
+    """ROMS salt reports a real lon/lat bounding-box affine, not the index grid (#1039).
+
+    The 2-D lon_rho/lat_rho span the Gulf of Mexico, so the geotransform must cover that real
+    extent (north-up) and keep EPSG:4326 — never the fabricated index placeholder (0,1,0,N,0,-1).
+    """
+    nc = NetCDF.read_file(sample(ROMS))
+    try:
+        salt = nc.get_variable("salt")
+        xmin, dx, _, ymax, _, dy = salt.geotransform
+        xmax = xmin + dx * salt.columns
+        ymin = ymax + dy * salt.rows
+        assert salt.epsg == 4326, f"curvilinear CRS must stay WGS84, got {salt.epsg}"
+        assert dx > 0 and dy < 0, f"must be a north-up affine, got dx={dx} dy={dy}"
+        assert -95.0 <= xmin < xmax <= -87.0, f"lon not geographic: [{xmin}, {xmax}]"
+        assert 27.0 <= ymin < ymax <= 31.0, f"lat not geographic: [{ymin}, {ymax}]"
+    finally:
+        nc.close()
+
+
+def test_rasm_curvilinear_geotransform_is_geographic_not_index(sample):
+    """RASM Tair (2-D xc/yc) reports a real lon/lat bbox affine + EPSG:4326, not index space (#1039)."""
+    nc = NetCDF.read_file(sample(RASM))
+    try:
+        tair = nc.get_variable("Tair")
+        xmin, dx, _, ymax, _, dy = tair.geotransform
+        ymin = ymax + dy * tair.rows
+        assert tair.epsg == 4326, f"curvilinear CRS must stay WGS84, got {tair.epsg}"
+        assert (xmin, dx, dy) != (0.0, 1.0, -1.0), "geotransform is still index-space"
+        assert -91.0 <= ymin < ymax <= 91.0, f"lat not geographic: [{ymin}, {ymax}]"
+    finally:
+        nc.close()
+
+
 def test_roms_crop_nonoverlapping_polygon_raises(sample):
     """A polygon that misses the curvilinear grid raises a clear error (not a crash)."""
     nc = NetCDF.read_file(sample(ROMS))
