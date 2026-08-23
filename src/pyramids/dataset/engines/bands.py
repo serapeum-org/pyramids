@@ -8,7 +8,7 @@ Owns the Bands family of operations on a Dataset. Accessed as
 from __future__ import annotations
 
 import warnings
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast, overload
 
@@ -488,6 +488,132 @@ class Bands(_Engine["Dataset"]):
             return None
         else:
             return self._ds.__class__(src, self._ds.access)
+
+    def _resolve_band_selectors(self, bands: Any) -> list[int]:
+        """Resolve band selectors to validated 1-based GDAL band indices.
+
+        Each selector is a **1-based** band index or a band name (matched against
+        :attr:`~pyramids.dataset.Dataset.band_names`, first match wins). Order is
+        preserved and duplicates are allowed. Everything is validated *before* any
+        GDAL call, so an invalid selector raises a clear error rather than a raw
+        GDAL ``RuntimeError`` (out-of-range) or a silent all-bands read (empty).
+
+        Args:
+            bands: A list or tuple of selectors — 1-based ``int`` indices and/or
+                band-name ``str``s.
+
+        Returns:
+            The 1-based GDAL band indices, in the requested order.
+
+        Raises:
+            TypeError: ``bands`` is not a list/tuple, or a selector is a ``bool``
+                or an unsupported type.
+            ValueError: ``bands`` is empty, an index is out of range, or a name is
+                not among the band names.
+        """
+        if not isinstance(bands, (list, tuple)):
+            raise TypeError(
+                "select expects a list or tuple of band indices or names, got "
+                f"{type(bands).__name__}"
+            )
+        if len(bands) == 0:
+            raise ValueError("select requires at least one band; got an empty list.")
+        count = self._ds.band_count
+        names = self._ds.band_names
+        indices: list[int] = []
+        for selector in bands:
+            if isinstance(selector, bool):
+                raise TypeError(
+                    f"band selector must be an int or str, not bool: {selector!r}"
+                )
+            if isinstance(selector, int):
+                if not 1 <= selector <= count:
+                    raise ValueError(
+                        f"band index {selector} is out of range for a {count}-band "
+                        f"dataset (valid 1..{count})."
+                    )
+                one_based = selector
+            elif isinstance(selector, str):
+                if selector not in names:
+                    raise ValueError(
+                        f"{selector!r} is not a band name; available: {names}"
+                    )
+                one_based = names.index(selector) + 1
+            else:
+                raise TypeError(
+                    "band selector must be an int index or str name, got "
+                    f"{type(selector).__name__}"
+                )
+            indices.append(one_based)
+        return indices
+
+    def select(self, bands: Sequence[int | str], *, lazy: bool = False) -> "Dataset":
+        """Return a new Dataset with a subset of bands, in the requested order.
+
+        Copies the chosen bands (via GDAL ``Translate`` with a ``bandList``) into a
+        fresh raster, carrying each band's per-band state — name/description,
+        no-data value, scale, offset, unit, colour table and interpretation, band
+        metadata, and the raster attribute table (category names). Band selectors
+        are **1-based** (matching the product band numbering, e.g. ``select([4, 8])``
+        for Sentinel-2 B04/B08) — note this differs from the **0-based** ``band``
+        argument of :meth:`~pyramids.dataset.engines.IO.read_array`. Duplicates are
+        allowed (e.g. to expand a single band into an RGB triplet).
+
+        The result is a **base** :class:`~pyramids.dataset.Dataset` even when called
+        on a subclass: a band subset is an ordinary classic-mode raster, so — as
+        with :meth:`~pyramids.dataset.Dataset.open_subdataset` — a ``NetCDF``
+        variable subset is returned as a plain raster rather than a re-parsed
+        multidimensional view.
+
+        Args:
+            bands: The bands to keep, as a list/tuple of 1-based ``int`` indices
+                and/or band-name ``str``s. Order is preserved; duplicates allowed.
+            lazy: When ``True``, return a VRT-backed view that references the source
+                (deferred, memory-light); when ``False`` (default), materialize an
+                in-memory copy.
+
+        Returns:
+            Dataset: A new base ``Dataset`` holding the selected bands in order.
+
+        Raises:
+            TypeError: ``bands`` is not a list/tuple, or a selector is a ``bool`` or
+                an unsupported type.
+            ValueError: ``bands`` is empty, an index is out of range, or a name is
+                not among the band names.
+
+        Examples:
+            - Select and reorder two bands of a three-band raster:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> arr = np.arange(3 * 4).reshape(3, 2, 2).astype("float32")
+                >>> ds = Dataset.create_from_array(
+                ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+                ... )
+                >>> subset = ds.bands.select([3, 1])
+                >>> subset.band_count
+                2
+
+                ```
+        """
+        # Local import breaks the engines.bands -> dataset import cycle; select
+        # returns a base Dataset (a band subset is a classic raster, mirroring
+        # open_subdataset), so it cannot use `self._ds.__class__`.
+        from pyramids.dataset.dataset import Dataset
+
+        indices = self._resolve_band_selectors(bands)
+        options = gdal.TranslateOptions(
+            bandList=indices, format="VRT" if lazy else "MEM"
+        )
+        out = gdal.Translate("", self._ds.raster, options=options)
+        if not lazy:
+            # The MEM path drops the unit type; re-apply it per selected band (a
+            # harmless no-op on the VRT path, which carries units natively).
+            src_units = self._ds.band_units
+            for position, one_based in enumerate(indices):
+                out.GetRasterBand(position + 1).SetUnitType(src_units[one_based - 1] or "")
+        result = Dataset(out)
+        return result
 
     def _get_band_names(self) -> list[str]:
         """Get band names from band metadata if exists otherwise will return index [1,2, ...].
