@@ -1251,7 +1251,7 @@ class Dataset(RasterBase):
         """Facade — :meth:`Georef.geolocate <pyramids.dataset.engines.Georef.geolocate>`."""
         return self.georef.geolocate(*args, **kwargs)
 
-    def _geolocation_source(self) -> "Dataset":
+    def _geolocation_source(self) -> Dataset:
         """The Dataset whose GDAL handle carries the ``GEOLOCATION`` domain.
 
         A base raster carries its geolocation arrays on its own handle, so the

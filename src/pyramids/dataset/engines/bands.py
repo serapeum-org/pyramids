@@ -547,7 +547,7 @@ class Bands(_Engine["Dataset"]):
             indices.append(one_based)
         return indices
 
-    def select(self, bands: Sequence[int | str], *, lazy: bool = False) -> "Dataset":
+    def select(self, bands: Sequence[int | str], *, lazy: bool = False) -> Dataset:
         """Return a new Dataset with a subset of bands, in the requested order.
 
         Copies the chosen bands (via GDAL ``Translate`` with a ``bandList``) into a
