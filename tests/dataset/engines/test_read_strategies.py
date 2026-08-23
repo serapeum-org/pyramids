@@ -457,28 +457,32 @@ class TestStrategySelection:
         )
 
     @pytest.mark.parametrize(
-        "combo",
+        "combo, expected",
         [
-            {},
-            {"chunks": 4},
-            {"out_shape": (2, 2)},
-            {"boundless": True},
-            {"threadsafe": True},
+            ({}, EagerRead),
+            ({"masked": True}, EagerRead),
+            ({"chunks": 4}, LazyRead),
+            ({"out_shape": (2, 2)}, DecimatedRead),
+            ({"boundless": True}, BoundlessRead),
+            ({"threadsafe": True}, ThreadsafeRead),
         ],
-        ids=["eager", "lazy", "decimated", "boundless", "threadsafe"],
+        ids=["eager", "masked-eager", "lazy", "decimated", "boundless", "threadsafe"],
     )
-    def test_scaled_does_not_change_strategy_selection(self, combo):
-        """``scaled`` is a post-dispatch transform, so it never alters the matched path.
+    def test_scaled_does_not_change_strategy_selection(self, combo, expected):
+        """``scaled`` never alters the matched path (which stays the combo's expected one).
 
         Args:
             combo: A per-path option set that selects one strategy.
+            expected: The strategy class ``combo`` must select.
 
         Test scenario:
-            For each option combination, ``scaled=True`` selects the same strategy
-            class as ``scaled=False`` — no strategy branches on ``scaled``.
+            Both ``scaled=False`` and ``scaled=True`` select ``expected`` for the
+            combo — pinning the per-combo path (so a uniform-selection collapse is
+            caught) and proving no strategy branches on ``scaled``.
         """
-        without = type(select(make_request(scaled=False, **combo)))
-        with_scaled = type(select(make_request(scaled=True, **combo)))
-        assert with_scaled is without, (
-            f"scaled changed the path: {without} vs {with_scaled}"
+        assert isinstance(select(make_request(scaled=False, **combo)), expected), (
+            f"{combo} should select {expected.__name__}"
+        )
+        assert isinstance(select(make_request(scaled=True, **combo)), expected), (
+            f"scaled=True changed the path for {combo}"
         )
