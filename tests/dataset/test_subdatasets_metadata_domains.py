@@ -139,6 +139,11 @@ class TestOpenSubdataset:
         assert type(last) is Dataset, f"expected a base Dataset, got {type(last)}"
         assert last.band_count == 1, "the last subdataset has one band"
 
+    def test_non_int_non_str_key_raises_type_error(self, container):
+        """A key that is neither an int index nor a str name raises TypeError."""
+        with pytest.raises(TypeError, match="int index or a str name"):
+            container.open_subdataset(1.5)  # type: ignore[arg-type]
+
 
 class TestNetCDFRegression:
     """A NetCDF container inherits `subdatasets` without losing its own surface."""
