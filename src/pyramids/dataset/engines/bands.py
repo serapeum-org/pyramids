@@ -7,6 +7,7 @@ Owns the Bands family of operations on a Dataset. Accessed as
 
 from __future__ import annotations
 
+import numbers
 import warnings
 from collections.abc import Iterable
 from pathlib import Path
@@ -531,7 +532,10 @@ class Bands(_Engine["Dataset"]):
                 raise TypeError(
                     f"band selector must be an int or str, not bool: {selector!r}"
                 )
-            if isinstance(selector, int):
+            if isinstance(selector, numbers.Integral):
+                # numbers.Integral admits numpy ints too (bool is rejected above);
+                # normalize to a plain int for GDAL's bandList.
+                selector = int(selector)
                 if not 1 <= selector <= count:
                     raise ValueError(
                         f"band index {selector} is out of range for a {count}-band "
