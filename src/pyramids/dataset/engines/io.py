@@ -804,8 +804,8 @@ class IO(_Engine["Dataset"]):
         arr = strategy.read(self, req, window)
         self._ds._backend = strategy.backend
         # Applied post-dispatch (not inside a strategy) because scaling is a uniform
-        # arithmetic transform over whatever backend the strategy returns (numpy /
-        # masked / dask) — unlike `masked`, which each strategy owns or rejects.
+        # arithmetic transform over whatever array the strategy returns — plain,
+        # masked, or dask — unlike `masked`, which each strategy owns or rejects.
         if req.scaled:
             arr = self._apply_scale_offset(arr, req.band)
         # arr is assembled through many untyped GDAL/dask branches inside the
