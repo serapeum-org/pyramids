@@ -142,6 +142,34 @@ def _invalidate_cached_accessors(ds: Any) -> None:
         ds.__dict__.pop(name, None)
 
 
+def _accessor_name_conflict(name: str) -> bool:
+    """Whether ``name`` would shadow an existing Dataset (or subclass) attribute.
+
+    Rejects a name that is a reserved engine name (engines are *instance*
+    attributes set in ``__init__``, so they are invisible to ``hasattr``), or that
+    already exists as a class-level attribute/method/property on `Dataset` **or any
+    of its imported subclasses**. The subclass walk is what catches names defined
+    only on `NetCDF` / `Variable` / `Container` (for example ``variable_names`` or
+    ``get_variable``) once ``pyramids.netcdf`` has been imported — checking only
+    `Dataset` would let such a name register and then shadow-split across the class
+    hierarchy.
+    """
+    conflict = name in _RESERVED_ACCESSOR_NAMES
+    if not conflict:
+        classes = [Dataset]
+        seen: set[type] = set()
+        while classes:
+            cls = classes.pop()
+            if cls in seen:
+                continue
+            seen.add(cls)
+            if hasattr(cls, name):
+                conflict = True
+                break
+            classes.extend(cls.__subclasses__())
+    return conflict
+
+
 def register_dataset_accessor(name: str) -> Callable[[type], type]:
     """Register a custom accessor on `Dataset` (and, by inheritance, `NetCDF`).
 
@@ -200,10 +228,10 @@ def register_dataset_accessor(name: str) -> Callable[[type], type]:
                 UserWarning,
                 stacklevel=2,
             )
-        elif name in _RESERVED_ACCESSOR_NAMES or hasattr(Dataset, name):
+        elif _accessor_name_conflict(name):
             raise ValueError(
                 f"cannot register accessor {name!r}: it shadows an existing Dataset "
-                f"attribute, method, or engine."
+                f"(or NetCDF) attribute, method, or engine."
             )
         setattr(Dataset, name, _CachedAccessor(name, accessor_cls))
         _ACCESSOR_REGISTRY[name] = accessor_cls
