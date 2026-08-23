@@ -424,8 +424,10 @@ class Spatial(_Engine["Dataset"]):
                 "mode", "max", "min", "med", "q1", "q3", "sum", and "rms" (the GDAL warp algorithms;
                 "sum"/"rms" need GDAL >= 3.1/3.3). See https://gisgeography.com/raster-resampling/.
                 Note: the aggregating algorithms ("min", "max", "average", "mode", "med", "q1", "q3", "sum",
-                "rms") are not no-data-aware on this warp path — no-data cells inside a resampling kernel are
-                mixed into the result. Prefer "nearest" on rasters that carry a no-data marker.
+                "rms") honour the source no-data value when the raster declares one — no-data cells are excluded
+                from the kernel, and a kernel that is entirely no-data yields no-data. A raster with no no-data
+                marker has nothing to exclude, so every cell (including a sentinel fill such as 9999) counts as
+                valid data.
             maintain_alignment (bool):
                 True to maintain the number of rows and columns of the raster the same after reprojection.
                 Default is False.
@@ -1472,9 +1474,10 @@ class Spatial(_Engine["Dataset"]):
                 names as :meth:`Spatial.to_crs`: "nearest" (alias "nearest neighbor"), "bilinear", "cubic",
                 "cubic_spline", "lanczos", "average", "mode", "max", "min", "med", "q1", "q3", "sum", and "rms"
                 (the GDAL warp algorithms; "sum"/"rms" need GDAL >= 3.1/3.3). The aggregating algorithms
-                ("min", "max", "average", "mode", "med", "q1", "q3", "sum", "rms") are not no-data-aware on this
-                path — no-data cells inside a resampling kernel are mixed into the result. Prefer "nearest" on
-                rasters that carry a no-data marker.
+                ("min", "max", "average", "mode", "med", "q1", "q3", "sum", "rms") honour the source no-data
+                value when the raster declares one: no-data cells are excluded from the kernel and a kernel that
+                is entirely no-data yields no-data. A raster that carries no no-data marker has nothing to
+                exclude, so every cell — including a sentinel fill such as 9999 — is treated as valid data.
 
         Returns:
             Dataset: A new aligned Dataset.
