@@ -5232,7 +5232,14 @@ class NetCDF(Dataset):
         crs = cube.crs
         if not crs or not sr_from_wkt(crs).IsGeographic():
             return None
-        curv = NetCDFPlot(cube)._resolve_curvilinear_coords(cube, coords=None)
+        with warnings.catch_warnings():
+            # The georeference path legitimately uses the resolver's model-name coordinate
+            # fallback; its plot-side "set the CF coordinates attribute / pass coords="
+            # DeprecationWarning does not apply here (there is no coords= on the read path), so
+            # silence that one warning for this internal resolution rather than surface it on
+            # every load of a non-CF-compliant curvilinear variable (round-2 review M1).
+            warnings.filterwarnings("ignore", category=DeprecationWarning)
+            curv = NetCDFPlot(cube)._resolve_curvilinear_coords(cube, coords=None)
         if curv is None:
             return None
         lon2d = np.asarray(curv[0], dtype="f8")
