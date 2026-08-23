@@ -18,7 +18,7 @@ from uuid import uuid4
 from osgeo import gdal
 
 from pyramids._io import silent_unlink
-from pyramids.base._errors import ReadOnlyError
+from pyramids.base._errors import GeolocationArrayError, ReadOnlyError
 from pyramids.base._utils import DEFAULT_RESAMPLING, resolve_resampling
 from pyramids.base.crs import sr_from_user_input
 from pyramids.dataset._gcp import GroundControlPoint
@@ -484,5 +484,151 @@ class Georef(_Engine["Dataset"]):
             gdal.WarpOptions(**warp_kwargs),
             access="read_only",
             error_message="GDAL could not warp the dataset from its GCPs.",
+            pin=lazy,
+        )
+
+    @property
+    def geolocation(self) -> dict[str, str] | None:
+        """The dataset's GDAL ``GEOLOCATION`` metadata domain, or ``None``.
+
+        Geolocation arrays are per-pixel longitude/latitude grids (the swath /
+        curvilinear georeferencing model), exposed by GDAL as the ``GEOLOCATION``
+        metadata domain. Returns the domain mapping (``X_DATASET``/``Y_DATASET``
+        pointing at the coordinate arrays, ``SRS``, band/offset/step keys) or
+        ``None`` when the dataset carries no such domain. Built on
+        :meth:`~pyramids.dataset.Dataset.get_meta_data`; on a ``NetCDF`` variable
+        the domain is read from the classic **on-disk** GDAL handle (see
+        :meth:`Dataset._geolocation_source`), so it reflects the source file, not
+        any in-place edits, and is unavailable for an in-memory (``/vsimem``) NetCDF
+        — geolocate before other spatial operations.
+
+        Returns:
+            dict[str, str] | None: The ``GEOLOCATION`` domain, or ``None``.
+
+        Examples:
+            - A plain raster carries no geolocation arrays:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.zeros((2, 2)), top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+                ... )
+                >>> ds.geolocation is None
+                True
+
+                ```
+        """
+        source = self._ds._geolocation_source()
+        domain = cast("dict[str, str]", source.get_meta_data("GEOLOCATION"))
+        return domain or None
+
+    @property
+    def has_geolocation(self) -> bool:
+        """Whether the dataset carries geolocation arrays (a ``GEOLOCATION`` domain).
+
+        ``True`` means a ``GEOLOCATION`` domain *exists*, not that :meth:`geolocate`
+        will succeed: a degenerate domain missing the required ``X_DATASET`` /
+        ``Y_DATASET`` coordinate arrays reports ``True`` here yet cannot be warped.
+
+        Returns:
+            bool: ``True`` when :attr:`geolocation` is present, else ``False``.
+
+        Examples:
+            - A plain raster has no geolocation arrays:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.zeros((2, 2)), top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+                ... )
+                >>> ds.has_geolocation
+                False
+
+                ```
+        """
+        return self.geolocation is not None
+
+    def geolocate(
+        self,
+        *,
+        to_epsg: int | str | None = None,
+        method: str = DEFAULT_RESAMPLING,
+        cell_size: float | None = None,
+        lazy: bool = False,
+    ) -> Dataset:
+        """Warp the dataset **from its geolocation arrays** onto a regular grid.
+
+        Resamples a swath / curvilinear raster whose georeferencing is carried by
+        per-pixel longitude/latitude arrays (the GDAL ``GEOLOCATION`` domain) onto
+        a north-up affine grid — the geolocation-array analogue of
+        :meth:`georeference` (GCPs) and :meth:`orthorectify` (RPCs). The arrays are
+        read automatically from the ``GEOLOCATION`` domain.
+
+        GDAL's geolocation warping assumes a continuous source-to-target mapping;
+        products with large discontinuities (e.g. a dateline-crossing swath) can
+        produce artefacts.
+
+        Args:
+            to_epsg: Target CRS for the output. ``None`` warps into the geolocation
+                arrays' own CRS (their ``SRS`` key); otherwise reprojects to
+                ``to_epsg`` in the same pass (any form
+                :func:`pyramids.base.crs.sr_from_user_input` accepts).
+            method: Resampling method (see :meth:`Spatial.to_crs`). Default
+                ``"nearest neighbor"``.
+            cell_size: Output pixel size in target-CRS units (both axes). ``None``
+                lets GDAL pick a size that preserves the source resolution.
+            lazy: ``True`` returns a VRT-backed view (pixels warped per read);
+                ``False`` (default) materialises the result in memory.
+
+        Returns:
+            Dataset: The regularly-gridded raster as a base ``Dataset``.
+
+        Raises:
+            GeolocationArrayError: the dataset has no ``GEOLOCATION`` domain, or the
+                domain is missing the required ``X_DATASET`` / ``Y_DATASET`` arrays.
+            CRSError: ``to_epsg`` is not a recognisable CRS.
+            ValueError: ``method`` is not a known resampling method.
+            RuntimeError: GDAL could not build the warp.
+
+        Examples:
+            - Geolocate needs a ``GEOLOCATION`` domain (a plain raster has none):
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.zeros((2, 2)), top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+                ... )
+                >>> ds.has_geolocation
+                False
+
+                ```
+        """
+        source = self._ds._geolocation_source()
+        domain = cast("dict[str, str]", source.get_meta_data("GEOLOCATION"))
+        if not domain:
+            raise GeolocationArrayError(
+                "dataset has no geolocation arrays (no GEOLOCATION metadata domain)."
+            )
+        missing = {"X_DATASET", "Y_DATASET"} - set(domain)
+        if missing:
+            raise GeolocationArrayError(
+                f"GEOLOCATION domain is missing required arrays: {sorted(missing)}"
+            )
+        warp_kwargs: dict = {
+            "format": "VRT" if lazy else "MEM",
+            "resampleAlg": resolve_resampling(method),
+            "xRes": cell_size,
+            "yRes": cell_size,
+            "geoloc": True,
+        }
+        if to_epsg is not None:
+            warp_kwargs["dstSRS"] = _dst_srs_arg(sr_from_user_input(to_epsg))
+        # Only a lazy (VRT) result reads through to the source, so only it needs
+        # the pin; a materialised MEM result owns its pixels.
+        return warp_to_dataset(
+            source,
+            gdal.WarpOptions(**warp_kwargs),
+            access="read_only",
+            error_message="GDAL could not geolocate the dataset.",
             pin=lazy,
         )

@@ -35,7 +35,11 @@ from pyramids.base.protocols import ArrayLike
 from pyramids.base.remote import is_remote
 from pyramids.dataset import Dataset
 from pyramids.dataset._plot_helpers import nonnull_group_kwargs
-from pyramids.dataset.dataset import _COLLABORATOR_ATTRS
+from pyramids.dataset.dataset import (
+    _COLLABORATOR_ATTRS,
+    _RESERVED_ACCESSOR_NAMES,
+    _invalidate_cached_accessors,
+)
 from pyramids.dataset.engines._read_window import resolve_read_window
 from pyramids.netcdf._axis import detect_axis_indices
 from pyramids.netcdf._kerchunk_facade import combine_kerchunk, to_kerchunk
@@ -103,6 +107,10 @@ if hasattr(gdal, "GDT_Int8"):
 # inherited engine. `_update_inplace` re-binds these alongside the Dataset ones
 # after the `__dict__` swap.
 _NETCDF_COLLABORATOR_ATTRS = ("interop", "varops", "selection")
+
+# The NetCDF engine names are also instance attributes, so they must be reserved
+# against `register_dataset_accessor` clashes once `pyramids.netcdf` is imported.
+_RESERVED_ACCESSOR_NAMES.update(_NETCDF_COLLABORATOR_ATTRS)
 
 
 class _LazyVariableDict(dict):
@@ -768,6 +776,11 @@ class NetCDF(Dataset):
             collab = self.__dict__.get(attr)
             if collab is not None:
                 collab._ds = self_proxy
+        # Drop cached registered accessors so they rebuild against the new raster
+        # (this override does not chain `super()`, so the call is repeated here).
+        _invalidate_cached_accessors(self)
+        # Drop the memoised classic geolocation handle so it is re-resolved.
+        self.__dict__.pop("_geolocation_source_memo", None)
 
     def __str__(self):
         """Return a human-readable summary, or a `<Dataset: closed>` sentinel when closed.
@@ -1489,6 +1502,42 @@ class NetCDF(Dataset):
 
         cache[var] = result
         return result
+
+    def _geolocation_source(self) -> Dataset:
+        """Reopen the classic ``NETCDF`` handle, which carries the ``GEOLOCATION`` domain.
+
+        Geolocation arrays are exposed by GDAL's classic ``NETCDF:<file>:<var>``
+        driver, but the multidimensional ``AsClassicDataset`` view a NetCDF variable
+        comes from drops that domain. Reopen the classic handle as a **base**
+        :class:`~pyramids.dataset.Dataset` (so no multidimensional re-parse happens)
+        when there is a real on-disk / VSI source and a variable name; otherwise fall
+        back to ``self`` — which then yields the generic "no geolocation arrays"
+        error (correct for a container: extract a variable first).
+
+        Returns:
+            Dataset: a base ``Dataset`` over the classic handle, or ``self``.
+        """
+        # Memoise the reopened handle (the classic source is a stable file property)
+        # so a common `if var.has_geolocation: var.geolocate(...)` flow does not
+        # reopen `NETCDF:<file>:<var>` two or three times, mirroring the memoisation
+        # of the sibling `_classic_geotransform`. `_update_inplace` clears it.
+        source = self.__dict__.get("_geolocation_source_memo")
+        if source is None:
+            var = self._source_var_name
+            parent = self._parent_nc
+            path = parent.file_name if parent is not None else self.file_name
+            handle = None
+            if var is not None and path and not str(path).startswith("/vsimem"):
+                try:
+                    handle = gdal.Open(f'NETCDF:"{path}":{var}')
+                except RuntimeError:
+                    handle = None
+            source = self if handle is None else Dataset(handle, access="read_only")
+            # Only cache a genuinely reopened handle; caching the `self` fallback
+            # would create a pointless self-reference and re-resolving it is cheap.
+            if source is not self:
+                self.__dict__["_geolocation_source_memo"] = source
+        return source
 
     def _normalize_geostationary_geotransform(self) -> None:
         """Georeference a geostationary variable read via the MDIM path.

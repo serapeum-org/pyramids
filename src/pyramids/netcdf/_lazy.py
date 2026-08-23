@@ -39,7 +39,7 @@ import numpy as np
 
 from pyramids.base._file_manager import CachingFileManager, gdal_mdarray_open
 from pyramids.base._locks import DummyLock, default_lock
-from pyramids.base._utils import import_dask
+from pyramids.base._utils import apply_unpack, import_dask
 from pyramids.base.remote import cloud_config_from_env
 from pyramids.netcdf._mdim import axis_flips
 from pyramids.netcdf.utils import _dtype_to_str
@@ -357,40 +357,11 @@ def _read_mdarray_chunk(
     return arr
 
 
-def apply_unpack(
-    arr: Any,
-    scale: float | None,
-    offset: float | None,
-) -> Any:
-    """Apply CF `scale_factor` / `add_offset` to a lazy or eager array.
-
-    The lazy dask branch funnels through this helper so the
-    transformation is expressed as `dask.array` arithmetic — the
-    compute graph stays lazy until the user explicitly materializes
-    it.
-
-    Args:
-        arr: The raw array (dask or numpy).
-        scale: CF `scale_factor`, or `None`.
-        offset: CF `add_offset`, or `None`.
-
-    Returns:
-        The (possibly transformed) array, cast to `float64` when a
-        transformation was applied.
-    """
-    if scale is None and offset is None:
-        result = arr
-    else:
-        result = arr.astype(np.float64)
-        if scale is not None:
-            result = result * scale
-        if offset is not None:
-            result = result + offset
-    return result
-
-
-# Backward-compatible private alias for the now-public ``apply_unpack`` (API-9). Kept so
-# any out-of-tree importer of the old underscore name keeps working.
+# ``apply_unpack`` is the single shared scale/offset primitive; it lives in
+# ``base/_utils.py`` so both the NetCDF CF path here and the raster read path
+# (``IO.read_array(scaled=True)``) call the same implementation. Re-exported here
+# so existing importers of ``pyramids.netcdf._lazy.apply_unpack`` keep working.
+# The ``_apply_unpack`` underscore alias (API-9) is kept for out-of-tree importers.
 _apply_unpack = apply_unpack
 
 

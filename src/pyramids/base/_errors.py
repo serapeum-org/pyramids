@@ -61,6 +61,16 @@ class OutOfBoundsError(_PyramidsError):
     """Out-of-bounds error."""
 
 
+class GeolocationArrayError(_PyramidsError, ValueError):
+    """The dataset cannot be warped from geolocation arrays.
+
+    Raised by `Dataset.geolocate` / `Dataset.geolocation` when the dataset has no
+    GDAL ``GEOLOCATION`` metadata domain, or the domain is missing the required
+    ``X_DATASET`` / ``Y_DATASET`` coordinate arrays. Subclasses `ValueError` so an
+    ``except ValueError`` still catches it.
+    """
+
+
 class OverviewTargetError(_PyramidsError, ValueError):
     """The dataset cannot hold the overview levels the call was asked to write.
 

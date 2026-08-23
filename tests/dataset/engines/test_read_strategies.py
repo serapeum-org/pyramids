@@ -47,6 +47,7 @@ def make_request(**overrides) -> ReadRequest:
         "boundless": False,
         "fill_value": None,
         "masked": False,
+        "scaled": False,
         "threadsafe": False,
     }
     base.update(overrides)
@@ -453,4 +454,35 @@ class TestStrategySelection:
         req = make_request(chunks=4, out_shape=(2, 2))
         assert isinstance(select(req), LazyRead), (
             "chunks must take precedence over out_shape"
+        )
+
+    @pytest.mark.parametrize(
+        "combo, expected",
+        [
+            ({}, EagerRead),
+            ({"masked": True}, EagerRead),
+            ({"chunks": 4}, LazyRead),
+            ({"out_shape": (2, 2)}, DecimatedRead),
+            ({"boundless": True}, BoundlessRead),
+            ({"threadsafe": True}, ThreadsafeRead),
+        ],
+        ids=["eager", "masked-eager", "lazy", "decimated", "boundless", "threadsafe"],
+    )
+    def test_scaled_does_not_change_strategy_selection(self, combo, expected):
+        """``scaled`` never alters the matched path (which stays the combo's expected one).
+
+        Args:
+            combo: A per-path option set that selects one strategy.
+            expected: The strategy class ``combo`` must select.
+
+        Test scenario:
+            Both ``scaled=False`` and ``scaled=True`` select ``expected`` for the
+            combo — pinning the per-combo path (so a uniform-selection collapse is
+            caught) and proving no strategy branches on ``scaled``.
+        """
+        assert isinstance(select(make_request(scaled=False, **combo)), expected), (
+            f"{combo} should select {expected.__name__}"
+        )
+        assert isinstance(select(make_request(scaled=True, **combo)), expected), (
+            f"scaled=True changed the path for {combo}"
         )

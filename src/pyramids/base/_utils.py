@@ -967,3 +967,54 @@ def ogr_ds_to_gdal_dataset(ogr_ds: ogr.DataSource) -> gdal.Dataset:
             gdal_layer.CreateFeature(gdal_feature)
 
     return gdal_ds
+
+
+def apply_unpack(
+    arr: Any,
+    scale: float | np.ndarray | None,
+    offset: float | np.ndarray | None,
+) -> Any:
+    """Apply a scale/offset unpacking transform to a lazy or eager array.
+
+    Computes ``arr * scale + offset`` as `float64`, the single shared primitive
+    behind both the NetCDF CF `scale_factor`/`add_offset` path and the raster
+    :meth:`~pyramids.dataset.engines.IO.read_array` ``scaled=True`` path. When
+    both ``scale`` and ``offset`` are `None` the array is returned unchanged (no
+    float promotion), so an unset band is a genuine no-op. ``scale``/``offset``
+    may be scalars or a broadcastable `numpy` array (e.g. a per-band
+    ``(bands, 1, 1)`` factor); a `dask` array input keeps the arithmetic lazy.
+
+    Args:
+        arr: The raw array (dask or numpy, possibly a masked array).
+        scale: Multiplicative factor, or `None` to skip scaling.
+        offset: Additive offset, or `None` to skip offsetting.
+
+    Returns:
+        The (possibly transformed) array, cast to `float64` when a
+        transformation was applied.
+
+    Examples:
+        - A band with neither scale nor offset is returned unchanged:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base._utils import apply_unpack
+            >>> apply_unpack(np.array([0, 1, 2]), None, None)
+            array([0, 1, 2])
+
+            ```
+        - Scale and offset are applied as float64:
+            ```python
+            >>> apply_unpack(np.array([0, 1, 2]), 0.1, 5.0)
+            array([5. , 5.1, 5.2])
+
+            ```
+    """
+    if scale is None and offset is None:
+        result = arr
+    else:
+        result = arr.astype(np.float64)
+        if scale is not None:
+            result = result * scale
+        if offset is not None:
+            result = result + offset
+    return result

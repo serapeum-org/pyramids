@@ -38,6 +38,7 @@ def make_request(**overrides) -> ReadRequest:
         "boundless": False,
         "fill_value": None,
         "masked": False,
+        "scaled": False,
         "threadsafe": False,
     }
     base.update(overrides)
@@ -59,6 +60,28 @@ class TestReadRequest:
         assert req.chunks is None, "chunks should default to None"
         assert req.resampling == "nearest", "resampling should round-trip"
         assert req.boundless is False, "boundless should round-trip"
+
+    def test_scaled_roundtrips_and_is_universally_legal(self):
+        """``scaled`` round-trips, adds no guard, and does not disable the matrix.
+
+        Test scenario:
+            ``scaled=True`` is stored verbatim (alone and in combination), is legal
+            alongside every other option (a post-dispatch transform, not part of the
+            matrix), and does not suppress a pre-existing incompatibility guard.
+        """
+        assert make_request(scaled=True).scaled is True, "scaled should round-trip"
+        for combo in (
+            {"masked": True},
+            {"chunks": 4},
+            {"out_shape": (4, 4), "resampling": "bilinear"},
+            {"boundless": True, "fill_value": 0},
+            {"threadsafe": True},
+        ):
+            assert make_request(scaled=True, **combo).scaled is True, (
+                f"scaled should round-trip alongside {combo}"
+            )
+        with pytest.raises(ValueError, match="fill_value"):
+            make_request(scaled=True, fill_value=5.0, boundless=False)
 
     @pytest.mark.parametrize(
         "resampling",

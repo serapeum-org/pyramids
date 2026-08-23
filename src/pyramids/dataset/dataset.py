@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import warnings
 import weakref
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from numbers import Number
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Unpack, cast
@@ -88,6 +88,156 @@ _COLLABORATOR_ATTRS = (
     "cog",
     "georef",
 )
+
+# Registry of third-party accessors registered via `register_dataset_accessor`
+# (name -> accessor class), plus the set of names a registration must not shadow.
+# `_RESERVED_ACCESSOR_NAMES` is seeded from the built-in engines. Engines are
+# *instance* attributes (set in `__init__`), so they are invisible to
+# `hasattr(Dataset, name)` — the reserved set is how a name clash with them is caught.
+# The NetCDF-specific engine names are seeded here too so they are reserved even
+# before `pyramids.netcdf` is imported (that module's circular-import carveout means
+# importing `pyramids.dataset` alone does not pull it in); `pyramids.netcdf` re-adds
+# them on import (idempotent), which also covers any names added there in future.
+_ACCESSOR_REGISTRY: dict[str, type] = {}
+_RESERVED_ACCESSOR_NAMES: set[str] = set(_COLLABORATOR_ATTRS)
+_RESERVED_ACCESSOR_NAMES.update({"interop", "varops", "selection"})
+
+
+class _CachedAccessor:
+    """Descriptor that lazily builds and caches a registered Dataset accessor.
+
+    Mirrors the pandas/xarray ``CachedAccessor``: a non-data descriptor (``__get__``
+    only) so that once the accessor is cached in the instance ``__dict__`` every
+    later lookup is a plain dict hit that never re-enters the descriptor. The
+    accessor receives a :func:`weakref.proxy` of the owning Dataset (matching the
+    engine layer's weak back-reference discipline) so the Dataset ↔ accessor graph
+    stays acyclic and GDAL handles are released promptly.
+    """
+
+    def __init__(self, name: str, accessor_cls: type) -> None:
+        self._name = name
+        self._accessor_cls = accessor_cls
+
+    def __get__(self, obj: Any, cls: type | None = None) -> Any:
+        if obj is None:
+            # Class access (e.g. `hasattr(Dataset, name)`) yields the accessor class.
+            result = self._accessor_cls
+        else:
+            result = self._accessor_cls(weakref.proxy(obj))
+            # Cache in the instance dict; being a non-data descriptor, the cached
+            # value shadows this descriptor on every subsequent access.
+            object.__setattr__(obj, self._name, result)
+        return result
+
+
+def _invalidate_cached_accessors(ds: Any) -> None:
+    """Drop any cached registered accessors so they rebuild against the live raster.
+
+    Called from ``_update_inplace`` (on both `Dataset` and `NetCDF`) after the
+    ``__dict__.update`` swap: the merge would otherwise keep an accessor built
+    against the *old* raster (the same stale-cache hazard handled for
+    ``_cf_crs_cache``).
+    """
+    for name in _ACCESSOR_REGISTRY:
+        ds.__dict__.pop(name, None)
+
+
+def _accessor_name_conflict(name: str) -> bool:
+    """Whether ``name`` would shadow an existing Dataset (or subclass) attribute.
+
+    Rejects a name that is a reserved engine name (engines are *instance*
+    attributes set in ``__init__``, so they are invisible to ``hasattr``), or that
+    already exists as a class-level attribute/method/property on `Dataset` **or any
+    of its imported subclasses**. The subclass walk is what catches names defined
+    only on `NetCDF` / `Variable` / `Container` (for example ``variable_names`` or
+    ``get_variable``) once ``pyramids.netcdf`` has been imported — checking only
+    `Dataset` would let such a name register and then shadow-split across the class
+    hierarchy.
+    """
+    conflict = name in _RESERVED_ACCESSOR_NAMES
+    if not conflict:
+        # Walk Dataset's subclass DAG (Dataset -> NetCDF -> Variable/Container, plus any
+        # third-party subclass). `__subclasses__()` only yields more-derived classes, so
+        # the walk always terminates without needing a visited set.
+        classes = [Dataset]
+        while classes:
+            cls = classes.pop()
+            if hasattr(cls, name):
+                conflict = True
+                break
+            classes.extend(cls.__subclasses__())
+    return conflict
+
+
+def register_dataset_accessor(name: str) -> Callable[[type], type]:
+    """Register a custom accessor on `Dataset` (and, by inheritance, `NetCDF`).
+
+    An xarray/pandas-style extension hook: a third-party package attaches a custom
+    namespace to every `Dataset` without subclassing or editing the built-in engine
+    set. The decorated class is instantiated lazily on first access as
+    ``accessor_cls(ds)`` — where ``ds`` is a transparent weak proxy of the Dataset —
+    and cached on the instance, so repeated access returns the same object. Because
+    registration is on the base `Dataset`, the accessor is available on `NetCDF`
+    and its `Variable`/`Container` subclasses too.
+
+    Your ``__init__(self, ds)`` receives a weak proxy: read through it (for example
+    ``self._ds.read_array()``); do not persist a strong reference to it.
+
+    Args:
+        name: The attribute name to expose on `Dataset`. It must not shadow an
+            existing attribute, method, property, or engine name.
+
+    Returns:
+        A class decorator that registers ``accessor_cls`` and returns it unchanged.
+
+    Raises:
+        ValueError: ``name`` shadows an existing Dataset attribute, method, or
+            engine (a name already registered is instead overwritten with a
+            `UserWarning`, matching pandas/xarray).
+
+    Examples:
+        - Register a custom accessor and use it on any Dataset:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.dataset import Dataset, register_dataset_accessor
+            >>> @register_dataset_accessor("summary")
+            ... class Summary:
+            ...     def __init__(self, ds):
+            ...         self._ds = ds
+            ...     def describe(self):
+            ...         return f"{self._ds.band_count}-band EPSG:{self._ds.epsg}"
+            >>> ds = Dataset.create_from_array(
+            ...     np.zeros((2, 3)), top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+            ... )
+            >>> ds.summary.describe()
+            '1-band EPSG:4326'
+            >>> ds.summary is ds.summary  # built once, then cached per Dataset
+            True
+            >>> from pyramids.dataset.dataset import _ACCESSOR_REGISTRY
+            >>> delattr(Dataset, "summary"); _ = _ACCESSOR_REGISTRY.pop("summary")
+
+            ```
+    """
+
+    def decorator(accessor_cls: type) -> type:
+        if name in _ACCESSOR_REGISTRY:
+            warnings.warn(
+                f"registration of accessor {accessor_cls!r} under name {name!r} is "
+                f"overriding a preexisting accessor with the same name.",
+                UserWarning,
+                stacklevel=2,
+            )
+        elif _accessor_name_conflict(name):
+            raise ValueError(
+                f"cannot register accessor {name!r}: it shadows an existing Dataset "
+                f"(or NetCDF) attribute, method, or engine."
+            )
+        setattr(Dataset, name, _CachedAccessor(name, accessor_cls))
+        _ACCESSOR_REGISTRY[name] = accessor_cls
+        return accessor_cls
+
+    return decorator
+
 
 # Sentinel for `Dataset.from_band_files(no_data_value=...)` so the helper can
 # tell "caller didn't pass one — inherit from the source rasters" apart from
@@ -435,6 +585,9 @@ class Dataset(RasterBase):
             collab = self.__dict__.get(attr)
             if collab is not None:
                 collab._ds = self_proxy
+        # Drop cached registered accessors so they rebuild against the new raster
+        # (the `__dict__.update` above would otherwise keep a stale one).
+        _invalidate_cached_accessors(self)
 
     def focal_mean(
         self, radius: int = 1, *, chunks=None, band: int = 0
@@ -1116,6 +1269,29 @@ class Dataset(RasterBase):
         """Facade — :meth:`Georef.orthorectify <pyramids.dataset.engines.Georef.orthorectify>`."""
         return self.georef.orthorectify(*args, **kwargs)
 
+    @property
+    def geolocation(self):
+        """Facade — :attr:`Georef.geolocation <pyramids.dataset.engines.Georef.geolocation>`."""
+        return self.georef.geolocation
+
+    @property
+    def has_geolocation(self):
+        """Facade — :attr:`Georef.has_geolocation <pyramids.dataset.engines.Georef.has_geolocation>`."""
+        return self.georef.has_geolocation
+
+    def geolocate(self, *args, **kwargs):
+        """Facade — :meth:`Georef.geolocate <pyramids.dataset.engines.Georef.geolocate>`."""
+        return self.georef.geolocate(*args, **kwargs)
+
+    def _geolocation_source(self) -> Dataset:
+        """The Dataset whose GDAL handle carries the ``GEOLOCATION`` domain.
+
+        A base raster carries its geolocation arrays on its own handle, so the
+        default is ``self``. ``NetCDF`` overrides this to reopen the classic GDAL
+        handle, on which the domain is exposed (the multidimensional view drops it).
+        """
+        return self
+
     def warped_view(self, *args, **kwargs):
         """Facade — delegates to :meth:`Spatial.warped_view <pyramids.dataset.engines.Spatial.warped_view>`."""
         return self.spatial.warped_view(*args, **kwargs)
@@ -1240,6 +1416,10 @@ class Dataset(RasterBase):
     def get_band_by_color(self, *args, **kwargs):
         """Facade — delegates to :meth:`Bands.get_band_by_color <pyramids.dataset.engines.Bands.get_band_by_color>`."""
         return self.bands.get_band_by_color(*args, **kwargs)
+
+    def select_bands(self, *args, **kwargs):
+        """Facade — delegates to :meth:`Bands.select <pyramids.dataset.engines.Bands.select>`."""
+        return self.bands.select(*args, **kwargs)
 
     def change_no_data_value(self, *args, **kwargs):
         """Facade — concrete override of the abstract :meth:`RasterBase.change_no_data_value`.
