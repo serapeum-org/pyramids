@@ -64,6 +64,11 @@ class TestSelect:
         b = rich.bands.select([1, 2]).band_names
         assert a == b == ["a", "b"]
 
+    def test_numpy_int_selectors(self, rich):
+        """numpy-integer selectors are accepted like Python ints."""
+        sub = rich.bands.select([np.int64(4), np.int64(1)])
+        assert sub.band_names == ["d", "a"]
+
 
 class TestSelectCarryAcross:
     """`Bands.select` carries per-band state across the copy."""
@@ -98,6 +103,30 @@ class TestSelectCarryAcross:
         )
         rat = ds.bands.select([1]).get_attribute_table(band=0)
         assert rat is not None and "label" in rat.columns, "RAT must survive select"
+
+    def test_carries_color_table_and_interpretation(self):
+        """The colour table and colour interpretation survive selection."""
+        from osgeo import gdal
+
+        ds = Dataset.create_from_array(
+            np.array([[0, 1], [1, 0]], dtype="uint8"),
+            top_left_corner=(0, 0),
+            cell_size=1.0,
+            epsg=4326,
+        )
+        table = gdal.ColorTable()
+        table.SetColorEntry(0, (255, 0, 0, 255))
+        table.SetColorEntry(1, (0, 255, 0, 255))
+        band = ds.raster.GetRasterBand(1)
+        band.SetRasterColorTable(table)
+        band.SetRasterColorInterpretation(gdal.GCI_PaletteIndex)
+        # Hold the selected Dataset alive; the GDAL band is invalid once it is GC'd.
+        sub = ds.bands.select([1])
+        out = sub.raster.GetRasterBand(1)
+        assert out.GetRasterColorTable() is not None, "colour table must survive"
+        assert out.GetRasterColorInterpretation() == gdal.GCI_PaletteIndex, (
+            "colour interpretation must survive"
+        )
 
 
 class TestSelectErrors:

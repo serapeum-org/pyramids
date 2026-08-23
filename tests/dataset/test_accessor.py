@@ -116,6 +116,28 @@ class TestRegisterDatasetAccessor:
                 def __init__(self, ds):
                     self._ds = ds
 
+    @pytest.mark.parametrize(
+        "reserved", ["variable_names", "get_variable", "to_xarray"]
+    )
+    def test_collision_netcdf_only_name(self, reserved, cleanup_accessors):
+        """A name defined only on NetCDF is rejected once pyramids.netcdf is imported."""
+        import pyramids.netcdf  # noqa: F401  (registers NetCDF as a Dataset subclass)
+
+        class Bad:
+            def __init__(self, ds):
+                self._ds = ds
+
+        with pytest.raises(ValueError, match="shadows"):
+            register_dataset_accessor(reserved)(Bad)
+
+    def test_netcdf_engine_names_stay_reserved(self):
+        """The NetCDF engine names remain reserved (guards the dataset.py seed drift)."""
+        import pyramids.netcdf  # noqa: F401
+        from pyramids.dataset.dataset import _RESERVED_ACCESSOR_NAMES
+        from pyramids.netcdf.netcdf import _NETCDF_COLLABORATOR_ATTRS
+
+        assert set(_NETCDF_COLLABORATOR_ATTRS) <= _RESERVED_ACCESSOR_NAMES
+
     def test_reregister_warns_and_overwrites(self, cleanup_accessors):
         """Re-registering a name warns and installs the newer class."""
 
