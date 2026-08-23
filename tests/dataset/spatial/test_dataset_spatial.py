@@ -656,44 +656,102 @@ class TestAlign:
             "cross-CRS bilinear must differ from nearest — method must affect values"
         )
 
-    def test_align_aggregating_method_honors_no_data(self):
-        """Aggregating kernels exclude a declared no-data value, but not an undeclared one.
+    @pytest.mark.parametrize(
+        "method", ["average", "min", "max", "mode", "med", "q1", "q3"]
+    )
+    def test_align_aggregating_method_excludes_declared_no_data(self, method):
+        """Every aggregating kernel excludes a *declared* no-data value.
+
+        Args:
+            method: A kernel-aggregating resampling method.
 
         Test scenario:
             Downsample (2x2 -> 1) a source whose top-left cell holds the sentinel
-            9999 with "average". When the raster *declares* 9999 as its no-data
-            value GDAL excludes it, so the output stays 1.0; when no no-data value
-            is set the sentinel is real data and is averaged in, pulling the cell
-            far above 1.0. This pins the documented no-data behaviour of the
-            `ReprojectImage` warp path.
+            9999, declared as the no-data value. GDAL must drop 9999 from the
+            kernel, so no output cell is pulled near it — every aggregate of the
+            surrounding 1.0s stays small. Pins the corrected no-data docstring claim
+            across all aggregators, not just "average".
         """
         arr = np.ones((4, 4), dtype=np.float32)
         arr[0, 0] = 9999.0
-        template = Dataset.create_from_array(
-            np.zeros((2, 2), dtype=np.float32),
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.5,
-            epsg=4326,
-        )
-
-        with_nodata = Dataset.create_from_array(
+        source = Dataset.create_from_array(
             arr,
             top_left_corner=(0.0, 0.0),
             cell_size=0.25,
             epsg=4326,
             no_data_value=9999.0,
         )
-        aligned = with_nodata.align(template, method="average").read_array()
-        assert np.isclose(aligned.max(), 1.0), (
-            f"a declared no-data 9999 must be excluded from the average, got {aligned.max()}"
+        template = Dataset.create_from_array(
+            np.zeros((2, 2), dtype=np.float32),
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.5,
+            epsg=4326,
+        )
+        aligned = source.align(template, method=method).read_array()
+        assert aligned.max() < 100.0, (
+            f"method={method!r} must exclude the declared 9999, got max {aligned.max()}"
         )
 
-        without_nodata = Dataset.create_from_array(
+    def test_align_undeclared_sentinel_is_treated_as_data(self):
+        """Without a no-data marker the 9999 sentinel is real data and mixes in.
+
+        Test scenario:
+            The same 2x2 -> 1 average, but with no no-data value declared, averages
+            the 9999 in (~2500.5) — confirming the caveat's other half: a raster
+            with no no-data marker has nothing to exclude.
+        """
+        arr = np.ones((4, 4), dtype=np.float32)
+        arr[0, 0] = 9999.0
+        source = Dataset.create_from_array(
             arr, top_left_corner=(0.0, 0.0), cell_size=0.25, epsg=4326
         )
-        mixed = without_nodata.align(template, method="average").read_array()
+        template = Dataset.create_from_array(
+            np.zeros((2, 2), dtype=np.float32),
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.5,
+            epsg=4326,
+        )
+        mixed = source.align(template, method="average").read_array()
         assert mixed.max() > 100.0, (
-            f"an undeclared 9999 is valid data and must mix in, got {mixed.max()}"
+            f"an undeclared 9999 must mix into the average, got {mixed.max()}"
+        )
+
+    def test_align_output_dtype_follows_integer_template(self):
+        """The documented dtype Note: aligning onto an integer template drops fractions.
+
+        Test scenario:
+            Align a fractional float32 source onto an int32 template with "bilinear".
+            The output adopts the template's integer dtype, so the interpolated
+            fractional values are cast to whole numbers — whereas the same align
+            onto a float32 template keeps the fractions.
+        """
+        src_arr = np.arange(25, dtype=np.float32).reshape(5, 5) * 0.3
+        source = Dataset.create_from_array(
+            src_arr, top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326
+        )
+        int_template = Dataset.create_from_array(
+            np.zeros((10, 10), dtype=np.int32),
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.025,
+            epsg=4326,
+        )
+        aligned_int = source.align(int_template, method="bilinear").read_array()
+        assert np.issubdtype(aligned_int.dtype, np.integer), (
+            f"output must adopt the template's integer dtype, got {aligned_int.dtype}"
+        )
+        assert np.array_equal(aligned_int, aligned_int.astype(np.int64)), (
+            "interpolated values must be whole numbers on an integer template"
+        )
+
+        float_template = Dataset.create_from_array(
+            np.zeros((10, 10), dtype=np.float32),
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.025,
+            epsg=4326,
+        )
+        aligned_float = source.align(float_template, method="bilinear").read_array()
+        assert not np.array_equal(aligned_float, np.floor(aligned_float)), (
+            "the float-template align should keep fractional interpolated values"
         )
 
     def test_align_bilinear_template_crs_no_epsg(self):
