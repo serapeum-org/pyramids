@@ -38,6 +38,7 @@ def make_request(**overrides) -> ReadRequest:
         "boundless": False,
         "fill_value": None,
         "masked": False,
+        "scaled": False,
         "threadsafe": False,
     }
     base.update(overrides)

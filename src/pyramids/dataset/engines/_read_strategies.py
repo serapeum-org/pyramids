@@ -47,7 +47,7 @@ class ReadStrategy(ABC):
             >>> req = ReadRequest(
             ...     band=0, chunks=4, lock=None, out_shape=None,
             ...     resampling="nearest", boundless=False, fill_value=None,
-            ...     masked=False, threadsafe=False,
+            ...     masked=False, scaled=False, threadsafe=False,
             ... )
             >>> next(s for s in READ_STRATEGIES if s.matches(req)).backend
             'dask'
@@ -60,7 +60,7 @@ class ReadStrategy(ABC):
             >>> req = ReadRequest(
             ...     band=0, chunks=None, lock=None, out_shape=None,
             ...     resampling="nearest", boundless=False, fill_value=None,
-            ...     masked=False, threadsafe=False,
+            ...     masked=False, scaled=False, threadsafe=False,
             ... )
             >>> next(s for s in READ_STRATEGIES if s.matches(req)).backend
             'numpy'

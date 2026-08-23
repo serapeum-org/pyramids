@@ -36,6 +36,8 @@ class ReadRequest:
         boundless: Whether to pad reads that extend past the raster edge.
         fill_value: Pad value for boundless reads.
         masked: Whether to wrap the result as a masked array.
+        scaled: Whether to apply each band's GDAL scale/offset (``raw*scale +
+            offset``) to the read result.
         threadsafe: Whether to read through a private per-thread handle.
 
     Examples:
@@ -45,7 +47,7 @@ class ReadRequest:
             >>> req = ReadRequest(
             ...     band=0, chunks=None, lock=None, out_shape=None,
             ...     resampling="nearest", boundless=False, fill_value=None,
-            ...     masked=False, threadsafe=False,
+            ...     masked=False, scaled=False, threadsafe=False,
             ... )
             >>> req.band
             0
@@ -58,7 +60,7 @@ class ReadRequest:
             >>> ReadRequest(
             ...     band=0, chunks=None, lock=None, out_shape=None,
             ...     resampling="nearest", boundless=False, fill_value=5.0,
-            ...     masked=False, threadsafe=False,
+            ...     masked=False, scaled=False, threadsafe=False,
             ... )
             Traceback (most recent call last):
             ValueError: read_array(fill_value=...) only applies to boundless reads; pass boundless=True as well.
@@ -74,6 +76,7 @@ class ReadRequest:
     boundless: bool
     fill_value: float | None
     masked: bool
+    scaled: bool
     threadsafe: bool
 
     def __post_init__(self) -> None:

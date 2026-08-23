@@ -779,6 +779,7 @@ class IO(_Engine["Dataset"]):
             boundless=boundless,
             fill_value=fill_value,
             masked=masked,
+            scaled=scaled,
             threadsafe=threadsafe,
         )
         # Resolve the bbox CRS only when a bbox is actually given. resolve_read_window
@@ -802,8 +803,8 @@ class IO(_Engine["Dataset"]):
         strategy = next(s for s in READ_STRATEGIES if s.matches(req))
         arr = strategy.read(self, req, window)
         self._ds._backend = strategy.backend
-        if scaled:
-            arr = self._apply_scale_offset(arr, band)
+        if req.scaled:
+            arr = self._apply_scale_offset(arr, req.band)
         # arr is assembled through many untyped GDAL/dask branches inside the
         # strategy; this is the method's own declared contract.
         return cast("ArrayLike", arr)
