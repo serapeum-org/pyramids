@@ -176,7 +176,7 @@ class Aligner(Reprojector):
             Dataset or dask.delayed.Delayed.
         """
         if compute:
-            result = ds.align(self._reference)
+            result = ds.align(self._reference, method=self._plan.method)
         else:
             result = _deferred_align(self._reference, self._plan.method, ds)
         return result
@@ -210,13 +210,16 @@ def _deferred_align(reference: Dataset, method: str, ds: Dataset) -> Any:
 
 
 def _align_sync(reference: Dataset, method: str, ds: Dataset) -> Dataset:
-    """Synchronous align body — module-level for pickleability.
+    """Synchronous align body — module-level so it stays picklable for ``dask``.
 
-    `method` is accepted for API parity with :class:`Reprojector` but
-    :meth:`Dataset.align` currently fixes the resampling to nearest
-    neighbor (see :func:`osgeo.gdal.Warp`'s default). Argument kept so
-    that if :meth:`Dataset.align` grows a `method=` kwarg in future
-    the operator contract does not need to change.
+    Args:
+        reference: The :class:`~pyramids.dataset.Dataset` whose geobox (CRS, rows,
+            columns, cell size) ``ds`` is aligned to.
+        method: Resampling method name forwarded to :meth:`Dataset.align`
+            (nearest neighbor by default).
+        ds: The source :class:`~pyramids.dataset.Dataset` to align.
+
+    Returns:
+        Dataset: ``ds`` resampled onto ``reference``'s grid with ``method``.
     """
-    del method  # reserved for future align(method=...) support
-    return ds.align(reference)
+    return ds.align(reference, method=method)

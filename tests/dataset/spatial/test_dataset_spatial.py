@@ -473,6 +473,303 @@ class TestAlign:
         assert dataset_aligned.columns == resampled_multi_band_dims[1]
         assert dataset.top_left_corner == dataset_aligned.top_left_corner
 
+    @staticmethod
+    def _gradient_source_and_template() -> tuple[Dataset, Dataset]:
+        """A 5x5 gradient source and a co-extensive 10x10 template (2x finer)."""
+        source = Dataset.create_from_array(
+            np.arange(25, dtype=np.float32).reshape(5, 5),
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.05,
+            epsg=4326,
+        )
+        template = Dataset.create_from_array(
+            np.zeros((10, 10), dtype=np.float32),
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.025,
+            epsg=4326,
+        )
+        return source, template
+
+    def test_align_default_is_nearest_unchanged(self):
+        """The default keeps the historical nearest-neighbor behaviour."""
+        source, template = self._gradient_source_and_template()
+        default = source.align(template)
+        nearest = source.align(template, method="nearest")
+        np.testing.assert_array_equal(default.read_array(), nearest.read_array())
+
+    def test_align_bilinear_lands_on_template_grid_and_differs_from_nearest(self):
+        """`method="bilinear"` resamples onto the template's exact grid and, on a
+        gradient, produces values distinct from nearest neighbor.
+
+        Test scenario:
+            Upsample a 5x5 gradient onto a co-extensive 10x10 template. The output
+            adopts the template's grid (rows/cols/epsg/geotransform) and, because
+            the source is a gradient, its values must differ from nearest (proving
+            bilinear actually interpolated rather than replicating blocks).
+        """
+        source, template = self._gradient_source_and_template()
+        bilinear = source.align(template, method="bilinear")
+        nearest = source.align(template, method="nearest")
+
+        assert (bilinear.rows, bilinear.columns, bilinear.epsg) == (10, 10, 4326), (
+            f"bilinear align must land on the template grid, got "
+            f"{(bilinear.rows, bilinear.columns, bilinear.epsg)}"
+        )
+        assert bilinear.geotransform == template.geotransform, (
+            "bilinear align must copy the template geotransform exactly"
+        )
+        assert not np.allclose(bilinear.read_array(), nearest.read_array()), (
+            "bilinear must interpolate, not fall back to nearest block replication"
+        )
+
+    @pytest.mark.parametrize(
+        "method",
+        [
+            "nearest",
+            "bilinear",
+            "cubic",
+            "cubic_spline",
+            "lanczos",
+            "average",
+            "mode",
+            "min",
+            "max",
+            "med",
+            "q1",
+            "q3",
+        ],
+    )
+    def test_align_supported_methods_land_on_template_grid(self, method):
+        """Every supported (non version-gated) method lands on the template grid.
+
+        Args:
+            method: A resampling-method name accepted by `resolve_resampling`
+                (every key of `INTERPOLATION_METHODS` except the version-gated
+                "sum"/"rms").
+
+        Test scenario:
+            For each algorithm, `align` must run without error and return a raster
+            on the template's exact 10x10 / EPSG:4326 grid — verifying the name is
+            forwarded all the way into `gdal.ReprojectImage`.
+        """
+        source, template = self._gradient_source_and_template()
+        aligned = source.align(template, method=method)
+        assert (aligned.rows, aligned.columns, aligned.epsg) == (10, 10, 4326), (
+            f"method={method!r} must land on the template grid, got "
+            f"{(aligned.rows, aligned.columns, aligned.epsg)}"
+        )
+
+    @pytest.mark.parametrize("alias", ["NEAREST", "  Nearest Neighbor  ", "nearest"])
+    def test_align_method_is_case_and_whitespace_insensitive(self, alias):
+        """Method names are normalised the same way `to_crs` normalises them.
+
+        Args:
+            alias: A spelling of the nearest-neighbor method differing only in case
+                or surrounding whitespace.
+
+        Test scenario:
+            Each alias must produce byte-identical output to the canonical
+            `"nearest"`, confirming `align` defers name handling to
+            `resolve_resampling` (which lower-cases and strips).
+        """
+        source, template = self._gradient_source_and_template()
+        canonical = source.align(template, method="nearest")
+        aliased = source.align(template, method=alias)
+        np.testing.assert_array_equal(
+            aliased.read_array(),
+            canonical.read_array(),
+            err_msg=f"alias {alias!r} should resample identically to 'nearest'",
+        )
+
+    def test_align_invalid_method_raises(self):
+        """An unsupported method name raises `ValueError` (same validator as `to_crs`).
+
+        Test scenario:
+            A bogus name must raise `ValueError` whose message reports it "does not
+            exist" and lists the valid set, matching `resolve_resampling`.
+        """
+        source, template = self._gradient_source_and_template()
+        with pytest.raises(ValueError, match="does not exist") as exc_info:
+            source.align(template, method="not-a-real-method")
+        assert "not-a-real-method" in str(exc_info.value), (
+            f"error should echo the bad method name, got: {exc_info.value}"
+        )
+
+    def test_align_non_string_method_raises_type_error(self):
+        """A non-string method raises `TypeError` before any warp runs.
+
+        Test scenario:
+            Passing an int must raise `TypeError` ("must be a string") from the
+            up-front `resolve_resampling` guard, not an obscure GDAL failure later.
+        """
+        source, template = self._gradient_source_and_template()
+        with pytest.raises(TypeError, match="must be a string"):
+            source.align(template, method=3)
+
+    def test_align_non_dataset_template_raises_type_error(self):
+        """A non-`RasterBase` template raises `TypeError`.
+
+        Test scenario:
+            Passing a plain string (not a `Dataset`) as the alignment template must
+            raise `TypeError` telling the caller to pass a `Dataset`.
+        """
+        source, _ = self._gradient_source_and_template()
+        with pytest.raises(TypeError, match="should be a Dataset"):
+            source.align("not-a-dataset", method="nearest")
+
+    def test_align_bilinear_across_different_crs(self):
+        """`method` is forwarded through the intermediate reprojection too.
+
+        Test scenario:
+            When source and template CRSes differ, `align` first reprojects via
+            `to_crs` and then resamples onto the template grid. A EPSG:4326 source
+            aligned to an EPSG:3857 template with `method="bilinear"` must adopt the
+            template's CRS and grid, exercising the different-CRS branch (the
+            `to_crs(target_crs, method=...)` call) rather than the same-CRS shortcut.
+        """
+        source, _ = self._gradient_source_and_template()
+        template = source.to_crs(to_epsg=3857)
+        aligned = source.align(template, method="bilinear")
+        assert aligned.epsg == 3857, f"expected EPSG:3857, got {aligned.epsg}"
+        assert (aligned.rows, aligned.columns) == (template.rows, template.columns), (
+            "aligned raster must match the template's row/column count"
+        )
+        assert aligned.geotransform == template.geotransform, (
+            "aligned raster must copy the template geotransform exactly"
+        )
+
+    def test_align_cross_crs_values_depend_on_method(self):
+        """Cross-CRS align actually resamples values by `method`, not just the grid.
+
+        Test scenario:
+            Aligning a EPSG:4326 gradient onto a EPSG:3857 template with "bilinear"
+            must yield pixel values that differ from the "nearest" result (both land
+            on the same template grid), pinning that `method` is honoured across the
+            CRS boundary and not silently dropped to nearest.
+        """
+        source, _ = self._gradient_source_and_template()
+        template = source.to_crs(to_epsg=3857)
+        bilinear = source.align(template, method="bilinear").read_array()
+        nearest = source.align(template, method="nearest").read_array()
+        assert bilinear.shape == nearest.shape, "both must share the template grid"
+        assert not np.allclose(bilinear, nearest, equal_nan=True), (
+            "cross-CRS bilinear must differ from nearest — method must affect values"
+        )
+
+    @pytest.mark.parametrize(
+        "method", ["average", "min", "max", "mode", "med", "q1", "q3"]
+    )
+    def test_align_aggregating_method_excludes_declared_no_data(self, method):
+        """Every aggregating kernel excludes a *declared* no-data value.
+
+        Args:
+            method: A kernel-aggregating resampling method.
+
+        Test scenario:
+            Downsample (2x2 -> 1) a source whose top-left cell holds the sentinel
+            9999, declared as the no-data value. GDAL must drop 9999 from the
+            kernel, so no output cell is pulled near it — every aggregate of the
+            surrounding 1.0s stays small. Pins the corrected no-data docstring claim
+            across all aggregators, not just "average".
+        """
+        arr = np.ones((4, 4), dtype=np.float32)
+        arr[0, 0] = 9999.0
+        source = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.25,
+            epsg=4326,
+            no_data_value=9999.0,
+        )
+        template = Dataset.create_from_array(
+            np.zeros((2, 2), dtype=np.float32),
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.5,
+            epsg=4326,
+        )
+        aligned = source.align(template, method=method).read_array()
+        assert aligned.max() < 100.0, (
+            f"method={method!r} must exclude the declared 9999, got max {aligned.max()}"
+        )
+
+    def test_align_undeclared_sentinel_is_treated_as_data(self):
+        """Without a no-data marker the 9999 sentinel is real data and mixes in.
+
+        Test scenario:
+            The same 2x2 -> 1 average, but with no no-data value declared, averages
+            the 9999 in (~2500.5) — confirming the caveat's other half: a raster
+            with no no-data marker has nothing to exclude.
+        """
+        arr = np.ones((4, 4), dtype=np.float32)
+        arr[0, 0] = 9999.0
+        source = Dataset.create_from_array(
+            arr, top_left_corner=(0.0, 0.0), cell_size=0.25, epsg=4326
+        )
+        template = Dataset.create_from_array(
+            np.zeros((2, 2), dtype=np.float32),
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.5,
+            epsg=4326,
+        )
+        mixed = source.align(template, method="average").read_array()
+        assert mixed.max() > 100.0, (
+            f"an undeclared 9999 must mix into the average, got {mixed.max()}"
+        )
+
+    def test_align_output_dtype_follows_integer_template(self):
+        """The documented dtype Note: aligning onto an integer template drops fractions.
+
+        Test scenario:
+            Align a fractional float32 source onto an int32 template with "bilinear".
+            The output adopts the template's integer dtype, so the interpolated
+            fractional values are cast to whole numbers — whereas the same align
+            onto a float32 template keeps the fractions.
+        """
+        src_arr = np.arange(25, dtype=np.float32).reshape(5, 5) * 0.3
+        source = Dataset.create_from_array(
+            src_arr, top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326
+        )
+        int_template = Dataset.create_from_array(
+            np.zeros((10, 10), dtype=np.int32),
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.025,
+            epsg=4326,
+        )
+        aligned_int = source.align(int_template, method="bilinear").read_array()
+        assert np.issubdtype(aligned_int.dtype, np.integer), (
+            f"output must adopt the template's integer dtype, got {aligned_int.dtype}"
+        )
+        assert np.array_equal(aligned_int, aligned_int.astype(np.int64)), (
+            "interpolated values must be whole numbers on an integer template"
+        )
+
+        float_template = Dataset.create_from_array(
+            np.zeros((10, 10), dtype=np.float32),
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.025,
+            epsg=4326,
+        )
+        aligned_float = source.align(float_template, method="bilinear").read_array()
+        assert not np.array_equal(aligned_float, np.floor(aligned_float)), (
+            "the float-template align should keep fractional interpolated values"
+        )
+
+    def test_align_bilinear_template_crs_no_epsg(self):
+        """DoD: works when the template CRS is a PROJ4 string with no EPSG code."""
+        source, template = self._gradient_source_and_template()
+        proj4 = "+proj=ortho +lat_0=0 +lon_0=0 +datum=WGS84 +units=m +no_defs"
+        ortho_source = source.to_crs(proj4)
+        ortho_template = template.to_crs(proj4)
+        assert ortho_template.epsg is None
+
+        aligned = ortho_source.align(ortho_template, method="bilinear")
+        assert aligned.epsg is None
+        assert (aligned.rows, aligned.columns) == (
+            ortho_template.rows,
+            ortho_template.columns,
+        )
+        assert aligned.geotransform == ortho_template.geotransform
+
 
 class TestCrop:
     def test_crop_single_band_dataset_with_single_band_mask(

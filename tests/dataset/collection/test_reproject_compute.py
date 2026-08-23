@@ -156,3 +156,45 @@ class TestAlignCompute:
             ValueError, match="compute=False cannot be combined with inplace"
         ):
             collection.align(align_ref, inplace=True, compute=False)
+
+    @requires_dask
+    def test_delayed_align_method_passthrough(self, three_files, align_ref):
+        """``method=`` survives into the deferred ``_align_sync`` body.
+
+        Test scenario:
+            ``align(ref, method="bilinear", compute=False).compute()`` — expected:
+            a collection on the reference grid (the method is forwarded, not dropped).
+        """
+        collection = DatasetCollection.from_files(three_files)
+        result = collection.align(align_ref, method="bilinear", compute=False).compute()
+        assert result.base.rows == align_ref.rows, (
+            f"aligned rows {result.base.rows} != reference {align_ref.rows}"
+        )
+        assert result.base.columns == align_ref.columns, (
+            f"aligned columns {result.base.columns} != reference {align_ref.columns}"
+        )
+
+    @requires_dask
+    def test_delayed_align_no_epsg_reference_method_passthrough(
+        self, three_files, align_ref
+    ):
+        """Deferred align to a no-EPSG reference forwards ``method=`` too.
+
+        Test scenario:
+            A no-EPSG reference takes the direct (non-``Aligner``) branch, whose
+            deferred arm is ``dask.delayed(ds.align)(ref, method=method)``. Computing
+            the ``Delayed`` must yield a collection on the reference (EPSG-less) CRS.
+        """
+        ref = align_ref.to_crs(
+            "+proj=ortho +lat_0=0 +lon_0=0 +datum=WGS84 +units=m +no_defs"
+        )
+        assert ref.epsg is None, "reference must be EPSG-less for this path"
+
+        collection = DatasetCollection.from_files(three_files)
+        result = collection.align(ref, method="bilinear", compute=False).compute()
+        assert result.base.epsg is None, (
+            f"aligned collection must adopt the reference CRS, got {result.base.epsg}"
+        )
+        assert result.time_length == 3, (
+            f"time_length should be preserved, got {result.time_length}"
+        )
