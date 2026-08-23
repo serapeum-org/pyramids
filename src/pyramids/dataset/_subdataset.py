@@ -1,0 +1,68 @@
+"""The :class:`SubDataset` value object — one nested raster inside a container.
+
+A *container* raster has no pixels of its own; its payload is a set of named
+sub-rasters that GDAL calls **subdatasets**. Containers are how GDAL models
+NetCDF, HDF4/HDF5, Zarr, GRIB, WMS/WMTS, and the Sentinel-1 (`SAFE`) and
+Sentinel-2 (`SENTINEL2`) products. `SubDataset` is a lightweight, picklable
+description of one such nested raster — its openable connection string, GDAL's
+own blurb, and its position in the container's list — with :meth:`SubDataset.open`
+to materialise it.
+
+The description string is driver-specific (a Sentinel-2 entry looks nothing like
+a NetCDF one), so this value object deliberately exposes it **raw** and parses
+nothing; a format-specific layer parses it if it needs to.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pyramids.dataset.dataset import Dataset
+
+
+@dataclass(frozen=True)
+class SubDataset:
+    """One nested raster inside a container, as GDAL reports it.
+
+    Attributes:
+        name: The fully-qualified GDAL connection string for the subdataset (for
+            example ``'SENTINEL2_L2A:/path/MTD_MSIL2A.xml:60m:EPSG_32632'`` or
+            ``'NETCDF:"file.nc":temperature'``). It is openable on its own.
+        description: GDAL's human-readable description of the subdataset. Its
+            format is driver-specific — do not parse it generically.
+        index: The 0-based position of this subdataset in the container's list.
+
+    Examples:
+        - A subdataset carries the openable name, GDAL's description, and its index:
+            ```python
+            >>> from pyramids.dataset._subdataset import SubDataset
+            >>> sd = SubDataset(name='NETCDF:"f.nc":temp', description='[2x3] temp', index=0)
+            >>> sd.name
+            'NETCDF:"f.nc":temp'
+            >>> sd.index
+            0
+
+            ```
+    """
+
+    name: str
+    description: str
+    index: int
+
+    def open(self) -> Dataset:
+        """Open this subdataset as a base :class:`~pyramids.dataset.dataset.Dataset`.
+
+        Returns:
+            Dataset: The opened subdataset. This always returns a **base**
+            ``Dataset``; to preserve the parent container's concrete class (e.g.
+            keep a ``NetCDF`` a ``NetCDF``), call
+            :meth:`~pyramids.dataset.dataset.Dataset.open_subdataset` on the parent
+            instead.
+        """
+        # Local import: breaks the _subdataset -> dataset -> abstract_dataset ->
+        # _subdataset cycle (abstract_dataset imports SubDataset at module load).
+        from pyramids.dataset.dataset import Dataset
+
+        return Dataset.read_file(self.name)
