@@ -2,7 +2,7 @@
 
 Covers the `SubDataset` value object, `RasterBase.subdatasets` enumeration,
 `Dataset.open_subdataset`, and the domain-aware `get_meta_data` / `set_meta_data`
-/ `metadata_domains` accessors — including that a `NetCDF` container inherits
+/ `meta_data_domains` accessors — including that a `NetCDF` container inherits
 `subdatasets` without losing its own variable surface.
 """
 
@@ -144,6 +144,29 @@ class TestOpenSubdataset:
         with pytest.raises(TypeError, match="int index or a str name"):
             container.open_subdataset(1.5)  # type: ignore[arg-type]
 
+    def test_open_subdataset_carries_access_mode(self, container):
+        """The child is opened in the parent container's access mode."""
+        child = container.open_subdataset(0)
+        assert child.access == container.access, (
+            f"child access {child.access!r} must match parent {container.access!r}"
+        )
+
+    def test_open_subdataset_forwards_open_context(self, container, mocker):
+        """open_subdataset forwards access mode, gdal_env, and open options to read_file."""
+        container._open_options = ("HONOUR_VALID_RANGE=NO",)
+        sentinel = object()
+        patched = mocker.patch.object(Dataset, "read_file", return_value=sentinel)
+        result = container.open_subdataset(0)
+        assert result is sentinel, "open_subdataset must return read_file's result"
+        _, kwargs = patched.call_args
+        assert kwargs["read_only"] == (container.access == "read_only"), (
+            "parent access mode must be forwarded"
+        )
+        assert kwargs["open_options"] == ["HONOUR_VALID_RANGE=NO"], (
+            "parent open options must be forwarded to the child open"
+        )
+        assert "gdal_env" in kwargs, "gdal_env must be forwarded to read_file"
+
 
 class TestNetCDFRegression:
     """A NetCDF container inherits `subdatasets` without losing its own surface."""
@@ -168,17 +191,17 @@ class TestMetadataDomains:
         result = plain.get_meta_data("IMAGE_STRUCTURE")
         assert isinstance(result, dict), f"expected a dict, got {type(result)}"
 
-    def test_metadata_domains_is_list_of_str(self, plain):
-        """`metadata_domains` is a list of domain names (None normalised away)."""
-        domains = plain.metadata_domains
-        assert isinstance(domains, list), "metadata_domains must be a list"
+    def test_meta_data_domains_is_list_of_str(self, plain):
+        """`meta_data_domains` is a list of domain names (None normalised away)."""
+        domains = plain.meta_data_domains
+        assert isinstance(domains, list), "meta_data_domains must be a list"
         assert all(isinstance(d, str) for d in domains), "entries must be str"
 
     def test_set_meta_data_round_trips_a_custom_domain(self, plain):
         """A custom domain can be written and read back, and appears in the list."""
         plain.set_meta_data({"A": "1", "B": "2"}, domain="MYDOMAIN")
         assert plain.get_meta_data("MYDOMAIN") == {"A": "1", "B": "2"}, "round-trip"
-        assert "MYDOMAIN" in plain.metadata_domains, "written domain must be listed"
+        assert "MYDOMAIN" in plain.meta_data_domains, "written domain must be listed"
 
     def test_set_meta_data_replaces_the_domain(self, plain):
         """The setter replaces a domain's metadata rather than merging."""
@@ -202,12 +225,25 @@ class TestMetadataDomains:
         result = plain.get_meta_data("xml:TEST")
         assert result == ["<root>hi</root>"], f"xml domain must be a list, got {result!r}"
 
-    def test_metadata_domains_normalizes_none(self, plain, mocker):
+    def test_set_meta_data_writes_xml_domain_as_list(self, plain):
+        """An xml:* domain round-trips through set_meta_data as a single-element list."""
+        plain.set_meta_data(["<root>v</root>"], domain="xml:FOO")
+        result = plain.get_meta_data("xml:FOO")
+        assert result == ["<root>v</root>"], f"xml domain must round-trip, got {result!r}"
+
+    def test_set_meta_data_empty_dict_empties_keys_but_keeps_domain(self, plain):
+        """Assigning {} empties a domain's keys while the domain name stays listed."""
+        plain.set_meta_data({"A": "1"}, domain="D")
+        plain.set_meta_data({}, domain="D")
+        assert plain.get_meta_data("D") == {}, "an empty dict must empty the domain keys"
+        assert "D" in plain.meta_data_domains, "the emptied domain name is still listed"
+
+    def test_meta_data_domains_normalizes_none(self, plain, mocker):
         """A GDAL handle returning None for the domain list normalises to []."""
         mocker.patch.object(
             plain._raster, "GetMetadataDomainList", return_value=None
         )
-        assert plain.metadata_domains == [], "None must normalise to an empty list"
+        assert plain.meta_data_domains == [], "None must normalise to an empty list"
 
     def test_meta_data_setter_still_merges(self, plain):
         """The existing `meta_data` setter is unchanged (per-key merge)."""
