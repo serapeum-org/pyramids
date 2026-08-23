@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import Any
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class ReadRequest:
     """A validated bundle of ``read_array`` options plus the resolved read target.
 
@@ -36,8 +36,8 @@ class ReadRequest:
         boundless: Whether to pad reads that extend past the raster edge.
         fill_value: Pad value for boundless reads.
         masked: Whether to wrap the result as a masked array.
-        scaled: Whether to apply each band's GDAL scale/offset (``raw*scale +
-            offset``) to the read result.
+        scaled: Whether to apply each band's GDAL scale/offset
+            (``raw * scale + offset``) to the read result.
         threadsafe: Whether to read through a private per-thread handle.
 
     Examples:
