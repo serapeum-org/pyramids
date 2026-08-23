@@ -156,13 +156,12 @@ def _accessor_name_conflict(name: str) -> bool:
     """
     conflict = name in _RESERVED_ACCESSOR_NAMES
     if not conflict:
+        # Walk Dataset's subclass DAG (Dataset -> NetCDF -> Variable/Container, plus any
+        # third-party subclass). `__subclasses__()` only yields more-derived classes, so
+        # the walk always terminates without needing a visited set.
         classes = [Dataset]
-        seen: set[type] = set()
         while classes:
             cls = classes.pop()
-            if cls in seen:
-                continue
-            seen.add(cls)
             if hasattr(cls, name):
                 conflict = True
                 break
