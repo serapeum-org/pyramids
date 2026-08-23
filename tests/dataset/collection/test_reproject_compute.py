@@ -166,9 +166,7 @@ class TestAlignCompute:
             a collection on the reference grid (the method is forwarded, not dropped).
         """
         collection = DatasetCollection.from_files(three_files)
-        result = collection.align(
-            align_ref, method="bilinear", compute=False
-        ).compute()
+        result = collection.align(align_ref, method="bilinear", compute=False).compute()
         assert result.base.rows == align_ref.rows, (
             f"aligned rows {result.base.rows} != reference {align_ref.rows}"
         )
