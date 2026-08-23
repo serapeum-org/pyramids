@@ -499,21 +499,129 @@ class TestAlign:
 
     def test_align_bilinear_lands_on_template_grid_and_differs_from_nearest(self):
         """`method="bilinear"` resamples onto the template's exact grid and, on a
-        gradient, produces values distinct from nearest neighbor."""
+        gradient, produces values distinct from nearest neighbor.
+
+        Test scenario:
+            Upsample a 5x5 gradient onto a co-extensive 10x10 template. The output
+            adopts the template's grid (rows/cols/epsg/geotransform) and, because
+            the source is a gradient, its values must differ from nearest (proving
+            bilinear actually interpolated rather than replicating blocks).
+        """
         source, template = self._gradient_source_and_template()
         bilinear = source.align(template, method="bilinear")
         nearest = source.align(template, method="nearest")
 
-        assert (bilinear.rows, bilinear.columns, bilinear.epsg) == (10, 10, 4326)
-        assert bilinear.geotransform == template.geotransform
-        # Bilinear must actually interpolate — not fall back to block replication.
-        assert not np.allclose(bilinear.read_array(), nearest.read_array())
+        assert (bilinear.rows, bilinear.columns, bilinear.epsg) == (10, 10, 4326), (
+            f"bilinear align must land on the template grid, got "
+            f"{(bilinear.rows, bilinear.columns, bilinear.epsg)}"
+        )
+        assert bilinear.geotransform == template.geotransform, (
+            "bilinear align must copy the template geotransform exactly"
+        )
+        assert not np.allclose(bilinear.read_array(), nearest.read_array()), (
+            "bilinear must interpolate, not fall back to nearest block replication"
+        )
+
+    @pytest.mark.parametrize(
+        "method",
+        ["nearest", "bilinear", "cubic", "cubic_spline", "lanczos", "average", "mode"],
+    )
+    def test_align_supported_methods_land_on_template_grid(self, method):
+        """Every supported (non version-gated) method lands on the template grid.
+
+        Args:
+            method: A resampling-method name accepted by `resolve_resampling`.
+
+        Test scenario:
+            For each algorithm, `align` must run without error and return a raster
+            on the template's exact 10x10 / EPSG:4326 grid — verifying the name is
+            forwarded all the way into `gdal.ReprojectImage`.
+        """
+        source, template = self._gradient_source_and_template()
+        aligned = source.align(template, method=method)
+        assert (aligned.rows, aligned.columns, aligned.epsg) == (10, 10, 4326), (
+            f"method={method!r} must land on the template grid, got "
+            f"{(aligned.rows, aligned.columns, aligned.epsg)}"
+        )
+
+    @pytest.mark.parametrize("alias", ["NEAREST", "  Nearest Neighbor  ", "nearest"])
+    def test_align_method_is_case_and_whitespace_insensitive(self, alias):
+        """Method names are normalised the same way `to_crs` normalises them.
+
+        Args:
+            alias: A spelling of the nearest-neighbor method differing only in case
+                or surrounding whitespace.
+
+        Test scenario:
+            Each alias must produce byte-identical output to the canonical
+            `"nearest"`, confirming `align` defers name handling to
+            `resolve_resampling` (which lower-cases and strips).
+        """
+        source, template = self._gradient_source_and_template()
+        canonical = source.align(template, method="nearest")
+        aliased = source.align(template, method=alias)
+        np.testing.assert_array_equal(
+            aliased.read_array(),
+            canonical.read_array(),
+            err_msg=f"alias {alias!r} should resample identically to 'nearest'",
+        )
 
     def test_align_invalid_method_raises(self):
-        """An unsupported method name is rejected (same validator as `to_crs`)."""
+        """An unsupported method name raises `ValueError` (same validator as `to_crs`).
+
+        Test scenario:
+            A bogus name must raise `ValueError` whose message reports it "does not
+            exist" and lists the valid set, matching `resolve_resampling`.
+        """
         source, template = self._gradient_source_and_template()
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="does not exist") as exc_info:
             source.align(template, method="not-a-real-method")
+        assert "not-a-real-method" in str(exc_info.value), (
+            f"error should echo the bad method name, got: {exc_info.value}"
+        )
+
+    def test_align_non_string_method_raises_type_error(self):
+        """A non-string method raises `TypeError` before any warp runs.
+
+        Test scenario:
+            Passing an int must raise `TypeError` ("must be a string") from the
+            up-front `resolve_resampling` guard, not an obscure GDAL failure later.
+        """
+        source, template = self._gradient_source_and_template()
+        with pytest.raises(TypeError, match="must be a string"):
+            source.align(template, method=3)
+
+    def test_align_non_dataset_template_raises_type_error(self):
+        """A non-`RasterBase` template raises `TypeError`.
+
+        Test scenario:
+            Passing a plain string (not a `Dataset`) as the alignment template must
+            raise `TypeError` telling the caller to pass a `Dataset`.
+        """
+        source, _ = self._gradient_source_and_template()
+        with pytest.raises(TypeError, match="should be a Dataset"):
+            source.align("not-a-dataset", method="nearest")
+
+    def test_align_bilinear_across_different_crs(self):
+        """`method` is forwarded through the intermediate reprojection too.
+
+        Test scenario:
+            When source and template CRSes differ, `align` first reprojects via
+            `to_crs` and then resamples onto the template grid. A EPSG:4326 source
+            aligned to an EPSG:3857 template with `method="bilinear"` must adopt the
+            template's CRS and grid, exercising the different-CRS branch (the
+            `to_crs(target_crs, method=...)` call) rather than the same-CRS shortcut.
+        """
+        source, _ = self._gradient_source_and_template()
+        template = source.to_crs(to_epsg=3857)
+        aligned = source.align(template, method="bilinear")
+        assert aligned.epsg == 3857, f"expected EPSG:3857, got {aligned.epsg}"
+        assert (aligned.rows, aligned.columns) == (template.rows, template.columns), (
+            "aligned raster must match the template's row/column count"
+        )
+        assert aligned.geotransform == template.geotransform, (
+            "aligned raster must copy the template geotransform exactly"
+        )
 
     def test_align_bilinear_template_crs_no_epsg(self):
         """DoD: works when the template CRS is a PROJ4 string with no EPSG code."""

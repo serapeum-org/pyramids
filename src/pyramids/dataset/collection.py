@@ -3349,6 +3349,11 @@ class DatasetCollection:
             `inplace=False`; `None` when `inplace=True`; a `Delayed` when
             `compute=False`.
 
+        Raises:
+            TypeError: `alignment_src` is not a `Dataset`, or `method` is not a string.
+            ValueError: `method` is not one of the supported interpolation methods, or
+                `compute=False` is combined with `inplace=True`.
+
         Examples:
             - Align every timestep to a DEM template:
 

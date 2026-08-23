@@ -225,6 +225,35 @@ class TestAlign:
         with pytest.raises(ValueError):
             cube.align(mask_obj, method="not-a-real-method")
 
+    def test_align_no_epsg_reference_method_passthrough(self, three_files):
+        """`method=` reaches the direct (non-`Aligner`) path for a no-EPSG reference.
+
+        Test scenario:
+            A reference whose CRS has no EPSG code (a bespoke orthographic PROJ4
+            string) cannot go through the plan-once `Aligner`, so `align` falls back
+            to calling `Dataset.align` per timestep. The `method` must still be
+            forwarded, and every timestep must land on the reference's CRS.
+        """
+        ref_4326 = Dataset.create_from_array(
+            np.zeros((2, 3), dtype=np.float32),
+            top_left_corner=(0.0, 4.0),
+            cell_size=2.0,
+            epsg=4326,
+        )
+        ref = ref_4326.to_crs(
+            "+proj=ortho +lat_0=0 +lon_0=0 +datum=WGS84 +units=m +no_defs"
+        )
+        assert ref.epsg is None, "reference must be EPSG-less for this path"
+
+        collection = DatasetCollection.from_files(three_files)
+        aligned = collection.align(ref, method="bilinear")
+        assert aligned.base.epsg is None, (
+            f"aligned collection must adopt the reference CRS, got {aligned.base.epsg}"
+        )
+        assert aligned.time_length == 3, (
+            f"time_length should be preserved, got {aligned.time_length}"
+        )
+
 
 class TestSaveDatasetCollection:
     def test_to_geotiff_with_path(

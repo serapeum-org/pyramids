@@ -210,9 +210,16 @@ def _deferred_align(reference: Dataset, method: str, ds: Dataset) -> Any:
 
 
 def _align_sync(reference: Dataset, method: str, ds: Dataset) -> Dataset:
-    """Synchronous align body — module-level for pickleability.
+    """Synchronous align body — module-level so it stays picklable for ``dask``.
 
-    `method` is the resampling algorithm name forwarded to
-    :meth:`Dataset.align` (nearest neighbor by default).
+    Args:
+        reference: The :class:`~pyramids.dataset.Dataset` whose geobox (CRS, rows,
+            columns, cell size) ``ds`` is aligned to.
+        method: Resampling method name forwarded to :meth:`Dataset.align`
+            (nearest neighbor by default).
+        ds: The source :class:`~pyramids.dataset.Dataset` to align.
+
+    Returns:
+        Dataset: ``ds`` resampled onto ``reference``'s grid with ``method``.
     """
     return ds.align(reference, method=method)
