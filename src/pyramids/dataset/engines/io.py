@@ -42,7 +42,7 @@ from pyramids.base._file_manager import (
     gdal_raster_open,
 )
 from pyramids.base._locks import DummyLock, default_lock
-from pyramids.base._utils import resolve_resampling
+from pyramids.base._utils import apply_unpack, resolve_resampling
 from pyramids.base.crs import crs_from_user_input, crs_spec, reproject_coordinates
 from pyramids.base.protocols import ArrayLike
 from pyramids.base.remote import is_network_backed
@@ -438,6 +438,7 @@ class IO(_Engine["Dataset"]):
         boundless: bool = False,
         fill_value: float | None = None,
         masked: bool = False,
+        scaled: bool = False,
         threadsafe: bool = False,
         bbox_rounding: str = "cover",
     ) -> ArrayLike:
@@ -563,6 +564,23 @@ class IO(_Engine["Dataset"]):
                 combining it with `chunks` or `threadsafe=True` raises
                 :class:`NotImplementedError`. Default is `False` (plain
                 array, unchanged behaviour).
+            scaled (bool, keyword-only):
+                When `True`, return real-world values by applying each
+                band's GDAL scale/offset as float — `real = raw * scale +
+                offset`, via `GetScale()`/`GetOffset()`. A band that
+                declares neither is returned unchanged (no float
+                promotion); when any selected band declares a scale or
+                offset the result is promoted to `float64`. Composes with
+                every read path (`window`, `bbox`, `out_shape`,
+                `boundless`, `masked`, `threadsafe`, and the lazy `chunks=`
+                path, where the scaling stays lazy as `dask` arithmetic).
+                With `masked=True` the mask is preserved and masked cells
+                are not exposed as scaled; with `masked=False` a declared
+                `no_data_value` sentinel **is** scaled (use `masked=True`
+                to keep it out of the values). On a NetCDF the equivalent
+                knob is `unpack=True`; both share the same primitive.
+                Default is `False` (raw stored values, unchanged
+                behaviour).
             threadsafe (bool, keyword-only):
                 Opt into per-thread GDAL handles so concurrent reads from
                 multiple threads never share a handle (same-handle
@@ -784,9 +802,51 @@ class IO(_Engine["Dataset"]):
         strategy = next(s for s in READ_STRATEGIES if s.matches(req))
         arr = strategy.read(self, req, window)
         self._ds._backend = strategy.backend
+        if scaled:
+            arr = self._apply_scale_offset(arr, band)
         # arr is assembled through many untyped GDAL/dask branches inside the
         # strategy; this is the method's own declared contract.
         return cast("ArrayLike", arr)
+
+    def _apply_scale_offset(self, arr: Any, band: int | None) -> Any:
+        """Apply each band's raw GDAL scale/offset to a read result.
+
+        Fetches the raw ``GetScale()``/``GetOffset()`` (``None`` when unset,
+        unlike the normalizing :attr:`Bands.scale`/:attr:`Bands.offset`), so a
+        band that declares neither is returned unchanged. Funnels the arithmetic
+        through the shared :func:`~pyramids.base._utils.apply_unpack` primitive,
+        broadcasting a per-band ``(bands, 1, 1)`` scale/offset for an all-bands
+        (3-D) read. Works uniformly on eager numpy, masked, and lazy dask arrays.
+
+        Args:
+            arr: The array returned by the read — 2-D for a single/one-band
+                read, 3-D ``(bands, rows, cols)`` for an all-bands read.
+            band: The band index the read resolved to, or ``None`` for an
+                all-bands read.
+
+        Returns:
+            The scaled array (``float64`` when any band declares a scale/offset),
+            or ``arr`` unchanged when no selected band declares either.
+        """
+        if arr.ndim == 2:
+            index = 0 if band is None else band
+            gdal_band = self._ds._iloc(index)
+            result = apply_unpack(arr, gdal_band.GetScale(), gdal_band.GetOffset())
+        else:
+            gdal_bands = [self._ds._iloc(i) for i in range(arr.shape[0])]
+            scales = [b.GetScale() for b in gdal_bands]
+            offsets = [b.GetOffset() for b in gdal_bands]
+            if all(s is None for s in scales) and all(o is None for o in offsets):
+                result = arr
+            else:
+                scale_arr = np.asarray(
+                    [1.0 if s is None else s for s in scales], dtype=np.float64
+                ).reshape(-1, 1, 1)
+                offset_arr = np.asarray(
+                    [0.0 if o is None else o for o in offsets], dtype=np.float64
+                ).reshape(-1, 1, 1)
+                result = apply_unpack(arr, scale_arr, offset_arr)
+        return result
 
     def _reopen_open_options(self) -> dict[str, tuple[str, ...]] | None:
         """Opener kwargs carrying the dataset's GDAL open options, or ``None``.
