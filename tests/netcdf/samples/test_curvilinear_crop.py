@@ -7,6 +7,8 @@ bounding ``(row, col)`` index window — keeping the windowed 2-D coordinates so
 curvilinear.
 """
 
+import warnings
+
 import geopandas as gpd
 import numpy as np
 import pytest
@@ -180,6 +182,20 @@ def test_curvilinear_bbox_declines_for_fill_sentinel_coords():
         assert var._curvilinear_bbox_geotransform(var) is None, (
             "a fill-sentinel longitude must not inflate the bounding box"
         )
+    finally:
+        nc.close()
+
+
+def test_curvilinear_bbox_declines_for_all_nan_coords():
+    """All-NaN 2-D coords decline cleanly, with no numpy 'All-NaN slice' warning (#1039 N2)."""
+    lon2d = np.full((6, 8), np.nan)
+    lat2d = np.full((6, 8), np.nan)
+    nc, var = _synthetic_curvilinear(lon2d, lat2d)
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            result = var._curvilinear_bbox_geotransform(var)
+        assert result is None, "all-NaN coords must decline to the index-space fallback"
     finally:
         nc.close()
 
