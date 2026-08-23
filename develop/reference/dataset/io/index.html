@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -11042,8 +11042,8 @@ round-trips to the source elevation within one <code>interval</code>.</p>
 <a id="__codelineno-0-804" name="__codelineno-0-804"></a>        <span class="n">arr</span> <span class="o">=</span> <span class="n">strategy</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">req</span><span class="p">,</span> <span class="n">window</span><span class="p">)</span>
 <a id="__codelineno-0-805" name="__codelineno-0-805"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">_backend</span> <span class="o">=</span> <span class="n">strategy</span><span class="o">.</span><span class="n">backend</span>
 <a id="__codelineno-0-806" name="__codelineno-0-806"></a>        <span class="c1"># Applied post-dispatch (not inside a strategy) because scaling is a uniform</span>
-<a id="__codelineno-0-807" name="__codelineno-0-807"></a>        <span class="c1"># arithmetic transform over whatever backend the strategy returns (numpy /</span>
-<a id="__codelineno-0-808" name="__codelineno-0-808"></a>        <span class="c1"># masked / dask) — unlike `masked`, which each strategy owns or rejects.</span>
+<a id="__codelineno-0-807" name="__codelineno-0-807"></a>        <span class="c1"># arithmetic transform over whatever array the strategy returns — plain,</span>
+<a id="__codelineno-0-808" name="__codelineno-0-808"></a>        <span class="c1"># masked, or dask — unlike `masked`, which each strategy owns or rejects.</span>
 <a id="__codelineno-0-809" name="__codelineno-0-809"></a>        <span class="k">if</span> <span class="n">req</span><span class="o">.</span><span class="n">scaled</span><span class="p">:</span>
 <a id="__codelineno-0-810" name="__codelineno-0-810"></a>            <span class="n">arr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_apply_scale_offset</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">req</span><span class="o">.</span><span class="n">band</span><span class="p">)</span>
 <a id="__codelineno-0-811" name="__codelineno-0-811"></a>        <span class="c1"># arr is assembled through many untyped GDAL/dask branches inside the</span>
@@ -15885,8 +15885,8 @@ bbox) reprojects outside the target CRS's valid domain.</p>
 <a id="__codelineno-0-804" name="__codelineno-0-804"></a>    <span class="n">arr</span> <span class="o">=</span> <span class="n">strategy</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">req</span><span class="p">,</span> <span class="n">window</span><span class="p">)</span>
 <a id="__codelineno-0-805" name="__codelineno-0-805"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">_backend</span> <span class="o">=</span> <span class="n">strategy</span><span class="o">.</span><span class="n">backend</span>
 <a id="__codelineno-0-806" name="__codelineno-0-806"></a>    <span class="c1"># Applied post-dispatch (not inside a strategy) because scaling is a uniform</span>
-<a id="__codelineno-0-807" name="__codelineno-0-807"></a>    <span class="c1"># arithmetic transform over whatever backend the strategy returns (numpy /</span>
-<a id="__codelineno-0-808" name="__codelineno-0-808"></a>    <span class="c1"># masked / dask) — unlike `masked`, which each strategy owns or rejects.</span>
+<a id="__codelineno-0-807" name="__codelineno-0-807"></a>    <span class="c1"># arithmetic transform over whatever array the strategy returns — plain,</span>
+<a id="__codelineno-0-808" name="__codelineno-0-808"></a>    <span class="c1"># masked, or dask — unlike `masked`, which each strategy owns or rejects.</span>
 <a id="__codelineno-0-809" name="__codelineno-0-809"></a>    <span class="k">if</span> <span class="n">req</span><span class="o">.</span><span class="n">scaled</span><span class="p">:</span>
 <a id="__codelineno-0-810" name="__codelineno-0-810"></a>        <span class="n">arr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_apply_scale_offset</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">req</span><span class="o">.</span><span class="n">band</span><span class="p">)</span>
 <a id="__codelineno-0-811" name="__codelineno-0-811"></a>    <span class="c1"># arr is assembled through many untyped GDAL/dask branches inside the</span>
