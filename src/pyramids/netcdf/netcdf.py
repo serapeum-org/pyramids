@@ -5222,6 +5222,13 @@ class NetCDF(Dataset):
             or ``None`` when the variable is not curvilinear or its 2-D coordinates are
             unreadable, mis-shaped, or degenerate — leaving the caller's fallback in place.
         """
+        # A degrees bounding box is only meaningful under a geographic CRS. A projected or
+        # rotated grid whose 2-D aux coords are lon/lat would otherwise get a degrees affine
+        # stamped under its metre CRS; this also skips the resolver read for a variable that
+        # carries no geographic CRS at all (round-1 review L1/N3).
+        crs = cube.crs
+        if not crs or not sr_from_wkt(crs).IsGeographic():
+            return None
         curv = NetCDFPlot(cube)._resolve_curvilinear_coords(cube, coords=None)
         if curv is None:
             return None
@@ -5235,14 +5242,23 @@ class NetCDF(Dataset):
             or lat2d.shape != expected
             or cube.rows < 2
             or cube.columns < 2
+            or not np.isfinite(lon2d).any()
+            or not np.isfinite(lat2d).any()
         ):
             return None
         x_min, x_max = float(np.nanmin(lon2d)), float(np.nanmax(lon2d))
         y_min, y_max = float(np.nanmin(lat2d)), float(np.nanmax(lat2d))
+        # Masked cells can carry a large finite _FillValue sentinel (ReadAsArray is raw), which
+        # np.nanmax would pick up. Reject a box outside plausible geographic bounds rather than
+        # trust a fabricated extent (round-1 review L2).
         if (
             not np.isfinite([x_min, x_max, y_min, y_max]).all()
             or x_max <= x_min
             or y_max <= y_min
+            or x_min < -360.0
+            or x_max > 360.0
+            or y_min < -90.0
+            or y_max > 90.0
         ):
             return None
         # A grid crossing the antimeridian stores longitudes clustered at both ends of the
