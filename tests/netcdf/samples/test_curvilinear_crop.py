@@ -23,6 +23,7 @@ pytestmark = pytest.mark.core
 
 ROMS = "cf__8v__1d3-2d3-3d1-4d1__curv-stag.nc"
 RASM = "none__4v__1d1-2d2-3d1__curv.nc"
+NONE5V = "none__5v__1d2-2d2-3d1__curv.nc"
 
 
 def _fc(coords):
@@ -82,6 +83,35 @@ def test_rasm_curvilinear_geotransform_is_geographic_not_index(sample):
         assert tair.epsg == 4326, f"curvilinear CRS must stay WGS84, got {tair.epsg}"
         assert (xmin, dx, dy) != (0.0, 1.0, -1.0), "geotransform is still index-space"
         assert -91.0 <= ymin < ymax <= 91.0, f"lat not geographic: [{ymin}, {ymax}]"
+    finally:
+        nc.close()
+
+
+def test_none5v_not_confidently_curvilinear_stays_index_and_ungeoreferenced(sample):
+    """A file whose 2-D lat/lon don't resolve as curvilinear keeps the index grid + no CRS (#1039).
+
+    ``none__5v`` (McIDAS image bands) carries 2-D lat/lon, but the curvilinear resolver rejects them, so
+    ``_curvilinear_bbox_geotransform`` must decline (its ``curv is None`` guard) and leave the caller's
+    fallback in place: the ``data`` variable keeps the index-space placeholder ``(0, 1, 0, rows, 0, -1)``
+    and reports no EPSG — the else-branch fallback must never fabricate a geographic affine or a CRS here.
+    """
+    nc = NetCDF.read_file(sample(NONE5V))
+    try:
+        data = nc.get_variable("data")
+        resolved = NetCDFPlot(data)._resolve_curvilinear_coords(data, coords=None)
+        assert resolved is None, (
+            "guard premise: the resolver must reject none__5v's 2-D coords"
+        )
+        assert data.epsg is None, (
+            f"ungeoreferenced file must keep epsg None, got {data.epsg}"
+        )
+        xmin, dx, _, ymax, _, dy = data.geotransform
+        assert (xmin, dx, dy) == (0.0, 1.0, -1.0), (
+            f"geotransform must stay index-space, got {data.geotransform}"
+        )
+        assert ymax == float(data.rows), (
+            f"index-space origin must be (0, rows={data.rows}), got ymax={ymax}"
+        )
     finally:
         nc.close()
 
