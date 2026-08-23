@@ -5207,9 +5207,12 @@ class NetCDF(Dataset):
         that tagged with the grid's real CRS is a fabricated georeference that misplaces the
         data (#1039). Derive instead a north-up affine spanning the real lon/lat bounding
         box, so the variable is georeferenced to its true geographic extent. This is an
-        approximation of the curved grid — the domain is placed correctly, individual cells
-        only approximately — but it reflects the data's real location instead of pixel
-        indices, and pairs honestly with the WGS 84 CRS the coordinates already imply.
+        approximation of the curved grid — for a non-wrapping grid the bounding box is placed
+        correctly, individual cells only approximately — but it reflects the data's real
+        location instead of pixel indices, and pairs honestly with the WGS 84 CRS the
+        coordinates already imply. A grid crossing the antimeridian declines instead (the raw
+        min/max would span nearly the whole globe); its per-cell answer is the GEOLOCATION
+        domain (#1033).
 
         Args:
             cube: The variable subset whose 2-D coordinates georeference the grid.
@@ -5242,6 +5245,16 @@ class NetCDF(Dataset):
             or y_max <= y_min
         ):
             return None
+        # A grid crossing the antimeridian stores longitudes clustered at both ends of the
+        # range with a wide empty gap between, so raw min/max span nearly the whole globe and
+        # misplace the domain in x. Decline (leave the index-space placeholder) rather than
+        # fabricate a globe-spanning affine. A contiguous grid — including a genuinely
+        # circumpolar one whose longitudes fill the circle without a gap — has no such gap. The
+        # cheap span pre-check keeps the sort off the common (narrow-domain) path (#1039).
+        if (x_max - x_min) > 180.0:
+            finite_lon = np.sort(lon2d[np.isfinite(lon2d)].ravel())
+            if finite_lon.size >= 2 and float(np.max(np.diff(finite_lon))) > 180.0:
+                return None
         x_cell = (x_max - x_min) / (cube.columns - 1)
         y_cell = (y_max - y_min) / (cube.rows - 1)
         return (x_min - x_cell / 2, x_cell, 0.0, y_max + y_cell / 2, 0.0, -y_cell)
