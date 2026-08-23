@@ -833,13 +833,15 @@ class RasterBase(ABC):
         self._require_open()
         return cast("list[str]", self._raster.GetMetadataDomainList() or [])
 
-    def get_meta_data(self, domain: str = "") -> dict[str, str]:
+    def get_meta_data(self, domain: str = "") -> dict[str, str] | list[str]:
         """Read this dataset's metadata from a specific GDAL domain.
 
-        The domain-aware companion to :attr:`meta_data`. ``get_meta_data("")`` is
-        identical to :attr:`meta_data`; other domains expose GDAL's named metadata —
-        for example ``"IMAGE_STRUCTURE"`` (``COMPRESSION`` / ``INTERLEAVE`` /
-        ``NBITS``), ``"RPC"``, or an ``xml:*`` product-XML domain. Use
+        The domain-aware companion to :attr:`meta_data`. On a base :class:`Dataset`,
+        ``get_meta_data("")`` returns the same mapping as :attr:`meta_data`; on a
+        ``NetCDF`` the two differ — there :attr:`meta_data` is a processed
+        ``NetCDFMetadata`` while this returns the raw default-domain dict. Other
+        domains expose GDAL's named metadata, e.g. ``"IMAGE_STRUCTURE"``
+        (``COMPRESSION`` / ``INTERLEAVE`` / ``NBITS``) or ``"RPC"``. Use
         :attr:`metadata_domains` to see which domains exist.
 
         Args:
@@ -847,10 +849,12 @@ class RasterBase(ABC):
                 default domain.
 
         Returns:
-            dict[str, str]: The domain's metadata; ``{}`` when the domain is absent.
+            dict[str, str] | list[str]: The domain's metadata. Most domains return a
+            ``KEY=VALUE`` mapping (``{}`` when the domain is absent); an ``xml:*``
+            domain returns a list of one XML string, mirroring GDAL's ``GetMetadata``.
 
         Examples:
-            - The default domain matches :attr:`meta_data`:
+            - The default domain matches :attr:`meta_data` on a base ``Dataset``:
                 ```python
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
@@ -863,7 +867,7 @@ class RasterBase(ABC):
                 ```
         """
         self._require_open()
-        return cast("dict[str, str]", self._raster.GetMetadata(domain))
+        return cast("dict[str, str] | list[str]", self._raster.GetMetadata(domain))
 
     @staticmethod
     def get_x_lon_dimension_array(pivot_x, cell_size, columns) -> FloatArray:
