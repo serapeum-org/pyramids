@@ -31,8 +31,12 @@ class TestApplyUnpack:
 
     def test_scale_only_and_offset_only(self):
         """Scale-only and offset-only each apply their single operand."""
-        np.testing.assert_allclose(apply_unpack(np.array([1, 2]), 2.0, None), [2.0, 4.0])
-        np.testing.assert_allclose(apply_unpack(np.array([1, 2]), None, 3.0), [4.0, 5.0])
+        np.testing.assert_allclose(
+            apply_unpack(np.array([1, 2]), 2.0, None), [2.0, 4.0]
+        )
+        np.testing.assert_allclose(
+            apply_unpack(np.array([1, 2]), None, 3.0), [4.0, 5.0]
+        )
 
     def test_ndarray_broadcast(self):
         """A per-band (bands, 1, 1) scale/offset broadcasts over a 3-D array."""

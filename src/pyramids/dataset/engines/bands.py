@@ -611,7 +611,9 @@ class Bands(_Engine["Dataset"]):
             # harmless no-op on the VRT path, which carries units natively).
             src_units = self._ds.band_units
             for position, one_based in enumerate(indices):
-                out.GetRasterBand(position + 1).SetUnitType(src_units[one_based - 1] or "")
+                out.GetRasterBand(position + 1).SetUnitType(
+                    src_units[one_based - 1] or ""
+                )
         result = Dataset(out)
         return result
 

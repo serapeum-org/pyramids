@@ -17,7 +17,9 @@ MULTI_BANDS = "tests/data/geotiff/multi_bands.tif"
 def rich() -> Dataset:
     """A 4-band raster carrying per-band names/units/scale/offset/no-data/metadata."""
     arr = np.arange(4 * 4).reshape(4, 2, 2).astype("float32")
-    ds = Dataset.create_from_array(arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326)
+    ds = Dataset.create_from_array(
+        arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+    )
     ds.band_names = ["a", "b", "c", "d"]
     ds.band_units = ["m", "s", "kg", "K"]
     ds.scale = [0.1, 0.2, 0.3, 0.4]
