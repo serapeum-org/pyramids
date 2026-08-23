@@ -423,8 +423,8 @@ class Spatial(_Engine["Dataset"]):
                 (alias "nearest neighbor"), "bilinear", "cubic", "cubic_spline", "lanczos", "average",
                 "mode", "max", "min", "med", "q1", "q3", "sum", and "rms" (the GDAL warp algorithms;
                 "sum"/"rms" need GDAL >= 3.1/3.3). See https://gisgeography.com/raster-resampling/.
-                Note: the aggregating algorithms ("average", "mode", "med", "q1", "q3", "sum", "rms")
-                are not no-data-aware on this warp path — no-data cells inside a resampling kernel are
+                Note: the aggregating algorithms ("min", "max", "average", "mode", "med", "q1", "q3", "sum",
+                "rms") are not no-data-aware on this warp path — no-data cells inside a resampling kernel are
                 mixed into the result. Prefer "nearest" on rasters that carry a no-data marker.
             maintain_alignment (bool):
                 True to maintain the number of rows and columns of the raster the same after reprojection.
@@ -1467,17 +1467,28 @@ class Spatial(_Engine["Dataset"]):
             alignment_src (Dataset):
                 Spatial information source raster to get the spatial information (coordinate system, number of rows and
                 columns). The data values of the current dataset are resampled to this alignment.
-            method (str):
+            method (str, keyword-only):
                 Resampling method, case-insensitive. Default is "nearest neighbor". Accepts the same algorithm
                 names as :meth:`Spatial.to_crs`: "nearest" (alias "nearest neighbor"), "bilinear", "cubic",
                 "cubic_spline", "lanczos", "average", "mode", "max", "min", "med", "q1", "q3", "sum", and "rms"
                 (the GDAL warp algorithms; "sum"/"rms" need GDAL >= 3.1/3.3). The aggregating algorithms
-                ("average", "mode", "med", "q1", "q3", "sum", "rms") are not no-data-aware on this path — no-data
-                cells inside a resampling kernel are mixed into the result. Prefer "nearest" on rasters that carry
-                a no-data marker.
+                ("min", "max", "average", "mode", "med", "q1", "q3", "sum", "rms") are not no-data-aware on this
+                path — no-data cells inside a resampling kernel are mixed into the result. Prefer "nearest" on
+                rasters that carry a no-data marker.
 
         Returns:
             Dataset: A new aligned Dataset.
+
+        Note:
+            - **Output dtype follows the template, not the source.** The aligned raster is built with
+              `alignment_src`'s data type, so resampling a floating-point source onto an integer-typed template
+              with an interpolating `method` ("bilinear"/"cubic"/...) silently truncates the fractional results to
+              the template's integer type. Match the template dtype to the source, or use "nearest", to avoid it.
+            - **Cross-CRS aligns resample twice.** When the source and `alignment_src` CRSes differ, the data is
+              first reprojected onto an intermediate grid and then resampled onto the template grid, so a
+              non-nearest `method` is applied twice and the result is slightly more smoothed than a same-CRS align
+              with the identical `method`. The output grid is always exact; only pixel values differ. Reproject the
+              source to the template CRS first if a single-pass warp is needed.
 
         Examples:
             - The source dataset has a `top_left_corner` at (0, 0) with a 5*5 alignment, and a 0.05 degree cell size.
