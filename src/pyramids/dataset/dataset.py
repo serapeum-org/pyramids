@@ -2074,13 +2074,22 @@ class Dataset(RasterBase):
         self.__dict__.pop("_cf_crs_cache", None)
         self._epsg = self._get_epsg()
 
-    def set_meta_data(self, value: dict[str, str], domain: str = "") -> None:
+    def set_meta_data(
+        self, value: dict[str, str] | list[str], domain: str = ""
+    ) -> None:
         """Replace a *named* GDAL metadata domain.
 
         Writes ``value`` into ``domain`` with ``SetMetadata`` — a **replace**, not a
-        merge, consistent with the band-level
+        merge (the replace semantics match the band-level
         :meth:`Bands.set_metadata <pyramids.dataset.engines.Bands.set_metadata>`;
-        assigning ``{}`` clears the domain.
+        unlike it, this method **refuses the default domain** — see below). Assigning
+        ``{}`` (or ``[]``) empties the domain's keys, though the domain name itself may
+        still be listed by :attr:`meta_data_domains`.
+
+        Most domains take a ``KEY=VALUE`` mapping; an ``xml:*`` domain instead takes a
+        single-element ``list[str]`` of one XML document, mirroring what
+        :meth:`get_meta_data` returns for it (passing a ``dict`` to an ``xml:*`` domain
+        is a mistake — GDAL flattens it to ``["KEY=VALUE"]``).
 
         The **default** domain (``""``) is deliberately rejected: it holds
         GDAL/CF-managed keys — ``AREA_OR_POINT`` and the CF axis metadata that drives
@@ -2090,7 +2099,9 @@ class Dataset(RasterBase):
         refreshes those caches.
 
         Args:
-            value: The metadata mapping to write into ``domain``.
+            value: The metadata to write into ``domain`` — a ``dict[str, str]``
+                mapping for a ``KEY=VALUE`` domain, or a single-element ``list[str]``
+                for an ``xml:*`` domain.
             domain: The named GDAL metadata domain to write (for example
                 ``"IMAGE_STRUCTURE"``, ``"RPC"``, or a custom domain). The empty
                 default domain is not accepted.
@@ -2118,7 +2129,10 @@ class Dataset(RasterBase):
         a classic-mode raster reference, so it is opened as an ordinary raster
         (unlike :meth:`SubDataset.open`, this carries the parent's access mode, GDAL
         env, and open options). The parent's open options are reapplied verbatim to
-        the child open. For a ``NetCDF`` container, use
+        the child open. If the parent is open in update mode the child is opened in
+        update mode too; not every driver supports updating a subdataset connection
+        string, so a write-mode open can fail for some containers. For a ``NetCDF``
+        container, use
         :meth:`~pyramids.netcdf.netcdf.NetCDF.get_variable` / ``NetCDF.variables``
         instead when you want the multidimensional, ``NetCDF``-preserving view of a
         variable — those handle the multidim open a raw subdataset string cannot.
