@@ -1451,6 +1451,7 @@ class Spatial(_Engine["Dataset"]):
     def align(
         self,
         alignment_src: Dataset,
+        method: str = DEFAULT_RESAMPLING,
     ) -> Dataset:
         """Align the current dataset (rows and columns) to match a given dataset.
 
@@ -1458,12 +1459,21 @@ class Spatial(_Engine["Dataset"]):
             - The coordinate system
             - The number of rows and columns
             - Cell size
-        Then resamples values from the current dataset using the nearest neighbor interpolation.
+        Then resamples values from the current dataset onto that grid using ``method`` (nearest neighbor by
+        default, so the historical behaviour is unchanged).
 
         Args:
             alignment_src (Dataset):
                 Spatial information source raster to get the spatial information (coordinate system, number of rows and
                 columns). The data values of the current dataset are resampled to this alignment.
+            method (str):
+                Resampling method, case-insensitive. Default is "nearest neighbor". Accepts the same algorithm
+                names as :meth:`Spatial.to_crs`: "nearest" (alias "nearest neighbor"), "bilinear", "cubic",
+                "cubic_spline", "lanczos", "average", "mode", "max", "min", "med", "q1", "q3", "sum", and "rms"
+                (the GDAL warp algorithms; "sum"/"rms" need GDAL >= 3.1/3.3). The aggregating algorithms
+                ("average", "mode", "med", "q1", "q3", "sum", "rms") are not no-data-aware on this path — no-data
+                cells inside a resampling kernel are mixed into the result. Prefer "nearest" on rasters that carry
+                a no-data marker.
 
         Returns:
             Dataset: A new aligned Dataset.
@@ -1522,8 +1532,29 @@ class Spatial(_Engine["Dataset"]):
 
             ![align-result](./../../_images/dataset/align-result.png)
 
+            - Choose a different resampling method (e.g. bilinear) while still landing on the template's exact
+              grid. The default stays nearest neighbor, so only callers that opt in change behaviour:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
+              >>> source = Dataset.create_from_array(
+              ...     np.arange(25, dtype=np.float32).reshape(5, 5),
+              ...     top_left_corner=(0, 0), cell_size=0.05, epsg=4326,
+              ... )
+              >>> template = Dataset.create_from_array(
+              ...     np.zeros((10, 10), dtype=np.float32),
+              ...     top_left_corner=(0, 0), cell_size=0.025, epsg=4326,
+              ... )
+              >>> aligned = source.align(template, method="bilinear")
+              >>> (aligned.rows, aligned.columns, aligned.epsg)
+              (10, 10, 4326)
+
+              ```
+
         Raises:
-            TypeError: `alignment_src` is not a `RasterBase`.
+            TypeError: `alignment_src` is not a `RasterBase`, or `method` is not a string.
+            ValueError: `method` is not one of the supported interpolation methods.
             CRSError: Either raster has no CRS. Aligning needs both, and
                 pyramids will not assume WGS 84 for an unprojected grid
                 (ARC-26).
@@ -1535,6 +1566,10 @@ class Spatial(_Engine["Dataset"]):
                 "First parameter should be a Dataset read using Dataset.openRaster or a path to the raster, "
                 f"given {type(alignment_src)}"
             )
+
+        # Validate/resolve the method up front so a bad name is rejected before any warp runs, even on the
+        # same-CRS path (where `to_crs` below is skipped and would otherwise be the only validator).
+        resample_alg: int = resolve_resampling(method)
 
         # reproject the raster to match the projection of alignment_src
         # Both sides are required, and the check must sit OUTSIDE the inequality
@@ -1556,7 +1591,7 @@ class Spatial(_Engine["Dataset"]):
         # -- exactly that case -- so two spellings of one CRS would otherwise
         # warp the data through an identity transform.
         if not crs_equal(own_crs, target_crs):
-            reprojected_raster_b = self.to_crs(target_crs)  # type: ignore[assignment]
+            reprojected_raster_b = self.to_crs(target_crs, method=method)  # type: ignore[assignment]
         dst_obj = self._ds.__class__._build_dataset(
             src.columns,
             src.rows,
@@ -1566,14 +1601,13 @@ class Spatial(_Engine["Dataset"]):
             src.crs,
             self._ds.no_data_value,
         )
-        method = gdal.GRA_NearestNeighbour
-        # resample the reprojected_RasterB
+        # resample the reprojected_RasterB onto the freshly built target grid using the requested algorithm
         gdal.ReprojectImage(
             reprojected_raster_b.raster,
             dst_obj.raster,
             src.crs,
             src.crs,
-            method,
+            resample_alg,
         )
         # ReprojectImage moves only pixels onto the freshly built grid, so the
         # output would otherwise lose the class legend, RAT, and band/dataset

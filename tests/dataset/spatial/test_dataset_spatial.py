@@ -473,6 +473,64 @@ class TestAlign:
         assert dataset_aligned.columns == resampled_multi_band_dims[1]
         assert dataset.top_left_corner == dataset_aligned.top_left_corner
 
+    @staticmethod
+    def _gradient_source_and_template() -> tuple[Dataset, Dataset]:
+        """A 5x5 gradient source and a co-extensive 10x10 template (2x finer)."""
+        source = Dataset.create_from_array(
+            np.arange(25, dtype=np.float32).reshape(5, 5),
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.05,
+            epsg=4326,
+        )
+        template = Dataset.create_from_array(
+            np.zeros((10, 10), dtype=np.float32),
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.025,
+            epsg=4326,
+        )
+        return source, template
+
+    def test_align_default_is_nearest_unchanged(self):
+        """The default keeps the historical nearest-neighbor behaviour."""
+        source, template = self._gradient_source_and_template()
+        default = source.align(template)
+        nearest = source.align(template, method="nearest")
+        np.testing.assert_array_equal(default.read_array(), nearest.read_array())
+
+    def test_align_bilinear_lands_on_template_grid_and_differs_from_nearest(self):
+        """`method="bilinear"` resamples onto the template's exact grid and, on a
+        gradient, produces values distinct from nearest neighbor."""
+        source, template = self._gradient_source_and_template()
+        bilinear = source.align(template, method="bilinear")
+        nearest = source.align(template, method="nearest")
+
+        assert (bilinear.rows, bilinear.columns, bilinear.epsg) == (10, 10, 4326)
+        assert bilinear.geotransform == template.geotransform
+        # Bilinear must actually interpolate — not fall back to block replication.
+        assert not np.allclose(bilinear.read_array(), nearest.read_array())
+
+    def test_align_invalid_method_raises(self):
+        """An unsupported method name is rejected (same validator as `to_crs`)."""
+        source, template = self._gradient_source_and_template()
+        with pytest.raises(ValueError):
+            source.align(template, method="not-a-real-method")
+
+    def test_align_bilinear_template_crs_no_epsg(self):
+        """DoD: works when the template CRS is a PROJ4 string with no EPSG code."""
+        source, template = self._gradient_source_and_template()
+        proj4 = "+proj=ortho +lat_0=0 +lon_0=0 +datum=WGS84 +units=m +no_defs"
+        ortho_source = source.to_crs(proj4)
+        ortho_template = template.to_crs(proj4)
+        assert ortho_template.epsg is None
+
+        aligned = ortho_source.align(ortho_template, method="bilinear")
+        assert aligned.epsg is None
+        assert (aligned.rows, aligned.columns) == (
+            ortho_template.rows,
+            ortho_template.columns,
+        )
+        assert aligned.geotransform == ortho_template.geotransform
+
 
 class TestCrop:
     def test_crop_single_band_dataset_with_single_band_mask(

@@ -3314,7 +3314,12 @@ class DatasetCollection:
         return self._finalize_per_timestep_result(new_datasets, inplace=inplace)
 
     def align(
-        self, alignment_src: Dataset, inplace: bool = False, *, compute: bool = True
+        self,
+        alignment_src: Dataset,
+        inplace: bool = False,
+        *,
+        method: str = DEFAULT_RESAMPLING,
+        compute: bool = True,
     ) -> DatasetCollection | None | Delayed:
         """Align every timestep to `alignment_src`.
 
@@ -3327,6 +3332,10 @@ class DatasetCollection:
             inplace (bool):
                 If True, mutate this collection in place and return None.
                 If False (default), return a new `DatasetCollection`.
+            method (str):
+                Resampling method applied to every timestep, case-insensitive. Default is "nearest neighbor",
+                so existing behaviour is unchanged. Accepts the same algorithm names as
+                :meth:`Dataset.align` / :meth:`Dataset.to_crs`. Keyword-only.
             compute (bool):
                 If True (default), align every timestep eagerly. If False, defer the
                 whole align into one `dask.delayed.Delayed` that builds the aligned
@@ -3347,6 +3356,13 @@ class DatasetCollection:
               >>> aligned = collection.align(dem_dataset)  # doctest: +SKIP
 
               ```
+
+            - Align with bilinear resampling instead of nearest neighbor:
+
+              ```python
+              >>> aligned = collection.align(dem_dataset, method="bilinear")  # doctest: +SKIP
+
+              ```
         """
         if not isinstance(alignment_src, Dataset):
             raise TypeError("alignment_src input should be a Dataset object")
@@ -3354,7 +3370,7 @@ class DatasetCollection:
 
         if alignment_src.epsg is not None:
             # Plan-once: one Aligner reused across every timestep (ARC-54).
-            op = Aligner(alignment_src)
+            op = Aligner(alignment_src, method=method)
 
             def per_step(ds: Dataset, do_compute: bool) -> Any:
                 return op(ds, compute=do_compute)
@@ -3362,10 +3378,10 @@ class DatasetCollection:
             # A reference with no EPSG code can't go through Aligner; align directly.
             def per_step(ds: Dataset, do_compute: bool) -> Any:
                 if do_compute:
-                    return ds.align(alignment_src)
+                    return ds.align(alignment_src, method=method)
                 import dask
 
-                return dask.delayed(ds.align)(alignment_src)
+                return dask.delayed(ds.align)(alignment_src, method=method)
 
         return self._apply_operator(per_step, inplace=inplace, compute=compute)
 

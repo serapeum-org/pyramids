@@ -156,3 +156,22 @@ class TestAlignCompute:
             ValueError, match="compute=False cannot be combined with inplace"
         ):
             collection.align(align_ref, inplace=True, compute=False)
+
+    @requires_dask
+    def test_delayed_align_method_passthrough(self, three_files, align_ref):
+        """``method=`` survives into the deferred ``_align_sync`` body.
+
+        Test scenario:
+            ``align(ref, method="bilinear", compute=False).compute()`` — expected:
+            a collection on the reference grid (the method is forwarded, not dropped).
+        """
+        collection = DatasetCollection.from_files(three_files)
+        result = collection.align(
+            align_ref, method="bilinear", compute=False
+        ).compute()
+        assert result.base.rows == align_ref.rows, (
+            f"aligned rows {result.base.rows} != reference {align_ref.rows}"
+        )
+        assert result.base.columns == align_ref.columns, (
+            f"aligned columns {result.base.columns} != reference {align_ref.columns}"
+        )
