@@ -58,7 +58,8 @@ class TestReadArrayScaled:
         """An all-bands scaled read applies each band's own scale/offset."""
         raw = scaled_multi.read_array()
         out = scaled_multi.read_array(scaled=True)
-        assert out.shape == raw.shape and out.dtype == np.float64
+        assert out.shape == raw.shape
+        assert out.dtype == np.float64
         expected = raw.astype(np.float64)
         expected[0] = raw[0] * 0.1 + 0.0
         expected[1] = raw[1] * 2.0 - 1.0
@@ -100,7 +101,8 @@ class TestReadArrayScaled:
     def test_out_shape_then_scaled(self, scaled_single):
         """A decimated (out_shape) read is scaled to float64 at the requested size."""
         out = scaled_single.read_array(band=0, out_shape=(1, 1), scaled=True)
-        assert out.shape == (1, 1) and out.dtype == np.float64
+        assert out.shape == (1, 1)
+        assert out.dtype == np.float64
 
     def test_window_then_scaled(self, scaled_single):
         """A windowed read is scaled over just the window."""
@@ -114,13 +116,15 @@ class TestReadArrayScaled:
         out = scaled_single.read_array(
             band=0, window=[-1, -1, 2, 2], boundless=True, fill_value=0, scaled=True
         )
-        assert out.dtype == np.float64 and out.shape == (2, 2)
+        assert out.dtype == np.float64
+        assert out.shape == (2, 2)
 
     def test_masked_3d_scaled(self, scaled_multi):
         """An all-bands masked scaled read keeps the 3-D mask and scales the data."""
         scaled_multi.no_data_value = [0, 0, 0]
         out = scaled_multi.read_array(masked=True, scaled=True)
-        assert isinstance(out, np.ma.MaskedArray) and out.ndim == 3
+        assert isinstance(out, np.ma.MaskedArray)
+        assert out.ndim == 3
         assert out.dtype == np.float64
         np.testing.assert_array_equal(
             out.mask, scaled_multi.read_array(masked=True).mask

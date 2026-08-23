@@ -35,7 +35,8 @@ class TestSelect:
         """Selecting 1-based indices yields those bands' pixels in order."""
         ds = Dataset.read_file(MULTI_BANDS)
         sub = ds.bands.select([1, 3])
-        assert type(sub) is Dataset and sub.band_count == 2
+        assert type(sub) is Dataset
+        assert sub.band_count == 2
         np.testing.assert_array_equal(sub.read_array(band=0), ds.read_array(band=0))
         np.testing.assert_array_equal(sub.read_array(band=1), ds.read_array(band=2))
 
@@ -102,7 +103,8 @@ class TestSelectCarryAcross:
             pd.DataFrame({"value": [0, 1], "label": ["sea", "land"]}), band=0
         )
         rat = ds.bands.select([1]).get_attribute_table(band=0)
-        assert rat is not None and "label" in rat.columns, "RAT must survive select"
+        assert rat is not None, "RAT must survive select"
+        assert "label" in rat.columns, "RAT category names must survive select"
 
     def test_carries_color_table_and_interpretation(self):
         """The colour table and colour interpretation survive selection."""

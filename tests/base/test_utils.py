@@ -22,7 +22,8 @@ class TestApplyUnpack:
         """Both None returns the array unchanged, with no float promotion."""
         arr = np.array([0, 1, 2], dtype="int16")
         out = apply_unpack(arr, None, None)
-        assert out is arr and out.dtype == np.int16, "identity, no promotion"
+        assert out is arr, "identity: the same array object is returned"
+        assert out.dtype == np.int16, "no float promotion when nothing is declared"
 
     def test_scalar_scale_and_offset(self):
         """A scalar scale/offset applies as float64."""

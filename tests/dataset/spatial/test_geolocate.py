@@ -56,7 +56,8 @@ class TestGeolocationAccessor:
         ds = Dataset.create_from_array(
             np.zeros((2, 2)), top_left_corner=(0, 0), cell_size=1.0, epsg=4326
         )
-        assert ds.geolocation is None and ds.has_geolocation is False
+        assert ds.geolocation is None
+        assert ds.has_geolocation is False
 
     def test_accessor_returns_domain(self, tmp_path):
         """The accessor returns the GEOLOCATION domain dict when present."""
@@ -74,9 +75,12 @@ class TestGeolocate:
         """geolocate produces a north-up affine grid in the requested CRS."""
         ds = _make_geoloc_dataset(tmp_path)
         out = ds.geolocate(to_epsg=4326)
-        assert type(out) is Dataset and out.epsg == 4326
+        assert type(out) is Dataset
+        assert out.epsg == 4326
         gt = out.geotransform
-        assert gt[5] < 0 and gt[2] == 0 and gt[4] == 0, f"not north-up affine: {gt}"
+        assert gt[5] < 0, f"not north-up: {gt}"
+        assert gt[2] == 0, f"not axis-aligned: {gt}"
+        assert gt[4] == 0, f"not axis-aligned: {gt}"
 
     def test_geolocate_to_epsg_none_uses_domain_srs(self, tmp_path):
         """With to_epsg=None the result adopts the domain's own SRS."""
@@ -109,13 +113,15 @@ class TestGeolocate:
 
     def test_bad_crs_raises(self, tmp_path):
         """An unrecognisable to_epsg raises (a ValueError subclass)."""
+        ds = _make_geoloc_dataset(tmp_path)
         with pytest.raises(ValueError):
-            _make_geoloc_dataset(tmp_path).geolocate(to_epsg="not-a-crs")
+            ds.geolocate(to_epsg="not-a-crs")
 
     def test_bad_method_raises(self, tmp_path):
         """An unknown resampling method raises ValueError."""
+        ds = _make_geoloc_dataset(tmp_path)
         with pytest.raises(ValueError):
-            _make_geoloc_dataset(tmp_path).geolocate(to_epsg=4326, method="bogus")
+            ds.geolocate(to_epsg=4326, method="bogus")
 
     def test_lazy_pins_source_on_base_dataset(self, tmp_path):
         """A lazy geolocate on a base Dataset pins its source and reads through."""
@@ -133,7 +139,8 @@ class TestGeolocateNetCDF:
 
         var = NetCDF.read_file(CURV).get_variable("Tair")
         out = var.geolocate(to_epsg=4326)
-        assert type(out) is Dataset and out.epsg == 4326
+        assert type(out) is Dataset
+        assert out.epsg == 4326
         assert out.band_count == var.band_count
 
     def test_variable_geolocation_accessor(self):
@@ -142,7 +149,9 @@ class TestGeolocateNetCDF:
 
         var = NetCDF.read_file(CURV).get_variable("Tair")
         domain = var.geolocation
-        assert domain is not None and "X_DATASET" in domain and "Y_DATASET" in domain
+        assert domain is not None
+        assert "X_DATASET" in domain
+        assert "Y_DATASET" in domain
 
     def test_variable_geolocate_lazy_pins_source(self):
         """A lazy geolocate pins its source and reads after the wrapper is dropped."""
@@ -160,5 +169,6 @@ class TestGeolocateNetCDF:
         """A NetCDF container (no variable extracted) has no geolocation arrays."""
         from pyramids.netcdf import NetCDF
 
+        container = NetCDF.read_file(CURV)
         with pytest.raises(GeolocationArrayError):
-            NetCDF.read_file(CURV).geolocate()
+            container.geolocate()

@@ -127,8 +127,9 @@ class TestRegisterDatasetAccessor:
             def __init__(self, ds):
                 self._ds = ds
 
+        decorator = register_dataset_accessor(reserved)
         with pytest.raises(ValueError, match="shadows"):
-            register_dataset_accessor(reserved)(Bad)
+            decorator(Bad)
 
     def test_netcdf_engine_names_stay_reserved(self):
         """The NetCDF engine names remain reserved (guards the dataset.py seed drift)."""
@@ -181,7 +182,8 @@ class TestAccessorLifecycle:
                 self._ds = ds
 
         _ = plain.summary7
-        assert "summary7" in plain.__dict__ and built == [1]
+        assert "summary7" in plain.__dict__
+        assert built == [1]
         plain.epsg = 3857  # triggers _update_inplace
         assert "summary7" not in plain.__dict__, "cache dropped by _update_inplace"
         built.clear()
@@ -239,7 +241,8 @@ class TestAccessorLifecycle:
             "tests/data/netcdf/none__4v__1d1-2d2-3d1__curv.nc"
         ).get_variable("Tair")
         _ = var.summary10
-        assert "summary10" in var.__dict__ and built == [1]
+        assert "summary10" in var.__dict__
+        assert built == [1]
         var._update_inplace(var.raster)  # exercises the NetCDF override branch
         assert "summary10" not in var.__dict__, "NetCDF override must drop the cache"
         built.clear()
