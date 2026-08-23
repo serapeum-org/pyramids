@@ -1451,6 +1451,7 @@ class Spatial(_Engine["Dataset"]):
     def align(
         self,
         alignment_src: Dataset,
+        *,
         method: str = DEFAULT_RESAMPLING,
     ) -> Dataset:
         """Align the current dataset (rows and columns) to match a given dataset.
