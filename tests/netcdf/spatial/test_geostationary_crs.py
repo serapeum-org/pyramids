@@ -190,6 +190,45 @@ class TestGeostationaryFromBytes:
         )
 
 
+class TestNonGeostationaryFromBytesUnaffected:
+    """A non-geostationary `from_bytes` / `/vsimem` variable read is untouched by #1050.
+
+    `_classic_geotransform` runs only from `_normalize_geostationary_geotransform`, which
+    returns early unless `_is_geostationary()`. So the #1050 guard relaxation — `/vsimem`
+    paths now reach the classic driver — must not perturb an ordinary lat/lon read: no
+    scan-angle rescale, and the EPSG and geotransform stay identical to the on-disk read.
+    No other test drives a non-geostationary variable through `from_bytes(...).get_variable(...)`.
+    """
+
+    def test_latlon_from_bytes_variable_not_rescaled(self, noah_nc_path):
+        """A lat/lon `from_bytes` variable keeps its degree geotransform, EPSG, and unscaled flag."""
+        with open(noah_nc_path, "rb") as fh:
+            data = fh.read()
+        container = NetCDF.read_file(noah_nc_path)
+        var_name = container.variable_names[0]
+        on_disk = container.get_variable(var_name)
+        from_bytes = NetCDF.from_bytes(data).get_variable(var_name)
+        assert on_disk._is_geostationary() is False, (
+            "fixture must be a plain lat/lon grid"
+        )
+        assert from_bytes._is_geostationary() is False, (
+            "from_bytes must not misclassify a lat/lon grid as geostationary"
+        )
+        assert from_bytes._geostationary_scaled is False, (
+            "a non-geostationary read must never be scan-angle rescaled"
+        )
+        assert from_bytes.epsg == on_disk.epsg, (
+            f"epsg drifted from the on-disk read: {from_bytes.epsg} != {on_disk.epsg}"
+        )
+        np.testing.assert_allclose(
+            from_bytes.geotransform,
+            on_disk.geotransform,
+            rtol=0,
+            atol=1e-9,
+            err_msg="from_bytes must not perturb a non-geostationary geotransform",
+        )
+
+
 class TestGeostationaryContainerOps:
     """Container operations preserve the geostationary CRS via WKT (#706).
 
