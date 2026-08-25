@@ -4800,11 +4800,14 @@ class NetCDF(Dataset):
     def _classic_subdataset_variable_names(self) -> list[str]:
         """Data-variable names parsed from classic-mode subdataset metadata.
 
+        Reads the shared :attr:`~pyramids.dataset.abstract_dataset.AbstractDataset.subdatasets`
+        surface rather than parsing ``GetSubDatasets()`` a second time.
+
         Returns:
-            list[str]: The variable name from each `gdal.Dataset.GetSubDatasets()`
-            entry (the second whitespace-delimited token of its description).
+            list[str]: The variable name from each :attr:`subdatasets` entry (the
+            second whitespace-delimited token of its GDAL description).
         """
-        return [var[1].split(" ")[1] for var in self._raster.GetSubDatasets()]
+        return [sub.description.split(" ")[1] for sub in self.subdatasets]
 
     @staticmethod
     def _dimension_index(dim_names: list[str], target: str) -> int:

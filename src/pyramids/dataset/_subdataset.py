@@ -19,6 +19,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from osgeo import gdal
+
     from pyramids.dataset.dataset import Dataset
 
 
@@ -66,3 +68,26 @@ class SubDataset:
         from pyramids.dataset.dataset import Dataset
 
         return Dataset.read_file(self.name)
+
+
+def subdatasets_of(raster: gdal.Dataset) -> list[SubDataset]:
+    """Build the :class:`SubDataset` list for a raw GDAL dataset handle.
+
+    The single place the ``SUBDATASETS`` domain is turned into
+    :class:`SubDataset` value objects. Both
+    :attr:`~pyramids.dataset.abstract_dataset.AbstractDataset.subdatasets` and the
+    WMTS layer-hint helper in :mod:`pyramids.dataset._wms` build on it, so the
+    enumeration lives in exactly one spot.
+
+    Args:
+        raster: An open ``gdal.Dataset``. A plain raster (no subdatasets) yields an
+            empty list.
+
+    Returns:
+        list[SubDataset]: One :class:`SubDataset` per nested raster, in GDAL's
+        order; ``[]`` when the handle has none.
+    """
+    return [
+        SubDataset(name, description, i)
+        for i, (name, description) in enumerate(raster.GetSubDatasets())
+    ]

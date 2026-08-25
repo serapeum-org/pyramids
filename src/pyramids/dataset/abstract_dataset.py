@@ -36,7 +36,7 @@ from pyramids.base._utils import (
 from pyramids.base.crs import epsg_of_crs, sr_from_epsg
 from pyramids.base.protocols import ArrayLike, FloatArray
 from pyramids.base.remote import cloud_config_from_env
-from pyramids.dataset._subdataset import SubDataset
+from pyramids.dataset._subdataset import SubDataset, subdatasets_of
 from pyramids.dataset.transform import GeoTransform
 from pyramids.dataset.window import Window
 
@@ -815,10 +815,7 @@ class RasterBase(ABC):
                 ```
         """
         self._require_open()
-        return [
-            SubDataset(name, description, i)
-            for i, (name, description) in enumerate(self._raster.GetSubDatasets())
-        ]
+        return subdatasets_of(self._raster)
 
     @property
     def meta_data_domains(self) -> list[str]:
