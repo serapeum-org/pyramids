@@ -1,6 +1,12 @@
 ﻿# Change log
 
 
+## 0.56.0 (2026-08-25)
+
+### Feat
+
+- **spatial**: let align choose its resampling method (#1044)
+
 ## 0.55.0 (2026-08-23)
 
 ### Feat
