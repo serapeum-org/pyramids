@@ -179,18 +179,18 @@ class TestMergeMethod:
         )
 
     def test_reduction_peak_memory_is_bounded_by_the_strip(self, tmp_path, monkeypatch):
-        """The min/max/sum merge peaks below a whole-union pass, proving the strip reduction.
+        """The min/max/sum merge peaks far below a whole-union pass, proving the strip reduction.
 
         Test scenario:
-            Merge two overlapping 4000x250 sources with 128-row strips, and compare the traced
-            Python peak against a whole-union pass (read both sources and reduce the full union
-            cube at once) in the same process. The stripped peak must stay below the whole-union
-            peak. This is a build-agnostic check on purpose: the absolute figures depend on the
-            GDAL build (tracemalloc only sees the Python heap, not GDAL's C buffers), but the
-            same reduction done all-at-once is always an upper bound on the stripped version,
-            whatever the build.
+            Merge two overlapping 8000x250 sources with 128-row strips and assert the traced
+            Python peak stays well below the whole-union float64 byte size (~16 MB). A strip
+            reduction holds a few 128-row strips; reading both sources whole and reducing the
+            full union cube would peak at least the union size. The bound is the deterministic
+            union byte size, not a second measured whole-union peak, so the verdict does not
+            depend on the GDAL build's one-time read buffer landing in one measurement (see
+            #1049; #1047 fixed the same flake for the reduce test).
         """
-        rows, cols = 4000, 250
+        rows, cols = 8000, 250
         pa = write_raster(
             tmp_path / "a.tif", np.ones((rows, cols), dtype="float32"), (0, rows)
         )
@@ -198,17 +198,11 @@ class TestMergeMethod:
             tmp_path / "b.tif", np.full((rows, cols), 2.0, dtype="float32"), (0, rows)
         )
 
-        # Whole-union baseline: read both sources and reduce the full float64 union
-        # cube at once (the non-stripped equivalent), holding every array together.
-        # Assumes the two sources are co-registered on the same grid (as the fixture
-        # writes them), so `np.maximum` aligns them directly; a non-overlapping pair
-        # would need the union grid built first.
-        with traced_peak() as wp:
-            a = Dataset.read_file(str(pa)).read_array().astype("float64")
-            b = Dataset.read_file(str(pb)).read_array().astype("float64")
-            whole = np.maximum(a, b)
-        whole_peak = wp[0]
-        del a, b, whole
+        # Warm the build's one-time GDAL read buffer with a small windowed read of each
+        # source OUTSIDE the traced region so it is already live during the measurement; the
+        # absolute ceiling below is the load-bearing backstop (see #1047 / #1049).
+        Dataset.read_file(str(pa)).read_array(window=[0, 0, cols, 128])
+        Dataset.read_file(str(pb)).read_array(window=[0, 0, cols, 128])
 
         # Stripped merge.
         monkeypatch.setattr(merge_mod, "_MERGE_STRIP_ROWS", 128)
@@ -218,9 +212,13 @@ class TestMergeMethod:
             )
         stripped_peak = sp[0]
 
-        assert stripped_peak < whole_peak, (
-            f"merge peaked at {stripped_peak / 1e6:.1f} MB, not below the whole-union "
-            f"pass's {whole_peak / 1e6:.1f} MB — it did not stay under a full materialisation"
+        # A strip reduction must peak far below a whole-union float64 pass
+        # (rows * cols * float64 = ~16 MB); reading both sources whole would peak >= that.
+        union_bytes = rows * cols * np.dtype("float64").itemsize
+        assert stripped_peak < union_bytes // 2, (
+            f"merge peaked at {stripped_peak / 1e6:.1f} MB, not far below the "
+            f"{union_bytes / 1e6:.0f} MB whole-union pass — it did not stay under a full "
+            "materialisation"
         )
 
     def test_default_method_is_last(self, overlapping_pair, tmp_path):
