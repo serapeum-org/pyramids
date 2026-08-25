@@ -1538,17 +1538,16 @@ class NetCDF(Dataset):
         if source is None:
             var = self._source_var_name
             parent = self._parent_nc
-            path = parent.file_name if parent is not None else self.file_name
+            source_obj = parent if parent is not None else self
+            # Prefer `_vsimem_path` (the real backing `/vsimem/...` path that a cosmetic `from_bytes`
+            # `name=` shadows in `file_name`) and admit `/vsimem` — the classic driver opens it
+            # directly (confirmed cross-platform by #1050) — so an in-memory (`from_bytes`) swath
+            # exposes its GEOLOCATION domain exactly like an on-disk read (#1053), mirroring the
+            # sibling `_classic_geotransform`. Only a truly path-less MEM source (no `_vsimem_path`,
+            # empty `file_name`) or a container with no variable falls through to `self`.
+            path = getattr(source_obj, "_vsimem_path", None) or source_obj.file_name
             handle = None
-            # NOTE: the sibling `_classic_geotransform` was hardened to prefer `_vsimem_path` and
-            # admit `/vsimem` (#1050); this guard is intentionally left keying off `file_name`. For
-            # an *unnamed* `from_bytes` container `file_name` is the `/vsimem` path, so this guard
-            # skips it; for a *named* one the cosmetic `name` slips past (it isn't `/vsimem`) and the
-            # classic open of that bogus relative path fails → falls back to `self`. Either way an
-            # in-memory swath's GEOLOCATION domain is not exposed — geolocation-array behaviour (the
-            # #1033 domain) that would need its own swath fixture and a `_vsimem_path` preference to
-            # fix, out of scope for the #1050 geotransform fix. A tracked follow-up, not an oversight.
-            if var is not None and path and not str(path).startswith("/vsimem"):
+            if var is not None and path:
                 try:
                     handle = gdal.Open(f'NETCDF:"{path}":{var}')
                 except RuntimeError:

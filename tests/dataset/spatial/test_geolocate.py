@@ -172,3 +172,58 @@ class TestGeolocateNetCDF:
         container = NetCDF.read_file(CURV)
         with pytest.raises(GeolocationArrayError):
             container.geolocate()
+
+
+class TestGeolocateFromBytes:
+    """An in-memory (`from_bytes` / `/vsimem`) swath variable exposes its GEOLOCATION domain (#1053).
+
+    `from_bytes` is the only in-memory NetCDF reader that works on Windows/macOS, so it is the
+    sanctioned way to read a downloaded L2 swath granule. Before #1053 the `/vsimem` exclusion in
+    `_geolocation_source` left an in-memory swath reporting no geolocation arrays — `has_geolocation`
+    False, `.geolocation` None, `.geolocate()` raising — even though the on-disk read works. The fix
+    mirrors #1050: resolve the classic handle via `_vsimem_path` and admit `/vsimem`.
+    """
+
+    @staticmethod
+    def _bytes():
+        with open(CURV, "rb") as fh:
+            return fh.read()
+
+    def test_from_bytes_variable_has_geolocation(self):
+        """An unnamed from_bytes swath variable exposes the GEOLOCATION domain, like on-disk."""
+        from pyramids.netcdf import NetCDF
+
+        on_disk = NetCDF.read_file(CURV).get_variable("Tair")
+        var = NetCDF.from_bytes(self._bytes()).get_variable("Tair")
+        assert on_disk.has_geolocation is True, "fixture must carry geolocation arrays"
+        assert var.has_geolocation is True, (
+            "an in-memory swath must expose its GEOLOCATION domain (#1053)"
+        )
+        domain = var.geolocation
+        assert domain is not None
+        assert "X_DATASET" in domain
+        assert "Y_DATASET" in domain
+
+    def test_named_from_bytes_variable_has_geolocation(self):
+        """A named from_bytes read resolves through `_vsimem_path`, not the cosmetic name (#1053)."""
+        from pyramids.netcdf import NetCDF
+
+        container = NetCDF.from_bytes(self._bytes(), name="swath.nc")
+        assert container.file_name == "swath.nc", (
+            "the cosmetic name must shadow file_name for this test to exercise the fix"
+        )
+        var = container.get_variable("Tair")
+        assert var.has_geolocation is True, (
+            "a named in-memory swath must still expose geolocation — the name must not shadow "
+            "the /vsimem path"
+        )
+
+    def test_from_bytes_variable_geolocates(self):
+        """geolocate() warps an in-memory swath variable to the requested grid as a base Dataset."""
+        from pyramids.netcdf import NetCDF
+
+        var = NetCDF.from_bytes(self._bytes()).get_variable("Tair")
+        out = var.geolocate(to_epsg=4326)
+        assert type(out) is Dataset
+        assert out.epsg == 4326
+        assert out.band_count == var.band_count
