@@ -497,10 +497,11 @@ class Georef(_Engine["Dataset"]):
         pointing at the coordinate arrays, ``SRS``, band/offset/step keys) or
         ``None`` when the dataset carries no such domain. Built on
         :meth:`~pyramids.dataset.Dataset.get_meta_data`; on a ``NetCDF`` variable
-        the domain is read from the classic **on-disk** GDAL handle (see
-        :meth:`Dataset._geolocation_source`), so it reflects the source file, not
-        any in-place edits, and is unavailable for an in-memory (``/vsimem``) NetCDF
-        — geolocate before other spatial operations.
+        the domain is read from the classic ``NETCDF:`` GDAL handle — on-disk **or**
+        ``/vsimem`` (see :meth:`Dataset._geolocation_source`) — so it reflects the
+        source file, not any in-place edits (geolocate before other spatial
+        operations), and is available for an in-memory (``from_bytes`` / ``/vsimem``)
+        NetCDF too (#1053).
 
         Returns:
             dict[str, str] | None: The ``GEOLOCATION`` domain, or ``None``.
