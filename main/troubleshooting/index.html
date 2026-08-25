@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6544,12 +6544,12 @@ RHEL/Rocky/Alma 8+, and Amazon Linux 2023.</p>
 </ol>
 <p><strong>Check your glibc version:</strong>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="go">ldd --version | head -1</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="gp"># </span>e.g.,<span class="w"> </span><span class="s2">&quot;ldd (Debian GLIBC 2.36-9+deb12u10) 2.36&quot;</span><span class="w">  </span>-&gt;<span class="w"> </span><span class="m">2</span>.36<span class="w"> </span>&gt;<span class="o">=</span><span class="w"> </span><span class="m">2</span>.28,<span class="w"> </span>wheel<span class="w"> </span>OK
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="gp"># </span>e.g.,<span class="w"> </span><span class="s2">"ldd (Debian GLIBC 2.36-9+deb12u10) 2.36"</span><span class="w">  </span>-&gt;<span class="w"> </span><span class="m">2</span>.36<span class="w"> </span>&gt;<span class="o">=</span><span class="w"> </span><span class="m">2</span>.28,<span class="w"> </span>wheel<span class="w"> </span>OK
 </code></pre></div></p>
 <hr />
 <h3 id="gdal-config-command-not-found-when-pip-installing-from-sdist"><a class="toclink" href="#gdal-config-command-not-found-when-pip-installing-from-sdist"><code>gdal-config: command not found</code> when pip-installing from sdist</a><a class="headerlink" href="#gdal-config-command-not-found-when-pip-installing-from-sdist" title="Permanent link">#</a></h3>
 <p><strong>Symptoms:</strong>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>gdal_config_error: [Errno 2] No such file or directory: &#39;gdal-config&#39;
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>gdal_config_error: [Errno 2] No such file or directory: 'gdal-config'
 <a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>Could not find gdal-config. Make sure you have installed the GDAL native
 <a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>library and development headers.
 </code></pre></div></p>
@@ -6575,7 +6575,7 @@ or install system GDAL first (see <a href="../installation/">installation.md</a>
 <h3 id="access-is-denied-dll-copy-fails-on-windows-pixi-install"><a class="toclink" href="#access-is-denied-dll-copy-fails-on-windows-pixi-install"><code>Access is denied</code> / DLL copy fails on Windows pixi install</a><a class="headerlink" href="#access-is-denied-dll-copy-fails-on-windows-pixi-install" title="Permanent link">#</a></h3>
 <p><strong>Symptoms (during <code>pixi install</code>):</strong>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>Error:   × failed to link freexl-2.0.0-hf297d47_2.conda
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>  ├─▶ failed to link &#39;Library/bin/freexl.dll&#39;
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>  ├─▶ failed to link 'Library/bin/freexl.dll'
 <a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>  ╰─▶ Access is denied. (os error 5)
 </code></pre></div></p>
 <p><strong>Cause:</strong> Windows Defender (or another antivirus) is scanning the DLL
@@ -6623,7 +6623,7 @@ into the bundled GDAL and import cleanly on bare slim images.</p>
 <h3 id="no-module-named-_gdal-when-importing-osgeo"><a class="toclink" href="#no-module-named-_gdal-when-importing-osgeo"><code>No module named '_gdal'</code> when importing osgeo</a><a class="headerlink" href="#no-module-named-_gdal-when-importing-osgeo" title="Permanent link">#</a></h3>
 <p><strong>Symptoms:</strong>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">osgeo</span><span class="w"> </span><span class="kn">import</span> <span class="n">gdal</span>
-<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="ne">ModuleNotFoundError</span><span class="p">:</span> <span class="n">No</span> <span class="n">module</span> <span class="n">named</span> <span class="s1">&#39;_gdal&#39;</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="ne">ModuleNotFoundError</span><span class="p">:</span> <span class="n">No</span> <span class="n">module</span> <span class="n">named</span> <span class="s1">'_gdal'</span>
 </code></pre></div></p>
 <p><strong>Cause:</strong> <code>from osgeo import gdal</code> ran <strong>before</strong> <code>import pyramids</code>,
 so pyramids' vendor bootstrap didn't run. The bootstrap is what adds
@@ -6647,27 +6647,27 @@ shouldn't happen with the standard wheel — it usually means something
 overrode <code>GDAL_DRIVER_PATH</code> after <code>import pyramids</code> ran.</p>
 <p><strong>Diagnose:</strong>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">os</span><span class="o">,</span><span class="w"> </span><span class="nn">pyramids</span>
-<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="nb">print</span><span class="p">(</span><span class="s2">&quot;GDAL_DRIVER_PATH:&quot;</span><span class="p">,</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;GDAL_DRIVER_PATH&quot;</span><span class="p">))</span>
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="nb">print</span><span class="p">(</span><span class="s2">"GDAL_DRIVER_PATH:"</span><span class="p">,</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"GDAL_DRIVER_PATH"</span><span class="p">))</span>
 <a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="c1"># Should print .../pyramids/_data/gdalplugins</span>
 </code></pre></div></p>
 <p><strong>Fix:</strong> Don't override <code>GDAL_DRIVER_PATH</code> to an empty value. If you
 legitimately need plugins from multiple sources, concatenate:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">os</span><span class="o">,</span><span class="w"> </span><span class="nn">pyramids</span>
-<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="n">existing</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;GDAL_DRIVER_PATH&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
-<a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;GDAL_DRIVER_PATH&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;/my/extra/plugins:</span><span class="si">{</span><span class="n">existing</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="n">existing</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"GDAL_DRIVER_PATH"</span><span class="p">,</span> <span class="s2">""</span><span class="p">)</span>
+<a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"GDAL_DRIVER_PATH"</span><span class="p">]</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"/my/extra/plugins:</span><span class="si">{</span><span class="n">existing</span><span class="si">}</span><span class="s2">"</span>
 </code></pre></div>
 <hr />
 <h3 id="epsg-lookup-failed-unable-to-open-epsg-support-file"><a class="toclink" href="#epsg-lookup-failed-unable-to-open-epsg-support-file"><code>EPSG lookup failed</code> / <code>Unable to open EPSG support file</code></a><a class="headerlink" href="#epsg-lookup-failed-unable-to-open-epsg-support-file" title="Permanent link">#</a></h3>
 <p><strong>Symptoms:</strong>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>TypeError: in method &#39;SpatialReference_ImportFromEPSG&#39;:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>TypeError: in method 'SpatialReference_ImportFromEPSG':
 <a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>Unable to open EPSG support file gcs.csv
 </code></pre></div></p>
 <p><strong>Cause:</strong> <code>PROJ_DATA</code> / <code>GDAL_DATA</code> environment variables point to a
 non-existent directory. Usually because user code overrides them.</p>
 <p><strong>Diagnose:</strong>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">os</span><span class="o">,</span><span class="w"> </span><span class="nn">pyramids</span>
-<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="nb">print</span><span class="p">(</span><span class="s2">&quot;GDAL_DATA:&quot;</span><span class="p">,</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;GDAL_DATA&quot;</span><span class="p">))</span>
-<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="nb">print</span><span class="p">(</span><span class="s2">&quot;PROJ_DATA:&quot;</span><span class="p">,</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;PROJ_DATA&quot;</span><span class="p">))</span>
+<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="nb">print</span><span class="p">(</span><span class="s2">"GDAL_DATA:"</span><span class="p">,</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"GDAL_DATA"</span><span class="p">))</span>
+<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="nb">print</span><span class="p">(</span><span class="s2">"PROJ_DATA:"</span><span class="p">,</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"PROJ_DATA"</span><span class="p">))</span>
 <a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="c1"># Both should point under pyramids/_data/</span>
 </code></pre></div></p>
 <p><strong>Fix:</strong> Don't set these env vars manually. pyramids sets them
@@ -6686,7 +6686,7 @@ respects any pre-existing values.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pyramids</span>
 <a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">osgeo</span>
 <a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a><span class="nb">print</span><span class="p">(</span><span class="n">osgeo</span><span class="o">.</span><span class="vm">__file__</span><span class="p">)</span>
-<a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="c1"># Should contain &quot;_vendor/osgeo&quot;</span>
+<a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="c1"># Should contain "_vendor/osgeo"</span>
 </code></pre></div></p>
 <p><strong>Fix:</strong>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="go">pip uninstall GDAL           # remove the standalone PyPI package</span>
@@ -6733,7 +6733,7 @@ reading. Plain files, <code>/vsimem/</code>, and zipped GTiff/GeoJSON are unaffe
 <h2 id="getting-more-help"><a class="toclink" href="#getting-more-help">Getting more help</a><a class="headerlink" href="#getting-more-help" title="Permanent link">#</a></h2>
 <h3 id="enable-diagnostic-output"><a class="toclink" href="#enable-diagnostic-output">Enable diagnostic output</a><a class="headerlink" href="#enable-diagnostic-output" title="Permanent link">#</a></h3>
 <p>Set an env var before importing pyramids:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="go">PYRAMIDS_DEBUG_BOOTSTRAP=1 python -c &quot;import pyramids&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="go">PYRAMIDS_DEBUG_BOOTSTRAP=1 python -c "import pyramids"</span>
 </code></pre></div>
 <p>Output:
 <div class="highlight"><pre><span></span><code><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>[pyramids] vendor dir: /.../site-packages/pyramids/_vendor

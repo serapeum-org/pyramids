@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6368,9 +6368,9 @@
 <h2 id="build-the-image"><a class="toclink" href="#build-the-image">Build the image</a><a class="headerlink" href="#build-the-image" title="Permanent link">#</a></h2>
 <p>Typical local build (PowerShell or any shell):</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># In the repo root</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nv">IMAGE</span><span class="o">=</span><span class="s2">&quot;pyramids&quot;</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nv">IMAGE</span><span class="o">=</span><span class="s2">"pyramids"</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="c1"># Build using the default Pixi environment</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>docker<span class="w"> </span>build<span class="w"> </span>-t<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$IMAGE</span><span class="s2">:latest&quot;</span><span class="w"> </span>.
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>docker<span class="w"> </span>build<span class="w"> </span>-t<span class="w"> </span><span class="s2">"</span><span class="nv">$IMAGE</span><span class="s2">:latest"</span><span class="w"> </span>.
 </code></pre></div>
 <p>Choose a Pixi environment with <code>ENV_NAME</code> (if you have multiple, e.g., <code>py311</code>):</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>docker<span class="w"> </span>build<span class="w"> </span>--build-arg<span class="w"> </span><span class="nv">ENV_NAME</span><span class="o">=</span>default<span class="w"> </span>-t<span class="w"> </span>pyramids:default<span class="w"> </span>.
@@ -6378,8 +6378,8 @@
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="c1"># docker build --build-arg ENV_NAME=py311 -t pyramids:py311 .</span>
 </code></pre></div>
 <p>Tag with a version too:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nv">VERSION</span><span class="o">=</span><span class="s2">&quot;&lt;your-version-here&gt;&quot;</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>docker<span class="w"> </span>build<span class="w"> </span>-t<span class="w"> </span>pyramids:latest<span class="w"> </span>-t<span class="w"> </span><span class="s2">&quot;pyramids:</span><span class="nv">$VERSION</span><span class="s2">&quot;</span><span class="w"> </span>.
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nv">VERSION</span><span class="o">=</span><span class="s2">"&lt;your-version-here&gt;"</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>docker<span class="w"> </span>build<span class="w"> </span>-t<span class="w"> </span>pyramids:latest<span class="w"> </span>-t<span class="w"> </span><span class="s2">"pyramids:</span><span class="nv">$VERSION</span><span class="s2">"</span><span class="w"> </span>.
 </code></pre></div>
 <p>Multi-arch build (optional) with Buildx:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Create and use a builder once (if needed)</span>
@@ -6398,10 +6398,10 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>-it<span class="w"> </span>pyramids:latest<span class="w"> </span>bash
 </code></pre></div>
 <p>Mount a local folder (e.g., to access data):</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Replace /path/to/data with your real path (e.g., use $(wslpath -a &#39;C:\data&#39;) on WSL)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Replace /path/to/data with your real path (e.g., use $(wslpath -a 'C:\data') on WSL)</span>
 <a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>-it<span class="w"> </span>-v<span class="w"> </span>/path/to/data:/data<span class="w"> </span>pyramids:latest<span class="w"> </span>bash
 <a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="c1"># Example using Windows path in WSL:</span>
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="c1"># docker run --rm -it -v &quot;$(wslpath -a &#39;C:\data&#39;)&quot;:/data pyramids:latest bash</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="c1"># docker run --rm -it -v "$(wslpath -a 'C:\data')":/data pyramids:latest bash</span>
 </code></pre></div>
 <p>Note: Environment variables like <code>GDAL_DATA</code> and <code>PROJ_LIB</code> are already set inside the image. The Pixi environment is in the PATH by default.</p>
 <hr />
@@ -6411,24 +6411,24 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>ghcr.io/serapeum-org/pyramids
 </code></pre></div>
 <p>Example (adjust owner/repo):</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="nv">OWNER</span><span class="o">=</span><span class="s2">&quot;serapeum-org&quot;</span>
-<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="nv">REPO</span><span class="o">=</span><span class="s2">&quot;pyramids&quot;</span>
-<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="nv">IMAGE</span><span class="o">=</span><span class="s2">&quot;ghcr.io/</span><span class="si">${</span><span class="nv">OWNER</span><span class="p">,,</span><span class="si">}</span><span class="s2">/</span><span class="si">${</span><span class="nv">REPO</span><span class="p">,,</span><span class="si">}</span><span class="s2">&quot;</span>
-<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="nv">VERSION</span><span class="o">=</span><span class="s2">&quot;&lt;your-version-here&gt;&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="nv">OWNER</span><span class="o">=</span><span class="s2">"serapeum-org"</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="nv">REPO</span><span class="o">=</span><span class="s2">"pyramids"</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="nv">IMAGE</span><span class="o">=</span><span class="s2">"ghcr.io/</span><span class="si">${</span><span class="nv">OWNER</span><span class="p">,,</span><span class="si">}</span><span class="s2">/</span><span class="si">${</span><span class="nv">REPO</span><span class="p">,,</span><span class="si">}</span><span class="s2">"</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="nv">VERSION</span><span class="o">=</span><span class="s2">"&lt;your-version-here&gt;"</span>
 <a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>
 <a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="c1"># Tag the local image to GHCR</span>
-<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>docker<span class="w"> </span>tag<span class="w"> </span>pyramids:latest<span class="w">  </span><span class="s2">&quot;</span><span class="nv">$IMAGE</span><span class="s2">:latest&quot;</span>
-<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>docker<span class="w"> </span>tag<span class="w"> </span>pyramids:latest<span class="w">  </span><span class="s2">&quot;</span><span class="nv">$IMAGE</span><span class="s2">:</span><span class="nv">$VERSION</span><span class="s2">&quot;</span>
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>docker<span class="w"> </span>tag<span class="w"> </span>pyramids:latest<span class="w">  </span><span class="s2">"</span><span class="nv">$IMAGE</span><span class="s2">:latest"</span>
+<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>docker<span class="w"> </span>tag<span class="w"> </span>pyramids:latest<span class="w">  </span><span class="s2">"</span><span class="nv">$IMAGE</span><span class="s2">:</span><span class="nv">$VERSION</span><span class="s2">"</span>
 <a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>
 <a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="c1"># Login to GHCR (use a PAT with write:packages)</span>
 <a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a><span class="c1"># Option A: interactive (paste PAT when prompted)</span>
 <a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a>docker<span class="w"> </span>login<span class="w"> </span>ghcr.io<span class="w"> </span>-u<span class="w"> </span>&lt;your-github-username&gt;
 <a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a><span class="c1"># Option B: non-interactive using GHCR_PAT environment variable</span>
-<a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a><span class="c1"># echo &quot;$GHCR_PAT&quot; | docker login ghcr.io -u &lt;your-github-username&gt; --password-stdin</span>
+<a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a><span class="c1"># echo "$GHCR_PAT" | docker login ghcr.io -u &lt;your-github-username&gt; --password-stdin</span>
 <a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a>
 <a id="__codelineno-8-16" name="__codelineno-8-16" href="#__codelineno-8-16"></a><span class="c1"># Push</span>
-<a id="__codelineno-8-17" name="__codelineno-8-17" href="#__codelineno-8-17"></a>docker<span class="w"> </span>push<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$IMAGE</span><span class="s2">:</span><span class="nv">$VERSION</span><span class="s2">&quot;</span>
-<a id="__codelineno-8-18" name="__codelineno-8-18" href="#__codelineno-8-18"></a>docker<span class="w"> </span>push<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$IMAGE</span><span class="s2">:latest&quot;</span>
+<a id="__codelineno-8-17" name="__codelineno-8-17" href="#__codelineno-8-17"></a>docker<span class="w"> </span>push<span class="w"> </span><span class="s2">"</span><span class="nv">$IMAGE</span><span class="s2">:</span><span class="nv">$VERSION</span><span class="s2">"</span>
+<a id="__codelineno-8-18" name="__codelineno-8-18" href="#__codelineno-8-18"></a>docker<span class="w"> </span>push<span class="w"> </span><span class="s2">"</span><span class="nv">$IMAGE</span><span class="s2">:latest"</span>
 </code></pre></div>
 <p>Automated publish on GitHub Release
 - This repository includes a workflow: <code>.github/workflows/docker-release.yml</code>.
@@ -6446,29 +6446,29 @@
 <p>B) GitHub CLI (<code>gh</code>)</p>
 <p>The API endpoints differ for user vs organization. Examples below assume the image name is <code>pyramids</code> under organization <code>serapeum-org</code>.</p>
 <p>List versions (organization):</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nv">ORG</span><span class="o">=</span><span class="s2">&quot;serapeum-org&quot;</span>
-<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="nv">PKG</span><span class="o">=</span><span class="s2">&quot;pyramids&quot;</span><span class="w">  </span><span class="c1"># package name in GHCR equals the lowercased repo name by default</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nv">ORG</span><span class="o">=</span><span class="s2">"serapeum-org"</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="nv">PKG</span><span class="o">=</span><span class="s2">"pyramids"</span><span class="w">  </span><span class="c1"># package name in GHCR equals the lowercased repo name by default</span>
 <a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>
-<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>gh<span class="w"> </span>api<span class="w"> </span>-H<span class="w"> </span><span class="s2">&quot;Accept: application/vnd.github+json&quot;</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">  </span><span class="s2">&quot;/orgs/</span><span class="nv">$ORG</span><span class="s2">/packages/container/</span><span class="nv">$PKG</span><span class="s2">/versions&quot;</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>gh<span class="w"> </span>api<span class="w"> </span>-H<span class="w"> </span><span class="s2">"Accept: application/vnd.github+json"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">  </span><span class="s2">"/orgs/</span><span class="nv">$ORG</span><span class="s2">/packages/container/</span><span class="nv">$PKG</span><span class="s2">/versions"</span>
 <a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="c1"># Optionally pretty-print with jq:</span>
-<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="c1"># gh api -H &quot;Accept: application/vnd.github+json&quot; &quot;/orgs/$ORG/packages/container/$PKG/versions&quot; | jq &#39;.[] | {id,name,metadata}&#39;</span>
+<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="c1"># gh api -H "Accept: application/vnd.github+json" "/orgs/$ORG/packages/container/$PKG/versions" | jq '.[] | {id,name,metadata}'</span>
 </code></pre></div>
 <p>Delete a specific version by ID (organization):</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="nv">VERSION_ID</span><span class="o">=</span><span class="m">123456</span>
 <a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>
-<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>gh<span class="w"> </span>api<span class="w"> </span>-X<span class="w"> </span>DELETE<span class="w"> </span>-H<span class="w"> </span><span class="s2">&quot;Accept: application/vnd.github+json&quot;</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">  </span><span class="s2">&quot;/orgs/</span><span class="nv">$ORG</span><span class="s2">/packages/container/</span><span class="nv">$PKG</span><span class="s2">/versions/</span><span class="nv">$VERSION_ID</span><span class="s2">&quot;</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>gh<span class="w"> </span>api<span class="w"> </span>-X<span class="w"> </span>DELETE<span class="w"> </span>-H<span class="w"> </span><span class="s2">"Accept: application/vnd.github+json"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">  </span><span class="s2">"/orgs/</span><span class="nv">$ORG</span><span class="s2">/packages/container/</span><span class="nv">$PKG</span><span class="s2">/versions/</span><span class="nv">$VERSION_ID</span><span class="s2">"</span>
 </code></pre></div>
 <p>For user-owned packages, replace <code>/orgs/{org}</code> with <code>/user</code>:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="nv">PKG</span><span class="o">=</span><span class="s2">&quot;pyramids&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="nv">PKG</span><span class="o">=</span><span class="s2">"pyramids"</span>
 <a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>
 <a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="c1"># List</span>
-<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>gh<span class="w"> </span>api<span class="w"> </span>-H<span class="w"> </span><span class="s2">&quot;Accept: application/vnd.github+json&quot;</span><span class="w"> </span><span class="s2">&quot;/user/packages/container/</span><span class="nv">$PKG</span><span class="s2">/versions&quot;</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>gh<span class="w"> </span>api<span class="w"> </span>-H<span class="w"> </span><span class="s2">"Accept: application/vnd.github+json"</span><span class="w"> </span><span class="s2">"/user/packages/container/</span><span class="nv">$PKG</span><span class="s2">/versions"</span>
 <a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>
 <a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="c1"># Delete</span>
 <a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="nv">VERSION_ID</span><span class="o">=</span><span class="m">123456</span>
-<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a>gh<span class="w"> </span>api<span class="w"> </span>-X<span class="w"> </span>DELETE<span class="w"> </span>-H<span class="w"> </span><span class="s2">&quot;Accept: application/vnd.github+json&quot;</span><span class="w"> </span><span class="s2">&quot;/user/packages/container/</span><span class="nv">$PKG</span><span class="s2">/versions/</span><span class="nv">$VERSION_ID</span><span class="s2">&quot;</span>
+<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a>gh<span class="w"> </span>api<span class="w"> </span>-X<span class="w"> </span>DELETE<span class="w"> </span>-H<span class="w"> </span><span class="s2">"Accept: application/vnd.github+json"</span><span class="w"> </span><span class="s2">"/user/packages/container/</span><span class="nv">$PKG</span><span class="s2">/versions/</span><span class="nv">$VERSION_ID</span><span class="s2">"</span>
 </code></pre></div>
 <p>Notes:
 - You must authenticate <code>gh</code> (run <code>gh auth login</code>) with a token that has <code>read:packages</code>, <code>write:packages</code>, and <code>delete:packages</code> to delete.

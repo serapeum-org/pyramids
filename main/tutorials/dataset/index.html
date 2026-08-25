@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6224,10 +6224,10 @@ rasters. <code>NetCDF</code> and <code>DatasetCollection</code> build on top of 
 <h2 id="a-first-look"><a class="toclink" href="#a-first-look">A first look</a><a class="headerlink" href="#a-first-look" title="Permanent link">#</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">&quot;dem.tif&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">"dem.tif"</span><span class="p">)</span>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">ds</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">ds</span><span class="o">.</span><span class="n">band_count</span><span class="p">,</span> <span class="n">ds</span><span class="o">.</span><span class="n">epsg</span><span class="p">,</span> <span class="n">ds</span><span class="o">.</span><span class="n">cell_size</span>   <span class="c1"># grid + georeferencing</span>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">arr</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">read_array</span><span class="p">()</span>                            <span class="c1"># (bands, rows, cols) NumPy array</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_file</span><span class="p">(</span><span class="s2">&quot;copy.tif&quot;</span><span class="p">)</span>                           <span class="c1"># driver inferred from the extension</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_file</span><span class="p">(</span><span class="s2">"copy.tif"</span><span class="p">)</span>                           <span class="c1"># driver inferred from the extension</span>
 </code></pre></div>
 <p>Useful attributes: <code>shape</code>, <code>rows</code>, <code>columns</code>, <code>band_count</code>, <code>band_names</code>, <code>epsg</code>, <code>crs</code>,
 <code>cell_size</code>, <code>geotransform</code>, <code>bbox</code>, <code>bounds</code>, <code>no_data_value</code>, <code>dtype</code>, <code>meta_data</code>. The full,

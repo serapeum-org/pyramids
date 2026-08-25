@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6746,7 +6746,7 @@ are built on demand and cached.</p>
 <span class="normal"><a href="#__codelineno-0-229">229</a></span>
 <span class="normal"><a href="#__codelineno-0-230">230</a></span>
 <span class="normal"><a href="#__codelineno-0-231">231</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-31" name="__codelineno-0-31"></a><span class="k">class</span><span class="w"> </span><span class="nc">MeshSpatialIndex</span><span class="p">:</span>
-<a id="__codelineno-0-32" name="__codelineno-0-32"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Lazy-built spatial index for mesh elements.</span>
+<a id="__codelineno-0-32" name="__codelineno-0-32"></a><span class="w">    </span><span class="sd">"""Lazy-built spatial index for mesh elements.</span>
 <a id="__codelineno-0-33" name="__codelineno-0-33"></a>
 <a id="__codelineno-0-34" name="__codelineno-0-34"></a><span class="sd">    Uses scipy.spatial.cKDTree for nearest-neighbor queries and</span>
 <a id="__codelineno-0-35" name="__codelineno-0-35"></a><span class="sd">    shapely.STRtree for point-in-polygon queries. Both indexes</span>
@@ -6758,7 +6758,7 @@ are built on demand and cached.</p>
 <a id="__codelineno-0-41" name="__codelineno-0-41"></a><span class="sd">        _face_tree: KD-tree on face centroids (lazy).</span>
 <a id="__codelineno-0-42" name="__codelineno-0-42"></a><span class="sd">        _face_strtree: STRtree on face polygons (lazy).</span>
 <a id="__codelineno-0-43" name="__codelineno-0-43"></a><span class="sd">        _face_polygons: List of Shapely polygons (lazy).</span>
-<a id="__codelineno-0-44" name="__codelineno-0-44"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-44" name="__codelineno-0-44"></a><span class="sd">    """</span>
 <a id="__codelineno-0-45" name="__codelineno-0-45"></a>
 <a id="__codelineno-0-46" name="__codelineno-0-46"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">mesh</span><span class="p">:</span> <span class="n">Mesh2d</span><span class="p">):</span>
 <a id="__codelineno-0-47" name="__codelineno-0-47"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_mesh</span> <span class="o">=</span> <span class="n">mesh</span>
@@ -6769,7 +6769,7 @@ are built on demand and cached.</p>
 <a id="__codelineno-0-52" name="__codelineno-0-52"></a>
 <a id="__codelineno-0-53" name="__codelineno-0-53"></a>    <span class="nd">@property</span>
 <a id="__codelineno-0-54" name="__codelineno-0-54"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">node_tree</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
-<a id="__codelineno-0-55" name="__codelineno-0-55"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;KD-tree on node coordinates. Lazy-built on first access.&quot;&quot;&quot;</span>
+<a id="__codelineno-0-55" name="__codelineno-0-55"></a><span class="w">        </span><span class="sd">"""KD-tree on node coordinates. Lazy-built on first access."""</span>
 <a id="__codelineno-0-56" name="__codelineno-0-56"></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_node_tree</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
 <a id="__codelineno-0-57" name="__codelineno-0-57"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_node_tree</span> <span class="o">=</span> <span class="n">cKDTree</span><span class="p">(</span>
 <a id="__codelineno-0-58" name="__codelineno-0-58"></a>                <span class="n">np</span><span class="o">.</span><span class="n">column_stack</span><span class="p">([</span><span class="bp">self</span><span class="o">.</span><span class="n">_mesh</span><span class="o">.</span><span class="n">node_x</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_mesh</span><span class="o">.</span><span class="n">node_y</span><span class="p">])</span>
@@ -6778,7 +6778,7 @@ are built on demand and cached.</p>
 <a id="__codelineno-0-61" name="__codelineno-0-61"></a>
 <a id="__codelineno-0-62" name="__codelineno-0-62"></a>    <span class="nd">@property</span>
 <a id="__codelineno-0-63" name="__codelineno-0-63"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">face_tree</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
-<a id="__codelineno-0-64" name="__codelineno-0-64"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;KD-tree on face centroids. Lazy-built on first access.&quot;&quot;&quot;</span>
+<a id="__codelineno-0-64" name="__codelineno-0-64"></a><span class="w">        </span><span class="sd">"""KD-tree on face centroids. Lazy-built on first access."""</span>
 <a id="__codelineno-0-65" name="__codelineno-0-65"></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_face_tree</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
 <a id="__codelineno-0-66" name="__codelineno-0-66"></a>            <span class="n">cx</span><span class="p">,</span> <span class="n">cy</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_mesh</span><span class="o">.</span><span class="n">face_centroids</span>
 <a id="__codelineno-0-67" name="__codelineno-0-67"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_face_tree</span> <span class="o">=</span> <span class="n">cKDTree</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">column_stack</span><span class="p">([</span><span class="n">cx</span><span class="p">,</span> <span class="n">cy</span><span class="p">]))</span>
@@ -6786,7 +6786,7 @@ are built on demand and cached.</p>
 <a id="__codelineno-0-69" name="__codelineno-0-69"></a>
 <a id="__codelineno-0-70" name="__codelineno-0-70"></a>    <span class="nd">@property</span>
 <a id="__codelineno-0-71" name="__codelineno-0-71"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">face_strtree</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
-<a id="__codelineno-0-72" name="__codelineno-0-72"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Shapely STRtree on face polygons. Lazy-built on first access.&quot;&quot;&quot;</span>
+<a id="__codelineno-0-72" name="__codelineno-0-72"></a><span class="w">        </span><span class="sd">"""Shapely STRtree on face polygons. Lazy-built on first access."""</span>
 <a id="__codelineno-0-73" name="__codelineno-0-73"></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_face_strtree</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
 <a id="__codelineno-0-74" name="__codelineno-0-74"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_face_polygons</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_build_face_polygons</span><span class="p">()</span>
 <a id="__codelineno-0-75" name="__codelineno-0-75"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_face_strtree</span> <span class="o">=</span> <span class="n">STRtree</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_face_polygons</span><span class="p">)</span>
@@ -6794,15 +6794,15 @@ are built on demand and cached.</p>
 <a id="__codelineno-0-77" name="__codelineno-0-77"></a>
 <a id="__codelineno-0-78" name="__codelineno-0-78"></a>    <span class="nd">@property</span>
 <a id="__codelineno-0-79" name="__codelineno-0-79"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">face_polygons</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">Any</span><span class="p">]:</span>
-<a id="__codelineno-0-80" name="__codelineno-0-80"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;List of Shapely Polygon objects for all faces.&quot;&quot;&quot;</span>
+<a id="__codelineno-0-80" name="__codelineno-0-80"></a><span class="w">        </span><span class="sd">"""List of Shapely Polygon objects for all faces."""</span>
 <a id="__codelineno-0-81" name="__codelineno-0-81"></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_face_polygons</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
 <a id="__codelineno-0-82" name="__codelineno-0-82"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_face_polygons</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_build_face_polygons</span><span class="p">()</span>
 <a id="__codelineno-0-83" name="__codelineno-0-83"></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_face_polygons</span>
 <a id="__codelineno-0-84" name="__codelineno-0-84"></a>
 <a id="__codelineno-0-85" name="__codelineno-0-85"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_build_face_polygons</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">Any</span><span class="p">]:</span>
-<a id="__codelineno-0-86" name="__codelineno-0-86"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Build Shapely Polygon objects for all mesh faces.</span>
+<a id="__codelineno-0-86" name="__codelineno-0-86"></a><span class="w">        </span><span class="sd">"""Build Shapely Polygon objects for all mesh faces.</span>
 <a id="__codelineno-0-87" name="__codelineno-0-87"></a>
-<a id="__codelineno-0-88" name="__codelineno-0-88"></a><span class="sd">        Vectorised: every face&#39;s vertices are gathered into one flat coordinate array</span>
+<a id="__codelineno-0-88" name="__codelineno-0-88"></a><span class="sd">        Vectorised: every face's vertices are gathered into one flat coordinate array</span>
 <a id="__codelineno-0-89" name="__codelineno-0-89"></a><span class="sd">        and handed to ``shapely.linearrings`` / ``shapely.polygons`` with a per-vertex</span>
 <a id="__codelineno-0-90" name="__codelineno-0-90"></a><span class="sd">        ring index, instead of constructing one ``Polygon`` per face in a Python loop.</span>
 <a id="__codelineno-0-91" name="__codelineno-0-91"></a><span class="sd">        ``shapely.linearrings`` closes each ring automatically, so no explicit</span>
@@ -6810,7 +6810,7 @@ are built on demand and cached.</p>
 <a id="__codelineno-0-93" name="__codelineno-0-93"></a>
 <a id="__codelineno-0-94" name="__codelineno-0-94"></a><span class="sd">        Returns:</span>
 <a id="__codelineno-0-95" name="__codelineno-0-95"></a><span class="sd">            List of Shapely Polygon objects, one per face (in face-index order).</span>
-<a id="__codelineno-0-96" name="__codelineno-0-96"></a><span class="sd">        &quot;&quot;&quot;</span>
+<a id="__codelineno-0-96" name="__codelineno-0-96"></a><span class="sd">        """</span>
 <a id="__codelineno-0-97" name="__codelineno-0-97"></a>        <span class="n">fnc</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_mesh</span><span class="o">.</span><span class="n">face_node_connectivity</span>
 <a id="__codelineno-0-98" name="__codelineno-0-98"></a>        <span class="n">masked</span> <span class="o">=</span> <span class="n">fnc</span><span class="o">.</span><span class="n">as_masked</span><span class="p">()</span>
 <a id="__codelineno-0-99" name="__codelineno-0-99"></a>        <span class="n">valid</span> <span class="o">=</span> <span class="o">~</span><span class="n">np</span><span class="o">.</span><span class="n">ma</span><span class="o">.</span><span class="n">getmaskarray</span><span class="p">(</span><span class="n">masked</span><span class="p">)</span>
@@ -6828,7 +6828,7 @@ are built on demand and cached.</p>
 <a id="__codelineno-0-111" name="__codelineno-0-111"></a>        <span class="n">y</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span>
 <a id="__codelineno-0-112" name="__codelineno-0-112"></a>        <span class="n">k</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
 <a id="__codelineno-0-113" name="__codelineno-0-113"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">typing</span><span class="o">.</span><span class="n">NDArray</span><span class="p">:</span>
-<a id="__codelineno-0-114" name="__codelineno-0-114"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Find k nearest nodes to query point(s).</span>
+<a id="__codelineno-0-114" name="__codelineno-0-114"></a><span class="w">        </span><span class="sd">"""Find k nearest nodes to query point(s).</span>
 <a id="__codelineno-0-115" name="__codelineno-0-115"></a>
 <a id="__codelineno-0-116" name="__codelineno-0-116"></a><span class="sd">        Args:</span>
 <a id="__codelineno-0-117" name="__codelineno-0-117"></a><span class="sd">            x: Query x-coordinate(s) (scalar or array).</span>
@@ -6838,7 +6838,7 @@ are built on demand and cached.</p>
 <a id="__codelineno-0-121" name="__codelineno-0-121"></a><span class="sd">        Returns:</span>
 <a id="__codelineno-0-122" name="__codelineno-0-122"></a><span class="sd">            Array of node indices. Shape: (k,) for scalar input,</span>
 <a id="__codelineno-0-123" name="__codelineno-0-123"></a><span class="sd">            (n_queries, k) for array input.</span>
-<a id="__codelineno-0-124" name="__codelineno-0-124"></a><span class="sd">        &quot;&quot;&quot;</span>
+<a id="__codelineno-0-124" name="__codelineno-0-124"></a><span class="sd">        """</span>
 <a id="__codelineno-0-125" name="__codelineno-0-125"></a>        <span class="n">points</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">column_stack</span><span class="p">([</span><span class="n">np</span><span class="o">.</span><span class="n">atleast_1d</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">atleast_1d</span><span class="p">(</span><span class="n">y</span><span class="p">)])</span>
 <a id="__codelineno-0-126" name="__codelineno-0-126"></a>        <span class="n">_</span><span class="p">,</span> <span class="n">indices</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">node_tree</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">points</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="n">k</span><span class="p">)</span>
 <a id="__codelineno-0-127" name="__codelineno-0-127"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">indices</span><span class="p">)</span>
@@ -6850,7 +6850,7 @@ are built on demand and cached.</p>
 <a id="__codelineno-0-133" name="__codelineno-0-133"></a>        <span class="n">y</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span>
 <a id="__codelineno-0-134" name="__codelineno-0-134"></a>        <span class="n">k</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
 <a id="__codelineno-0-135" name="__codelineno-0-135"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">typing</span><span class="o">.</span><span class="n">NDArray</span><span class="p">:</span>
-<a id="__codelineno-0-136" name="__codelineno-0-136"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Find k nearest face centroids to query point(s).</span>
+<a id="__codelineno-0-136" name="__codelineno-0-136"></a><span class="w">        </span><span class="sd">"""Find k nearest face centroids to query point(s).</span>
 <a id="__codelineno-0-137" name="__codelineno-0-137"></a>
 <a id="__codelineno-0-138" name="__codelineno-0-138"></a><span class="sd">        Args:</span>
 <a id="__codelineno-0-139" name="__codelineno-0-139"></a><span class="sd">            x: Query x-coordinate(s) (scalar or array).</span>
@@ -6860,7 +6860,7 @@ are built on demand and cached.</p>
 <a id="__codelineno-0-143" name="__codelineno-0-143"></a><span class="sd">        Returns:</span>
 <a id="__codelineno-0-144" name="__codelineno-0-144"></a><span class="sd">            Array of face indices. Shape: (k,) for scalar input,</span>
 <a id="__codelineno-0-145" name="__codelineno-0-145"></a><span class="sd">            (n_queries, k) for array input.</span>
-<a id="__codelineno-0-146" name="__codelineno-0-146"></a><span class="sd">        &quot;&quot;&quot;</span>
+<a id="__codelineno-0-146" name="__codelineno-0-146"></a><span class="sd">        """</span>
 <a id="__codelineno-0-147" name="__codelineno-0-147"></a>        <span class="n">points</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">column_stack</span><span class="p">([</span><span class="n">np</span><span class="o">.</span><span class="n">atleast_1d</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">atleast_1d</span><span class="p">(</span><span class="n">y</span><span class="p">)])</span>
 <a id="__codelineno-0-148" name="__codelineno-0-148"></a>        <span class="n">_</span><span class="p">,</span> <span class="n">indices</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">face_tree</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">points</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="n">k</span><span class="p">)</span>
 <a id="__codelineno-0-149" name="__codelineno-0-149"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">indices</span><span class="p">)</span>
@@ -6873,7 +6873,7 @@ are built on demand and cached.</p>
 <a id="__codelineno-0-156" name="__codelineno-0-156"></a>        <span class="n">xmax</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
 <a id="__codelineno-0-157" name="__codelineno-0-157"></a>        <span class="n">ymax</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
 <a id="__codelineno-0-158" name="__codelineno-0-158"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">typing</span><span class="o">.</span><span class="n">NDArray</span><span class="p">:</span>
-<a id="__codelineno-0-159" name="__codelineno-0-159"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Find all nodes within a bounding box.</span>
+<a id="__codelineno-0-159" name="__codelineno-0-159"></a><span class="w">        </span><span class="sd">"""Find all nodes within a bounding box.</span>
 <a id="__codelineno-0-160" name="__codelineno-0-160"></a>
 <a id="__codelineno-0-161" name="__codelineno-0-161"></a><span class="sd">        Args:</span>
 <a id="__codelineno-0-162" name="__codelineno-0-162"></a><span class="sd">            xmin: Minimum x-coordinate.</span>
@@ -6883,7 +6883,7 @@ are built on demand and cached.</p>
 <a id="__codelineno-0-166" name="__codelineno-0-166"></a>
 <a id="__codelineno-0-167" name="__codelineno-0-167"></a><span class="sd">        Returns:</span>
 <a id="__codelineno-0-168" name="__codelineno-0-168"></a><span class="sd">            Array of node indices within the bounding box.</span>
-<a id="__codelineno-0-169" name="__codelineno-0-169"></a><span class="sd">        &quot;&quot;&quot;</span>
+<a id="__codelineno-0-169" name="__codelineno-0-169"></a><span class="sd">        """</span>
 <a id="__codelineno-0-170" name="__codelineno-0-170"></a>        <span class="n">mask</span> <span class="o">=</span> <span class="p">(</span>
 <a id="__codelineno-0-171" name="__codelineno-0-171"></a>            <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_mesh</span><span class="o">.</span><span class="n">node_x</span> <span class="o">&gt;=</span> <span class="n">xmin</span><span class="p">)</span>
 <a id="__codelineno-0-172" name="__codelineno-0-172"></a>            <span class="o">&amp;</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_mesh</span><span class="o">.</span><span class="n">node_x</span> <span class="o">&lt;=</span> <span class="n">xmax</span><span class="p">)</span>
@@ -6900,7 +6900,7 @@ are built on demand and cached.</p>
 <a id="__codelineno-0-183" name="__codelineno-0-183"></a>        <span class="n">xmax</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
 <a id="__codelineno-0-184" name="__codelineno-0-184"></a>        <span class="n">ymax</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
 <a id="__codelineno-0-185" name="__codelineno-0-185"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">typing</span><span class="o">.</span><span class="n">NDArray</span><span class="p">:</span>
-<a id="__codelineno-0-186" name="__codelineno-0-186"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Find all faces whose centroids fall within a bounding box.</span>
+<a id="__codelineno-0-186" name="__codelineno-0-186"></a><span class="w">        </span><span class="sd">"""Find all faces whose centroids fall within a bounding box.</span>
 <a id="__codelineno-0-187" name="__codelineno-0-187"></a>
 <a id="__codelineno-0-188" name="__codelineno-0-188"></a><span class="sd">        Args:</span>
 <a id="__codelineno-0-189" name="__codelineno-0-189"></a><span class="sd">            xmin: Minimum x-coordinate.</span>
@@ -6910,7 +6910,7 @@ are built on demand and cached.</p>
 <a id="__codelineno-0-193" name="__codelineno-0-193"></a>
 <a id="__codelineno-0-194" name="__codelineno-0-194"></a><span class="sd">        Returns:</span>
 <a id="__codelineno-0-195" name="__codelineno-0-195"></a><span class="sd">            Array of face indices within the bounding box.</span>
-<a id="__codelineno-0-196" name="__codelineno-0-196"></a><span class="sd">        &quot;&quot;&quot;</span>
+<a id="__codelineno-0-196" name="__codelineno-0-196"></a><span class="sd">        """</span>
 <a id="__codelineno-0-197" name="__codelineno-0-197"></a>        <span class="n">cx</span><span class="p">,</span> <span class="n">cy</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_mesh</span><span class="o">.</span><span class="n">face_centroids</span>
 <a id="__codelineno-0-198" name="__codelineno-0-198"></a>        <span class="n">mask</span> <span class="o">=</span> <span class="p">(</span><span class="n">cx</span> <span class="o">&gt;=</span> <span class="n">xmin</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">cx</span> <span class="o">&lt;=</span> <span class="n">xmax</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">cy</span> <span class="o">&gt;=</span> <span class="n">ymin</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">cy</span> <span class="o">&lt;=</span> <span class="n">ymax</span><span class="p">)</span>
 <a id="__codelineno-0-199" name="__codelineno-0-199"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nonzero</span><span class="p">(</span><span class="n">mask</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
@@ -6921,7 +6921,7 @@ are built on demand and cached.</p>
 <a id="__codelineno-0-204" name="__codelineno-0-204"></a>        <span class="n">x</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span>
 <a id="__codelineno-0-205" name="__codelineno-0-205"></a>        <span class="n">y</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span>
 <a id="__codelineno-0-206" name="__codelineno-0-206"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">typing</span><span class="o">.</span><span class="n">NDArray</span><span class="p">:</span>
-<a id="__codelineno-0-207" name="__codelineno-0-207"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Find which face contains each query point.</span>
+<a id="__codelineno-0-207" name="__codelineno-0-207"></a><span class="w">        </span><span class="sd">"""Find which face contains each query point.</span>
 <a id="__codelineno-0-208" name="__codelineno-0-208"></a>
 <a id="__codelineno-0-209" name="__codelineno-0-209"></a><span class="sd">        Uses Shapely STRtree for exact containment testing.</span>
 <a id="__codelineno-0-210" name="__codelineno-0-210"></a><span class="sd">        Returns -1 for points outside all faces.</span>
@@ -6932,14 +6932,14 @@ are built on demand and cached.</p>
 <a id="__codelineno-0-215" name="__codelineno-0-215"></a>
 <a id="__codelineno-0-216" name="__codelineno-0-216"></a><span class="sd">        Returns:</span>
 <a id="__codelineno-0-217" name="__codelineno-0-217"></a><span class="sd">            Array of face indices, -1 for points outside mesh.</span>
-<a id="__codelineno-0-218" name="__codelineno-0-218"></a><span class="sd">        &quot;&quot;&quot;</span>
+<a id="__codelineno-0-218" name="__codelineno-0-218"></a><span class="sd">        """</span>
 <a id="__codelineno-0-219" name="__codelineno-0-219"></a>        <span class="n">x</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">atleast_1d</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
 <a id="__codelineno-0-220" name="__codelineno-0-220"></a>        <span class="n">y</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">atleast_1d</span><span class="p">(</span><span class="n">y</span><span class="p">)</span>
 <a id="__codelineno-0-221" name="__codelineno-0-221"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">intp</span><span class="p">)</span>
 <a id="__codelineno-0-222" name="__codelineno-0-222"></a>
 <a id="__codelineno-0-223" name="__codelineno-0-223"></a>        <span class="n">points</span> <span class="o">=</span> <span class="n">shapely</span><span class="o">.</span><span class="n">points</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
 <a id="__codelineno-0-224" name="__codelineno-0-224"></a>        <span class="n">strtree</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">face_strtree</span>
-<a id="__codelineno-0-225" name="__codelineno-0-225"></a>        <span class="n">input_idx</span><span class="p">,</span> <span class="n">tree_idx</span> <span class="o">=</span> <span class="n">strtree</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">points</span><span class="p">,</span> <span class="n">predicate</span><span class="o">=</span><span class="s2">&quot;within&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-225" name="__codelineno-0-225"></a>        <span class="n">input_idx</span><span class="p">,</span> <span class="n">tree_idx</span> <span class="o">=</span> <span class="n">strtree</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">points</span><span class="p">,</span> <span class="n">predicate</span><span class="o">=</span><span class="s2">"within"</span><span class="p">)</span>
 <a id="__codelineno-0-226" name="__codelineno-0-226"></a>
 <a id="__codelineno-0-227" name="__codelineno-0-227"></a>        <span class="k">for</span> <span class="n">pt_i</span><span class="p">,</span> <span class="n">face_i</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">input_idx</span><span class="p">,</span> <span class="n">tree_idx</span><span class="p">):</span>
 <a id="__codelineno-0-228" name="__codelineno-0-228"></a>            <span class="k">if</span> <span class="n">result</span><span class="p">[</span><span class="n">pt_i</span><span class="p">]</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
@@ -7188,7 +7188,7 @@ are built on demand and cached.</p>
 <a id="__codelineno-0-111" name="__codelineno-0-111"></a>    <span class="n">y</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span>
 <a id="__codelineno-0-112" name="__codelineno-0-112"></a>    <span class="n">k</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
 <a id="__codelineno-0-113" name="__codelineno-0-113"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">typing</span><span class="o">.</span><span class="n">NDArray</span><span class="p">:</span>
-<a id="__codelineno-0-114" name="__codelineno-0-114"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Find k nearest nodes to query point(s).</span>
+<a id="__codelineno-0-114" name="__codelineno-0-114"></a><span class="w">    </span><span class="sd">"""Find k nearest nodes to query point(s).</span>
 <a id="__codelineno-0-115" name="__codelineno-0-115"></a>
 <a id="__codelineno-0-116" name="__codelineno-0-116"></a><span class="sd">    Args:</span>
 <a id="__codelineno-0-117" name="__codelineno-0-117"></a><span class="sd">        x: Query x-coordinate(s) (scalar or array).</span>
@@ -7198,7 +7198,7 @@ are built on demand and cached.</p>
 <a id="__codelineno-0-121" name="__codelineno-0-121"></a><span class="sd">    Returns:</span>
 <a id="__codelineno-0-122" name="__codelineno-0-122"></a><span class="sd">        Array of node indices. Shape: (k,) for scalar input,</span>
 <a id="__codelineno-0-123" name="__codelineno-0-123"></a><span class="sd">        (n_queries, k) for array input.</span>
-<a id="__codelineno-0-124" name="__codelineno-0-124"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-124" name="__codelineno-0-124"></a><span class="sd">    """</span>
 <a id="__codelineno-0-125" name="__codelineno-0-125"></a>    <span class="n">points</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">column_stack</span><span class="p">([</span><span class="n">np</span><span class="o">.</span><span class="n">atleast_1d</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">atleast_1d</span><span class="p">(</span><span class="n">y</span><span class="p">)])</span>
 <a id="__codelineno-0-126" name="__codelineno-0-126"></a>    <span class="n">_</span><span class="p">,</span> <span class="n">indices</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">node_tree</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">points</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="n">k</span><span class="p">)</span>
 <a id="__codelineno-0-127" name="__codelineno-0-127"></a>    <span class="n">result</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">indices</span><span class="p">)</span>
@@ -7347,7 +7347,7 @@ are built on demand and cached.</p>
 <a id="__codelineno-0-133" name="__codelineno-0-133"></a>    <span class="n">y</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span>
 <a id="__codelineno-0-134" name="__codelineno-0-134"></a>    <span class="n">k</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
 <a id="__codelineno-0-135" name="__codelineno-0-135"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">typing</span><span class="o">.</span><span class="n">NDArray</span><span class="p">:</span>
-<a id="__codelineno-0-136" name="__codelineno-0-136"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Find k nearest face centroids to query point(s).</span>
+<a id="__codelineno-0-136" name="__codelineno-0-136"></a><span class="w">    </span><span class="sd">"""Find k nearest face centroids to query point(s).</span>
 <a id="__codelineno-0-137" name="__codelineno-0-137"></a>
 <a id="__codelineno-0-138" name="__codelineno-0-138"></a><span class="sd">    Args:</span>
 <a id="__codelineno-0-139" name="__codelineno-0-139"></a><span class="sd">        x: Query x-coordinate(s) (scalar or array).</span>
@@ -7357,7 +7357,7 @@ are built on demand and cached.</p>
 <a id="__codelineno-0-143" name="__codelineno-0-143"></a><span class="sd">    Returns:</span>
 <a id="__codelineno-0-144" name="__codelineno-0-144"></a><span class="sd">        Array of face indices. Shape: (k,) for scalar input,</span>
 <a id="__codelineno-0-145" name="__codelineno-0-145"></a><span class="sd">        (n_queries, k) for array input.</span>
-<a id="__codelineno-0-146" name="__codelineno-0-146"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-146" name="__codelineno-0-146"></a><span class="sd">    """</span>
 <a id="__codelineno-0-147" name="__codelineno-0-147"></a>    <span class="n">points</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">column_stack</span><span class="p">([</span><span class="n">np</span><span class="o">.</span><span class="n">atleast_1d</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">atleast_1d</span><span class="p">(</span><span class="n">y</span><span class="p">)])</span>
 <a id="__codelineno-0-148" name="__codelineno-0-148"></a>    <span class="n">_</span><span class="p">,</span> <span class="n">indices</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">face_tree</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">points</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="n">k</span><span class="p">)</span>
 <a id="__codelineno-0-149" name="__codelineno-0-149"></a>    <span class="n">result</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">indices</span><span class="p">)</span>
@@ -7518,7 +7518,7 @@ are built on demand and cached.</p>
 <a id="__codelineno-0-156" name="__codelineno-0-156"></a>    <span class="n">xmax</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
 <a id="__codelineno-0-157" name="__codelineno-0-157"></a>    <span class="n">ymax</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
 <a id="__codelineno-0-158" name="__codelineno-0-158"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">typing</span><span class="o">.</span><span class="n">NDArray</span><span class="p">:</span>
-<a id="__codelineno-0-159" name="__codelineno-0-159"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Find all nodes within a bounding box.</span>
+<a id="__codelineno-0-159" name="__codelineno-0-159"></a><span class="w">    </span><span class="sd">"""Find all nodes within a bounding box.</span>
 <a id="__codelineno-0-160" name="__codelineno-0-160"></a>
 <a id="__codelineno-0-161" name="__codelineno-0-161"></a><span class="sd">    Args:</span>
 <a id="__codelineno-0-162" name="__codelineno-0-162"></a><span class="sd">        xmin: Minimum x-coordinate.</span>
@@ -7528,7 +7528,7 @@ are built on demand and cached.</p>
 <a id="__codelineno-0-166" name="__codelineno-0-166"></a>
 <a id="__codelineno-0-167" name="__codelineno-0-167"></a><span class="sd">    Returns:</span>
 <a id="__codelineno-0-168" name="__codelineno-0-168"></a><span class="sd">        Array of node indices within the bounding box.</span>
-<a id="__codelineno-0-169" name="__codelineno-0-169"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-169" name="__codelineno-0-169"></a><span class="sd">    """</span>
 <a id="__codelineno-0-170" name="__codelineno-0-170"></a>    <span class="n">mask</span> <span class="o">=</span> <span class="p">(</span>
 <a id="__codelineno-0-171" name="__codelineno-0-171"></a>        <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_mesh</span><span class="o">.</span><span class="n">node_x</span> <span class="o">&gt;=</span> <span class="n">xmin</span><span class="p">)</span>
 <a id="__codelineno-0-172" name="__codelineno-0-172"></a>        <span class="o">&amp;</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_mesh</span><span class="o">.</span><span class="n">node_x</span> <span class="o">&lt;=</span> <span class="n">xmax</span><span class="p">)</span>
@@ -7689,7 +7689,7 @@ are built on demand and cached.</p>
 <a id="__codelineno-0-183" name="__codelineno-0-183"></a>    <span class="n">xmax</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
 <a id="__codelineno-0-184" name="__codelineno-0-184"></a>    <span class="n">ymax</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
 <a id="__codelineno-0-185" name="__codelineno-0-185"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">typing</span><span class="o">.</span><span class="n">NDArray</span><span class="p">:</span>
-<a id="__codelineno-0-186" name="__codelineno-0-186"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Find all faces whose centroids fall within a bounding box.</span>
+<a id="__codelineno-0-186" name="__codelineno-0-186"></a><span class="w">    </span><span class="sd">"""Find all faces whose centroids fall within a bounding box.</span>
 <a id="__codelineno-0-187" name="__codelineno-0-187"></a>
 <a id="__codelineno-0-188" name="__codelineno-0-188"></a><span class="sd">    Args:</span>
 <a id="__codelineno-0-189" name="__codelineno-0-189"></a><span class="sd">        xmin: Minimum x-coordinate.</span>
@@ -7699,7 +7699,7 @@ are built on demand and cached.</p>
 <a id="__codelineno-0-193" name="__codelineno-0-193"></a>
 <a id="__codelineno-0-194" name="__codelineno-0-194"></a><span class="sd">    Returns:</span>
 <a id="__codelineno-0-195" name="__codelineno-0-195"></a><span class="sd">        Array of face indices within the bounding box.</span>
-<a id="__codelineno-0-196" name="__codelineno-0-196"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-196" name="__codelineno-0-196"></a><span class="sd">    """</span>
 <a id="__codelineno-0-197" name="__codelineno-0-197"></a>    <span class="n">cx</span><span class="p">,</span> <span class="n">cy</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_mesh</span><span class="o">.</span><span class="n">face_centroids</span>
 <a id="__codelineno-0-198" name="__codelineno-0-198"></a>    <span class="n">mask</span> <span class="o">=</span> <span class="p">(</span><span class="n">cx</span> <span class="o">&gt;=</span> <span class="n">xmin</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">cx</span> <span class="o">&lt;=</span> <span class="n">xmax</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">cy</span> <span class="o">&gt;=</span> <span class="n">ymin</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">cy</span> <span class="o">&lt;=</span> <span class="n">ymax</span><span class="p">)</span>
 <a id="__codelineno-0-199" name="__codelineno-0-199"></a>    <span class="n">result</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nonzero</span><span class="p">(</span><span class="n">mask</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
@@ -7832,7 +7832,7 @@ Returns -1 for points outside all faces.</p>
 <a id="__codelineno-0-204" name="__codelineno-0-204"></a>    <span class="n">x</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span>
 <a id="__codelineno-0-205" name="__codelineno-0-205"></a>    <span class="n">y</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span>
 <a id="__codelineno-0-206" name="__codelineno-0-206"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">typing</span><span class="o">.</span><span class="n">NDArray</span><span class="p">:</span>
-<a id="__codelineno-0-207" name="__codelineno-0-207"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Find which face contains each query point.</span>
+<a id="__codelineno-0-207" name="__codelineno-0-207"></a><span class="w">    </span><span class="sd">"""Find which face contains each query point.</span>
 <a id="__codelineno-0-208" name="__codelineno-0-208"></a>
 <a id="__codelineno-0-209" name="__codelineno-0-209"></a><span class="sd">    Uses Shapely STRtree for exact containment testing.</span>
 <a id="__codelineno-0-210" name="__codelineno-0-210"></a><span class="sd">    Returns -1 for points outside all faces.</span>
@@ -7843,14 +7843,14 @@ Returns -1 for points outside all faces.</p>
 <a id="__codelineno-0-215" name="__codelineno-0-215"></a>
 <a id="__codelineno-0-216" name="__codelineno-0-216"></a><span class="sd">    Returns:</span>
 <a id="__codelineno-0-217" name="__codelineno-0-217"></a><span class="sd">        Array of face indices, -1 for points outside mesh.</span>
-<a id="__codelineno-0-218" name="__codelineno-0-218"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-218" name="__codelineno-0-218"></a><span class="sd">    """</span>
 <a id="__codelineno-0-219" name="__codelineno-0-219"></a>    <span class="n">x</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">atleast_1d</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
 <a id="__codelineno-0-220" name="__codelineno-0-220"></a>    <span class="n">y</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">atleast_1d</span><span class="p">(</span><span class="n">y</span><span class="p">)</span>
 <a id="__codelineno-0-221" name="__codelineno-0-221"></a>    <span class="n">result</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">intp</span><span class="p">)</span>
 <a id="__codelineno-0-222" name="__codelineno-0-222"></a>
 <a id="__codelineno-0-223" name="__codelineno-0-223"></a>    <span class="n">points</span> <span class="o">=</span> <span class="n">shapely</span><span class="o">.</span><span class="n">points</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
 <a id="__codelineno-0-224" name="__codelineno-0-224"></a>    <span class="n">strtree</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">face_strtree</span>
-<a id="__codelineno-0-225" name="__codelineno-0-225"></a>    <span class="n">input_idx</span><span class="p">,</span> <span class="n">tree_idx</span> <span class="o">=</span> <span class="n">strtree</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">points</span><span class="p">,</span> <span class="n">predicate</span><span class="o">=</span><span class="s2">&quot;within&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-225" name="__codelineno-0-225"></a>    <span class="n">input_idx</span><span class="p">,</span> <span class="n">tree_idx</span> <span class="o">=</span> <span class="n">strtree</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">points</span><span class="p">,</span> <span class="n">predicate</span><span class="o">=</span><span class="s2">"within"</span><span class="p">)</span>
 <a id="__codelineno-0-226" name="__codelineno-0-226"></a>
 <a id="__codelineno-0-227" name="__codelineno-0-227"></a>    <span class="k">for</span> <span class="n">pt_i</span><span class="p">,</span> <span class="n">face_i</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">input_idx</span><span class="p">,</span> <span class="n">tree_idx</span><span class="p">):</span>
 <a id="__codelineno-0-228" name="__codelineno-0-228"></a>        <span class="k">if</span> <span class="n">result</span><span class="p">[</span><span class="n">pt_i</span><span class="p">]</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
@@ -8038,7 +8038,7 @@ If False, only include faces fully inside.</p>
 <a id="__codelineno-0-236" name="__codelineno-0-236"></a>    <span class="n">mask</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
 <a id="__codelineno-0-237" name="__codelineno-0-237"></a>    <span class="n">touch</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
 <a id="__codelineno-0-238" name="__codelineno-0-238"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Mesh2d</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">MeshVariable</span><span class="p">]]:</span>
-<a id="__codelineno-0-239" name="__codelineno-0-239"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Clip a UGRID dataset to a polygon mask.</span>
+<a id="__codelineno-0-239" name="__codelineno-0-239"></a><span class="w">    </span><span class="sd">"""Clip a UGRID dataset to a polygon mask.</span>
 <a id="__codelineno-0-240" name="__codelineno-0-240"></a>
 <a id="__codelineno-0-241" name="__codelineno-0-241"></a><span class="sd">    Selects faces that intersect (touch=True) or are fully contained</span>
 <a id="__codelineno-0-242" name="__codelineno-0-242"></a><span class="sd">    within (touch=False) the mask polygon. Renumbers nodes and edges</span>
@@ -8053,22 +8053,22 @@ If False, only include faces fully inside.</p>
 <a id="__codelineno-0-251" name="__codelineno-0-251"></a><span class="sd">    Returns:</span>
 <a id="__codelineno-0-252" name="__codelineno-0-252"></a><span class="sd">        tuple: ``(mesh, data_variables)`` for the clipped faces — wrap with</span>
 <a id="__codelineno-0-253" name="__codelineno-0-253"></a><span class="sd">        :meth:`UgridDataset.clip`, which is the public entry point.</span>
-<a id="__codelineno-0-254" name="__codelineno-0-254"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-254" name="__codelineno-0-254"></a><span class="sd">    """</span>
 <a id="__codelineno-0-255" name="__codelineno-0-255"></a>    <span class="n">mesh</span> <span class="o">=</span> <span class="n">dataset</span><span class="o">.</span><span class="n">mesh</span>
 <a id="__codelineno-0-256" name="__codelineno-0-256"></a>
-<a id="__codelineno-0-257" name="__codelineno-0-257"></a>    <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">mask</span><span class="p">,</span> <span class="s2">&quot;_gdf&quot;</span><span class="p">):</span>
+<a id="__codelineno-0-257" name="__codelineno-0-257"></a>    <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">mask</span><span class="p">,</span> <span class="s2">"_gdf"</span><span class="p">):</span>
 <a id="__codelineno-0-258" name="__codelineno-0-258"></a>        <span class="n">mask_geom</span> <span class="o">=</span> <span class="n">unary_union</span><span class="p">(</span><span class="n">mask</span><span class="o">.</span><span class="n">_gdf</span><span class="o">.</span><span class="n">geometry</span><span class="p">)</span>
-<a id="__codelineno-0-259" name="__codelineno-0-259"></a>    <span class="k">elif</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">mask</span><span class="p">,</span> <span class="s2">&quot;geometry&quot;</span><span class="p">):</span>
+<a id="__codelineno-0-259" name="__codelineno-0-259"></a>    <span class="k">elif</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">mask</span><span class="p">,</span> <span class="s2">"geometry"</span><span class="p">):</span>
 <a id="__codelineno-0-260" name="__codelineno-0-260"></a>        <span class="n">mask_geom</span> <span class="o">=</span> <span class="n">unary_union</span><span class="p">(</span><span class="n">mask</span><span class="o">.</span><span class="n">geometry</span><span class="p">)</span>
 <a id="__codelineno-0-261" name="__codelineno-0-261"></a>    <span class="k">else</span><span class="p">:</span>
 <a id="__codelineno-0-262" name="__codelineno-0-262"></a>        <span class="n">mask_geom</span> <span class="o">=</span> <span class="n">mask</span>
 <a id="__codelineno-0-263" name="__codelineno-0-263"></a>
 <a id="__codelineno-0-264" name="__codelineno-0-264"></a>    <span class="n">spatial_idx</span> <span class="o">=</span> <span class="n">MeshSpatialIndex</span><span class="p">(</span><span class="n">mesh</span><span class="p">)</span>
-<a id="__codelineno-0-265" name="__codelineno-0-265"></a>    <span class="c1"># Reuse the index&#39;s lazily-built face STRtree instead of constructing a second one</span>
+<a id="__codelineno-0-265" name="__codelineno-0-265"></a>    <span class="c1"># Reuse the index's lazily-built face STRtree instead of constructing a second one</span>
 <a id="__codelineno-0-266" name="__codelineno-0-266"></a>    <span class="c1"># over the same polygons.</span>
 <a id="__codelineno-0-267" name="__codelineno-0-267"></a>    <span class="n">tree</span> <span class="o">=</span> <span class="n">spatial_idx</span><span class="o">.</span><span class="n">face_strtree</span>
 <a id="__codelineno-0-268" name="__codelineno-0-268"></a>
-<a id="__codelineno-0-269" name="__codelineno-0-269"></a>    <span class="n">predicate</span> <span class="o">=</span> <span class="s2">&quot;intersects&quot;</span> <span class="k">if</span> <span class="n">touch</span> <span class="k">else</span> <span class="s2">&quot;contains&quot;</span>
+<a id="__codelineno-0-269" name="__codelineno-0-269"></a>    <span class="n">predicate</span> <span class="o">=</span> <span class="s2">"intersects"</span> <span class="k">if</span> <span class="n">touch</span> <span class="k">else</span> <span class="s2">"contains"</span>
 <a id="__codelineno-0-270" name="__codelineno-0-270"></a>    <span class="n">candidates</span> <span class="o">=</span> <span class="n">tree</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">mask_geom</span><span class="p">,</span> <span class="n">predicate</span><span class="o">=</span><span class="n">predicate</span><span class="p">)</span>
 <a id="__codelineno-0-271" name="__codelineno-0-271"></a>
 <a id="__codelineno-0-272" name="__codelineno-0-272"></a>    <span class="n">selected_faces</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">c</span><span class="p">)</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">candidates</span><span class="p">)</span>
@@ -8270,7 +8270,7 @@ intersection tests. Uses vectorized numpy comparisons.</p>
 <a id="__codelineno-0-282" name="__codelineno-0-282"></a>    <span class="n">xmax</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
 <a id="__codelineno-0-283" name="__codelineno-0-283"></a>    <span class="n">ymax</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
 <a id="__codelineno-0-284" name="__codelineno-0-284"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Mesh2d</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">MeshVariable</span><span class="p">]]:</span>
-<a id="__codelineno-0-285" name="__codelineno-0-285"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Subset mesh to faces whose centroids fall within a bounding box.</span>
+<a id="__codelineno-0-285" name="__codelineno-0-285"></a><span class="w">    </span><span class="sd">"""Subset mesh to faces whose centroids fall within a bounding box.</span>
 <a id="__codelineno-0-286" name="__codelineno-0-286"></a>
 <a id="__codelineno-0-287" name="__codelineno-0-287"></a><span class="sd">    Faster than clip_mesh because it only checks face centroids</span>
 <a id="__codelineno-0-288" name="__codelineno-0-288"></a><span class="sd">    against the box without building Shapely polygons or doing</span>
@@ -8286,7 +8286,7 @@ intersection tests. Uses vectorized numpy comparisons.</p>
 <a id="__codelineno-0-298" name="__codelineno-0-298"></a><span class="sd">    Returns:</span>
 <a id="__codelineno-0-299" name="__codelineno-0-299"></a><span class="sd">        tuple: ``(mesh, data_variables)`` for the faces whose centroids fall in the box —</span>
 <a id="__codelineno-0-300" name="__codelineno-0-300"></a><span class="sd">        wrap with :meth:`UgridDataset.subset_by_bounds`, the public entry point.</span>
-<a id="__codelineno-0-301" name="__codelineno-0-301"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-301" name="__codelineno-0-301"></a><span class="sd">    """</span>
 <a id="__codelineno-0-302" name="__codelineno-0-302"></a>    <span class="n">mesh</span> <span class="o">=</span> <span class="n">dataset</span><span class="o">.</span><span class="n">mesh</span>
 <a id="__codelineno-0-303" name="__codelineno-0-303"></a>    <span class="n">cx</span><span class="p">,</span> <span class="n">cy</span> <span class="o">=</span> <span class="n">mesh</span><span class="o">.</span><span class="n">face_centroids</span>
 <a id="__codelineno-0-304" name="__codelineno-0-304"></a>    <span class="n">mask</span> <span class="o">=</span> <span class="p">(</span><span class="n">cx</span> <span class="o">&gt;=</span> <span class="n">xmin</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">cx</span> <span class="o">&lt;=</span> <span class="n">xmax</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">cy</span> <span class="o">&gt;=</span> <span class="n">ymin</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">cy</span> <span class="o">&lt;=</span> <span class="n">ymax</span><span class="p">)</span>

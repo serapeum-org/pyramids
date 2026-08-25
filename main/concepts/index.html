@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6292,10 +6292,10 @@ a <code>GeoDataFrame</code>. You work with Python objects and attributes — nev
 <p>A NetCDF file holds <em>several</em> variables, so <code>NetCDF.read_file</code> cannot return "a raster" — it returns a
 <strong>container</strong>: a <code>NetCDF</code> with <code>band_count == 0</code> that describes the whole file. Pin one variable and you get a
 <strong>variable</strong>: a <code>NetCDF</code> with <code>band_count &gt;= 1</code> that behaves like a single raster.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">nc</span> <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">&quot;air.nc&quot;</span><span class="p">)</span>     <span class="c1"># Container: band_count == 0</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="n">nc</span><span class="o">.</span><span class="n">variable_names</span>                    <span class="c1"># [&#39;t2m&#39;, &#39;tp&#39;, ...]</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">t2m</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="s2">&quot;t2m&quot;</span><span class="p">)</span>         <span class="c1"># Variable: band_count &gt;= 1 — read_array / crop / plot / to_file</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">grp</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">get_group</span><span class="p">(</span><span class="s2">&quot;subgroup&quot;</span><span class="p">)</span>       <span class="c1"># a nested netCDF-4 group, itself a container</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">nc</span> <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">"air.nc"</span><span class="p">)</span>     <span class="c1"># Container: band_count == 0</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="n">nc</span><span class="o">.</span><span class="n">variable_names</span>                    <span class="c1"># ['t2m', 'tp', ...]</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">t2m</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="s2">"t2m"</span><span class="p">)</span>         <span class="c1"># Variable: band_count &gt;= 1 — read_array / crop / plot / to_file</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">grp</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">get_group</span><span class="p">(</span><span class="s2">"subgroup"</span><span class="p">)</span>       <span class="c1"># a nested netCDF-4 group, itself a container</span>
 </code></pre></div>
 <p><code>get_variable</code> / <code>variables[name]</code> / <code>sel</code> / <code>subset</code> all narrow a container to a variable. See the
 <a href="../reference/netcdf/">NetCDF reference</a> for the full model.</p>

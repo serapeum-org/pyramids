@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6589,8 +6589,8 @@ peer for the <code>to_xarray</code> / <code>from_xarray</code> methods only — 
 directly. It is still wired as a pixi <em>feature</em> (<code>[tool.pixi.feature.interop]</code>) so the
 <code>dev</code> / CI environments have it to exercise those code paths.</p>
 <p>End-users install exactly what they need:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;pyramids-gis[lazy]&quot;</span><span class="w">          </span><span class="c1"># lazy raster + NetCDF + kerchunk</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;pyramids-gis[parquet]&quot;</span><span class="w">       </span><span class="c1"># eager + lazy GeoParquet (pyarrow + dask-geopandas)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">"pyramids-gis[lazy]"</span><span class="w">          </span><span class="c1"># lazy raster + NetCDF + kerchunk</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">"pyramids-gis[parquet]"</span><span class="w">       </span><span class="c1"># eager + lazy GeoParquet (pyarrow + dask-geopandas)</span>
 </code></pre></div>
 <h2 id="the-pixi-environments"><a class="toclink" href="#the-pixi-environments">The pixi environments</a><a class="headerlink" href="#the-pixi-environments" title="Permanent link">#</a></h2>
 <p>Each extras group has a dedicated pixi env with the same name as the extra
@@ -6756,7 +6756,7 @@ they self-skip when the extra's headline dep is missing. They <em>run</em> fully
 (no skip) in the corresponding extras-package job.</p>
 <h2 id="running-each-slice-locally"><a class="toclink" href="#running-each-slice-locally">Running each slice locally</a><a class="headerlink" href="#running-each-slice-locally" title="Permanent link">#</a></h2>
 <h3 id="full-suite-in-the-minimal-dev-env"><a class="toclink" href="#full-suite-in-the-minimal-dev-env">Full suite in the minimal dev env</a><a class="headerlink" href="#full-suite-in-the-minimal-dev-env" title="Permanent link">#</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>pixi<span class="w"> </span>run<span class="w"> </span>-e<span class="w"> </span>dev<span class="w"> </span>main<span class="w">                 </span><span class="c1"># &quot;main&quot; task: pytest -m &#39;not plot and not interop&#39;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>pixi<span class="w"> </span>run<span class="w"> </span>-e<span class="w"> </span>dev<span class="w"> </span>main<span class="w">                 </span><span class="c1"># "main" task: pytest -m 'not plot and not interop'</span>
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>pixi<span class="w"> </span>run<span class="w"> </span>-e<span class="w"> </span>dev<span class="w"> </span>plot<span class="w">                 </span><span class="c1"># plot tests only</span>
 <a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>pixi<span class="w"> </span>run<span class="w"> </span>-e<span class="w"> </span>dev<span class="w"> </span>interop-tests<span class="w">        </span><span class="c1"># interop-marker tests only</span>
 <a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>pixi<span class="w"> </span>run<span class="w"> </span>-e<span class="w"> </span>dev<span class="w"> </span>test-all<span class="w">             </span><span class="c1"># everything in one go</span>
@@ -6829,8 +6829,8 @@ live in <code>tests/_marks.py</code> and are still available for inline use on i
 test methods when a full class-level marker is overkill.</p>
 <h3 id="filtering"><a class="toclink" href="#filtering">Filtering</a><a class="headerlink" href="#filtering" title="Permanent link">#</a></h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>pytest<span class="w"> </span>-m<span class="w"> </span>netcdf_lazy<span class="w">                           </span><span class="c1"># only netcdf-lazy-tagged tests</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>pytest<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;not (viz or lazy or interop or ...)&quot;</span><span class="w">  </span><span class="c1"># drop every extras-gated test</span>
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>pytest<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;parquet_lazy and not slow&quot;</span><span class="w">           </span><span class="c1"># compose with other markers</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>pytest<span class="w"> </span>-m<span class="w"> </span><span class="s2">"not (viz or lazy or interop or ...)"</span><span class="w">  </span><span class="c1"># drop every extras-gated test</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>pytest<span class="w"> </span>-m<span class="w"> </span><span class="s2">"parquet_lazy and not slow"</span><span class="w">           </span><span class="c1"># compose with other markers</span>
 </code></pre></div>
 <h2 id="coverage"><a class="toclink" href="#coverage">Coverage</a><a class="headerlink" href="#coverage" title="Permanent link">#</a></h2>
 <p>The <code>main-package</code> job enforces a <strong>88 % line + branch gate</strong> (<code>--cov-fail-under=88</code>
