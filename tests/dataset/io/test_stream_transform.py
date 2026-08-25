@@ -318,6 +318,9 @@ class TestStreamReduce:
             build-independent.
         """
         cols = 1000
+        dtype = np.dtype(
+            "int16"
+        )  # one source for the fixture and the byte-size ceiling
 
         def value_sum(acc, strip, _w):
             # int64 accumulation so the result is independent of the platform's default
@@ -325,7 +328,7 @@ class TestStreamReduce:
             return acc + int(strip.sum(dtype="int64"))
 
         def reduce_peak(rows):
-            arr = np.arange(rows * cols, dtype="int16").reshape(rows, cols)
+            arr = np.arange(rows * cols, dtype=dtype).reshape(rows, cols)
             src_path = tmp_path / f"strip_{rows}.tif"
             Dataset.create_from_array(
                 arr,
@@ -342,11 +345,12 @@ class TestStreamReduce:
             assert result == expected, f"stripped reduction diverged at {rows} rows"
             return peak[0]
 
-        # Warm the build's one-time GDAL/wheel read buffer OUTSIDE any traced region so its
-        # ~4 MB (pip-wheel) allocation never inflates the measured peak — the warm-up-
-        # dependent overhead is what made a peak-vs-peak ratio flaky (#1047). The warm-up
-        # only helps if that buffer is process-retained; the absolute ceiling below is the
-        # load-bearing backstop, absorbing the ~4 MB even if the warm-up does not.
+        # Warm the build's one-time GDAL/wheel read buffer with a throwaway read whose peak
+        # is discarded: once allocated it is process-retained, so it is already live during
+        # the measured read below (not re-allocated) and never inflates that peak — this
+        # warm-up-dependent overhead is what made a peak-vs-peak ratio flaky (#1047). The
+        # warm-up only helps if the buffer is retained; the absolute ceiling below is the
+        # load-bearing backstop, absorbing the ~4 MB even if it is not.
         reduce_peak(64)
         # 8040 = 125 full 64-row strips + a 40-row remainder, so the reduction still
         # exercises the partial-last-strip path while the array stays ~16 MB.
@@ -357,7 +361,7 @@ class TestStreamReduce:
         # ~16 MB); a whole-array reduction would peak at least that. Compare against the
         # deterministic full-array size, not a second noisy measurement, so the verdict
         # never depends on measurement order or the build's read overhead.
-        whole_array_bytes = tall_rows * cols * np.dtype("int16").itemsize
+        whole_array_bytes = tall_rows * cols * dtype.itemsize
         assert large_peak < whole_array_bytes // 2, (
             f"stream_reduce peaked at {large_peak / 1e6:.1f} MB — not far below the "
             f"{whole_array_bytes / 1e6:.0f} MB full raster; it is materialising the whole "
