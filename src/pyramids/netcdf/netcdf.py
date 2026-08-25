@@ -1465,9 +1465,10 @@ class NetCDF(Dataset):
 
         Returns:
             tuple | None: The classic-driver geotransform, or ``None`` when
-            there is no classic-openable source (e.g. an in-memory dataset) or
-            the classic open does not produce a metre-scale geostationary
-            geotransform.
+            there is no classic-openable source (a path-less in-memory ``MEM``
+            dataset with an empty ``file_name`` — a ``/vsimem`` source is
+            openable and is rescaled, #1050) or the classic open does not
+            produce a metre-scale geostationary geotransform.
         """
         parent = self._parent_nc
         var = self._source_var_name
