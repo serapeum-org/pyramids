@@ -75,6 +75,11 @@ dev = [
     "nbval >=0.11.0",
     "pre-commit >=3.7.1",
     "pre-commit-hooks >=4.6.0",
+    # The same linter/formatter the pre-commit hook runs (ruff-pre-commit v0.15.22),
+    # so `pixi run -e dev ruff {check,format}` is available locally to pre-empt the CI
+    # lint/format gate. Floored, not pinned; bump the hook rev in lockstep if exact
+    # formatter parity ever matters.
+    "ruff>=0.15.22",
     "pytest >=8.2.2",
     "pytest-cov >= 5.0.0",
     "pytest-env>=1.6.0",
