@@ -4573,8 +4573,12 @@ class NetCDF(Dataset):
                 subdataset cannot be opened or read.
         """
         result: np.typing.NDArray | None = None
+        # Prefer the real /vsimem backing path over a cosmetic from_bytes `name=` that shadows
+        # file_name, so a named in-memory classic read reopens the true source (#1057; mirrors
+        # the #1050/#1053 fixes to _classic_geotransform/_geolocation_source).
+        path = getattr(self, "_vsimem_path", None) or self.file_name
         try:
-            ds = gdal.Open(f"NETCDF:{self.file_name}:{var}")
+            ds = gdal.Open(f"NETCDF:{path}:{var}")
             if ds is not None:
                 result = ds.ReadAsArray()
             ds = None
@@ -5074,11 +5078,14 @@ class NetCDF(Dataset):
             cube._gdal_md_arr_ref = md_arr_ref
             cube._gdal_rg_ref = rg_ref
         else:
-            src = gdal.Open(f"{prefix}:{self.file_name}:{variable_name}")
+            # Prefer the real /vsimem backing path over a cosmetic from_bytes `name=` that
+            # shadows file_name, so a named in-memory classic read reopens the true source (#1057).
+            path = getattr(self, "_vsimem_path", None) or self.file_name
+            src = gdal.Open(f"{prefix}:{path}:{variable_name}")
             if src is None:
                 raise ValueError(
                     f"Could not open variable '{variable_name}' via "
-                    f"'{prefix}:{self.file_name}:{variable_name}'"
+                    f"'{prefix}:{path}:{variable_name}'"
                 )
             cube = Variable(src)
             cube._is_md_array = False

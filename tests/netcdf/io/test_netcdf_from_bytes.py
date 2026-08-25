@@ -125,6 +125,27 @@ class TestNetCDFFromBytes:
         nc = NetCDF.from_bytes(netcdf_bytes, name="era5")
         assert nc.file_name == "era5", f"name= not applied: {nc.file_name!r}"
 
+    def test_named_classic_mode_reads_variable(self, netcdf_bytes: bytes):
+        """A named classic-mode read opens its variables via the real ``/vsimem`` path.
+
+        Args:
+            netcdf_bytes: Raw bytes of the NetCDF fixture.
+
+        Test scenario:
+            ``NetCDF.from_bytes(bytes, name="downloaded.nc", open_as_multi_dimensional=False)``
+            then ``get_variable(...)`` — expected: it reads, not ``RuntimeError``. The classic
+            subdataset open must use the real ``/vsimem`` backing path, not the cosmetic ``name=``
+            that shadows ``file_name`` (#1057; mirrors the #1050/#1053 fixes).
+        """
+        nc = NetCDF.from_bytes(
+            netcdf_bytes, name="downloaded.nc", open_as_multi_dimensional=False
+        )
+        assert nc.file_name == "downloaded.nc", (
+            "precondition: the cosmetic name must shadow file_name for this test to bite"
+        )
+        var = nc.get_variable(nc.variable_names[0])
+        assert var.read_array().size > 0, "named classic read returned no data"
+
     def test_vsimem_cleaned_up_on_gc(self, netcdf_bytes: bytes):
         """Dropping the last reference removes the ``/vsimem/`` file.
 
