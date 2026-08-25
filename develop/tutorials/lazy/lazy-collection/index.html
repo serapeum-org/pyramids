@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6377,8 +6377,8 @@ on demand through <code>CachingFileManager</code>, workers never see a live
 construction, the 4-D cube, reductions, and the two serialisation
 formats (Zarr + kerchunk).</p>
 <p>Installing the extras:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s1">&#39;pyramids-gis[lazy]&#39;</span><span class="w">         </span><span class="c1"># cube + reductions + Zarr + to_kerchunk</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="c1"># from_stac needs no extra — it&#39;s duck-typed over any iterable of</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s1">'pyramids-gis[lazy]'</span><span class="w">         </span><span class="c1"># cube + reductions + Zarr + to_kerchunk</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="c1"># from_stac needs no extra — it's duck-typed over any iterable of</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="c1"># STAC-like items (pystac.Item, raw JSON dicts, etc.). Users who</span>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="c1"># build items via pystac-client install pystac themselves.</span>
 </code></pre></div>
@@ -6411,7 +6411,7 @@ the geobox and dtype — and references the rest by path only:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">DatasetCollection</span>
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">files</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="s2">&quot;/data/noah&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">glob</span><span class="p">(</span><span class="s2">&quot;noah_*.tif&quot;</span><span class="p">))</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">files</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="s2">"/data/noah"</span><span class="p">)</span><span class="o">.</span><span class="n">glob</span><span class="p">(</span><span class="s2">"noah_*.tif"</span><span class="p">))</span>
 <a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">cube</span> <span class="o">=</span> <span class="n">DatasetCollection</span><span class="o">.</span><span class="n">from_files</span><span class="p">(</span><span class="n">files</span><span class="p">)</span>
 <a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>
 <a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="n">cube</span><span class="o">.</span><span class="n">time_length</span>   <span class="c1"># len(files)</span>
@@ -6428,17 +6428,17 @@ via <code>pystac-client</code>) when you need to construct Items:</p>
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
 <a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">DatasetCollection</span>
 <a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="n">catalog</span> <span class="o">=</span> <span class="n">pystac_client</span><span class="o">.</span><span class="n">Client</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s2">&quot;https://earth-search.aws.element84.com/v1&quot;</span><span class="p">)</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="n">catalog</span> <span class="o">=</span> <span class="n">pystac_client</span><span class="o">.</span><span class="n">Client</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s2">"https://earth-search.aws.element84.com/v1"</span><span class="p">)</span>
 <a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="n">search</span> <span class="o">=</span> <span class="n">catalog</span><span class="o">.</span><span class="n">search</span><span class="p">(</span>
-<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>    <span class="n">collections</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;sentinel-2-l2a&quot;</span><span class="p">],</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>    <span class="n">collections</span><span class="o">=</span><span class="p">[</span><span class="s2">"sentinel-2-l2a"</span><span class="p">],</span>
 <a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>    <span class="n">bbox</span><span class="o">=</span><span class="p">(</span><span class="o">-</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">41.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">42.0</span><span class="p">),</span>
-<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>    <span class="n">datetime</span><span class="o">=</span><span class="s2">&quot;2022-06-01/2022-06-30&quot;</span><span class="p">,</span>
-<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>    <span class="n">query</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;eo:cloud_cover&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;lt&quot;</span><span class="p">:</span> <span class="mi">20</span><span class="p">}},</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>    <span class="n">datetime</span><span class="o">=</span><span class="s2">"2022-06-01/2022-06-30"</span><span class="p">,</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>    <span class="n">query</span><span class="o">=</span><span class="p">{</span><span class="s2">"eo:cloud_cover"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"lt"</span><span class="p">:</span> <span class="mi">20</span><span class="p">}},</span>
 <a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="p">)</span>
 <a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>
 <a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="n">cube</span> <span class="o">=</span> <span class="n">DatasetCollection</span><span class="o">.</span><span class="n">from_stac</span><span class="p">(</span>
 <a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>    <span class="n">search</span><span class="o">.</span><span class="n">items</span><span class="p">(),</span>
-<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>    <span class="n">asset</span><span class="o">=</span><span class="s2">&quot;red&quot;</span><span class="p">,</span>             <span class="c1"># the B04 band alias</span>
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>    <span class="n">asset</span><span class="o">=</span><span class="s2">"red"</span><span class="p">,</span>             <span class="c1"># the B04 band alias</span>
 <a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>    <span class="n">max_items</span><span class="o">=</span><span class="mi">20</span><span class="p">,</span>            <span class="c1"># cap for quick-look</span>
 <a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a><span class="p">)</span>
 </code></pre></div>
@@ -6564,15 +6564,15 @@ chunk file. A geobox-attribute schema (the standard GeoZarr convention) is
 written so downstream Zarr consumers can reconstruct the geobox
 without pyramids:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">cube</span> <span class="o">=</span> <span class="n">DatasetCollection</span><span class="o">.</span><span class="n">from_files</span><span class="p">(</span><span class="n">files</span><span class="p">)</span>
-<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="n">cube</span><span class="o">.</span><span class="n">to_zarr</span><span class="p">(</span><span class="s2">&quot;cube.zarr&quot;</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;w&quot;</span><span class="p">)</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="n">cube</span><span class="o">.</span><span class="n">to_zarr</span><span class="p">(</span><span class="s2">"cube.zarr"</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">"w"</span><span class="p">)</span>
 </code></pre></div>
 <p>The root group carries <code>epsg</code>, <code>GeoTransform</code>, <code>crs_wkt</code>, <code>nodata</code>,
 <code>band_names</code>, <code>dtype</code>, plus a <code>pyramids_zarr_version</code> marker and the
 source file list.</p>
 <p>Cloud writes via fsspec:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">cube</span><span class="o">.</span><span class="n">to_zarr</span><span class="p">(</span>
-<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>    <span class="s2">&quot;s3://bucket/key.zarr&quot;</span><span class="p">,</span>
-<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>    <span class="n">storage_options</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;anon&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span> <span class="s2">&quot;key&quot;</span><span class="p">:</span> <span class="s2">&quot;...&quot;</span><span class="p">,</span> <span class="s2">&quot;secret&quot;</span><span class="p">:</span> <span class="s2">&quot;...&quot;</span><span class="p">},</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>    <span class="s2">"s3://bucket/key.zarr"</span><span class="p">,</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>    <span class="n">storage_options</span><span class="o">=</span><span class="p">{</span><span class="s2">"anon"</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span> <span class="s2">"key"</span><span class="p">:</span> <span class="s2">"..."</span><span class="p">,</span> <span class="s2">"secret"</span><span class="p">:</span> <span class="s2">"..."</span><span class="p">},</span>
 <a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="p">)</span>
 </code></pre></div>
 <p>Pass <code>compute=False</code> to return a <code>dask.delayed.Delayed</code> for deferred
@@ -6588,12 +6588,12 @@ that points at every timestep's source file. Downstream consumers
 open the entire cube as a lazy Zarr-backed dataset with <strong>zero data
 rewrite</strong>:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="n">cube</span> <span class="o">=</span> <span class="n">DatasetCollection</span><span class="o">.</span><span class="n">from_files</span><span class="p">(</span><span class="n">netcdf_files</span><span class="p">)</span>
-<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="n">cube</span><span class="o">.</span><span class="n">to_kerchunk</span><span class="p">(</span><span class="s2">&quot;cube.kerchunk.json&quot;</span><span class="p">,</span> <span class="n">concat_dim</span><span class="o">=</span><span class="s2">&quot;time&quot;</span><span class="p">)</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="n">cube</span><span class="o">.</span><span class="n">to_kerchunk</span><span class="p">(</span><span class="s2">"cube.kerchunk.json"</span><span class="p">,</span> <span class="n">concat_dim</span><span class="o">=</span><span class="s2">"time"</span><span class="p">)</span>
 </code></pre></div>
 <p>Consume with fsspec and a labeled-array Zarr reader:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">fsspec</span><span class="o">,</span><span class="w"> </span><span class="nn">xarray</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">xr</span>
 <a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>
-<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="n">mapper</span> <span class="o">=</span> <span class="n">fsspec</span><span class="o">.</span><span class="n">get_mapper</span><span class="p">(</span><span class="s2">&quot;reference://&quot;</span><span class="p">,</span> <span class="n">fo</span><span class="o">=</span><span class="s2">&quot;cube.kerchunk.json&quot;</span><span class="p">)</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="n">mapper</span> <span class="o">=</span> <span class="n">fsspec</span><span class="o">.</span><span class="n">get_mapper</span><span class="p">(</span><span class="s2">"reference://"</span><span class="p">,</span> <span class="n">fo</span><span class="o">=</span><span class="s2">"cube.kerchunk.json"</span><span class="p">)</span>
 <a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">xr</span><span class="o">.</span><span class="n">open_zarr</span><span class="p">(</span><span class="n">mapper</span><span class="p">,</span> <span class="n">consolidated</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 </code></pre></div>
 <p>GeoTIFF-backed collections raise <code>NotImplementedError</code> on
@@ -6648,25 +6648,25 @@ use it for anything that operates on a single raster (plotting,
 <a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure</span>
 <a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">DatasetCollection</span>
 <a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>
-<a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a><span class="n">configure</span><span class="p">(</span><span class="n">cloud_defaults</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">aws</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;aws_unsigned&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">})</span>
+<a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a><span class="n">configure</span><span class="p">(</span><span class="n">cloud_defaults</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">aws</span><span class="o">=</span><span class="p">{</span><span class="s2">"aws_unsigned"</span><span class="p">:</span> <span class="kc">True</span><span class="p">})</span>
 <a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a>
-<a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a><span class="n">catalog</span> <span class="o">=</span> <span class="n">pystac_client</span><span class="o">.</span><span class="n">Client</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s2">&quot;https://earth-search.aws.element84.com/v1&quot;</span><span class="p">)</span>
+<a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a><span class="n">catalog</span> <span class="o">=</span> <span class="n">pystac_client</span><span class="o">.</span><span class="n">Client</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s2">"https://earth-search.aws.element84.com/v1"</span><span class="p">)</span>
 <a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a><span class="n">search</span> <span class="o">=</span> <span class="n">catalog</span><span class="o">.</span><span class="n">search</span><span class="p">(</span>
-<a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a>    <span class="n">collections</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;sentinel-2-l2a&quot;</span><span class="p">],</span>
+<a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a>    <span class="n">collections</span><span class="o">=</span><span class="p">[</span><span class="s2">"sentinel-2-l2a"</span><span class="p">],</span>
 <a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a>    <span class="n">bbox</span><span class="o">=</span><span class="p">(</span><span class="o">-</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">41.0</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.7</span><span class="p">,</span> <span class="mf">41.3</span><span class="p">),</span>
-<a id="__codelineno-13-12" name="__codelineno-13-12" href="#__codelineno-13-12"></a>    <span class="n">datetime</span><span class="o">=</span><span class="s2">&quot;2023-06-01/2023-08-31&quot;</span><span class="p">,</span>
-<a id="__codelineno-13-13" name="__codelineno-13-13" href="#__codelineno-13-13"></a>    <span class="n">query</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;eo:cloud_cover&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;lt&quot;</span><span class="p">:</span> <span class="mi">10</span><span class="p">}},</span>
+<a id="__codelineno-13-12" name="__codelineno-13-12" href="#__codelineno-13-12"></a>    <span class="n">datetime</span><span class="o">=</span><span class="s2">"2023-06-01/2023-08-31"</span><span class="p">,</span>
+<a id="__codelineno-13-13" name="__codelineno-13-13" href="#__codelineno-13-13"></a>    <span class="n">query</span><span class="o">=</span><span class="p">{</span><span class="s2">"eo:cloud_cover"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"lt"</span><span class="p">:</span> <span class="mi">10</span><span class="p">}},</span>
 <a id="__codelineno-13-14" name="__codelineno-13-14" href="#__codelineno-13-14"></a><span class="p">)</span>
 <a id="__codelineno-13-15" name="__codelineno-13-15" href="#__codelineno-13-15"></a>
 <a id="__codelineno-13-16" name="__codelineno-13-16" href="#__codelineno-13-16"></a><span class="n">cube</span> <span class="o">=</span> <span class="n">DatasetCollection</span><span class="o">.</span><span class="n">from_stac</span><span class="p">(</span>
-<a id="__codelineno-13-17" name="__codelineno-13-17" href="#__codelineno-13-17"></a>    <span class="n">search</span><span class="o">.</span><span class="n">items</span><span class="p">(),</span> <span class="n">asset</span><span class="o">=</span><span class="s2">&quot;nir&quot;</span><span class="p">,</span> <span class="n">max_items</span><span class="o">=</span><span class="mi">30</span><span class="p">,</span>
+<a id="__codelineno-13-17" name="__codelineno-13-17" href="#__codelineno-13-17"></a>    <span class="n">search</span><span class="o">.</span><span class="n">items</span><span class="p">(),</span> <span class="n">asset</span><span class="o">=</span><span class="s2">"nir"</span><span class="p">,</span> <span class="n">max_items</span><span class="o">=</span><span class="mi">30</span><span class="p">,</span>
 <a id="__codelineno-13-18" name="__codelineno-13-18" href="#__codelineno-13-18"></a><span class="p">)</span>
 <a id="__codelineno-13-19" name="__codelineno-13-19" href="#__codelineno-13-19"></a>
 <a id="__codelineno-13-20" name="__codelineno-13-20" href="#__codelineno-13-20"></a><span class="c1"># Per-pixel summer mean NIR reflectance.</span>
 <a id="__codelineno-13-21" name="__codelineno-13-21" href="#__codelineno-13-21"></a><span class="n">summer_mean</span> <span class="o">=</span> <span class="n">cube</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>          <span class="c1"># numpy (1, H, W)</span>
 <a id="__codelineno-13-22" name="__codelineno-13-22" href="#__codelineno-13-22"></a>
 <a id="__codelineno-13-23" name="__codelineno-13-23" href="#__codelineno-13-23"></a><span class="c1"># Write the cube for reuse.</span>
-<a id="__codelineno-13-24" name="__codelineno-13-24" href="#__codelineno-13-24"></a><span class="n">cube</span><span class="o">.</span><span class="n">to_zarr</span><span class="p">(</span><span class="s2">&quot;s2_nir_summer.zarr&quot;</span><span class="p">)</span>
+<a id="__codelineno-13-24" name="__codelineno-13-24" href="#__codelineno-13-24"></a><span class="n">cube</span><span class="o">.</span><span class="n">to_zarr</span><span class="p">(</span><span class="s2">"s2_nir_summer.zarr"</span><span class="p">)</span>
 </code></pre></div>
 <p>A full runnable notebook spanning search → cube → reduction →
 write is at <code>docs/examples/dataset/dask-lazy-datasets.ipynb</code>.</p>

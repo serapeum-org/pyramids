@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6820,20 +6820,20 @@ resolve to pyramids' GDAL-backed wrappers.</p>
 <li>A COG asset dispatches to the GDAL reader:
     <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.stac</span><span class="w"> </span><span class="kn">import</span> <span class="n">which_engine</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">asset</span> <span class="o">=</span> <span class="p">{</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="o">...</span>     <span class="s2">&quot;href&quot;</span><span class="p">:</span> <span class="s2">&quot;s3://bucket/scene.tif&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="o">...</span>     <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;image/tiff; application=geotiff; profile=cloud-optimized&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="o">...</span>     <span class="s2">"href"</span><span class="p">:</span> <span class="s2">"s3://bucket/scene.tif"</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="o">...</span>     <span class="s2">"type"</span><span class="p">:</span> <span class="s2">"image/tiff; application=geotiff; profile=cloud-optimized"</span><span class="p">,</span>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="o">...</span> <span class="p">}</span>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">which_engine</span><span class="p">(</span><span class="n">asset</span><span class="p">)</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="s1">&#39;gdal&#39;</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="s1">'gdal'</span>
 </code></pre></div></li>
 <li>A GRIB2 asset (recognised by extension when type is absent):
-    <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">which_engine</span><span class="p">({</span><span class="s2">&quot;href&quot;</span><span class="p">:</span> <span class="s2">&quot;https://host/gfs.t00z.pgrb2.f000.grib2&quot;</span><span class="p">})</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="s1">&#39;grib&#39;</span>
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">which_engine</span><span class="p">({</span><span class="s2">"href"</span><span class="p">:</span> <span class="s2">"https://host/gfs.t00z.pgrb2.f000.grib2"</span><span class="p">})</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="s1">'grib'</span>
 </code></pre></div></li>
 <li>An Item + asset key resolves the named asset:
-    <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">item</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;assets&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;data&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;href&quot;</span><span class="p">:</span> <span class="s2">&quot;x.nc&quot;</span><span class="p">,</span> <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;application/x-netcdf&quot;</span><span class="p">}}}</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">which_engine</span><span class="p">(</span><span class="n">item</span><span class="p">,</span> <span class="s2">&quot;data&quot;</span><span class="p">)</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="s1">&#39;netcdf&#39;</span>
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">item</span> <span class="o">=</span> <span class="p">{</span><span class="s2">"assets"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"data"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"href"</span><span class="p">:</span> <span class="s2">"x.nc"</span><span class="p">,</span> <span class="s2">"type"</span><span class="p">:</span> <span class="s2">"application/x-netcdf"</span><span class="p">}}}</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">which_engine</span><span class="p">(</span><span class="n">item</span><span class="p">,</span> <span class="s2">"data"</span><span class="p">)</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="s1">'netcdf'</span>
 </code></pre></div></li>
 </ul>
 
@@ -6878,41 +6878,41 @@ resolve to pyramids' GDAL-backed wrappers.</p>
 <span class="normal"><a href="#__codelineno-0-230">230</a></span>
 <span class="normal"><a href="#__codelineno-0-231">231</a></span>
 <span class="normal"><a href="#__codelineno-0-232">232</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-195" name="__codelineno-0-195"></a><span class="k">def</span><span class="w"> </span><span class="nf">which_engine</span><span class="p">(</span><span class="n">item_or_asset</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">asset_key</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<a id="__codelineno-0-196" name="__codelineno-0-196"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Return the reader name :func:`load_asset` would use, without opening.</span>
+<a id="__codelineno-0-196" name="__codelineno-0-196"></a><span class="w">    </span><span class="sd">"""Return the reader name :func:`load_asset` would use, without opening.</span>
 <a id="__codelineno-0-197" name="__codelineno-0-197"></a>
 <a id="__codelineno-0-198" name="__codelineno-0-198"></a><span class="sd">    Args:</span>
 <a id="__codelineno-0-199" name="__codelineno-0-199"></a><span class="sd">        item_or_asset: A STAC Item or Asset (pystac object or raw dict).</span>
 <a id="__codelineno-0-200" name="__codelineno-0-200"></a><span class="sd">        asset_key: Asset name when passing an Item; `None` for an Asset.</span>
 <a id="__codelineno-0-201" name="__codelineno-0-201"></a>
 <a id="__codelineno-0-202" name="__codelineno-0-202"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-203" name="__codelineno-0-203"></a><span class="sd">        One of `&quot;gdal&quot;`, `&quot;netcdf&quot;`, `&quot;grib&quot;`, `&quot;zarr&quot;`.</span>
+<a id="__codelineno-0-203" name="__codelineno-0-203"></a><span class="sd">        One of `"gdal"`, `"netcdf"`, `"grib"`, `"zarr"`.</span>
 <a id="__codelineno-0-204" name="__codelineno-0-204"></a>
 <a id="__codelineno-0-205" name="__codelineno-0-205"></a><span class="sd">    Examples:</span>
 <a id="__codelineno-0-206" name="__codelineno-0-206"></a><span class="sd">        - A COG asset dispatches to the GDAL reader:</span>
 <a id="__codelineno-0-207" name="__codelineno-0-207"></a><span class="sd">            ```python</span>
 <a id="__codelineno-0-208" name="__codelineno-0-208"></a><span class="sd">            &gt;&gt;&gt; from pyramids.stac import which_engine</span>
 <a id="__codelineno-0-209" name="__codelineno-0-209"></a><span class="sd">            &gt;&gt;&gt; asset = {</span>
-<a id="__codelineno-0-210" name="__codelineno-0-210"></a><span class="sd">            ...     &quot;href&quot;: &quot;s3://bucket/scene.tif&quot;,</span>
-<a id="__codelineno-0-211" name="__codelineno-0-211"></a><span class="sd">            ...     &quot;type&quot;: &quot;image/tiff; application=geotiff; profile=cloud-optimized&quot;,</span>
+<a id="__codelineno-0-210" name="__codelineno-0-210"></a><span class="sd">            ...     "href": "s3://bucket/scene.tif",</span>
+<a id="__codelineno-0-211" name="__codelineno-0-211"></a><span class="sd">            ...     "type": "image/tiff; application=geotiff; profile=cloud-optimized",</span>
 <a id="__codelineno-0-212" name="__codelineno-0-212"></a><span class="sd">            ... }</span>
 <a id="__codelineno-0-213" name="__codelineno-0-213"></a><span class="sd">            &gt;&gt;&gt; which_engine(asset)</span>
-<a id="__codelineno-0-214" name="__codelineno-0-214"></a><span class="sd">            &#39;gdal&#39;</span>
+<a id="__codelineno-0-214" name="__codelineno-0-214"></a><span class="sd">            'gdal'</span>
 <a id="__codelineno-0-215" name="__codelineno-0-215"></a>
 <a id="__codelineno-0-216" name="__codelineno-0-216"></a><span class="sd">            ```</span>
 <a id="__codelineno-0-217" name="__codelineno-0-217"></a><span class="sd">        - A GRIB2 asset (recognised by extension when type is absent):</span>
 <a id="__codelineno-0-218" name="__codelineno-0-218"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-219" name="__codelineno-0-219"></a><span class="sd">            &gt;&gt;&gt; which_engine({&quot;href&quot;: &quot;https://host/gfs.t00z.pgrb2.f000.grib2&quot;})</span>
-<a id="__codelineno-0-220" name="__codelineno-0-220"></a><span class="sd">            &#39;grib&#39;</span>
+<a id="__codelineno-0-219" name="__codelineno-0-219"></a><span class="sd">            &gt;&gt;&gt; which_engine({"href": "https://host/gfs.t00z.pgrb2.f000.grib2"})</span>
+<a id="__codelineno-0-220" name="__codelineno-0-220"></a><span class="sd">            'grib'</span>
 <a id="__codelineno-0-221" name="__codelineno-0-221"></a>
 <a id="__codelineno-0-222" name="__codelineno-0-222"></a><span class="sd">            ```</span>
 <a id="__codelineno-0-223" name="__codelineno-0-223"></a><span class="sd">        - An Item + asset key resolves the named asset:</span>
 <a id="__codelineno-0-224" name="__codelineno-0-224"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-225" name="__codelineno-0-225"></a><span class="sd">            &gt;&gt;&gt; item = {&quot;assets&quot;: {&quot;data&quot;: {&quot;href&quot;: &quot;x.nc&quot;, &quot;type&quot;: &quot;application/x-netcdf&quot;}}}</span>
-<a id="__codelineno-0-226" name="__codelineno-0-226"></a><span class="sd">            &gt;&gt;&gt; which_engine(item, &quot;data&quot;)</span>
-<a id="__codelineno-0-227" name="__codelineno-0-227"></a><span class="sd">            &#39;netcdf&#39;</span>
+<a id="__codelineno-0-225" name="__codelineno-0-225"></a><span class="sd">            &gt;&gt;&gt; item = {"assets": {"data": {"href": "x.nc", "type": "application/x-netcdf"}}}</span>
+<a id="__codelineno-0-226" name="__codelineno-0-226"></a><span class="sd">            &gt;&gt;&gt; which_engine(item, "data")</span>
+<a id="__codelineno-0-227" name="__codelineno-0-227"></a><span class="sd">            'netcdf'</span>
 <a id="__codelineno-0-228" name="__codelineno-0-228"></a>
 <a id="__codelineno-0-229" name="__codelineno-0-229"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-230" name="__codelineno-0-230"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-230" name="__codelineno-0-230"></a><span class="sd">    """</span>
 <a id="__codelineno-0-231" name="__codelineno-0-231"></a>    <span class="n">href</span><span class="p">,</span> <span class="n">media_type</span> <span class="o">=</span> <span class="n">_resolve_asset</span><span class="p">(</span><span class="n">item_or_asset</span><span class="p">,</span> <span class="n">asset_key</span><span class="p">)</span>
 <a id="__codelineno-0-232" name="__codelineno-0-232"></a>    <span class="k">return</span> <span class="n">_engine_for</span><span class="p">(</span><span class="n">media_type</span><span class="p">,</span> <span class="n">href</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
@@ -7056,16 +7056,16 @@ read happens here.</p>
     <ul>
 <li>Resolve a plain asset href:
     <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.stac</span><span class="w"> </span><span class="kn">import</span> <span class="n">resolved_href</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">resolved_href</span><span class="p">({</span><span class="s2">&quot;href&quot;</span><span class="p">:</span> <span class="s2">&quot;s3://b/scene.tif&quot;</span><span class="p">,</span> <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;image/tiff&quot;</span><span class="p">})</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="s1">&#39;s3://b/scene.tif&#39;</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">resolved_href</span><span class="p">({</span><span class="s2">"href"</span><span class="p">:</span> <span class="s2">"s3://b/scene.tif"</span><span class="p">,</span> <span class="s2">"type"</span><span class="p">:</span> <span class="s2">"image/tiff"</span><span class="p">})</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="s1">'s3://b/scene.tif'</span>
 </code></pre></div></li>
 <li>Resolve an item's asset and sign it with a simple signer:
     <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="k">class</span><span class="w"> </span><span class="nc">_S</span><span class="p">:</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="o">...</span>     <span class="k">def</span><span class="w"> </span><span class="nf">sign_href</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">href</span><span class="p">):</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="o">...</span>         <span class="k">return</span> <span class="n">href</span> <span class="o">+</span> <span class="s2">&quot;?sig=tok&quot;</span>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">item</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;assets&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;B04&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;href&quot;</span><span class="p">:</span> <span class="s2">&quot;https://h/B04.tif&quot;</span><span class="p">}}}</span>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">resolved_href</span><span class="p">(</span><span class="n">item</span><span class="p">,</span> <span class="s2">&quot;B04&quot;</span><span class="p">,</span> <span class="n">signer</span><span class="o">=</span><span class="n">_S</span><span class="p">())</span>
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="s1">&#39;https://h/B04.tif?sig=tok&#39;</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="o">...</span>         <span class="k">return</span> <span class="n">href</span> <span class="o">+</span> <span class="s2">"?sig=tok"</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">item</span> <span class="o">=</span> <span class="p">{</span><span class="s2">"assets"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"B04"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"href"</span><span class="p">:</span> <span class="s2">"https://h/B04.tif"</span><span class="p">}}}</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">resolved_href</span><span class="p">(</span><span class="n">item</span><span class="p">,</span> <span class="s2">"B04"</span><span class="p">,</span> <span class="n">signer</span><span class="o">=</span><span class="n">_S</span><span class="p">())</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="s1">'https://h/B04.tif?sig=tok'</span>
 </code></pre></div></li>
 </ul>
 
@@ -7122,7 +7122,7 @@ read happens here.</p>
 <span class="normal"><a href="#__codelineno-0-282">282</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-235" name="__codelineno-0-235"></a><span class="k">def</span><span class="w"> </span><span class="nf">resolved_href</span><span class="p">(</span>
 <a id="__codelineno-0-236" name="__codelineno-0-236"></a>    <span class="n">item_or_asset</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">asset_key</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">signer</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span>
 <a id="__codelineno-0-237" name="__codelineno-0-237"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<a id="__codelineno-0-238" name="__codelineno-0-238"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Return an asset&#39;s resolved (optionally signed) href without opening it.</span>
+<a id="__codelineno-0-238" name="__codelineno-0-238"></a><span class="w">    </span><span class="sd">"""Return an asset's resolved (optionally signed) href without opening it.</span>
 <a id="__codelineno-0-239" name="__codelineno-0-239"></a>
 <a id="__codelineno-0-240" name="__codelineno-0-240"></a><span class="sd">    The read-free companion to :func:`load_asset`: it resolves the asset href</span>
 <a id="__codelineno-0-241" name="__codelineno-0-241"></a><span class="sd">    and, when a `signer` is given, applies `signer.sign_href` — but never opens</span>
@@ -7148,21 +7148,21 @@ read happens here.</p>
 <a id="__codelineno-0-261" name="__codelineno-0-261"></a><span class="sd">        - Resolve a plain asset href:</span>
 <a id="__codelineno-0-262" name="__codelineno-0-262"></a><span class="sd">            ```python</span>
 <a id="__codelineno-0-263" name="__codelineno-0-263"></a><span class="sd">            &gt;&gt;&gt; from pyramids.stac import resolved_href</span>
-<a id="__codelineno-0-264" name="__codelineno-0-264"></a><span class="sd">            &gt;&gt;&gt; resolved_href({&quot;href&quot;: &quot;s3://b/scene.tif&quot;, &quot;type&quot;: &quot;image/tiff&quot;})</span>
-<a id="__codelineno-0-265" name="__codelineno-0-265"></a><span class="sd">            &#39;s3://b/scene.tif&#39;</span>
+<a id="__codelineno-0-264" name="__codelineno-0-264"></a><span class="sd">            &gt;&gt;&gt; resolved_href({"href": "s3://b/scene.tif", "type": "image/tiff"})</span>
+<a id="__codelineno-0-265" name="__codelineno-0-265"></a><span class="sd">            's3://b/scene.tif'</span>
 <a id="__codelineno-0-266" name="__codelineno-0-266"></a>
 <a id="__codelineno-0-267" name="__codelineno-0-267"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-268" name="__codelineno-0-268"></a><span class="sd">        - Resolve an item&#39;s asset and sign it with a simple signer:</span>
+<a id="__codelineno-0-268" name="__codelineno-0-268"></a><span class="sd">        - Resolve an item's asset and sign it with a simple signer:</span>
 <a id="__codelineno-0-269" name="__codelineno-0-269"></a><span class="sd">            ```python</span>
 <a id="__codelineno-0-270" name="__codelineno-0-270"></a><span class="sd">            &gt;&gt;&gt; class _S:</span>
 <a id="__codelineno-0-271" name="__codelineno-0-271"></a><span class="sd">            ...     def sign_href(self, href):</span>
-<a id="__codelineno-0-272" name="__codelineno-0-272"></a><span class="sd">            ...         return href + &quot;?sig=tok&quot;</span>
-<a id="__codelineno-0-273" name="__codelineno-0-273"></a><span class="sd">            &gt;&gt;&gt; item = {&quot;assets&quot;: {&quot;B04&quot;: {&quot;href&quot;: &quot;https://h/B04.tif&quot;}}}</span>
-<a id="__codelineno-0-274" name="__codelineno-0-274"></a><span class="sd">            &gt;&gt;&gt; resolved_href(item, &quot;B04&quot;, signer=_S())</span>
-<a id="__codelineno-0-275" name="__codelineno-0-275"></a><span class="sd">            &#39;https://h/B04.tif?sig=tok&#39;</span>
+<a id="__codelineno-0-272" name="__codelineno-0-272"></a><span class="sd">            ...         return href + "?sig=tok"</span>
+<a id="__codelineno-0-273" name="__codelineno-0-273"></a><span class="sd">            &gt;&gt;&gt; item = {"assets": {"B04": {"href": "https://h/B04.tif"}}}</span>
+<a id="__codelineno-0-274" name="__codelineno-0-274"></a><span class="sd">            &gt;&gt;&gt; resolved_href(item, "B04", signer=_S())</span>
+<a id="__codelineno-0-275" name="__codelineno-0-275"></a><span class="sd">            'https://h/B04.tif?sig=tok'</span>
 <a id="__codelineno-0-276" name="__codelineno-0-276"></a>
 <a id="__codelineno-0-277" name="__codelineno-0-277"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-278" name="__codelineno-0-278"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-278" name="__codelineno-0-278"></a><span class="sd">    """</span>
 <a id="__codelineno-0-279" name="__codelineno-0-279"></a>    <span class="n">href</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">_resolve_asset</span><span class="p">(</span><span class="n">item_or_asset</span><span class="p">,</span> <span class="n">asset_key</span><span class="p">)</span>
 <a id="__codelineno-0-280" name="__codelineno-0-280"></a>    <span class="k">if</span> <span class="n">signer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
 <a id="__codelineno-0-281" name="__codelineno-0-281"></a>        <span class="n">href</span> <span class="o">=</span> <span class="n">signer</span><span class="o">.</span><span class="n">sign_href</span><span class="p">(</span><span class="n">href</span><span class="p">)</span>
@@ -7362,9 +7362,9 @@ GeoTIFF/GRIB inside a <code>.zip</code>).</p>
     <ul>
 <li>Open a COG asset from a STAC Item (requires network access):
     <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.stac</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_asset</span>  <span class="c1"># doctest: +SKIP</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">item</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;assets&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;B04&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;href&quot;</span><span class="p">:</span> <span class="s2">&quot;s3://.../B04.tif&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="o">...</span>                            <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;image/tiff; application=geotiff&quot;</span><span class="p">}}}</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">ds</span> <span class="o">=</span> <span class="n">load_asset</span><span class="p">(</span><span class="n">item</span><span class="p">,</span> <span class="s2">&quot;B04&quot;</span><span class="p">)</span>  <span class="c1"># doctest: +SKIP</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">item</span> <span class="o">=</span> <span class="p">{</span><span class="s2">"assets"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"B04"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"href"</span><span class="p">:</span> <span class="s2">"s3://.../B04.tif"</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="o">...</span>                            <span class="s2">"type"</span><span class="p">:</span> <span class="s2">"image/tiff; application=geotiff"</span><span class="p">}}}</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">ds</span> <span class="o">=</span> <span class="n">load_asset</span><span class="p">(</span><span class="n">item</span><span class="p">,</span> <span class="s2">"B04"</span><span class="p">)</span>  <span class="c1"># doctest: +SKIP</span>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">ds</span><span class="o">.</span><span class="n">band_count</span>  <span class="c1"># doctest: +SKIP</span>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="mi">1</span>
 </code></pre></div></li>
@@ -7372,14 +7372,14 @@ GeoTIFF/GRIB inside a <code>.zip</code>).</p>
   (the token is installed as a GDAL <code>Authorization</code> header for the
   open):
     <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.stac</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_asset</span><span class="p">,</span> <span class="n">BearerTokenSigner</span>  <span class="c1"># doctest: +SKIP</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">ds</span> <span class="o">=</span> <span class="n">load_asset</span><span class="p">(</span><span class="n">item</span><span class="p">,</span> <span class="s2">&quot;B04&quot;</span><span class="p">,</span> <span class="n">signer</span><span class="o">=</span><span class="n">BearerTokenSigner</span><span class="p">(</span><span class="s2">&quot;tok&quot;</span><span class="p">))</span>  <span class="c1"># doctest: +SKIP</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">ds</span> <span class="o">=</span> <span class="n">load_asset</span><span class="p">(</span><span class="n">item</span><span class="p">,</span> <span class="s2">"B04"</span><span class="p">,</span> <span class="n">signer</span><span class="o">=</span><span class="n">BearerTokenSigner</span><span class="p">(</span><span class="s2">"tok"</span><span class="p">))</span>  <span class="c1"># doctest: +SKIP</span>
 </code></pre></div></li>
 <li>Read a Requester-Pays bucket: the signer's <code>gdal_env</code> opts into
   <code>AWS_REQUEST_PAYER=requester</code> for the duration of the open:
     <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.stac</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_asset</span><span class="p">,</span> <span class="n">AWSRequesterPaysSigner</span>  <span class="c1"># doctest: +SKIP</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">asset</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;href&quot;</span><span class="p">:</span> <span class="s2">&quot;s3://usgs-landsat/collection02/.../B4.TIF&quot;</span><span class="p">,</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="o">...</span>          <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;image/tiff; application=geotiff&quot;</span><span class="p">}</span>
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">ds</span> <span class="o">=</span> <span class="n">load_asset</span><span class="p">(</span><span class="n">asset</span><span class="p">,</span> <span class="n">signer</span><span class="o">=</span><span class="n">AWSRequesterPaysSigner</span><span class="p">(</span><span class="n">region</span><span class="o">=</span><span class="s2">&quot;us-west-2&quot;</span><span class="p">))</span>  <span class="c1"># doctest: +SKIP</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">asset</span> <span class="o">=</span> <span class="p">{</span><span class="s2">"href"</span><span class="p">:</span> <span class="s2">"s3://usgs-landsat/collection02/.../B4.TIF"</span><span class="p">,</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="o">...</span>          <span class="s2">"type"</span><span class="p">:</span> <span class="s2">"image/tiff; application=geotiff"</span><span class="p">}</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">ds</span> <span class="o">=</span> <span class="n">load_asset</span><span class="p">(</span><span class="n">asset</span><span class="p">,</span> <span class="n">signer</span><span class="o">=</span><span class="n">AWSRequesterPaysSigner</span><span class="p">(</span><span class="n">region</span><span class="o">=</span><span class="s2">"us-west-2"</span><span class="p">))</span>  <span class="c1"># doctest: +SKIP</span>
 </code></pre></div></li>
 </ul>
 
@@ -7482,7 +7482,7 @@ GeoTIFF/GRIB inside a <code>.zip</code>).</p>
 <a id="__codelineno-0-289" name="__codelineno-0-289"></a>    <span class="n">signer</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-290" name="__codelineno-0-290"></a>    <span class="n">vsi</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-291" name="__codelineno-0-291"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dataset</span><span class="p">:</span>
-<a id="__codelineno-0-292" name="__codelineno-0-292"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Open a STAC asset as a pyramids `Dataset` / `NetCDF`.</span>
+<a id="__codelineno-0-292" name="__codelineno-0-292"></a><span class="w">    </span><span class="sd">"""Open a STAC asset as a pyramids `Dataset` / `NetCDF`.</span>
 <a id="__codelineno-0-293" name="__codelineno-0-293"></a>
 <a id="__codelineno-0-294" name="__codelineno-0-294"></a><span class="sd">    Resolves the asset href, optionally rewrites it through a `signer`</span>
 <a id="__codelineno-0-295" name="__codelineno-0-295"></a><span class="sd">    (a :class:`~pyramids.stac.signers.Signer`), then opens it with the</span>
@@ -7514,15 +7514,15 @@ GeoTIFF/GRIB inside a <code>.zip</code>).</p>
 <a id="__codelineno-0-321" name="__codelineno-0-321"></a>
 <a id="__codelineno-0-322" name="__codelineno-0-322"></a><span class="sd">    Raises:</span>
 <a id="__codelineno-0-323" name="__codelineno-0-323"></a><span class="sd">        KeyError: The asset is missing or has no href.</span>
-<a id="__codelineno-0-324" name="__codelineno-0-324"></a><span class="sd">        ValueError: The asset&#39;s type/extension matches no supported reader.</span>
+<a id="__codelineno-0-324" name="__codelineno-0-324"></a><span class="sd">        ValueError: The asset's type/extension matches no supported reader.</span>
 <a id="__codelineno-0-325" name="__codelineno-0-325"></a>
 <a id="__codelineno-0-326" name="__codelineno-0-326"></a><span class="sd">    Examples:</span>
 <a id="__codelineno-0-327" name="__codelineno-0-327"></a><span class="sd">        - Open a COG asset from a STAC Item (requires network access):</span>
 <a id="__codelineno-0-328" name="__codelineno-0-328"></a><span class="sd">            ```python</span>
 <a id="__codelineno-0-329" name="__codelineno-0-329"></a><span class="sd">            &gt;&gt;&gt; from pyramids.stac import load_asset  # doctest: +SKIP</span>
-<a id="__codelineno-0-330" name="__codelineno-0-330"></a><span class="sd">            &gt;&gt;&gt; item = {&quot;assets&quot;: {&quot;B04&quot;: {&quot;href&quot;: &quot;s3://.../B04.tif&quot;,</span>
-<a id="__codelineno-0-331" name="__codelineno-0-331"></a><span class="sd">            ...                            &quot;type&quot;: &quot;image/tiff; application=geotiff&quot;}}}</span>
-<a id="__codelineno-0-332" name="__codelineno-0-332"></a><span class="sd">            &gt;&gt;&gt; ds = load_asset(item, &quot;B04&quot;)  # doctest: +SKIP</span>
+<a id="__codelineno-0-330" name="__codelineno-0-330"></a><span class="sd">            &gt;&gt;&gt; item = {"assets": {"B04": {"href": "s3://.../B04.tif",</span>
+<a id="__codelineno-0-331" name="__codelineno-0-331"></a><span class="sd">            ...                            "type": "image/tiff; application=geotiff"}}}</span>
+<a id="__codelineno-0-332" name="__codelineno-0-332"></a><span class="sd">            &gt;&gt;&gt; ds = load_asset(item, "B04")  # doctest: +SKIP</span>
 <a id="__codelineno-0-333" name="__codelineno-0-333"></a><span class="sd">            &gt;&gt;&gt; ds.band_count  # doctest: +SKIP</span>
 <a id="__codelineno-0-334" name="__codelineno-0-334"></a><span class="sd">            1</span>
 <a id="__codelineno-0-335" name="__codelineno-0-335"></a>
@@ -7532,34 +7532,34 @@ GeoTIFF/GRIB inside a <code>.zip</code>).</p>
 <a id="__codelineno-0-339" name="__codelineno-0-339"></a><span class="sd">          open):</span>
 <a id="__codelineno-0-340" name="__codelineno-0-340"></a><span class="sd">            ```python</span>
 <a id="__codelineno-0-341" name="__codelineno-0-341"></a><span class="sd">            &gt;&gt;&gt; from pyramids.stac import load_asset, BearerTokenSigner  # doctest: +SKIP</span>
-<a id="__codelineno-0-342" name="__codelineno-0-342"></a><span class="sd">            &gt;&gt;&gt; ds = load_asset(item, &quot;B04&quot;, signer=BearerTokenSigner(&quot;tok&quot;))  # doctest: +SKIP</span>
+<a id="__codelineno-0-342" name="__codelineno-0-342"></a><span class="sd">            &gt;&gt;&gt; ds = load_asset(item, "B04", signer=BearerTokenSigner("tok"))  # doctest: +SKIP</span>
 <a id="__codelineno-0-343" name="__codelineno-0-343"></a>
 <a id="__codelineno-0-344" name="__codelineno-0-344"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-345" name="__codelineno-0-345"></a><span class="sd">        - Read a Requester-Pays bucket: the signer&#39;s `gdal_env` opts into</span>
+<a id="__codelineno-0-345" name="__codelineno-0-345"></a><span class="sd">        - Read a Requester-Pays bucket: the signer's `gdal_env` opts into</span>
 <a id="__codelineno-0-346" name="__codelineno-0-346"></a><span class="sd">          `AWS_REQUEST_PAYER=requester` for the duration of the open:</span>
 <a id="__codelineno-0-347" name="__codelineno-0-347"></a><span class="sd">            ```python</span>
 <a id="__codelineno-0-348" name="__codelineno-0-348"></a><span class="sd">            &gt;&gt;&gt; from pyramids.stac import load_asset, AWSRequesterPaysSigner  # doctest: +SKIP</span>
-<a id="__codelineno-0-349" name="__codelineno-0-349"></a><span class="sd">            &gt;&gt;&gt; asset = {&quot;href&quot;: &quot;s3://usgs-landsat/collection02/.../B4.TIF&quot;,</span>
-<a id="__codelineno-0-350" name="__codelineno-0-350"></a><span class="sd">            ...          &quot;type&quot;: &quot;image/tiff; application=geotiff&quot;}</span>
-<a id="__codelineno-0-351" name="__codelineno-0-351"></a><span class="sd">            &gt;&gt;&gt; ds = load_asset(asset, signer=AWSRequesterPaysSigner(region=&quot;us-west-2&quot;))  # doctest: +SKIP</span>
+<a id="__codelineno-0-349" name="__codelineno-0-349"></a><span class="sd">            &gt;&gt;&gt; asset = {"href": "s3://usgs-landsat/collection02/.../B4.TIF",</span>
+<a id="__codelineno-0-350" name="__codelineno-0-350"></a><span class="sd">            ...          "type": "image/tiff; application=geotiff"}</span>
+<a id="__codelineno-0-351" name="__codelineno-0-351"></a><span class="sd">            &gt;&gt;&gt; ds = load_asset(asset, signer=AWSRequesterPaysSigner(region="us-west-2"))  # doctest: +SKIP</span>
 <a id="__codelineno-0-352" name="__codelineno-0-352"></a>
 <a id="__codelineno-0-353" name="__codelineno-0-353"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-354" name="__codelineno-0-354"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-354" name="__codelineno-0-354"></a><span class="sd">    """</span>
 <a id="__codelineno-0-355" name="__codelineno-0-355"></a>    <span class="n">href</span><span class="p">,</span> <span class="n">media_type</span> <span class="o">=</span> <span class="n">_resolve_asset</span><span class="p">(</span><span class="n">item_or_asset</span><span class="p">,</span> <span class="n">asset_key</span><span class="p">)</span>
 <a id="__codelineno-0-356" name="__codelineno-0-356"></a>    <span class="k">if</span> <span class="n">signer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
 <a id="__codelineno-0-357" name="__codelineno-0-357"></a>        <span class="n">href</span> <span class="o">=</span> <span class="n">signer</span><span class="o">.</span><span class="n">sign_href</span><span class="p">(</span><span class="n">href</span><span class="p">)</span>
 <a id="__codelineno-0-358" name="__codelineno-0-358"></a>    <span class="n">engine</span> <span class="o">=</span> <span class="n">_engine_for</span><span class="p">(</span><span class="n">media_type</span><span class="p">,</span> <span class="n">href</span><span class="p">)</span>
 <a id="__codelineno-0-359" name="__codelineno-0-359"></a>    <span class="n">signer_env</span> <span class="o">=</span> <span class="n">signer</span><span class="o">.</span><span class="n">gdal_env</span><span class="p">()</span> <span class="k">if</span> <span class="n">signer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
 <a id="__codelineno-0-360" name="__codelineno-0-360"></a>    <span class="k">with</span> <span class="n">_open_config</span><span class="p">(</span><span class="n">href</span><span class="p">,</span> <span class="n">engine</span><span class="p">,</span> <span class="n">signer_env</span><span class="p">):</span>
-<a id="__codelineno-0-361" name="__codelineno-0-361"></a>        <span class="k">if</span> <span class="n">engine</span> <span class="o">==</span> <span class="s2">&quot;gdal&quot;</span><span class="p">:</span>
+<a id="__codelineno-0-361" name="__codelineno-0-361"></a>        <span class="k">if</span> <span class="n">engine</span> <span class="o">==</span> <span class="s2">"gdal"</span><span class="p">:</span>
 <a id="__codelineno-0-362" name="__codelineno-0-362"></a>            <span class="n">result</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="n">href</span><span class="p">,</span> <span class="n">vsi</span><span class="o">=</span><span class="n">vsi</span><span class="p">,</span> <span class="n">gdal_env</span><span class="o">=</span><span class="n">signer_env</span><span class="p">)</span>
-<a id="__codelineno-0-363" name="__codelineno-0-363"></a>        <span class="k">elif</span> <span class="n">engine</span> <span class="o">==</span> <span class="s2">&quot;zarr&quot;</span><span class="p">:</span>
+<a id="__codelineno-0-363" name="__codelineno-0-363"></a>        <span class="k">elif</span> <span class="n">engine</span> <span class="o">==</span> <span class="s2">"zarr"</span><span class="p">:</span>
 <a id="__codelineno-0-364" name="__codelineno-0-364"></a>            <span class="c1"># Read through zarr/fsspec, which never consults GDAL config — so</span>
 <a id="__codelineno-0-365" name="__codelineno-0-365"></a>            <span class="c1"># nothing is captured on the result either (see _persist_gdal_env).</span>
 <a id="__codelineno-0-366" name="__codelineno-0-366"></a>            <span class="n">result</span> <span class="o">=</span> <span class="n">_load_zarr</span><span class="p">(</span><span class="n">href</span><span class="p">)</span>
 <a id="__codelineno-0-367" name="__codelineno-0-367"></a>        <span class="k">else</span><span class="p">:</span>
 <a id="__codelineno-0-368" name="__codelineno-0-368"></a>            <span class="n">result</span> <span class="o">=</span> <span class="p">(</span>
-<a id="__codelineno-0-369" name="__codelineno-0-369"></a>                <span class="n">open_grib</span><span class="p">(</span><span class="n">href</span><span class="p">,</span> <span class="n">vsi</span><span class="o">=</span><span class="n">vsi</span><span class="p">)</span> <span class="k">if</span> <span class="n">engine</span> <span class="o">==</span> <span class="s2">&quot;grib&quot;</span> <span class="k">else</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="n">href</span><span class="p">)</span>
+<a id="__codelineno-0-369" name="__codelineno-0-369"></a>                <span class="n">open_grib</span><span class="p">(</span><span class="n">href</span><span class="p">,</span> <span class="n">vsi</span><span class="o">=</span><span class="n">vsi</span><span class="p">)</span> <span class="k">if</span> <span class="n">engine</span> <span class="o">==</span> <span class="s2">"grib"</span> <span class="k">else</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="n">href</span><span class="p">)</span>
 <a id="__codelineno-0-370" name="__codelineno-0-370"></a>            <span class="p">)</span>
 <a id="__codelineno-0-371" name="__codelineno-0-371"></a>            <span class="c1"># Unlike Dataset.read_file these readers take no gdal_env=, so the</span>
 <a id="__codelineno-0-372" name="__codelineno-0-372"></a>            <span class="c1"># signer env is attached to the opened object instead.</span>
@@ -7723,11 +7723,11 @@ or <code>None</code>).</p>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="o">-</span><span class="mf">9999.0</span>
 </code></pre></div></li>
 <li>The string <code>"-inf"</code> becomes negative infinity:
-    <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">parse_number</span><span class="p">(</span><span class="s2">&quot;-inf&quot;</span><span class="p">)</span>
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">parse_number</span><span class="p">(</span><span class="s2">"-inf"</span><span class="p">)</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="o">-</span><span class="n">inf</span>
 </code></pre></div></li>
 <li>An unparseable value falls back to the default:
-    <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">parse_number</span><span class="p">(</span><span class="s2">&quot;n/a&quot;</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mf">0.0</span><span class="p">)</span>
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">parse_number</span><span class="p">(</span><span class="s2">"n/a"</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mf">0.0</span><span class="p">)</span>
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="mf">0.0</span>
 </code></pre></div></li>
 </ul>
@@ -7785,10 +7785,10 @@ or <code>None</code>).</p>
 <span class="normal"><a href="#__codelineno-0-85">85</a></span>
 <span class="normal"><a href="#__codelineno-0-86">86</a></span>
 <span class="normal"><a href="#__codelineno-0-87">87</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-38" name="__codelineno-0-38"></a><span class="k">def</span><span class="w"> </span><span class="nf">parse_number</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">default</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
-<a id="__codelineno-0-39" name="__codelineno-0-39"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Coerce a STAC numeric field to a float, honouring nan/inf strings.</span>
+<a id="__codelineno-0-39" name="__codelineno-0-39"></a><span class="w">    </span><span class="sd">"""Coerce a STAC numeric field to a float, honouring nan/inf strings.</span>
 <a id="__codelineno-0-40" name="__codelineno-0-40"></a>
 <a id="__codelineno-0-41" name="__codelineno-0-41"></a><span class="sd">    The ``raster`` extension allows non-finite nodata values to be encoded as</span>
-<a id="__codelineno-0-42" name="__codelineno-0-42"></a><span class="sd">    the strings ``&quot;nan&quot;`` / ``&quot;inf&quot;`` / ``&quot;-inf&quot;``.</span>
+<a id="__codelineno-0-42" name="__codelineno-0-42"></a><span class="sd">    the strings ``"nan"`` / ``"inf"`` / ``"-inf"``.</span>
 <a id="__codelineno-0-43" name="__codelineno-0-43"></a>
 <a id="__codelineno-0-44" name="__codelineno-0-44"></a><span class="sd">    Args:</span>
 <a id="__codelineno-0-45" name="__codelineno-0-45"></a><span class="sd">        value: The raw field value (number, numeric string, nan/inf string,</span>
@@ -7806,19 +7806,19 @@ or <code>None</code>).</p>
 <a id="__codelineno-0-57" name="__codelineno-0-57"></a><span class="sd">            -9999.0</span>
 <a id="__codelineno-0-58" name="__codelineno-0-58"></a>
 <a id="__codelineno-0-59" name="__codelineno-0-59"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-60" name="__codelineno-0-60"></a><span class="sd">        - The string ``&quot;-inf&quot;`` becomes negative infinity:</span>
+<a id="__codelineno-0-60" name="__codelineno-0-60"></a><span class="sd">        - The string ``"-inf"`` becomes negative infinity:</span>
 <a id="__codelineno-0-61" name="__codelineno-0-61"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-62" name="__codelineno-0-62"></a><span class="sd">            &gt;&gt;&gt; parse_number(&quot;-inf&quot;)</span>
+<a id="__codelineno-0-62" name="__codelineno-0-62"></a><span class="sd">            &gt;&gt;&gt; parse_number("-inf")</span>
 <a id="__codelineno-0-63" name="__codelineno-0-63"></a><span class="sd">            -inf</span>
 <a id="__codelineno-0-64" name="__codelineno-0-64"></a>
 <a id="__codelineno-0-65" name="__codelineno-0-65"></a><span class="sd">            ```</span>
 <a id="__codelineno-0-66" name="__codelineno-0-66"></a><span class="sd">        - An unparseable value falls back to the default:</span>
 <a id="__codelineno-0-67" name="__codelineno-0-67"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-68" name="__codelineno-0-68"></a><span class="sd">            &gt;&gt;&gt; parse_number(&quot;n/a&quot;, default=0.0)</span>
+<a id="__codelineno-0-68" name="__codelineno-0-68"></a><span class="sd">            &gt;&gt;&gt; parse_number("n/a", default=0.0)</span>
 <a id="__codelineno-0-69" name="__codelineno-0-69"></a><span class="sd">            0.0</span>
 <a id="__codelineno-0-70" name="__codelineno-0-70"></a>
 <a id="__codelineno-0-71" name="__codelineno-0-71"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-72" name="__codelineno-0-72"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-72" name="__codelineno-0-72"></a><span class="sd">    """</span>
 <a id="__codelineno-0-73" name="__codelineno-0-73"></a>    <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
 <a id="__codelineno-0-74" name="__codelineno-0-74"></a>        <span class="k">return</span> <span class="n">default</span>
 <a id="__codelineno-0-75" name="__codelineno-0-75"></a>    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">bool</span><span class="p">):</span>
@@ -7995,11 +7995,11 @@ accepted; only the first six coefficients are used.</p>
 <span class="normal"><a href="#__codelineno-0-129">129</a></span>
 <span class="normal"><a href="#__codelineno-0-130">130</a></span>
 <span class="normal"><a href="#__codelineno-0-131">131</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-90" name="__codelineno-0-90"></a><span class="k">def</span><span class="w"> </span><span class="nf">affine_to_geotransform</span><span class="p">(</span><span class="n">transform</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
-<a id="__codelineno-0-91" name="__codelineno-0-91"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Convert a STAC ``proj:transform`` affine to a GDAL geotransform.</span>
+<a id="__codelineno-0-91" name="__codelineno-0-91"></a><span class="w">    </span><span class="sd">"""Convert a STAC ``proj:transform`` affine to a GDAL geotransform.</span>
 <a id="__codelineno-0-92" name="__codelineno-0-92"></a>
 <a id="__codelineno-0-93" name="__codelineno-0-93"></a><span class="sd">    ``proj:transform`` is the affine ordering ``[a, b, c, d, e, f]``</span>
 <a id="__codelineno-0-94" name="__codelineno-0-94"></a><span class="sd">    (mapping ``(col, row)`` to ``(x, y)``: ``x = a*col + b*row + c``,</span>
-<a id="__codelineno-0-95" name="__codelineno-0-95"></a><span class="sd">    ``y = d*col + e*row + f``). GDAL&#39;s geotransform is the reordering</span>
+<a id="__codelineno-0-95" name="__codelineno-0-95"></a><span class="sd">    ``y = d*col + e*row + f``). GDAL's geotransform is the reordering</span>
 <a id="__codelineno-0-96" name="__codelineno-0-96"></a><span class="sd">    ``(c, a, b, f, d, e)`` — i.e. ``(x_origin, x_res, x_rot, y_origin, y_rot,</span>
 <a id="__codelineno-0-97" name="__codelineno-0-97"></a><span class="sd">    y_res)``. A 9-element affine (with a trailing ``[0, 0, 1]`` row) is</span>
 <a id="__codelineno-0-98" name="__codelineno-0-98"></a><span class="sd">    accepted; only the first six coefficients are used.</span>
@@ -8027,12 +8027,12 @@ accepted; only the first six coefficients are used.</p>
 <a id="__codelineno-0-120" name="__codelineno-0-120"></a><span class="sd">            (100.0, 10.0, 0.0, 200.0, 0.0, -10.0)</span>
 <a id="__codelineno-0-121" name="__codelineno-0-121"></a>
 <a id="__codelineno-0-122" name="__codelineno-0-122"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-123" name="__codelineno-0-123"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-123" name="__codelineno-0-123"></a><span class="sd">    """</span>
 <a id="__codelineno-0-124" name="__codelineno-0-124"></a>    <span class="n">coeffs</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">transform</span><span class="p">)</span>
 <a id="__codelineno-0-125" name="__codelineno-0-125"></a>    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">coeffs</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">6</span><span class="p">:</span>
 <a id="__codelineno-0-126" name="__codelineno-0-126"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-127" name="__codelineno-0-127"></a>            <span class="sa">f</span><span class="s2">&quot;proj:transform must have at least 6 coefficients, got </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">coeffs</span><span class="p">)</span><span class="si">}</span><span class="s2">: &quot;</span>
-<a id="__codelineno-0-128" name="__codelineno-0-128"></a>            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">coeffs</span><span class="si">!r}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-127" name="__codelineno-0-127"></a>            <span class="sa">f</span><span class="s2">"proj:transform must have at least 6 coefficients, got </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">coeffs</span><span class="p">)</span><span class="si">}</span><span class="s2">: "</span>
+<a id="__codelineno-0-128" name="__codelineno-0-128"></a>            <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">coeffs</span><span class="si">!r}</span><span class="s2">"</span>
 <a id="__codelineno-0-129" name="__codelineno-0-129"></a>        <span class="p">)</span>
 <a id="__codelineno-0-130" name="__codelineno-0-130"></a>    <span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">c</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">e</span><span class="p">,</span> <span class="n">f</span> <span class="o">=</span> <span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">coeffs</span><span class="p">[:</span><span class="mi">6</span><span class="p">])</span>
 <a id="__codelineno-0-131" name="__codelineno-0-131"></a>    <span class="k">return</span> <span class="p">(</span><span class="n">c</span><span class="p">,</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">f</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">e</span><span class="p">)</span>
@@ -8182,9 +8182,9 @@ y_res)</code> — and <code>proj:transform</code> is the affine ordering
 <span class="normal"><a href="#__codelineno-0-164">164</a></span>
 <span class="normal"><a href="#__codelineno-0-165">165</a></span>
 <span class="normal"><a href="#__codelineno-0-166">166</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-134" name="__codelineno-0-134"></a><span class="k">def</span><span class="w"> </span><span class="nf">geotransform_to_affine</span><span class="p">(</span><span class="n">geotransform</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">]:</span>
-<a id="__codelineno-0-135" name="__codelineno-0-135"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Convert a GDAL geotransform to a STAC ``proj:transform`` affine.</span>
+<a id="__codelineno-0-135" name="__codelineno-0-135"></a><span class="w">    </span><span class="sd">"""Convert a GDAL geotransform to a STAC ``proj:transform`` affine.</span>
 <a id="__codelineno-0-136" name="__codelineno-0-136"></a>
-<a id="__codelineno-0-137" name="__codelineno-0-137"></a><span class="sd">    The inverse of :func:`affine_to_geotransform`. GDAL&#39;s geotransform is</span>
+<a id="__codelineno-0-137" name="__codelineno-0-137"></a><span class="sd">    The inverse of :func:`affine_to_geotransform`. GDAL's geotransform is</span>
 <a id="__codelineno-0-138" name="__codelineno-0-138"></a><span class="sd">    ``(c, a, b, f, d, e)`` — ``(x_origin, x_res, x_rot, y_origin, y_rot,</span>
 <a id="__codelineno-0-139" name="__codelineno-0-139"></a><span class="sd">    y_res)`` — and ``proj:transform`` is the affine ordering</span>
 <a id="__codelineno-0-140" name="__codelineno-0-140"></a><span class="sd">    ``[a, b, c, d, e, f]``.</span>
@@ -8206,11 +8206,11 @@ y_res)</code> — and <code>proj:transform</code> is the affine ordering
 <a id="__codelineno-0-156" name="__codelineno-0-156"></a><span class="sd">            [30.0, 0.0, 224985.0, 0.0, -30.0, 6790215.0]</span>
 <a id="__codelineno-0-157" name="__codelineno-0-157"></a>
 <a id="__codelineno-0-158" name="__codelineno-0-158"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-159" name="__codelineno-0-159"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-159" name="__codelineno-0-159"></a><span class="sd">    """</span>
 <a id="__codelineno-0-160" name="__codelineno-0-160"></a>    <span class="n">gt</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">geotransform</span><span class="p">)</span>
 <a id="__codelineno-0-161" name="__codelineno-0-161"></a>    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">gt</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">6</span><span class="p">:</span>
 <a id="__codelineno-0-162" name="__codelineno-0-162"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-163" name="__codelineno-0-163"></a>            <span class="sa">f</span><span class="s2">&quot;geotransform must have at least 6 coefficients, got </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">gt</span><span class="p">)</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">gt</span><span class="si">!r}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-163" name="__codelineno-0-163"></a>            <span class="sa">f</span><span class="s2">"geotransform must have at least 6 coefficients, got </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">gt</span><span class="p">)</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">gt</span><span class="si">!r}</span><span class="s2">"</span>
 <a id="__codelineno-0-164" name="__codelineno-0-164"></a>        <span class="p">)</span>
 <a id="__codelineno-0-165" name="__codelineno-0-165"></a>    <span class="n">c</span><span class="p">,</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">f</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">e</span> <span class="o">=</span> <span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">gt</span><span class="p">[:</span><span class="mi">6</span><span class="p">])</span>
 <a id="__codelineno-0-166" name="__codelineno-0-166"></a>    <span class="k">return</span> <span class="p">[</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">c</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">e</span><span class="p">,</span> <span class="n">f</span><span class="p">]</span>
@@ -8436,34 +8436,34 @@ or <code>None</code> when no transform is present.</li>
 <li>Read a Sentinel-2-style asset's projection metadata from raw JSON:
     <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.stac._extensions</span><span class="w"> </span><span class="kn">import</span> <span class="n">read_extension_metadata</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">item</span> <span class="o">=</span> <span class="p">{</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="o">...</span>     <span class="s2">&quot;properties&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;proj:epsg&quot;</span><span class="p">:</span> <span class="mi">32633</span><span class="p">},</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="o">...</span>     <span class="s2">&quot;assets&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;B04&quot;</span><span class="p">:</span> <span class="p">{</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="o">...</span>         <span class="s2">&quot;href&quot;</span><span class="p">:</span> <span class="s2">&quot;s3://b/B04.tif&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="o">...</span>         <span class="s2">&quot;proj:shape&quot;</span><span class="p">:</span> <span class="p">[</span><span class="mi">10980</span><span class="p">,</span> <span class="mi">10980</span><span class="p">],</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="o">...</span>         <span class="s2">&quot;proj:transform&quot;</span><span class="p">:</span> <span class="p">[</span><span class="mf">10.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">600000.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="o">-</span><span class="mf">10.0</span><span class="p">,</span> <span class="mf">5300040.0</span><span class="p">],</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="o">...</span>         <span class="s2">&quot;raster:bands&quot;</span><span class="p">:</span> <span class="p">[{</span><span class="s2">&quot;nodata&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;scale&quot;</span><span class="p">:</span> <span class="mf">0.0001</span><span class="p">}],</span>
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="o">...</span>         <span class="s2">&quot;eo:bands&quot;</span><span class="p">:</span> <span class="p">[{</span><span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;B04&quot;</span><span class="p">,</span> <span class="s2">&quot;common_name&quot;</span><span class="p">:</span> <span class="s2">&quot;red&quot;</span><span class="p">}],</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="o">...</span>     <span class="s2">"properties"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"proj:epsg"</span><span class="p">:</span> <span class="mi">32633</span><span class="p">},</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="o">...</span>     <span class="s2">"assets"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"B04"</span><span class="p">:</span> <span class="p">{</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="o">...</span>         <span class="s2">"href"</span><span class="p">:</span> <span class="s2">"s3://b/B04.tif"</span><span class="p">,</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="o">...</span>         <span class="s2">"proj:shape"</span><span class="p">:</span> <span class="p">[</span><span class="mi">10980</span><span class="p">,</span> <span class="mi">10980</span><span class="p">],</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="o">...</span>         <span class="s2">"proj:transform"</span><span class="p">:</span> <span class="p">[</span><span class="mf">10.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">600000.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="o">-</span><span class="mf">10.0</span><span class="p">,</span> <span class="mf">5300040.0</span><span class="p">],</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="o">...</span>         <span class="s2">"raster:bands"</span><span class="p">:</span> <span class="p">[{</span><span class="s2">"nodata"</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">"scale"</span><span class="p">:</span> <span class="mf">0.0001</span><span class="p">}],</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="o">...</span>         <span class="s2">"eo:bands"</span><span class="p">:</span> <span class="p">[{</span><span class="s2">"name"</span><span class="p">:</span> <span class="s2">"B04"</span><span class="p">,</span> <span class="s2">"common_name"</span><span class="p">:</span> <span class="s2">"red"</span><span class="p">}],</span>
 <a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="o">...</span>     <span class="p">}},</span>
 <a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="o">...</span> <span class="p">}</span>
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">meta</span> <span class="o">=</span> <span class="n">read_extension_metadata</span><span class="p">(</span><span class="n">item</span><span class="p">,</span> <span class="s2">&quot;B04&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">meta</span><span class="p">[</span><span class="s2">&quot;crs&quot;</span><span class="p">]</span>
-<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="s1">&#39;EPSG:32633&#39;</span>
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">meta</span><span class="p">[</span><span class="s2">&quot;geotransform&quot;</span><span class="p">]</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">meta</span> <span class="o">=</span> <span class="n">read_extension_metadata</span><span class="p">(</span><span class="n">item</span><span class="p">,</span> <span class="s2">"B04"</span><span class="p">)</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">meta</span><span class="p">[</span><span class="s2">"crs"</span><span class="p">]</span>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="s1">'EPSG:32633'</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">meta</span><span class="p">[</span><span class="s2">"geotransform"</span><span class="p">]</span>
 <a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="p">(</span><span class="mf">600000.0</span><span class="p">,</span> <span class="mf">10.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">5300040.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="o">-</span><span class="mf">10.0</span><span class="p">)</span>
-<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">meta</span><span class="p">[</span><span class="s2">&quot;band_names&quot;</span><span class="p">]</span>
-<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="p">[</span><span class="s1">&#39;B04&#39;</span><span class="p">]</span>
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">meta</span><span class="p">[</span><span class="s2">"band_names"</span><span class="p">]</span>
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="p">[</span><span class="s1">'B04'</span><span class="p">]</span>
 </code></pre></div></li>
 <li>An asset-level <code>proj:epsg</code> overrides the item-level value:
     <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">item</span> <span class="o">=</span> <span class="p">{</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="o">...</span>     <span class="s2">&quot;properties&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;proj:epsg&quot;</span><span class="p">:</span> <span class="mi">4326</span><span class="p">},</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="o">...</span>     <span class="s2">&quot;assets&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;dem&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;href&quot;</span><span class="p">:</span> <span class="s2">&quot;x.tif&quot;</span><span class="p">,</span> <span class="s2">&quot;proj:epsg&quot;</span><span class="p">:</span> <span class="mi">3857</span><span class="p">}},</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="o">...</span>     <span class="s2">"properties"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"proj:epsg"</span><span class="p">:</span> <span class="mi">4326</span><span class="p">},</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="o">...</span>     <span class="s2">"assets"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"dem"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"href"</span><span class="p">:</span> <span class="s2">"x.tif"</span><span class="p">,</span> <span class="s2">"proj:epsg"</span><span class="p">:</span> <span class="mi">3857</span><span class="p">}},</span>
 <a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="o">...</span> <span class="p">}</span>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">read_extension_metadata</span><span class="p">(</span><span class="n">item</span><span class="p">,</span> <span class="s2">&quot;dem&quot;</span><span class="p">)[</span><span class="s2">&quot;epsg&quot;</span><span class="p">]</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">read_extension_metadata</span><span class="p">(</span><span class="n">item</span><span class="p">,</span> <span class="s2">"dem"</span><span class="p">)[</span><span class="s2">"epsg"</span><span class="p">]</span>
 <a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="mi">3857</span>
 </code></pre></div></li>
 <li>A bare asset with no extension fields yields all-empty metadata:
-    <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">meta</span> <span class="o">=</span> <span class="n">read_extension_metadata</span><span class="p">({</span><span class="s2">&quot;href&quot;</span><span class="p">:</span> <span class="s2">&quot;x.tif&quot;</span><span class="p">})</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="p">(</span><span class="n">meta</span><span class="p">[</span><span class="s2">&quot;crs&quot;</span><span class="p">],</span> <span class="n">meta</span><span class="p">[</span><span class="s2">&quot;geotransform&quot;</span><span class="p">],</span> <span class="n">meta</span><span class="p">[</span><span class="s2">&quot;raster_bands&quot;</span><span class="p">])</span>
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">meta</span> <span class="o">=</span> <span class="n">read_extension_metadata</span><span class="p">({</span><span class="s2">"href"</span><span class="p">:</span> <span class="s2">"x.tif"</span><span class="p">})</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="p">(</span><span class="n">meta</span><span class="p">[</span><span class="s2">"crs"</span><span class="p">],</span> <span class="n">meta</span><span class="p">[</span><span class="s2">"geotransform"</span><span class="p">],</span> <span class="n">meta</span><span class="p">[</span><span class="s2">"raster_bands"</span><span class="p">])</span>
 <a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
 </code></pre></div></li>
 </ul>
@@ -8574,7 +8574,7 @@ or <code>None</code> when no transform is present.</li>
 <span class="normal"><a href="#__codelineno-0-269">269</a></span>
 <span class="normal"><a href="#__codelineno-0-270">270</a></span>
 <span class="normal"><a href="#__codelineno-0-271">271</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-169" name="__codelineno-0-169"></a><span class="k">def</span><span class="w"> </span><span class="nf">read_extension_metadata</span><span class="p">(</span><span class="n">item</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">asset_key</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
-<a id="__codelineno-0-170" name="__codelineno-0-170"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Read ``proj`` / ``raster`` / ``eo`` extension fields for a STAC asset.</span>
+<a id="__codelineno-0-170" name="__codelineno-0-170"></a><span class="w">    </span><span class="sd">"""Read ``proj`` / ``raster`` / ``eo`` extension fields for a STAC asset.</span>
 <a id="__codelineno-0-171" name="__codelineno-0-171"></a>
 <a id="__codelineno-0-172" name="__codelineno-0-172"></a><span class="sd">    Item-level fields (under ``properties``) are read first and an asset-level</span>
 <a id="__codelineno-0-173" name="__codelineno-0-173"></a><span class="sd">    value of the same key overrides them, matching the STAC convention that an</span>
@@ -8590,7 +8590,7 @@ or <code>None</code> when no transform is present.</li>
 <a id="__codelineno-0-183" name="__codelineno-0-183"></a><span class="sd">        A dict with keys:</span>
 <a id="__codelineno-0-184" name="__codelineno-0-184"></a>
 <a id="__codelineno-0-185" name="__codelineno-0-185"></a><span class="sd">        * ``epsg`` — ``proj:epsg`` (int) or ``None``.</span>
-<a id="__codelineno-0-186" name="__codelineno-0-186"></a><span class="sd">        * ``crs`` — ``proj:code`` (e.g. ``&quot;EPSG:32633&quot;``) when present, else</span>
+<a id="__codelineno-0-186" name="__codelineno-0-186"></a><span class="sd">        * ``crs`` — ``proj:code`` (e.g. ``"EPSG:32633"``) when present, else</span>
 <a id="__codelineno-0-187" name="__codelineno-0-187"></a><span class="sd">          derived from ``proj:epsg``, else ``None``.</span>
 <a id="__codelineno-0-188" name="__codelineno-0-188"></a><span class="sd">        * ``transform`` — raw ``proj:transform`` list or ``None``.</span>
 <a id="__codelineno-0-189" name="__codelineno-0-189"></a><span class="sd">        * ``geotransform`` — the GDAL geotransform derived from ``transform``,</span>
@@ -8605,76 +8605,76 @@ or <code>None</code> when no transform is present.</li>
 <a id="__codelineno-0-198" name="__codelineno-0-198"></a><span class="sd">        StacAssetError: When `asset_key` is given but absent from the item.</span>
 <a id="__codelineno-0-199" name="__codelineno-0-199"></a>
 <a id="__codelineno-0-200" name="__codelineno-0-200"></a><span class="sd">    Examples:</span>
-<a id="__codelineno-0-201" name="__codelineno-0-201"></a><span class="sd">        - Read a Sentinel-2-style asset&#39;s projection metadata from raw JSON:</span>
+<a id="__codelineno-0-201" name="__codelineno-0-201"></a><span class="sd">        - Read a Sentinel-2-style asset's projection metadata from raw JSON:</span>
 <a id="__codelineno-0-202" name="__codelineno-0-202"></a><span class="sd">            ```python</span>
 <a id="__codelineno-0-203" name="__codelineno-0-203"></a><span class="sd">            &gt;&gt;&gt; from pyramids.stac._extensions import read_extension_metadata</span>
 <a id="__codelineno-0-204" name="__codelineno-0-204"></a><span class="sd">            &gt;&gt;&gt; item = {</span>
-<a id="__codelineno-0-205" name="__codelineno-0-205"></a><span class="sd">            ...     &quot;properties&quot;: {&quot;proj:epsg&quot;: 32633},</span>
-<a id="__codelineno-0-206" name="__codelineno-0-206"></a><span class="sd">            ...     &quot;assets&quot;: {&quot;B04&quot;: {</span>
-<a id="__codelineno-0-207" name="__codelineno-0-207"></a><span class="sd">            ...         &quot;href&quot;: &quot;s3://b/B04.tif&quot;,</span>
-<a id="__codelineno-0-208" name="__codelineno-0-208"></a><span class="sd">            ...         &quot;proj:shape&quot;: [10980, 10980],</span>
-<a id="__codelineno-0-209" name="__codelineno-0-209"></a><span class="sd">            ...         &quot;proj:transform&quot;: [10.0, 0.0, 600000.0, 0.0, -10.0, 5300040.0],</span>
-<a id="__codelineno-0-210" name="__codelineno-0-210"></a><span class="sd">            ...         &quot;raster:bands&quot;: [{&quot;nodata&quot;: 0, &quot;scale&quot;: 0.0001}],</span>
-<a id="__codelineno-0-211" name="__codelineno-0-211"></a><span class="sd">            ...         &quot;eo:bands&quot;: [{&quot;name&quot;: &quot;B04&quot;, &quot;common_name&quot;: &quot;red&quot;}],</span>
+<a id="__codelineno-0-205" name="__codelineno-0-205"></a><span class="sd">            ...     "properties": {"proj:epsg": 32633},</span>
+<a id="__codelineno-0-206" name="__codelineno-0-206"></a><span class="sd">            ...     "assets": {"B04": {</span>
+<a id="__codelineno-0-207" name="__codelineno-0-207"></a><span class="sd">            ...         "href": "s3://b/B04.tif",</span>
+<a id="__codelineno-0-208" name="__codelineno-0-208"></a><span class="sd">            ...         "proj:shape": [10980, 10980],</span>
+<a id="__codelineno-0-209" name="__codelineno-0-209"></a><span class="sd">            ...         "proj:transform": [10.0, 0.0, 600000.0, 0.0, -10.0, 5300040.0],</span>
+<a id="__codelineno-0-210" name="__codelineno-0-210"></a><span class="sd">            ...         "raster:bands": [{"nodata": 0, "scale": 0.0001}],</span>
+<a id="__codelineno-0-211" name="__codelineno-0-211"></a><span class="sd">            ...         "eo:bands": [{"name": "B04", "common_name": "red"}],</span>
 <a id="__codelineno-0-212" name="__codelineno-0-212"></a><span class="sd">            ...     }},</span>
 <a id="__codelineno-0-213" name="__codelineno-0-213"></a><span class="sd">            ... }</span>
-<a id="__codelineno-0-214" name="__codelineno-0-214"></a><span class="sd">            &gt;&gt;&gt; meta = read_extension_metadata(item, &quot;B04&quot;)</span>
-<a id="__codelineno-0-215" name="__codelineno-0-215"></a><span class="sd">            &gt;&gt;&gt; meta[&quot;crs&quot;]</span>
-<a id="__codelineno-0-216" name="__codelineno-0-216"></a><span class="sd">            &#39;EPSG:32633&#39;</span>
-<a id="__codelineno-0-217" name="__codelineno-0-217"></a><span class="sd">            &gt;&gt;&gt; meta[&quot;geotransform&quot;]</span>
+<a id="__codelineno-0-214" name="__codelineno-0-214"></a><span class="sd">            &gt;&gt;&gt; meta = read_extension_metadata(item, "B04")</span>
+<a id="__codelineno-0-215" name="__codelineno-0-215"></a><span class="sd">            &gt;&gt;&gt; meta["crs"]</span>
+<a id="__codelineno-0-216" name="__codelineno-0-216"></a><span class="sd">            'EPSG:32633'</span>
+<a id="__codelineno-0-217" name="__codelineno-0-217"></a><span class="sd">            &gt;&gt;&gt; meta["geotransform"]</span>
 <a id="__codelineno-0-218" name="__codelineno-0-218"></a><span class="sd">            (600000.0, 10.0, 0.0, 5300040.0, 0.0, -10.0)</span>
-<a id="__codelineno-0-219" name="__codelineno-0-219"></a><span class="sd">            &gt;&gt;&gt; meta[&quot;band_names&quot;]</span>
-<a id="__codelineno-0-220" name="__codelineno-0-220"></a><span class="sd">            [&#39;B04&#39;]</span>
+<a id="__codelineno-0-219" name="__codelineno-0-219"></a><span class="sd">            &gt;&gt;&gt; meta["band_names"]</span>
+<a id="__codelineno-0-220" name="__codelineno-0-220"></a><span class="sd">            ['B04']</span>
 <a id="__codelineno-0-221" name="__codelineno-0-221"></a>
 <a id="__codelineno-0-222" name="__codelineno-0-222"></a><span class="sd">            ```</span>
 <a id="__codelineno-0-223" name="__codelineno-0-223"></a><span class="sd">        - An asset-level ``proj:epsg`` overrides the item-level value:</span>
 <a id="__codelineno-0-224" name="__codelineno-0-224"></a><span class="sd">            ```python</span>
 <a id="__codelineno-0-225" name="__codelineno-0-225"></a><span class="sd">            &gt;&gt;&gt; item = {</span>
-<a id="__codelineno-0-226" name="__codelineno-0-226"></a><span class="sd">            ...     &quot;properties&quot;: {&quot;proj:epsg&quot;: 4326},</span>
-<a id="__codelineno-0-227" name="__codelineno-0-227"></a><span class="sd">            ...     &quot;assets&quot;: {&quot;dem&quot;: {&quot;href&quot;: &quot;x.tif&quot;, &quot;proj:epsg&quot;: 3857}},</span>
+<a id="__codelineno-0-226" name="__codelineno-0-226"></a><span class="sd">            ...     "properties": {"proj:epsg": 4326},</span>
+<a id="__codelineno-0-227" name="__codelineno-0-227"></a><span class="sd">            ...     "assets": {"dem": {"href": "x.tif", "proj:epsg": 3857}},</span>
 <a id="__codelineno-0-228" name="__codelineno-0-228"></a><span class="sd">            ... }</span>
-<a id="__codelineno-0-229" name="__codelineno-0-229"></a><span class="sd">            &gt;&gt;&gt; read_extension_metadata(item, &quot;dem&quot;)[&quot;epsg&quot;]</span>
+<a id="__codelineno-0-229" name="__codelineno-0-229"></a><span class="sd">            &gt;&gt;&gt; read_extension_metadata(item, "dem")["epsg"]</span>
 <a id="__codelineno-0-230" name="__codelineno-0-230"></a><span class="sd">            3857</span>
 <a id="__codelineno-0-231" name="__codelineno-0-231"></a>
 <a id="__codelineno-0-232" name="__codelineno-0-232"></a><span class="sd">            ```</span>
 <a id="__codelineno-0-233" name="__codelineno-0-233"></a><span class="sd">        - A bare asset with no extension fields yields all-empty metadata:</span>
 <a id="__codelineno-0-234" name="__codelineno-0-234"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-235" name="__codelineno-0-235"></a><span class="sd">            &gt;&gt;&gt; meta = read_extension_metadata({&quot;href&quot;: &quot;x.tif&quot;})</span>
-<a id="__codelineno-0-236" name="__codelineno-0-236"></a><span class="sd">            &gt;&gt;&gt; (meta[&quot;crs&quot;], meta[&quot;geotransform&quot;], meta[&quot;raster_bands&quot;])</span>
+<a id="__codelineno-0-235" name="__codelineno-0-235"></a><span class="sd">            &gt;&gt;&gt; meta = read_extension_metadata({"href": "x.tif"})</span>
+<a id="__codelineno-0-236" name="__codelineno-0-236"></a><span class="sd">            &gt;&gt;&gt; (meta["crs"], meta["geotransform"], meta["raster_bands"])</span>
 <a id="__codelineno-0-237" name="__codelineno-0-237"></a><span class="sd">            (None, None, None)</span>
 <a id="__codelineno-0-238" name="__codelineno-0-238"></a>
 <a id="__codelineno-0-239" name="__codelineno-0-239"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-240" name="__codelineno-0-240"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-240" name="__codelineno-0-240"></a><span class="sd">    """</span>
 <a id="__codelineno-0-241" name="__codelineno-0-241"></a>    <span class="n">props</span> <span class="o">=</span> <span class="n">item_properties</span><span class="p">(</span><span class="n">item</span><span class="p">)</span>
 <a id="__codelineno-0-242" name="__codelineno-0-242"></a>    <span class="n">asset</span> <span class="o">=</span> <span class="n">get_asset</span><span class="p">(</span><span class="n">item</span><span class="p">,</span> <span class="n">asset_key</span><span class="p">)</span> <span class="k">if</span> <span class="n">asset_key</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">item</span>
 <a id="__codelineno-0-243" name="__codelineno-0-243"></a>
 <a id="__codelineno-0-244" name="__codelineno-0-244"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">pick</span><span class="p">(</span><span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">default</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
 <a id="__codelineno-0-245" name="__codelineno-0-245"></a>        <span class="k">return</span> <span class="n">asset_field</span><span class="p">(</span><span class="n">asset</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">props</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">default</span><span class="p">))</span>
 <a id="__codelineno-0-246" name="__codelineno-0-246"></a>
-<a id="__codelineno-0-247" name="__codelineno-0-247"></a>    <span class="n">epsg</span> <span class="o">=</span> <span class="n">pick</span><span class="p">(</span><span class="s2">&quot;proj:epsg&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-248" name="__codelineno-0-248"></a>    <span class="n">code</span> <span class="o">=</span> <span class="n">pick</span><span class="p">(</span><span class="s2">&quot;proj:code&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-247" name="__codelineno-0-247"></a>    <span class="n">epsg</span> <span class="o">=</span> <span class="n">pick</span><span class="p">(</span><span class="s2">"proj:epsg"</span><span class="p">)</span>
+<a id="__codelineno-0-248" name="__codelineno-0-248"></a>    <span class="n">code</span> <span class="o">=</span> <span class="n">pick</span><span class="p">(</span><span class="s2">"proj:code"</span><span class="p">)</span>
 <a id="__codelineno-0-249" name="__codelineno-0-249"></a>    <span class="k">if</span> <span class="n">code</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">epsg</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-250" name="__codelineno-0-250"></a>        <span class="n">code</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;EPSG:</span><span class="si">{</span><span class="n">epsg</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-250" name="__codelineno-0-250"></a>        <span class="n">code</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"EPSG:</span><span class="si">{</span><span class="n">epsg</span><span class="si">}</span><span class="s2">"</span>
 <a id="__codelineno-0-251" name="__codelineno-0-251"></a>
-<a id="__codelineno-0-252" name="__codelineno-0-252"></a>    <span class="n">transform</span> <span class="o">=</span> <span class="n">pick</span><span class="p">(</span><span class="s2">&quot;proj:transform&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-252" name="__codelineno-0-252"></a>    <span class="n">transform</span> <span class="o">=</span> <span class="n">pick</span><span class="p">(</span><span class="s2">"proj:transform"</span><span class="p">)</span>
 <a id="__codelineno-0-253" name="__codelineno-0-253"></a>    <span class="n">geotransform</span> <span class="o">=</span> <span class="n">affine_to_geotransform</span><span class="p">(</span><span class="n">transform</span><span class="p">)</span> <span class="k">if</span> <span class="n">transform</span> <span class="k">else</span> <span class="kc">None</span>
 <a id="__codelineno-0-254" name="__codelineno-0-254"></a>
-<a id="__codelineno-0-255" name="__codelineno-0-255"></a>    <span class="n">eo_bands</span> <span class="o">=</span> <span class="n">asset_field</span><span class="p">(</span><span class="n">asset</span><span class="p">,</span> <span class="s2">&quot;eo:bands&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-255" name="__codelineno-0-255"></a>    <span class="n">eo_bands</span> <span class="o">=</span> <span class="n">asset_field</span><span class="p">(</span><span class="n">asset</span><span class="p">,</span> <span class="s2">"eo:bands"</span><span class="p">)</span>
 <a id="__codelineno-0-256" name="__codelineno-0-256"></a>    <span class="n">band_names</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <a id="__codelineno-0-257" name="__codelineno-0-257"></a>    <span class="k">if</span> <span class="n">eo_bands</span><span class="p">:</span>
-<a id="__codelineno-0-258" name="__codelineno-0-258"></a>        <span class="n">names</span> <span class="o">=</span> <span class="p">[</span><span class="n">b</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;name&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">b</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;common_name&quot;</span><span class="p">)</span> <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">eo_bands</span><span class="p">]</span>
+<a id="__codelineno-0-258" name="__codelineno-0-258"></a>        <span class="n">names</span> <span class="o">=</span> <span class="p">[</span><span class="n">b</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"name"</span><span class="p">)</span> <span class="ow">or</span> <span class="n">b</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"common_name"</span><span class="p">)</span> <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">eo_bands</span><span class="p">]</span>
 <a id="__codelineno-0-259" name="__codelineno-0-259"></a>        <span class="k">if</span> <span class="nb">all</span><span class="p">(</span><span class="n">names</span><span class="p">):</span>
 <a id="__codelineno-0-260" name="__codelineno-0-260"></a>            <span class="n">band_names</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">names</span><span class="p">)</span>
 <a id="__codelineno-0-261" name="__codelineno-0-261"></a>
 <a id="__codelineno-0-262" name="__codelineno-0-262"></a>    <span class="k">return</span> <span class="p">{</span>
-<a id="__codelineno-0-263" name="__codelineno-0-263"></a>        <span class="s2">&quot;epsg&quot;</span><span class="p">:</span> <span class="n">epsg</span><span class="p">,</span>
-<a id="__codelineno-0-264" name="__codelineno-0-264"></a>        <span class="s2">&quot;crs&quot;</span><span class="p">:</span> <span class="n">code</span><span class="p">,</span>
-<a id="__codelineno-0-265" name="__codelineno-0-265"></a>        <span class="s2">&quot;transform&quot;</span><span class="p">:</span> <span class="n">transform</span><span class="p">,</span>
-<a id="__codelineno-0-266" name="__codelineno-0-266"></a>        <span class="s2">&quot;geotransform&quot;</span><span class="p">:</span> <span class="n">geotransform</span><span class="p">,</span>
-<a id="__codelineno-0-267" name="__codelineno-0-267"></a>        <span class="s2">&quot;shape&quot;</span><span class="p">:</span> <span class="n">pick</span><span class="p">(</span><span class="s2">&quot;proj:shape&quot;</span><span class="p">),</span>
-<a id="__codelineno-0-268" name="__codelineno-0-268"></a>        <span class="s2">&quot;raster_bands&quot;</span><span class="p">:</span> <span class="n">asset_field</span><span class="p">(</span><span class="n">asset</span><span class="p">,</span> <span class="s2">&quot;raster:bands&quot;</span><span class="p">),</span>
-<a id="__codelineno-0-269" name="__codelineno-0-269"></a>        <span class="s2">&quot;eo_bands&quot;</span><span class="p">:</span> <span class="n">eo_bands</span><span class="p">,</span>
-<a id="__codelineno-0-270" name="__codelineno-0-270"></a>        <span class="s2">&quot;band_names&quot;</span><span class="p">:</span> <span class="n">band_names</span><span class="p">,</span>
+<a id="__codelineno-0-263" name="__codelineno-0-263"></a>        <span class="s2">"epsg"</span><span class="p">:</span> <span class="n">epsg</span><span class="p">,</span>
+<a id="__codelineno-0-264" name="__codelineno-0-264"></a>        <span class="s2">"crs"</span><span class="p">:</span> <span class="n">code</span><span class="p">,</span>
+<a id="__codelineno-0-265" name="__codelineno-0-265"></a>        <span class="s2">"transform"</span><span class="p">:</span> <span class="n">transform</span><span class="p">,</span>
+<a id="__codelineno-0-266" name="__codelineno-0-266"></a>        <span class="s2">"geotransform"</span><span class="p">:</span> <span class="n">geotransform</span><span class="p">,</span>
+<a id="__codelineno-0-267" name="__codelineno-0-267"></a>        <span class="s2">"shape"</span><span class="p">:</span> <span class="n">pick</span><span class="p">(</span><span class="s2">"proj:shape"</span><span class="p">),</span>
+<a id="__codelineno-0-268" name="__codelineno-0-268"></a>        <span class="s2">"raster_bands"</span><span class="p">:</span> <span class="n">asset_field</span><span class="p">(</span><span class="n">asset</span><span class="p">,</span> <span class="s2">"raster:bands"</span><span class="p">),</span>
+<a id="__codelineno-0-269" name="__codelineno-0-269"></a>        <span class="s2">"eo_bands"</span><span class="p">:</span> <span class="n">eo_bands</span><span class="p">,</span>
+<a id="__codelineno-0-270" name="__codelineno-0-270"></a>        <span class="s2">"band_names"</span><span class="p">:</span> <span class="n">band_names</span><span class="p">,</span>
 <a id="__codelineno-0-271" name="__codelineno-0-271"></a>    <span class="p">}</span>
 </code></pre></div></td></tr></table></div>
             </details>
@@ -8918,11 +8918,11 @@ skipped some of them (unreadable href, mismatched band count or CRS).</p>
 <li>Mosaic the <code>visual</code> asset of several items into one lazy Dataset
   (requires network for remote hrefs):
     <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.stac</span><span class="w"> </span><span class="kn">import</span> <span class="n">build_vrt_from_stac</span>  <span class="c1"># doctest: +SKIP</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">ds</span> <span class="o">=</span> <span class="n">build_vrt_from_stac</span><span class="p">(</span><span class="n">items</span><span class="p">,</span> <span class="n">asset</span><span class="o">=</span><span class="s2">&quot;visual&quot;</span><span class="p">)</span>  <span class="c1"># doctest: +SKIP</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">ds</span> <span class="o">=</span> <span class="n">build_vrt_from_stac</span><span class="p">(</span><span class="n">items</span><span class="p">,</span> <span class="n">asset</span><span class="o">=</span><span class="s2">"visual"</span><span class="p">)</span>  <span class="c1"># doctest: +SKIP</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">arr</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">read_array</span><span class="p">()</span>  <span class="c1"># GDAL pulls source pixels lazily  # doctest: +SKIP</span>
 </code></pre></div></li>
 <li>Accept a partial mosaic when some hrefs are known to be missing:
-    <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">ds</span> <span class="o">=</span> <span class="n">build_vrt_from_stac</span><span class="p">(</span><span class="n">items</span><span class="p">,</span> <span class="s2">&quot;visual&quot;</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>  <span class="c1"># doctest: +SKIP</span>
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">ds</span> <span class="o">=</span> <span class="n">build_vrt_from_stac</span><span class="p">(</span><span class="n">items</span><span class="p">,</span> <span class="s2">"visual"</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>  <span class="c1"># doctest: +SKIP</span>
 </code></pre></div></li>
 </ul>
 
@@ -9072,13 +9072,13 @@ skipped some of them (unreadable href, mismatched band count or CRS).</p>
 <a id="__codelineno-0-538" name="__codelineno-0-538"></a>    <span class="n">separate</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
 <a id="__codelineno-0-539" name="__codelineno-0-539"></a>    <span class="n">strict</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
 <a id="__codelineno-0-540" name="__codelineno-0-540"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dataset</span><span class="p">:</span>
-<a id="__codelineno-0-541" name="__codelineno-0-541"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Mosaic one STAC asset across items into a lazy VRT-backed `Dataset`.</span>
+<a id="__codelineno-0-541" name="__codelineno-0-541"></a><span class="w">    </span><span class="sd">"""Mosaic one STAC asset across items into a lazy VRT-backed `Dataset`.</span>
 <a id="__codelineno-0-542" name="__codelineno-0-542"></a>
 <a id="__codelineno-0-543" name="__codelineno-0-543"></a><span class="sd">    Args:</span>
 <a id="__codelineno-0-544" name="__codelineno-0-544"></a><span class="sd">        items: Iterable of STAC Items (pystac objects, raw JSON dicts, or any</span>
 <a id="__codelineno-0-545" name="__codelineno-0-545"></a><span class="sd">            duck-typed equivalent — same contract as</span>
 <a id="__codelineno-0-546" name="__codelineno-0-546"></a><span class="sd">            :meth:`pyramids.dataset.DatasetCollection.from_stac`).</span>
-<a id="__codelineno-0-547" name="__codelineno-0-547"></a><span class="sd">        asset: The asset key to mosaic (e.g. `&quot;visual&quot;`, `&quot;B04&quot;`).</span>
+<a id="__codelineno-0-547" name="__codelineno-0-547"></a><span class="sd">        asset: The asset key to mosaic (e.g. `"visual"`, `"B04"`).</span>
 <a id="__codelineno-0-548" name="__codelineno-0-548"></a><span class="sd">        signer: Optional signer (e.g. a :class:`pyramids.stac.signers.Signer`).</span>
 <a id="__codelineno-0-549" name="__codelineno-0-549"></a><span class="sd">            Its `sign_href` rewrites every source href and its `gdal_env()` is</span>
 <a id="__codelineno-0-550" name="__codelineno-0-550"></a><span class="sd">            installed while the VRT is built. See the module note on read-time</span>
@@ -9112,13 +9112,13 @@ skipped some of them (unreadable href, mismatched band count or CRS).</p>
 <a id="__codelineno-0-578" name="__codelineno-0-578"></a><span class="sd">          (requires network for remote hrefs):</span>
 <a id="__codelineno-0-579" name="__codelineno-0-579"></a><span class="sd">            ```python</span>
 <a id="__codelineno-0-580" name="__codelineno-0-580"></a><span class="sd">            &gt;&gt;&gt; from pyramids.stac import build_vrt_from_stac  # doctest: +SKIP</span>
-<a id="__codelineno-0-581" name="__codelineno-0-581"></a><span class="sd">            &gt;&gt;&gt; ds = build_vrt_from_stac(items, asset=&quot;visual&quot;)  # doctest: +SKIP</span>
+<a id="__codelineno-0-581" name="__codelineno-0-581"></a><span class="sd">            &gt;&gt;&gt; ds = build_vrt_from_stac(items, asset="visual")  # doctest: +SKIP</span>
 <a id="__codelineno-0-582" name="__codelineno-0-582"></a><span class="sd">            &gt;&gt;&gt; arr = ds.read_array()  # GDAL pulls source pixels lazily  # doctest: +SKIP</span>
 <a id="__codelineno-0-583" name="__codelineno-0-583"></a>
 <a id="__codelineno-0-584" name="__codelineno-0-584"></a><span class="sd">            ```</span>
 <a id="__codelineno-0-585" name="__codelineno-0-585"></a><span class="sd">        - Accept a partial mosaic when some hrefs are known to be missing:</span>
 <a id="__codelineno-0-586" name="__codelineno-0-586"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-587" name="__codelineno-0-587"></a><span class="sd">            &gt;&gt;&gt; ds = build_vrt_from_stac(items, &quot;visual&quot;, strict=False)  # doctest: +SKIP</span>
+<a id="__codelineno-0-587" name="__codelineno-0-587"></a><span class="sd">            &gt;&gt;&gt; ds = build_vrt_from_stac(items, "visual", strict=False)  # doctest: +SKIP</span>
 <a id="__codelineno-0-588" name="__codelineno-0-588"></a>
 <a id="__codelineno-0-589" name="__codelineno-0-589"></a><span class="sd">            ```</span>
 <a id="__codelineno-0-590" name="__codelineno-0-590"></a>
@@ -9130,35 +9130,35 @@ skipped some of them (unreadable href, mismatched band count or CRS).</p>
 <a id="__codelineno-0-596" name="__codelineno-0-596"></a><span class="sd">          into one image.</span>
 <a id="__codelineno-0-597" name="__codelineno-0-597"></a><span class="sd">        - :func:`pyramids.dataset.merge.merge_rasters`: the eager, file-writing</span>
 <a id="__codelineno-0-598" name="__codelineno-0-598"></a><span class="sd">          counterpart to this lazy VRT.</span>
-<a id="__codelineno-0-599" name="__codelineno-0-599"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-599" name="__codelineno-0-599"></a><span class="sd">    """</span>
 <a id="__codelineno-0-600" name="__codelineno-0-600"></a>    <span class="n">item_list</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">items</span><span class="p">)</span>
 <a id="__codelineno-0-601" name="__codelineno-0-601"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">item_list</span><span class="p">:</span>
-<a id="__codelineno-0-602" name="__codelineno-0-602"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;build_vrt_from_stac received no items.&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-602" name="__codelineno-0-602"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">"build_vrt_from_stac received no items."</span><span class="p">)</span>
 <a id="__codelineno-0-603" name="__codelineno-0-603"></a>
 <a id="__codelineno-0-604" name="__codelineno-0-604"></a>    <span class="n">gdal_env</span> <span class="o">=</span> <span class="n">signer</span><span class="o">.</span><span class="n">gdal_env</span><span class="p">()</span> <span class="k">if</span> <span class="n">signer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
 <a id="__codelineno-0-605" name="__codelineno-0-605"></a>    <span class="n">hrefs</span> <span class="o">=</span> <span class="p">[</span><span class="n">resolved_href</span><span class="p">(</span><span class="n">item</span><span class="p">,</span> <span class="n">asset</span><span class="p">,</span> <span class="n">signer</span><span class="o">=</span><span class="n">signer</span><span class="p">)</span> <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">item_list</span><span class="p">]</span>
 <a id="__codelineno-0-606" name="__codelineno-0-606"></a>    <span class="c1"># Header credentials are baked into each source path so they survive into</span>
-<a id="__codelineno-0-607" name="__codelineno-0-607"></a>    <span class="c1"># the VRT&#39;s lazy, read-time source opens (see _embed_source_options). The</span>
+<a id="__codelineno-0-607" name="__codelineno-0-607"></a>    <span class="c1"># the VRT's lazy, read-time source opens (see _embed_source_options). The</span>
 <a id="__codelineno-0-608" name="__codelineno-0-608"></a>    <span class="c1"># hrefs are kept alongside: an embedded path carries a live credential and</span>
 <a id="__codelineno-0-609" name="__codelineno-0-609"></a>    <span class="c1"># must never be the thing a message, warning or log names.</span>
 <a id="__codelineno-0-610" name="__codelineno-0-610"></a>    <span class="n">sources</span> <span class="o">=</span> <span class="p">[(</span><span class="n">href</span><span class="p">,</span> <span class="n">_embed_source_options</span><span class="p">(</span><span class="n">href</span><span class="p">,</span> <span class="n">gdal_env</span><span class="p">))</span> <span class="k">for</span> <span class="n">href</span> <span class="ow">in</span> <span class="n">hrefs</span><span class="p">]</span>
 <a id="__codelineno-0-611" name="__codelineno-0-611"></a>    <span class="n">vsi_paths</span> <span class="o">=</span> <span class="p">[</span><span class="n">vsi_path</span> <span class="k">for</span> <span class="n">_href</span><span class="p">,</span> <span class="n">vsi_path</span> <span class="ow">in</span> <span class="n">sources</span><span class="p">]</span>
 <a id="__codelineno-0-612" name="__codelineno-0-612"></a>    <span class="n">_warn_unembeddable_credentials</span><span class="p">(</span><span class="n">gdal_env</span><span class="p">,</span> <span class="n">hrefs</span><span class="p">)</span>
-<a id="__codelineno-0-613" name="__codelineno-0-613"></a>    <span class="n">vrt_path</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;/vsimem/pyramids_scratch_</span><span class="si">{</span><span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">()</span><span class="o">.</span><span class="n">hex</span><span class="si">}</span><span class="s2">.vrt&quot;</span>
+<a id="__codelineno-0-613" name="__codelineno-0-613"></a>    <span class="n">vrt_path</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"/vsimem/pyramids_scratch_</span><span class="si">{</span><span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">()</span><span class="o">.</span><span class="n">hex</span><span class="si">}</span><span class="s2">.vrt"</span>
 <a id="__codelineno-0-614" name="__codelineno-0-614"></a>
 <a id="__codelineno-0-615" name="__codelineno-0-615"></a>    <span class="c1"># BuildVRT opens every source. Over `/vsicurl/` that costs a directory</span>
 <a id="__codelineno-0-616" name="__codelineno-0-616"></a>    <span class="c1"># listing plus a fan of sidecar probes per source unless the fast-read</span>
 <a id="__codelineno-0-617" name="__codelineno-0-617"></a>    <span class="c1"># preset is installed, so pay for it once here — but only when a source is</span>
-<a id="__codelineno-0-618" name="__codelineno-0-618"></a>    <span class="c1"># actually remote: the preset&#39;s readdir skip would also hide a *local*</span>
-<a id="__codelineno-0-619" name="__codelineno-0-619"></a>    <span class="c1"># source&#39;s `.aux.xml` / world-file sidecars. Remoteness is decided on the</span>
+<a id="__codelineno-0-618" name="__codelineno-0-618"></a>    <span class="c1"># actually remote: the preset's readdir skip would also hide a *local*</span>
+<a id="__codelineno-0-619" name="__codelineno-0-619"></a>    <span class="c1"># source's `.aux.xml` / world-file sidecars. Remoteness is decided on the</span>
 <a id="__codelineno-0-620" name="__codelineno-0-620"></a>    <span class="c1"># hrefs, not the rewritten paths, which `is_remote` does not classify.</span>
 <a id="__codelineno-0-621" name="__codelineno-0-621"></a>    <span class="k">with</span> <span class="n">_source_config</span><span class="p">(</span><span class="n">hrefs</span><span class="p">,</span> <span class="n">gdal_env</span><span class="p">):</span>
 <a id="__codelineno-0-622" name="__codelineno-0-622"></a>        <span class="n">vrt_ds</span> <span class="o">=</span> <span class="n">_build_vrt</span><span class="p">(</span><span class="n">vrt_path</span><span class="p">,</span> <span class="n">vsi_paths</span><span class="p">,</span> <span class="n">separate</span><span class="p">)</span>
 <a id="__codelineno-0-623" name="__codelineno-0-623"></a>        <span class="k">if</span> <span class="n">vrt_ds</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
 <a id="__codelineno-0-624" name="__codelineno-0-624"></a>            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span>
-<a id="__codelineno-0-625" name="__codelineno-0-625"></a>                <span class="sa">f</span><span class="s2">&quot;gdal.BuildVRT returned None for asset </span><span class="si">{</span><span class="n">asset</span><span class="si">!r}</span><span class="s2"> over &quot;</span>
-<a id="__codelineno-0-626" name="__codelineno-0-626"></a>                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">vsi_paths</span><span class="p">)</span><span class="si">}</span><span class="s2"> item(s); check that every source is a &quot;</span>
-<a id="__codelineno-0-627" name="__codelineno-0-627"></a>                <span class="s2">&quot;readable raster with a consistent band count and CRS.&quot;</span>
+<a id="__codelineno-0-625" name="__codelineno-0-625"></a>                <span class="sa">f</span><span class="s2">"gdal.BuildVRT returned None for asset </span><span class="si">{</span><span class="n">asset</span><span class="si">!r}</span><span class="s2"> over "</span>
+<a id="__codelineno-0-626" name="__codelineno-0-626"></a>                <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">vsi_paths</span><span class="p">)</span><span class="si">}</span><span class="s2"> item(s); check that every source is a "</span>
+<a id="__codelineno-0-627" name="__codelineno-0-627"></a>                <span class="s2">"readable raster with a consistent band count and CRS."</span>
 <a id="__codelineno-0-628" name="__codelineno-0-628"></a>            <span class="p">)</span>
 <a id="__codelineno-0-629" name="__codelineno-0-629"></a>        <span class="c1"># GDAL lists exactly the sources it kept, so the difference against what</span>
 <a id="__codelineno-0-630" name="__codelineno-0-630"></a>        <span class="c1"># was requested is what it silently skipped.</span>
@@ -9172,7 +9172,7 @@ skipped some of them (unreadable href, mismatched band count or CRS).</p>
 <a id="__codelineno-0-638" name="__codelineno-0-638"></a>            <span class="n">_check_dropped_sources</span><span class="p">(</span><span class="n">dropped</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">vsi_paths</span><span class="p">),</span> <span class="n">asset</span><span class="p">,</span> <span class="n">strict</span><span class="p">)</span>
 <a id="__codelineno-0-639" name="__codelineno-0-639"></a>            <span class="c1"># Persist the signer env on the returned Dataset: the VRT opens its</span>
 <a id="__codelineno-0-640" name="__codelineno-0-640"></a>            <span class="c1"># sources lazily on the first pixel read, i.e. after this block has</span>
-<a id="__codelineno-0-641" name="__codelineno-0-641"></a>            <span class="c1"># exited, so without it an env-credentialed signer&#39;s reads 401.</span>
+<a id="__codelineno-0-641" name="__codelineno-0-641"></a>            <span class="c1"># exited, so without it an env-credentialed signer's reads 401.</span>
 <a id="__codelineno-0-642" name="__codelineno-0-642"></a>            <span class="n">dataset</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="n">vrt_path</span><span class="p">,</span> <span class="n">gdal_env</span><span class="o">=</span><span class="n">gdal_env</span><span class="p">)</span>
 <a id="__codelineno-0-643" name="__codelineno-0-643"></a>        <span class="k">except</span> <span class="ne">BaseException</span><span class="p">:</span>
 <a id="__codelineno-0-644" name="__codelineno-0-644"></a>            <span class="c1"># Nothing references the VRT on this path — reclaim it now rather</span>
@@ -9367,7 +9367,7 @@ client is chosen by <code>stac_asset</code> from each asset href.</p>
 <li>Download an item's assets, then build a collection from the locals
   (requires the <code>[stac]</code> extra + network):
     <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.stac</span><span class="w"> </span><span class="kn">import</span> <span class="n">download_item</span>  <span class="c1"># doctest: +SKIP</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">local</span> <span class="o">=</span> <span class="n">download_item</span><span class="p">(</span><span class="n">item</span><span class="p">,</span> <span class="s2">&quot;scenes/&quot;</span><span class="p">)</span>  <span class="c1"># doctest: +SKIP</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">local</span> <span class="o">=</span> <span class="n">download_item</span><span class="p">(</span><span class="n">item</span><span class="p">,</span> <span class="s2">"scenes/"</span><span class="p">)</span>  <span class="c1"># doctest: +SKIP</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">hrefs</span> <span class="o">=</span> <span class="p">[</span><span class="n">a</span><span class="o">.</span><span class="n">href</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">local</span><span class="o">.</span><span class="n">assets</span><span class="o">.</span><span class="n">values</span><span class="p">()]</span>  <span class="c1"># doctest: +SKIP</span>
 </code></pre></div></li>
 </ul>
@@ -9430,7 +9430,7 @@ client is chosen by <code>stac_asset</code> from each asset href.</p>
 <a id="__codelineno-0-41" name="__codelineno-0-41"></a>    <span class="n">exclude</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-42" name="__codelineno-0-42"></a>    <span class="n">s3_requester_pays</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
 <a id="__codelineno-0-43" name="__codelineno-0-43"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
-<a id="__codelineno-0-44" name="__codelineno-0-44"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Download a STAC Item&#39;s assets to a local directory.</span>
+<a id="__codelineno-0-44" name="__codelineno-0-44"></a><span class="w">    </span><span class="sd">"""Download a STAC Item's assets to a local directory.</span>
 <a id="__codelineno-0-45" name="__codelineno-0-45"></a>
 <a id="__codelineno-0-46" name="__codelineno-0-46"></a><span class="sd">    A thin, synchronous wrapper over ``stac_asset.blocking.download_item`` (the</span>
 <a id="__codelineno-0-47" name="__codelineno-0-47"></a><span class="sd">    async `download_item` cannot run inside a live event loop). The per-protocol</span>
@@ -9451,15 +9451,15 @@ client is chosen by <code>stac_asset</code> from each asset href.</p>
 <a id="__codelineno-0-62" name="__codelineno-0-62"></a><span class="sd">        OptionalPackageDoesNotExist: When `stac-asset` is not installed.</span>
 <a id="__codelineno-0-63" name="__codelineno-0-63"></a>
 <a id="__codelineno-0-64" name="__codelineno-0-64"></a><span class="sd">    Examples:</span>
-<a id="__codelineno-0-65" name="__codelineno-0-65"></a><span class="sd">        - Download an item&#39;s assets, then build a collection from the locals</span>
+<a id="__codelineno-0-65" name="__codelineno-0-65"></a><span class="sd">        - Download an item's assets, then build a collection from the locals</span>
 <a id="__codelineno-0-66" name="__codelineno-0-66"></a><span class="sd">          (requires the `[stac]` extra + network):</span>
 <a id="__codelineno-0-67" name="__codelineno-0-67"></a><span class="sd">            ```python</span>
 <a id="__codelineno-0-68" name="__codelineno-0-68"></a><span class="sd">            &gt;&gt;&gt; from pyramids.stac import download_item  # doctest: +SKIP</span>
-<a id="__codelineno-0-69" name="__codelineno-0-69"></a><span class="sd">            &gt;&gt;&gt; local = download_item(item, &quot;scenes/&quot;)  # doctest: +SKIP</span>
+<a id="__codelineno-0-69" name="__codelineno-0-69"></a><span class="sd">            &gt;&gt;&gt; local = download_item(item, "scenes/")  # doctest: +SKIP</span>
 <a id="__codelineno-0-70" name="__codelineno-0-70"></a><span class="sd">            &gt;&gt;&gt; hrefs = [a.href for a in local.assets.values()]  # doctest: +SKIP</span>
 <a id="__codelineno-0-71" name="__codelineno-0-71"></a>
 <a id="__codelineno-0-72" name="__codelineno-0-72"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-73" name="__codelineno-0-73"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-73" name="__codelineno-0-73"></a><span class="sd">    """</span>
 <a id="__codelineno-0-74" name="__codelineno-0-74"></a>    <span class="n">import_stac_asset</span><span class="p">(</span><span class="n">_STAC_ASSET_INSTALL_HINT</span><span class="p">)</span>
 <a id="__codelineno-0-75" name="__codelineno-0-75"></a>    <span class="kn">import</span><span class="w"> </span><span class="nn">stac_asset.blocking</span>
 <a id="__codelineno-0-76" name="__codelineno-0-76"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">stac_asset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Config</span>
@@ -9625,12 +9625,12 @@ installed (raised by <code>FeatureCollection.to_parquet</code>).</p>
 <li>Round-trip a couple of item dicts through GeoParquet:
     <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">import</span><span class="w"> </span><span class="nn">tempfile</span><span class="o">,</span><span class="w"> </span><span class="nn">os</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.stac</span><span class="w"> </span><span class="kn">import</span> <span class="n">to_geoparquet</span><span class="p">,</span> <span class="n">from_geoparquet</span>  <span class="c1"># doctest: +SKIP</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">items</span> <span class="o">=</span> <span class="p">[{</span><span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;a&quot;</span><span class="p">,</span> <span class="s2">&quot;geometry&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;Point&quot;</span><span class="p">,</span> <span class="s2">&quot;coordinates&quot;</span><span class="p">:</span> <span class="p">[</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">]},</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="o">...</span>           <span class="s2">&quot;properties&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;datetime&quot;</span><span class="p">:</span> <span class="s2">&quot;2023-01-01T00:00:00Z&quot;</span><span class="p">},</span> <span class="s2">&quot;assets&quot;</span><span class="p">:</span> <span class="p">{}}]</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">tempfile</span><span class="o">.</span><span class="n">mkdtemp</span><span class="p">(),</span> <span class="s2">&quot;items.parquet&quot;</span><span class="p">)</span>  <span class="c1"># doctest: +SKIP</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">items</span> <span class="o">=</span> <span class="p">[{</span><span class="s2">"id"</span><span class="p">:</span> <span class="s2">"a"</span><span class="p">,</span> <span class="s2">"geometry"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"type"</span><span class="p">:</span> <span class="s2">"Point"</span><span class="p">,</span> <span class="s2">"coordinates"</span><span class="p">:</span> <span class="p">[</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">]},</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="o">...</span>           <span class="s2">"properties"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"datetime"</span><span class="p">:</span> <span class="s2">"2023-01-01T00:00:00Z"</span><span class="p">},</span> <span class="s2">"assets"</span><span class="p">:</span> <span class="p">{}}]</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">tempfile</span><span class="o">.</span><span class="n">mkdtemp</span><span class="p">(),</span> <span class="s2">"items.parquet"</span><span class="p">)</span>  <span class="c1"># doctest: +SKIP</span>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">to_geoparquet</span><span class="p">(</span><span class="n">items</span><span class="p">,</span> <span class="n">path</span><span class="p">)</span>  <span class="c1"># doctest: +SKIP</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">from_geoparquet</span><span class="p">(</span><span class="n">path</span><span class="p">)[</span><span class="mi">0</span><span class="p">][</span><span class="s2">&quot;id&quot;</span><span class="p">]</span>  <span class="c1"># doctest: +SKIP</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="s1">&#39;a&#39;</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">from_geoparquet</span><span class="p">(</span><span class="n">path</span><span class="p">)[</span><span class="mi">0</span><span class="p">][</span><span class="s2">"id"</span><span class="p">]</span>  <span class="c1"># doctest: +SKIP</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="s1">'a'</span>
 </code></pre></div></li>
 </ul>
 
@@ -9682,7 +9682,7 @@ installed (raised by <code>FeatureCollection.to_parquet</code>).</p>
 <span class="normal"><a href="#__codelineno-0-94">94</a></span>
 <span class="normal"><a href="#__codelineno-0-95">95</a></span>
 <span class="normal"><a href="#__codelineno-0-96">96</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-52" name="__codelineno-0-52"></a><span class="k">def</span><span class="w"> </span><span class="nf">to_geoparquet</span><span class="p">(</span><span class="n">items</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-53" name="__codelineno-0-53"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Write a sequence of STAC Items to a GeoParquet file.</span>
+<a id="__codelineno-0-53" name="__codelineno-0-53"></a><span class="w">    </span><span class="sd">"""Write a sequence of STAC Items to a GeoParquet file.</span>
 <a id="__codelineno-0-54" name="__codelineno-0-54"></a>
 <a id="__codelineno-0-55" name="__codelineno-0-55"></a><span class="sd">    Each item becomes a row carrying its geometry (a valid, spatially-filterable</span>
 <a id="__codelineno-0-56" name="__codelineno-0-56"></a><span class="sd">    GeoParquet geometry in EPSG:4326) and the full item as a JSON column.</span>
@@ -9703,15 +9703,15 @@ installed (raised by <code>FeatureCollection.to_parquet</code>).</p>
 <a id="__codelineno-0-71" name="__codelineno-0-71"></a><span class="sd">            ```python</span>
 <a id="__codelineno-0-72" name="__codelineno-0-72"></a><span class="sd">            &gt;&gt;&gt; import tempfile, os</span>
 <a id="__codelineno-0-73" name="__codelineno-0-73"></a><span class="sd">            &gt;&gt;&gt; from pyramids.stac import to_geoparquet, from_geoparquet  # doctest: +SKIP</span>
-<a id="__codelineno-0-74" name="__codelineno-0-74"></a><span class="sd">            &gt;&gt;&gt; items = [{&quot;id&quot;: &quot;a&quot;, &quot;geometry&quot;: {&quot;type&quot;: &quot;Point&quot;, &quot;coordinates&quot;: [1.0, 2.0]},</span>
-<a id="__codelineno-0-75" name="__codelineno-0-75"></a><span class="sd">            ...           &quot;properties&quot;: {&quot;datetime&quot;: &quot;2023-01-01T00:00:00Z&quot;}, &quot;assets&quot;: {}}]</span>
-<a id="__codelineno-0-76" name="__codelineno-0-76"></a><span class="sd">            &gt;&gt;&gt; path = os.path.join(tempfile.mkdtemp(), &quot;items.parquet&quot;)  # doctest: +SKIP</span>
+<a id="__codelineno-0-74" name="__codelineno-0-74"></a><span class="sd">            &gt;&gt;&gt; items = [{"id": "a", "geometry": {"type": "Point", "coordinates": [1.0, 2.0]},</span>
+<a id="__codelineno-0-75" name="__codelineno-0-75"></a><span class="sd">            ...           "properties": {"datetime": "2023-01-01T00:00:00Z"}, "assets": {}}]</span>
+<a id="__codelineno-0-76" name="__codelineno-0-76"></a><span class="sd">            &gt;&gt;&gt; path = os.path.join(tempfile.mkdtemp(), "items.parquet")  # doctest: +SKIP</span>
 <a id="__codelineno-0-77" name="__codelineno-0-77"></a><span class="sd">            &gt;&gt;&gt; to_geoparquet(items, path)  # doctest: +SKIP</span>
-<a id="__codelineno-0-78" name="__codelineno-0-78"></a><span class="sd">            &gt;&gt;&gt; from_geoparquet(path)[0][&quot;id&quot;]  # doctest: +SKIP</span>
-<a id="__codelineno-0-79" name="__codelineno-0-79"></a><span class="sd">            &#39;a&#39;</span>
+<a id="__codelineno-0-78" name="__codelineno-0-78"></a><span class="sd">            &gt;&gt;&gt; from_geoparquet(path)[0]["id"]  # doctest: +SKIP</span>
+<a id="__codelineno-0-79" name="__codelineno-0-79"></a><span class="sd">            'a'</span>
 <a id="__codelineno-0-80" name="__codelineno-0-80"></a>
 <a id="__codelineno-0-81" name="__codelineno-0-81"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-82" name="__codelineno-0-82"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-82" name="__codelineno-0-82"></a><span class="sd">    """</span>
 <a id="__codelineno-0-83" name="__codelineno-0-83"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.feature</span><span class="w"> </span><span class="kn">import</span> <span class="n">FeatureCollection</span>
 <a id="__codelineno-0-84" name="__codelineno-0-84"></a>
 <a id="__codelineno-0-85" name="__codelineno-0-85"></a>    <span class="n">rows</span> <span class="o">=</span> <span class="p">[]</span>
@@ -9719,12 +9719,12 @@ installed (raised by <code>FeatureCollection.to_parquet</code>).</p>
 <a id="__codelineno-0-87" name="__codelineno-0-87"></a>    <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">items</span><span class="p">:</span>
 <a id="__codelineno-0-88" name="__codelineno-0-88"></a>        <span class="n">as_dict</span> <span class="o">=</span> <span class="n">_item_to_dict</span><span class="p">(</span><span class="n">item</span><span class="p">)</span>
 <a id="__codelineno-0-89" name="__codelineno-0-89"></a>        <span class="n">geometries</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">_item_geometry</span><span class="p">(</span><span class="n">as_dict</span><span class="p">))</span>
-<a id="__codelineno-0-90" name="__codelineno-0-90"></a>        <span class="n">rows</span><span class="o">.</span><span class="n">append</span><span class="p">({</span><span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="n">as_dict</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;id&quot;</span><span class="p">),</span> <span class="n">_ITEM_COLUMN</span><span class="p">:</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">as_dict</span><span class="p">)})</span>
+<a id="__codelineno-0-90" name="__codelineno-0-90"></a>        <span class="n">rows</span><span class="o">.</span><span class="n">append</span><span class="p">({</span><span class="s2">"id"</span><span class="p">:</span> <span class="n">as_dict</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"id"</span><span class="p">),</span> <span class="n">_ITEM_COLUMN</span><span class="p">:</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">as_dict</span><span class="p">)})</span>
 <a id="__codelineno-0-91" name="__codelineno-0-91"></a>
 <a id="__codelineno-0-92" name="__codelineno-0-92"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">rows</span><span class="p">:</span>
-<a id="__codelineno-0-93" name="__codelineno-0-93"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;to_geoparquet received no items.&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-93" name="__codelineno-0-93"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">"to_geoparquet received no items."</span><span class="p">)</span>
 <a id="__codelineno-0-94" name="__codelineno-0-94"></a>
-<a id="__codelineno-0-95" name="__codelineno-0-95"></a>    <span class="n">fc</span> <span class="o">=</span> <span class="n">FeatureCollection</span><span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">geometry</span><span class="o">=</span><span class="n">geometries</span><span class="p">,</span> <span class="n">crs</span><span class="o">=</span><span class="s2">&quot;EPSG:4326&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-95" name="__codelineno-0-95"></a>    <span class="n">fc</span> <span class="o">=</span> <span class="n">FeatureCollection</span><span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">geometry</span><span class="o">=</span><span class="n">geometries</span><span class="p">,</span> <span class="n">crs</span><span class="o">=</span><span class="s2">"EPSG:4326"</span><span class="p">)</span>
 <a id="__codelineno-0-96" name="__codelineno-0-96"></a>    <span class="n">fc</span><span class="o">.</span><span class="n">to_parquet</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">path</span><span class="p">))</span>
 </code></pre></div></td></tr></table></div>
             </details>
@@ -9867,7 +9867,7 @@ by :func:<code>to_geoparquet</code>).</p>
 <span class="normal"><a href="#__codelineno-0-116">116</a></span>
 <span class="normal"><a href="#__codelineno-0-117">117</a></span>
 <span class="normal"><a href="#__codelineno-0-118">118</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-99" name="__codelineno-0-99"></a><span class="k">def</span><span class="w"> </span><span class="nf">from_geoparquet</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
-<a id="__codelineno-0-100" name="__codelineno-0-100"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Read STAC Items back from a GeoParquet written by :func:`to_geoparquet`.</span>
+<a id="__codelineno-0-100" name="__codelineno-0-100"></a><span class="w">    </span><span class="sd">"""Read STAC Items back from a GeoParquet written by :func:`to_geoparquet`.</span>
 <a id="__codelineno-0-101" name="__codelineno-0-101"></a>
 <a id="__codelineno-0-102" name="__codelineno-0-102"></a><span class="sd">    Args:</span>
 <a id="__codelineno-0-103" name="__codelineno-0-103"></a><span class="sd">        path: Path to a `.parquet` file produced by :func:`to_geoparquet`.</span>
@@ -9881,7 +9881,7 @@ by :func:<code>to_geoparquet</code>).</p>
 <a id="__codelineno-0-111" name="__codelineno-0-111"></a><span class="sd">            installed (raised by `FeatureCollection.read_parquet`).</span>
 <a id="__codelineno-0-112" name="__codelineno-0-112"></a><span class="sd">        KeyError: When the file lacks the `stac_item` JSON column (not written</span>
 <a id="__codelineno-0-113" name="__codelineno-0-113"></a><span class="sd">            by :func:`to_geoparquet`).</span>
-<a id="__codelineno-0-114" name="__codelineno-0-114"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-114" name="__codelineno-0-114"></a><span class="sd">    """</span>
 <a id="__codelineno-0-115" name="__codelineno-0-115"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.feature</span><span class="w"> </span><span class="kn">import</span> <span class="n">FeatureCollection</span>
 <a id="__codelineno-0-116" name="__codelineno-0-116"></a>
 <a id="__codelineno-0-117" name="__codelineno-0-117"></a>    <span class="n">fc</span> <span class="o">=</span> <span class="n">FeatureCollection</span><span class="o">.</span><span class="n">read_parquet</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">path</span><span class="p">))</span>

@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6452,8 +6452,8 @@ Hold "Ctrl" to enable pan &amp; zoom
 <p><code>open_client</code> / <code>search</code> need the <code>[stac]</code> extra (which also bundles the optional
 asset downloader <code>stac-asset</code>); <code>read_extension_metadata</code>, <code>load_asset</code>,
 <code>build_vrt_from_stac</code>, <code>to_stac_item</code>, and the signers need only core pyramids:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s1">&#39;pyramids-gis[stac]&#39;</span><span class="w">           </span><span class="c1"># client/search + download_item</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s1">&#39;pyramids-gis[stac,parquet]&#39;</span><span class="w">   </span><span class="c1"># + GeoParquet round-trip</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s1">'pyramids-gis[stac]'</span><span class="w">           </span><span class="c1"># client/search + download_item</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s1">'pyramids-gis[stac,parquet]'</span><span class="w">   </span><span class="c1"># + GeoParquet round-trip</span>
 </code></pre></div>
 <p>See the <a href="../../tutorials/stac/">STAC tutorial</a> for an end-to-end walkthrough,
 the <a href="../../examples/stac/stac-local/">offline STAC notebook</a>, and the
@@ -6654,16 +6654,16 @@ its <code>sign_request</code> as the <code>request_modifier</code>.</p>
     <ul>
 <li>Open a public catalog anonymously (requires the <code>[stac]</code> extra):
     <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.stac</span><span class="w"> </span><span class="kn">import</span> <span class="n">open_client</span>  <span class="c1"># doctest: +SKIP</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">client</span> <span class="o">=</span> <span class="n">open_client</span><span class="p">(</span><span class="s2">&quot;https://earth-search.aws.element84.com/v1&quot;</span><span class="p">)</span>  <span class="c1"># doctest: +SKIP</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">search</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">collections</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;sentinel-2-l2a&quot;</span><span class="p">],</span> <span class="n">max_items</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>  <span class="c1"># doctest: +SKIP</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">client</span> <span class="o">=</span> <span class="n">open_client</span><span class="p">(</span><span class="s2">"https://earth-search.aws.element84.com/v1"</span><span class="p">)</span>  <span class="c1"># doctest: +SKIP</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">search</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">collections</span><span class="o">=</span><span class="p">[</span><span class="s2">"sentinel-2-l2a"</span><span class="p">],</span> <span class="n">max_items</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>  <span class="c1"># doctest: +SKIP</span>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="o">&gt;&gt;&gt;</span> <span class="nb">next</span><span class="p">(</span><span class="n">search</span><span class="o">.</span><span class="n">items</span><span class="p">())</span><span class="o">.</span><span class="n">collection_id</span>  <span class="c1"># doctest: +SKIP</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="s1">&#39;sentinel-2-l2a&#39;</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="s1">'sentinel-2-l2a'</span>
 </code></pre></div></li>
 <li>Wire a bearer-token signer into both hooks:
     <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.stac</span><span class="w"> </span><span class="kn">import</span> <span class="n">open_client</span><span class="p">,</span> <span class="n">BearerTokenSigner</span>  <span class="c1"># doctest: +SKIP</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">client</span> <span class="o">=</span> <span class="n">open_client</span><span class="p">(</span>  <span class="c1"># doctest: +SKIP</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="o">...</span>     <span class="s2">&quot;https://stac.dataspace.copernicus.eu/v1&quot;</span><span class="p">,</span>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="o">...</span>     <span class="n">signer</span><span class="o">=</span><span class="n">BearerTokenSigner</span><span class="p">(</span><span class="n">token</span><span class="o">=</span><span class="s2">&quot;my-token&quot;</span><span class="p">),</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="o">...</span>     <span class="s2">"https://stac.dataspace.copernicus.eu/v1"</span><span class="p">,</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="o">...</span>     <span class="n">signer</span><span class="o">=</span><span class="n">BearerTokenSigner</span><span class="p">(</span><span class="n">token</span><span class="o">=</span><span class="s2">"my-token"</span><span class="p">),</span>
 <a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="o">...</span> <span class="p">)</span>
 </code></pre></div></li>
 </ul>
@@ -6735,13 +6735,13 @@ its <code>sign_request</code> as the <code>request_modifier</code>.</p>
 <a id="__codelineno-0-33" name="__codelineno-0-33"></a>    <span class="n">headers</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-34" name="__codelineno-0-34"></a>    <span class="n">timeout</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="mi">30</span><span class="p">,</span>
 <a id="__codelineno-0-35" name="__codelineno-0-35"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
-<a id="__codelineno-0-36" name="__codelineno-0-36"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Open a STAC API client with a pyramids signer wired into both hooks.</span>
+<a id="__codelineno-0-36" name="__codelineno-0-36"></a><span class="w">    </span><span class="sd">"""Open a STAC API client with a pyramids signer wired into both hooks.</span>
 <a id="__codelineno-0-37" name="__codelineno-0-37"></a>
 <a id="__codelineno-0-38" name="__codelineno-0-38"></a><span class="sd">    Args:</span>
 <a id="__codelineno-0-39" name="__codelineno-0-39"></a><span class="sd">        url: STAC API root URL (e.g. an `.../stac/v1` endpoint).</span>
 <a id="__codelineno-0-40" name="__codelineno-0-40"></a><span class="sd">        signer: A :class:`~pyramids.stac.signers.Signer`. Defaults to</span>
 <a id="__codelineno-0-41" name="__codelineno-0-41"></a><span class="sd">            :class:`~pyramids.stac.signers.AnonymousSigner` (no credentials).</span>
-<a id="__codelineno-0-42" name="__codelineno-0-42"></a><span class="sd">            The signer&#39;s `sign_item` is passed as the client `modifier` and</span>
+<a id="__codelineno-0-42" name="__codelineno-0-42"></a><span class="sd">            The signer's `sign_item` is passed as the client `modifier` and</span>
 <a id="__codelineno-0-43" name="__codelineno-0-43"></a><span class="sd">            its `sign_request` as the `request_modifier`.</span>
 <a id="__codelineno-0-44" name="__codelineno-0-44"></a><span class="sd">        headers: Optional static HTTP headers added to every request.</span>
 <a id="__codelineno-0-45" name="__codelineno-0-45"></a><span class="sd">        timeout: Per-request timeout in seconds.</span>
@@ -6756,29 +6756,29 @@ its <code>sign_request</code> as the <code>request_modifier</code>.</p>
 <a id="__codelineno-0-54" name="__codelineno-0-54"></a><span class="sd">        - Open a public catalog anonymously (requires the `[stac]` extra):</span>
 <a id="__codelineno-0-55" name="__codelineno-0-55"></a><span class="sd">            ```python</span>
 <a id="__codelineno-0-56" name="__codelineno-0-56"></a><span class="sd">            &gt;&gt;&gt; from pyramids.stac import open_client  # doctest: +SKIP</span>
-<a id="__codelineno-0-57" name="__codelineno-0-57"></a><span class="sd">            &gt;&gt;&gt; client = open_client(&quot;https://earth-search.aws.element84.com/v1&quot;)  # doctest: +SKIP</span>
-<a id="__codelineno-0-58" name="__codelineno-0-58"></a><span class="sd">            &gt;&gt;&gt; search = client.search(collections=[&quot;sentinel-2-l2a&quot;], max_items=1)  # doctest: +SKIP</span>
+<a id="__codelineno-0-57" name="__codelineno-0-57"></a><span class="sd">            &gt;&gt;&gt; client = open_client("https://earth-search.aws.element84.com/v1")  # doctest: +SKIP</span>
+<a id="__codelineno-0-58" name="__codelineno-0-58"></a><span class="sd">            &gt;&gt;&gt; search = client.search(collections=["sentinel-2-l2a"], max_items=1)  # doctest: +SKIP</span>
 <a id="__codelineno-0-59" name="__codelineno-0-59"></a><span class="sd">            &gt;&gt;&gt; next(search.items()).collection_id  # doctest: +SKIP</span>
-<a id="__codelineno-0-60" name="__codelineno-0-60"></a><span class="sd">            &#39;sentinel-2-l2a&#39;</span>
+<a id="__codelineno-0-60" name="__codelineno-0-60"></a><span class="sd">            'sentinel-2-l2a'</span>
 <a id="__codelineno-0-61" name="__codelineno-0-61"></a>
 <a id="__codelineno-0-62" name="__codelineno-0-62"></a><span class="sd">            ```</span>
 <a id="__codelineno-0-63" name="__codelineno-0-63"></a><span class="sd">        - Wire a bearer-token signer into both hooks:</span>
 <a id="__codelineno-0-64" name="__codelineno-0-64"></a><span class="sd">            ```python</span>
 <a id="__codelineno-0-65" name="__codelineno-0-65"></a><span class="sd">            &gt;&gt;&gt; from pyramids.stac import open_client, BearerTokenSigner  # doctest: +SKIP</span>
 <a id="__codelineno-0-66" name="__codelineno-0-66"></a><span class="sd">            &gt;&gt;&gt; client = open_client(  # doctest: +SKIP</span>
-<a id="__codelineno-0-67" name="__codelineno-0-67"></a><span class="sd">            ...     &quot;https://stac.dataspace.copernicus.eu/v1&quot;,</span>
-<a id="__codelineno-0-68" name="__codelineno-0-68"></a><span class="sd">            ...     signer=BearerTokenSigner(token=&quot;my-token&quot;),</span>
+<a id="__codelineno-0-67" name="__codelineno-0-67"></a><span class="sd">            ...     "https://stac.dataspace.copernicus.eu/v1",</span>
+<a id="__codelineno-0-68" name="__codelineno-0-68"></a><span class="sd">            ...     signer=BearerTokenSigner(token="my-token"),</span>
 <a id="__codelineno-0-69" name="__codelineno-0-69"></a><span class="sd">            ... )</span>
 <a id="__codelineno-0-70" name="__codelineno-0-70"></a>
 <a id="__codelineno-0-71" name="__codelineno-0-71"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-72" name="__codelineno-0-72"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-72" name="__codelineno-0-72"></a><span class="sd">    """</span>
 <a id="__codelineno-0-73" name="__codelineno-0-73"></a>    <span class="n">import_pystac_client</span><span class="p">(</span><span class="n">_STAC_INSTALL_HINT</span><span class="p">)</span>
 <a id="__codelineno-0-74" name="__codelineno-0-74"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">pystac_client</span><span class="w"> </span><span class="kn">import</span> <span class="n">Client</span>
 <a id="__codelineno-0-75" name="__codelineno-0-75"></a>
 <a id="__codelineno-0-76" name="__codelineno-0-76"></a>    <span class="n">signer</span> <span class="o">=</span> <span class="n">signer</span> <span class="ow">or</span> <span class="n">AnonymousSigner</span><span class="p">()</span>
 <a id="__codelineno-0-77" name="__codelineno-0-77"></a>    <span class="c1"># Both hooks are wired unconditionally. For AnonymousSigner sign_item /</span>
 <a id="__codelineno-0-78" name="__codelineno-0-78"></a>    <span class="c1"># sign_request are no-ops, so the wiring is harmless; keeping it uniform</span>
-<a id="__codelineno-0-79" name="__codelineno-0-79"></a>    <span class="c1"># avoids a branch and means a custom signer never has to be &quot;registered&quot;.</span>
+<a id="__codelineno-0-79" name="__codelineno-0-79"></a>    <span class="c1"># avoids a branch and means a custom signer never has to be "registered".</span>
 <a id="__codelineno-0-80" name="__codelineno-0-80"></a>    <span class="k">return</span> <span class="n">Client</span><span class="o">.</span><span class="n">open</span><span class="p">(</span>
 <a id="__codelineno-0-81" name="__codelineno-0-81"></a>        <span class="n">url</span><span class="p">,</span>
 <a id="__codelineno-0-82" name="__codelineno-0-82"></a>        <span class="n">headers</span><span class="o">=</span><span class="n">headers</span><span class="p">,</span>
@@ -7144,14 +7144,14 @@ class.</p>
     <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.stac</span><span class="w"> </span><span class="kn">import</span> <span class="n">search</span>  <span class="c1"># doctest: +SKIP</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">DatasetCollection</span>  <span class="c1"># doctest: +SKIP</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">items</span> <span class="o">=</span> <span class="n">search</span><span class="p">(</span>  <span class="c1"># doctest: +SKIP</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="o">...</span>     <span class="s2">&quot;https://earth-search.aws.element84.com/v1&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="o">...</span>     <span class="s2">&quot;sentinel-2-l2a&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="o">...</span>     <span class="s2">"https://earth-search.aws.element84.com/v1"</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="o">...</span>     <span class="s2">"sentinel-2-l2a"</span><span class="p">,</span>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="o">...</span>     <span class="n">bbox</span><span class="o">=</span><span class="p">(</span><span class="mf">11.0</span><span class="p">,</span> <span class="mf">46.0</span><span class="p">,</span> <span class="mf">11.2</span><span class="p">,</span> <span class="mf">46.2</span><span class="p">),</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="o">...</span>     <span class="n">datetime</span><span class="o">=</span><span class="s2">&quot;2023-06/2023-08&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="o">...</span>     <span class="n">query</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;eo:cloud_cover&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;lt&quot;</span><span class="p">:</span> <span class="mi">20</span><span class="p">}},</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="o">...</span>     <span class="n">datetime</span><span class="o">=</span><span class="s2">"2023-06/2023-08"</span><span class="p">,</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="o">...</span>     <span class="n">query</span><span class="o">=</span><span class="p">{</span><span class="s2">"eo:cloud_cover"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"lt"</span><span class="p">:</span> <span class="mi">20</span><span class="p">}},</span>
 <a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="o">...</span>     <span class="n">max_items</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
 <a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="o">...</span> <span class="p">)</span>
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">cube</span> <span class="o">=</span> <span class="n">DatasetCollection</span><span class="o">.</span><span class="n">from_stac</span><span class="p">(</span><span class="n">items</span><span class="p">,</span> <span class="n">asset</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;red&quot;</span><span class="p">,</span> <span class="s2">&quot;green&quot;</span><span class="p">,</span> <span class="s2">&quot;blue&quot;</span><span class="p">])</span>  <span class="c1"># doctest: +SKIP</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">cube</span> <span class="o">=</span> <span class="n">DatasetCollection</span><span class="o">.</span><span class="n">from_stac</span><span class="p">(</span><span class="n">items</span><span class="p">,</span> <span class="n">asset</span><span class="o">=</span><span class="p">[</span><span class="s2">"red"</span><span class="p">,</span> <span class="s2">"green"</span><span class="p">,</span> <span class="s2">"blue"</span><span class="p">])</span>  <span class="c1"># doctest: +SKIP</span>
 </code></pre></div></li>
 </ul>
 
@@ -7272,7 +7272,7 @@ class.</p>
 <a id="__codelineno-0-49" name="__codelineno-0-49"></a>    <span class="n">limit</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-50" name="__codelineno-0-50"></a>    <span class="n">signer</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-51" name="__codelineno-0-51"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
-<a id="__codelineno-0-52" name="__codelineno-0-52"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Run a STAC item search and return the matched ``ItemCollection``.</span>
+<a id="__codelineno-0-52" name="__codelineno-0-52"></a><span class="w">    </span><span class="sd">"""Run a STAC item search and return the matched ``ItemCollection``.</span>
 <a id="__codelineno-0-53" name="__codelineno-0-53"></a>
 <a id="__codelineno-0-54" name="__codelineno-0-54"></a><span class="sd">    Args:</span>
 <a id="__codelineno-0-55" name="__codelineno-0-55"></a><span class="sd">        client_or_url: An open ``pystac_client.Client``, or a STAC API root URL</span>
@@ -7284,9 +7284,9 @@ class.</p>
 <a id="__codelineno-0-61" name="__codelineno-0-61"></a><span class="sd">            ``__geo_interface__``) or a GeoJSON-geometry dict. A shapely geometry</span>
 <a id="__codelineno-0-62" name="__codelineno-0-62"></a><span class="sd">            is converted to GeoJSON before the request.</span>
 <a id="__codelineno-0-63" name="__codelineno-0-63"></a><span class="sd">        datetime: Optional RFC 3339 datetime or interval string</span>
-<a id="__codelineno-0-64" name="__codelineno-0-64"></a><span class="sd">            (e.g. ``&quot;2023-06/2023-08&quot;``), forwarded to the API.</span>
+<a id="__codelineno-0-64" name="__codelineno-0-64"></a><span class="sd">            (e.g. ``"2023-06/2023-08"``), forwarded to the API.</span>
 <a id="__codelineno-0-65" name="__codelineno-0-65"></a><span class="sd">        query: Optional ``query`` extension dict (e.g.</span>
-<a id="__codelineno-0-66" name="__codelineno-0-66"></a><span class="sd">            ``{&quot;eo:cloud_cover&quot;: {&quot;lt&quot;: 20}}``).</span>
+<a id="__codelineno-0-66" name="__codelineno-0-66"></a><span class="sd">            ``{"eo:cloud_cover": {"lt": 20}}``).</span>
 <a id="__codelineno-0-67" name="__codelineno-0-67"></a><span class="sd">        filter: Optional CQL2 filter (cql2-json dict or cql2-text string). When</span>
 <a id="__codelineno-0-68" name="__codelineno-0-68"></a><span class="sd">            given, the endpoint must advertise the ``FILTER`` conformance class.</span>
 <a id="__codelineno-0-69" name="__codelineno-0-69"></a><span class="sd">        sortby: Optional sort specification forwarded to the API.</span>
@@ -7314,20 +7314,20 @@ class.</p>
 <a id="__codelineno-0-91" name="__codelineno-0-91"></a><span class="sd">            &gt;&gt;&gt; from pyramids.stac import search  # doctest: +SKIP</span>
 <a id="__codelineno-0-92" name="__codelineno-0-92"></a><span class="sd">            &gt;&gt;&gt; from pyramids.dataset import DatasetCollection  # doctest: +SKIP</span>
 <a id="__codelineno-0-93" name="__codelineno-0-93"></a><span class="sd">            &gt;&gt;&gt; items = search(  # doctest: +SKIP</span>
-<a id="__codelineno-0-94" name="__codelineno-0-94"></a><span class="sd">            ...     &quot;https://earth-search.aws.element84.com/v1&quot;,</span>
-<a id="__codelineno-0-95" name="__codelineno-0-95"></a><span class="sd">            ...     &quot;sentinel-2-l2a&quot;,</span>
+<a id="__codelineno-0-94" name="__codelineno-0-94"></a><span class="sd">            ...     "https://earth-search.aws.element84.com/v1",</span>
+<a id="__codelineno-0-95" name="__codelineno-0-95"></a><span class="sd">            ...     "sentinel-2-l2a",</span>
 <a id="__codelineno-0-96" name="__codelineno-0-96"></a><span class="sd">            ...     bbox=(11.0, 46.0, 11.2, 46.2),</span>
-<a id="__codelineno-0-97" name="__codelineno-0-97"></a><span class="sd">            ...     datetime=&quot;2023-06/2023-08&quot;,</span>
-<a id="__codelineno-0-98" name="__codelineno-0-98"></a><span class="sd">            ...     query={&quot;eo:cloud_cover&quot;: {&quot;lt&quot;: 20}},</span>
+<a id="__codelineno-0-97" name="__codelineno-0-97"></a><span class="sd">            ...     datetime="2023-06/2023-08",</span>
+<a id="__codelineno-0-98" name="__codelineno-0-98"></a><span class="sd">            ...     query={"eo:cloud_cover": {"lt": 20}},</span>
 <a id="__codelineno-0-99" name="__codelineno-0-99"></a><span class="sd">            ...     max_items=10,</span>
 <a id="__codelineno-0-100" name="__codelineno-0-100"></a><span class="sd">            ... )</span>
-<a id="__codelineno-0-101" name="__codelineno-0-101"></a><span class="sd">            &gt;&gt;&gt; cube = DatasetCollection.from_stac(items, asset=[&quot;red&quot;, &quot;green&quot;, &quot;blue&quot;])  # doctest: +SKIP</span>
+<a id="__codelineno-0-101" name="__codelineno-0-101"></a><span class="sd">            &gt;&gt;&gt; cube = DatasetCollection.from_stac(items, asset=["red", "green", "blue"])  # doctest: +SKIP</span>
 <a id="__codelineno-0-102" name="__codelineno-0-102"></a>
 <a id="__codelineno-0-103" name="__codelineno-0-103"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-104" name="__codelineno-0-104"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-104" name="__codelineno-0-104"></a><span class="sd">    """</span>
 <a id="__codelineno-0-105" name="__codelineno-0-105"></a>    <span class="k">if</span> <span class="n">bbox</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">intersects</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
 <a id="__codelineno-0-106" name="__codelineno-0-106"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-107" name="__codelineno-0-107"></a>            <span class="s2">&quot;bbox and intersects are mutually exclusive (STAC API spec); pass only one.&quot;</span>
+<a id="__codelineno-0-107" name="__codelineno-0-107"></a>            <span class="s2">"bbox and intersects are mutually exclusive (STAC API spec); pass only one."</span>
 <a id="__codelineno-0-108" name="__codelineno-0-108"></a>        <span class="p">)</span>
 <a id="__codelineno-0-109" name="__codelineno-0-109"></a>
 <a id="__codelineno-0-110" name="__codelineno-0-110"></a>    <span class="n">import_pystac_client</span><span class="p">(</span><span class="n">_STAC_INSTALL_HINT</span><span class="p">)</span>
@@ -7341,11 +7341,11 @@ class.</p>
 <a id="__codelineno-0-118" name="__codelineno-0-118"></a>
 <a id="__codelineno-0-119" name="__codelineno-0-119"></a>    <span class="k">if</span> <span class="nb">filter</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">client</span><span class="o">.</span><span class="n">conforms_to</span><span class="p">(</span><span class="n">ConformanceClasses</span><span class="o">.</span><span class="n">FILTER</span><span class="p">):</span>
 <a id="__codelineno-0-120" name="__codelineno-0-120"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-121" name="__codelineno-0-121"></a>            <span class="s2">&quot;the STAC endpoint does not advertise the CQL2 FILTER conformance &quot;</span>
-<a id="__codelineno-0-122" name="__codelineno-0-122"></a>            <span class="s2">&quot;class, so a `filter` cannot be used against it.&quot;</span>
+<a id="__codelineno-0-121" name="__codelineno-0-121"></a>            <span class="s2">"the STAC endpoint does not advertise the CQL2 FILTER conformance "</span>
+<a id="__codelineno-0-122" name="__codelineno-0-122"></a>            <span class="s2">"class, so a `filter` cannot be used against it."</span>
 <a id="__codelineno-0-123" name="__codelineno-0-123"></a>        <span class="p">)</span>
 <a id="__codelineno-0-124" name="__codelineno-0-124"></a>
-<a id="__codelineno-0-125" name="__codelineno-0-125"></a>    <span class="k">if</span> <span class="n">intersects</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">intersects</span><span class="p">,</span> <span class="s2">&quot;__geo_interface__&quot;</span><span class="p">):</span>
+<a id="__codelineno-0-125" name="__codelineno-0-125"></a>    <span class="k">if</span> <span class="n">intersects</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">intersects</span><span class="p">,</span> <span class="s2">"__geo_interface__"</span><span class="p">):</span>
 <a id="__codelineno-0-126" name="__codelineno-0-126"></a>        <span class="n">intersects</span> <span class="o">=</span> <span class="n">intersects</span><span class="o">.</span><span class="n">__geo_interface__</span>
 <a id="__codelineno-0-127" name="__codelineno-0-127"></a>
 <a id="__codelineno-0-128" name="__codelineno-0-128"></a>    <span class="k">return</span> <span class="n">client</span><span class="o">.</span><span class="n">search</span><span class="p">(</span>

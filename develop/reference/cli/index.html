@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6296,7 +6296,7 @@ WKT, or PROJ string; <code>warp</code>, <code>overview</code>, <code>georeferenc
 <code>packbits</code>, <code>raw</code>. Pass <code>--compress</code>/<code>--blocksize</code> to override, <code>--no-validate</code> to skip the post-write check.
 See the <a href="../cog/cli/">COG CLI reference</a> for the full option set.</p>
 <h2 id="band-math"><a class="toclink" href="#band-math">Band math</a><a class="headerlink" href="#band-math" title="Permanent link">#</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>pyramids<span class="w"> </span>calc<span class="w"> </span><span class="s1">&#39;(A - B) / (A + B)&#39;</span><span class="w"> </span>nir.tif<span class="w"> </span>red.tif<span class="w"> </span>ndvi.tif<span class="w"> </span>--dtype<span class="w"> </span>float32
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>pyramids<span class="w"> </span>calc<span class="w"> </span><span class="s1">'(A - B) / (A + B)'</span><span class="w"> </span>nir.tif<span class="w"> </span>red.tif<span class="w"> </span>ndvi.tif<span class="w"> </span>--dtype<span class="w"> </span>float32
 </code></pre></div>
 <ul>
 <li><strong><code>calc</code></strong> — evaluate an expression over inputs <code>A, B, …</code> (the operands, in order) into a new raster; the
@@ -6308,7 +6308,7 @@ See the <a href="../cog/cli/">COG CLI reference</a> for the full option set.</p>
 <a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span>--gcp<span class="w"> </span><span class="m">0</span><span class="w"> </span><span class="m">0</span><span class="w"> </span><span class="m">100000</span><span class="w"> </span><span class="m">500000</span><span class="w"> </span>--gcp<span class="w"> </span><span class="m">512</span><span class="w"> </span><span class="m">0</span><span class="w"> </span><span class="m">105000</span><span class="w"> </span><span class="m">500000</span><span class="w"> </span>--gcp<span class="w"> </span><span class="m">0</span><span class="w"> </span><span class="m">512</span><span class="w"> </span><span class="m">100000</span><span class="w"> </span><span class="m">495000</span><span class="w"> </span><span class="se">\</span>
 <a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">    </span>--gcp-crs<span class="w"> </span><span class="m">32636</span><span class="w"> </span>--transform<span class="w"> </span>polynomial<span class="w"> </span>--order<span class="w"> </span><span class="m">1</span><span class="w"> </span>--to-crs<span class="w"> </span><span class="m">4326</span>
 <a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>
-<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="c1"># Orthorectify from the raster&#39;s RPC sensor model (needs a DEM or a constant height)</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="c1"># Orthorectify from the raster's RPC sensor model (needs a DEM or a constant height)</span>
 <a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>pyramids<span class="w"> </span>orthorectify<span class="w"> </span>scene.tif<span class="w"> </span>ortho.tif<span class="w"> </span>--dem<span class="w"> </span>dem.tif<span class="w"> </span>--to-crs<span class="w"> </span><span class="m">4326</span>
 </code></pre></div>
 <ul>
@@ -6319,7 +6319,7 @@ See the <a href="../cog/cli/">COG CLI reference</a> for the full option set.</p>
 <h2 id="raster-vector"><a class="toclink" href="#raster-vector">Raster ↔ vector</a><a class="headerlink" href="#raster-vector" title="Permanent link">#</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>pyramids<span class="w"> </span>rasterize<span class="w"> </span>parcels.geojson<span class="w"> </span>parcels.tif<span class="w"> </span>--cell-size<span class="w"> </span><span class="m">10</span><span class="w"> </span>--column<span class="w"> </span>value<span class="w">   </span><span class="c1"># or --like template.tif</span>
 <a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>pyramids<span class="w"> </span>shapes<span class="w"> </span>classes.tif<span class="w"> </span>classes.geojson<span class="w"> </span>--geometry<span class="w"> </span>polygon<span class="w">                 </span><span class="c1"># vectorize (one feature/cell)</span>
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>pyramids<span class="w"> </span>sample<span class="w"> </span>dem.tif<span class="w"> </span>--points<span class="w"> </span><span class="s2">&quot;440000,510000;450000,505000&quot;</span><span class="w"> </span>--json<span class="w">          </span><span class="c1"># read values at points</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>pyramids<span class="w"> </span>sample<span class="w"> </span>dem.tif<span class="w"> </span>--points<span class="w"> </span><span class="s2">"440000,510000;450000,505000"</span><span class="w"> </span>--json<span class="w">          </span><span class="c1"># read values at points</span>
 </code></pre></div>
 <ul>
 <li><strong><code>rasterize</code></strong> — burn a vector into a new raster; set <code>--cell-size</code> <strong>or</strong> adopt a template grid with

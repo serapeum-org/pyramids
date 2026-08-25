@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6228,7 +6228,7 @@ The <code>cog</code> command group mirrors the common write / validate / inspect
 </code></pre></div>
 <p>The functions are also callable in-process for scripting/testing:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.cli</span><span class="w"> </span><span class="kn">import</span> <span class="n">main</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">exit_code</span> <span class="o">=</span> <span class="n">main</span><span class="p">([</span><span class="s2">&quot;cog&quot;</span><span class="p">,</span> <span class="s2">&quot;info&quot;</span><span class="p">,</span> <span class="s2">&quot;scene_cog.tif&quot;</span><span class="p">])</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">exit_code</span> <span class="o">=</span> <span class="n">main</span><span class="p">([</span><span class="s2">"cog"</span><span class="p">,</span> <span class="s2">"info"</span><span class="p">,</span> <span class="s2">"scene_cog.tif"</span><span class="p">])</span>
 </code></pre></div>
 <h2 id="api"><a class="toclink" href="#api">API</a><a class="headerlink" href="#api" title="Permanent link">#</a></h2>
 
@@ -6372,7 +6372,7 @@ callable in-process (<code>main([...])</code>) for testing.</p>
 <p><span class="doc-section-title">Examples:</span></p>
     <ul>
 <li>Inspect a COG from the shell:
-    <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">main</span><span class="p">([</span><span class="s2">&quot;cog&quot;</span><span class="p">,</span> <span class="s2">&quot;info&quot;</span><span class="p">,</span> <span class="s2">&quot;scene.tif&quot;</span><span class="p">])</span>  <span class="c1"># doctest: +SKIP</span>
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">main</span><span class="p">([</span><span class="s2">"cog"</span><span class="p">,</span> <span class="s2">"info"</span><span class="p">,</span> <span class="s2">"scene.tif"</span><span class="p">])</span>  <span class="c1"># doctest: +SKIP</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="mi">0</span>
 </code></pre></div></li>
 </ul>
@@ -6422,7 +6422,7 @@ callable in-process (<code>main([...])</code>) for testing.</p>
 <span class="normal"><a href="#__codelineno-0-1080">1080</a></span>
 <span class="normal"><a href="#__codelineno-0-1081">1081</a></span>
 <span class="normal"><a href="#__codelineno-0-1082">1082</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1041" name="__codelineno-0-1041"></a><span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span><span class="n">argv</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
-<a id="__codelineno-0-1042" name="__codelineno-0-1042"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Entry point for the `pyramids` console script.</span>
+<a id="__codelineno-0-1042" name="__codelineno-0-1042"></a><span class="w">    </span><span class="sd">"""Entry point for the `pyramids` console script.</span>
 <a id="__codelineno-0-1043" name="__codelineno-0-1043"></a>
 <a id="__codelineno-0-1044" name="__codelineno-0-1044"></a><span class="sd">    Args:</span>
 <a id="__codelineno-0-1045" name="__codelineno-0-1045"></a><span class="sd">        argv: Argument list (excluding the program name). Defaults to</span>
@@ -6434,11 +6434,11 @@ callable in-process (<code>main([...])</code>) for testing.</p>
 <a id="__codelineno-0-1051" name="__codelineno-0-1051"></a><span class="sd">    Examples:</span>
 <a id="__codelineno-0-1052" name="__codelineno-0-1052"></a><span class="sd">        - Inspect a COG from the shell:</span>
 <a id="__codelineno-0-1053" name="__codelineno-0-1053"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-1054" name="__codelineno-0-1054"></a><span class="sd">            &gt;&gt;&gt; main([&quot;cog&quot;, &quot;info&quot;, &quot;scene.tif&quot;])  # doctest: +SKIP</span>
+<a id="__codelineno-0-1054" name="__codelineno-0-1054"></a><span class="sd">            &gt;&gt;&gt; main(["cog", "info", "scene.tif"])  # doctest: +SKIP</span>
 <a id="__codelineno-0-1055" name="__codelineno-0-1055"></a><span class="sd">            0</span>
 <a id="__codelineno-0-1056" name="__codelineno-0-1056"></a>
 <a id="__codelineno-0-1057" name="__codelineno-0-1057"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-1058" name="__codelineno-0-1058"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-1058" name="__codelineno-0-1058"></a><span class="sd">    """</span>
 <a id="__codelineno-0-1059" name="__codelineno-0-1059"></a>    <span class="n">parser</span> <span class="o">=</span> <span class="n">_build_parser</span><span class="p">()</span>
 <a id="__codelineno-0-1060" name="__codelineno-0-1060"></a>    <span class="n">args</span> <span class="o">=</span> <span class="n">parser</span><span class="o">.</span><span class="n">parse_args</span><span class="p">(</span><span class="n">argv</span><span class="p">)</span>
 <a id="__codelineno-0-1061" name="__codelineno-0-1061"></a>    <span class="k">try</span><span class="p">:</span>
@@ -6452,15 +6452,15 @@ callable in-process (<code>main([...])</code>) for testing.</p>
 <a id="__codelineno-0-1069" name="__codelineno-0-1069"></a>    <span class="p">)</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
 <a id="__codelineno-0-1070" name="__codelineno-0-1070"></a>        <span class="c1"># Expected user errors (missing file, bad CRS, unknown driver, ...)</span>
 <a id="__codelineno-0-1071" name="__codelineno-0-1071"></a>        <span class="c1"># exit non-zero with a one-line message instead of a traceback.</span>
-<a id="__codelineno-0-1072" name="__codelineno-0-1072"></a>        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;error: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">file</span><span class="o">=</span><span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="p">)</span>
+<a id="__codelineno-0-1072" name="__codelineno-0-1072"></a>        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"error: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span> <span class="n">file</span><span class="o">=</span><span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="p">)</span>
 <a id="__codelineno-0-1073" name="__codelineno-0-1073"></a>        <span class="n">result</span> <span class="o">=</span> <span class="mi">1</span>
 <a id="__codelineno-0-1074" name="__codelineno-0-1074"></a>    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>  <span class="c1"># noqa: BLE001</span>
 <a id="__codelineno-0-1075" name="__codelineno-0-1075"></a>        <span class="c1"># An unexpected internal error (a bug, or a GDAL error type not listed</span>
 <a id="__codelineno-0-1076" name="__codelineno-0-1076"></a>        <span class="c1"># above) still gets a one-line message for the CLI user rather than a raw</span>
 <a id="__codelineno-0-1077" name="__codelineno-0-1077"></a>        <span class="c1"># traceback — unless PYRAMIDS_DEBUG is set, which re-raises the full stack.</span>
-<a id="__codelineno-0-1078" name="__codelineno-0-1078"></a>        <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;PYRAMIDS_DEBUG&quot;</span><span class="p">):</span>
+<a id="__codelineno-0-1078" name="__codelineno-0-1078"></a>        <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"PYRAMIDS_DEBUG"</span><span class="p">):</span>
 <a id="__codelineno-0-1079" name="__codelineno-0-1079"></a>            <span class="k">raise</span>
-<a id="__codelineno-0-1080" name="__codelineno-0-1080"></a>        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;error: unexpected failure: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">file</span><span class="o">=</span><span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="p">)</span>
+<a id="__codelineno-0-1080" name="__codelineno-0-1080"></a>        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"error: unexpected failure: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span> <span class="n">file</span><span class="o">=</span><span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="p">)</span>
 <a id="__codelineno-0-1081" name="__codelineno-0-1081"></a>        <span class="n">result</span> <span class="o">=</span> <span class="mi">1</span>
 <a id="__codelineno-0-1082" name="__codelineno-0-1082"></a>    <span class="k">return</span> <span class="n">result</span>
 </code></pre></div></td></tr></table></div>

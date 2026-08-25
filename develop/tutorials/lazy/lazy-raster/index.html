@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6400,7 +6400,7 @@ opt in, fully parallel when you do.</p>
 <p>See <a href="../lazy-compute/">lazy-compute.md</a> for the common building blocks
 (<code>configure</code>, schedulers, protocols).</p>
 <p>Installing the extra:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s1">&#39;pyramids-gis[lazy]&#39;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s1">'pyramids-gis[lazy]'</span>
 </code></pre></div>
 <h2 id="reading-a-lazy-array-datasetread_arraychunks"><a class="toclink" href="#reading-a-lazy-array-datasetread_arraychunks">Reading a lazy array — <code>Dataset.read_array(chunks=…)</code></a><a class="headerlink" href="#reading-a-lazy-array-datasetread_arraychunks" title="Permanent link">#</a></h2>
 <p><code>Dataset.read_array</code> is a single entry point for both paths. The
@@ -6442,7 +6442,7 @@ any other value opts in to a lazy dask array:</p>
 </table>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">&quot;tests/data/geotiff/noah-precipitation-1979-corrected.tif&quot;</span><span class="p">)</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">"tests/data/geotiff/noah-precipitation-1979-corrected.tif"</span><span class="p">)</span>
 <a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>
 <a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">eager</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">read_array</span><span class="p">()</span>                 <span class="c1"># numpy.ndarray</span>
 <a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="n">lazy</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">read_array</span><span class="p">(</span><span class="n">chunks</span><span class="o">=</span><span class="p">(</span><span class="mi">512</span><span class="p">,</span> <span class="mi">512</span><span class="p">))</span> <span class="c1"># dask.array.Array</span>
@@ -6484,31 +6484,31 @@ true parallel. Each dask chunk lands in an independent Zarr chunk
 file, so a 4-worker write fans out N chunks / 4 per worker with no
 coordination. GeoTIFF has no analogue — GDAL serialises its band
 writes.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">&quot;large.tif&quot;</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">"large.tif"</span><span class="p">)</span>
 <a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_zarr</span><span class="p">(</span><span class="s2">&quot;out.zarr&quot;</span><span class="p">,</span> <span class="n">chunks</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1024</span><span class="p">,</span> <span class="mi">1024</span><span class="p">),</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;w&quot;</span><span class="p">)</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_zarr</span><span class="p">(</span><span class="s2">"out.zarr"</span><span class="p">,</span> <span class="n">chunks</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1024</span><span class="p">,</span> <span class="mi">1024</span><span class="p">),</span> <span class="n">mode</span><span class="o">=</span><span class="s2">"w"</span><span class="p">)</span>
 </code></pre></div>
 <p>The store metadata follows the standard GeoZarr geobox-attribute convention
 (<code>spatial_ref</code>, <code>GeoTransform</code>, <code>epsg</code>, <code>no_data_value</code>, <code>band_names</code>,
 <code>dtype</code>, <code>shape</code>), so a downstream consumer can open the result with
 a plain GeoZarr raster reader:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">rioxarray</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">da</span> <span class="o">=</span> <span class="n">rioxarray</span><span class="o">.</span><span class="n">open_rasterio</span><span class="p">(</span><span class="s2">&quot;out.zarr&quot;</span><span class="p">)</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">da</span> <span class="o">=</span> <span class="n">rioxarray</span><span class="o">.</span><span class="n">open_rasterio</span><span class="p">(</span><span class="s2">"out.zarr"</span><span class="p">)</span>
 </code></pre></div>
 <p>Round-trip through <code>Dataset.from_zarr</code> to stay in the pyramids stack
 (returns a <code>Dataset</code>, with <code>chunks=...</code> keeping the dask backing):</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">reloaded</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_zarr</span><span class="p">(</span><span class="s2">&quot;out.zarr&quot;</span><span class="p">,</span> <span class="n">chunks</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1024</span><span class="p">,</span> <span class="mi">1024</span><span class="p">))</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">reloaded</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_zarr</span><span class="p">(</span><span class="s2">"out.zarr"</span><span class="p">,</span> <span class="n">chunks</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1024</span><span class="p">,</span> <span class="mi">1024</span><span class="p">))</span>
 </code></pre></div>
 <p>Pass <code>compute=False</code> to defer the write:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">delayed</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">to_zarr</span><span class="p">(</span><span class="s2">&quot;out.zarr&quot;</span><span class="p">,</span> <span class="n">compute</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">delayed</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">to_zarr</span><span class="p">(</span><span class="s2">"out.zarr"</span><span class="p">,</span> <span class="n">compute</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 <a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="c1"># ... build a larger graph ...</span>
 <a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="n">dask</span><span class="o">.</span><span class="n">compute</span><span class="p">(</span><span class="n">delayed</span><span class="p">,</span> <span class="n">other_task</span><span class="p">)</span>
 </code></pre></div>
 <p><code>storage_options=</code> forwards to fsspec so cloud stores work:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_zarr</span><span class="p">(</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>    <span class="s2">&quot;s3://bucket/key.zarr&quot;</span><span class="p">,</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>    <span class="s2">"s3://bucket/key.zarr"</span><span class="p">,</span>
 <a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>    <span class="n">chunks</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1024</span><span class="p">,</span> <span class="mi">1024</span><span class="p">),</span>
-<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>    <span class="n">storage_options</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;anon&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span> <span class="s2">&quot;key&quot;</span><span class="p">:</span> <span class="s2">&quot;...&quot;</span><span class="p">,</span> <span class="s2">&quot;secret&quot;</span><span class="p">:</span> <span class="s2">&quot;...&quot;</span><span class="p">},</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>    <span class="n">storage_options</span><span class="o">=</span><span class="p">{</span><span class="s2">"anon"</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span> <span class="s2">"key"</span><span class="p">:</span> <span class="s2">"..."</span><span class="p">,</span> <span class="s2">"secret"</span><span class="p">:</span> <span class="s2">"..."</span><span class="p">},</span>
 <a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="p">)</span>
 </code></pre></div>
 <p>Install: <code>[lazy]</code> extra pulls <code>zarr</code> + <code>fsspec</code>.</p>
@@ -6554,14 +6554,14 @@ only thing that changes is the halo bookkeeping.</p>
 </table>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
 <a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>
-<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="n">dem</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">&quot;dem.tif&quot;</span><span class="p">)</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="n">dem</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">"dem.tif"</span><span class="p">)</span>
 <a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>
 <a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="c1"># eager — same as before</span>
 <a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="n">slope_eager</span> <span class="o">=</span> <span class="n">dem</span><span class="o">.</span><span class="n">slope</span><span class="p">()</span>
 <a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>
 <a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="c1"># lazy — parallelised across chunks</span>
 <a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a><span class="n">slope_lazy</span> <span class="o">=</span> <span class="n">dem</span><span class="o">.</span><span class="n">slope</span><span class="p">(</span><span class="n">chunks</span><span class="o">=</span><span class="p">(</span><span class="mi">1024</span><span class="p">,</span> <span class="mi">1024</span><span class="p">))</span>
-<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="n">slope_lazy</span><span class="o">.</span><span class="n">to_hdf5</span><span class="p">(</span><span class="s2">&quot;slope.h5&quot;</span><span class="p">)</span>   <span class="c1"># dask IO path</span>
+<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="n">slope_lazy</span><span class="o">.</span><span class="n">to_hdf5</span><span class="p">(</span><span class="s2">"slope.h5"</span><span class="p">)</span>   <span class="c1"># dask IO path</span>
 <a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a><span class="n">slope_lazy</span><span class="o">.</span><span class="n">compute</span><span class="p">()</span>             <span class="c1"># or materialise</span>
 </code></pre></div>
 <h3 id="picking-the-radius-chunk-combo"><a class="toclink" href="#picking-the-radius-chunk-combo">Picking the radius / chunk combo</a><a class="headerlink" href="#picking-the-radius-chunk-combo" title="Permanent link">#</a></h3>
@@ -6574,7 +6574,7 @@ radius</code> on each axis</strong> to keep halos negligible.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
 <a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>
-<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">&quot;dem.tif&quot;</span><span class="p">)</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">"dem.tif"</span><span class="p">)</span>
 <a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="c1"># max over a 5x5 window, run lazily</span>
 <a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="n">big_max</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">focal_apply</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">,</span> <span class="n">radius</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">chunks</span><span class="o">=</span><span class="p">(</span><span class="mi">512</span><span class="p">,</span> <span class="mi">512</span><span class="p">))</span>
 </code></pre></div>
@@ -6587,10 +6587,10 @@ array and use <code>dask.array.map_overlap</code> directly.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
 <a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.feature</span><span class="w"> </span><span class="kn">import</span> <span class="n">FeatureCollection</span>
 <a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>
-<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="n">dem</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">&quot;dem.tif&quot;</span><span class="p">)</span>
-<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="n">polys</span> <span class="o">=</span> <span class="n">FeatureCollection</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">&quot;watersheds.geojson&quot;</span><span class="p">)</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="n">dem</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">"dem.tif"</span><span class="p">)</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="n">polys</span> <span class="o">=</span> <span class="n">FeatureCollection</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">"watersheds.geojson"</span><span class="p">)</span>
 <a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a>
-<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="n">df</span> <span class="o">=</span> <span class="n">dem</span><span class="o">.</span><span class="n">zonal_stats</span><span class="p">(</span><span class="n">polys</span><span class="p">,</span> <span class="n">stats</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;mean&quot;</span><span class="p">,</span> <span class="s2">&quot;std&quot;</span><span class="p">,</span> <span class="s2">&quot;count&quot;</span><span class="p">))</span>
+<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="n">df</span> <span class="o">=</span> <span class="n">dem</span><span class="o">.</span><span class="n">zonal_stats</span><span class="p">(</span><span class="n">polys</span><span class="p">,</span> <span class="n">stats</span><span class="o">=</span><span class="p">(</span><span class="s2">"mean"</span><span class="p">,</span> <span class="s2">"std"</span><span class="p">,</span> <span class="s2">"count"</span><span class="p">))</span>
 <a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="c1"># pandas.DataFrame indexed by polys.index, one column per stat</span>
 </code></pre></div>
 <p>Implementation is single-pass: pyramids rasterises every polygon into
@@ -6631,15 +6631,15 @@ available — pyramids does not add a custom wrapper. Common patterns:</p>
 the two dispatch helpers you'll reach for in mixed-backend code:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.base.protocols</span><span class="w"> </span><span class="kn">import</span> <span class="n">is_lazy</span><span class="p">,</span> <span class="n">as_numpy</span>
 <a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>
-<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="n">result</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">read_array</span><span class="p">(</span><span class="n">chunks</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">)</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="n">result</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">read_array</span><span class="p">(</span><span class="n">chunks</span><span class="o">=</span><span class="s2">"auto"</span><span class="p">)</span>
 <a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="c1"># ... build graph ...</span>
 <a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="k">if</span> <span class="n">is_lazy</span><span class="p">(</span><span class="n">result</span><span class="p">):</span>
 <a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a>    <span class="n">result</span> <span class="o">=</span> <span class="n">as_numpy</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>   <span class="c1"># forces compute, no-op for numpy</span>
 </code></pre></div>
 <h2 id="minimal-install-behaviour"><a class="toclink" href="#minimal-install-behaviour">Minimal-install behaviour</a><a class="headerlink" href="#minimal-install-behaviour" title="Permanent link">#</a></h2>
 <p><code>Dataset.read_array(chunks=...)</code> with no <code>dask</code> installed raises:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>ImportError: chunks= requires the optional &#39;dask&#39; dependency. Install
-<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>with: pip install &#39;pyramids-gis[lazy]&#39;
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>ImportError: chunks= requires the optional 'dask' dependency. Install
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>with: pip install 'pyramids-gis[lazy]'
 </code></pre></div>
 <p><code>Dataset.to_zarr</code> raises the same error naming both <code>dask</code> and <code>zarr</code>
 (the extra pulls both). <code>Dataset.focal_*</code>, <code>slope</code>, <code>aspect</code>,
@@ -6650,12 +6650,12 @@ optional extras.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure</span>
 <a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
 <a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>
-<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="n">configure</span><span class="p">(</span><span class="n">cloud_defaults</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">aws</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;aws_unsigned&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">})</span>
+<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="n">configure</span><span class="p">(</span><span class="n">cloud_defaults</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">aws</span><span class="o">=</span><span class="p">{</span><span class="s2">"aws_unsigned"</span><span class="p">:</span> <span class="kc">True</span><span class="p">})</span>
 <a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a>
 <a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a><span class="n">url</span> <span class="o">=</span> <span class="p">(</span>
-<a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a>    <span class="s2">&quot;https://sentinel-cogs.s3.us-west-2.amazonaws.com/&quot;</span>
-<a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a>    <span class="s2">&quot;sentinel-s2-l2a-cogs/35/T/LM/2022/7/&quot;</span>
-<a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a>    <span class="s2">&quot;S2A_35TLM_20220716_0_L2A/B08.tif&quot;</span>
+<a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a>    <span class="s2">"https://sentinel-cogs.s3.us-west-2.amazonaws.com/"</span>
+<a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a>    <span class="s2">"sentinel-s2-l2a-cogs/35/T/LM/2022/7/"</span>
+<a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a>    <span class="s2">"S2A_35TLM_20220716_0_L2A/B08.tif"</span>
 <a id="__codelineno-14-10" name="__codelineno-14-10" href="#__codelineno-14-10"></a><span class="p">)</span>
 <a id="__codelineno-14-11" name="__codelineno-14-11" href="#__codelineno-14-11"></a><span class="n">nir</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="n">url</span><span class="p">)</span>
 <a id="__codelineno-14-12" name="__codelineno-14-12" href="#__codelineno-14-12"></a>
@@ -6665,7 +6665,7 @@ optional extras.</p>
 <a id="__codelineno-14-16" name="__codelineno-14-16" href="#__codelineno-14-16"></a>
 <a id="__codelineno-14-17" name="__codelineno-14-17" href="#__codelineno-14-17"></a><span class="c1"># Reduce without loading everything.</span>
 <a id="__codelineno-14-18" name="__codelineno-14-18" href="#__codelineno-14-18"></a><span class="n">peak</span> <span class="o">=</span> <span class="n">lazy</span><span class="o">.</span><span class="n">max</span><span class="p">()</span><span class="o">.</span><span class="n">compute</span><span class="p">()</span>
-<a id="__codelineno-14-19" name="__codelineno-14-19" href="#__codelineno-14-19"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;max DN: </span><span class="si">{</span><span class="n">peak</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-14-19" name="__codelineno-14-19" href="#__codelineno-14-19"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"max DN: </span><span class="si">{</span><span class="n">peak</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 </code></pre></div>
 <p>The full, runnable version is
 <code>docs/examples/dataset/dask-lazy-datasets.ipynb</code>.</p>

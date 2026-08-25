@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6416,7 +6416,7 @@ class. <code>NetCDFMetadata</code>'s only public method is <code>get_dimension</
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf.metadata</span><span class="w"> </span><span class="kn">import</span> <span class="n">to_json</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="c1"># Open the file in MDIM mode</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">nc</span> <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">&quot;tests/data/netcdf/cf__4v__1d3-3d1__proj__y-desc.nc&quot;</span><span class="p">,</span> <span class="n">open_as_multi_dimensional</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">nc</span> <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">"tests/data/netcdf/cf__4v__1d3-3d1__proj__y-desc.nc"</span><span class="p">,</span> <span class="n">open_as_multi_dimensional</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="c1"># Read everything (groups, arrays, dimensions, attributes)</span>
 <a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="n">md</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">get_all_metadata</span><span class="p">()</span>
@@ -6425,7 +6425,7 @@ class. <code>NetCDFMetadata</code>'s only public method is <code>get_dimension</
 <a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="nb">print</span><span class="p">(</span><span class="n">to_json</span><span class="p">(</span><span class="n">md</span><span class="p">))</span>
 </code></pre></div>
 <p>You can also pass open options (persisted into the result for provenance):</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">md</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">get_all_metadata</span><span class="p">(</span><span class="n">open_options</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;OPEN_SHARED&quot;</span><span class="p">:</span> <span class="s2">&quot;YES&quot;</span><span class="p">})</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">md</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">get_all_metadata</span><span class="p">(</span><span class="n">open_options</span><span class="o">=</span><span class="p">{</span><span class="s2">"OPEN_SHARED"</span><span class="p">:</span> <span class="s2">"YES"</span><span class="p">})</span>
 </code></pre></div>
 <h2 id="dimension-overview"><a class="toclink" href="#dimension-overview">Dimension overview</a><a class="headerlink" href="#dimension-overview" title="Permanent link">#</a></h2>
 <p>For convenience and backward compatibility, the returned metadata includes a <code>dimension_overview</code>
@@ -6603,10 +6603,10 @@ opened as a multidimensional raster.</p>
     <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span><span class="w"> </span><span class="nn">osgeo</span><span class="w"> </span><span class="kn">import</span> <span class="n">gdal</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="gp">&gt;&gt;&gt; </span><span class="kn">import</span><span class="w"> </span><span class="nn">pyramids.netcdf.metadata</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">meta</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">md</span> <span class="o">=</span> <span class="n">meta</span><span class="o">.</span><span class="n">get_metadata</span><span class="p">(</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="gp">... </span>    <span class="s2">&quot;precip.nc&quot;</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="gp">... </span>    <span class="s2">"precip.nc"</span>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="gp">... </span><span class="p">)</span>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">md</span><span class="o">.</span><span class="n">driver</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="go">&#39;netCDF&#39;</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="go">'netCDF'</span>
 </code></pre></div>
 
 
@@ -6680,7 +6680,7 @@ opened as a multidimensional raster.</p>
 <a id="__codelineno-0-664" name="__codelineno-0-664"></a>    <span class="n">open_options</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-665" name="__codelineno-0-665"></a>    <span class="n">start_group</span><span class="p">:</span> <span class="n">gdal</span><span class="o">.</span><span class="n">Group</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-666" name="__codelineno-0-666"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">NetCDFMetadata</span><span class="p">:</span>
-<a id="__codelineno-0-667" name="__codelineno-0-667"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Read and normalize all NetCDF MDIM metadata.</span>
+<a id="__codelineno-0-667" name="__codelineno-0-667"></a><span class="w">    </span><span class="sd">"""Read and normalize all NetCDF MDIM metadata.</span>
 <a id="__codelineno-0-668" name="__codelineno-0-668"></a>
 <a id="__codelineno-0-669" name="__codelineno-0-669"></a><span class="sd">    Accepts several source types and delegates to</span>
 <a id="__codelineno-0-670" name="__codelineno-0-670"></a><span class="sd">    `MetadataBuilder` to produce a `NetCDFMetadata` instance.</span>
@@ -6695,7 +6695,7 @@ opened as a multidimensional raster.</p>
 <a id="__codelineno-0-679" name="__codelineno-0-679"></a><span class="sd">            Stored in the resulting metadata for provenance but</span>
 <a id="__codelineno-0-680" name="__codelineno-0-680"></a><span class="sd">            not used to open the file.</span>
 <a id="__codelineno-0-681" name="__codelineno-0-681"></a><span class="sd">        start_group: Optional GDAL group to traverse from instead</span>
-<a id="__codelineno-0-682" name="__codelineno-0-682"></a><span class="sd">            of the dataset&#39;s root group. A `NetCDF` group view</span>
+<a id="__codelineno-0-682" name="__codelineno-0-682"></a><span class="sd">            of the dataset's root group. A `NetCDF` group view</span>
 <a id="__codelineno-0-683" name="__codelineno-0-683"></a><span class="sd">            passes its working sub-group so the metadata is scoped</span>
 <a id="__codelineno-0-684" name="__codelineno-0-684"></a><span class="sd">            to that group (ARC-12). Ignored for string/path sources.</span>
 <a id="__codelineno-0-685" name="__codelineno-0-685"></a>
@@ -6712,23 +6712,23 @@ opened as a multidimensional raster.</p>
 <a id="__codelineno-0-696" name="__codelineno-0-696"></a><span class="sd">        &gt;&gt;&gt; from osgeo import gdal  # doctest: +SKIP</span>
 <a id="__codelineno-0-697" name="__codelineno-0-697"></a><span class="sd">        &gt;&gt;&gt; import pyramids.netcdf.metadata as meta  # doctest: +SKIP</span>
 <a id="__codelineno-0-698" name="__codelineno-0-698"></a><span class="sd">        &gt;&gt;&gt; md = meta.get_metadata(  # doctest: +SKIP</span>
-<a id="__codelineno-0-699" name="__codelineno-0-699"></a><span class="sd">        ...     &quot;precip.nc&quot;</span>
+<a id="__codelineno-0-699" name="__codelineno-0-699"></a><span class="sd">        ...     "precip.nc"</span>
 <a id="__codelineno-0-700" name="__codelineno-0-700"></a><span class="sd">        ... )</span>
 <a id="__codelineno-0-701" name="__codelineno-0-701"></a><span class="sd">        &gt;&gt;&gt; md.driver  # doctest: +SKIP</span>
-<a id="__codelineno-0-702" name="__codelineno-0-702"></a><span class="sd">        &#39;netCDF&#39;</span>
+<a id="__codelineno-0-702" name="__codelineno-0-702"></a><span class="sd">        'netCDF'</span>
 <a id="__codelineno-0-703" name="__codelineno-0-703"></a>
 <a id="__codelineno-0-704" name="__codelineno-0-704"></a><span class="sd">    See Also:</span>
 <a id="__codelineno-0-705" name="__codelineno-0-705"></a><span class="sd">        MetadataBuilder: The builder class used internally.</span>
-<a id="__codelineno-0-706" name="__codelineno-0-706"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-706" name="__codelineno-0-706"></a><span class="sd">    """</span>
 <a id="__codelineno-0-707" name="__codelineno-0-707"></a>    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="n">Path</span><span class="p">)):</span>
 <a id="__codelineno-0-708" name="__codelineno-0-708"></a>        <span class="n">ds</span> <span class="o">=</span> <span class="n">gdal</span><span class="o">.</span><span class="n">OpenEx</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">source</span><span class="p">),</span> <span class="n">gdal</span><span class="o">.</span><span class="n">OF_MULTIDIM_RASTER</span><span class="p">)</span>
 <a id="__codelineno-0-709" name="__codelineno-0-709"></a>        <span class="k">if</span> <span class="n">ds</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-710" name="__codelineno-0-710"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Could not open &#39;</span><span class="si">{</span><span class="n">source</span><span class="si">}</span><span class="s2">&#39; as multidimensional raster&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-710" name="__codelineno-0-710"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Could not open '</span><span class="si">{</span><span class="n">source</span><span class="si">}</span><span class="s2">' as multidimensional raster"</span><span class="p">)</span>
 <a id="__codelineno-0-711" name="__codelineno-0-711"></a>        <span class="n">builder</span> <span class="o">=</span> <span class="n">MetadataBuilder</span><span class="p">(</span><span class="n">ds</span><span class="p">,</span> <span class="n">open_options</span><span class="p">)</span>
 <a id="__codelineno-0-712" name="__codelineno-0-712"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">builder</span><span class="o">.</span><span class="n">build</span><span class="p">()</span>
 <a id="__codelineno-0-713" name="__codelineno-0-713"></a>        <span class="n">ds</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># close the temporary handle</span>
 <a id="__codelineno-0-714" name="__codelineno-0-714"></a>        <span class="k">return</span> <span class="n">result</span>
-<a id="__codelineno-0-715" name="__codelineno-0-715"></a>    <span class="k">elif</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="s2">&quot;_raster&quot;</span><span class="p">):</span>
+<a id="__codelineno-0-715" name="__codelineno-0-715"></a>    <span class="k">elif</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="s2">"_raster"</span><span class="p">):</span>
 <a id="__codelineno-0-716" name="__codelineno-0-716"></a>        <span class="n">builder</span> <span class="o">=</span> <span class="n">MetadataBuilder</span><span class="p">(</span><span class="n">source</span><span class="o">.</span><span class="n">_raster</span><span class="p">,</span> <span class="n">open_options</span><span class="p">,</span> <span class="n">start_group</span><span class="p">)</span>
 <a id="__codelineno-0-717" name="__codelineno-0-717"></a>        <span class="k">return</span> <span class="n">builder</span><span class="o">.</span><span class="n">build</span><span class="p">()</span>
 <a id="__codelineno-0-718" name="__codelineno-0-718"></a>    <span class="k">else</span><span class="p">:</span>
@@ -6824,20 +6824,20 @@ compact separators (no spaces after <code>,</code> or <code>:</code>).</p>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="gp">... </span>    <span class="n">NetCDFMetadata</span><span class="p">,</span> <span class="n">StructuralInfo</span><span class="p">,</span>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="gp">... </span><span class="p">)</span>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">md</span> <span class="o">=</span> <span class="n">NetCDFMetadata</span><span class="p">(</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="gp">... </span>    <span class="n">driver</span><span class="o">=</span><span class="s2">&quot;netCDF&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="gp">... </span>    <span class="n">root_group</span><span class="o">=</span><span class="s2">&quot;/&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="gp">... </span>    <span class="n">driver</span><span class="o">=</span><span class="s2">"netCDF"</span><span class="p">,</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="gp">... </span>    <span class="n">root_group</span><span class="o">=</span><span class="s2">"/"</span><span class="p">,</span>
 <a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="gp">... </span>    <span class="n">groups</span><span class="o">=</span><span class="p">{},</span>
 <a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="gp">... </span>    <span class="n">variables</span><span class="o">=</span><span class="p">{},</span>
 <a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="gp">... </span>    <span class="n">dimensions</span><span class="o">=</span><span class="p">{},</span>
 <a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="gp">... </span>    <span class="n">global_attributes</span><span class="o">=</span><span class="p">{},</span>
 <a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="gp">... </span>    <span class="n">structural</span><span class="o">=</span><span class="n">StructuralInfo</span><span class="p">(</span>
-<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="gp">... </span>        <span class="n">driver_name</span><span class="o">=</span><span class="s2">&quot;netCDF&quot;</span>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="gp">... </span>        <span class="n">driver_name</span><span class="o">=</span><span class="s2">"netCDF"</span>
 <a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="gp">... </span>    <span class="p">),</span>
-<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="gp">... </span>    <span class="n">created_with</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;library&quot;</span><span class="p">:</span> <span class="s2">&quot;GDAL&quot;</span><span class="p">},</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="gp">... </span>    <span class="n">created_with</span><span class="o">=</span><span class="p">{</span><span class="s2">"library"</span><span class="p">:</span> <span class="s2">"GDAL"</span><span class="p">},</span>
 <a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="gp">... </span><span class="p">)</span>
 <a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">s</span> <span class="o">=</span> <span class="n">to_json</span><span class="p">(</span><span class="n">md</span><span class="p">)</span>
-<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">s</span><span class="p">)[</span><span class="s2">&quot;driver&quot;</span><span class="p">]</span>
-<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="go">&#39;netCDF&#39;</span>
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">s</span><span class="p">)[</span><span class="s2">"driver"</span><span class="p">]</span>
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="go">'netCDF'</span>
 </code></pre></div>
 
 
@@ -6893,7 +6893,7 @@ from_json: Deserializes the string back to
 <span class="normal"><a href="#__codelineno-0-822">822</a></span>
 <span class="normal"><a href="#__codelineno-0-823">823</a></span>
 <span class="normal"><a href="#__codelineno-0-824">824</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-782" name="__codelineno-0-782"></a><span class="k">def</span><span class="w"> </span><span class="nf">to_json</span><span class="p">(</span><span class="n">metadata</span><span class="p">:</span> <span class="n">NetCDFMetadata</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<a id="__codelineno-0-783" name="__codelineno-0-783"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Serialize `NetCDFMetadata` to a compact JSON string.</span>
+<a id="__codelineno-0-783" name="__codelineno-0-783"></a><span class="w">    </span><span class="sd">"""Serialize `NetCDFMetadata` to a compact JSON string.</span>
 <a id="__codelineno-0-784" name="__codelineno-0-784"></a>
 <a id="__codelineno-0-785" name="__codelineno-0-785"></a><span class="sd">    Converts the dataclass tree to plain dicts via `to_dict`</span>
 <a id="__codelineno-0-786" name="__codelineno-0-786"></a><span class="sd">    and then encodes to JSON with no extra whitespace.</span>
@@ -6914,27 +6914,27 @@ from_json: Deserializes the string back to
 <a id="__codelineno-0-801" name="__codelineno-0-801"></a><span class="sd">        ...     NetCDFMetadata, StructuralInfo,</span>
 <a id="__codelineno-0-802" name="__codelineno-0-802"></a><span class="sd">        ... )</span>
 <a id="__codelineno-0-803" name="__codelineno-0-803"></a><span class="sd">        &gt;&gt;&gt; md = NetCDFMetadata(</span>
-<a id="__codelineno-0-804" name="__codelineno-0-804"></a><span class="sd">        ...     driver=&quot;netCDF&quot;,</span>
-<a id="__codelineno-0-805" name="__codelineno-0-805"></a><span class="sd">        ...     root_group=&quot;/&quot;,</span>
+<a id="__codelineno-0-804" name="__codelineno-0-804"></a><span class="sd">        ...     driver="netCDF",</span>
+<a id="__codelineno-0-805" name="__codelineno-0-805"></a><span class="sd">        ...     root_group="/",</span>
 <a id="__codelineno-0-806" name="__codelineno-0-806"></a><span class="sd">        ...     groups={},</span>
 <a id="__codelineno-0-807" name="__codelineno-0-807"></a><span class="sd">        ...     variables={},</span>
 <a id="__codelineno-0-808" name="__codelineno-0-808"></a><span class="sd">        ...     dimensions={},</span>
 <a id="__codelineno-0-809" name="__codelineno-0-809"></a><span class="sd">        ...     global_attributes={},</span>
 <a id="__codelineno-0-810" name="__codelineno-0-810"></a><span class="sd">        ...     structural=StructuralInfo(</span>
-<a id="__codelineno-0-811" name="__codelineno-0-811"></a><span class="sd">        ...         driver_name=&quot;netCDF&quot;</span>
+<a id="__codelineno-0-811" name="__codelineno-0-811"></a><span class="sd">        ...         driver_name="netCDF"</span>
 <a id="__codelineno-0-812" name="__codelineno-0-812"></a><span class="sd">        ...     ),</span>
-<a id="__codelineno-0-813" name="__codelineno-0-813"></a><span class="sd">        ...     created_with={&quot;library&quot;: &quot;GDAL&quot;},</span>
+<a id="__codelineno-0-813" name="__codelineno-0-813"></a><span class="sd">        ...     created_with={"library": "GDAL"},</span>
 <a id="__codelineno-0-814" name="__codelineno-0-814"></a><span class="sd">        ... )</span>
 <a id="__codelineno-0-815" name="__codelineno-0-815"></a><span class="sd">        &gt;&gt;&gt; s = to_json(md)</span>
-<a id="__codelineno-0-816" name="__codelineno-0-816"></a><span class="sd">        &gt;&gt;&gt; json.loads(s)[&quot;driver&quot;]</span>
-<a id="__codelineno-0-817" name="__codelineno-0-817"></a><span class="sd">        &#39;netCDF&#39;</span>
+<a id="__codelineno-0-816" name="__codelineno-0-816"></a><span class="sd">        &gt;&gt;&gt; json.loads(s)["driver"]</span>
+<a id="__codelineno-0-817" name="__codelineno-0-817"></a><span class="sd">        'netCDF'</span>
 <a id="__codelineno-0-818" name="__codelineno-0-818"></a>
 <a id="__codelineno-0-819" name="__codelineno-0-819"></a><span class="sd">    See Also:</span>
 <a id="__codelineno-0-820" name="__codelineno-0-820"></a><span class="sd">        to_dict: Converts to plain dicts without JSON encoding.</span>
 <a id="__codelineno-0-821" name="__codelineno-0-821"></a><span class="sd">        from_json: Deserializes the string back to</span>
 <a id="__codelineno-0-822" name="__codelineno-0-822"></a><span class="sd">            `NetCDFMetadata`.</span>
-<a id="__codelineno-0-823" name="__codelineno-0-823"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-824" name="__codelineno-0-824"></a>    <span class="k">return</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">to_dict</span><span class="p">(</span><span class="n">metadata</span><span class="p">),</span> <span class="n">ensure_ascii</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">separators</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;,&quot;</span><span class="p">,</span> <span class="s2">&quot;:&quot;</span><span class="p">))</span>
+<a id="__codelineno-0-823" name="__codelineno-0-823"></a><span class="sd">    """</span>
+<a id="__codelineno-0-824" name="__codelineno-0-824"></a>    <span class="k">return</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">to_dict</span><span class="p">(</span><span class="n">metadata</span><span class="p">),</span> <span class="n">ensure_ascii</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">separators</span><span class="o">=</span><span class="p">(</span><span class="s2">","</span><span class="p">,</span> <span class="s2">":"</span><span class="p">))</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -7063,23 +7063,23 @@ JSON payload.</p>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="gp">... </span>    <span class="n">NetCDFMetadata</span><span class="p">,</span> <span class="n">StructuralInfo</span><span class="p">,</span>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="gp">... </span><span class="p">)</span>
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">md</span> <span class="o">=</span> <span class="n">NetCDFMetadata</span><span class="p">(</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="gp">... </span>    <span class="n">driver</span><span class="o">=</span><span class="s2">&quot;netCDF&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="gp">... </span>    <span class="n">root_group</span><span class="o">=</span><span class="s2">&quot;/&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="gp">... </span>    <span class="n">driver</span><span class="o">=</span><span class="s2">"netCDF"</span><span class="p">,</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="gp">... </span>    <span class="n">root_group</span><span class="o">=</span><span class="s2">"/"</span><span class="p">,</span>
 <a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="gp">... </span>    <span class="n">groups</span><span class="o">=</span><span class="p">{},</span>
 <a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="gp">... </span>    <span class="n">variables</span><span class="o">=</span><span class="p">{},</span>
 <a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="gp">... </span>    <span class="n">dimensions</span><span class="o">=</span><span class="p">{},</span>
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="gp">... </span>    <span class="n">global_attributes</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;history&quot;</span><span class="p">:</span> <span class="s2">&quot;created&quot;</span><span class="p">},</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="gp">... </span>    <span class="n">global_attributes</span><span class="o">=</span><span class="p">{</span><span class="s2">"history"</span><span class="p">:</span> <span class="s2">"created"</span><span class="p">},</span>
 <a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="gp">... </span>    <span class="n">structural</span><span class="o">=</span><span class="n">StructuralInfo</span><span class="p">(</span>
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="gp">... </span>        <span class="n">driver_name</span><span class="o">=</span><span class="s2">&quot;netCDF&quot;</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="gp">... </span>        <span class="n">driver_name</span><span class="o">=</span><span class="s2">"netCDF"</span>
 <a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="gp">... </span>    <span class="p">),</span>
-<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="gp">... </span>    <span class="n">created_with</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;library&quot;</span><span class="p">:</span> <span class="s2">&quot;GDAL&quot;</span><span class="p">},</span>
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="gp">... </span>    <span class="n">created_with</span><span class="o">=</span><span class="p">{</span><span class="s2">"library"</span><span class="p">:</span> <span class="s2">"GDAL"</span><span class="p">},</span>
 <a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="gp">... </span><span class="p">)</span>
 <a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">s</span> <span class="o">=</span> <span class="n">to_json</span><span class="p">(</span><span class="n">md</span><span class="p">)</span>
 <a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">restored</span> <span class="o">=</span> <span class="n">from_json</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
 <a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">restored</span><span class="o">.</span><span class="n">driver</span>
-<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="go">&#39;netCDF&#39;</span>
-<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">restored</span><span class="o">.</span><span class="n">global_attributes</span><span class="p">[</span><span class="s2">&quot;history&quot;</span><span class="p">]</span>
-<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a><span class="go">&#39;created&#39;</span>
+<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="go">'netCDF'</span>
+<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">restored</span><span class="o">.</span><span class="n">global_attributes</span><span class="p">[</span><span class="s2">"history"</span><span class="p">]</span>
+<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a><span class="go">'created'</span>
 </code></pre></div>
 
 
@@ -7228,7 +7228,7 @@ JSON payload.</p>
 <span class="normal"><a href="#__codelineno-0-962">962</a></span>
 <span class="normal"><a href="#__codelineno-0-963">963</a></span>
 <span class="normal"><a href="#__codelineno-0-964">964</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-827" name="__codelineno-0-827"></a><span class="k">def</span><span class="w"> </span><span class="nf">from_json</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">NetCDFMetadata</span><span class="p">:</span>
-<a id="__codelineno-0-828" name="__codelineno-0-828"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Deserialize `NetCDFMetadata` from a JSON string.</span>
+<a id="__codelineno-0-828" name="__codelineno-0-828"></a><span class="w">    </span><span class="sd">"""Deserialize `NetCDFMetadata` from a JSON string.</span>
 <a id="__codelineno-0-829" name="__codelineno-0-829"></a>
 <a id="__codelineno-0-830" name="__codelineno-0-830"></a><span class="sd">    Parses the JSON produced by `to_json` and manually</span>
 <a id="__codelineno-0-831" name="__codelineno-0-831"></a><span class="sd">    reconstructs the dataclass hierarchy (`GroupInfo`,</span>
@@ -7259,68 +7259,68 @@ JSON payload.</p>
 <a id="__codelineno-0-856" name="__codelineno-0-856"></a><span class="sd">        ...     NetCDFMetadata, StructuralInfo,</span>
 <a id="__codelineno-0-857" name="__codelineno-0-857"></a><span class="sd">        ... )</span>
 <a id="__codelineno-0-858" name="__codelineno-0-858"></a><span class="sd">        &gt;&gt;&gt; md = NetCDFMetadata(</span>
-<a id="__codelineno-0-859" name="__codelineno-0-859"></a><span class="sd">        ...     driver=&quot;netCDF&quot;,</span>
-<a id="__codelineno-0-860" name="__codelineno-0-860"></a><span class="sd">        ...     root_group=&quot;/&quot;,</span>
+<a id="__codelineno-0-859" name="__codelineno-0-859"></a><span class="sd">        ...     driver="netCDF",</span>
+<a id="__codelineno-0-860" name="__codelineno-0-860"></a><span class="sd">        ...     root_group="/",</span>
 <a id="__codelineno-0-861" name="__codelineno-0-861"></a><span class="sd">        ...     groups={},</span>
 <a id="__codelineno-0-862" name="__codelineno-0-862"></a><span class="sd">        ...     variables={},</span>
 <a id="__codelineno-0-863" name="__codelineno-0-863"></a><span class="sd">        ...     dimensions={},</span>
-<a id="__codelineno-0-864" name="__codelineno-0-864"></a><span class="sd">        ...     global_attributes={&quot;history&quot;: &quot;created&quot;},</span>
+<a id="__codelineno-0-864" name="__codelineno-0-864"></a><span class="sd">        ...     global_attributes={"history": "created"},</span>
 <a id="__codelineno-0-865" name="__codelineno-0-865"></a><span class="sd">        ...     structural=StructuralInfo(</span>
-<a id="__codelineno-0-866" name="__codelineno-0-866"></a><span class="sd">        ...         driver_name=&quot;netCDF&quot;</span>
+<a id="__codelineno-0-866" name="__codelineno-0-866"></a><span class="sd">        ...         driver_name="netCDF"</span>
 <a id="__codelineno-0-867" name="__codelineno-0-867"></a><span class="sd">        ...     ),</span>
-<a id="__codelineno-0-868" name="__codelineno-0-868"></a><span class="sd">        ...     created_with={&quot;library&quot;: &quot;GDAL&quot;},</span>
+<a id="__codelineno-0-868" name="__codelineno-0-868"></a><span class="sd">        ...     created_with={"library": "GDAL"},</span>
 <a id="__codelineno-0-869" name="__codelineno-0-869"></a><span class="sd">        ... )</span>
 <a id="__codelineno-0-870" name="__codelineno-0-870"></a><span class="sd">        &gt;&gt;&gt; s = to_json(md)</span>
 <a id="__codelineno-0-871" name="__codelineno-0-871"></a><span class="sd">        &gt;&gt;&gt; restored = from_json(s)</span>
 <a id="__codelineno-0-872" name="__codelineno-0-872"></a><span class="sd">        &gt;&gt;&gt; restored.driver</span>
-<a id="__codelineno-0-873" name="__codelineno-0-873"></a><span class="sd">        &#39;netCDF&#39;</span>
-<a id="__codelineno-0-874" name="__codelineno-0-874"></a><span class="sd">        &gt;&gt;&gt; restored.global_attributes[&quot;history&quot;]</span>
-<a id="__codelineno-0-875" name="__codelineno-0-875"></a><span class="sd">        &#39;created&#39;</span>
+<a id="__codelineno-0-873" name="__codelineno-0-873"></a><span class="sd">        'netCDF'</span>
+<a id="__codelineno-0-874" name="__codelineno-0-874"></a><span class="sd">        &gt;&gt;&gt; restored.global_attributes["history"]</span>
+<a id="__codelineno-0-875" name="__codelineno-0-875"></a><span class="sd">        'created'</span>
 <a id="__codelineno-0-876" name="__codelineno-0-876"></a>
 <a id="__codelineno-0-877" name="__codelineno-0-877"></a><span class="sd">    See Also:</span>
 <a id="__codelineno-0-878" name="__codelineno-0-878"></a><span class="sd">        to_json: The serialization counterpart.</span>
-<a id="__codelineno-0-879" name="__codelineno-0-879"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-879" name="__codelineno-0-879"></a><span class="sd">    """</span>
 <a id="__codelineno-0-880" name="__codelineno-0-880"></a>    <span class="n">d</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
 <a id="__codelineno-0-881" name="__codelineno-0-881"></a>
 <a id="__codelineno-0-882" name="__codelineno-0-882"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">build_group</span><span class="p">(</span><span class="n">gd</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">GroupInfo</span><span class="p">:</span>
 <a id="__codelineno-0-883" name="__codelineno-0-883"></a>        <span class="k">return</span> <span class="n">GroupInfo</span><span class="p">(</span>
-<a id="__codelineno-0-884" name="__codelineno-0-884"></a>            <span class="n">name</span><span class="o">=</span><span class="n">gd</span><span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">],</span>
-<a id="__codelineno-0-885" name="__codelineno-0-885"></a>            <span class="n">full_name</span><span class="o">=</span><span class="n">gd</span><span class="p">[</span><span class="s2">&quot;full_name&quot;</span><span class="p">],</span>
-<a id="__codelineno-0-886" name="__codelineno-0-886"></a>            <span class="n">attributes</span><span class="o">=</span><span class="n">gd</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;attributes&quot;</span><span class="p">,</span> <span class="p">{}),</span>
-<a id="__codelineno-0-887" name="__codelineno-0-887"></a>            <span class="n">children</span><span class="o">=</span><span class="n">gd</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;children&quot;</span><span class="p">,</span> <span class="p">[]),</span>
-<a id="__codelineno-0-888" name="__codelineno-0-888"></a>            <span class="n">variables</span><span class="o">=</span><span class="n">gd</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;variables&quot;</span><span class="p">,</span> <span class="p">[]),</span>
+<a id="__codelineno-0-884" name="__codelineno-0-884"></a>            <span class="n">name</span><span class="o">=</span><span class="n">gd</span><span class="p">[</span><span class="s2">"name"</span><span class="p">],</span>
+<a id="__codelineno-0-885" name="__codelineno-0-885"></a>            <span class="n">full_name</span><span class="o">=</span><span class="n">gd</span><span class="p">[</span><span class="s2">"full_name"</span><span class="p">],</span>
+<a id="__codelineno-0-886" name="__codelineno-0-886"></a>            <span class="n">attributes</span><span class="o">=</span><span class="n">gd</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"attributes"</span><span class="p">,</span> <span class="p">{}),</span>
+<a id="__codelineno-0-887" name="__codelineno-0-887"></a>            <span class="n">children</span><span class="o">=</span><span class="n">gd</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"children"</span><span class="p">,</span> <span class="p">[]),</span>
+<a id="__codelineno-0-888" name="__codelineno-0-888"></a>            <span class="n">variables</span><span class="o">=</span><span class="n">gd</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"variables"</span><span class="p">,</span> <span class="p">[]),</span>
 <a id="__codelineno-0-889" name="__codelineno-0-889"></a>        <span class="p">)</span>
 <a id="__codelineno-0-890" name="__codelineno-0-890"></a>
 <a id="__codelineno-0-891" name="__codelineno-0-891"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">build_dim</span><span class="p">(</span><span class="n">dd</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">DimensionInfo</span><span class="p">:</span>
 <a id="__codelineno-0-892" name="__codelineno-0-892"></a>        <span class="k">return</span> <span class="n">DimensionInfo</span><span class="p">(</span>
-<a id="__codelineno-0-893" name="__codelineno-0-893"></a>            <span class="n">name</span><span class="o">=</span><span class="n">dd</span><span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">],</span>
-<a id="__codelineno-0-894" name="__codelineno-0-894"></a>            <span class="n">full_name</span><span class="o">=</span><span class="n">dd</span><span class="p">[</span><span class="s2">&quot;full_name&quot;</span><span class="p">],</span>
-<a id="__codelineno-0-895" name="__codelineno-0-895"></a>            <span class="n">size</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">dd</span><span class="p">[</span><span class="s2">&quot;size&quot;</span><span class="p">]),</span>
-<a id="__codelineno-0-896" name="__codelineno-0-896"></a>            <span class="nb">type</span><span class="o">=</span><span class="n">dd</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;type&quot;</span><span class="p">),</span>
-<a id="__codelineno-0-897" name="__codelineno-0-897"></a>            <span class="n">direction</span><span class="o">=</span><span class="n">dd</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;direction&quot;</span><span class="p">),</span>
-<a id="__codelineno-0-898" name="__codelineno-0-898"></a>            <span class="n">indexing_variable</span><span class="o">=</span><span class="n">dd</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;indexing_variable&quot;</span><span class="p">),</span>
-<a id="__codelineno-0-899" name="__codelineno-0-899"></a>            <span class="n">attrs</span><span class="o">=</span><span class="n">dd</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;attrs&quot;</span><span class="p">,</span> <span class="p">{}),</span>
+<a id="__codelineno-0-893" name="__codelineno-0-893"></a>            <span class="n">name</span><span class="o">=</span><span class="n">dd</span><span class="p">[</span><span class="s2">"name"</span><span class="p">],</span>
+<a id="__codelineno-0-894" name="__codelineno-0-894"></a>            <span class="n">full_name</span><span class="o">=</span><span class="n">dd</span><span class="p">[</span><span class="s2">"full_name"</span><span class="p">],</span>
+<a id="__codelineno-0-895" name="__codelineno-0-895"></a>            <span class="n">size</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">dd</span><span class="p">[</span><span class="s2">"size"</span><span class="p">]),</span>
+<a id="__codelineno-0-896" name="__codelineno-0-896"></a>            <span class="nb">type</span><span class="o">=</span><span class="n">dd</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"type"</span><span class="p">),</span>
+<a id="__codelineno-0-897" name="__codelineno-0-897"></a>            <span class="n">direction</span><span class="o">=</span><span class="n">dd</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"direction"</span><span class="p">),</span>
+<a id="__codelineno-0-898" name="__codelineno-0-898"></a>            <span class="n">indexing_variable</span><span class="o">=</span><span class="n">dd</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"indexing_variable"</span><span class="p">),</span>
+<a id="__codelineno-0-899" name="__codelineno-0-899"></a>            <span class="n">attrs</span><span class="o">=</span><span class="n">dd</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"attrs"</span><span class="p">,</span> <span class="p">{}),</span>
 <a id="__codelineno-0-900" name="__codelineno-0-900"></a>        <span class="p">)</span>
 <a id="__codelineno-0-901" name="__codelineno-0-901"></a>
 <a id="__codelineno-0-902" name="__codelineno-0-902"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">build_array</span><span class="p">(</span><span class="n">ad</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">VariableInfo</span><span class="p">:</span>
 <a id="__codelineno-0-903" name="__codelineno-0-903"></a>        <span class="k">return</span> <span class="n">VariableInfo</span><span class="p">(</span>
-<a id="__codelineno-0-904" name="__codelineno-0-904"></a>            <span class="n">name</span><span class="o">=</span><span class="n">ad</span><span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">],</span>
-<a id="__codelineno-0-905" name="__codelineno-0-905"></a>            <span class="n">full_name</span><span class="o">=</span><span class="n">ad</span><span class="p">[</span><span class="s2">&quot;full_name&quot;</span><span class="p">],</span>
-<a id="__codelineno-0-906" name="__codelineno-0-906"></a>            <span class="n">dtype</span><span class="o">=</span><span class="n">ad</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;dtype&quot;</span><span class="p">,</span> <span class="s2">&quot;unknown&quot;</span><span class="p">),</span>
-<a id="__codelineno-0-907" name="__codelineno-0-907"></a>            <span class="n">shape</span><span class="o">=</span><span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">ad</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;shape&quot;</span><span class="p">,</span> <span class="p">[])],</span>
-<a id="__codelineno-0-908" name="__codelineno-0-908"></a>            <span class="n">dimensions</span><span class="o">=</span><span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">ad</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;dimensions&quot;</span><span class="p">,</span> <span class="p">[])],</span>
-<a id="__codelineno-0-909" name="__codelineno-0-909"></a>            <span class="n">attributes</span><span class="o">=</span><span class="n">ad</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;attributes&quot;</span><span class="p">,</span> <span class="p">{}),</span>
-<a id="__codelineno-0-910" name="__codelineno-0-910"></a>            <span class="n">unit</span><span class="o">=</span><span class="n">ad</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;unit&quot;</span><span class="p">),</span>
-<a id="__codelineno-0-911" name="__codelineno-0-911"></a>            <span class="n">nodata</span><span class="o">=</span><span class="n">ad</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;nodata&quot;</span><span class="p">),</span>
-<a id="__codelineno-0-912" name="__codelineno-0-912"></a>            <span class="n">scale</span><span class="o">=</span><span class="n">ad</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;scale&quot;</span><span class="p">),</span>
-<a id="__codelineno-0-913" name="__codelineno-0-913"></a>            <span class="n">offset</span><span class="o">=</span><span class="n">ad</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;offset&quot;</span><span class="p">),</span>
-<a id="__codelineno-0-914" name="__codelineno-0-914"></a>            <span class="n">srs_wkt</span><span class="o">=</span><span class="n">ad</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;srs_wkt&quot;</span><span class="p">),</span>
-<a id="__codelineno-0-915" name="__codelineno-0-915"></a>            <span class="n">srs_projjson</span><span class="o">=</span><span class="n">ad</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;srs_projjson&quot;</span><span class="p">),</span>
-<a id="__codelineno-0-916" name="__codelineno-0-916"></a>            <span class="n">coordinate_variables</span><span class="o">=</span><span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">ad</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;coordinate_variables&quot;</span><span class="p">,</span> <span class="p">[])],</span>
-<a id="__codelineno-0-917" name="__codelineno-0-917"></a>            <span class="n">structural_info</span><span class="o">=</span><span class="n">ad</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;structural_info&quot;</span><span class="p">),</span>
+<a id="__codelineno-0-904" name="__codelineno-0-904"></a>            <span class="n">name</span><span class="o">=</span><span class="n">ad</span><span class="p">[</span><span class="s2">"name"</span><span class="p">],</span>
+<a id="__codelineno-0-905" name="__codelineno-0-905"></a>            <span class="n">full_name</span><span class="o">=</span><span class="n">ad</span><span class="p">[</span><span class="s2">"full_name"</span><span class="p">],</span>
+<a id="__codelineno-0-906" name="__codelineno-0-906"></a>            <span class="n">dtype</span><span class="o">=</span><span class="n">ad</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"dtype"</span><span class="p">,</span> <span class="s2">"unknown"</span><span class="p">),</span>
+<a id="__codelineno-0-907" name="__codelineno-0-907"></a>            <span class="n">shape</span><span class="o">=</span><span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">ad</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"shape"</span><span class="p">,</span> <span class="p">[])],</span>
+<a id="__codelineno-0-908" name="__codelineno-0-908"></a>            <span class="n">dimensions</span><span class="o">=</span><span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">ad</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"dimensions"</span><span class="p">,</span> <span class="p">[])],</span>
+<a id="__codelineno-0-909" name="__codelineno-0-909"></a>            <span class="n">attributes</span><span class="o">=</span><span class="n">ad</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"attributes"</span><span class="p">,</span> <span class="p">{}),</span>
+<a id="__codelineno-0-910" name="__codelineno-0-910"></a>            <span class="n">unit</span><span class="o">=</span><span class="n">ad</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"unit"</span><span class="p">),</span>
+<a id="__codelineno-0-911" name="__codelineno-0-911"></a>            <span class="n">nodata</span><span class="o">=</span><span class="n">ad</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"nodata"</span><span class="p">),</span>
+<a id="__codelineno-0-912" name="__codelineno-0-912"></a>            <span class="n">scale</span><span class="o">=</span><span class="n">ad</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"scale"</span><span class="p">),</span>
+<a id="__codelineno-0-913" name="__codelineno-0-913"></a>            <span class="n">offset</span><span class="o">=</span><span class="n">ad</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"offset"</span><span class="p">),</span>
+<a id="__codelineno-0-914" name="__codelineno-0-914"></a>            <span class="n">srs_wkt</span><span class="o">=</span><span class="n">ad</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"srs_wkt"</span><span class="p">),</span>
+<a id="__codelineno-0-915" name="__codelineno-0-915"></a>            <span class="n">srs_projjson</span><span class="o">=</span><span class="n">ad</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"srs_projjson"</span><span class="p">),</span>
+<a id="__codelineno-0-916" name="__codelineno-0-916"></a>            <span class="n">coordinate_variables</span><span class="o">=</span><span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">ad</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"coordinate_variables"</span><span class="p">,</span> <span class="p">[])],</span>
+<a id="__codelineno-0-917" name="__codelineno-0-917"></a>            <span class="n">structural_info</span><span class="o">=</span><span class="n">ad</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"structural_info"</span><span class="p">),</span>
 <a id="__codelineno-0-918" name="__codelineno-0-918"></a>            <span class="n">block_size</span><span class="o">=</span><span class="p">(</span>
-<a id="__codelineno-0-919" name="__codelineno-0-919"></a>                <span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">ad</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;block_size&quot;</span><span class="p">,</span> <span class="p">[])]</span>
-<a id="__codelineno-0-920" name="__codelineno-0-920"></a>                <span class="k">if</span> <span class="n">ad</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;block_size&quot;</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+<a id="__codelineno-0-919" name="__codelineno-0-919"></a>                <span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">ad</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"block_size"</span><span class="p">,</span> <span class="p">[])]</span>
+<a id="__codelineno-0-920" name="__codelineno-0-920"></a>                <span class="k">if</span> <span class="n">ad</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"block_size"</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
 <a id="__codelineno-0-921" name="__codelineno-0-921"></a>                <span class="k">else</span> <span class="kc">None</span>
 <a id="__codelineno-0-922" name="__codelineno-0-922"></a>            <span class="p">),</span>
 <a id="__codelineno-0-923" name="__codelineno-0-923"></a>        <span class="p">)</span>
@@ -7331,39 +7331,39 @@ JSON payload.</p>
 <a id="__codelineno-0-928" name="__codelineno-0-928"></a>        <span class="k">if</span> <span class="n">cd</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
 <a id="__codelineno-0-929" name="__codelineno-0-929"></a>            <span class="k">return</span> <span class="kc">None</span>
 <a id="__codelineno-0-930" name="__codelineno-0-930"></a>        <span class="k">return</span> <span class="n">CFInfo</span><span class="p">(</span>
-<a id="__codelineno-0-931" name="__codelineno-0-931"></a>            <span class="n">cf_version</span><span class="o">=</span><span class="n">cd</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;cf_version&quot;</span><span class="p">),</span>
-<a id="__codelineno-0-932" name="__codelineno-0-932"></a>            <span class="n">conventions</span><span class="o">=</span><span class="n">cd</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;conventions&quot;</span><span class="p">,</span> <span class="p">{}),</span>
-<a id="__codelineno-0-933" name="__codelineno-0-933"></a>            <span class="n">classifications</span><span class="o">=</span><span class="n">cd</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;classifications&quot;</span><span class="p">,</span> <span class="p">{}),</span>
-<a id="__codelineno-0-934" name="__codelineno-0-934"></a>            <span class="n">grid_mappings</span><span class="o">=</span><span class="n">cd</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;grid_mappings&quot;</span><span class="p">,</span> <span class="p">{}),</span>
-<a id="__codelineno-0-935" name="__codelineno-0-935"></a>            <span class="n">bounds_map</span><span class="o">=</span><span class="n">cd</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;bounds_map&quot;</span><span class="p">,</span> <span class="p">{}),</span>
-<a id="__codelineno-0-936" name="__codelineno-0-936"></a>            <span class="n">data_variable_names</span><span class="o">=</span><span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">cd</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;data_variable_names&quot;</span><span class="p">,</span> <span class="p">[])],</span>
+<a id="__codelineno-0-931" name="__codelineno-0-931"></a>            <span class="n">cf_version</span><span class="o">=</span><span class="n">cd</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"cf_version"</span><span class="p">),</span>
+<a id="__codelineno-0-932" name="__codelineno-0-932"></a>            <span class="n">conventions</span><span class="o">=</span><span class="n">cd</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"conventions"</span><span class="p">,</span> <span class="p">{}),</span>
+<a id="__codelineno-0-933" name="__codelineno-0-933"></a>            <span class="n">classifications</span><span class="o">=</span><span class="n">cd</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"classifications"</span><span class="p">,</span> <span class="p">{}),</span>
+<a id="__codelineno-0-934" name="__codelineno-0-934"></a>            <span class="n">grid_mappings</span><span class="o">=</span><span class="n">cd</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"grid_mappings"</span><span class="p">,</span> <span class="p">{}),</span>
+<a id="__codelineno-0-935" name="__codelineno-0-935"></a>            <span class="n">bounds_map</span><span class="o">=</span><span class="n">cd</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"bounds_map"</span><span class="p">,</span> <span class="p">{}),</span>
+<a id="__codelineno-0-936" name="__codelineno-0-936"></a>            <span class="n">data_variable_names</span><span class="o">=</span><span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">cd</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"data_variable_names"</span><span class="p">,</span> <span class="p">[])],</span>
 <a id="__codelineno-0-937" name="__codelineno-0-937"></a>        <span class="p">)</span>
 <a id="__codelineno-0-938" name="__codelineno-0-938"></a>
-<a id="__codelineno-0-939" name="__codelineno-0-939"></a>    <span class="n">groups</span> <span class="o">=</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">build_group</span><span class="p">(</span><span class="n">v</span><span class="p">)</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">d</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;groups&quot;</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
-<a id="__codelineno-0-940" name="__codelineno-0-940"></a>    <span class="n">variables</span> <span class="o">=</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">build_array</span><span class="p">(</span><span class="n">v</span><span class="p">)</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">d</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;variables&quot;</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
-<a id="__codelineno-0-941" name="__codelineno-0-941"></a>    <span class="n">dims</span> <span class="o">=</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">build_dim</span><span class="p">(</span><span class="n">v</span><span class="p">)</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">d</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;dimensions&quot;</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+<a id="__codelineno-0-939" name="__codelineno-0-939"></a>    <span class="n">groups</span> <span class="o">=</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">build_group</span><span class="p">(</span><span class="n">v</span><span class="p">)</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">d</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"groups"</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+<a id="__codelineno-0-940" name="__codelineno-0-940"></a>    <span class="n">variables</span> <span class="o">=</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">build_array</span><span class="p">(</span><span class="n">v</span><span class="p">)</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">d</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"variables"</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+<a id="__codelineno-0-941" name="__codelineno-0-941"></a>    <span class="n">dims</span> <span class="o">=</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">build_dim</span><span class="p">(</span><span class="n">v</span><span class="p">)</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">d</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"dimensions"</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
 <a id="__codelineno-0-942" name="__codelineno-0-942"></a>
-<a id="__codelineno-0-943" name="__codelineno-0-943"></a>    <span class="n">structural</span> <span class="o">=</span> <span class="n">d</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;structural&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-943" name="__codelineno-0-943"></a>    <span class="n">structural</span> <span class="o">=</span> <span class="n">d</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"structural"</span><span class="p">)</span>
 <a id="__codelineno-0-944" name="__codelineno-0-944"></a>    <span class="n">structural_obj</span> <span class="o">=</span> <span class="p">(</span>
 <a id="__codelineno-0-945" name="__codelineno-0-945"></a>        <span class="n">StructuralInfo</span><span class="p">(</span>
-<a id="__codelineno-0-946" name="__codelineno-0-946"></a>            <span class="n">driver_name</span><span class="o">=</span><span class="n">structural</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;driver_name&quot;</span><span class="p">,</span> <span class="s2">&quot;UNKNOWN&quot;</span><span class="p">),</span>
-<a id="__codelineno-0-947" name="__codelineno-0-947"></a>            <span class="n">driver_metadata</span><span class="o">=</span><span class="n">structural</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;driver_metadata&quot;</span><span class="p">),</span>
+<a id="__codelineno-0-946" name="__codelineno-0-946"></a>            <span class="n">driver_name</span><span class="o">=</span><span class="n">structural</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"driver_name"</span><span class="p">,</span> <span class="s2">"UNKNOWN"</span><span class="p">),</span>
+<a id="__codelineno-0-947" name="__codelineno-0-947"></a>            <span class="n">driver_metadata</span><span class="o">=</span><span class="n">structural</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"driver_metadata"</span><span class="p">),</span>
 <a id="__codelineno-0-948" name="__codelineno-0-948"></a>        <span class="p">)</span>
 <a id="__codelineno-0-949" name="__codelineno-0-949"></a>        <span class="k">if</span> <span class="n">structural</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
 <a id="__codelineno-0-950" name="__codelineno-0-950"></a>        <span class="k">else</span> <span class="kc">None</span>
 <a id="__codelineno-0-951" name="__codelineno-0-951"></a>    <span class="p">)</span>
 <a id="__codelineno-0-952" name="__codelineno-0-952"></a>
 <a id="__codelineno-0-953" name="__codelineno-0-953"></a>    <span class="k">return</span> <span class="n">NetCDFMetadata</span><span class="p">(</span>
-<a id="__codelineno-0-954" name="__codelineno-0-954"></a>        <span class="n">driver</span><span class="o">=</span><span class="n">d</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;driver&quot;</span><span class="p">,</span> <span class="s2">&quot;UNKNOWN&quot;</span><span class="p">),</span>
-<a id="__codelineno-0-955" name="__codelineno-0-955"></a>        <span class="n">root_group</span><span class="o">=</span><span class="n">d</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;root_group&quot;</span><span class="p">),</span>
+<a id="__codelineno-0-954" name="__codelineno-0-954"></a>        <span class="n">driver</span><span class="o">=</span><span class="n">d</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"driver"</span><span class="p">,</span> <span class="s2">"UNKNOWN"</span><span class="p">),</span>
+<a id="__codelineno-0-955" name="__codelineno-0-955"></a>        <span class="n">root_group</span><span class="o">=</span><span class="n">d</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"root_group"</span><span class="p">),</span>
 <a id="__codelineno-0-956" name="__codelineno-0-956"></a>        <span class="n">groups</span><span class="o">=</span><span class="n">groups</span><span class="p">,</span>
 <a id="__codelineno-0-957" name="__codelineno-0-957"></a>        <span class="n">variables</span><span class="o">=</span><span class="n">variables</span><span class="p">,</span>
 <a id="__codelineno-0-958" name="__codelineno-0-958"></a>        <span class="n">dimensions</span><span class="o">=</span><span class="n">dims</span><span class="p">,</span>
-<a id="__codelineno-0-959" name="__codelineno-0-959"></a>        <span class="n">global_attributes</span><span class="o">=</span><span class="n">d</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;global_attributes&quot;</span><span class="p">,</span> <span class="p">{}),</span>
+<a id="__codelineno-0-959" name="__codelineno-0-959"></a>        <span class="n">global_attributes</span><span class="o">=</span><span class="n">d</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"global_attributes"</span><span class="p">,</span> <span class="p">{}),</span>
 <a id="__codelineno-0-960" name="__codelineno-0-960"></a>        <span class="n">structural</span><span class="o">=</span><span class="n">structural_obj</span><span class="p">,</span>
-<a id="__codelineno-0-961" name="__codelineno-0-961"></a>        <span class="n">cf</span><span class="o">=</span><span class="n">build_cf</span><span class="p">(</span><span class="n">d</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;cf&quot;</span><span class="p">)),</span>
-<a id="__codelineno-0-962" name="__codelineno-0-962"></a>        <span class="n">open_options_used</span><span class="o">=</span><span class="n">d</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;open_options_used&quot;</span><span class="p">),</span>
-<a id="__codelineno-0-963" name="__codelineno-0-963"></a>        <span class="n">created_with</span><span class="o">=</span><span class="n">d</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;created_with&quot;</span><span class="p">,</span> <span class="p">{}),</span>
+<a id="__codelineno-0-961" name="__codelineno-0-961"></a>        <span class="n">cf</span><span class="o">=</span><span class="n">build_cf</span><span class="p">(</span><span class="n">d</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"cf"</span><span class="p">)),</span>
+<a id="__codelineno-0-962" name="__codelineno-0-962"></a>        <span class="n">open_options_used</span><span class="o">=</span><span class="n">d</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"open_options_used"</span><span class="p">),</span>
+<a id="__codelineno-0-963" name="__codelineno-0-963"></a>        <span class="n">created_with</span><span class="o">=</span><span class="n">d</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"created_with"</span><span class="p">,</span> <span class="p">{}),</span>
 <a id="__codelineno-0-964" name="__codelineno-0-964"></a>    <span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
@@ -7455,24 +7455,24 @@ converted to plain dicts.</p>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="gp">... </span>    <span class="n">NetCDFMetadata</span><span class="p">,</span> <span class="n">StructuralInfo</span><span class="p">,</span>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="gp">... </span><span class="p">)</span>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">md</span> <span class="o">=</span> <span class="n">NetCDFMetadata</span><span class="p">(</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="gp">... </span>    <span class="n">driver</span><span class="o">=</span><span class="s2">&quot;netCDF&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="gp">... </span>    <span class="n">root_group</span><span class="o">=</span><span class="s2">&quot;/&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="gp">... </span>    <span class="n">driver</span><span class="o">=</span><span class="s2">"netCDF"</span><span class="p">,</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="gp">... </span>    <span class="n">root_group</span><span class="o">=</span><span class="s2">"/"</span><span class="p">,</span>
 <a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="gp">... </span>    <span class="n">groups</span><span class="o">=</span><span class="p">{},</span>
 <a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="gp">... </span>    <span class="n">variables</span><span class="o">=</span><span class="p">{},</span>
 <a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="gp">... </span>    <span class="n">dimensions</span><span class="o">=</span><span class="p">{},</span>
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="gp">... </span>    <span class="n">global_attributes</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;title&quot;</span><span class="p">:</span> <span class="s2">&quot;test&quot;</span><span class="p">},</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="gp">... </span>    <span class="n">global_attributes</span><span class="o">=</span><span class="p">{</span><span class="s2">"title"</span><span class="p">:</span> <span class="s2">"test"</span><span class="p">},</span>
 <a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="gp">... </span>    <span class="n">structural</span><span class="o">=</span><span class="n">StructuralInfo</span><span class="p">(</span>
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="gp">... </span>        <span class="n">driver_name</span><span class="o">=</span><span class="s2">&quot;netCDF&quot;</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="gp">... </span>        <span class="n">driver_name</span><span class="o">=</span><span class="s2">"netCDF"</span>
 <a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="gp">... </span>    <span class="p">),</span>
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="gp">... </span>    <span class="n">created_with</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;library&quot;</span><span class="p">:</span> <span class="s2">&quot;GDAL&quot;</span><span class="p">},</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="gp">... </span>    <span class="n">created_with</span><span class="o">=</span><span class="p">{</span><span class="s2">"library"</span><span class="p">:</span> <span class="s2">"GDAL"</span><span class="p">},</span>
 <a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="gp">... </span><span class="p">)</span>
 <a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">d</span> <span class="o">=</span> <span class="n">to_dict</span><span class="p">(</span><span class="n">md</span><span class="p">)</span>
-<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">d</span><span class="p">[</span><span class="s2">&quot;driver&quot;</span><span class="p">]</span>
-<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="go">&#39;netCDF&#39;</span>
-<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">d</span><span class="p">[</span><span class="s2">&quot;global_attributes&quot;</span><span class="p">][</span><span class="s2">&quot;title&quot;</span><span class="p">]</span>
-<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a><span class="go">&#39;test&#39;</span>
-<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">d</span><span class="p">[</span><span class="s2">&quot;structural&quot;</span><span class="p">][</span><span class="s2">&quot;driver_name&quot;</span><span class="p">]</span>
-<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a><span class="go">&#39;netCDF&#39;</span>
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">d</span><span class="p">[</span><span class="s2">"driver"</span><span class="p">]</span>
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="go">'netCDF'</span>
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">d</span><span class="p">[</span><span class="s2">"global_attributes"</span><span class="p">][</span><span class="s2">"title"</span><span class="p">]</span>
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a><span class="go">'test'</span>
+<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">d</span><span class="p">[</span><span class="s2">"structural"</span><span class="p">][</span><span class="s2">"driver_name"</span><span class="p">]</span>
+<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a><span class="go">'netCDF'</span>
 </code></pre></div>
 
 
@@ -7542,7 +7542,7 @@ from_json: Deserializes a JSON string back to
 <span class="normal"><a href="#__codelineno-0-777">777</a></span>
 <span class="normal"><a href="#__codelineno-0-778">778</a></span>
 <span class="normal"><a href="#__codelineno-0-779">779</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-723" name="__codelineno-0-723"></a><span class="k">def</span><span class="w"> </span><span class="nf">to_dict</span><span class="p">(</span><span class="n">metadata</span><span class="p">:</span> <span class="n">NetCDFMetadata</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
-<a id="__codelineno-0-724" name="__codelineno-0-724"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Convert `NetCDFMetadata` to plain dicts suitable for JSON.</span>
+<a id="__codelineno-0-724" name="__codelineno-0-724"></a><span class="w">    </span><span class="sd">"""Convert `NetCDFMetadata` to plain dicts suitable for JSON.</span>
 <a id="__codelineno-0-725" name="__codelineno-0-725"></a>
 <a id="__codelineno-0-726" name="__codelineno-0-726"></a><span class="sd">    Recursively walks all dataclass fields and converts them to</span>
 <a id="__codelineno-0-727" name="__codelineno-0-727"></a><span class="sd">    plain `dict` / `list` / scalar types so the result can be</span>
@@ -7563,30 +7563,30 @@ from_json: Deserializes a JSON string back to
 <a id="__codelineno-0-742" name="__codelineno-0-742"></a><span class="sd">        ...     NetCDFMetadata, StructuralInfo,</span>
 <a id="__codelineno-0-743" name="__codelineno-0-743"></a><span class="sd">        ... )</span>
 <a id="__codelineno-0-744" name="__codelineno-0-744"></a><span class="sd">        &gt;&gt;&gt; md = NetCDFMetadata(</span>
-<a id="__codelineno-0-745" name="__codelineno-0-745"></a><span class="sd">        ...     driver=&quot;netCDF&quot;,</span>
-<a id="__codelineno-0-746" name="__codelineno-0-746"></a><span class="sd">        ...     root_group=&quot;/&quot;,</span>
+<a id="__codelineno-0-745" name="__codelineno-0-745"></a><span class="sd">        ...     driver="netCDF",</span>
+<a id="__codelineno-0-746" name="__codelineno-0-746"></a><span class="sd">        ...     root_group="/",</span>
 <a id="__codelineno-0-747" name="__codelineno-0-747"></a><span class="sd">        ...     groups={},</span>
 <a id="__codelineno-0-748" name="__codelineno-0-748"></a><span class="sd">        ...     variables={},</span>
 <a id="__codelineno-0-749" name="__codelineno-0-749"></a><span class="sd">        ...     dimensions={},</span>
-<a id="__codelineno-0-750" name="__codelineno-0-750"></a><span class="sd">        ...     global_attributes={&quot;title&quot;: &quot;test&quot;},</span>
+<a id="__codelineno-0-750" name="__codelineno-0-750"></a><span class="sd">        ...     global_attributes={"title": "test"},</span>
 <a id="__codelineno-0-751" name="__codelineno-0-751"></a><span class="sd">        ...     structural=StructuralInfo(</span>
-<a id="__codelineno-0-752" name="__codelineno-0-752"></a><span class="sd">        ...         driver_name=&quot;netCDF&quot;</span>
+<a id="__codelineno-0-752" name="__codelineno-0-752"></a><span class="sd">        ...         driver_name="netCDF"</span>
 <a id="__codelineno-0-753" name="__codelineno-0-753"></a><span class="sd">        ...     ),</span>
-<a id="__codelineno-0-754" name="__codelineno-0-754"></a><span class="sd">        ...     created_with={&quot;library&quot;: &quot;GDAL&quot;},</span>
+<a id="__codelineno-0-754" name="__codelineno-0-754"></a><span class="sd">        ...     created_with={"library": "GDAL"},</span>
 <a id="__codelineno-0-755" name="__codelineno-0-755"></a><span class="sd">        ... )</span>
 <a id="__codelineno-0-756" name="__codelineno-0-756"></a><span class="sd">        &gt;&gt;&gt; d = to_dict(md)</span>
-<a id="__codelineno-0-757" name="__codelineno-0-757"></a><span class="sd">        &gt;&gt;&gt; d[&quot;driver&quot;]</span>
-<a id="__codelineno-0-758" name="__codelineno-0-758"></a><span class="sd">        &#39;netCDF&#39;</span>
-<a id="__codelineno-0-759" name="__codelineno-0-759"></a><span class="sd">        &gt;&gt;&gt; d[&quot;global_attributes&quot;][&quot;title&quot;]</span>
-<a id="__codelineno-0-760" name="__codelineno-0-760"></a><span class="sd">        &#39;test&#39;</span>
-<a id="__codelineno-0-761" name="__codelineno-0-761"></a><span class="sd">        &gt;&gt;&gt; d[&quot;structural&quot;][&quot;driver_name&quot;]</span>
-<a id="__codelineno-0-762" name="__codelineno-0-762"></a><span class="sd">        &#39;netCDF&#39;</span>
+<a id="__codelineno-0-757" name="__codelineno-0-757"></a><span class="sd">        &gt;&gt;&gt; d["driver"]</span>
+<a id="__codelineno-0-758" name="__codelineno-0-758"></a><span class="sd">        'netCDF'</span>
+<a id="__codelineno-0-759" name="__codelineno-0-759"></a><span class="sd">        &gt;&gt;&gt; d["global_attributes"]["title"]</span>
+<a id="__codelineno-0-760" name="__codelineno-0-760"></a><span class="sd">        'test'</span>
+<a id="__codelineno-0-761" name="__codelineno-0-761"></a><span class="sd">        &gt;&gt;&gt; d["structural"]["driver_name"]</span>
+<a id="__codelineno-0-762" name="__codelineno-0-762"></a><span class="sd">        'netCDF'</span>
 <a id="__codelineno-0-763" name="__codelineno-0-763"></a>
 <a id="__codelineno-0-764" name="__codelineno-0-764"></a><span class="sd">    See Also:</span>
 <a id="__codelineno-0-765" name="__codelineno-0-765"></a><span class="sd">        to_json: Serializes directly to a JSON string.</span>
 <a id="__codelineno-0-766" name="__codelineno-0-766"></a><span class="sd">        from_json: Deserializes a JSON string back to</span>
 <a id="__codelineno-0-767" name="__codelineno-0-767"></a><span class="sd">            `NetCDFMetadata`.</span>
-<a id="__codelineno-0-768" name="__codelineno-0-768"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-768" name="__codelineno-0-768"></a><span class="sd">    """</span>
 <a id="__codelineno-0-769" name="__codelineno-0-769"></a>
 <a id="__codelineno-0-770" name="__codelineno-0-770"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">convert</span><span class="p">(</span><span class="n">obj</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
 <a id="__codelineno-0-771" name="__codelineno-0-771"></a>        <span class="k">if</span> <span class="n">is_dataclass</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="nb">type</span><span class="p">):</span>

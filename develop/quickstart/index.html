@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6264,7 +6264,7 @@ follow along verbatim. New to the vocabulary (CRS, geotransform, datacube, …)?
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="c1"># 1. Open — lazily; pixels are read on demand</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">&quot;examples/data/acc4000.tif&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">"examples/data/acc4000.tif"</span><span class="p">)</span>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="c1"># 2. Inspect the georeferencing (no GDAL boilerplate)</span>
 <a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="n">ds</span><span class="o">.</span><span class="n">epsg</span>            <span class="c1"># -&gt; 32618      (CRS as an EPSG code)</span>
@@ -6280,15 +6280,15 @@ follow along verbatim. New to the vocabulary (CRS, geotransform, datacube, …)?
 <a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="c1"># 4. Reproject to WGS84 (EPSG:4326)</span>
 <a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="n">wgs84</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">to_crs</span><span class="p">(</span><span class="mi">4326</span><span class="p">)</span>
 <a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>
-<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a><span class="c1"># 5. Crop to a bounding box (in the dataset&#39;s CRS)</span>
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a><span class="c1"># 5. Crop to a bounding box (in the dataset's CRS)</span>
 <a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="n">inner</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">crop</span><span class="p">(</span><span class="n">bbox</span><span class="o">=</span><span class="p">(</span><span class="mi">440000</span><span class="p">,</span> <span class="mi">475000</span><span class="p">,</span> <span class="mi">480000</span><span class="p">,</span> <span class="mi">515000</span><span class="p">),</span> <span class="n">epsg</span><span class="o">=</span><span class="n">ds</span><span class="o">.</span><span class="n">epsg</span><span class="p">)</span>
 <a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>
 <a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a><span class="c1"># 6. Write back out — the driver is inferred from the extension</span>
-<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a><span class="n">wgs84</span><span class="o">.</span><span class="n">to_file</span><span class="p">(</span><span class="s2">&quot;acc_wgs84.tif&quot;</span><span class="p">)</span>           <span class="c1"># GeoTIFF</span>
-<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span><span class="s2">&quot;acc.cog.tif&quot;</span><span class="p">)</span>                 <span class="c1"># Cloud-Optimized GeoTIFF</span>
+<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a><span class="n">wgs84</span><span class="o">.</span><span class="n">to_file</span><span class="p">(</span><span class="s2">"acc_wgs84.tif"</span><span class="p">)</span>           <span class="c1"># GeoTIFF</span>
+<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span><span class="s2">"acc.cog.tif"</span><span class="p">)</span>                 <span class="c1"># Cloud-Optimized GeoTIFF</span>
 <a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>
 <a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a><span class="c1"># 7. Plot (needs the [viz] extra — cleopatra)</span>
-<a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a><span class="n">ds</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">band</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">title</span><span class="o">=</span><span class="s2">&quot;flow accumulation&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a><span class="n">ds</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">band</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">title</span><span class="o">=</span><span class="s2">"flow accumulation"</span><span class="p">)</span>
 </code></pre></div>
 <div class="admonition tip">
 <p class="admonition-title">One object, not a dangling C pointer</p>
@@ -6299,9 +6299,9 @@ follow along verbatim. New to the vocabulary (CRS, geotransform, datacube, …)?
 <p>Vector data is a <code>FeatureCollection</code> — a thin, CRS-aware wrapper over a GeoPandas <code>GeoDataFrame</code>.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.feature</span><span class="w"> </span><span class="kn">import</span> <span class="n">FeatureCollection</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">fc</span> <span class="o">=</span> <span class="n">FeatureCollection</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">&quot;examples/data/coello_polygons.geojson&quot;</span><span class="p">)</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">fc</span> <span class="o">=</span> <span class="n">FeatureCollection</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">"examples/data/coello_polygons.geojson"</span><span class="p">)</span>
 <a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">fc</span><span class="o">.</span><span class="n">epsg</span>            <span class="c1"># -&gt; 32618</span>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">fc</span><span class="o">.</span><span class="n">column</span>          <span class="c1"># -&gt; [&#39;fid&#39;, &#39;column2&#39;, &#39;columns3&#39;, &#39;geometry&#39;]</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">fc</span><span class="o">.</span><span class="n">column</span>          <span class="c1"># -&gt; ['fid', 'column2', 'columns3', 'geometry']</span>
 <a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="n">fc</span><span class="o">.</span><span class="n">plot</span><span class="p">()</span>          <span class="c1"># geopandas/matplotlib by default; pass basemap=... for a tiled backdrop</span>
 </code></pre></div>
 <p>Round-trip vectors and rasters:</p>
@@ -6315,12 +6315,12 @@ follow along verbatim. New to the vocabulary (CRS, geotransform, datacube, …)?
 <code>NetCDF</code> that behaves like a single raster.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">NetCDF</span>
 <a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">nc</span> <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">&quot;examples/data/netcdf/cf__4v__1d3-3d1__proj__y-desc.nc&quot;</span><span class="p">)</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="n">nc</span><span class="o">.</span><span class="n">variable_names</span>          <span class="c1"># -&gt; [&#39;values&#39;]</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="n">values</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="s2">&quot;values&quot;</span><span class="p">)</span>   <span class="c1"># a Variable — one raster</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">nc</span> <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">"examples/data/netcdf/cf__4v__1d3-3d1__proj__y-desc.nc"</span><span class="p">)</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="n">nc</span><span class="o">.</span><span class="n">variable_names</span>          <span class="c1"># -&gt; ['values']</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="n">values</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="s2">"values"</span><span class="p">)</span>   <span class="c1"># a Variable — one raster</span>
 <a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="n">values</span><span class="o">.</span><span class="n">shape</span>               <span class="c1"># -&gt; (3, 13, 14)  (time, rows, cols)</span>
-<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="n">values</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">variable</span><span class="o">=</span><span class="s2">&quot;values&quot;</span><span class="p">)</span>
-<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="n">values</span><span class="o">.</span><span class="n">to_file</span><span class="p">(</span><span class="s2">&quot;values.tif&quot;</span><span class="p">)</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="n">values</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">variable</span><span class="o">=</span><span class="s2">"values"</span><span class="p">)</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="n">values</span><span class="o">.</span><span class="n">to_file</span><span class="p">(</span><span class="s2">"values.tif"</span><span class="p">)</span>
 </code></pre></div>
 <p>See <a href="../concepts/#container-vs-variable-netcdf">Core concepts</a> for the container-vs-variable model, and the
 <a href="../tutorials/netcdf-plotting/">NetCDF tutorial</a> for CF / UGRID / packed data.</p>
@@ -6330,7 +6330,7 @@ follow along verbatim. New to the vocabulary (CRS, geotransform, datacube, …)?
 <a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
 <a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">cube</span> <span class="o">=</span> <span class="n">DatasetCollection</span><span class="o">.</span><span class="n">from_files</span><span class="p">(</span><span class="n">sorted_list_of_geotiffs</span><span class="p">)</span>
 <a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="n">cube</span><span class="o">.</span><span class="n">time_length</span>           <span class="c1"># number of timesteps</span>
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="n">cube</span><span class="o">.</span><span class="n">to_zarr</span><span class="p">(</span><span class="s2">&quot;cube.zarr&quot;</span><span class="p">)</span>  <span class="c1"># parallel, chunked write</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="n">cube</span><span class="o">.</span><span class="n">to_zarr</span><span class="p">(</span><span class="s2">"cube.zarr"</span><span class="p">)</span>  <span class="c1"># parallel, chunked write</span>
 </code></pre></div>
 <h2 id="common-one-liners-cheat-sheet"><a class="toclink" href="#common-one-liners-cheat-sheet">Common one-liners (cheat-sheet)</a><a class="headerlink" href="#common-one-liners-cheat-sheet" title="Permanent link">#</a></h2>
 <table>

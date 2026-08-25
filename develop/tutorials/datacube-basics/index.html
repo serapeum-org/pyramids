@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6198,11 +6198,11 @@ applies), see the <a href="../../reference/dataset/collection/">DatasetCollectio
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">DatasetCollection</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="c1"># A folder containing several co-registered rasters (use repo test data or your own)</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">folder</span> <span class="o">=</span> <span class="s2">&quot;tests/data/geotiff/rhine&quot;</span>  <span class="c1"># adjust as needed</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">folder</span> <span class="o">=</span> <span class="s2">"tests/data/geotiff/rhine"</span>  <span class="c1"># adjust as needed</span>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="c1"># Order the timesteps by the numeric part of each file name</span>
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="n">dc</span> <span class="o">=</span> <span class="n">DatasetCollection</span><span class="o">.</span><span class="n">read_multiple_files</span><span class="p">(</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">folder</span><span class="p">,</span> <span class="n">with_order</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">regex_string</span><span class="o">=</span><span class="sa">r</span><span class="s2">&quot;\d+&quot;</span><span class="p">,</span> <span class="n">date</span><span class="o">=</span><span class="kc">False</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">folder</span><span class="p">,</span> <span class="n">with_order</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">regex_string</span><span class="o">=</span><span class="sa">r</span><span class="s2">"\d+"</span><span class="p">,</span> <span class="n">date</span><span class="o">=</span><span class="kc">False</span>
 <a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="p">)</span>
 <a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="nb">print</span><span class="p">(</span><span class="n">dc</span><span class="p">)</span>
 </code></pre></div>

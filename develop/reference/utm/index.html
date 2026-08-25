@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6389,7 +6389,7 @@ hemisphere band in <code>utm_epsg</code>, not the zone number.</p>
 <span class="normal"><a href="#__codelineno-0-67">67</a></span>
 <span class="normal"><a href="#__codelineno-0-68">68</a></span>
 <span class="normal"><a href="#__codelineno-0-69">69</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-29" name="__codelineno-0-29"></a><span class="k">def</span><span class="w"> </span><span class="nf">utm_zone</span><span class="p">(</span><span class="n">lon</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
-<a id="__codelineno-0-30" name="__codelineno-0-30"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Return the UTM zone number (1-60) for a longitude.</span>
+<a id="__codelineno-0-30" name="__codelineno-0-30"></a><span class="w">    </span><span class="sd">"""Return the UTM zone number (1-60) for a longitude.</span>
 <a id="__codelineno-0-31" name="__codelineno-0-31"></a>
 <a id="__codelineno-0-32" name="__codelineno-0-32"></a><span class="sd">    The zone is a plain 6°-wide band: zone 1 starts at 180°W, and each zone spans</span>
 <a id="__codelineno-0-33" name="__codelineno-0-33"></a><span class="sd">    6° of longitude. The value depends only on `lon`; latitude selects the</span>
@@ -6423,7 +6423,7 @@ hemisphere band in <code>utm_epsg</code>, not the zone number.</p>
 <a id="__codelineno-0-61" name="__codelineno-0-61"></a><span class="sd">            4</span>
 <a id="__codelineno-0-62" name="__codelineno-0-62"></a>
 <a id="__codelineno-0-63" name="__codelineno-0-63"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-64" name="__codelineno-0-64"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-64" name="__codelineno-0-64"></a><span class="sd">    """</span>
 <a id="__codelineno-0-65" name="__codelineno-0-65"></a>    <span class="k">if</span> <span class="n">lon</span> <span class="o">&lt;</span> <span class="o">-</span><span class="mf">180.0</span> <span class="ow">or</span> <span class="n">lon</span> <span class="o">&gt;</span> <span class="mf">180.0</span><span class="p">:</span>
 <a id="__codelineno-0-66" name="__codelineno-0-66"></a>        <span class="n">lon</span> <span class="o">=</span> <span class="p">((</span><span class="n">lon</span> <span class="o">+</span> <span class="mf">180.0</span><span class="p">)</span> <span class="o">%</span> <span class="mf">360.0</span><span class="p">)</span> <span class="o">-</span> <span class="mf">180.0</span>
 <a id="__codelineno-0-67" name="__codelineno-0-67"></a>    <span class="n">zone</span> <span class="o">=</span> <span class="n">math</span><span class="o">.</span><span class="n">floor</span><span class="p">((</span><span class="n">lon</span> <span class="o">+</span> <span class="mf">180.0</span><span class="p">)</span> <span class="o">/</span> <span class="mf">6.0</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span>
@@ -6570,7 +6570,7 @@ returns a code, but the poles are properly the domain of UPS, not UTM.</p>
 <span class="normal"><a href="#__codelineno-0-100">100</a></span>
 <span class="normal"><a href="#__codelineno-0-101">101</a></span>
 <span class="normal"><a href="#__codelineno-0-102">102</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-72" name="__codelineno-0-72"></a><span class="k">def</span><span class="w"> </span><span class="nf">utm_epsg</span><span class="p">(</span><span class="n">lon</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">lat</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
-<a id="__codelineno-0-73" name="__codelineno-0-73"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Return the EPSG code of the UTM zone containing `(lon, lat)`.</span>
+<a id="__codelineno-0-73" name="__codelineno-0-73"></a><span class="w">    </span><span class="sd">"""Return the EPSG code of the UTM zone containing `(lon, lat)`.</span>
 <a id="__codelineno-0-74" name="__codelineno-0-74"></a>
 <a id="__codelineno-0-75" name="__codelineno-0-75"></a><span class="sd">    Args:</span>
 <a id="__codelineno-0-76" name="__codelineno-0-76"></a><span class="sd">        lon: Longitude in degrees (wrapped into `[-180, 180]`; see `utm_zone`).</span>
@@ -6597,7 +6597,7 @@ returns a code, but the poles are properly the domain of UPS, not UTM.</p>
 <a id="__codelineno-0-97" name="__codelineno-0-97"></a><span class="sd">            32736</span>
 <a id="__codelineno-0-98" name="__codelineno-0-98"></a>
 <a id="__codelineno-0-99" name="__codelineno-0-99"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-100" name="__codelineno-0-100"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-100" name="__codelineno-0-100"></a><span class="sd">    """</span>
 <a id="__codelineno-0-101" name="__codelineno-0-101"></a>    <span class="n">base</span> <span class="o">=</span> <span class="n">_UTM_NORTH_BASE</span> <span class="k">if</span> <span class="n">lat</span> <span class="o">&gt;=</span> <span class="mi">0</span> <span class="k">else</span> <span class="n">_UTM_SOUTH_BASE</span>
 <a id="__codelineno-0-102" name="__codelineno-0-102"></a>    <span class="k">return</span> <span class="n">base</span> <span class="o">+</span> <span class="n">utm_zone</span><span class="p">(</span><span class="n">lon</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
@@ -6768,7 +6768,7 @@ than 180° of longitude (no single UTM zone applies).</p>
 <span class="normal"><a href="#__codelineno-0-148">148</a></span>
 <span class="normal"><a href="#__codelineno-0-149">149</a></span>
 <span class="normal"><a href="#__codelineno-0-150">150</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-105" name="__codelineno-0-105"></a><span class="k">def</span><span class="w"> </span><span class="nf">utm_epsg_for_polygon</span><span class="p">(</span><span class="n">gdf</span><span class="p">:</span> <span class="n">GeoDataFrame</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
-<a id="__codelineno-0-106" name="__codelineno-0-106"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Return the UTM EPSG for a vector layer, from the centre of its bounds.</span>
+<a id="__codelineno-0-106" name="__codelineno-0-106"></a><span class="w">    </span><span class="sd">"""Return the UTM EPSG for a vector layer, from the centre of its bounds.</span>
 <a id="__codelineno-0-107" name="__codelineno-0-107"></a>
 <a id="__codelineno-0-108" name="__codelineno-0-108"></a><span class="sd">    The layer is reprojected to WGS84 (a no-op when it is already `EPSG:4326`), the</span>
 <a id="__codelineno-0-109" name="__codelineno-0-109"></a><span class="sd">    centre of its total bounds is taken, and that lon/lat is passed to `utm_epsg`.</span>
@@ -6788,29 +6788,29 @@ than 180° of longitude (no single UTM zone applies).</p>
 <a id="__codelineno-0-123" name="__codelineno-0-123"></a><span class="sd">            geometry.</span>
 <a id="__codelineno-0-124" name="__codelineno-0-124"></a>
 <a id="__codelineno-0-125" name="__codelineno-0-125"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-126" name="__codelineno-0-126"></a><span class="sd">        int: The EPSG code of the UTM zone at the layer&#39;s bounds centre.</span>
+<a id="__codelineno-0-126" name="__codelineno-0-126"></a><span class="sd">        int: The EPSG code of the UTM zone at the layer's bounds centre.</span>
 <a id="__codelineno-0-127" name="__codelineno-0-127"></a>
 <a id="__codelineno-0-128" name="__codelineno-0-128"></a><span class="sd">    Raises:</span>
 <a id="__codelineno-0-129" name="__codelineno-0-129"></a><span class="sd">        CRSError: `gdf` has no CRS (so its coordinates cannot be placed on Earth).</span>
 <a id="__codelineno-0-130" name="__codelineno-0-130"></a><span class="sd">        ValueError: `gdf` is empty / has no finite bounds, or its bounds span more</span>
 <a id="__codelineno-0-131" name="__codelineno-0-131"></a><span class="sd">            than 180° of longitude (no single UTM zone applies).</span>
-<a id="__codelineno-0-132" name="__codelineno-0-132"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-132" name="__codelineno-0-132"></a><span class="sd">    """</span>
 <a id="__codelineno-0-133" name="__codelineno-0-133"></a>    <span class="k">if</span> <span class="n">gdf</span><span class="o">.</span><span class="n">crs</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
 <a id="__codelineno-0-134" name="__codelineno-0-134"></a>        <span class="k">raise</span> <span class="n">CRSError</span><span class="p">(</span>
-<a id="__codelineno-0-135" name="__codelineno-0-135"></a>            <span class="s2">&quot;gdf has no CRS; set one (gdf.set_crs / gdf.crs = ...) before computing &quot;</span>
-<a id="__codelineno-0-136" name="__codelineno-0-136"></a>            <span class="s2">&quot;a UTM zone.&quot;</span>
+<a id="__codelineno-0-135" name="__codelineno-0-135"></a>            <span class="s2">"gdf has no CRS; set one (gdf.set_crs / gdf.crs = ...) before computing "</span>
+<a id="__codelineno-0-136" name="__codelineno-0-136"></a>            <span class="s2">"a UTM zone."</span>
 <a id="__codelineno-0-137" name="__codelineno-0-137"></a>        <span class="p">)</span>
 <a id="__codelineno-0-138" name="__codelineno-0-138"></a>    <span class="n">wgs84</span> <span class="o">=</span> <span class="n">gdf</span><span class="o">.</span><span class="n">to_crs</span><span class="p">(</span><span class="n">_WGS84_EPSG</span><span class="p">)</span>
 <a id="__codelineno-0-139" name="__codelineno-0-139"></a>    <span class="n">minx</span><span class="p">,</span> <span class="n">miny</span><span class="p">,</span> <span class="n">maxx</span><span class="p">,</span> <span class="n">maxy</span> <span class="o">=</span> <span class="n">wgs84</span><span class="o">.</span><span class="n">total_bounds</span>
 <a id="__codelineno-0-140" name="__codelineno-0-140"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">all</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">v</span><span class="p">)</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="p">(</span><span class="n">minx</span><span class="p">,</span> <span class="n">miny</span><span class="p">,</span> <span class="n">maxx</span><span class="p">,</span> <span class="n">maxy</span><span class="p">)):</span>
 <a id="__codelineno-0-141" name="__codelineno-0-141"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-142" name="__codelineno-0-142"></a>            <span class="s2">&quot;gdf has no finite bounds (it is empty or all its geometries are null); &quot;</span>
-<a id="__codelineno-0-143" name="__codelineno-0-143"></a>            <span class="s2">&quot;cannot compute a UTM zone.&quot;</span>
+<a id="__codelineno-0-142" name="__codelineno-0-142"></a>            <span class="s2">"gdf has no finite bounds (it is empty or all its geometries are null); "</span>
+<a id="__codelineno-0-143" name="__codelineno-0-143"></a>            <span class="s2">"cannot compute a UTM zone."</span>
 <a id="__codelineno-0-144" name="__codelineno-0-144"></a>        <span class="p">)</span>
 <a id="__codelineno-0-145" name="__codelineno-0-145"></a>    <span class="k">if</span> <span class="n">maxx</span> <span class="o">-</span> <span class="n">minx</span> <span class="o">&gt;</span> <span class="mf">180.0</span><span class="p">:</span>
 <a id="__codelineno-0-146" name="__codelineno-0-146"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-147" name="__codelineno-0-147"></a>            <span class="sa">f</span><span class="s2">&quot;gdf bounds span </span><span class="si">{</span><span class="n">maxx</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">minx</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">° of longitude (a dateline crossing, &quot;</span>
-<a id="__codelineno-0-148" name="__codelineno-0-148"></a>            <span class="s2">&quot;a near-polar extent, or a half-globe span); no single UTM zone applies.&quot;</span>
+<a id="__codelineno-0-147" name="__codelineno-0-147"></a>            <span class="sa">f</span><span class="s2">"gdf bounds span </span><span class="si">{</span><span class="n">maxx</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">minx</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">° of longitude (a dateline crossing, "</span>
+<a id="__codelineno-0-148" name="__codelineno-0-148"></a>            <span class="s2">"a near-polar extent, or a half-globe span); no single UTM zone applies."</span>
 <a id="__codelineno-0-149" name="__codelineno-0-149"></a>        <span class="p">)</span>
 <a id="__codelineno-0-150" name="__codelineno-0-150"></a>    <span class="k">return</span> <span class="n">utm_epsg</span><span class="p">((</span><span class="n">minx</span> <span class="o">+</span> <span class="n">maxx</span><span class="p">)</span> <span class="o">/</span> <span class="mf">2.0</span><span class="p">,</span> <span class="p">(</span><span class="n">miny</span> <span class="o">+</span> <span class="n">maxy</span><span class="p">)</span> <span class="o">/</span> <span class="mf">2.0</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
@@ -6950,20 +6950,20 @@ than 180° of longitude (see :func:<code>utm_epsg_for_polygon</code>).</p>
 <span class="normal"><a href="#__codelineno-0-167">167</a></span>
 <span class="normal"><a href="#__codelineno-0-168">168</a></span>
 <span class="normal"><a href="#__codelineno-0-169">169</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-153" name="__codelineno-0-153"></a><span class="k">def</span><span class="w"> </span><span class="nf">project_to_utm</span><span class="p">(</span><span class="n">gdf</span><span class="p">:</span> <span class="n">GeoDataFrame</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">GeoDataFrame</span><span class="p">,</span> <span class="nb">int</span><span class="p">]:</span>
-<a id="__codelineno-0-154" name="__codelineno-0-154"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Reproject a vector layer to its local UTM zone.</span>
+<a id="__codelineno-0-154" name="__codelineno-0-154"></a><span class="w">    </span><span class="sd">"""Reproject a vector layer to its local UTM zone.</span>
 <a id="__codelineno-0-155" name="__codelineno-0-155"></a>
 <a id="__codelineno-0-156" name="__codelineno-0-156"></a><span class="sd">    Args:</span>
 <a id="__codelineno-0-157" name="__codelineno-0-157"></a><span class="sd">        gdf: A `GeoDataFrame` with a defined CRS.</span>
 <a id="__codelineno-0-158" name="__codelineno-0-158"></a>
 <a id="__codelineno-0-159" name="__codelineno-0-159"></a><span class="sd">    Returns:</span>
 <a id="__codelineno-0-160" name="__codelineno-0-160"></a><span class="sd">        tuple[GeoDataFrame, int]: The layer reprojected to its UTM zone (a fresh</span>
-<a id="__codelineno-0-161" name="__codelineno-0-161"></a><span class="sd">        `GeoDataFrame`; the input is not modified), and that zone&#39;s EPSG code.</span>
+<a id="__codelineno-0-161" name="__codelineno-0-161"></a><span class="sd">        `GeoDataFrame`; the input is not modified), and that zone's EPSG code.</span>
 <a id="__codelineno-0-162" name="__codelineno-0-162"></a>
 <a id="__codelineno-0-163" name="__codelineno-0-163"></a><span class="sd">    Raises:</span>
 <a id="__codelineno-0-164" name="__codelineno-0-164"></a><span class="sd">        CRSError: `gdf` has no CRS.</span>
 <a id="__codelineno-0-165" name="__codelineno-0-165"></a><span class="sd">        ValueError: `gdf` is empty / has no finite bounds, or its bounds span more</span>
 <a id="__codelineno-0-166" name="__codelineno-0-166"></a><span class="sd">            than 180° of longitude (see :func:`utm_epsg_for_polygon`).</span>
-<a id="__codelineno-0-167" name="__codelineno-0-167"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-167" name="__codelineno-0-167"></a><span class="sd">    """</span>
 <a id="__codelineno-0-168" name="__codelineno-0-168"></a>    <span class="n">epsg</span> <span class="o">=</span> <span class="n">utm_epsg_for_polygon</span><span class="p">(</span><span class="n">gdf</span><span class="p">)</span>
 <a id="__codelineno-0-169" name="__codelineno-0-169"></a>    <span class="k">return</span> <span class="n">gdf</span><span class="o">.</span><span class="n">to_crs</span><span class="p">(</span><span class="n">epsg</span><span class="p">),</span> <span class="n">epsg</span>
 </code></pre></div></td></tr></table></div>

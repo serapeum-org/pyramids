@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6856,7 +6856,7 @@ Python C API ABI.</p>
 <a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>├── build-linux-wheels (2 jobs in matrix: x86_64 + aarch64, builds 4 wheels each)
 <a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>│   ├── For arch == x86_64 → runs on ubuntu-latest
 <a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>│   ├── For arch == aarch64 → runs on ubuntu-24.04-arm (native ARM runner; no QEMU)
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>│   ├── actions/cache restores .srcbuild-cache (gzip&#39;d tar of the compiled
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>│   ├── actions/cache restores .srcbuild-cache (gzip'd tar of the compiled
 <a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>│   │   stack, keyed on config.sh + build-gdal-stack.sh + arch). SKIPPED on
 <a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>│   │   release (workflow_run) builds — published wheels always cold-build
 <a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>│   │   from the pinned sources.
@@ -6865,7 +6865,7 @@ Python C API ABI.</p>
 <a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>│       │   bash ci/source-build/build-gdal-stack.sh
 <a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>│       │   → compiles the full stack from SHA256-pinned tarballs
 <a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>│       │     (ci/source-build/config.sh) into /usr/local
-<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>│       │   → collects each dep&#39;s LICENSE/COPYING into
+<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>│       │   → collects each dep's LICENSE/COPYING into
 <a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>│       │     share/pyramids-bundled-licenses/ (gated for completeness)
 <a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>│       │   → writes ${BUILD_PREFIX}/GDAL_VERSION, stages the CA bundle
 <a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a>│       │   → driver-presence gate (required OGR + raster drivers)
@@ -6898,12 +6898,12 @@ Python C API ABI.</p>
 <a id="__codelineno-1-48" name="__codelineno-1-48" href="#__codelineno-1-48"></a>│   │     /usr/bin/&lt;tool&gt; invocation (the xcrun dispatch), so the
 <a id="__codelineno-1-49" name="__codelineno-1-49" href="#__codelineno-1-49"></a>│   │     symlinks let PATH lookups resolve to working binaries
 <a id="__codelineno-1-50" name="__codelineno-1-50" href="#__codelineno-1-50"></a>│   │     directly. clang/clang++ are wrapper scripts that ALSO export
-<a id="__codelineno-1-51" name="__codelineno-1-51" href="#__codelineno-1-51"></a>│   │     SDKROOT + DEVELOPER_DIR before exec&#39;ing the real binary so
+<a id="__codelineno-1-51" name="__codelineno-1-51" href="#__codelineno-1-51"></a>│   │     SDKROOT + DEVELOPER_DIR before exec'ing the real binary so
 <a id="__codelineno-1-52" name="__codelineno-1-52" href="#__codelineno-1-52"></a>│   │     the toolchain clang can find system headers.
 <a id="__codelineno-1-53" name="__codelineno-1-53" href="#__codelineno-1-53"></a>│   ├── For arch == arm64: native build via pixi --frozen
 <a id="__codelineno-1-54" name="__codelineno-1-54" href="#__codelineno-1-54"></a>│   ├── For arch == x86_64: cross-compile path
 <a id="__codelineno-1-55" name="__codelineno-1-55" href="#__codelineno-1-55"></a>│   │   → ci/setup-gdal-from-pixi.sh delegates to
-<a id="__codelineno-1-56" name="__codelineno-1-56" href="#__codelineno-1-56"></a>│   │     ci/setup-gdal-micromamba.sh (pixi can&#39;t install for a
+<a id="__codelineno-1-56" name="__codelineno-1-56" href="#__codelineno-1-56"></a>│   │     ci/setup-gdal-micromamba.sh (pixi can't install for a
 <a id="__codelineno-1-57" name="__codelineno-1-57" href="#__codelineno-1-57"></a>│   │     non-host platform; micromamba natively supports
 <a id="__codelineno-1-58" name="__codelineno-1-58" href="#__codelineno-1-58"></a>│   │     --platform osx-64). Re-solves the same dep range pin
 <a id="__codelineno-1-59" name="__codelineno-1-59" href="#__codelineno-1-59"></a>│   │     declared in [tool.pixi.feature.wheel-build.dependencies].
@@ -6919,12 +6919,12 @@ Python C API ABI.</p>
 <a id="__codelineno-1-69" name="__codelineno-1-69" href="#__codelineno-1-69"></a>│       │   → installs pixi → extracts Library/bin DLLs → C:/gdal-prefix
 <a id="__codelineno-1-70" name="__codelineno-1-70" href="#__codelineno-1-70"></a>│       │   → writes ${BuildPrefix}/GDAL_VERSION (parsed from
 <a id="__codelineno-1-71" name="__codelineno-1-71" href="#__codelineno-1-71"></a>│       │     conda-meta/gdal-X.Y.Z-*.json — Windows conda-forge gdal
-<a id="__codelineno-1-72" name="__codelineno-1-72" href="#__codelineno-1-72"></a>│       │     doesn&#39;t ship a usable gdal-config)
+<a id="__codelineno-1-72" name="__codelineno-1-72" href="#__codelineno-1-72"></a>│       │     doesn't ship a usable gdal-config)
 <a id="__codelineno-1-73" name="__codelineno-1-73" href="#__codelineno-1-73"></a>│       ├── For each of cp311, cp312, cp313, cp314: same vendor + build steps
 <a id="__codelineno-1-74" name="__codelineno-1-74" href="#__codelineno-1-74"></a>│       └── CIBW_REPAIR_WHEEL_COMMAND uses
 <a id="__codelineno-1-75" name="__codelineno-1-75" href="#__codelineno-1-75"></a>│           `delvewheel repair --analyze-existing`
-<a id="__codelineno-1-76" name="__codelineno-1-76" href="#__codelineno-1-76"></a>│           → bundles _gdal.pyd&#39;s direct deps AND the GDAL plugin
-<a id="__codelineno-1-77" name="__codelineno-1-77" href="#__codelineno-1-77"></a>│             DLLs&#39; transitive deps (netcdf.dll, hdf5.dll, ...) into
+<a id="__codelineno-1-76" name="__codelineno-1-76" href="#__codelineno-1-76"></a>│           → bundles _gdal.pyd's direct deps AND the GDAL plugin
+<a id="__codelineno-1-77" name="__codelineno-1-77" href="#__codelineno-1-77"></a>│             DLLs' transitive deps (netcdf.dll, hdf5.dll, ...) into
 <a id="__codelineno-1-78" name="__codelineno-1-78" href="#__codelineno-1-78"></a>│             pyramids_gis.libs/, patches PE import tables.
 <a id="__codelineno-1-79" name="__codelineno-1-79" href="#__codelineno-1-79"></a>│       └── upload-artifact: wheels-windows-AMD64
 <a id="__codelineno-1-80" name="__codelineno-1-80" href="#__codelineno-1-80"></a>│
@@ -6941,7 +6941,7 @@ Python C API ABI.</p>
 <a id="__codelineno-1-91" name="__codelineno-1-91" href="#__codelineno-1-91"></a>│       │   sdist) into src/pyramids/_vendor/ — win_arm64 only
 <a id="__codelineno-1-92" name="__codelineno-1-92" href="#__codelineno-1-92"></a>│       └── CIBW_REPAIR_WHEEL_COMMAND: one delvewheel repair
 <a id="__codelineno-1-93" name="__codelineno-1-93" href="#__codelineno-1-93"></a>│           --analyze-existing pass owns ALL DLLs, including the
-<a id="__codelineno-1-94" name="__codelineno-1-94" href="#__codelineno-1-94"></a>│           vendored .pyds&#39; GEOS/GDAL imports (one shared copy)
+<a id="__codelineno-1-94" name="__codelineno-1-94" href="#__codelineno-1-94"></a>│           vendored .pyds' GEOS/GDAL imports (one shared copy)
 <a id="__codelineno-1-95" name="__codelineno-1-95" href="#__codelineno-1-95"></a>│       └── upload-artifact: wheels-winarm64
 <a id="__codelineno-1-96" name="__codelineno-1-96" href="#__codelineno-1-96"></a>│
 <a id="__codelineno-1-97" name="__codelineno-1-97" href="#__codelineno-1-97"></a>├── verify-debian12 / verify-rocky9 (full hermetic suite on glibc 2.36 / 2.34
@@ -6958,7 +6958,7 @@ Python C API ABI.</p>
 <a id="__codelineno-1-108" name="__codelineno-1-108" href="#__codelineno-1-108"></a>│
 <a id="__codelineno-1-109" name="__codelineno-1-109" href="#__codelineno-1-109"></a>└── release (workflow_run only; needs EVERY build + test + verify job,
 <a id="__codelineno-1-110" name="__codelineno-1-110" href="#__codelineno-1-110"></a>    canary verifies included — a red canary blocks the publish)
-<a id="__codelineno-1-111" name="__codelineno-1-111" href="#__codelineno-1-111"></a>    → gathers {sdist,wheels-*} artifacts (canary-* names can&#39;t match),
+<a id="__codelineno-1-111" name="__codelineno-1-111" href="#__codelineno-1-111"></a>    → gathers {sdist,wheels-*} artifacts (canary-* names can't match),
 <a id="__codelineno-1-112" name="__codelineno-1-112" href="#__codelineno-1-112"></a>      asserts the exact composition (1 sdist + 4 wheels x 5 platforms
 <a id="__codelineno-1-113" name="__codelineno-1-113" href="#__codelineno-1-113"></a>      + 3 win_arm64, zero musllinux), attaches everything to the
 <a id="__codelineno-1-114" name="__codelineno-1-114" href="#__codelineno-1-114"></a>      GitHub release, and publishes to PyPI.
@@ -7264,7 +7264,7 @@ compile from source inside the container and don't use pixi at all — their
 "toolchain pin" is the set of <code>*_VERSION</code> + <code>*_SHA256</code> variables in
 <code>ci/source-build/config.sh</code>.</p>
 <p>For local development, install the same pixi version with:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nv">PIXI_VERSION</span><span class="o">=</span><span class="s2">&quot;0.68.1&quot;</span><span class="w"> </span>curl<span class="w"> </span>-fsSL<span class="w"> </span>https://pixi.sh/install.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span>bash
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nv">PIXI_VERSION</span><span class="o">=</span><span class="s2">"0.68.1"</span><span class="w"> </span>curl<span class="w"> </span>-fsSL<span class="w"> </span>https://pixi.sh/install.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span>bash
 </code></pre></div>
 <p>To bump pixi: edit <code>PIXI_VERSION</code> in <code>bundle-pypi-wheels.yml</code>, push, let CI
 re-build wheels with the new version. <code>pixi lock</code> produces different
