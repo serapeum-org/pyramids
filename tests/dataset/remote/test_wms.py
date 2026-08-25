@@ -255,6 +255,10 @@ class TestAvailableWmtsLayers:
                     ("WMTS:https://x,layer=A,tilematrixset=t", "layer A"),
                     ("WMTS:https://x,layer=B", "duplicate -> de-duplicated"),
                     ("WMTS:https://x", "no ,layer= key -> skipped"),
+                    (
+                        "WMTS:https://x",
+                        "desc has ,layer=Z but the name does not -> skipped",
+                    ),
                 ]
 
         monkeypatch.setattr(_wms.gdal, "Open", lambda _c: _Caps())
