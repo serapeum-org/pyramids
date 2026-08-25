@@ -1540,6 +1540,11 @@ class NetCDF(Dataset):
             parent = self._parent_nc
             path = parent.file_name if parent is not None else self.file_name
             handle = None
+            # NOTE: the sibling `_classic_geotransform` now admits `/vsimem` (#1050); this guard is
+            # left excluding it on purpose. Whether the classic driver exposes the GEOLOCATION
+            # domain for an in-memory (`from_bytes`) swath is geolocation-array behaviour (the #1033
+            # domain), needing its own swath fixture and verification — out of scope for the #1050
+            # geotransform fix. Kept as a tracked follow-up, not an oversight.
             if var is not None and path and not str(path).startswith("/vsimem"):
                 try:
                     handle = gdal.Open(f'NETCDF:"{path}":{var}')
