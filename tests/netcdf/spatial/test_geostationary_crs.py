@@ -228,10 +228,11 @@ class TestGeostationaryFromBytes:
 class TestNonGeostationaryFromBytesUnaffected:
     """A non-geostationary `from_bytes` / `/vsimem` variable read is untouched by #1050.
 
-    `_classic_geotransform` runs only from `_normalize_geostationary_geotransform`, which
-    returns early unless `_is_geostationary()`. So the #1050 guard relaxation — `/vsimem`
-    paths now reach the classic driver — must not perturb an ordinary lat/lon read: no
-    scan-angle rescale, and the EPSG and geotransform stay identical to the on-disk read.
+    `_classic_geotransform` (where the relaxed `/vsimem` guard lives) runs only from
+    `_normalize_geostationary_geotransform`, which returns early unless `_is_geostationary()`.
+    So for an ordinary lat/lon read the classic re-open is never reached — this test confirms
+    that upstream geostationary short-circuit still holds for a `/vsimem` read: no scan-angle
+    rescale, and the EPSG and geotransform stay identical to the on-disk read.
     No other test drives a non-geostationary variable through `from_bytes(...).get_variable(...)`.
     """
 

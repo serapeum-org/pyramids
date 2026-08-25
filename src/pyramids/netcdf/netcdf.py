@@ -1540,11 +1540,14 @@ class NetCDF(Dataset):
             parent = self._parent_nc
             path = parent.file_name if parent is not None else self.file_name
             handle = None
-            # NOTE: the sibling `_classic_geotransform` now admits `/vsimem` (#1050); this guard is
-            # left excluding it on purpose. Whether the classic driver exposes the GEOLOCATION
-            # domain for an in-memory (`from_bytes`) swath is geolocation-array behaviour (the #1033
-            # domain), needing its own swath fixture and verification — out of scope for the #1050
-            # geotransform fix. Kept as a tracked follow-up, not an oversight.
+            # NOTE: the sibling `_classic_geotransform` was hardened to prefer `_vsimem_path` and
+            # admit `/vsimem` (#1050); this guard is intentionally left keying off `file_name`. For
+            # an *unnamed* `from_bytes` container `file_name` is the `/vsimem` path, so this guard
+            # skips it; for a *named* one the cosmetic `name` slips past (it isn't `/vsimem`) and the
+            # classic open of that bogus relative path fails → falls back to `self`. Either way an
+            # in-memory swath's GEOLOCATION domain is not exposed — geolocation-array behaviour (the
+            # #1033 domain) that would need its own swath fixture and a `_vsimem_path` preference to
+            # fix, out of scope for the #1050 geotransform fix. A tracked follow-up, not an oversight.
             if var is not None and path and not str(path).startswith("/vsimem"):
                 try:
                     handle = gdal.Open(f'NETCDF:"{path}":{var}')
