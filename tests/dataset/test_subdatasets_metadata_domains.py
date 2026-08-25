@@ -18,7 +18,8 @@ import pytest
 
 from pyramids.base._errors import ContainerRasterWarning, ReadOnlyError
 from pyramids.dataset import Dataset
-from pyramids.dataset._subdataset import SubDataset, subdatasets_of
+from pyramids.dataset._subdataset import SubDataset
+from pyramids.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
 
@@ -46,8 +47,6 @@ def plain() -> Dataset:
 @pytest.fixture
 def container():
     """A NetCDF container opened classic-mode, exposing 4 subdatasets."""
-    from pyramids.netcdf import NetCDF
-
     return NetCDF.read_file(str(NETCDF_CONTAINER), open_as_multi_dimensional=False)
 
 
@@ -95,8 +94,12 @@ class TestSubdatasetsProperty:
         assert subs[0].name.endswith(":Band1"), f"first name unexpected: {subs[0].name}"
 
     def test_property_delegates_to_shared_builder(self, container):
-        """The property and the shared `subdatasets_of` builder agree entry-for-entry."""
-        assert subdatasets_of(container.raster) == container.subdatasets
+        """The `subdatasets` property matches a list built straight from GetSubDatasets."""
+        expected = [
+            SubDataset(name, description, i)
+            for i, (name, description) in enumerate(container.raster.GetSubDatasets())
+        ]
+        assert container.subdatasets == expected
 
 
 class TestOpenSubdataset:
@@ -199,7 +202,10 @@ class TestContainerOpenWarning:
         with pytest.warns(ContainerRasterWarning) as record:
             ds = Dataset.read_file(str(NETCDF_CONTAINER))
         assert ds.band_count == 0, "the container has no bands of its own"
-        message = str(record[0].message)
+        container_warning = next(
+            w for w in record if issubclass(w.category, ContainerRasterWarning)
+        )
+        message = str(container_warning.message)
         assert "subdataset" in message, "the warning explains it is a container"
         assert "Band1" in message, "the warning names the available subdatasets"
 
@@ -218,9 +224,12 @@ class TestContainerOpenWarning:
         assert ds.band_count >= 1 and ds.subdatasets == [], "a plain raster never warns"
 
     def test_netcdf_read_file_does_not_emit_base_container_warning(self):
-        """`NetCDF.read_file` opens a container on purpose via its own path and stays quiet."""
-        from pyramids.netcdf import NetCDF
+        """`NetCDF.read_file` opens a container on purpose via its own path and stays quiet.
 
+        Guard test: `NetCDF.read_file` builds a `Container` directly and never reaches the
+        base warning branch, so this pins that exemption — it would catch a future refactor
+        that routed NetCDF opens back through `Dataset.read_file`.
+        """
         with warnings.catch_warnings():
             warnings.simplefilter("error", ContainerRasterWarning)
             nc = NetCDF.read_file(
