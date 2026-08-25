@@ -67,7 +67,9 @@ class SubDataset:
         # _subdataset cycle (abstract_dataset imports SubDataset at module load).
         from pyramids.dataset.dataset import Dataset
 
-        return Dataset.read_file(self.name)
+        # warn_on_container=False: opening a subdataset by its value object is a
+        # deliberate drill-in, so a nested-container warning here would be noise.
+        return Dataset.read_file(self.name, warn_on_container=False)
 
 
 def subdatasets_of(raster: gdal.Dataset) -> list[SubDataset]:

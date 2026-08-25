@@ -174,6 +174,9 @@ class TestOpenSubdataset:
         assert kwargs["open_options"] == ["HONOUR_VALID_RANGE=NO"], (
             "parent open options must be forwarded to the child open"
         )
+        assert kwargs["warn_on_container"] is False, (
+            "a deliberate drill-in must suppress the container warning on the child open"
+        )
         assert "gdal_env" in kwargs, "gdal_env must be forwarded to read_file"
 
 
@@ -241,6 +244,32 @@ class TestContainerOpenWarning:
             warnings.simplefilter("error", ContainerRasterWarning)
             ds = Dataset.read_file(str(NETCDF_CONTAINER))
         assert ds.band_count == 0, "still a 0-band container, just with nothing to list"
+
+    def test_unpickling_a_container_does_not_re_warn(self):
+        """Unpickling a base-Dataset container reopens quietly (the `_reconstruct` path).
+
+        Test scenario:
+            A 0-band container opened quietly is pickled, then unpickled; the reopen goes
+            through `_reconstruct_dataset`, which must pass `warn_on_container=False` so
+            deserialization does not re-emit the warning the caller already saw.
+        """
+        ds = Dataset.read_file(str(NETCDF_CONTAINER), warn_on_container=False)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", ContainerRasterWarning)
+            restored = pickle.loads(pickle.dumps(ds))
+        assert restored.band_count == 0, "the reopened container is unchanged"
+        assert len(restored.subdatasets) == 4, "and still lists its four subdatasets"
+
+    def test_value_object_open_suppresses_the_container_warning(
+        self, container, mocker
+    ):
+        """`SubDataset.open()` reopens the child with `warn_on_container=False`."""
+        patched = mocker.patch.object(Dataset, "read_file", return_value=object())
+        container.subdatasets[0].open()
+        _, kwargs = patched.call_args
+        assert kwargs["warn_on_container"] is False, (
+            "opening a subdataset value object is a deliberate drill-in, so it must be quiet"
+        )
 
 
 class TestMetadataDomains:

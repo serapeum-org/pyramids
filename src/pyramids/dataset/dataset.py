@@ -2355,11 +2355,14 @@ class Dataset(RasterBase):
         # Open the classic-mode subdataset string as a base Dataset. read_file both
         # installs the captured GDAL env around the open (so remote credentials apply)
         # and re-attaches it to the result, so no separate context/attach is needed.
+        # warn_on_container=False: the caller deliberately drilled into a subdataset, so
+        # a container warning here (if the target is itself a nested container) is noise.
         return Dataset.read_file(
             name,
             read_only=self.access == "read_only",
             gdal_env=self._gdal_env or None,
             open_options=list(self._open_options) or None,
+            warn_on_container=False,
         )
 
     @property

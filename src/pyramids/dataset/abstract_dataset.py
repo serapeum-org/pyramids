@@ -163,10 +163,15 @@ def _reconstruct_dataset(
     # The env is applied here rather than forwarded to read_file so every
     # subclass benefits without widening its own signature.
     with cloud_config_from_env(gdal_env, path=path):
+        # warn_on_container=False: unpickling an already-opened container reopens a
+        # handle the caller previously held, so re-emitting the container warning here
+        # would be spurious. Only the base Dataset reaches this reconstruct (NetCDF has
+        # its own _reconstruct_netcdf), so read_file always accepts the keyword.
         dataset = cls.read_file(
             path,
             read_only=True,
             open_options=list(open_options) if open_options else None,
+            warn_on_container=False,
         )
     dataset.attach_gdal_env(gdal_env)
     return dataset
