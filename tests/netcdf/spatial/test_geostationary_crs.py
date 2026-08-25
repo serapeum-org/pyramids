@@ -141,6 +141,55 @@ class TestGeostationaryCRS:
         assert maxy - miny > 0.1, f"degenerate height: {warped.bbox}"
 
 
+class TestGeostationaryFromBytes:
+    """An in-memory (`from_bytes` / `/vsimem`) geostationary read rescales to metres (#1050).
+
+    `from_bytes` is the only in-memory NetCDF reader that works on Windows/macOS, so this is
+    the sanctioned way to read a downloaded GOES/Himawari granule. Before #1050 the `/vsimem`
+    path skipped the classic-driver rescale, leaving a raw scan-angle geotransform under the
+    metre CRS — silently.
+    """
+
+    @staticmethod
+    def _pair(tmp_path):
+        """Read the same synthetic granule on-disk and via ``from_bytes``; return both cubes."""
+        path = str(tmp_path / "geos.nc")
+        _write_geostationary_mdim(path)
+        with open(path, "rb") as fh:
+            data = fh.read()
+        on_disk = NetCDF.read_file(path).get_variable("CMI_C02")
+        from_bytes = NetCDF.from_bytes(data).get_variable("CMI_C02")
+        return on_disk, from_bytes
+
+    def test_from_bytes_rescales_scan_angles_to_metres(self, tmp_path):
+        """from_bytes rescales the scan-angle geotransform to metres, matching the on-disk read."""
+        on_disk, from_bytes = self._pair(tmp_path)
+        assert from_bytes._geostationary_scaled is True, (
+            "in-memory read must rescale scan angles to metres"
+        )
+        assert abs(from_bytes.geotransform[1]) > 1.0, (
+            f"pixel size must be metres, not radians/index: {from_bytes.geotransform}"
+        )
+        np.testing.assert_allclose(
+            from_bytes.geotransform,
+            on_disk.geotransform,
+            rtol=0,
+            atol=1e-6,
+            err_msg="from_bytes geotransform must match the on-disk metre geotransform",
+        )
+
+    def test_from_bytes_to_crs_matches_on_disk_footprint(self, tmp_path):
+        """to_crs(4326) yields the real footprint, not the sub-satellite nadir point it collapsed to."""
+        on_disk, from_bytes = self._pair(tmp_path)
+        a = on_disk.to_crs(4326).bbox
+        b = from_bytes.to_crs(4326).bbox
+        assert b[2] - b[0] > 0.1, f"degenerate (nadir-collapsed) width: {b}"
+        assert b[3] - b[1] > 0.1, f"degenerate (nadir-collapsed) height: {b}"
+        np.testing.assert_allclose(
+            b, a, rtol=0, atol=1e-6, err_msg="from_bytes footprint must match on-disk"
+        )
+
+
 class TestGeostationaryContainerOps:
     """Container operations preserve the geostationary CRS via WKT (#706).
 

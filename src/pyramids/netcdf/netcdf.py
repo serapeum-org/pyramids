@@ -1483,9 +1483,15 @@ class NetCDF(Dataset):
 
         result: tuple[float, ...] | None = None
         path = parent.file_name
-        # The classic netCDF driver needs an on-disk / VSI source; an in-memory
-        # MEM dataset has no such path.
-        if path and not str(path).startswith("/vsimem"):
+        # The classic netCDF driver reopens NETCDF:"<path>":<var> to rescale the scan-angle
+        # coordinates to projected metres; it needs a path GDAL can open. A `/vsimem/` path *is*
+        # openable (the driver reads the in-memory file directly — confirmed cross-platform), so
+        # only a truly path-less MEM dataset (empty file_name) is skipped. Excluding `/vsimem`
+        # here silently dropped the metre geotransform for every `from_bytes()` geostationary
+        # read — the only in-memory NetCDF reader on Windows/macOS — leaving a raw scan-angle
+        # geotransform under the metre CRS (#1050). A `/vsicurl` / `/vsizip` path that the netCDF
+        # driver cannot open (needs Linux userfaultfd) raises below and falls back to `None`.
+        if path:
             try:
                 src = gdal.Open(f'NETCDF:"{path}":{var}')
             except RuntimeError:
