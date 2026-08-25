@@ -10,20 +10,25 @@ from __future__ import annotations
 
 import dataclasses
 import pickle
+import warnings
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from pyramids.base._errors import ReadOnlyError
+from pyramids.base._errors import ContainerRasterWarning, ReadOnlyError
 from pyramids.dataset import Dataset
-from pyramids.dataset._subdataset import SubDataset
+from pyramids.dataset._subdataset import SubDataset, subdatasets_of
 
 pytestmark = pytest.mark.core
 
 # A classic-mode NetCDF whose GDAL handle exposes 4 subdatasets (Band1..Band4).
 NETCDF_CONTAINER = (
     Path(__file__).parents[1] / "data" / "netcdf" / "cf__6v__1d2-2d4__geog__y-asc.nc"
+)
+# A plain single-band GeoTIFF with no subdatasets.
+GEOTIFF_PLAIN = (
+    Path(__file__).parents[1] / "data" / "geotiff" / "coello-without-color-table.tif"
 )
 
 
@@ -88,6 +93,10 @@ class TestSubdatasetsProperty:
         assert [s.index for s in subs] == [0, 1, 2, 3], "indices must be 0..n in order"
         assert all(isinstance(s, SubDataset) for s in subs), "entries are SubDataset"
         assert subs[0].name.endswith(":Band1"), f"first name unexpected: {subs[0].name}"
+
+    def test_property_delegates_to_shared_builder(self, container):
+        """The property and the shared `subdatasets_of` builder agree entry-for-entry."""
+        assert subdatasets_of(container.raster) == container.subdatasets
 
 
 class TestOpenSubdataset:
@@ -177,6 +186,44 @@ class TestNetCDFRegression:
         assert container.variable_names[:3] == ["Band1", "Band2", "Band3"], (
             "the NetCDF variable surface must be unaffected"
         )
+
+
+class TestContainerOpenWarning:
+    """Opening a container via base `Dataset.read_file` is no longer silent (#1030)."""
+
+    def test_container_open_warns_and_names_subdatasets(self):
+        """A base read_file on a container warns and the message names its subdatasets."""
+        with pytest.warns(ContainerRasterWarning) as record:
+            ds = Dataset.read_file(str(NETCDF_CONTAINER))
+        assert ds.band_count == 0, "the container has no bands of its own"
+        message = str(record[0].message)
+        assert "subdataset" in message, "the warning explains it is a container"
+        assert "Band1" in message, "the warning names the available subdatasets"
+
+    def test_warn_on_container_false_is_silent(self):
+        """`warn_on_container=False` opens the container without warning."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", ContainerRasterWarning)
+            ds = Dataset.read_file(str(NETCDF_CONTAINER), warn_on_container=False)
+        assert len(ds.subdatasets) == 4, "the container still opens, just quietly"
+
+    def test_plain_raster_open_does_not_warn(self):
+        """A plain single-band raster opens with no container warning."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", ContainerRasterWarning)
+            ds = Dataset.read_file(str(GEOTIFF_PLAIN))
+        assert ds.band_count >= 1 and ds.subdatasets == [], "a plain raster never warns"
+
+    def test_netcdf_read_file_does_not_emit_base_container_warning(self):
+        """`NetCDF.read_file` opens a container on purpose via its own path and stays quiet."""
+        from pyramids.netcdf import NetCDF
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", ContainerRasterWarning)
+            nc = NetCDF.read_file(
+                str(NETCDF_CONTAINER), open_as_multi_dimensional=False
+            )
+        assert nc.subdatasets, "NetCDF opened a real container without the base warning"
 
 
 class TestMetadataDomains:

@@ -20,7 +20,7 @@ import numpy as np
 from osgeo import gdal
 
 from pyramids import _io
-from pyramids.base._errors import AlignmentError, CRSError
+from pyramids.base._errors import AlignmentError, ContainerRasterWarning, CRSError
 from pyramids.base._utils import (
     DTYPE_CONVERSION_DF,
     RGB_CHANNEL_INTERPS,
@@ -2690,6 +2690,7 @@ class Dataset(RasterBase):
         vsi: str | None = None,
         gdal_env: dict[str, str] | None = None,
         open_options: dict[str, str] | list[str] | tuple[str, ...] | None = None,
+        warn_on_container: bool = True,
     ) -> Dataset:
         """Open a raster from a path, URL, or archive member.
 
@@ -2742,6 +2743,15 @@ class Dataset(RasterBase):
                 the returned :class:`Dataset`, so the paths that reopen the file
                 (``threadsafe=True`` handles, lazy ``chunks=`` reads, unpickle on
                 a worker) reopen with the same options. Default ``None``.
+            warn_on_container:
+                When the path opens to a *container* — a raster with no bands of
+                its own whose payload is a set of nested subdatasets (NetCDF/HDF/
+                Zarr, GRIB, WMS/WMTS, a Sentinel product) — emit a
+                :class:`~pyramids.base._errors.ContainerRasterWarning` naming the
+                subdatasets, instead of silently returning a 0-band dataset. Use
+                :attr:`subdatasets` to list them and :meth:`open_subdataset` to open
+                one. Set ``False`` to open a container quietly (callers that open
+                containers on purpose). Default ``True``.
 
         Returns:
             Dataset:
@@ -2767,12 +2777,25 @@ class Dataset(RasterBase):
                 vsi=vsi,
                 open_options=options,
             )
-        return cls(
+        dataset = cls(
             src,
             access="read_only" if read_only else "write",
             gdal_env=gdal_env,
             open_options=options,
         )
+        if warn_on_container and not dataset.band_count:
+            subdatasets = dataset.subdatasets
+            if subdatasets:
+                names = [redact_credentials(sub.name) for sub in subdatasets]
+                warnings.warn(
+                    f"{redact_credentials(str(path))!r} is a container raster with no "
+                    f"bands of its own; it has {len(names)} subdataset(s). Use "
+                    f".subdatasets to list them and .open_subdataset(<index or name>) "
+                    f"to open one. Available: {names}",
+                    ContainerRasterWarning,
+                    stacklevel=2,
+                )
+        return dataset
 
     @classmethod
     def from_bytes(

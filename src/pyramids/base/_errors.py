@@ -333,3 +333,23 @@ class GeometryWarning(UserWarning):
         from pyramids.base._errors import GeometryWarning
         warnings.filterwarnings("ignore", category=GeometryWarning)
     """
+
+
+class ContainerRasterWarning(UserWarning):
+    """Pyramids-emitted warning that an opened raster is a subdataset container.
+
+    Emitted by :meth:`pyramids.dataset.Dataset.read_file` when the path opens to a
+    *container* — a raster with no bands of its own whose payload is a set of nested
+    subdatasets (a NetCDF/HDF/Zarr store, a GRIB file, a WMS/WMTS endpoint, a
+    Sentinel-1/-2 product). Without it, such an open returns a silent 0-band
+    ``Dataset`` that fails much later somewhere unrelated; the warning names the
+    subdatasets and points at :attr:`pyramids.dataset.Dataset.subdatasets` /
+    :meth:`pyramids.dataset.Dataset.open_subdataset`.
+
+    Users who open containers on purpose can silence just this category, or pass
+    ``warn_on_container=False`` to :meth:`~pyramids.dataset.Dataset.read_file`::
+
+        import warnings
+        from pyramids.base._errors import ContainerRasterWarning
+        warnings.filterwarnings("ignore", category=ContainerRasterWarning)
+    """
