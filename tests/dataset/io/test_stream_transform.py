@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import tracemalloc
-
 import numpy as np
 import pytest
 from hpc.indexing import get_pixels2
@@ -175,21 +173,25 @@ class TestStreamTransform:
         )
 
     def test_peak_memory_is_bounded_by_the_tile(self, tmp_path):
-        """Streaming to disk peaks below a whole-array pass, proving the tiled read.
+        """Streaming to disk peaks far below the whole-array size, proving the tiled read.
 
         Test scenario:
-            Transform a 1000x1000 int16 raster to a disk output with 128-pixel tiles, and
-            compare the traced Python peak against a *whole-array* pass (the same read ->
-            transform -> write, but materialised at once) in the same process. The streamed
-            peak must stay below the whole-array peak. This is a build-agnostic check on
-            purpose: the absolute figures depend on the GDAL build (tracemalloc only sees the
-            Python heap, not GDAL's C buffers), but the same operation done all-at-once is
-            always an upper bound on the tiled version, whatever the build.
+            Transform a raster to a disk output 128 pixels at a time and assert the traced
+            Python peak stays well under the whole-array byte size (~18 MB). A tiled read
+            holds one tile at a time, so its peak is a small fixed overhead; a whole-array
+            pass would peak at the full array. The bound is the raster's deterministic byte
+            size, not a second measured whole-array peak, so the verdict does not depend on
+            the GDAL build's one-time read buffer landing in one measurement (see #1049;
+            #1047 fixed the same flake for the reduce test). The raster is sized so the
+            ~9 MB ceiling clears that ~4 MB buffer even if the warm-up does not.
         """
-        rows = cols = 1000
+        rows = cols = 3000
+        dtype = np.dtype(
+            "int16"
+        )  # one source for the fixture and the byte-size ceiling
         src_path = tmp_path / "big.tif"
         Dataset.create_from_array(
-            np.arange(rows * cols, dtype="int16").reshape(rows, cols),
+            np.arange(rows * cols, dtype=dtype).reshape(rows, cols),
             top_left_corner=(0.0, 0.0),
             cell_size=0.01,
             epsg=4326,
@@ -199,31 +201,23 @@ class TestStreamTransform:
         def add_one(block):
             return block + 1
 
-        # Whole-array baseline: the same read -> transform -> write, but the full
-        # source and result arrays are held at once (no tiling).
-        whole_ds = Dataset.read_file(str(src_path))
-        tracemalloc.start()
-        source_arr = whole_ds.read_array()
-        result = add_one(source_arr)
-        whole_out = Dataset.empty_like(whole_ds, path=str(tmp_path / "whole_out.tif"))
-        whole_out.write_array(result)
-        whole_out.close()
-        _, whole_peak = tracemalloc.get_traced_memory()
-        tracemalloc.stop()
-        del source_arr, result
-
-        # Streamed: the same transform, tile by tile straight to disk.
+        # Warm the build's one-time GDAL read buffer with a small windowed read OUTSIDE the
+        # traced region so it is already live (not re-allocated) during the measurement; the
+        # absolute ceiling below is the load-bearing backstop (see #1047 / #1049).
         streamed_ds = Dataset.read_file(str(src_path))
-        tracemalloc.start()
-        streamed_ds.io.stream_transform(
-            add_one, tile_size=128, path=str(tmp_path / "big_out.tif")
-        )
-        _, tiled_peak = tracemalloc.get_traced_memory()
-        tracemalloc.stop()
+        streamed_ds.read_array(window=[0, 0, 128, 128])
+        with traced_peak() as peak:
+            streamed_ds.io.stream_transform(
+                add_one, tile_size=128, path=str(tmp_path / "big_out.tif")
+            )
+        tiled_peak = peak[0]
 
-        assert tiled_peak < whole_peak, (
-            f"stream_transform peaked at {tiled_peak / 1e6:.1f} MB, not below the "
-            f"whole-array pass's {whole_peak / 1e6:.1f} MB — the read was not tiled"
+        # A tiled transform must peak far below the whole raster (rows * cols * int16 =
+        # ~18 MB); a whole-array pass would peak at least that.
+        whole_array_bytes = rows * cols * dtype.itemsize
+        assert tiled_peak < whole_array_bytes // 2, (
+            f"stream_transform peaked at {tiled_peak / 1e6:.1f} MB, not far below the "
+            f"{whole_array_bytes / 1e6:.0f} MB array — the read was not tiled"
         )
 
 
@@ -490,13 +484,21 @@ class TestStreamedConsumers:
         """`count_domain_cells` matches the eager count and never reads the band whole.
 
         Test scenario:
-            A tall 4000x500 raster (so the default 256-row strip is a small fraction)
-            with a no-data quadrant counts the exact domain cells, and the traced peak
-            — a strip plus the `is_no_data` temporaries — stays well below the dense
-            array.
+            A tall 8000x1000 float32 raster (so the default 256-row strip is a small
+            fraction) with a no-data quadrant counts the exact domain cells, and the traced
+            peak — a strip plus the `is_no_data` temporaries — stays well below the whole
+            band's byte size (~32 MB). The strip peak is fixed by the strip row count, so
+            the tall raster widens the ceiling without growing the peak. The bound is the
+            deterministic array size, not a
+            second measured whole-band peak, so the verdict does not depend on the GDAL
+            build's one-time read buffer landing in one measurement (see #1049; #1047 fixed
+            the same flake for the reduce test).
         """
-        rows, cols = 4000, 500
-        arr = np.ones((rows, cols), dtype="float32")
+        rows, cols = 8000, 1000
+        dtype = np.dtype(
+            "float32"
+        )  # one source for the fixture and the byte-size ceiling
+        arr = np.ones((rows, cols), dtype=dtype)
         arr[:2000, :250] = -9999.0  # a no-data quadrant -> 500000 no-data cells
         src_path = tmp_path / "domain.tif"
         Dataset.create_from_array(
@@ -507,22 +509,21 @@ class TestStreamedConsumers:
             no_data_value=-9999.0,
             path=str(src_path),
         ).close()
-        # Whole-band baseline: materialise the full band at once (the non-stripped
-        # upper bound). The exact-count assertion below already pins correctness, so
-        # the baseline only needs to establish the whole-band memory peak.
-        with traced_peak() as wp:
-            whole = Dataset.read_file(str(src_path)).read_array()
-        whole_peak = wp[0]
-        del whole
 
-        # Stripped count.
+        # Warm the build's one-time GDAL read buffer with a small strip read OUTSIDE the
+        # traced region so it is already live during the measurement; the absolute ceiling
+        # below is the load-bearing backstop (see #1047 / #1049).
+        ds = Dataset.read_file(str(src_path))
+        ds.read_array(window=[0, 0, cols, 256])
         with traced_peak() as sp:
-            ds = Dataset.read_file(str(src_path))
             count = ds.count_domain_cells()
         stripped_peak = sp[0]
 
         assert count == rows * cols - 2000 * 250, f"wrong domain count {count}"
-        assert stripped_peak < whole_peak, (
-            f"count_domain_cells peaked at {stripped_peak / 1e6:.1f} MB, not below the "
-            f"whole-band pass's {whole_peak / 1e6:.1f} MB — it did not stay under a full materialisation"
+        # A strip read must peak far below the whole band (rows * cols * float32 = ~32 MB);
+        # a full materialisation would peak at least that.
+        whole_array_bytes = rows * cols * dtype.itemsize
+        assert stripped_peak < whole_array_bytes // 2, (
+            f"count_domain_cells peaked at {stripped_peak / 1e6:.1f} MB, not far below the "
+            f"{whole_array_bytes / 1e6:.0f} MB band — it did not stay under a full materialisation"
         )
