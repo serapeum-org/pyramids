@@ -1466,9 +1466,11 @@ class NetCDF(Dataset):
         Returns:
             tuple | None: The classic-driver geotransform, or ``None`` when
             there is no classic-openable source (a path-less in-memory ``MEM``
-            dataset with an empty ``file_name`` — a ``/vsimem`` source is
-            openable and is rescaled, #1050) or the classic open does not
-            produce a metre-scale geostationary geotransform.
+            dataset with no ``_vsimem_path`` and an empty ``file_name`` — a
+            ``/vsimem`` source, including a ``from_bytes`` read given a cosmetic
+            ``name`` that shadows ``file_name``, is openable and is rescaled,
+            #1050) or the classic open does not produce a metre-scale
+            geostationary geotransform.
         """
         parent = self._parent_nc
         var = self._source_var_name
@@ -1483,15 +1485,19 @@ class NetCDF(Dataset):
             return cache[var]
 
         result: tuple[float, ...] | None = None
-        path = parent.file_name
         # The classic netCDF driver reopens NETCDF:"<path>":<var> to rescale the scan-angle
-        # coordinates to projected metres; it needs a path GDAL can open. A `/vsimem/` path *is*
-        # openable (the driver reads the in-memory file directly — confirmed cross-platform), so
-        # only a truly path-less MEM dataset (empty file_name) is skipped. Excluding `/vsimem`
-        # here silently dropped the metre geotransform for every `from_bytes()` geostationary
-        # read — the only in-memory NetCDF reader on Windows/macOS — leaving a raw scan-angle
-        # geotransform under the metre CRS (#1050). A `/vsicurl` / `/vsizip` path that the netCDF
-        # driver cannot open (needs Linux userfaultfd) raises below and falls back to `None`.
+        # coordinates to projected metres; it needs a path GDAL can open. `from_bytes` records the
+        # real backing `/vsimem/...` path in `_vsimem_path`, while `file_name` may instead hold a
+        # caller-supplied cosmetic `name=` label — so prefer `_vsimem_path` to rescale a *named*
+        # in-memory read too (an on-disk read has no `_vsimem_path` and uses `file_name`, the real
+        # path). A `/vsimem/` path *is* openable (the driver reads the in-memory file directly —
+        # confirmed cross-platform); only a truly path-less MEM dataset (empty `file_name`, no
+        # `_vsimem_path`) is skipped. Excluding `/vsimem` here silently dropped the metre
+        # geotransform for every `from_bytes()` geostationary read — the only in-memory NetCDF
+        # reader on Windows/macOS — leaving a raw scan-angle geotransform under the metre CRS
+        # (#1050). A remote/archive path the netCDF driver cannot open raises below and falls back
+        # to `None`.
+        path = getattr(parent, "_vsimem_path", None) or parent.file_name
         if path:
             try:
                 src = gdal.Open(f'NETCDF:"{path}":{var}')

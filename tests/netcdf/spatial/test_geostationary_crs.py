@@ -189,6 +189,41 @@ class TestGeostationaryFromBytes:
             b, a, rtol=0, atol=1e-6, err_msg="from_bytes footprint must match on-disk"
         )
 
+    def test_from_bytes_named_rescales_scan_angles_to_metres(self, tmp_path):
+        """A `from_bytes(data, name=...)` read rescales too — the cosmetic name must not shadow
+        the real `/vsimem` path the classic driver reopens (#1050).
+
+        `from_bytes` records the caller's `name=` as the container's `file_name` (cosmetic) while
+        keeping the real backing `/vsimem/...` path in `_vsimem_path`. `_classic_geotransform` must
+        resolve through `_vsimem_path`; keying off `file_name` alone would open a nonexistent path
+        and silently leave the granule under a raw scan-angle geotransform — the exact #1050 defect
+        on the documented `from_bytes(data, name="downloaded.nc")` spelling.
+        """
+        path = str(tmp_path / "geos.nc")
+        _write_geostationary_mdim(path)
+        with open(path, "rb") as fh:
+            data = fh.read()
+        on_disk = NetCDF.read_file(path).get_variable("CMI_C02")
+        container = NetCDF.from_bytes(data, name="downloaded.nc")
+        assert container.file_name == "downloaded.nc", (
+            "the cosmetic name must shadow file_name for this test to exercise the M1 path"
+        )
+        named = container.get_variable("CMI_C02")
+        assert named._geostationary_scaled is True, (
+            "a named in-memory read must still rescale scan angles to metres — the cosmetic name "
+            "must not shadow the /vsimem path"
+        )
+        assert abs(named.geotransform[1]) > 1.0, (
+            f"pixel size must be metres, not radians/index: {named.geotransform}"
+        )
+        np.testing.assert_allclose(
+            named.geotransform,
+            on_disk.geotransform,
+            rtol=0,
+            atol=1e-6,
+            err_msg="named from_bytes geotransform must match the on-disk metre geotransform",
+        )
+
 
 class TestNonGeostationaryFromBytesUnaffected:
     """A non-geostationary `from_bytes` / `/vsimem` variable read is untouched by #1050.
