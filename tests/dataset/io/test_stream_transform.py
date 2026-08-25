@@ -302,7 +302,7 @@ class TestStreamReduce:
         """stream_reduce's peak stays far below the raster it reads, proving the strip read.
 
         Test scenario:
-            Reduce an 8000-row raster 64 rows at a time and assert the traced Python-heap
+            Reduce an 8040-row raster 64 rows at a time and assert the traced Python-heap
             peak stays well under the whole-array size (~16 MB). A strip read holds one
             strip at a time, so its peak is a small fixed overhead independent of the
             raster; a reduction that materialised the whole array would peak at the full
@@ -346,13 +346,16 @@ class TestStreamReduce:
         # ~4 MB (pip-wheel) allocation never inflates the measured peak — that warm-up-
         # dependent overhead is exactly what made a peak-vs-peak ratio flaky (#1047).
         reduce_peak(64)
-        large_peak = reduce_peak(8000)
+        # 8040 = 125 full 64-row strips + a 40-row remainder, so the reduction still
+        # exercises the partial-last-strip path while the array stays ~16 MB.
+        tall_rows = 8040
+        large_peak = reduce_peak(tall_rows)
 
-        # An 8000-row strip read must peak far below the whole raster
-        # (8000 * cols * int16 = ~16 MB); a whole-array reduction would peak at least that.
-        # Compare against the deterministic full-array size, not a second noisy measurement,
-        # so the verdict never depends on measurement order or the build's read overhead.
-        whole_array_bytes = 8000 * cols * 2
+        # A strip read must peak far below the whole raster (tall_rows * cols * int16 =
+        # ~16 MB); a whole-array reduction would peak at least that. Compare against the
+        # deterministic full-array size, not a second noisy measurement, so the verdict
+        # never depends on measurement order or the build's read overhead.
+        whole_array_bytes = tall_rows * cols * 2
         assert large_peak < whole_array_bytes // 2, (
             f"stream_reduce peaked at {large_peak / 1e6:.1f} MB — not far below the "
             f"{whole_array_bytes / 1e6:.0f} MB full raster; it is materialising the whole "
