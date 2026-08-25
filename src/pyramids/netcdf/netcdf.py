@@ -4800,7 +4800,7 @@ class NetCDF(Dataset):
     def _classic_subdataset_variable_names(self) -> list[str]:
         """Data-variable names parsed from classic-mode subdataset metadata.
 
-        Reads the shared :attr:`~pyramids.dataset.abstract_dataset.AbstractDataset.subdatasets`
+        Reads the shared :attr:`~pyramids.dataset.abstract_dataset.RasterBase.subdatasets`
         surface rather than parsing ``GetSubDatasets()`` a second time.
 
         Returns:

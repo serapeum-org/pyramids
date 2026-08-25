@@ -75,7 +75,7 @@ def subdatasets_of(raster: gdal.Dataset) -> list[SubDataset]:
 
     The single place the ``SUBDATASETS`` domain is turned into
     :class:`SubDataset` value objects. Both
-    :attr:`~pyramids.dataset.abstract_dataset.AbstractDataset.subdatasets` and the
+    :attr:`~pyramids.dataset.abstract_dataset.RasterBase.subdatasets` and the
     WMTS layer-hint helper in :mod:`pyramids.dataset._wms` build on it, so the
     enumeration lives in exactly one spot.
 
