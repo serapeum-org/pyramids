@@ -343,8 +343,10 @@ class TestStreamReduce:
             return peak[0]
 
         # Warm the build's one-time GDAL/wheel read buffer OUTSIDE any traced region so its
-        # ~4 MB (pip-wheel) allocation never inflates the measured peak — that warm-up-
-        # dependent overhead is exactly what made a peak-vs-peak ratio flaky (#1047).
+        # ~4 MB (pip-wheel) allocation never inflates the measured peak — the warm-up-
+        # dependent overhead is what made a peak-vs-peak ratio flaky (#1047). The warm-up
+        # only helps if that buffer is process-retained; the absolute ceiling below is the
+        # load-bearing backstop, absorbing the ~4 MB even if the warm-up does not.
         reduce_peak(64)
         # 8040 = 125 full 64-row strips + a 40-row remainder, so the reduction still
         # exercises the partial-last-strip path while the array stays ~16 MB.
@@ -355,7 +357,7 @@ class TestStreamReduce:
         # ~16 MB); a whole-array reduction would peak at least that. Compare against the
         # deterministic full-array size, not a second noisy measurement, so the verdict
         # never depends on measurement order or the build's read overhead.
-        whole_array_bytes = tall_rows * cols * 2
+        whole_array_bytes = tall_rows * cols * np.dtype("int16").itemsize
         assert large_peak < whole_array_bytes // 2, (
             f"stream_reduce peaked at {large_peak / 1e6:.1f} MB — not far below the "
             f"{whole_array_bytes / 1e6:.0f} MB full raster; it is materialising the whole "
