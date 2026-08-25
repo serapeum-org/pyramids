@@ -225,6 +225,23 @@ class TestContainerOpenWarning:
             )
         assert nc.subdatasets, "NetCDF opened a real container without the base warning"
 
+    def test_zero_band_raster_with_no_subdatasets_is_silent(self, mocker):
+        """A 0-band raster that lists no subdatasets does not warn (the guarded branch).
+
+        Test scenario:
+            The container opens 0-band, but its `subdatasets` come back empty (patched),
+            so `read_file` must take the inner `if subdatasets:` false path and stay silent.
+        """
+        mocker.patch(
+            "pyramids.dataset.abstract_dataset.RasterBase.subdatasets",
+            new_callable=mocker.PropertyMock,
+            return_value=[],
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", ContainerRasterWarning)
+            ds = Dataset.read_file(str(NETCDF_CONTAINER))
+        assert ds.band_count == 0, "still a 0-band container, just with nothing to list"
+
 
 class TestMetadataDomains:
     """Dataset-level metadata domains (#1028)."""
