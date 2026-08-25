@@ -299,22 +299,23 @@ class TestStreamReduce:
         assert len(windows) == 3, f"expected 3 strips over 7 rows, got {len(windows)}"
 
     def test_peak_memory_does_not_scale_with_raster_size(self, tmp_path):
-        """stream_reduce's peak stays flat as the raster grows 8x, proving the strip read.
+        """stream_reduce's peak stays far below the raster it reads, proving the strip read.
 
         Test scenario:
-            Run the same 64-row-strip reduction over a 1000-row raster and an 8000-row
-            raster and compare the two traced Python-heap peaks. A strip read holds one
-            strip at a time, so its peak is a fixed per-strip overhead that does not grow
-            with the raster; an implementation that materialised the whole array would grow
-            ~8x with it.
+            Reduce an 8000-row raster 64 rows at a time and assert the traced Python-heap
+            peak stays well under the whole-array size (~16 MB). A strip read holds one
+            strip at a time, so its peak is a small fixed overhead independent of the
+            raster; a reduction that materialised the whole array would peak at the full
+            ~16 MB.
 
-            This is build-agnostic by construction and carries no tight, build-sensitive
-            threshold: whatever the per-strip overhead is (measured ~0.3 MB on conda, ~4 MB
-            on the pip wheel), it cancels because both measurements share it — the assertion
-            only asks that the peak not scale with the raster, with generous headroom for
-            allocator noise. The previous zero-margin `stripped < whole` check on a single
-            1000x1000 raster flaked precisely because the wheel's ~4 MB strip overhead
-            exceeded that raster's 2 MB whole-array pass (#1008 follow-up).
+            The peak is compared to the raster's deterministic byte size, not to a second
+            measured peak. A peak-vs-peak ratio flaked because the wheel-build GDAL read
+            path retains a ~4 MB one-time buffer whose allocation lands inside a traced
+            region only nondeterministically (warm-up / test ordering), so it did not
+            reliably cancel between two measurements (see #1047; and #1005 / #1004 for the
+            earlier hard-budget flake that ratio was meant to replace). A warm-up read pays
+            that one-time buffer outside any traced region, so the measured peak is
+            build-independent.
         """
         cols = 1000
 
@@ -341,16 +342,21 @@ class TestStreamReduce:
             assert result == expected, f"stripped reduction diverged at {rows} rows"
             return peak[0]
 
-        small_peak = reduce_peak(1000)
+        # Warm the build's one-time GDAL/wheel read buffer OUTSIDE any traced region so its
+        # ~4 MB (pip-wheel) allocation never inflates the measured peak — that warm-up-
+        # dependent overhead is exactly what made a peak-vs-peak ratio flaky (#1047).
+        reduce_peak(64)
         large_peak = reduce_peak(8000)
 
-        # The raster grew 8x; a whole-array reduction's peak would grow with it. The strip
-        # read's peak must stay flat — allow generous headroom (4x) for allocator noise
-        # while still catching an implementation that materialises the whole raster.
-        assert large_peak < small_peak * 4, (
-            f"stream_reduce peak grew from {small_peak / 1e6:.1f} MB at 1000 rows to "
-            f"{large_peak / 1e6:.1f} MB at 8000 rows — it scales with the raster instead "
-            "of reading one strip at a time"
+        # An 8000-row strip read must peak far below the whole raster
+        # (8000 * cols * int16 = ~16 MB); a whole-array reduction would peak at least that.
+        # Compare against the deterministic full-array size, not a second noisy measurement,
+        # so the verdict never depends on measurement order or the build's read overhead.
+        whole_array_bytes = 8000 * cols * 2
+        assert large_peak < whole_array_bytes // 2, (
+            f"stream_reduce peaked at {large_peak / 1e6:.1f} MB — not far below the "
+            f"{whole_array_bytes / 1e6:.0f} MB full raster; it is materialising the whole "
+            "raster instead of reading one strip at a time"
         )
 
 
