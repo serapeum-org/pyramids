@@ -559,6 +559,26 @@ class TestToNetcdfNoData:
             f"per-var nodata attr missing/wrong: {attrs!r}"
         )
 
+    def test_data_variable_declares_cf_fill_value(self, tmp_path):
+        """The data variable declares a CF ``_FillValue`` so CF readers mask the fill (#1061).
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            int16 collection with ``no_data_value=-9999`` — expected: the classic (CF) view a
+            reader like Panoply sees carries ``Band_1#_FillValue == -9999``. A bare ``nodata``
+            attribute is not honored by CF readers, so without ``_FillValue`` the fill folds into
+            the color scale and hides the data.
+        """
+        col, _ = _make_int16_collection(tmp_path, no_data_value=-9999)
+        out = tmp_path / "nd_fill.nc"
+        col.to_netcdf(str(out))
+        md = gdal.Open(str(out)).GetMetadata()
+        fill = md.get("Band_1#_FillValue")
+        assert fill is not None, f"data variable must declare a CF _FillValue: {md}"
+        assert float(fill) == -9999.0, f"_FillValue should equal the nodata, got {fill!r}"
+
     def test_nodata_on_var_per_band_false(self, tmp_path):
         """In the 4-D layout the ``nodata`` attr lives on the single ``data`` variable.
 
