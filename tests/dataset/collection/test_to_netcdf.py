@@ -595,6 +595,31 @@ class TestToNetcdfNoData:
         attrs = _array_attrs(str(out), "data")
         assert attrs.get("nodata") == -9999, f"4D nodata attr missing: {attrs!r}"
 
+    def test_var_per_band_false_declares_cf_fill_value(self, tmp_path):
+        """The single 4-D ``data`` variable also declares a CF ``_FillValue`` (#1061).
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            ``var_per_band=False`` int16 collection with ``no_data_value=-9999`` —
+            expected: the classic (CF) view carries ``data#_FillValue == -9999`` so a CF
+            reader masks the fill in the 4-D ``data`` variable too, not only in the
+            per-band ``Band_1`` layout. Without the ``_FillValue`` the bare ``nodata``
+            attribute is ignored and the fill folds into the color scale.
+        """
+        col, _ = _make_int16_collection(tmp_path, no_data_value=-9999)
+        out = tmp_path / "nd_fill_4d.nc"
+        col.to_netcdf(str(out), var_per_band=False)
+        md = gdal.Open(str(out)).GetMetadata()
+        fill = md.get("data#_FillValue")
+        assert fill is not None, (
+            f"the 4-D data variable must declare a CF _FillValue: {md}"
+        )
+        assert float(fill) == -9999.0, (
+            f"_FillValue should equal the nodata, got {fill!r}"
+        )
+
     def test_no_nodata_when_source_has_none(self, tmp_path):
         """A source raster with ``no_data_value=None`` writes no ``nodata`` attr.
 
