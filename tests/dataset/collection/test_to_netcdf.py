@@ -559,6 +559,28 @@ class TestToNetcdfNoData:
             f"per-var nodata attr missing/wrong: {attrs!r}"
         )
 
+    def test_data_variable_declares_cf_fill_value(self, tmp_path):
+        """The data variable declares a CF ``_FillValue`` so CF readers mask the fill (#1061).
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            int16 collection with ``no_data_value=-9999`` — expected: the classic (CF) view a
+            reader like Panoply sees carries ``Band_1#_FillValue == -9999``. A bare ``nodata``
+            attribute is not honored by CF readers, so without ``_FillValue`` the fill folds into
+            the color scale and hides the data.
+        """
+        col, _ = _make_int16_collection(tmp_path, no_data_value=-9999)
+        out = tmp_path / "nd_fill.nc"
+        col.to_netcdf(str(out))
+        md = gdal.Open(str(out)).GetMetadata()
+        fill = md.get("Band_1#_FillValue")
+        assert fill is not None, f"data variable must declare a CF _FillValue: {md}"
+        assert float(fill) == -9999.0, (
+            f"_FillValue should equal the nodata, got {fill!r}"
+        )
+
     def test_nodata_on_var_per_band_false(self, tmp_path):
         """In the 4-D layout the ``nodata`` attr lives on the single ``data`` variable.
 
@@ -574,6 +596,31 @@ class TestToNetcdfNoData:
         col.to_netcdf(str(out), var_per_band=False)
         attrs = _array_attrs(str(out), "data")
         assert attrs.get("nodata") == -9999, f"4D nodata attr missing: {attrs!r}"
+
+    def test_var_per_band_false_declares_cf_fill_value(self, tmp_path):
+        """The single 4-D ``data`` variable also declares a CF ``_FillValue`` (#1061).
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            ``var_per_band=False`` int16 collection with ``no_data_value=-9999`` —
+            expected: the classic (CF) view carries ``data#_FillValue == -9999`` so a CF
+            reader masks the fill in the 4-D ``data`` variable too, not only in the
+            per-band ``Band_1`` layout. Without the ``_FillValue`` the bare ``nodata``
+            attribute is ignored and the fill folds into the color scale.
+        """
+        col, _ = _make_int16_collection(tmp_path, no_data_value=-9999)
+        out = tmp_path / "nd_fill_4d.nc"
+        col.to_netcdf(str(out), var_per_band=False)
+        md = gdal.Open(str(out)).GetMetadata()
+        fill = md.get("data#_FillValue")
+        assert fill is not None, (
+            f"the 4-D data variable must declare a CF _FillValue: {md}"
+        )
+        assert float(fill) == -9999.0, (
+            f"_FillValue should equal the nodata, got {fill!r}"
+        )
 
     def test_no_nodata_when_source_has_none(self, tmp_path):
         """A source raster with ``no_data_value=None`` writes no ``nodata`` attr.
@@ -667,6 +714,72 @@ class TestToNetcdfNoData:
         var = NetCDF.read_file(str(out)).get_variable("data")
         assert all(v == -9999 for v in var.no_data_value), (
             f"4-D nodata did not round-trip: {var.no_data_value!r}"
+        )
+
+    @staticmethod
+    def _float_collection(tmp_path, fill: float) -> DatasetCollection:
+        """Build a float32 collection whose nodata is ``fill`` and one cell stamped to it."""
+        paths = []
+        for i in range(2):
+            arr = (np.arange(20, dtype="float32").reshape(4, 5) + i).astype("float32")
+            arr[0, 0] = fill
+            p = os.path.join(str(tmp_path), f"f{i}.tif")
+            Dataset.create_from_array(
+                arr,
+                top_left_corner=(0, 0),
+                cell_size=0.05,
+                epsg=4326,
+                no_data_value=fill,
+                path=p,
+            ).close()
+            paths.append(p)
+        return DatasetCollection.from_files(paths)
+
+    def test_float_flt_max_fill_value_matches_in_band(self, tmp_path):
+        """A float32 ``-FLT_MAX`` nodata becomes a CF ``_FillValue`` equal to the in-band fill (#1061).
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            The reported dtype — a float32 collection whose nodata is ``-FLT_MAX`` (the fill that hid
+            the Coello evap data), with one cell stamped to it. Expected: the classic (CF) view carries
+            ``Band_1#_FillValue == -FLT_MAX`` *and* the read-back band still holds ``-FLT_MAX`` there,
+            so a CF reader masks that cell instead of scaling to it. Guards the ``double``->``float32``
+            cast the int-only tests cannot.
+        """
+        fill = float(np.finfo("float32").min)
+        out = tmp_path / "float_fill.nc"
+        self._float_collection(tmp_path, fill).to_netcdf(str(out))
+        declared = gdal.Open(str(out)).GetMetadata().get("Band_1#_FillValue")
+        assert declared is not None, "float data variable must declare a CF _FillValue"
+        assert np.float32(declared) == np.float32(fill), (
+            f"_FillValue should equal -FLT_MAX, got {declared!r}"
+        )
+        in_band = _array_values(str(out), "Band_1")[0, 0, 0]
+        assert np.float32(in_band) == np.float32(fill), (
+            f"the stamped nodata cell should read back as the fill, got {in_band!r}"
+        )
+
+    def test_nan_nodata_declares_nan_fill_value(self, tmp_path):
+        """A NaN nodata becomes a NaN CF ``_FillValue`` (#1061).
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            A float32 collection with ``no_data_value=nan`` — expected: ``Band_1#_FillValue`` parses to
+            NaN, confirming ``SetNoDataValueDouble(nan)`` is accepted (not a silent no-op) so a CF
+            reader can mask NaN fills.
+        """
+        out = tmp_path / "nan_fill.nc"
+        self._float_collection(tmp_path, float("nan")).to_netcdf(str(out))
+        declared = gdal.Open(str(out)).GetMetadata().get("Band_1#_FillValue")
+        assert declared is not None, "NaN nodata must still declare a CF _FillValue"
+        # Check the classic-view string directly so the assertion cannot pass for a missing value
+        # (`np.float32(None)` is itself NaN); GDAL writes a NaN _FillValue as the literal "nan".
+        assert str(declared).strip().lower() == "nan", (
+            f"_FillValue should be NaN, got {declared!r}"
         )
 
 

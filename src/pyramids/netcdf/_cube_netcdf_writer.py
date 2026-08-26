@@ -158,11 +158,12 @@ class CubeNetCDFWriter:
         y_coord = np.asarray(self._collection._base.y)
         x_coord = np.asarray(self._collection._base.x)
 
-        # GDAL's multidim NetCDF writer rejects ``_FillValue`` as an attribute
-        # (libnetcdf wants it via the dedicated typed-fill API the writer does not
-        # expose), so surface the no-data value under a ``nodata`` attribute
-        # instead — on the root group (matches ``to_zarr``) and on every data
-        # variable, so consumers can recover it.
+        # The CF ``_FillValue`` is declared via ``SetNoDataValueDouble`` at MDArray
+        # creation in ``open_streaming_multidim_netcdf`` (netCDF rejects a fill value
+        # once data exists, so it must be set before any slab is streamed) — that is
+        # what CF readers mask on. This ``nodata`` attribute is kept in addition — on
+        # the root group (matches ``to_zarr``) and on every data variable — so
+        # pyramids' own reader recovers the no-data value on round-trip.
         var_attrs: dict[str, Any] = {}
         typed_nodata = None
         if nodata is not None:

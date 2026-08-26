@@ -845,6 +845,13 @@ def _build_streaming_multidim(
             )
         ext = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(np.dtype(var_dtype)))
         md_arr = root.CreateMDArray(var_name, [gdal_dims[d] for d in var_dims], ext)
+        # Declare a real CF `_FillValue` *before* the caller streams any slab: netCDF rejects a
+        # fill value once data exists, so this must happen at creation. GDAL surfaces it as the
+        # `_FillValue` attribute, which CF readers (Panoply, xarray, QGIS) mask missing data on —
+        # they never honor the bare `nodata` attribute this writer also keeps for round-trip (#1061).
+        fill = var_attrs.get("nodata")
+        if fill is not None:
+            md_arr.SetNoDataValueDouble(float(fill))
         _apply_md_array_attrs(md_arr, dict(var_attrs))
         arrays[var_name] = md_arr
 
