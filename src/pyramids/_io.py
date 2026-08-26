@@ -3,6 +3,7 @@ from __future__ import annotations
 import fnmatch
 import gzip
 import itertools
+import re
 import tarfile
 import time
 import warnings
@@ -213,16 +214,43 @@ def read_vsi_bytes(path: str) -> bytes:
     return payload
 
 
-def _is_zip(path: str):
-    return path.endswith(".zip") or path.__contains__(".zip")
+# A GDAL virtual-filesystem prefix (/vsizip/, /vsigzip/, /vsitar/, /vsicurl/,
+# /vsicurl_streaming/, /vsis3/, …) that already resolves the path. Handler names are
+# always lowercase (never widen to IGNORECASE — that would match a "VSI"-named
+# directory) and may carry an underscore (`vsicurl_streaming`), so the class is
+# [a-z0-9_]. The prefix is anchored to the start of the string, an opening quote, or a
+# *driver scheme* — a token of two or more name characters before the colon
+# (`NETCDF:`, `SENTINEL2_L2A:`). Requiring ≥2 characters excludes a Windows drive letter
+# (`C:`), which is exactly one, so a real archive under a drive-root directory named
+# `vsizip` (`C:/vsizip/a.zip`) — or any ordinary `vsi<x>` directory / inner member — is
+# NOT mistaken for a resolved prefix; only a leading /vsi…/ or a driver-embedded
+# <scheme>:/vsi…/ matches.
+_VSI_PREFIX_RE = re.compile(r'(?:^|"|[A-Za-z]\w+:)/vsi[a-z0-9_]+/')
 
 
-def _is_gzip(path: str):
-    return path.endswith(".gz") or path.__contains__(".gz")
+def _is_resolved_vsi(path: str) -> bool:
+    """Whether ``path`` already routes through a GDAL ``/vsi*`` handler.
+
+    True for a bare ``/vsizip/…`` path and for a driver connection string that embeds
+    one (``SENTINEL2_L2A:/vsizip/…``, ``NETCDF:"/vsizip/…"``). Such a path is already
+    resolved: :func:`_parse_path` returns it unchanged rather than prepend a second
+    archive prefix (#1055). It is deliberately *not* consulted by the extension
+    detectors below — those stay pure so :func:`_infer_archive_kind` still classifies a
+    raw ``/vsi*`` archive path.
+    """
+    return bool(_VSI_PREFIX_RE.search(path))
 
 
-def _is_tar(path: str):
-    return path.endswith(".tar.gz") or path.__contains__(".tar")
+def _is_zip(path: str) -> bool:
+    return path.endswith(".zip") or ".zip" in path
+
+
+def _is_gzip(path: str) -> bool:
+    return path.endswith(".gz") or ".gz" in path
+
+
+def _is_tar(path: str) -> bool:
+    return path.endswith(".tar.gz") or ".tar" in path
 
 
 def _get_zip_path(path: str, file_i: int = 0):
@@ -353,7 +381,11 @@ def _parse_path(path: str | Path, file_i: int = 0) -> str:
     # to GDAL /vsi* form BEFORE zip/tar/gzip detection so a remote /vsicurl/
     # path doesn't accidentally get treated as a compressed archive.
     path = remote._to_vsi(path)
-    if remote.is_remote(path):
+    if remote.is_remote(path) or _is_resolved_vsi(path):
+        # Already routed through a /vsi* handler — a bare /vsizip/… path (caught by
+        # is_remote) or one embedded in a driver connection string
+        # (SENTINEL2_L2A:/vsizip/…, which is_remote misses). Re-wrapping it would yield
+        # the unopenable /vsizip/SENTINEL2_L2A:/vsizip/… , so leave it as-is (#1055).
         new_path = path
     elif _is_zip(path):
         new_path = _get_zip_path(path, file_i=file_i)

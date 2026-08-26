@@ -346,6 +346,20 @@ class TestMetadataDomains:
         assert isinstance(domains, list), "meta_data_domains must be a list"
         assert all(isinstance(d, str) for d in domains), "entries must be str"
 
+    def test_public_name_is_meta_data_domains_not_metadata_domains(self, plain):
+        """Pin the shipped name so code and docs cannot drift again (#1052).
+
+        The listing shipped as `meta_data_domains` (consistent with the `meta_data` /
+        `get_meta_data` siblings). PR #1040's body called it `metadata_domains`, which
+        never existed; this asserts the real name is present and the other is absent.
+        """
+        assert hasattr(plain, "meta_data_domains"), (
+            "meta_data_domains is the public name"
+        )
+        assert not hasattr(plain, "metadata_domains"), (
+            "metadata_domains must not exist; one canonical name only"
+        )
+
     def test_set_meta_data_round_trips_a_custom_domain(self, plain):
         """A custom domain can be written and read back, and appears in the list."""
         plain.set_meta_data({"A": "1", "B": "2"}, domain="MYDOMAIN")

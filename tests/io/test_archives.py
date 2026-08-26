@@ -6,6 +6,8 @@ from osgeo import gdal
 
 from pyramids._io import _parse_path, extract_from_gz, read_file
 from pyramids.base._errors import FileFormatNotSupportedError
+from pyramids.dataset import Dataset
+from pyramids.dataset._subdataset import SubDataset
 
 
 class TestZipFiles:
@@ -156,8 +158,11 @@ import tempfile
 import numpy as np
 
 from pyramids._io import (
+    _archive_dir_vsi,
     _get_tar_path,
+    _infer_archive_kind,
     _is_gzip,
+    _is_resolved_vsi,
     _is_tar,
     _is_zip,
     extract_from_gz,
@@ -383,3 +388,118 @@ class TestHelperFunctions:
     def test_is_tar_non_tar(self):
         """_is_tar should return False for non-tar files."""
         assert _is_tar("file.tif") is False, "file.tif should not be tar"
+
+
+class TestVsiPathNotDoubleWrapped:
+    """A path already routed through a GDAL /vsi* handler is left alone (#1055)."""
+
+    def test_is_resolved_vsi_flags_only_real_prefixes(self):
+        """It matches a leading or driver-embedded /vsi*, not a directory or drive named vsi<x>."""
+        assert _is_resolved_vsi("/vsizip/a.zip/b.asc"), "bare /vsizip/ path"
+        assert _is_resolved_vsi(
+            "SENTINEL2_L2A:/vsizip/a.zip/x.SAFE/m.xml:60m:EPSG_32632"
+        ), "driver-prefixed /vsizip/ connection string"
+        assert _is_resolved_vsi('NETCDF:"/vsizip/a.zip/x.nc":tos'), (
+            "quoted /vsizip/ path"
+        )
+        assert _is_resolved_vsi("NETCDF:/vsicurl_streaming/https://h/x.nc:v"), (
+            "an underscore-bearing handler (vsicurl_streaming) still matches"
+        )
+        assert not _is_resolved_vsi("data/a.zip"), "a real archive is not a vsi path"
+        assert not _is_resolved_vsi("data/a.zip/b.asc"), "an archive member is not vsi"
+        assert not _is_resolved_vsi("C:/data/vsix/a.zip"), (
+            "a .vsix folder is not a prefix"
+        )
+        assert not _is_resolved_vsi("archive.zip/vsi1/inner.asc"), (
+            "an inner vsi1/ member folder is not a prefix"
+        )
+        # A drive-letter colon must not be read as a driver scheme (it is one char, a
+        # scheme is >= 2), so an archive under a drive-root dir named vsi<x> stays local.
+        assert not _is_resolved_vsi("C:/vsizip/a.zip/inner.tif"), (
+            "a Windows drive letter is not a driver scheme"
+        )
+        assert not _is_resolved_vsi("D:/vsitar/data.tar/inner.tif"), (
+            "a drive-root vsitar/ directory is a real archive path"
+        )
+
+    def test_parse_path_leaves_a_driver_embedded_vsi_string_unchanged(self):
+        """_parse_path returns a driver-embedded /vsizip/ string unchanged — the real #1055 trigger.
+
+        is_remote is False for a driver-prefixed connection string, so before the fix it
+        reached the detectors and was double-wrapped into /vsizip/SENTINEL2_L2A:/vsizip/… .
+        """
+        conn = "SENTINEL2_L2A:/vsizip/data/product.zip/X.SAFE/MTD.xml:60m:EPSG_32632"
+        assert _parse_path(conn) == conn, (
+            "a resolved driver connection string passes through"
+        )
+        nc = 'NETCDF:"/vsizip/data/x.zip/multi.nc":tos'
+        assert _parse_path(nc) == nc, (
+            "a quoted /vsizip/ netCDF subdataset passes through"
+        )
+
+    def test_infer_archive_kind_still_resolves_a_raw_vsi_archive(self):
+        """The guard stays out of the detectors, so from_archive(kind='auto') still works on /vsi* input.
+
+        Regression guard: routing the guard through the shared detectors would make
+        _infer_archive_kind return None and _archive_dir_vsi raise on a raw /vsi* archive.
+        """
+        assert _infer_archive_kind("/vsizip/data/x.zip") == "zip", (
+            "raw /vsizip/ classifies"
+        )
+        assert _infer_archive_kind("/vsis3/bucket/a.zip") == "zip", (
+            "an /vsis3/ archive classifies"
+        )
+        assert _archive_dir_vsi("/vsizip/data/x.zip", "auto") == "/vsizip/data/x.zip", (
+            "auto-kind resolves a raw /vsi* archive, does not raise"
+        )
+
+    def test_parse_path_passes_a_bare_vsizip_member_through(
+        self,
+        multiple_compressed_file_zip: str,
+        multiple_compressed_file_zip_content: List[str],
+    ):
+        """A bare /vsizip/ member is returned unchanged (via the is_remote short-circuit)."""
+        member = multiple_compressed_file_zip_content[0]
+        resolved = f"/vsizip/{multiple_compressed_file_zip}/{member}"
+        assert _parse_path(resolved) == resolved, (
+            "a resolved /vsizip/ path passes through"
+        )
+
+    def test_read_file_opens_a_bare_vsizip_member(
+        self,
+        multiple_compressed_file_zip: str,
+        multiple_compressed_file_zip_content: List[str],
+    ):
+        """The low-level reader opens an already-/vsizip/ member without re-wrapping it."""
+        member = multiple_compressed_file_zip_content[0]
+        src = read_file(f"/vsizip/{multiple_compressed_file_zip}/{member}")
+        assert isinstance(src, gdal.Dataset), "a resolved /vsizip/ member must open"
+
+    def test_subdataset_open_reopens_a_vsizip_name(
+        self,
+        multiple_compressed_file_zip: str,
+        multiple_compressed_file_zip_content: List[str],
+    ):
+        """SubDataset.open() reopens a bare /vsizip/ member end-to-end (via the is_remote path).
+
+        The driver-embedded shape that #1055 actually reported is guarded by
+        test_parse_path_leaves_a_driver_embedded_vsi_string_unchanged; this exercises the
+        full SubDataset.open -> read_file -> _parse_path chain on a real openable member.
+        """
+        member = multiple_compressed_file_zip_content[0]
+        name = f"/vsizip/{multiple_compressed_file_zip}/{member}"
+        assert SubDataset(name, "member", 0).open().band_count >= 1, (
+            "the drill-in reopens"
+        )
+
+    def test_bare_archive_member_still_resolves(
+        self,
+        multiple_compressed_file_zip: str,
+        multiple_compressed_file_zip_content: List[str],
+    ):
+        """The real archive.zip/member convenience path is unaffected by the guard."""
+        member = multiple_compressed_file_zip_content[0]
+        assert (
+            Dataset.read_file(f"{multiple_compressed_file_zip}/{member}").band_count
+            >= 1
+        ), "a bare archive member must still open"
