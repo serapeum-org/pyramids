@@ -46,6 +46,7 @@ from pyramids.base._coverage import resolve_native_srs as _resolve_native_srs_ne
 from pyramids.base._coverage import validate_bbox as _validate_bbox
 from pyramids.base._errors import CoverageError, WMSError
 from pyramids.base._ogc_api import gdal_http_config as _gdal_http_config
+from pyramids.dataset._subdataset import subdatasets_of
 
 if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
@@ -204,13 +205,17 @@ def _available_wmts_layers(endpoint: str) -> list[str]:
         caps = gdal.Open(f"WMTS:{endpoint}")
     except RuntimeError:
         caps = None
-    layers: list[str] = []
-    if caps is not None:
-        for key, value in caps.GetMetadata("SUBDATASETS").items():
-            # Split on the comma-prefixed ``,layer=`` GDAL subdataset key, not a
-            # bare ``layer=`` that a query-string in the caps URL might also carry.
-            if key.endswith("_NAME") and ",layer=" in value:
-                layers.append(value.split(",layer=", 1)[1].split(",", 1)[0])
+    if caps is None:
+        return []
+    # Enumerate the caps container's subdatasets through the shared builder (the same
+    # surface Dataset.subdatasets exposes), then pull the layer id from each
+    # ``WMTS:<url>,layer=<id>`` name. Split on the comma-prefixed ``,layer=`` key, not
+    # a bare ``layer=`` that a query-string in the caps URL might also carry.
+    layers = [
+        sub.name.split(",layer=", 1)[1].split(",", 1)[0]
+        for sub in subdatasets_of(caps)
+        if ",layer=" in sub.name
+    ]
     return sorted(set(layers))
 
 

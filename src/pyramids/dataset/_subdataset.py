@@ -19,6 +19,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from osgeo import gdal
+
     from pyramids.dataset.dataset import Dataset
 
 
@@ -65,4 +67,51 @@ class SubDataset:
         # _subdataset cycle (abstract_dataset imports SubDataset at module load).
         from pyramids.dataset.dataset import Dataset
 
-        return Dataset.read_file(self.name)
+        # warn_on_container=False: opening a subdataset by its value object is a
+        # deliberate drill-in, so a nested-container warning here would be noise.
+        return Dataset.read_file(self.name, warn_on_container=False)
+
+
+def subdatasets_of(raster: gdal.Dataset) -> list[SubDataset]:
+    """Build the :class:`SubDataset` list for a raw GDAL dataset handle.
+
+    The single place the ``SUBDATASETS`` domain is turned into
+    :class:`SubDataset` value objects. Both
+    :attr:`~pyramids.dataset.abstract_dataset.RasterBase.subdatasets` and the
+    WMTS layer-hint helper in :mod:`pyramids.dataset._wms` build on it, so the
+    enumeration lives in exactly one spot.
+
+    Args:
+        raster: An open ``gdal.Dataset``. A plain raster (no subdatasets) yields an
+            empty list.
+
+    Returns:
+        list[SubDataset]: One :class:`SubDataset` per nested raster, in GDAL's
+        order; ``[]`` when the handle has none.
+
+    Examples:
+        - Enumerate a NetCDF container's four subdatasets from a raw GDAL handle:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.dataset._subdataset import subdatasets_of
+            >>> handle = gdal.Open("tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc")
+            >>> subs = subdatasets_of(handle)
+            >>> len(subs)
+            4
+            >>> subs[0].index, subs[0].name.endswith(":Band1")
+            (0, True)
+
+            ```
+        - A plain single-band raster has no subdatasets:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.dataset._subdataset import subdatasets_of
+            >>> subdatasets_of(gdal.Open("tests/data/geotiff/coello-without-color-table.tif"))
+            []
+
+            ```
+    """
+    return [
+        SubDataset(name, description, i)
+        for i, (name, description) in enumerate(raster.GetSubDatasets())
+    ]

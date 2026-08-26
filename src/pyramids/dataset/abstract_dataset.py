@@ -36,7 +36,7 @@ from pyramids.base._utils import (
 from pyramids.base.crs import epsg_of_crs, sr_from_epsg
 from pyramids.base.protocols import ArrayLike, FloatArray
 from pyramids.base.remote import cloud_config_from_env
-from pyramids.dataset._subdataset import SubDataset
+from pyramids.dataset._subdataset import SubDataset, subdatasets_of
 from pyramids.dataset.transform import GeoTransform
 from pyramids.dataset.window import Window
 
@@ -163,10 +163,15 @@ def _reconstruct_dataset(
     # The env is applied here rather than forwarded to read_file so every
     # subclass benefits without widening its own signature.
     with cloud_config_from_env(gdal_env, path=path):
+        # warn_on_container=False: unpickling an already-opened container reopens a
+        # handle the caller previously held, so re-emitting the container warning here
+        # would be spurious. Only the base Dataset reaches this reconstruct (NetCDF has
+        # its own _reconstruct_netcdf), so read_file always accepts the keyword.
         dataset = cls.read_file(
             path,
             read_only=True,
             open_options=list(open_options) if open_options else None,
+            warn_on_container=False,
         )
     dataset.attach_gdal_env(gdal_env)
     return dataset
@@ -815,10 +820,7 @@ class RasterBase(ABC):
                 ```
         """
         self._require_open()
-        return [
-            SubDataset(name, description, i)
-            for i, (name, description) in enumerate(self._raster.GetSubDatasets())
-        ]
+        return subdatasets_of(self._raster)
 
     @property
     def meta_data_domains(self) -> list[str]:
@@ -1126,6 +1128,7 @@ class RasterBase(ABC):
         file_i: int = 0,
         *,
         open_options: dict[str, str] | list[str] | tuple[str, ...] | None = None,
+        warn_on_container: bool = True,
     ) -> RasterBase:
         """Read file.
 
@@ -1141,6 +1144,12 @@ class RasterBase(ABC):
                 GDAL open options as a mapping or ``["KEY=VALUE"]`` sequence,
                 forwarded to the driver and captured on the returned instance so
                 the reopen paths reapply them. Default ``None`` — no options.
+            warn_on_container (bool):
+                Whether to warn when the path opens to a subdataset container (a
+                0-band raster whose payload is nested subdatasets) rather than
+                returning it silently. Part of the contract so the pickle
+                reconstruct can suppress it; concrete readers may honour or ignore
+                it. Default ``True``.
 
         Returns:
             Dataset: The opened dataset instance.

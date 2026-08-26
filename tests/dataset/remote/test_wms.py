@@ -247,12 +247,19 @@ class TestAvailableWmtsLayers:
 
         class _Caps:
             @staticmethod
-            def GetMetadata(_key):
-                return {
-                    "SUBDATASET_1_NAME": "WMTS:https://x,layer=B",
-                    "SUBDATASET_2_NAME": "WMTS:https://x,layer=A,tilematrixset=t",
-                    "SUBDATASET_1_DESC": "ignored, not a _NAME",
-                }
+            def GetSubDatasets():
+                # (name, description) pairs, as GDAL parses the SUBDATASETS domain —
+                # the same surface Dataset.subdatasets consumes.
+                return [
+                    ("WMTS:https://x,layer=B", "layer B"),
+                    ("WMTS:https://x,layer=A,tilematrixset=t", "layer A"),
+                    ("WMTS:https://x,layer=B", "duplicate -> de-duplicated"),
+                    ("WMTS:https://x", "no ,layer= key -> skipped"),
+                    (
+                        "WMTS:https://x",
+                        "desc has ,layer=Z but the name does not -> skipped",
+                    ),
+                ]
 
         monkeypatch.setattr(_wms.gdal, "Open", lambda _c: _Caps())
         assert _wms._available_wmts_layers("https://x") == ["A", "B"]
