@@ -774,7 +774,11 @@ class TestToNetcdfNoData:
         self._float_collection(tmp_path, float("nan")).to_netcdf(str(out))
         declared = gdal.Open(str(out)).GetMetadata().get("Band_1#_FillValue")
         assert declared is not None, "NaN nodata must still declare a CF _FillValue"
-        assert np.isnan(np.float32(declared)), f"_FillValue should be NaN, got {declared!r}"
+        # Check the classic-view string directly so the assertion cannot pass for a missing value
+        # (`np.float32(None)` is itself NaN); GDAL writes a NaN _FillValue as the literal "nan".
+        assert str(declared).strip().lower() == "nan", (
+            f"_FillValue should be NaN, got {declared!r}"
+        )
 
 
 class TestToNetcdfNoFilesPath:
