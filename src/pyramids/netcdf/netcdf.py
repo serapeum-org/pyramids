@@ -527,8 +527,10 @@ class NetCDF(Dataset):
             pickle as a secret.
 
         Raises:
-            TypeError: The NetCDF has no on-disk path (empty
-                `_file_name` or a `/vsimem/` path). Pickling an
+            TypeError: The NetCDF is in-memory, not on-disk — an empty
+                `_file_name`, a `/vsimem/` path, or a `_vsimem_path`
+                backing store shadowed by a cosmetic `name=` (checked on
+                `self` or, for a subset, the parent). Pickling an
                 in-memory NetCDF is not supported.
         """
         path = self._file_name
