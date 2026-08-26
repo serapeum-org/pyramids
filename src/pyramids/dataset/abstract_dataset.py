@@ -1128,6 +1128,7 @@ class RasterBase(ABC):
         file_i: int = 0,
         *,
         open_options: dict[str, str] | list[str] | tuple[str, ...] | None = None,
+        warn_on_container: bool = True,
     ) -> RasterBase:
         """Read file.
 
@@ -1143,6 +1144,12 @@ class RasterBase(ABC):
                 GDAL open options as a mapping or ``["KEY=VALUE"]`` sequence,
                 forwarded to the driver and captured on the returned instance so
                 the reopen paths reapply them. Default ``None`` — no options.
+            warn_on_container (bool):
+                Whether to warn when the path opens to a subdataset container (a
+                0-band raster whose payload is nested subdatasets) rather than
+                returning it silently. Part of the contract so the pickle
+                reconstruct can suppress it; concrete readers may honour or ignore
+                it. Default ``True``.
 
         Returns:
             Dataset: The opened dataset instance.
