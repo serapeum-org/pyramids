@@ -195,6 +195,31 @@ class TestNetCDFFromBytes:
         with pytest.raises(TypeError, match=r"to_file"):
             pickle.dumps(nc)
 
+    def test_named_subset_not_picklable(self, netcdf_bytes: bytes):
+        """A variable subset of a *named* in-memory NetCDF is also unpicklable (#1059).
+
+        Args:
+            netcdf_bytes: Raw bytes of the NetCDF fixture.
+
+        Test scenario:
+            The subset's own ``file_name`` is empty and falls back to the cosmetic
+            parent name (``downloaded.nc``), so *only* the parent container's
+            ``_vsimem_path`` marks the pair in-memory. ``pickle.dumps`` of the subset
+            must raise ``TypeError`` immediately — not pickle into a recipe that points
+            at the phantom ``downloaded.nc`` and fails only on unpickle, matching the
+            container case and guarding the ``__reduce__`` parent branch (#1059).
+        """
+        nc = NetCDF.from_bytes(netcdf_bytes, name="downloaded.nc")
+        subset = nc.get_variable(nc.variable_names[0])
+        assert getattr(subset, "_vsimem_path", None) is None, (
+            "precondition: the subset carries no _vsimem_path of its own"
+        )
+        assert nc._vsimem_path, (
+            "precondition: only the parent records the /vsimem backing path"
+        )
+        with pytest.raises(TypeError, match=r"to_file"):
+            pickle.dumps(subset)
+
     @pytest.mark.parametrize("bad", ["a string", 7, None])
     def test_non_bytes_raises_type_error(self, bad):
         """Non bytes-like input raises ``TypeError``.
