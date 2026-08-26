@@ -265,6 +265,7 @@ class TestReadClassicVariable:
         """
         mock_self = Mock()
         mock_self.file_name = "file.nc"
+        mock_self._vsimem_path = None  # a real on-disk container has no /vsimem backing
         ds = Mock()
         arr = np.arange(4).reshape(2, 2)
         ds.ReadAsArray.return_value = arr
@@ -272,8 +273,27 @@ class TestReadClassicVariable:
         with patch("pyramids.netcdf.netcdf.gdal.Open", return_value=ds) as gopen:
             result = NetCDF._read_classic_variable(mock_self, "salt")
 
-        gopen.assert_called_once_with("NETCDF:file.nc:salt")
+        gopen.assert_called_once_with('NETCDF:"file.nc":salt')
         assert result is arr, "classic read must return ReadAsArray() verbatim"
+
+    def test_prefers_vsimem_path_over_cosmetic_file_name(self):
+        """A ``from_bytes`` backing path is used even when a cosmetic name shadows ``file_name``.
+
+        Test scenario:
+            When ``_vsimem_path`` is set (a ``from_bytes`` container) and ``file_name`` is a
+            cosmetic ``name=`` label, the classic open must target the real ``/vsimem`` path,
+            not the label (#1057).
+        """
+        mock_self = Mock()
+        mock_self.file_name = "downloaded.nc"
+        mock_self._vsimem_path = "/vsimem/abc.nc"
+        ds = Mock()
+        ds.ReadAsArray.return_value = np.zeros((2, 2))
+
+        with patch("pyramids.netcdf.netcdf.gdal.Open", return_value=ds) as gopen:
+            NetCDF._read_classic_variable(mock_self, "salt")
+
+        gopen.assert_called_once_with('NETCDF:"/vsimem/abc.nc":salt')
 
     def test_returns_none_when_open_returns_none(self):
         """A ``None`` from ``gdal.Open`` yields ``None``.

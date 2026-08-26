@@ -125,6 +125,27 @@ class TestNetCDFFromBytes:
         nc = NetCDF.from_bytes(netcdf_bytes, name="era5")
         assert nc.file_name == "era5", f"name= not applied: {nc.file_name!r}"
 
+    def test_named_classic_mode_reads_variable(self, netcdf_bytes: bytes):
+        """A named classic-mode read opens its variables via the real ``/vsimem`` path.
+
+        Args:
+            netcdf_bytes: Raw bytes of the NetCDF fixture.
+
+        Test scenario:
+            ``NetCDF.from_bytes(bytes, name="downloaded.nc", open_as_multi_dimensional=False)``
+            then ``get_variable(...)`` — expected: it reads, not ``RuntimeError``. The classic
+            subdataset open must use the real ``/vsimem`` backing path, not the cosmetic ``name=``
+            that shadows ``file_name`` (#1057; mirrors the #1050/#1053 fixes).
+        """
+        nc = NetCDF.from_bytes(
+            netcdf_bytes, name="downloaded.nc", open_as_multi_dimensional=False
+        )
+        assert nc.file_name == "downloaded.nc", (
+            "precondition: the cosmetic name must shadow file_name for this test to bite"
+        )
+        var = nc.get_variable(nc.variable_names[0])
+        assert var.read_array().size > 0, "named classic read returned no data"
+
     def test_vsimem_cleaned_up_on_gc(self, netcdf_bytes: bytes):
         """Dropping the last reference removes the ``/vsimem/`` file.
 
@@ -155,6 +176,49 @@ class TestNetCDFFromBytes:
         nc = NetCDF.from_bytes(netcdf_bytes)
         with pytest.raises(TypeError, match=r"to_file"):
             pickle.dumps(nc)
+
+    def test_named_not_picklable(self, netcdf_bytes: bytes):
+        """A *named* in-memory NetCDF is also unpicklable — the cosmetic name must not defeat the guard.
+
+        Args:
+            netcdf_bytes: Raw bytes of the NetCDF fixture.
+
+        Test scenario:
+            ``pickle.dumps(NetCDF.from_bytes(bytes, name="downloaded.nc"))`` — expected: an immediate
+            ``TypeError`` (not a recipe that fails only on unpickle), because ``_vsimem_path`` marks it
+            in-memory regardless of the cosmetic ``file_name`` (#1059).
+        """
+        nc = NetCDF.from_bytes(netcdf_bytes, name="downloaded.nc")
+        assert nc.file_name == "downloaded.nc", (
+            "precondition: the cosmetic name shadows file_name"
+        )
+        with pytest.raises(TypeError, match=r"to_file"):
+            pickle.dumps(nc)
+
+    def test_named_subset_not_picklable(self, netcdf_bytes: bytes):
+        """A variable subset of a *named* in-memory NetCDF is also unpicklable (#1059).
+
+        Args:
+            netcdf_bytes: Raw bytes of the NetCDF fixture.
+
+        Test scenario:
+            The subset's own ``file_name`` is empty and falls back to the cosmetic
+            parent name (``downloaded.nc``), so *only* the parent container's
+            ``_vsimem_path`` marks the pair in-memory. ``pickle.dumps`` of the subset
+            must raise ``TypeError`` immediately — not pickle into a recipe that points
+            at the phantom ``downloaded.nc`` and fails only on unpickle, matching the
+            container case and guarding the ``__reduce__`` parent branch (#1059).
+        """
+        nc = NetCDF.from_bytes(netcdf_bytes, name="downloaded.nc")
+        subset = nc.get_variable(nc.variable_names[0])
+        assert getattr(subset, "_vsimem_path", None) is None, (
+            "precondition: the subset carries no _vsimem_path of its own"
+        )
+        assert nc._vsimem_path, (
+            "precondition: only the parent records the /vsimem backing path"
+        )
+        with pytest.raises(TypeError, match=r"to_file"):
+            pickle.dumps(subset)
 
     @pytest.mark.parametrize("bad", ["a string", 7, None])
     def test_non_bytes_raises_type_error(self, bad):

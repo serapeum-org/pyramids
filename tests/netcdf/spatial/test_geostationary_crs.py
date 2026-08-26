@@ -141,6 +141,130 @@ class TestGeostationaryCRS:
         assert maxy - miny > 0.1, f"degenerate height: {warped.bbox}"
 
 
+class TestGeostationaryFromBytes:
+    """An in-memory (`from_bytes` / `/vsimem`) geostationary read rescales to metres (#1050).
+
+    `from_bytes` is the only in-memory NetCDF reader that works on Windows/macOS, so this is
+    the sanctioned way to read a downloaded GOES/Himawari granule. Before #1050 the `/vsimem`
+    path skipped the classic-driver rescale, leaving a raw scan-angle geotransform under the
+    metre CRS — silently.
+    """
+
+    @staticmethod
+    def _pair(tmp_path):
+        """Read the same synthetic granule on-disk and via ``from_bytes``; return both cubes."""
+        path = str(tmp_path / "geos.nc")
+        _write_geostationary_mdim(path)
+        with open(path, "rb") as fh:
+            data = fh.read()
+        on_disk = NetCDF.read_file(path).get_variable("CMI_C02")
+        from_bytes = NetCDF.from_bytes(data).get_variable("CMI_C02")
+        return on_disk, from_bytes
+
+    def test_from_bytes_rescales_scan_angles_to_metres(self, tmp_path):
+        """from_bytes rescales the scan-angle geotransform to metres, matching the on-disk read."""
+        on_disk, from_bytes = self._pair(tmp_path)
+        assert from_bytes._geostationary_scaled is True, (
+            "in-memory read must rescale scan angles to metres"
+        )
+        assert abs(from_bytes.geotransform[1]) > 1.0, (
+            f"pixel size must be metres, not radians/index: {from_bytes.geotransform}"
+        )
+        np.testing.assert_allclose(
+            from_bytes.geotransform,
+            on_disk.geotransform,
+            rtol=0,
+            atol=1e-6,
+            err_msg="from_bytes geotransform must match the on-disk metre geotransform",
+        )
+
+    def test_from_bytes_to_crs_matches_on_disk_footprint(self, tmp_path):
+        """to_crs(4326) yields the real footprint, not the sub-satellite nadir point it collapsed to."""
+        on_disk, from_bytes = self._pair(tmp_path)
+        a = on_disk.to_crs(4326).bbox
+        b = from_bytes.to_crs(4326).bbox
+        assert b[2] - b[0] > 0.1, f"degenerate (nadir-collapsed) width: {b}"
+        assert b[3] - b[1] > 0.1, f"degenerate (nadir-collapsed) height: {b}"
+        np.testing.assert_allclose(
+            b, a, rtol=0, atol=1e-6, err_msg="from_bytes footprint must match on-disk"
+        )
+
+    def test_from_bytes_named_rescales_scan_angles_to_metres(self, tmp_path):
+        """A `from_bytes(data, name=...)` read rescales too — the cosmetic name must not shadow
+        the real `/vsimem` path the classic driver reopens (#1050).
+
+        `from_bytes` records the caller's `name=` as the container's `file_name` (cosmetic) while
+        keeping the real backing `/vsimem/...` path in `_vsimem_path`. `_classic_geotransform` must
+        resolve through `_vsimem_path`; keying off `file_name` alone would open a nonexistent path
+        and silently leave the granule under a raw scan-angle geotransform — the exact #1050 defect
+        on the documented `from_bytes(data, name="downloaded.nc")` spelling.
+        """
+        path = str(tmp_path / "geos.nc")
+        _write_geostationary_mdim(path)
+        with open(path, "rb") as fh:
+            data = fh.read()
+        on_disk = NetCDF.read_file(path).get_variable("CMI_C02")
+        container = NetCDF.from_bytes(data, name="downloaded.nc")
+        assert container.file_name == "downloaded.nc", (
+            "the cosmetic name must shadow file_name for this test to exercise the M1 path"
+        )
+        named = container.get_variable("CMI_C02")
+        assert named._geostationary_scaled is True, (
+            "a named in-memory read must still rescale scan angles to metres — the cosmetic name "
+            "must not shadow the /vsimem path"
+        )
+        assert abs(named.geotransform[1]) > 1.0, (
+            f"pixel size must be metres, not radians/index: {named.geotransform}"
+        )
+        np.testing.assert_allclose(
+            named.geotransform,
+            on_disk.geotransform,
+            rtol=0,
+            atol=1e-6,
+            err_msg="named from_bytes geotransform must match the on-disk metre geotransform",
+        )
+
+
+class TestNonGeostationaryFromBytesUnaffected:
+    """A non-geostationary `from_bytes` / `/vsimem` variable read is untouched by #1050.
+
+    `_classic_geotransform` (where the relaxed `/vsimem` guard lives) runs only from
+    `_normalize_geostationary_geotransform`, which returns early unless `_is_geostationary()`.
+    So for an ordinary lat/lon read the classic re-open is never reached — this test confirms
+    that upstream geostationary short-circuit still holds for a `/vsimem` read: no scan-angle
+    rescale, and the EPSG and geotransform stay identical to the on-disk read.
+    No other test drives a non-geostationary variable through `from_bytes(...).get_variable(...)`.
+    """
+
+    def test_latlon_from_bytes_variable_not_rescaled(self, noah_nc_path):
+        """A lat/lon `from_bytes` variable keeps its degree geotransform, EPSG, and unscaled flag."""
+        with open(noah_nc_path, "rb") as fh:
+            data = fh.read()
+        container = NetCDF.read_file(noah_nc_path)
+        var_name = container.variable_names[0]
+        on_disk = container.get_variable(var_name)
+        from_bytes = NetCDF.from_bytes(data).get_variable(var_name)
+        assert on_disk._is_geostationary() is False, (
+            "fixture must be a plain lat/lon grid"
+        )
+        assert from_bytes._is_geostationary() is False, (
+            "from_bytes must not misclassify a lat/lon grid as geostationary"
+        )
+        assert from_bytes._geostationary_scaled is False, (
+            "a non-geostationary read must never be scan-angle rescaled"
+        )
+        assert from_bytes.epsg == on_disk.epsg, (
+            f"epsg drifted from the on-disk read: {from_bytes.epsg} != {on_disk.epsg}"
+        )
+        np.testing.assert_allclose(
+            from_bytes.geotransform,
+            on_disk.geotransform,
+            rtol=0,
+            atol=1e-9,
+            err_msg="from_bytes must not perturb a non-geostationary geotransform",
+        )
+
+
 class TestGeostationaryContainerOps:
     """Container operations preserve the geostationary CRS via WKT (#706).
 

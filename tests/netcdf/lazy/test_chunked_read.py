@@ -820,3 +820,27 @@ class TestLazyHandleLifetime:
         reopened = NetCDF.read_file(three_d_path, open_as_multi_dimensional=True)
         eager = np.asarray(reopened.get_variable(variable).read_array())
         assert eager.size > 0, "the eager reopen read should return data"
+
+
+@requires_dask
+class TestNamedFromBytesLazy:
+    """A named ``from_bytes`` lazy (dask) read reopens the real ``/vsimem`` path (#1058).
+
+    `_read_array_lazy` keyed off `_file_name`, which a cosmetic ``name=`` shadows, so
+    `from_bytes(data, name=...).get_variable(v).read_array(chunks="auto")` reopened the label as a
+    bogus path and raised ``RuntimeError`` on compute — the same shadow bug as #1050/#1053/#1057.
+    """
+
+    def test_named_from_bytes_lazy_read_matches_unnamed(self, three_d_path):
+        """A named container's lazy read computes the same values as the unnamed control."""
+        with open(three_d_path, "rb") as fh:
+            data = fh.read()
+        unnamed = NetCDF.from_bytes(data)
+        var_name = unnamed.variable_names[0]
+        expected = np.asarray(unnamed.get_variable(var_name).read_array(chunks="auto"))
+        named = NetCDF.from_bytes(data, name="downloaded.nc")
+        assert named.file_name == "downloaded.nc", (
+            "precondition: the cosmetic name must shadow file_name"
+        )
+        got = np.asarray(named.get_variable(var_name).read_array(chunks="auto"))
+        assert_allclose(got, expected)

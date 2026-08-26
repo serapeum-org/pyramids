@@ -537,3 +537,24 @@ class TestIsFileBacked:
         assert NetCDF._is_file_backed(var) is True, (
             "a top-level variable's own file must count"
         )
+
+    def test_named_from_bytes_subset_is_file_backed(self):
+        """A named `from_bytes` subset is file-backed via `_vsimem_path`, like the unnamed one (#1059).
+
+        The cosmetic `name=` shadows `_file_name`; without preferring `_vsimem_path` a named in-memory
+        cube would report not-file-backed and lose the streaming reduce the unnamed cube keeps.
+        """
+        with open(_ERA5_T2M, "rb") as fh:
+            data = fh.read()
+        unnamed = NetCDF.from_bytes(data)
+        var_name = unnamed.variable_names[0]
+        assert NetCDF._is_file_backed(unnamed.get_variable(var_name)) is True, (
+            "an unnamed in-memory subset is reopenable via its /vsimem path"
+        )
+        named = NetCDF.from_bytes(data, name="downloaded.nc")
+        assert named.file_name == "downloaded.nc", (
+            "precondition: the cosmetic name shadows file_name"
+        )
+        assert NetCDF._is_file_backed(named.get_variable(var_name)) is True, (
+            "a named in-memory subset must also be recognised as file-backed (via _vsimem_path)"
+        )

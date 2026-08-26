@@ -527,16 +527,24 @@ class NetCDF(Dataset):
             pickle as a secret.
 
         Raises:
-            TypeError: The NetCDF has no on-disk path (empty
-                `_file_name` or a `/vsimem/` path). Pickling an
+            TypeError: The NetCDF is in-memory, not on-disk — an empty
+                `_file_name`, a `/vsimem/` path, or a `_vsimem_path`
+                backing store shadowed by a cosmetic `name=` (checked on
+                `self` or, for a subset, the parent). Pickling an
                 in-memory NetCDF is not supported.
         """
         path = self._file_name
-        if (not path) and (self._is_subset or self._group_path):
-            parent = getattr(self, "_parent_nc", None)
-            if parent is not None:
-                path = parent._file_name
-        if not path or path.startswith("/vsimem/"):
+        parent = getattr(self, "_parent_nc", None)
+        if (not path) and (self._is_subset or self._group_path) and parent is not None:
+            path = parent._file_name
+        # A cosmetic `from_bytes(name=...)` shadows `_file_name`; the real backing store is recorded
+        # in `_vsimem_path` (on self, or the parent container for a subset). Consult it so a *named*
+        # in-memory NetCDF raises the same immediate TypeError as an unnamed one, instead of pickling
+        # into a recipe that only fails on unpickle (#1059; shadow family #1050/#1053/#1057/#1058).
+        vsimem = getattr(self, "_vsimem_path", None) or (
+            getattr(parent, "_vsimem_path", None) if parent is not None else None
+        )
+        if not path or path.startswith("/vsimem/") or vsimem:
             raise TypeError(
                 f"NetCDF has no on-disk path (file_name={self._file_name!r}); "
                 "pickling an in-memory NetCDF is not supported. Call "
@@ -711,6 +719,14 @@ class NetCDF(Dataset):
         self._warp_source = None
         self._parent_nc = None
         self._cached_meta_data = None
+        # Drop and close the reopened geolocation-source handle (a base Dataset over
+        # NETCDF:"<file>":<var>, memoised by `_geolocation_source`). Left open it keeps the source
+        # file open past close(), defeating the handle-release contract the gc.collect() below
+        # enforces (#564); `_update_inplace` already pops it. Only a genuine reopen is cached
+        # (never `self`), so closing it is safe.
+        geoloc_memo = self.__dict__.pop("_geolocation_source_memo", None)
+        if isinstance(geoloc_memo, Dataset):
+            geoloc_memo.close()
         super().close()
         # Break the GDAL SWIG view/MDArray/root-group cycle left by variable
         # extraction so the source file is released now, not on the next GC.
@@ -1465,9 +1481,12 @@ class NetCDF(Dataset):
 
         Returns:
             tuple | None: The classic-driver geotransform, or ``None`` when
-            there is no classic-openable source (e.g. an in-memory dataset) or
-            the classic open does not produce a metre-scale geostationary
-            geotransform.
+            there is no classic-openable source (a path-less in-memory ``MEM``
+            dataset with no ``_vsimem_path`` and an empty ``file_name`` — a
+            ``/vsimem`` source, including a ``from_bytes`` read given a cosmetic
+            ``name`` that shadows ``file_name``, is openable and is rescaled,
+            #1050) or the classic open does not produce a metre-scale
+            geostationary geotransform.
         """
         parent = self._parent_nc
         var = self._source_var_name
@@ -1482,10 +1501,20 @@ class NetCDF(Dataset):
             return cache[var]
 
         result: tuple[float, ...] | None = None
-        path = parent.file_name
-        # The classic netCDF driver needs an on-disk / VSI source; an in-memory
-        # MEM dataset has no such path.
-        if path and not str(path).startswith("/vsimem"):
+        # The classic netCDF driver reopens NETCDF:"<path>":<var> to rescale the scan-angle
+        # coordinates to projected metres; it needs a path GDAL can open. `from_bytes` records the
+        # real backing `/vsimem/...` path in `_vsimem_path`, while `file_name` may instead hold a
+        # caller-supplied cosmetic `name=` label — so prefer `_vsimem_path` to rescale a *named*
+        # in-memory read too (an on-disk read has no `_vsimem_path` and uses `file_name`, the real
+        # path). A `/vsimem/` path *is* openable (the driver reads the in-memory file directly —
+        # confirmed cross-platform); only a truly path-less MEM dataset (empty `file_name`, no
+        # `_vsimem_path`) is skipped. Excluding `/vsimem` here silently dropped the metre
+        # geotransform for every `from_bytes()` geostationary read — the only in-memory NetCDF
+        # reader on Windows/macOS — leaving a raw scan-angle geotransform under the metre CRS
+        # (#1050). A remote/archive path the netCDF driver cannot open raises below and falls back
+        # to `None`.
+        path = getattr(parent, "_vsimem_path", None) or parent.file_name
+        if path:
             try:
                 src = gdal.Open(f'NETCDF:"{path}":{var}')
             except RuntimeError:
@@ -1525,9 +1554,16 @@ class NetCDF(Dataset):
         if source is None:
             var = self._source_var_name
             parent = self._parent_nc
-            path = parent.file_name if parent is not None else self.file_name
+            source_obj = parent if parent is not None else self
+            # Prefer `_vsimem_path` (the real backing `/vsimem/...` path that a cosmetic `from_bytes`
+            # `name=` shadows in `file_name`) and admit `/vsimem` — the classic driver opens it
+            # directly (confirmed cross-platform by #1050) — so an in-memory (`from_bytes`) swath
+            # exposes its GEOLOCATION domain exactly like an on-disk read (#1053), mirroring the
+            # sibling `_classic_geotransform`. Only a truly path-less MEM source (no `_vsimem_path`,
+            # empty `file_name`) or a container with no variable falls through to `self`.
+            path = getattr(source_obj, "_vsimem_path", None) or source_obj.file_name
             handle = None
-            if var is not None and path and not str(path).startswith("/vsimem"):
+            if var is not None and path:
                 try:
                     handle = gdal.Open(f'NETCDF:"{path}":{var}')
                 except RuntimeError:
@@ -2512,7 +2548,11 @@ class NetCDF(Dataset):
                 "chunks=; read eagerly, or mask the dask array yourself."
             )
         parent = self._parent_nc if self._parent_nc is not None else self
-        path = strip_netcdf_subdataset_prefix(parent._file_name)
+        # Prefer the real /vsimem backing path over a cosmetic from_bytes `name=` that shadows
+        # _file_name, so a named in-memory lazy read reopens the true source (#1058; same family as
+        # #1050/#1053/#1057).
+        source = getattr(parent, "_vsimem_path", None) or parent._file_name
+        path = strip_netcdf_subdataset_prefix(source)
         var_name = self._source_var_name
         if var_name is None:
             raise ValueError(
@@ -3247,7 +3287,11 @@ class NetCDF(Dataset):
             True when the source path exists on disk or is a remote (`/vsi*` / cloud) URL.
         """
         parent = var._parent_nc if var._parent_nc is not None else var
-        path = parent._file_name
+        # Prefer the real /vsimem backing path over a cosmetic from_bytes `name=` that shadows
+        # _file_name, so a *named* in-memory read is recognised as reopenable (streamable) too,
+        # matching the unnamed case and the lazy read fix (#1059; shadow family #1050/#1053/#1057/
+        # #1058). A pure MEM container (create_from_array) has neither, so it stays not-file-backed.
+        path = getattr(parent, "_vsimem_path", None) or parent._file_name
         if not path:
             return False
         path = strip_netcdf_subdataset_prefix(path)
@@ -4553,8 +4597,12 @@ class NetCDF(Dataset):
                 subdataset cannot be opened or read.
         """
         result: np.typing.NDArray | None = None
+        # Prefer the real /vsimem backing path over a cosmetic from_bytes `name=` that shadows
+        # file_name, so a named in-memory classic read reopens the true source (#1057; mirrors
+        # the #1050/#1053 fixes to _classic_geotransform/_geolocation_source).
+        path = getattr(self, "_vsimem_path", None) or self.file_name
         try:
-            ds = gdal.Open(f"NETCDF:{self.file_name}:{var}")
+            ds = gdal.Open(f'NETCDF:"{path}":{var}')
             if ds is not None:
                 result = ds.ReadAsArray()
             ds = None
@@ -5057,11 +5105,14 @@ class NetCDF(Dataset):
             cube._gdal_md_arr_ref = md_arr_ref
             cube._gdal_rg_ref = rg_ref
         else:
-            src = gdal.Open(f"{prefix}:{self.file_name}:{variable_name}")
+            # Prefer the real /vsimem backing path over a cosmetic from_bytes `name=` that
+            # shadows file_name, so a named in-memory classic read reopens the true source (#1057).
+            path = getattr(self, "_vsimem_path", None) or self.file_name
+            src = gdal.Open(f'{prefix}:"{path}":{variable_name}')
             if src is None:
                 raise ValueError(
                     f"Could not open variable '{variable_name}' via "
-                    f"'{prefix}:{self.file_name}:{variable_name}'"
+                    f'\'{prefix}:"{path}":{variable_name}\''
                 )
             cube = Variable(src)
             cube._is_md_array = False
