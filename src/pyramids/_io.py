@@ -225,7 +225,7 @@ def read_vsi_bytes(path: str) -> bytes:
 # `vsizip` (`C:/vsizip/a.zip`) — or any ordinary `vsi<x>` directory / inner member — is
 # NOT mistaken for a resolved prefix; only a leading /vsi…/ or a driver-embedded
 # <scheme>:/vsi…/ matches.
-_VSI_PREFIX_RE = re.compile(r'(?:^|"|[A-Za-z][A-Za-z0-9_]+:)/vsi[a-z0-9_]+/')
+_VSI_PREFIX_RE = re.compile(r'(?:^|"|[A-Za-z]\w+:)/vsi[a-z0-9_]+/')
 
 
 def _is_resolved_vsi(path: str) -> bool:
