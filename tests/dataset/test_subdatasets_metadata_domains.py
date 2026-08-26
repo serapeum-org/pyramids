@@ -211,6 +211,26 @@ class TestContainerOpenWarning:
         assert "subdataset" in message, "the warning explains it is a container"
         assert "Band1" in message, "the warning names the available subdatasets"
 
+    def test_warning_caps_a_many_subdataset_container(self, mocker):
+        """The message lists at most ten subdataset names, then a `… and N more` tail."""
+        many = [SubDataset(f'NETCDF:"f.nc":v{i}', f"v{i}", i) for i in range(15)]
+        mocker.patch(
+            "pyramids.dataset.abstract_dataset.RasterBase.subdatasets",
+            new_callable=mocker.PropertyMock,
+            return_value=many,
+        )
+        with pytest.warns(ContainerRasterWarning) as record:
+            Dataset.read_file(str(NETCDF_CONTAINER))
+        message = str(
+            next(
+                w for w in record if issubclass(w.category, ContainerRasterWarning)
+            ).message
+        )
+        assert "15 subdataset(s)" in message, "the count reflects every subdataset"
+        assert "… and 5 more" in message, (
+            "the list caps at ten names with a summary tail"
+        )
+
     def test_warn_on_container_false_is_silent(self):
         """`warn_on_container=False` opens the container without warning."""
         with warnings.catch_warnings():
