@@ -2540,7 +2540,11 @@ class NetCDF(Dataset):
                 "chunks=; read eagerly, or mask the dask array yourself."
             )
         parent = self._parent_nc if self._parent_nc is not None else self
-        path = strip_netcdf_subdataset_prefix(parent._file_name)
+        # Prefer the real /vsimem backing path over a cosmetic from_bytes `name=` that shadows
+        # _file_name, so a named in-memory lazy read reopens the true source (#1058; same family as
+        # #1050/#1053/#1057).
+        source = getattr(parent, "_vsimem_path", None) or parent._file_name
+        path = strip_netcdf_subdataset_prefix(source)
         var_name = self._source_var_name
         if var_name is None:
             raise ValueError(
