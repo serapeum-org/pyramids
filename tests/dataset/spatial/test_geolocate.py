@@ -183,8 +183,12 @@ class TestGeolocateNetCDF:
         from pyramids.netcdf import NetCDF
 
         var = NetCDF.read_file(CURV).get_variable("Tair")
-        assert var.geolocation is not None, "precondition: fixture must carry geolocation arrays"
-        assert "_geolocation_source_memo" in var.__dict__, "precondition: the memo must be populated"
+        assert var.geolocation is not None, (
+            "precondition: fixture must carry geolocation arrays"
+        )
+        assert "_geolocation_source_memo" in var.__dict__, (
+            "precondition: the memo must be populated"
+        )
         var.close()
         assert "_geolocation_source_memo" not in var.__dict__, (
             "close() must drop the reopened geolocation-source handle so the source file is released"
