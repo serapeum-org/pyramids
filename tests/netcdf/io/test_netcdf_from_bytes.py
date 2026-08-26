@@ -177,6 +177,24 @@ class TestNetCDFFromBytes:
         with pytest.raises(TypeError, match=r"to_file"):
             pickle.dumps(nc)
 
+    def test_named_not_picklable(self, netcdf_bytes: bytes):
+        """A *named* in-memory NetCDF is also unpicklable — the cosmetic name must not defeat the guard.
+
+        Args:
+            netcdf_bytes: Raw bytes of the NetCDF fixture.
+
+        Test scenario:
+            ``pickle.dumps(NetCDF.from_bytes(bytes, name="downloaded.nc"))`` — expected: an immediate
+            ``TypeError`` (not a recipe that fails only on unpickle), because ``_vsimem_path`` marks it
+            in-memory regardless of the cosmetic ``file_name`` (#1059).
+        """
+        nc = NetCDF.from_bytes(netcdf_bytes, name="downloaded.nc")
+        assert nc.file_name == "downloaded.nc", (
+            "precondition: the cosmetic name shadows file_name"
+        )
+        with pytest.raises(TypeError, match=r"to_file"):
+            pickle.dumps(nc)
+
     @pytest.mark.parametrize("bad", ["a string", 7, None])
     def test_non_bytes_raises_type_error(self, bad):
         """Non bytes-like input raises ``TypeError``.

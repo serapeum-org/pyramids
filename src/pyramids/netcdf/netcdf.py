@@ -532,11 +532,17 @@ class NetCDF(Dataset):
                 in-memory NetCDF is not supported.
         """
         path = self._file_name
-        if (not path) and (self._is_subset or self._group_path):
-            parent = getattr(self, "_parent_nc", None)
-            if parent is not None:
-                path = parent._file_name
-        if not path or path.startswith("/vsimem/"):
+        parent = getattr(self, "_parent_nc", None)
+        if (not path) and (self._is_subset or self._group_path) and parent is not None:
+            path = parent._file_name
+        # A cosmetic `from_bytes(name=...)` shadows `_file_name`; the real backing store is recorded
+        # in `_vsimem_path` (on self, or the parent container for a subset). Consult it so a *named*
+        # in-memory NetCDF raises the same immediate TypeError as an unnamed one, instead of pickling
+        # into a recipe that only fails on unpickle (#1059; shadow family #1050/#1053/#1057/#1058).
+        vsimem = getattr(self, "_vsimem_path", None) or (
+            getattr(parent, "_vsimem_path", None) if parent is not None else None
+        )
+        if not path or path.startswith("/vsimem/") or vsimem:
             raise TypeError(
                 f"NetCDF has no on-disk path (file_name={self._file_name!r}); "
                 "pickling an in-memory NetCDF is not supported. Call "
