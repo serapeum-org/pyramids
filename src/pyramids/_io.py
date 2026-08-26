@@ -214,14 +214,18 @@ def read_vsi_bytes(path: str) -> bytes:
     return payload
 
 
-# A GDAL virtual-filesystem prefix (/vsizip/, /vsigzip/, /vsitar/, /vsicurl/, /vsis3/, …)
-# that already resolves the path. GDAL VSI handler names are always lowercase, so the
-# character class is lowercase-only (never widen to IGNORECASE — that would match an
-# ordinary "VSI"-named directory). Anchored to the start of the string or immediately
-# after a driver scheme / opening quote, so a real directory or archive member literally
-# named "vsi<x>" (e.g. a .vsix folder, or an inner "vsi1/" member) is NOT mistaken for a
-# resolved prefix — only a leading /vsi.../ or a driver-embedded X:/vsi.../ matches.
-_VSI_PREFIX_RE = re.compile(r'(?:^|[:"])/vsi[a-z0-9]+/')
+# A GDAL virtual-filesystem prefix (/vsizip/, /vsigzip/, /vsitar/, /vsicurl/,
+# /vsicurl_streaming/, /vsis3/, …) that already resolves the path. Handler names are
+# always lowercase (never widen to IGNORECASE — that would match a "VSI"-named
+# directory) and may carry an underscore (`vsicurl_streaming`), so the class is
+# [a-z0-9_]. The prefix is anchored to the start of the string, an opening quote, or a
+# *driver scheme* — a token of two or more name characters before the colon
+# (`NETCDF:`, `SENTINEL2_L2A:`). Requiring ≥2 characters excludes a Windows drive letter
+# (`C:`), which is exactly one, so a real archive under a drive-root directory named
+# `vsizip` (`C:/vsizip/a.zip`) — or any ordinary `vsi<x>` directory / inner member — is
+# NOT mistaken for a resolved prefix; only a leading /vsi…/ or a driver-embedded
+# <scheme>:/vsi…/ matches.
+_VSI_PREFIX_RE = re.compile(r'(?:^|"|[A-Za-z][A-Za-z0-9_]+:)/vsi[a-z0-9_]+/')
 
 
 def _is_resolved_vsi(path: str) -> bool:

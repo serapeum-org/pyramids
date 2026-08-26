@@ -394,13 +394,16 @@ class TestVsiPathNotDoubleWrapped:
     """A path already routed through a GDAL /vsi* handler is left alone (#1055)."""
 
     def test_is_resolved_vsi_flags_only_real_prefixes(self):
-        """It matches a leading or driver-embedded /vsi*, not a directory named vsi<x>."""
+        """It matches a leading or driver-embedded /vsi*, not a directory or drive named vsi<x>."""
         assert _is_resolved_vsi("/vsizip/a.zip/b.asc"), "bare /vsizip/ path"
         assert _is_resolved_vsi(
             "SENTINEL2_L2A:/vsizip/a.zip/x.SAFE/m.xml:60m:EPSG_32632"
         ), "driver-prefixed /vsizip/ connection string"
         assert _is_resolved_vsi('NETCDF:"/vsizip/a.zip/x.nc":tos'), (
             "quoted /vsizip/ path"
+        )
+        assert _is_resolved_vsi("NETCDF:/vsicurl_streaming/https://h/x.nc:v"), (
+            "an underscore-bearing handler (vsicurl_streaming) still matches"
         )
         assert not _is_resolved_vsi("data/a.zip"), "a real archive is not a vsi path"
         assert not _is_resolved_vsi("data/a.zip/b.asc"), "an archive member is not vsi"
@@ -409,6 +412,14 @@ class TestVsiPathNotDoubleWrapped:
         )
         assert not _is_resolved_vsi("archive.zip/vsi1/inner.asc"), (
             "an inner vsi1/ member folder is not a prefix"
+        )
+        # A drive-letter colon must not be read as a driver scheme (it is one char, a
+        # scheme is >= 2), so an archive under a drive-root dir named vsi<x> stays local.
+        assert not _is_resolved_vsi("C:/vsizip/a.zip/inner.tif"), (
+            "a Windows drive letter is not a driver scheme"
+        )
+        assert not _is_resolved_vsi("D:/vsitar/data.tar/inner.tif"), (
+            "a drive-root vsitar/ directory is a real archive path"
         )
 
     def test_parse_path_leaves_a_driver_embedded_vsi_string_unchanged(self):
@@ -469,7 +480,12 @@ class TestVsiPathNotDoubleWrapped:
         multiple_compressed_file_zip: str,
         multiple_compressed_file_zip_content: List[str],
     ):
-        """SubDataset.open() succeeds for a /vsizip/-carrying name (the reported drill-in)."""
+        """SubDataset.open() reopens a bare /vsizip/ member end-to-end (via the is_remote path).
+
+        The driver-embedded shape that #1055 actually reported is guarded by
+        test_parse_path_leaves_a_driver_embedded_vsi_string_unchanged; this exercises the
+        full SubDataset.open -> read_file -> _parse_path chain on a real openable member.
+        """
         member = multiple_compressed_file_zip_content[0]
         name = f"/vsizip/{multiple_compressed_file_zip}/{member}"
         assert SubDataset(name, "member", 0).open().band_count >= 1, (
