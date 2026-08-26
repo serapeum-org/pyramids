@@ -243,7 +243,8 @@ class TestContainerOpenWarning:
         with warnings.catch_warnings():
             warnings.simplefilter("error", ContainerRasterWarning)
             ds = Dataset.read_file(str(GEOTIFF_PLAIN))
-        assert ds.band_count >= 1 and ds.subdatasets == [], "a plain raster never warns"
+        assert ds.band_count >= 1, "a plain raster has bands of its own"
+        assert ds.subdatasets == [], "a plain raster has no subdatasets"
 
     def test_netcdf_read_file_does_not_emit_base_container_warning(self):
         """`NetCDF.read_file` opens a container on purpose via its own path and stays quiet.
