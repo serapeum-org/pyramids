@@ -3279,7 +3279,11 @@ class NetCDF(Dataset):
             True when the source path exists on disk or is a remote (`/vsi*` / cloud) URL.
         """
         parent = var._parent_nc if var._parent_nc is not None else var
-        path = parent._file_name
+        # Prefer the real /vsimem backing path over a cosmetic from_bytes `name=` that shadows
+        # _file_name, so a *named* in-memory read is recognised as reopenable (streamable) too,
+        # matching the unnamed case and the lazy read fix (#1059; shadow family #1050/#1053/#1057/
+        # #1058). A pure MEM container (create_from_array) has neither, so it stays not-file-backed.
+        path = getattr(parent, "_vsimem_path", None) or parent._file_name
         if not path:
             return False
         path = strip_netcdf_subdataset_prefix(path)
