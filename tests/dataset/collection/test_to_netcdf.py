@@ -577,7 +577,9 @@ class TestToNetcdfNoData:
         md = gdal.Open(str(out)).GetMetadata()
         fill = md.get("Band_1#_FillValue")
         assert fill is not None, f"data variable must declare a CF _FillValue: {md}"
-        assert float(fill) == -9999.0, f"_FillValue should equal the nodata, got {fill!r}"
+        assert float(fill) == -9999.0, (
+            f"_FillValue should equal the nodata, got {fill!r}"
+        )
 
     def test_nodata_on_var_per_band_false(self, tmp_path):
         """In the 4-D layout the ``nodata`` attr lives on the single ``data`` variable.
