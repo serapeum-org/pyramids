@@ -189,9 +189,13 @@ class TestGeolocateNetCDF:
         assert "_geolocation_source_memo" in var.__dict__, (
             "precondition: the memo must be populated"
         )
+        memo = var.__dict__["_geolocation_source_memo"]
         var.close()
         assert "_geolocation_source_memo" not in var.__dict__, (
             "close() must drop the reopened geolocation-source handle so the source file is released"
+        )
+        assert memo._raster is None, (
+            "close() must also close the memo's GDAL handle, not merely drop the reference"
         )
 
 
