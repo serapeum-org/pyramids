@@ -15,6 +15,11 @@ from a matching Python builtin (`ValueError` / `RuntimeError`) so
 existing `except ValueError:` / `except RuntimeError:` blocks keep
 working without change.
 
+The pyramids-emitted warning categories (`ContainerRasterWarning`,
+`GeometryWarning`) are re-exported here too, so a caller who wants to
+filter one writes ``warnings.filterwarnings("ignore",
+category=errors.ContainerRasterWarning)`` against this public module.
+
 The implementation lives in :mod:`pyramids.base._errors`; that module
 is private and its signatures may change without notice. Always import
 exception classes from here instead.
@@ -24,6 +29,7 @@ from __future__ import annotations
 
 from pyramids.base._errors import (
     AlignmentError,
+    ContainerRasterWarning,
     CoverageError,
     CRSError,
     DatasetNotFoundError,
@@ -31,6 +37,7 @@ from pyramids.base._errors import (
     FailedToSaveError,
     FeatureError,
     FileFormatNotSupportedError,
+    GeometryWarning,
     InvalidGeometryError,
     NoDataValueError,
     OGCAPIError,
@@ -48,6 +55,7 @@ from pyramids.base._errors import _PyramidsError as PyramidsError
 __all__ = [
     "PyramidsError",
     "AlignmentError",
+    "ContainerRasterWarning",
     "CoverageError",
     "CRSError",
     "DatasetNotFoundError",
@@ -55,6 +63,7 @@ __all__ = [
     "FailedToSaveError",
     "FeatureError",
     "FileFormatNotSupportedError",
+    "GeometryWarning",
     "InvalidGeometryError",
     "NoDataValueError",
     "OGCAPIError",

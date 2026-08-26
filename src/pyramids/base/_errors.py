@@ -350,6 +350,6 @@ class ContainerRasterWarning(UserWarning):
     ``warn_on_container=False`` to :meth:`~pyramids.dataset.Dataset.read_file`::
 
         import warnings
-        from pyramids.base._errors import ContainerRasterWarning
+        from pyramids.errors import ContainerRasterWarning
         warnings.filterwarnings("ignore", category=ContainerRasterWarning)
     """
