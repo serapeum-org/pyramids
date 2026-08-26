@@ -19,7 +19,9 @@ import pytest
 from pyramids.base._errors import ContainerRasterWarning, ReadOnlyError
 from pyramids.dataset import Dataset
 from pyramids.dataset._subdataset import SubDataset
+from pyramids.dataset.abstract_dataset import _reconstruct_dataset
 from pyramids.netcdf import NetCDF
+from pyramids.netcdf.netcdf import _reconstruct_netcdf
 
 pytestmark = pytest.mark.core
 
@@ -278,6 +280,30 @@ class TestContainerOpenWarning:
         _, kwargs = patched.call_args
         assert kwargs["warn_on_container"] is False, (
             "opening a subdataset value object is a deliberate drill-in, so it must be quiet"
+        )
+
+    def test_only_base_dataset_reaches_the_reconstruct_that_suppresses(self, container):
+        """Pin the invariant the unpickle suppression relies on.
+
+        `_reconstruct_dataset` passes `warn_on_container=False`, a kwarg only the base
+        `Dataset.read_file` accepts. This asserts a base `Dataset` unpickles through
+        `_reconstruct_dataset` while `NetCDF` routes to its own `_reconstruct_netcdf`, so
+        the suppression can never reach a `read_file` override that lacks the keyword.
+        """
+        plain_ds = Dataset.read_file(str(GEOTIFF_PLAIN))
+        assert plain_ds.__reduce__()[0] is _reconstruct_dataset, (
+            "a base Dataset must unpickle through _reconstruct_dataset"
+        )
+        assert container.__reduce__()[0] is _reconstruct_netcdf, (
+            "NetCDF must route to its own reconstruct, never the base one"
+        )
+
+    def test_warning_is_importable_from_public_errors(self):
+        """The warning is re-exported from the public `pyramids.errors`, not just `_errors`."""
+        from pyramids.errors import ContainerRasterWarning as Exported
+
+        assert Exported is ContainerRasterWarning, (
+            "the documented way to filter the warning must import from pyramids.errors"
         )
 
 
