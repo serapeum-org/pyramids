@@ -173,6 +173,23 @@ class TestGeolocateNetCDF:
         with pytest.raises(GeolocationArrayError):
             container.geolocate()
 
+    def test_close_drops_geolocation_source_memo(self):
+        """`close()` releases the reopened geolocation handle it memoised (#564 handle contract).
+
+        `_geolocation_source` memoises a base `Dataset` over the classic `NETCDF:"<file>":<var>`
+        handle. `close()` must drop and close it, otherwise that handle keeps the source file open
+        past `close()`.
+        """
+        from pyramids.netcdf import NetCDF
+
+        var = NetCDF.read_file(CURV).get_variable("Tair")
+        assert var.geolocation is not None, "precondition: fixture must carry geolocation arrays"
+        assert "_geolocation_source_memo" in var.__dict__, "precondition: the memo must be populated"
+        var.close()
+        assert "_geolocation_source_memo" not in var.__dict__, (
+            "close() must drop the reopened geolocation-source handle so the source file is released"
+        )
+
 
 class TestGeolocateFromBytes:
     """An in-memory (`from_bytes` / `/vsimem`) swath variable exposes its GEOLOCATION domain (#1053).

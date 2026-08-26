@@ -711,6 +711,14 @@ class NetCDF(Dataset):
         self._warp_source = None
         self._parent_nc = None
         self._cached_meta_data = None
+        # Drop and close the reopened geolocation-source handle (a base Dataset over
+        # NETCDF:"<file>":<var>, memoised by `_geolocation_source`). Left open it keeps the source
+        # file open past close(), defeating the handle-release contract the gc.collect() below
+        # enforces (#564); `_update_inplace` already pops it. Only a genuine reopen is cached
+        # (never `self`), so closing it is safe.
+        geoloc_memo = self.__dict__.pop("_geolocation_source_memo", None)
+        if isinstance(geoloc_memo, Dataset):
+            geoloc_memo.close()
         super().close()
         # Break the GDAL SWIG view/MDArray/root-group cycle left by variable
         # extraction so the source file is released now, not on the next GC.
