@@ -36,7 +36,7 @@ class TestReadVariable:
         """Verify _read_variable works in classic mode via subdataset string.
 
         Covers the classic-mode branch that opens via
-        gdal.Open(f'NETCDF:{path}:{var}').
+        gdal.Open(f'NETCDF:"{path}":{var}').
         """
         nc = NetCDF.read_file(
             "tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc",
