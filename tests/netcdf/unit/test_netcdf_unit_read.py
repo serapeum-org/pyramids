@@ -337,6 +337,38 @@ class TestGetVariableYFlipAndErrors:
             with pytest.raises(ValueError, match="Could not open variable"):
                 nc.get_variable("fake_var")
 
+    def test_get_variable_classic_open_uses_quoted_subdataset_string(self):
+        """Classic get_variable opens the subdataset via a QUOTED path (L1, #1050).
+
+        The classic-open string must be ``NETCDF:"<path>":<var>``. The quotes keep
+        a path that itself holds a colon (a Windows drive letter like ``C:``) or a
+        space from being mis-split by GDAL's ``NETCDF:file:var`` tokenizer. A
+        record-and-delegate wrapper over ``gdal.Open`` captures the real open
+        string, so a silent drop of the quotes at this second reopen site is
+        caught; the ``/vsimem`` integration test cannot bite it, since its backing
+        path has no special characters.
+        """
+        real_open = gdal.Open
+        opened: list[str] = []
+
+        def recording_open(arg, *args, **kwargs):
+            """Record the open string, then delegate to the real ``gdal.Open``."""
+            opened.append(arg)
+            return real_open(arg, *args, **kwargs)
+
+        nc = NetCDF.read_file(
+            "tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc",
+            open_as_multi_dimensional=False,
+        )
+        var = nc.variable_names[0]
+        path = getattr(nc, "_vsimem_path", None) or nc.file_name
+        expected = f'NETCDF:"{path}":{var}'
+        with patch("pyramids.netcdf.netcdf.gdal.Open", side_effect=recording_open):
+            nc.get_variable(var)
+        assert expected in opened, (
+            f"classic get_variable must open the quoted {expected!r}; got {opened!r}"
+        )
+
     def test_get_variable_band_dim_read_error(self):
         """Verify get_variable falls back to range when ReadAsArray fails.
 
