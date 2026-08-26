@@ -1,6 +1,17 @@
 ﻿# Change log
 
 
+## 0.57.0 (2026-08-26)
+
+### Feat
+
+- **dataset**: consolidate subdataset parsing and warn on container opens (#1056)
+
+### Fix
+
+- **io**: stop re-wrapping already-resolved /vsi paths on subdataset reopen (#1060)
+- **netcdf**: resolve in-memory (from_bytes) reads via _vsimem_path (#1051)
+
 ## 0.56.0 (2026-08-25)
 
 ### Feat
