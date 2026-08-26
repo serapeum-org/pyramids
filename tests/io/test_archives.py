@@ -6,6 +6,8 @@ from osgeo import gdal
 
 from pyramids._io import _parse_path, extract_from_gz, read_file
 from pyramids.base._errors import FileFormatNotSupportedError
+from pyramids.dataset import Dataset
+from pyramids.dataset._subdataset import SubDataset
 
 
 class TestZipFiles:
@@ -158,6 +160,7 @@ import numpy as np
 from pyramids._io import (
     _get_tar_path,
     _is_gzip,
+    _is_resolved_vsi,
     _is_tar,
     _is_zip,
     extract_from_gz,
@@ -383,3 +386,75 @@ class TestHelperFunctions:
     def test_is_tar_non_tar(self):
         """_is_tar should return False for non-tar files."""
         assert _is_tar("file.tif") is False, "file.tif should not be tar"
+
+
+class TestVsiPathNotDoubleWrapped:
+    """A path already routed through a GDAL /vsi* handler is left alone (#1055)."""
+
+    def test_is_resolved_vsi_detects_bare_and_embedded_prefixes(self):
+        """It flags bare /vsi* paths and driver connection strings that embed one."""
+        assert _is_resolved_vsi("/vsizip/a.zip/b.asc"), "bare /vsizip/ path"
+        assert _is_resolved_vsi(
+            "SENTINEL2_L2A:/vsizip/a.zip/x.SAFE/m.xml:60m:EPSG_32632"
+        ), "driver-prefixed /vsizip/ connection string"
+        assert _is_resolved_vsi('NETCDF:"/vsizip/a.zip/x.nc":tos'), (
+            "quoted /vsizip/ path"
+        )
+        assert not _is_resolved_vsi("data/a.zip"), "a real archive is not a vsi path"
+        assert not _is_resolved_vsi("data/a.zip/b.asc"), "an archive member is not vsi"
+
+    def test_archive_detectors_skip_resolved_vsi_paths(self):
+        """_is_zip / _is_gzip / _is_tar do not fire on an already-/vsi* connection string."""
+        assert not _is_zip("SENTINEL2_L2A:/vsizip/a.zip/x.xml:60m"), (
+            "no re-wrap of a zip conn"
+        )
+        assert not _is_gzip("NETCDF:/vsigzip/a.gz/x.nc:v"), "no re-wrap of a gzip conn"
+        assert not _is_tar("X:/vsitar/a.tar/b"), "no re-wrap of a tar conn"
+        assert _is_zip("data/a.zip"), "a real .zip is still detected"
+        assert _is_zip("data/a.zip/1.asc"), "a real archive member is still detected"
+
+    def test_parse_path_is_idempotent_on_a_vsizip_member(
+        self,
+        multiple_compressed_file_zip: str,
+        multiple_compressed_file_zip_content: List[str],
+    ):
+        """_parse_path leaves an already-resolved /vsizip/ member unchanged, not double-wrapped."""
+        member = multiple_compressed_file_zip_content[0]
+        resolved = f"/vsizip/{multiple_compressed_file_zip}/{member}"
+        assert _parse_path(resolved) == resolved, (
+            "a resolved /vsizip/ path must pass through"
+        )
+
+    def test_read_file_opens_a_vsizip_member(
+        self,
+        multiple_compressed_file_zip: str,
+        multiple_compressed_file_zip_content: List[str],
+    ):
+        """The low-level reader opens an already-/vsizip/ member (the #1055 failure path)."""
+        member = multiple_compressed_file_zip_content[0]
+        src = read_file(f"/vsizip/{multiple_compressed_file_zip}/{member}")
+        assert isinstance(src, gdal.Dataset), "a resolved /vsizip/ member must open"
+
+    def test_subdataset_open_reopens_a_vsizip_name(
+        self,
+        multiple_compressed_file_zip: str,
+        multiple_compressed_file_zip_content: List[str],
+    ):
+        """SubDataset.open() succeeds for a /vsizip/-carrying name (the reported trigger)."""
+        member = multiple_compressed_file_zip_content[0]
+        name = f"/vsizip/{multiple_compressed_file_zip}/{member}"
+        assert SubDataset(name, "member", 0).open().band_count >= 1, (
+            "the drill-in reopens"
+        )
+
+    def test_bare_archive_member_still_resolves(
+        self,
+        multiple_compressed_file_zip: str,
+        multiple_compressed_file_zip_content: List[str],
+    ):
+        """The real archive.zip/member convenience path is unaffected by the guard."""
+        member = multiple_compressed_file_zip_content[0]
+        assert (
+            Dataset.read_file(f"{multiple_compressed_file_zip}/{member}").band_count
+            >= 1
+        ), "a bare archive member must still open"
