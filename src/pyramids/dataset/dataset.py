@@ -2750,7 +2750,7 @@ class Dataset(RasterBase):
                 When the path opens to a *container* — a raster with no bands of
                 its own whose payload is a set of nested subdatasets (NetCDF/HDF/
                 Zarr, GRIB, WMS/WMTS, a Sentinel product) — emit a
-                :class:`~pyramids.base._errors.ContainerRasterWarning` naming the
+                :class:`~pyramids.errors.ContainerRasterWarning` naming the
                 subdatasets, instead of silently returning a 0-band dataset. Use
                 :attr:`subdatasets` to list them and :meth:`open_subdataset` to open
                 one. Set ``False`` to open a container quietly (callers that open
@@ -2789,12 +2789,17 @@ class Dataset(RasterBase):
         if warn_on_container and not dataset.band_count:
             subdatasets = dataset.subdatasets
             if subdatasets:
-                names = [redact_credentials(sub.name) for sub in subdatasets]
+                count = len(subdatasets)
+                # Cap the preview so a many-variable container (tens of NetCDF/HDF
+                # variables) does not produce an unbounded warning string.
+                shown = [redact_credentials(sub.name) for sub in subdatasets[:10]]
+                if count > len(shown):
+                    shown.append(f"… and {count - 10} more")
                 warnings.warn(
                     f"{redact_credentials(str(path))!r} is a container raster with no "
-                    f"bands of its own; it has {len(names)} subdataset(s). Use "
+                    f"bands of its own; it has {count} subdataset(s). Use "
                     f".subdatasets to list them and .open_subdataset(<index or name>) "
-                    f"to open one. Available: {names}",
+                    f"to open one. Available: {shown}",
                     ContainerRasterWarning,
                     stacklevel=2,
                 )
