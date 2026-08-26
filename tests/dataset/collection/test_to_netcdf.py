@@ -714,6 +714,68 @@ class TestToNetcdfNoData:
             f"4-D nodata did not round-trip: {var.no_data_value!r}"
         )
 
+    @staticmethod
+    def _float_collection(tmp_path, fill: float) -> DatasetCollection:
+        """Build a float32 collection whose nodata is ``fill`` and one cell stamped to it."""
+        paths = []
+        for i in range(2):
+            arr = (np.arange(20, dtype="float32").reshape(4, 5) + i).astype("float32")
+            arr[0, 0] = fill
+            p = os.path.join(str(tmp_path), f"f{i}.tif")
+            Dataset.create_from_array(
+                arr,
+                top_left_corner=(0, 0),
+                cell_size=0.05,
+                epsg=4326,
+                no_data_value=fill,
+                path=p,
+            ).close()
+            paths.append(p)
+        return DatasetCollection.from_files(paths)
+
+    def test_float_flt_max_fill_value_matches_in_band(self, tmp_path):
+        """A float32 ``-FLT_MAX`` nodata becomes a CF ``_FillValue`` equal to the in-band fill (#1061).
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            The reported dtype — a float32 collection whose nodata is ``-FLT_MAX`` (the fill that hid
+            the Coello evap data), with one cell stamped to it. Expected: the classic (CF) view carries
+            ``Band_1#_FillValue == -FLT_MAX`` *and* the read-back band still holds ``-FLT_MAX`` there,
+            so a CF reader masks that cell instead of scaling to it. Guards the ``double``->``float32``
+            cast the int-only tests cannot.
+        """
+        fill = float(np.finfo("float32").min)
+        out = tmp_path / "float_fill.nc"
+        self._float_collection(tmp_path, fill).to_netcdf(str(out))
+        declared = gdal.Open(str(out)).GetMetadata().get("Band_1#_FillValue")
+        assert declared is not None, "float data variable must declare a CF _FillValue"
+        assert np.float32(declared) == np.float32(fill), (
+            f"_FillValue should equal -FLT_MAX, got {declared!r}"
+        )
+        in_band = _array_values(str(out), "Band_1")[0, 0, 0]
+        assert np.float32(in_band) == np.float32(fill), (
+            f"the stamped nodata cell should read back as the fill, got {in_band!r}"
+        )
+
+    def test_nan_nodata_declares_nan_fill_value(self, tmp_path):
+        """A NaN nodata becomes a NaN CF ``_FillValue`` (#1061).
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            A float32 collection with ``no_data_value=nan`` — expected: ``Band_1#_FillValue`` parses to
+            NaN, confirming ``SetNoDataValueDouble(nan)`` is accepted (not a silent no-op) so a CF
+            reader can mask NaN fills.
+        """
+        out = tmp_path / "nan_fill.nc"
+        self._float_collection(tmp_path, float("nan")).to_netcdf(str(out))
+        declared = gdal.Open(str(out)).GetMetadata().get("Band_1#_FillValue")
+        assert declared is not None, "NaN nodata must still declare a CF _FillValue"
+        assert np.isnan(np.float32(declared)), f"_FillValue should be NaN, got {declared!r}"
+
 
 class TestToNetcdfNoFilesPath:
     """Support for collections that have no ``_files`` (e.g. ``create``)."""
