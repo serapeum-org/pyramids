@@ -273,7 +273,7 @@ class TestReadClassicVariable:
         with patch("pyramids.netcdf.netcdf.gdal.Open", return_value=ds) as gopen:
             result = NetCDF._read_classic_variable(mock_self, "salt")
 
-        gopen.assert_called_once_with("NETCDF:file.nc:salt")
+        gopen.assert_called_once_with('NETCDF:"file.nc":salt')
         assert result is arr, "classic read must return ReadAsArray() verbatim"
 
     def test_prefers_vsimem_path_over_cosmetic_file_name(self):
@@ -293,7 +293,7 @@ class TestReadClassicVariable:
         with patch("pyramids.netcdf.netcdf.gdal.Open", return_value=ds) as gopen:
             NetCDF._read_classic_variable(mock_self, "salt")
 
-        gopen.assert_called_once_with("NETCDF:/vsimem/abc.nc:salt")
+        gopen.assert_called_once_with('NETCDF:"/vsimem/abc.nc":salt')
 
     def test_returns_none_when_open_returns_none(self):
         """A ``None`` from ``gdal.Open`` yields ``None``.
