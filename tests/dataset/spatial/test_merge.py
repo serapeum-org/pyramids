@@ -16,7 +16,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from osgeo import gdal, osr
+from osgeo import gdal
 
 import pyramids.dataset.merge as merge_mod
 from pyramids.base.crs import reproject_coordinates
@@ -1450,28 +1450,6 @@ class TestBboxInProjection:
         result = merge_mod._bbox_in_projection((1.0, 2.0, 3.0, 4.0), None, "")
         assert result == (1.0, 2.0, 3.0, 4.0), f"passthrough changed the bbox: {result}"
 
-    def test_uses_all_four_corners(self):
-        """The envelope covers all four reprojected corners, not just two.
-
-        Test scenario:
-            A reprojected rectangle is a curved quadrilateral; taking only (W,S) and
-            (E,N) would cut inside the requested area wherever an edge bows outward.
-            Round-tripping 4326 -> 3857 -> 4326 must recover the input.
-        """
-        srs = osr.SpatialReference()
-        srs.ImportFromEPSG(3857)
-        west, south, east, north = merge_mod._bbox_in_projection(
-            (1.0, 1.0, 4.0, 3.0), 4326, srs.ExportToWkt()
-        )
-        assert west < east, "envelope must be non-degenerate in x"
-        assert south < north, "envelope must be non-degenerate in y"
-        back = merge_mod._bbox_in_projection(
-            (west, south, east, north), 3857, "EPSG:4326"
-        )
-        assert back == pytest.approx((1.0, 1.0, 4.0, 3.0), abs=1e-6), (
-            f"round trip lost the window: {back}"
-        )
-
     def test_unprojectable_bbox_raises(self):
         """A bbox outside the target CRS's domain raises instead of yielding inf.
 
@@ -1484,3 +1462,219 @@ class TestBboxInProjection:
         ortho = "+proj=ortho +lat_0=0 +lon_0=0 +datum=WGS84 +units=m +no_defs"
         with pytest.raises(ValueError, match="does not project"):
             merge_mod._bbox_in_projection((175.0, -5.0, 179.0, 5.0), 4326, ortho)
+
+
+class TestBboxValidation:
+    """`bbox` is validated once, up front, for both merge paths."""
+
+    @pytest.mark.parametrize(
+        ("bad", "exc", "why"),
+        [
+            ("1234", TypeError, "a 4-character string is not four coordinates"),
+            (b"1234", TypeError, "bytes are not four coordinates"),
+            (12.0, TypeError, "a scalar is not a sequence"),
+            ((1.0, 2.0, 3.0), ValueError, "three values is not a bbox"),
+            ((1.0, 2.0, 3.0, 4.0, 5.0), ValueError, "five values is not a bbox"),
+            ((1.0, float("nan"), 3.0, 4.0), ValueError, "NaN is not a coordinate"),
+            ((1.0, 2.0, float("inf"), 4.0), ValueError, "inf is not a coordinate"),
+            ((4.0, 1.0, 1.0, 3.0), ValueError, "west > east is inverted"),
+            ((1.0, 3.0, 4.0, 1.0), ValueError, "south > north is inverted"),
+            ((1.0, 1.0, 1.0, 3.0), ValueError, "zero width selects nothing"),
+            ((1.0, 1.0, 4.0, 1.0), ValueError, "zero height selects nothing"),
+        ],
+    )
+    def test_rejects_malformed_bbox(self, bad, exc, why):
+        """A malformed bbox is refused with a typed error rather than opaque fallout.
+
+        Args:
+            bad: The malformed bbox.
+            exc: The exception type expected.
+            why: What makes it malformed.
+
+        Test scenario:
+            Unvalidated, `"1234"` unpacked into four coordinates and silently became
+            a window, and a NaN surfaced from deep in the grid arithmetic as
+            "cannot convert float NaN to integer".
+        """
+        with pytest.raises(exc):
+            merge_mod._validated_bbox(bad)
+
+    @pytest.mark.parametrize("method", ["last", "max"])
+    def test_malformed_bbox_rejected_on_both_paths(
+        self, overlapping_pair, tmp_path, method
+    ):
+        """Both merge paths reject the same malformed bbox the same way.
+
+        Args:
+            overlapping_pair: Two 4x4 rasters on a shared 6x4 union grid.
+            tmp_path: pytest temp directory.
+            method: One z-order and one reduction method.
+
+        Test scenario:
+            An inverted bbox used to be rejected on one path and silently normalised
+            by GDAL on the other.
+        """
+        with pytest.raises(ValueError):
+            merge_rasters(
+                list(overlapping_pair),
+                tmp_path / f"bad_{method}.tif",
+                method=method,
+                bbox=(4.0, 1.0, 1.0, 3.0),
+            )
+
+
+class TestBboxPathAgreement:
+    """The z-order and reduction paths must select the identical window."""
+
+    @staticmethod
+    def _grid(path):
+        """Return ``(x_size, y_size, origin_x, origin_y)`` of a written raster."""
+        ds = gdal.Open(str(path))
+        gt = ds.GetGeoTransform()
+        return ds.RasterXSize, ds.RasterYSize, round(gt[0], 6), round(gt[3], 6)
+
+    @pytest.mark.parametrize(
+        ("label", "kwargs"),
+        [
+            ("native", {"bbox": (1.0, 1.0, 4.0, 3.0)}),
+            ("reprojected", {"bbox": (1.0, 1.0, 4.0, 3.0), "bbox_crs": 4326}),
+            (
+                "dst_crs_reprojected",
+                {"dst_crs": 3857, "bbox": (1.0, 1.0, 4.0, 3.0), "bbox_crs": 4326},
+            ),
+        ],
+    )
+    def test_paths_return_the_same_grid(
+        self, overlapping_pair, tmp_path, label, kwargs
+    ):
+        """`last` and `max` produce the same output grid for the same window.
+
+        Args:
+            overlapping_pair: Two 4x4 rasters on a shared 6x4 union grid.
+            tmp_path: pytest temp directory.
+            label: Names the window form under test.
+            kwargs: The window arguments passed to both methods.
+
+        Test scenario:
+            The two paths once reprojected the window independently and rounded to
+            opposite sides of a pixel edge, returning different rasters for identical
+            arguments (3x3 at x=111364.8 against 4x3 at x=0.0 under `dst_crs=3857`).
+            This is the regression guard for that.
+        """
+        z_order = tmp_path / f"z_{label}.tif"
+        reduce_ = tmp_path / f"r_{label}.tif"
+        merge_rasters(list(overlapping_pair), z_order, method="last", **kwargs)
+        merge_rasters(list(overlapping_pair), reduce_, method="max", **kwargs)
+        assert self._grid(z_order) == self._grid(reduce_), (
+            f"{label}: z-order {self._grid(z_order)} != reduce {self._grid(reduce_)}"
+        )
+
+
+class TestBboxReprojectionCurvature:
+    """The reprojected window must cover the whole requested area, not a chord."""
+
+    def test_envelope_covers_a_curved_edge(self):
+        """The envelope of a strongly curved reprojection is not the corner envelope.
+
+        Test scenario:
+            EPSG:3035 (Lambert azimuthal) into lon/lat bows each edge outward, so the
+            extreme latitude lies in an edge's interior. A four-corner envelope fell
+            0.035 deg (~4 km) short of the true north edge. Densely sampling the edges
+            gives the bound the implementation must at least reach.
+        """
+        bbox = (3000000.0, 3000000.0, 4500000.0, 4000000.0)
+        computed = merge_mod._bbox_in_projection(bbox, 3035, "EPSG:4326")
+
+        samples_x, samples_y = [], []
+        for step in np.linspace(0.0, 1.0, 200):
+            samples_x += [bbox[0] + step * (bbox[2] - bbox[0])] * 2 + [bbox[0], bbox[2]]
+            samples_y += [bbox[1], bbox[3]] + [bbox[1] + step * (bbox[3] - bbox[1])] * 2
+        lons, lats = reproject_coordinates(
+            samples_x, samples_y, from_crs=3035, to_crs=4326, precision=None
+        )
+        corner_north = max(
+            reproject_coordinates(
+                [bbox[0], bbox[2], bbox[0], bbox[2]],
+                [bbox[1], bbox[3], bbox[3], bbox[1]],
+                from_crs=3035,
+                to_crs=4326,
+                precision=None,
+            )[1]
+        )
+        assert max(lats) - corner_north > 0.01, (
+            "precondition: this CRS pair must actually curve, otherwise the test "
+            "cannot distinguish a corner envelope from a densified one"
+        )
+        assert computed[3] > corner_north, (
+            f"north edge {computed[3]} is only the corner bound {corner_north}; the "
+            "envelope is not densified"
+        )
+        assert computed[3] == pytest.approx(max(lats), abs=0.005), (
+            f"north edge {computed[3]} does not reach the densified bound {max(lats)}"
+        )
+
+
+class TestBboxGridGeometry:
+    """`_restrict_grid` on grids that are not the north-up, axis-aligned default."""
+
+    def test_south_up_grid_is_not_rejected(self):
+        """A positive pixel height still resolves a window.
+
+        Test scenario:
+            Ordering the row offsets by value, rather than assuming north-up, is what
+            stops a south-up grid raising a spurious "does not overlap".
+        """
+        gt, x_size, y_size = merge_mod._restrict_grid(
+            (0.0, 1.0, 0.0, 0.0, 0.0, 1.0), 6, 4, "", (1.0, 1.0, 4.0, 3.0), None
+        )
+        assert (x_size, y_size) == (3, 2), f"expected 3x2, got {x_size}x{y_size}"
+        assert gt[3] == 1.0, f"south-up origin should be the low edge, got {gt[3]}"
+
+    @pytest.mark.parametrize(
+        "geotransform",
+        [
+            (0.0, 1.0, 0.5, 4.0, 0.0, -1.0),
+            (0.0, 1.0, 0.0, 4.0, 0.2, -1.0),
+        ],
+        ids=["row_skew", "col_skew"],
+    )
+    def test_rotated_or_sheared_grid_is_refused(self, geotransform):
+        """A skewed geotransform is refused rather than silently mis-georeferenced.
+
+        Args:
+            geotransform: A grid carrying a non-zero skew term.
+
+        Test scenario:
+            The window arithmetic assumes an axis-aligned grid; applying it to a
+            rotated one would place the output in the wrong location.
+        """
+        with pytest.raises(ValueError, match="rotated or sheared"):
+            merge_mod._restrict_grid(geotransform, 6, 4, "", (1.0, 1.0, 4.0, 3.0), None)
+
+    def test_zero_pixel_size_is_refused(self):
+        """A degenerate geotransform is refused rather than dividing by zero.
+
+        Test scenario:
+            A zero pixel size would raise ZeroDivisionError from inside the offset
+            arithmetic.
+        """
+        with pytest.raises(ValueError, match="zero pixel size"):
+            merge_mod._restrict_grid(
+                (0.0, 0.0, 0.0, 4.0, 0.0, -1.0), 6, 4, "", (1.0, 1.0, 4.0, 3.0), None
+            )
+
+    def test_edge_on_a_pixel_boundary_adds_no_extra_pixel(self):
+        """A window landing exactly on grid lines yields exactly that many pixels.
+
+        Test scenario:
+            Float noise puts an edge a few ulps past a boundary; snapping outward on
+            that noise costs a spurious row or column and shifts the origin, which is
+            how the two merge paths came to disagree.
+        """
+        nudged = (1.0 + 1e-12, 1.0 - 1e-12, 4.0 - 1e-12, 3.0 + 1e-12)
+        _, x_size, y_size = merge_mod._restrict_grid(
+            (0.0, 1.0, 0.0, 4.0, 0.0, -1.0), 6, 4, "", nudged, None
+        )
+        assert (x_size, y_size) == (3, 2), (
+            f"a boundary-aligned window should be 3x2, got {x_size}x{y_size}"
+        )
