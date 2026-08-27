@@ -1653,14 +1653,14 @@ class DatasetCollection:
                 order).
             patch_url: Optional low-level callable rewriting each href
                 (runs before `signer`).
-            bbox: M6 — **input filter**, `(minx, miny, maxx, maxy)` in
+            bbox: **input filter**, `(minx, miny, maxx, maxy)` in
                 **lon/lat** (EPSG:4326). Selects *which STAC items* are read:
                 items whose footprint doesn't intersect it are dropped before
                 their hrefs are resolved. It does **not** clip the output — that
                 is the `grid`'s bounds (see :class:`~pyramids.dataset.Grid`).
                 (Note the difference from odc-stac, where `bbox` sets the output
                 extent.)
-            max_items: M6 — cap the number of items consumed (after
+            max_items: cap the number of items consumed (after
                 bbox filtering). Useful for quick-look workflows.
             signer: Optional signer (e.g. a
                 :class:`pyramids.stac.signers.Signer`). Its

@@ -8,7 +8,8 @@ standard-library :mod:`argparse` (no extra dependency):
 - `pyramids bounds FILE [--crs CRS] [--json]` — bounding box
 - `pyramids clip SRC DST (--bbox MINX MINY MAXX MAXY | --vector PATH)` — crop
 - `pyramids warp SRC DST --crs CRS [--resampling M]` — reproject
-- `pyramids merge SRC... DST` — mosaic
+- `pyramids merge SRC... DST [--bbox MINX MINY MAXX MAXY] [--bbox-crs CRS]` —
+  mosaic, reading only the window when one is given
 - `pyramids overview FILE [--resampling M] [--levels N...]` — build overviews
 - `pyramids sample FILE --points "x,y;x,y..." [--json]` — point sampling
 - `pyramids convert SRC DST [--driver NAME]` — format conversion
