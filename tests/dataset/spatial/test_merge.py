@@ -1768,3 +1768,63 @@ class TestCollectionMergeBbox:
         """
         with pytest.raises(ValueError):
             two_day_collection.merge(tmp_path / "bad.tif", bbox=(4.0, 1.0, 1.0, 3.0))
+
+
+class TestBboxAntimeridian:
+    """A window that wraps the antimeridian must be refused, not inverted."""
+
+    ANTIMERIDIAN_BBOX = (700000.0, 100000.0, 950000.0, 300000.0)
+    UTM_60N = 32660
+
+    @staticmethod
+    def _lonlat():
+        """Return the lon/lat CRS a global mosaic carries."""
+        return "EPSG:4326"
+
+    def test_wrapped_envelope_is_refused(self):
+        """A reprojection that wraps past 180 deg raises instead of inverting.
+
+        Test scenario:
+            `pyproj.transform_bounds` signals an antimeridian crossing by returning
+            west > east rather than by widening the envelope. This UTM 60N window is
+            about 2.25 deg wide and reprojects to (178.797, ..., -178.955); read at
+            face value that is a box spanning the long way round.
+        """
+        with pytest.raises(ValueError, match="crosses the antimeridian"):
+            merge_mod._bbox_in_projection(
+                self.ANTIMERIDIAN_BBOX, self.UTM_60N, self._lonlat()
+            )
+
+    def test_wrapped_window_does_not_become_its_complement(self):
+        """The wrapped window never resolves to the rest of the world.
+
+        Test scenario:
+            `_restrict_grid` sorts the two column offsets, so before this was caught
+            the ~2.25 deg request resolved to 35776 columns of a global 0.01 deg grid
+            — a 357.76 deg window, the complement of the one asked for. That is both
+            the wrong area and a near-global read from a call made to bound one.
+        """
+        global_grid = (-180.0, 0.01, 0.0, 90.0, 0.0, -0.01)
+        with pytest.raises(ValueError, match="crosses the antimeridian"):
+            merge_mod._restrict_grid(
+                global_grid,
+                36000,
+                18000,
+                self._lonlat(),
+                self.ANTIMERIDIAN_BBOX,
+                self.UTM_60N,
+            )
+
+    def test_an_ordinary_reprojected_window_still_passes(self):
+        """The guard rejects only wrapped envelopes, not every reprojection.
+
+        Test scenario:
+            A guard keyed on west > east would break every ordinary cross-CRS window
+            if reprojection could produce that ordering for other reasons; this
+            pins that it does not.
+        """
+        west, south, east, north = merge_mod._bbox_in_projection(
+            (500000.0, 100000.0, 600000.0, 300000.0), 32633, self._lonlat()
+        )
+        assert west < east, f"west {west} should stay below east {east}"
+        assert south < north, f"south {south} should stay below north {north}"

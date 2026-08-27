@@ -130,6 +130,20 @@ def _bbox_in_projection(
             f"merge_rasters: bbox {tuple(bbox)!r} does not project from {bbox_crs!r} "
             "into the mosaic CRS; it likely falls outside that CRS's area of use."
         )
+    # `transform_bounds` signals an antimeridian crossing by returning west > east
+    # rather than by widening the envelope. Taken at face value that reads as a box
+    # spanning the long way round: sorting the two edges would resolve the ~2 deg
+    # window this describes into its ~358 deg complement -- silently the wrong area,
+    # and a near-global read from a call whose whole purpose is a bounded one.
+    # `_validated_bbox` already refuses an inverted bbox on input; refuse the same
+    # shape here, where reprojection is what produced it.
+    if west > east:
+        raise ValueError(
+            f"merge_rasters: bbox {tuple(bbox)!r} crosses the antimeridian when "
+            f"reprojected from {bbox_crs!r} into the mosaic CRS (it spans "
+            f"{west} to {east}). Split it into one window either side of "
+            "180 deg and merge them separately."
+        )
     return west, south, east, north
 
 
