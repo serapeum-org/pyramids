@@ -1321,7 +1321,7 @@ class TestMergeRastersBbox:
     def test_bbox_in_another_crs_selects_the_same_area(
         self, overlapping_pair, tmp_path, method
     ):
-        """``epsg=`` lets the bbox stay in the caller's own CRS.
+        """``bbox_crs=`` lets the bbox stay in the caller's own CRS.
 
         Args:
             overlapping_pair: Two 4x4 rasters on a shared EPSG:4326 union grid.
@@ -1344,7 +1344,7 @@ class TestMergeRastersBbox:
         bbox_3857 = (xs[0], ys[0], xs[1], ys[1])
         out = tmp_path / f"m_{method}.tif"
         merge_rasters(
-            list(overlapping_pair), out, method=method, bbox=bbox_3857, epsg=3857
+            list(overlapping_pair), out, method=method, bbox=bbox_3857, bbox_crs=3857
         )
         x_size, y_size, _ = self._grid(out)
         assert 3 <= x_size <= 4, f"{method}: expected ~3 cols, got {x_size}"
@@ -1441,8 +1441,8 @@ class TestRestrictGrid:
 class TestBboxInProjection:
     """Unit tests for the bbox reprojection helper."""
 
-    def test_passthrough_when_no_epsg_given(self):
-        """With ``epsg=None`` the bbox is already in the target CRS.
+    def test_passthrough_when_no_bbox_crs_given(self):
+        """With ``bbox_crs=None`` the bbox is already in the target CRS.
 
         Test scenario:
             No reprojection should occur, and no CRS is needed to decide that.

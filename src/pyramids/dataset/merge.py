@@ -17,9 +17,9 @@ import numpy as np
 from osgeo import gdal, osr
 
 from pyramids.base._utils import DEFAULT_RESAMPLING, resolve_resampling
-from pyramids.base.crs import reproject_coordinates
 from pyramids.base.remote import signer_cloud_config
 from pyramids.dataset.dataset import _INHERIT_NO_DATA, Dataset
+from pyramids.feature.bbox import transform as bbox_transform
 
 _VRT_METHODS = ("first", "last")
 _REDUCE_METHODS = ("min", "max", "sum")
@@ -29,18 +29,73 @@ _MERGE_METHODS = _VRT_METHODS + _REDUCE_METHODS
 # full-width strip at a time so peak memory is O(strip) rather than O(grid).
 _MERGE_STRIP_ROWS = 512
 
+# Fraction of a pixel within which a window edge is treated as landing exactly on
+# a grid line. Reprojection and float arithmetic put an edge a few ulps past a
+# boundary; snapping outward on that noise costs a spurious row or column and
+# shifts the reduce path's origin away from the z-order path's.
+_GRID_SNAP_TOLERANCE = 1e-6
+
+
+def _validated_bbox(bbox: Sequence[float]) -> tuple[float, float, float, float]:
+    """Coerce `bbox` to four finite floats in ``(west, south, east, north)`` order.
+
+    Validated up front, and in one place, because every downstream consumer fails
+    differently and late: a string of the right length is happily unpacked into four
+    coordinates, a ``NaN`` reaches the grid arithmetic and surfaces as ``cannot
+    convert float NaN to integer``, and an inverted bbox is rejected on one merge
+    path while GDAL silently normalises it on the other.
+
+    Args:
+        bbox: The caller's window, expected to be four numbers.
+
+    Returns:
+        tuple[float, float, float, float]: ``(west, south, east, north)``.
+
+    Raises:
+        TypeError: `bbox` is not a sequence of four numbers.
+        ValueError: A coordinate is not finite, or the box is inverted or empty in
+            either axis.
+    """
+    if isinstance(bbox, (str, bytes)) or not isinstance(bbox, Sequence):
+        raise TypeError(
+            f"merge_rasters: bbox must be a sequence of four numbers "
+            f"(west, south, east, north), got {type(bbox).__name__}: {bbox!r}"
+        )
+    if len(bbox) != 4:
+        raise ValueError(
+            f"merge_rasters: bbox must have exactly 4 values "
+            f"(west, south, east, north), got {len(bbox)}: {tuple(bbox)!r}"
+        )
+    try:
+        west, south, east, north = (float(v) for v in bbox)
+    except (TypeError, ValueError) as exc:
+        raise TypeError(
+            f"merge_rasters: bbox values must be numbers, got {tuple(bbox)!r}"
+        ) from exc
+    if not all(np.isfinite(v) for v in (west, south, east, north)):
+        raise ValueError(
+            f"merge_rasters: bbox values must all be finite, got {tuple(bbox)!r}"
+        )
+    if west >= east or south >= north:
+        raise ValueError(
+            f"merge_rasters: bbox must be (west, south, east, north) with west < east "
+            f"and south < north, got {tuple(bbox)!r}. A zero-area or inverted box "
+            "selects nothing."
+        )
+    return west, south, east, north
+
 
 def _bbox_in_projection(
-    bbox: Sequence[float], epsg: Any, projection: str
+    bbox: Sequence[float], bbox_crs: Any, projection: str
 ) -> tuple[float, float, float, float]:
     """Express `bbox` in `projection`'s coordinates.
 
     Args:
-        bbox: ``(west, south, east, north)`` in `epsg`, or already in `projection`
-            when `epsg` is ``None``.
-        epsg: CRS the bbox is given in — any form
-            :func:`pyramids.base.crs.reproject_coordinates` accepts. ``None`` means
-            the bbox is already in the target CRS.
+        bbox: ``(west, south, east, north)`` in `bbox_crs`, or already in
+            `projection` when `bbox_crs` is ``None``.
+        bbox_crs: CRS the bbox is given in — any form
+            :meth:`pyproj.CRS.from_user_input` accepts. ``None`` means the bbox is
+            already in the target CRS.
         projection: The target CRS as WKT (a grid's ``GetProjection()``).
 
     Returns:
@@ -48,28 +103,34 @@ def _bbox_in_projection(
         target CRS.
 
     Raises:
-        ValueError: The bbox does not project to a finite extent — it falls outside
-            the target CRS's area of use.
+        TypeError: `bbox` is not four numbers.
+        ValueError: The bbox is inverted, or does not project to a finite extent.
     """
-    west, south, east, north = (float(v) for v in bbox)
-    if epsg is None:
+    west, south, east, north = _validated_bbox(bbox)
+    if bbox_crs is None:
         return west, south, east, north
-    # All four corners, not two: a reprojected rectangle is a curved quadrilateral,
-    # so its envelope needs every corner, and taking only (W,S) and (E,N) would cut
-    # inside the requested area wherever an edge bows outward.
-    xs, ys = reproject_coordinates(
-        [west, east, west, east],
-        [south, north, north, south],
-        from_crs=epsg,
-        to_crs=projection,
-        precision=None,
-    )
-    if not all(np.isfinite(xs)) or not all(np.isfinite(ys)):
-        raise ValueError(
-            f"merge_rasters: bbox {tuple(bbox)!r} does not project from {epsg!r} into "
-            "the mosaic CRS; it likely falls outside that CRS's area of use."
+    # Delegate to the shared bbox reprojector rather than transforming corners here.
+    # Corners are not enough: a reprojected rectangle is a curved quadrilateral whose
+    # extreme point generally lies in the *interior* of an edge, so a corner envelope
+    # under-covers the requested area -- measured at ~0.035 deg (~4 km) off the north
+    # edge for an EPSG:3035 window into a lon/lat mosaic. `feature.bbox.transform`
+    # densifies every edge (via `pyproj.Transformer.transform_bounds`), which is also
+    # what GDAL does internally for `projWinSRS`, so both merge paths agree.
+    try:
+        west, south, east, north = bbox_transform(
+            (west, south, east, north), bbox_crs, projection
         )
-    return min(xs), min(ys), max(xs), max(ys)
+    except Exception as exc:
+        raise ValueError(
+            f"merge_rasters: bbox {tuple(bbox)!r} could not be reprojected from "
+            f"{bbox_crs!r} into the mosaic CRS: {exc}"
+        ) from exc
+    if not all(np.isfinite(v) for v in (west, south, east, north)):
+        raise ValueError(
+            f"merge_rasters: bbox {tuple(bbox)!r} does not project from {bbox_crs!r} "
+            "into the mosaic CRS; it likely falls outside that CRS's area of use."
+        )
+    return west, south, east, north
 
 
 def _restrict_grid(
@@ -78,7 +139,7 @@ def _restrict_grid(
     y_size: int,
     projection: str,
     bbox: Sequence[float],
-    epsg: Any,
+    bbox_crs: Any,
 ) -> tuple[tuple[float, float, float, float, float, float], int, int]:
     """Clip a union grid to `bbox`, snapped outward onto the grid's own pixels.
 
@@ -94,7 +155,7 @@ def _restrict_grid(
         y_size: Union grid height in pixels.
         projection: The union grid's CRS as WKT.
         bbox: ``(west, south, east, north)`` window to keep.
-        epsg: CRS of `bbox`, or ``None`` when it is already in `projection`.
+        bbox_crs: CRS of `bbox`, or ``None`` when it is already in `projection`.
 
     Returns:
         tuple: ``(geotransform, x_size, y_size)`` for the clipped grid.
@@ -103,15 +164,37 @@ def _restrict_grid(
         ValueError: The bbox does not overlap the mosaic at all — a silent empty
             output would look like a successful merge of nothing.
     """
-    west, south, east, north = _bbox_in_projection(bbox, epsg, projection)
-    origin_x, pixel_w, _, origin_y, _, pixel_h = (float(v) for v in geotransform)
+    west, south, east, north = _bbox_in_projection(bbox, bbox_crs, projection)
+    origin_x, pixel_w, row_skew, origin_y, col_skew, pixel_h = (
+        float(v) for v in geotransform
+    )
+    if row_skew or col_skew:
+        raise ValueError(
+            "merge_rasters: bbox is not supported for a rotated or sheared mosaic "
+            f"(geotransform skew terms {row_skew!r}, {col_skew!r}); the window would "
+            "be applied as if the grid were axis-aligned, mis-georeferencing the "
+            "output."
+        )
+    if not pixel_w or not pixel_h:
+        raise ValueError(
+            f"merge_rasters: mosaic has a zero pixel size ({pixel_w!r}, {pixel_h!r}); "
+            "the bbox window cannot be resolved onto its grid."
+        )
 
-    # Column/row offsets of the window's edges on the union grid. `pixel_h` is
-    # negative for a north-up grid, so the north edge is the smaller row index.
-    col_start = int(np.floor((west - origin_x) / pixel_w))
-    col_stop = int(np.ceil((east - origin_x) / pixel_w))
-    row_start = int(np.floor((north - origin_y) / pixel_h))
-    row_stop = int(np.ceil((south - origin_y) / pixel_h))
+    # Column/row offsets of the window's edges on the union grid. Divide by the signed
+    # pixel size so a south-up grid (`pixel_h > 0`) maps its edges the same way round;
+    # `min`/`max` then order them without assuming a north-up raster.
+    cols = sorted(((west - origin_x) / pixel_w, (east - origin_x) / pixel_w))
+    rows = sorted(((north - origin_y) / pixel_h, (south - origin_y) / pixel_h))
+
+    # Snap outward, but only past a real boundary: an edge that lands on a pixel line
+    # to within float noise must not add a spurious row or column. Without this the
+    # reduce path picks up an extra pixel and shifts its origin relative to the
+    # z-order path, so the two return different rasters for identical arguments.
+    col_start = int(np.floor(cols[0] + _GRID_SNAP_TOLERANCE))
+    col_stop = int(np.ceil(cols[1] - _GRID_SNAP_TOLERANCE))
+    row_start = int(np.floor(rows[0] + _GRID_SNAP_TOLERANCE))
+    row_stop = int(np.ceil(rows[1] - _GRID_SNAP_TOLERANCE))
 
     col_start, col_stop = max(0, col_start), min(x_size, col_stop)
     row_start, row_stop = max(0, row_start), min(y_size, row_stop)
@@ -190,7 +273,7 @@ def merge_rasters(
     signer: Any = None,
     *,
     bbox: Sequence[float] | None = None,
-    epsg: Any = None,
+    bbox_crs: Any = None,
 ) -> None:
     """Merge a group of rasters into one raster, resolving overlaps by ``method``.
 
@@ -277,12 +360,14 @@ def merge_rasters(
             so only the byte ranges the window touches are requested; the
             reduction methods clip the union grid to it, snapped outward onto the
             grid's own pixels so the result stays a strict sub-grid.
-        epsg (Any):
+        bbox_crs (Any):
             CRS that ``bbox`` is expressed in — an EPSG code (``4326``), an
             authority string (``"EPSG:4326"``), a WKT, or anything
-            :func:`pyramids.base.crs.reproject_coordinates` accepts. ``None``
-            (default) means ``bbox`` is already in the mosaic's own CRS. Ignored
-            when ``bbox`` is ``None``.
+            :meth:`pyproj.CRS.from_user_input` accepts. ``None`` (default) means
+            ``bbox`` is already in the mosaic's own CRS — which, when ``dst_crs``
+            is given, is ``dst_crs``, since sources are reprojected before the
+            window is applied. Ignored when ``bbox`` is ``None``. Named to match
+            :meth:`pyramids.dataset.engines.cog.COG.read_part`.
 
     Returns:
         None
@@ -377,7 +462,7 @@ def merge_rasters(
         sources, _keepalive = _prepare_sources(src_paths, dst_crs, resampling)
 
         if method in _REDUCE_METHODS:
-            _merge_reduce(sources, str(dst), method, no_data_value, n, bbox, epsg)
+            _merge_reduce(sources, str(dst), method, no_data_value, n, bbox, bbox_crs)
             return
 
         # z-order: "last" keeps natural order (last source wins); "first"
@@ -395,34 +480,42 @@ def merge_rasters(
                 "check that all paths are readable rasters with consistent "
                 "band counts and CRS."
             )
+        proj_win = None
         if bbox is not None:
-            # Validate the window against the mosaic's own extent before handing it
-            # to Translate. GDAL does not treat a disjoint `projWin` as an error --
-            # it writes a 1x1 raster of no-data at the window's origin, which reads
-            # back as a successful merge of nothing. Reusing `_restrict_grid` here
-            # is purely for its overlap check (Translate does the real windowing),
-            # so both methods reject the same bbox with the same message.
-            _restrict_grid(
+            # Resolve the window here, in the mosaic's own CRS, and hand Translate a
+            # `projWin` that already lies on the mosaic's pixel boundaries -- rather
+            # than passing the caller's bbox with `projWinSRS` and letting GDAL
+            # reproject it. Two independent reprojections of the same window round to
+            # opposite sides of a pixel edge, and the two merge paths then return
+            # different rasters for identical arguments (measured 3x3 at x=111364.8
+            # against 4x3 at x=0.0 for `dst_crs=3857`). One resolver for both paths
+            # makes them agree by construction, and `_restrict_grid` also rejects a
+            # disjoint window, which GDAL does not: it writes a 1x1 no-data raster at
+            # the window's origin, which reads back as a successful merge of nothing.
+            clipped, window_x, window_y = _restrict_grid(
                 vrt_ds.GetGeoTransform(),
                 vrt_ds.RasterXSize,
                 vrt_ds.RasterYSize,
                 vrt_ds.GetProjection(),
                 bbox,
-                epsg,
+                bbox_crs,
             )
+            # (ulx, uly, lrx, lry) — already snapped, so GDAL's own rounding is a
+            # no-op and the output grid matches the reduction path's exactly.
+            proj_win = [
+                clipped[0],
+                clipped[3],
+                clipped[0] + window_x * clipped[1],
+                clipped[3] + window_y * clipped[5],
+            ]
 
         # `projWin` is what stops the read at the window: without it GDAL has no
         # reason to restrict what it pulls through /vsicurl and materialises the
-        # whole mosaic extent. `projWinSRS` lets the caller's bbox stay in its own
-        # CRS -- GDAL reprojects the window itself, so no bbox has to be converted
-        # here. Order is (ulx, uly, lrx, lry) = (west, north, east, south).
+        # whole mosaic extent.
         translate_opts = gdal.TranslateOptions(
             creationOptions=["COMPRESS=LZW"],
             noData=str(no_data_value),
-            projWin=None if bbox is None else [bbox[0], bbox[3], bbox[2], bbox[1]],
-            projWinSRS=(
-                None if (bbox is None or epsg is None) else _as_srs(epsg).ExportToWkt()
-            ),
+            projWin=proj_win,
         )
         out_ds = gdal.Translate(str(dst), vrt_ds, options=translate_opts)
         if out_ds is None:
@@ -649,7 +742,7 @@ def _merge_reduce(
     no_data_value: float | int | str,
     n: float | int | str,
     bbox: Sequence[float] | None = None,
-    epsg: Any = None,
+    bbox_crs: Any = None,
 ) -> None:
     """Merge sources by reducing overlapping pixels with min/max/sum.
 
@@ -693,7 +786,7 @@ def _merge_reduce(
     # only the loop would still allocate -- and read -- the full union extent.
     if bbox is not None:
         geotransform, x_size, y_size = _restrict_grid(
-            geotransform, x_size, y_size, projection, bbox, epsg
+            geotransform, x_size, y_size, projection, bbox, bbox_crs
         )
 
     src_nodata = None if str(n).lower() == "nan" else float(n)
