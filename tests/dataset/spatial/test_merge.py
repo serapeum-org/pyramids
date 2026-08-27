@@ -16,9 +16,10 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from osgeo import gdal
+from osgeo import gdal, osr
 
 import pyramids.dataset.merge as merge_mod
+from pyramids.base.crs import reproject_coordinates
 from pyramids.base.remote import CloudConfig
 from pyramids.dataset import Dataset
 from pyramids.dataset.merge import (
@@ -1220,3 +1221,266 @@ class TestMergeNoneGuards:
         out = str(tmp_path / "o.tif")
         with pytest.raises(RuntimeError, match="Warp returned None"):
             _merge_reduce([pa, pb], out, "min", -1.0, "nan")
+
+
+class TestMergeRastersBbox:
+    """Tests for the ``bbox=`` / ``epsg=`` window on ``merge_rasters`` (issue #1064).
+
+    The fixture pair spans a 6x4 union grid on EPSG:4326 at 1.0-degree cells with
+    its top-left at ``(0, 4)``, so a native window is easy to state in pixels: the
+    bbox ``(1, 1, 4, 3)`` selects columns 1..4 and rows 1..3, i.e. 3x2.
+    """
+
+    WINDOW = (1.0, 1.0, 4.0, 3.0)
+
+    @staticmethod
+    def _grid(path):
+        """Return ``(x_size, y_size, geotransform)`` of a written raster."""
+        ds = gdal.Open(str(path))
+        return ds.RasterXSize, ds.RasterYSize, ds.GetGeoTransform()
+
+    @pytest.mark.parametrize("method", ["last", "first", "min", "max", "sum"])
+    def test_bbox_restricts_the_output_grid(self, overlapping_pair, tmp_path, method):
+        """Every method writes only the windowed sub-grid.
+
+        Args:
+            overlapping_pair: Two 4x4 rasters on a shared 6x4 union grid.
+            tmp_path: pytest temp directory.
+            method: The overlap-resolution rule under test.
+
+        Test scenario:
+            Both code paths are covered - z-order via ``projWin`` and the reduction
+            path via the clipped union grid - and both must yield the 3x2 window
+            rather than the full 6x4 mosaic.
+        """
+        out = tmp_path / f"win_{method}.tif"
+        merge_rasters(list(overlapping_pair), out, method=method, bbox=self.WINDOW)
+        x_size, y_size, _ = self._grid(out)
+        assert (x_size, y_size) == (3, 2), (
+            f"{method}: expected the 3x2 window, got {x_size}x{y_size}"
+        )
+
+    @pytest.mark.parametrize("method", ["last", "min"])
+    def test_bbox_output_matches_the_same_slice_of_the_full_merge(
+        self, overlapping_pair, tmp_path, method
+    ):
+        """The window holds the same pixels the full merge puts there.
+
+        Args:
+            overlapping_pair: Two 4x4 rasters on a shared 6x4 union grid.
+            tmp_path: pytest temp directory.
+            method: One z-order and one reduction method.
+
+        Test scenario:
+            Restricting the read must not shift or resample anything - a shape-only
+            assertion would pass even if the window were taken from the wrong place.
+        """
+        full = tmp_path / f"full_{method}.tif"
+        windowed = tmp_path / f"win_{method}.tif"
+        merge_rasters(list(overlapping_pair), full, method=method)
+        merge_rasters(list(overlapping_pair), windowed, method=method, bbox=self.WINDOW)
+
+        full_arr = gdal.Open(str(full)).ReadAsArray()
+        win_arr = gdal.Open(str(windowed)).ReadAsArray()
+        assert np.allclose(win_arr, full_arr[1:3, 1:4], equal_nan=True), (
+            f"{method}: window {win_arr.tolist()} != full slice "
+            f"{full_arr[1:3, 1:4].tolist()}"
+        )
+
+    @pytest.mark.parametrize("method", ["last", "max"])
+    def test_windowed_grid_stays_aligned_to_the_full_grid(
+        self, overlapping_pair, tmp_path, method
+    ):
+        """The window's origin lands on a full-merge pixel edge, at the same scale.
+
+        Args:
+            overlapping_pair: Two 4x4 rasters on a shared 6x4 union grid.
+            tmp_path: pytest temp directory.
+            method: One z-order and one reduction method.
+
+        Test scenario:
+            A window that shifted the origin off-grid or changed the cell size would
+            silently resample; the snap is what keeps a windowed merge a strict
+            sub-grid of the unwindowed one.
+        """
+        full = tmp_path / f"a_{method}.tif"
+        windowed = tmp_path / f"b_{method}.tif"
+        merge_rasters(list(overlapping_pair), full, method=method)
+        merge_rasters(list(overlapping_pair), windowed, method=method, bbox=self.WINDOW)
+
+        _, _, full_gt = self._grid(full)
+        _, _, win_gt = self._grid(windowed)
+        assert win_gt[1] == full_gt[1], f"{method}: x cell size changed"
+        assert win_gt[5] == full_gt[5], f"{method}: y cell size changed"
+        col = (win_gt[0] - full_gt[0]) / full_gt[1]
+        row = (win_gt[3] - full_gt[3]) / full_gt[5]
+        assert col == pytest.approx(round(col)), f"{method}: x origin off-grid ({col})"
+        assert row == pytest.approx(round(row)), f"{method}: y origin off-grid ({row})"
+
+    @pytest.mark.parametrize("method", ["last", "max"])
+    def test_bbox_in_another_crs_selects_the_same_area(
+        self, overlapping_pair, tmp_path, method
+    ):
+        """``epsg=`` lets the bbox stay in the caller's own CRS.
+
+        Args:
+            overlapping_pair: Two 4x4 rasters on a shared EPSG:4326 union grid.
+            tmp_path: pytest temp directory.
+            method: One z-order and one reduction method.
+
+        Test scenario:
+            The same window is given in EPSG:3857 and must select the same area. A
+            reprojected rectangle is a curved quadrilateral, so its envelope can be
+            a pixel wider than the native one - the assertion allows that but not a
+            full-extent result.
+        """
+        xs, ys = reproject_coordinates(
+            [self.WINDOW[0], self.WINDOW[2]],
+            [self.WINDOW[1], self.WINDOW[3]],
+            from_crs=4326,
+            to_crs=3857,
+            precision=None,
+        )
+        bbox_3857 = (xs[0], ys[0], xs[1], ys[1])
+        out = tmp_path / f"m_{method}.tif"
+        merge_rasters(
+            list(overlapping_pair), out, method=method, bbox=bbox_3857, epsg=3857
+        )
+        x_size, y_size, _ = self._grid(out)
+        assert 3 <= x_size <= 4, f"{method}: expected ~3 cols, got {x_size}"
+        assert 2 <= y_size <= 3, f"{method}: expected ~2 rows, got {y_size}"
+
+    @pytest.mark.parametrize("method", ["last", "first", "min", "max", "sum"])
+    def test_disjoint_bbox_raises_for_every_method(
+        self, overlapping_pair, tmp_path, method
+    ):
+        """A window that misses the mosaic fails loudly on every path.
+
+        Args:
+            overlapping_pair: Two 4x4 rasters on a shared 6x4 union grid.
+            tmp_path: pytest temp directory.
+            method: The overlap-resolution rule under test.
+
+        Test scenario:
+            GDAL does not treat a disjoint ``projWin`` as an error - it writes a 1x1
+            no-data raster at the window's origin, which reads back as a successful
+            merge of nothing. Both paths must reject it instead.
+        """
+        with pytest.raises(ValueError, match="does not overlap"):
+            merge_rasters(
+                list(overlapping_pair),
+                tmp_path / f"x_{method}.tif",
+                method=method,
+                bbox=(100.0, 100.0, 101.0, 101.0),
+            )
+
+    @pytest.mark.parametrize("method", ["last", "sum"])
+    def test_no_bbox_is_unchanged(self, overlapping_pair, tmp_path, method):
+        """Omitting ``bbox`` merges the full extent, as before.
+
+        Args:
+            overlapping_pair: Two 4x4 rasters on a shared 6x4 union grid.
+            tmp_path: pytest temp directory.
+            method: One z-order and one reduction method.
+
+        Test scenario:
+            The window is opt-in; the default path must not change.
+        """
+        out = tmp_path / f"f_{method}.tif"
+        merge_rasters(list(overlapping_pair), out, method=method)
+        x_size, y_size, _ = self._grid(out)
+        assert (x_size, y_size) == (6, 4), (
+            f"{method}: default merge should stay 6x4, got {x_size}x{y_size}"
+        )
+
+
+class TestRestrictGrid:
+    """Unit tests for the grid-clipping helper behind the reduction path."""
+
+    GEOTRANSFORM = (0.0, 1.0, 0.0, 4.0, 0.0, -1.0)
+
+    def test_snaps_outward_onto_the_grid(self):
+        """A window inside a pixel grows to cover whole pixels.
+
+        Test scenario:
+            Rounding inward would silently drop a partially-covered edge pixel the
+            caller asked for, so the clip floors the near edges and ceils the far
+            ones.
+        """
+        gt, x_size, y_size = merge_mod._restrict_grid(
+            self.GEOTRANSFORM, 6, 4, "", (1.4, 1.4, 3.6, 2.6), None
+        )
+        assert (x_size, y_size) == (3, 2), f"expected 3x2, got {x_size}x{y_size}"
+        assert gt[0] == 1.0, f"x origin not snapped: {gt[0]}"
+        assert gt[3] == 3.0, f"y origin not snapped: {gt[3]}"
+
+    def test_clamps_to_the_grid_extent(self):
+        """A window larger than the mosaic clips to the mosaic.
+
+        Test scenario:
+            Asking for more than exists must not produce a grid larger than the
+            union, which would read outside every source.
+        """
+        _, x_size, y_size = merge_mod._restrict_grid(
+            self.GEOTRANSFORM, 6, 4, "", (-50.0, -50.0, 50.0, 50.0), None
+        )
+        assert (x_size, y_size) == (6, 4), f"expected 6x4, got {x_size}x{y_size}"
+
+    def test_disjoint_window_raises(self):
+        """A non-overlapping window raises rather than returning an empty grid.
+
+        Test scenario:
+            A zero-sized grid would be written as a valid-looking empty raster.
+        """
+        with pytest.raises(ValueError, match="does not overlap"):
+            merge_mod._restrict_grid(
+                self.GEOTRANSFORM, 6, 4, "", (100.0, 100.0, 101.0, 101.0), None
+            )
+
+
+class TestBboxInProjection:
+    """Unit tests for the bbox reprojection helper."""
+
+    def test_passthrough_when_no_epsg_given(self):
+        """With ``epsg=None`` the bbox is already in the target CRS.
+
+        Test scenario:
+            No reprojection should occur, and no CRS is needed to decide that.
+        """
+        result = merge_mod._bbox_in_projection((1.0, 2.0, 3.0, 4.0), None, "")
+        assert result == (1.0, 2.0, 3.0, 4.0), f"passthrough changed the bbox: {result}"
+
+    def test_uses_all_four_corners(self):
+        """The envelope covers all four reprojected corners, not just two.
+
+        Test scenario:
+            A reprojected rectangle is a curved quadrilateral; taking only (W,S) and
+            (E,N) would cut inside the requested area wherever an edge bows outward.
+            Round-tripping 4326 -> 3857 -> 4326 must recover the input.
+        """
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(3857)
+        west, south, east, north = merge_mod._bbox_in_projection(
+            (1.0, 1.0, 4.0, 3.0), 4326, srs.ExportToWkt()
+        )
+        assert west < east, "envelope must be non-degenerate in x"
+        assert south < north, "envelope must be non-degenerate in y"
+        back = merge_mod._bbox_in_projection(
+            (west, south, east, north), 3857, "EPSG:4326"
+        )
+        assert back == pytest.approx((1.0, 1.0, 4.0, 3.0), abs=1e-6), (
+            f"round trip lost the window: {back}"
+        )
+
+    def test_unprojectable_bbox_raises(self):
+        """A bbox outside the target CRS's domain raises instead of yielding inf.
+
+        Test scenario:
+            An orthographic projection can only represent the hemisphere it faces;
+            the antipodal side reprojects to non-finite coordinates. Left unchecked
+            those would flow into the grid arithmetic and produce a nonsense window
+            rather than an error.
+        """
+        ortho = "+proj=ortho +lat_0=0 +lon_0=0 +datum=WGS84 +units=m +no_defs"
+        with pytest.raises(ValueError, match="does not project"):
+            merge_mod._bbox_in_projection((175.0, -5.0, 179.0, 5.0), 4326, ortho)
