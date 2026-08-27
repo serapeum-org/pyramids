@@ -12297,14 +12297,14 @@ to construct one.")``.
 <a id="__codelineno-0-1653" name="__codelineno-0-1653"></a><span class="sd">                order).</span>
 <a id="__codelineno-0-1654" name="__codelineno-0-1654"></a><span class="sd">            patch_url: Optional low-level callable rewriting each href</span>
 <a id="__codelineno-0-1655" name="__codelineno-0-1655"></a><span class="sd">                (runs before `signer`).</span>
-<a id="__codelineno-0-1656" name="__codelineno-0-1656"></a><span class="sd">            bbox: M6 — **input filter**, `(minx, miny, maxx, maxy)` in</span>
+<a id="__codelineno-0-1656" name="__codelineno-0-1656"></a><span class="sd">            bbox: **input filter**, `(minx, miny, maxx, maxy)` in</span>
 <a id="__codelineno-0-1657" name="__codelineno-0-1657"></a><span class="sd">                **lon/lat** (EPSG:4326). Selects *which STAC items* are read:</span>
 <a id="__codelineno-0-1658" name="__codelineno-0-1658"></a><span class="sd">                items whose footprint doesn't intersect it are dropped before</span>
 <a id="__codelineno-0-1659" name="__codelineno-0-1659"></a><span class="sd">                their hrefs are resolved. It does **not** clip the output — that</span>
 <a id="__codelineno-0-1660" name="__codelineno-0-1660"></a><span class="sd">                is the `grid`'s bounds (see :class:`~pyramids.dataset.Grid`).</span>
 <a id="__codelineno-0-1661" name="__codelineno-0-1661"></a><span class="sd">                (Note the difference from odc-stac, where `bbox` sets the output</span>
 <a id="__codelineno-0-1662" name="__codelineno-0-1662"></a><span class="sd">                extent.)</span>
-<a id="__codelineno-0-1663" name="__codelineno-0-1663"></a><span class="sd">            max_items: M6 — cap the number of items consumed (after</span>
+<a id="__codelineno-0-1663" name="__codelineno-0-1663"></a><span class="sd">            max_items: cap the number of items consumed (after</span>
 <a id="__codelineno-0-1664" name="__codelineno-0-1664"></a><span class="sd">                bbox filtering). Useful for quick-look workflows.</span>
 <a id="__codelineno-0-1665" name="__codelineno-0-1665"></a><span class="sd">            signer: Optional signer (e.g. a</span>
 <a id="__codelineno-0-1666" name="__codelineno-0-1666"></a><span class="sd">                :class:`pyramids.stac.signers.Signer`). Its</span>
@@ -17532,7 +17532,7 @@ order).</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>M6 — <strong>input filter</strong>, <code>(minx, miny, maxx, maxy)</code> in
+                <p><strong>input filter</strong>, <code>(minx, miny, maxx, maxy)</code> in
 <strong>lon/lat</strong> (EPSG:4326). Selects <em>which STAC items</em> are read:
 items whose footprint doesn't intersect it are dropped before
 their hrefs are resolved. It does <strong>not</strong> clip the output — that
@@ -17554,7 +17554,7 @@ extent.)</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>M6 — cap the number of items consumed (after
+                <p>cap the number of items consumed (after
 bbox filtering). Useful for quick-look workflows.</p>
               </div>
             </td>
@@ -17850,14 +17850,14 @@ from <code>bbox</code>, which filters input items in lon/lat).</p>
 <a id="__codelineno-0-1653" name="__codelineno-0-1653"></a><span class="sd">            order).</span>
 <a id="__codelineno-0-1654" name="__codelineno-0-1654"></a><span class="sd">        patch_url: Optional low-level callable rewriting each href</span>
 <a id="__codelineno-0-1655" name="__codelineno-0-1655"></a><span class="sd">            (runs before `signer`).</span>
-<a id="__codelineno-0-1656" name="__codelineno-0-1656"></a><span class="sd">        bbox: M6 — **input filter**, `(minx, miny, maxx, maxy)` in</span>
+<a id="__codelineno-0-1656" name="__codelineno-0-1656"></a><span class="sd">        bbox: **input filter**, `(minx, miny, maxx, maxy)` in</span>
 <a id="__codelineno-0-1657" name="__codelineno-0-1657"></a><span class="sd">            **lon/lat** (EPSG:4326). Selects *which STAC items* are read:</span>
 <a id="__codelineno-0-1658" name="__codelineno-0-1658"></a><span class="sd">            items whose footprint doesn't intersect it are dropped before</span>
 <a id="__codelineno-0-1659" name="__codelineno-0-1659"></a><span class="sd">            their hrefs are resolved. It does **not** clip the output — that</span>
 <a id="__codelineno-0-1660" name="__codelineno-0-1660"></a><span class="sd">            is the `grid`'s bounds (see :class:`~pyramids.dataset.Grid`).</span>
 <a id="__codelineno-0-1661" name="__codelineno-0-1661"></a><span class="sd">            (Note the difference from odc-stac, where `bbox` sets the output</span>
 <a id="__codelineno-0-1662" name="__codelineno-0-1662"></a><span class="sd">            extent.)</span>
-<a id="__codelineno-0-1663" name="__codelineno-0-1663"></a><span class="sd">        max_items: M6 — cap the number of items consumed (after</span>
+<a id="__codelineno-0-1663" name="__codelineno-0-1663"></a><span class="sd">        max_items: cap the number of items consumed (after</span>
 <a id="__codelineno-0-1664" name="__codelineno-0-1664"></a><span class="sd">            bbox filtering). Useful for quick-look workflows.</span>
 <a id="__codelineno-0-1665" name="__codelineno-0-1665"></a><span class="sd">        signer: Optional signer (e.g. a</span>
 <a id="__codelineno-0-1666" name="__codelineno-0-1666"></a><span class="sd">            :class:`pyramids.stac.signers.Signer`). Its</span>
