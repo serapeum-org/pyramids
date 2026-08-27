@@ -1475,6 +1475,8 @@ class TestBboxValidation:
             (12.0, TypeError, "a scalar is not a sequence"),
             ((1.0, 2.0, 3.0), ValueError, "three values is not a bbox"),
             ((1.0, 2.0, 3.0, 4.0, 5.0), ValueError, "five values is not a bbox"),
+            ((1.0, "south", 3.0, 4.0), TypeError, "a non-numeric element"),
+            ((1.0, None, 3.0, 4.0), TypeError, "None is not a coordinate"),
             ((1.0, float("nan"), 3.0, 4.0), ValueError, "NaN is not a coordinate"),
             ((1.0, 2.0, float("inf"), 4.0), ValueError, "inf is not a coordinate"),
             ((4.0, 1.0, 1.0, 3.0), ValueError, "west > east is inverted"),
