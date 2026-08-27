@@ -351,15 +351,25 @@ def merge_rasters(
             This is not a convenience for cropping afterwards: without it GDAL is
             given no reason to read less, so a mosaic of remote sources pulls the
             **entire** source extent through ``/vsicurl`` even when the caller
-            wants a fraction of it. A full Sentinel-2 tile is 10980x10980 px;
-            restricting it to a ~20x14 km area of interest turns a ~236 MiB
-            transfer into a few MiB.
+            wants a fraction of it. A full Sentinel-2 tile is 10980x10980 px
+            (verified against a public Earth Search COG), so an area of interest
+            covering a fraction of one tile still costs the whole tile without a
+            window. How much that saves depends on the ratio between the source
+            footprint and the window.
 
-            The window is applied differently per method but means the same thing
-            in both: z-order passes it to :func:`gdal.Translate` as ``projWin``,
-            so only the byte ranges the window touches are requested; the
-            reduction methods clip the union grid to it, snapped outward onto the
-            grid's own pixels so the result stays a strict sub-grid.
+            The window is resolved once, onto the mosaic's own pixel grid, and
+            used by both methods: z-order passes it to :func:`gdal.Translate` as
+            ``projWin``, so only the byte ranges the window touches are requested;
+            the reduction methods clip the union grid to it. Snapping outward onto
+            whole pixels keeps the result a strict sub-grid, and resolving it once
+            means both methods return the same grid for the same arguments.
+
+            A bbox must be ordered ``west < east`` and ``south < north``. A window
+            crossing the antimeridian (``west > east``) is rejected rather than
+            silently reinterpreted as its own complement; split it and merge the
+            two halves. :meth:`pyramids.dataset.Dataset.crop` handles the seam
+            directly, but a mosaic is composited on one grid, which a seam-crossing
+            window would not have.
         bbox_crs (Any):
             CRS that ``bbox`` is expressed in — an EPSG code (``4326``), an
             authority string (``"EPSG:4326"``), a WKT, or anything
@@ -764,6 +774,12 @@ def _merge_reduce(
         method: One of ``"min"``, ``"max"``, ``"sum"``.
         no_data_value: Output no-data value and no-coverage fill.
         n: Source pixel value to treat as no-data (``"nan"`` means none).
+        bbox: Optional ``(west, south, east, north)`` window. When given, the union
+            grid is clipped to it before the output is created, so only the window
+            is allocated and read — clipping the strip loop alone would not help,
+            because the output is sized from the union before the loop runs.
+        bbox_crs: CRS of `bbox`, or ``None`` when it is already in the union grid's
+            CRS (which is `dst_crs` when the caller passed one).
 
     Raises:
         RuntimeError: GDAL failed to build the union mosaic or to warp a source.
