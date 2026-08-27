@@ -1,6 +1,12 @@
 ﻿# Change log
 
 
+## 0.57.1 (2026-08-27)
+
+### Fix
+
+- **netcdf**: declare a CF _FillValue from the streaming cube writer (#1062)
+
 ## 0.57.0 (2026-08-26)
 
 ### Feat
