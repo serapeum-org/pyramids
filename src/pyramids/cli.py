@@ -683,7 +683,8 @@ def _cmd_merge(args: argparse.Namespace) -> int:
     """Handle `pyramids merge` — mosaic rasters into one file.
 
     Args:
-        args: Parsed arguments with `inputs` (>= 2 paths) and `output`.
+        args: Parsed arguments with `inputs` (>= 2 paths), `output`, and the
+            optional `bbox` / `bbox_crs` window.
 
     Returns:
         int: `0` on success.
@@ -694,7 +695,12 @@ def _cmd_merge(args: argparse.Namespace) -> int:
     if len(args.inputs) < 2:
         raise ValueError("merge needs at least two input rasters.")
     _refuse_existing(args.output, args.overwrite)
-    merge_rasters(args.inputs, args.output)
+    merge_rasters(
+        args.inputs,
+        args.output,
+        bbox=tuple(args.bbox) if args.bbox else None,
+        bbox_crs=args.bbox_crs,
+    )
     print(f"wrote {args.output}")
     return 0
 
@@ -879,6 +885,18 @@ def _build_parser() -> argparse.ArgumentParser:
     merge = sub.add_parser("merge", help="mosaic rasters into one file")
     merge.add_argument("inputs", nargs="+", help="source raster paths (two or more)")
     merge.add_argument("output", help=_HELP_DST_RASTER)
+    merge.add_argument(
+        "--bbox",
+        nargs=4,
+        type=float,
+        metavar=("MINX", "MINY", "MAXX", "MAXY"),
+        help="restrict the merge to this window, so only it is read",
+    )
+    merge.add_argument(
+        "--bbox-crs",
+        dest="bbox_crs",
+        help="CRS of --bbox (default: the mosaic's own CRS)",
+    )
     merge.add_argument("--overwrite", action="store_true", help=_HELP_OVERWRITE)
     merge.set_defaults(func=_cmd_merge)
 

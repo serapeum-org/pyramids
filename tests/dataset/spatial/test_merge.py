@@ -21,7 +21,7 @@ from osgeo import gdal
 import pyramids.dataset.merge as merge_mod
 from pyramids.base.crs import reproject_coordinates
 from pyramids.base.remote import CloudConfig
-from pyramids.dataset import Dataset
+from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.dataset.merge import (
     _as_srs,
     _cloud_config,
@@ -1678,3 +1678,91 @@ class TestBboxGridGeometry:
         assert (x_size, y_size) == (3, 2), (
             f"a boundary-aligned window should be 3x2, got {x_size}x{y_size}"
         )
+
+
+class TestCollectionMergeBbox:
+    """`DatasetCollection.merge` forwards the window to `merge_rasters`."""
+
+    @pytest.fixture
+    def two_day_collection(self, tmp_path):
+        """A file-backed collection of two 4x4 tiles on a shared 6x4 union grid."""
+        for index, left in enumerate((0, 2)):
+            write_raster(
+                tmp_path / f"2024-01-0{index + 1}.tif",
+                np.full((4, 4), 10.0 + index, dtype="float32"),
+                (left, 4),
+            )
+        return DatasetCollection.from_files(
+            str(tmp_path), glob="*.tif", date_format="%Y-%m-%d"
+        )
+
+    def test_merge_without_bbox_is_the_full_union(self, two_day_collection, tmp_path):
+        """The default still merges the whole union grid.
+
+        Args:
+            two_day_collection: Collection of two overlapping tiles.
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            The window is opt-in; adding the parameter must not change the default.
+        """
+        out = tmp_path / "full.tif"
+        two_day_collection.merge(out)
+        ds = gdal.Open(str(out))
+        assert (ds.RasterXSize, ds.RasterYSize) == (6, 4), (
+            f"expected the full 6x4 union, got {ds.RasterXSize}x{ds.RasterYSize}"
+        )
+
+    def test_merge_with_bbox_restricts_the_output(self, two_day_collection, tmp_path):
+        """A bbox reaches `merge_rasters` and restricts the merge.
+
+        Args:
+            two_day_collection: Collection of two overlapping tiles.
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            Without this the motivating STAC workflow could not use the window at
+            all — the collection is how those mosaics are actually built.
+        """
+        out = tmp_path / "win.tif"
+        two_day_collection.merge(out, bbox=(1.0, 1.0, 4.0, 3.0))
+        ds = gdal.Open(str(out))
+        assert (ds.RasterXSize, ds.RasterYSize) == (3, 2), (
+            f"expected the 3x2 window, got {ds.RasterXSize}x{ds.RasterYSize}"
+        )
+
+    def test_merge_bbox_crs_is_forwarded(self, two_day_collection, tmp_path):
+        """`bbox_crs` reaches `merge_rasters` rather than being dropped.
+
+        Args:
+            two_day_collection: Collection of two overlapping tiles.
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            A silently-ignored `bbox_crs` would read the window as if it were in the
+            mosaic's CRS, selecting the wrong area instead of failing.
+        """
+        west, east = reproject_coordinates(
+            [1.0, 4.0], [1.0, 3.0], from_crs=4326, to_crs=3857, precision=None
+        )
+        out = tmp_path / "win_crs.tif"
+        two_day_collection.merge(
+            out, bbox=(west[0], east[0], west[1], east[1]), bbox_crs=3857
+        )
+        ds = gdal.Open(str(out))
+        assert 3 <= ds.RasterXSize <= 4, f"expected ~3 cols, got {ds.RasterXSize}"
+        assert 2 <= ds.RasterYSize <= 3, f"expected ~2 rows, got {ds.RasterYSize}"
+
+    def test_merge_rejects_a_malformed_bbox(self, two_day_collection, tmp_path):
+        """Validation is not bypassed by going through the collection.
+
+        Args:
+            two_day_collection: Collection of two overlapping tiles.
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            The collection forwards the window unchanged, so `merge_rasters`' checks
+            must still apply.
+        """
+        with pytest.raises(ValueError):
+            two_day_collection.merge(tmp_path / "bad.tif", bbox=(4.0, 1.0, 1.0, 3.0))

@@ -3480,6 +3480,9 @@ class DatasetCollection:
         init: float | int | str = "nan",
         n: float | int | str = "nan",
         method: str = "last",
+        *,
+        bbox: Sequence[float] | None = None,
+        bbox_crs: Any = None,
     ) -> None:
         """Merge this collection's timesteps into one raster.
 
@@ -3509,6 +3512,14 @@ class DatasetCollection:
                 :func:`~pyramids.dataset.merge.merge_rasters`: one of
                 ``"first"``, ``"last"`` (default), ``"min"``, ``"max"``,
                 ``"sum"``.
+            bbox (Sequence[float] | None):
+                Optional ``(west, south, east, north)`` window, forwarded to
+                :func:`~pyramids.dataset.merge.merge_rasters`. Restricts what is
+                read rather than cropping afterwards, which matters most when the
+                timesteps are remote. ``None`` (default) merges the full extent.
+            bbox_crs (Any):
+                CRS of ``bbox``; ``None`` (default) means it is already in the
+                mosaic's CRS.
 
         Returns:
             None
@@ -3521,6 +3532,8 @@ class DatasetCollection:
                 init=init,
                 n=n,
                 method=method,
+                bbox=bbox,
+                bbox_crs=bbox_crs,
             )
             return
         # In-memory collection (legacy `DatasetCollection(src,
@@ -3541,6 +3554,8 @@ class DatasetCollection:
                 init=init,
                 n=n,
                 method=method,
+                bbox=bbox,
+                bbox_crs=bbox_crs,
             )
 
     def apply(

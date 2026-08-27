@@ -522,6 +522,8 @@ def _from_stac_solar_day(
     patch_url: Callable[[str], str] | None,
     signer: Any,
     collection_cls: Any,
+    bbox: Sequence[float] | None = None,
+    bbox_crs: Any = None,
 ) -> DatasetCollection:
     """Mosaic same-solar-day items of one asset into one timestep each.
 
@@ -559,7 +561,14 @@ def _from_stac_solar_day(
     per_day_paths: list[str] = []
     for day in sorted(groups):
         out_path = os.path.join(out_dir, f"{day}.tif")
-        merge_rasters(groups[day], out_path, method="first", signer=signer)
+        merge_rasters(
+            groups[day],
+            out_path,
+            method="first",
+            signer=signer,
+            bbox=bbox,
+            bbox_crs=bbox_crs,
+        )
         per_day_paths.append(out_path)
 
     # collection_cls is always the real DatasetCollection class (passed by every
