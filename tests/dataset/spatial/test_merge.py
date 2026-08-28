@@ -1908,6 +1908,29 @@ class TestBboxAntimeridian:
         assert south < north, f"south {south} should stay below north {north}"
 
 
+class TestBboxReprojectionFailure:
+    """A CRS the transformer cannot build is reported against the bbox."""
+
+    @pytest.mark.parametrize(
+        "bad_crs",
+        ["not-a-crs", 999999],
+        ids=["garbage_string", "unknown_epsg"],
+    )
+    def test_unusable_bbox_crs_raises_a_clear_error(self, bad_crs):
+        """An unusable `bbox_crs` raises rather than escaping as a pyproj error.
+
+        Args:
+            bad_crs: A CRS pyproj cannot resolve.
+
+        Test scenario:
+            The handler around the transform exists so the caller learns which bbox
+            and which CRS failed. Left uncaught they would get a bare pyproj CRSError
+            naming neither.
+        """
+        with pytest.raises(ValueError, match="could not be reprojected"):
+            merge_mod._bbox_in_projection((1.0, 1.0, 4.0, 3.0), bad_crs, "EPSG:4326")
+
+
 class TestBboxLongitudeConvention:
     """A lon/lat window is read in the mosaic's own longitude convention."""
 
