@@ -1853,11 +1853,10 @@ class TestBboxAntimeridian:
 
     ANTIMERIDIAN_BBOX = (700000.0, 100000.0, 950000.0, 300000.0)
     UTM_60N = 32660
-
-    @staticmethod
-    def _lonlat():
-        """Return the lon/lat CRS a global mosaic carries."""
-        return "EPSG:4326"
+    # A constant rather than a helper call: inside a `pytest.raises` block a second
+    # invocation could itself be the one that raises, which is what the assertion is
+    # meant to pin down.
+    LONLAT = "EPSG:4326"
 
     def test_wrapped_envelope_is_refused(self):
         """A reprojection that wraps past 180 deg raises instead of inverting.
@@ -1870,7 +1869,7 @@ class TestBboxAntimeridian:
         """
         with pytest.raises(ValueError, match="crosses the antimeridian"):
             merge_mod._bbox_in_projection(
-                self.ANTIMERIDIAN_BBOX, self.UTM_60N, self._lonlat()
+                self.ANTIMERIDIAN_BBOX, self.UTM_60N, self.LONLAT
             )
 
     def test_wrapped_window_does_not_become_its_complement(self):
@@ -1888,7 +1887,7 @@ class TestBboxAntimeridian:
                 global_grid,
                 36000,
                 18000,
-                self._lonlat(),
+                self.LONLAT,
                 self.ANTIMERIDIAN_BBOX,
                 self.UTM_60N,
             )
@@ -1902,7 +1901,7 @@ class TestBboxAntimeridian:
             pins that it does not.
         """
         west, south, east, north = merge_mod._bbox_in_projection(
-            (500000.0, 100000.0, 600000.0, 300000.0), 32633, self._lonlat()
+            (500000.0, 100000.0, 600000.0, 300000.0), 32633, self.LONLAT
         )
         assert west < east, f"west {west} should stay below east {east}"
         assert south < north, f"south {south} should stay below north {north}"
