@@ -3482,7 +3482,7 @@ class DatasetCollection:
         method: str = "last",
         *,
         bbox: Sequence[float] | None = None,
-        bbox_crs: Any = None,
+        bbox_crs: int | str | None = None,
     ) -> None:
         """Merge this collection's timesteps into one raster.
 

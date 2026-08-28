@@ -15,6 +15,7 @@ from typing import Any
 
 import numpy as np
 from osgeo import gdal, osr
+from pyproj.exceptions import ProjError
 
 from pyramids.base._utils import DEFAULT_RESAMPLING, resolve_resampling
 from pyramids.base.remote import signer_cloud_config
@@ -139,7 +140,7 @@ def _match_longitude_convention(
 
 
 def _bbox_in_projection(
-    bbox: Sequence[float], bbox_crs: Any, projection: str
+    bbox: Sequence[float], bbox_crs: int | str | None, projection: str
 ) -> tuple[float, float, float, float]:
     """Express `bbox` in `projection`'s coordinates.
 
@@ -173,7 +174,7 @@ def _bbox_in_projection(
         west, south, east, north = bbox_transform(
             (west, south, east, north), bbox_crs, projection
         )
-    except Exception as exc:
+    except (ProjError, ValueError, TypeError) as exc:
         raise ValueError(
             f"bbox {tuple(bbox)!r} could not be reprojected from "
             f"{bbox_crs!r} into the mosaic CRS: {exc}"
@@ -206,7 +207,7 @@ def _restrict_grid(
     y_size: int,
     projection: str,
     bbox: Sequence[float],
-    bbox_crs: Any,
+    bbox_crs: int | str | None,
 ) -> tuple[tuple[float, float, float, float, float, float], int, int]:
     """Clip a union grid to `bbox`, snapped outward onto the grid's own pixels.
 
@@ -376,7 +377,7 @@ def merge_rasters(
     signer: Any = None,
     *,
     bbox: Sequence[float] | None = None,
-    bbox_crs: Any = None,
+    bbox_crs: int | str | None = None,
 ) -> None:
     """Merge a group of rasters into one raster, resolving overlaps by ``method``.
 
@@ -861,7 +862,7 @@ def _merge_reduce(
     no_data_value: float | int | str,
     n: float | int | str,
     bbox: Sequence[float] | None = None,
-    bbox_crs: Any = None,
+    bbox_crs: int | str | None = None,
 ) -> None:
     """Merge sources by reducing overlapping pixels with min/max/sum.
 
