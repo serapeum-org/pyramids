@@ -1689,6 +1689,42 @@ class TestBboxGridGeometry:
                 (0.0, 0.0, 0.0, 4.0, 0.0, -1.0), 6, 4, "", (1.0, 1.0, 4.0, 3.0), None
             )
 
+    def test_degenerately_thin_window_is_diagnosed_as_thin(self):
+        """A sub-tolerance window inside the mosaic is not called disjoint.
+
+        Test scenario:
+            The tolerance is applied inward at both edges, so a box starting on a
+            pixel boundary and spanning less than it snaps to zero width while
+            sitting squarely inside the mosaic. Reporting "does not overlap" sent
+            the caller to inspect their extents instead of their box width.
+        """
+        with pytest.raises(ValueError, match="selects no whole pixel"):
+            merge_mod._restrict_grid(
+                (0.0, 1.0, 0.0, 4.0, 0.0, -1.0),
+                6,
+                4,
+                "",
+                (1.0, 1.0, 1.0000001, 3.0),
+                None,
+            )
+
+    def test_disjoint_window_is_still_diagnosed_as_disjoint(self):
+        """A box that genuinely misses the mosaic keeps the overlap message.
+
+        Test scenario:
+            The thin-window check runs first, so it must not swallow the disjoint
+            case it was split out from.
+        """
+        with pytest.raises(ValueError, match="does not overlap"):
+            merge_mod._restrict_grid(
+                (0.0, 1.0, 0.0, 4.0, 0.0, -1.0),
+                6,
+                4,
+                "",
+                (100.0, 100.0, 104.0, 103.0),
+                None,
+            )
+
     def test_edge_on_a_pixel_boundary_adds_no_extra_pixel(self):
         """A window landing exactly on grid lines yields exactly that many pixels.
 

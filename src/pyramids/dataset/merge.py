@@ -187,8 +187,10 @@ def _restrict_grid(
         tuple: ``(geotransform, x_size, y_size)`` for the clipped grid.
 
     Raises:
-        ValueError: The bbox does not overlap the mosaic at all — a silent empty
-            output would look like a successful merge of nothing.
+        ValueError: The mosaic is rotated/sheared or has a zero pixel size; the bbox
+            selects no whole pixel; or it does not overlap the mosaic at all — a
+            silent empty output would look like a successful merge of nothing.
+        TypeError: `bbox` is not four numbers.
     """
     west, south, east, north = _bbox_in_projection(bbox, bbox_crs, projection)
     origin_x, pixel_w, row_skew, origin_y, col_skew, pixel_h = (
@@ -221,6 +223,18 @@ def _restrict_grid(
     col_stop = int(np.ceil(cols[1] - _GRID_SNAP_TOLERANCE))
     row_start = int(np.floor(rows[0] + _GRID_SNAP_TOLERANCE))
     row_stop = int(np.ceil(rows[1] - _GRID_SNAP_TOLERANCE))
+
+    # Check for a collapsed window *before* clamping. The tolerance is applied inward
+    # at both edges, so a box that starts on a pixel boundary and spans less than the
+    # tolerance snaps to zero width -- even sitting squarely inside the mosaic. That is
+    # a different fault from a box that misses the mosaic, and reporting the latter
+    # sends the caller to check their extents when the problem is the size of the box.
+    if col_stop <= col_start or row_stop <= row_start:
+        raise ValueError(
+            f"merge_rasters: bbox {tuple(bbox)!r} selects no whole pixel of the "
+            "mosaic; it is degenerately thin in at least one axis. Widen it to at "
+            "least one cell."
+        )
 
     col_start, col_stop = max(0, col_start), min(x_size, col_stop)
     row_start, row_stop = max(0, row_start), min(y_size, row_stop)
