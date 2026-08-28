@@ -808,10 +808,16 @@ def _reduce_strip(
     # count, only test presence below, so a bool cube (1 byte/px) replaces int64.
     covered = np.zeros(shape, dtype=bool)
 
-    for path, (_, south, _, north) in zip(src_paths, src_bounds):
-        # Skip a source whose latitude extent misses this strip — warping it would
-        # only add all-no-data, leaving acc/covered unchanged.
+    strip_west, _, strip_east, _ = strip_bounds
+    for path, (src_west, south, src_east, north) in zip(src_paths, src_bounds):
+        # Skip a source whose extent misses this strip — warping it would only add
+        # all-no-data, leaving acc/covered unchanged. Both axes are tested: a strip
+        # spans the *windowed* grid's width, so on a wide east–west mosaic a narrow
+        # window otherwise still warped every source sharing its latitude band, which
+        # is precisely the cost the window exists to avoid.
         if north <= strip_south or south >= strip_north:
+            continue
+        if src_east <= strip_west or src_west >= strip_east:
             continue
         warp_opts = gdal.WarpOptions(
             format="MEM",

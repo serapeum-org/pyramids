@@ -1948,3 +1948,67 @@ class TestBboxLongitudeConvention:
             (0.0, 1.0, 0.0, 4.0, 0.0, -1.0), 6, 4, "EPSG:3857", (1.0, 1.0, 4.0, 3.0), None
         )
         assert (x_size, y_size) == (3, 2), f"expected 3x2, got {x_size}x{y_size}"
+
+
+class TestReduceWindowPrunesSources:
+    """The reduction path skips sources the window does not touch."""
+
+    def test_narrow_window_does_not_warp_every_source(self, tmp_path, monkeypatch):
+        """A narrow window warps only the sources it overlaps.
+
+        Args:
+            tmp_path: pytest temp directory.
+            monkeypatch: Used to count `gdal.Warp` calls.
+
+        Test scenario:
+            A strip spans the windowed grid's width, but the per-source prune tested
+            latitude only. On a wide east-west mosaic every source shares the same
+            latitude band, so all of them were warped per strip however narrow the
+            window — the exact cost the window exists to avoid.
+        """
+        paths = []
+        for index in range(6):
+            path = tmp_path / f"tile{index}.tif"
+            write_raster(path, np.full((4, 4), float(index), dtype="float32"), (index * 4, 4))
+            paths.append(str(path))
+
+        calls = []
+        real_warp = gdal.Warp
+
+        def counting_warp(*args, **kwargs):
+            calls.append(kwargs.get("outputBounds"))
+            return real_warp(*args, **kwargs)
+
+        monkeypatch.setattr(merge_mod.gdal, "Warp", counting_warp)
+        merge_rasters(paths, tmp_path / "win.tif", method="max", bbox=(1.0, 1.0, 3.0, 3.0))
+        assert len(calls) == 1, (
+            f"a window inside one tile should warp one source, got {len(calls)} warps"
+        )
+
+    def test_pruning_does_not_drop_needed_sources(self, tmp_path):
+        """A window spanning several tiles still reduces all of them.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            An east/west prune that is too eager would silently drop contributing
+            sources, leaving no-data where real values belong.
+        """
+        for index in range(3):
+            write_raster(
+                tmp_path / f"t{index}.tif",
+                np.full((4, 4), float(index + 1), dtype="float32"),
+                (index * 4, 4),
+            )
+        out = tmp_path / "spanning.tif"
+        merge_rasters(
+            sorted(str(p) for p in tmp_path.glob("t*.tif")),
+            out,
+            method="max",
+            bbox=(0.0, 0.0, 12.0, 4.0),
+        )
+        values = Dataset.read_file(str(out)).read_array()
+        assert np.nanmax(values) == 3.0, (
+            f"the easternmost tile must still contribute, got max {np.nanmax(values)}"
+        )
