@@ -359,6 +359,28 @@ class TestMergeCommand:
         assert main(["merge", src_raster, second, out_path]) == 0
         assert Dataset.read_file(out_path).columns > 8, "mosaic must span both tiles"
 
+    def test_bbox_crs_without_bbox_exits_one(self, src_raster, tmp_path, capsys):
+        """`--bbox-crs` alone is refused rather than silently dropped.
+
+        Test scenario:
+            merge_rasters ignores bbox_crs when bbox is None, so forgetting --bbox
+            (or mistyping it) would otherwise look like a successful full-extent
+            merge — the classic silently-ignored-flag trap.
+        """
+        second = str(tmp_path / "b.tif")
+        Dataset.create_from_array(
+            np.ones((8, 8), dtype="float32"),
+            top_left_corner=(4, 8),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=-9999.0,
+        ).to_file(second)
+        rc = main(
+            ["merge", src_raster, second, str(tmp_path / "x.tif"), "--bbox-crs", "3857"]
+        )
+        assert rc == 1, "--bbox-crs without --bbox must exit 1"
+        assert "error: " in capsys.readouterr().err, "expected one-line error"
+
     def test_merge_malformed_bbox_exits_one(self, src_raster, tmp_path, capsys):
         """An inverted `--bbox` exits 1 with a message rather than a traceback.
 

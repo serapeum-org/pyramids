@@ -691,10 +691,18 @@ def _cmd_merge(args: argparse.Namespace) -> int:
         int: `0` on success.
 
     Raises:
-        ValueError: Fewer than two input rasters are given.
+        ValueError: Fewer than two input rasters are given, `--bbox-crs` is given
+            without `--bbox`, or the window itself is malformed.
     """
     if len(args.inputs) < 2:
         raise ValueError("merge needs at least two input rasters.")
+    # A --bbox-crs with no --bbox would be accepted and then dropped, so a typo in
+    # the window (or forgetting it) would look like a successful full-extent merge.
+    if args.bbox_crs is not None and not args.bbox:
+        raise ValueError(
+            "merge --bbox-crs names the CRS of --bbox, but no --bbox was given; "
+            "pass --bbox MINX MINY MAXX MAXY as well, or drop --bbox-crs."
+        )
     _refuse_existing(args.output, args.overwrite)
     merge_rasters(
         args.inputs,
