@@ -1224,7 +1224,7 @@ class TestMergeNoneGuards:
 
 
 class TestMergeRastersBbox:
-    """Tests for the ``bbox=`` / ``epsg=`` window on ``merge_rasters`` (issue #1064).
+    """Tests for the ``bbox=`` / ``bbox_crs=`` window on ``merge_rasters`` (issue #1064).
 
     The fixture pair spans a 6x4 union grid on EPSG:4326 at 1.0-degree cells with
     its top-left at ``(0, 4)``, so a native window is easy to state in pixels: the
@@ -1594,6 +1594,16 @@ class TestBboxPathAgreement:
         assert self._grid(z_order) == self._grid(reduce_), (
             f"{label}: z-order {self._grid(z_order)} != reduce {self._grid(reduce_)}"
         )
+        # Matching geometry is not enough: two paths can agree on the grid and still
+        # disagree on which source won a pixel. Comparing content is meaningful for
+        # this fixture because the later raster also holds the larger value (B=20
+        # over A=10), so `last` and `max` must resolve the overlap identically.
+        z_values = gdal.Open(str(z_order)).ReadAsArray()
+        r_values = gdal.Open(str(reduce_)).ReadAsArray()
+        assert np.array_equal(z_values, r_values, equal_nan=True), (
+            f"{label}: the two paths agree on the grid but not on its content\n"
+            f"z-order:\n{z_values}\nreduce:\n{r_values}"
+        )
 
 
 class TestBboxReprojectionCurvature:
@@ -1812,12 +1822,12 @@ class TestCollectionMergeBbox:
             A silently-ignored `bbox_crs` would read the window as if it were in the
             mosaic's CRS, selecting the wrong area instead of failing.
         """
-        west, east = reproject_coordinates(
+        xs, ys = reproject_coordinates(
             [1.0, 4.0], [1.0, 3.0], from_crs=4326, to_crs=3857, precision=None
         )
         out = tmp_path / "win_crs.tif"
         two_day_collection.merge(
-            out, bbox=(west[0], east[0], west[1], east[1]), bbox_crs=3857
+            out, bbox=(xs[0], ys[0], xs[1], ys[1]), bbox_crs=3857
         )
         ds = gdal.Open(str(out))
         assert 3 <= ds.RasterXSize <= 4, f"expected ~3 cols, got {ds.RasterXSize}"
