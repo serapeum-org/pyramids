@@ -237,9 +237,13 @@ def _restrict_grid(
     origin_x, pixel_w, row_skew, origin_y, col_skew, pixel_h = (
         float(v) for v in geotransform
     )
+    # Defensive: gdal.BuildVRT produces an axis-aligned union grid, so a skewed
+    # geotransform should not reach here. Guard it anyway rather than silently
+    # mis-georeferencing, and do not imply that dropping the bbox would help — a
+    # rotated mosaic is not something merge_rasters handles either way.
     if row_skew or col_skew:
         raise ValueError(
-            "merge_rasters: bbox is not supported for a rotated or sheared mosaic "
+            "merge_rasters: cannot resolve a bbox against a rotated or sheared mosaic "
             f"(geotransform skew terms {row_skew!r}, {col_skew!r}); the window would "
             "be applied as if the grid were axis-aligned, mis-georeferencing the "
             "output."

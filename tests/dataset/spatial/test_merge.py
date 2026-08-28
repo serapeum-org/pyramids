@@ -1644,11 +1644,19 @@ class TestBboxGridGeometry:
     """`_restrict_grid` on grids that are not the north-up, axis-aligned default."""
 
     def test_south_up_grid_is_not_rejected(self):
-        """A positive pixel height still resolves a window.
+        """A positive pixel height still resolves a window — a helper invariant only.
 
         Test scenario:
             Ordering the row offsets by value, rather than assuming north-up, is what
             stops a south-up grid raising a spurious "does not overlap".
+
+            This pins `_restrict_grid` on its own terms and is NOT evidence that
+            pyramids merges south-up rasters. The case cannot be reached end-to-end:
+            the union grid always comes from `gdal.BuildVRT`, which skips south-up
+            sources outright ("does not support positive NS resolution"), and
+            `_merge_reduce`'s strip loop would hand `gdal.Warp` an `outputBounds` with
+            `minY > maxY` if one ever did arrive. The ordering stays as defensive code
+            so the helper remains correct in isolation.
         """
         gt, x_size, y_size = merge_mod._restrict_grid(
             (0.0, 1.0, 0.0, 0.0, 0.0, 1.0), 6, 4, "", (1.0, 1.0, 4.0, 3.0), None
