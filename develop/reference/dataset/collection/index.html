@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -11164,7 +11164,19 @@ to construct one.")``.
 <span class="normal"><a href="#__codelineno-0-3632">3632</a></span>
 <span class="normal"><a href="#__codelineno-0-3633">3633</a></span>
 <span class="normal"><a href="#__codelineno-0-3634">3634</a></span>
-<span class="normal"><a href="#__codelineno-0-3635">3635</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-523" name="__codelineno-0-523"></a><span class="k">class</span><span class="w"> </span><span class="nc">DatasetCollection</span><span class="p">:</span>
+<span class="normal"><a href="#__codelineno-0-3635">3635</a></span>
+<span class="normal"><a href="#__codelineno-0-3636">3636</a></span>
+<span class="normal"><a href="#__codelineno-0-3637">3637</a></span>
+<span class="normal"><a href="#__codelineno-0-3638">3638</a></span>
+<span class="normal"><a href="#__codelineno-0-3639">3639</a></span>
+<span class="normal"><a href="#__codelineno-0-3640">3640</a></span>
+<span class="normal"><a href="#__codelineno-0-3641">3641</a></span>
+<span class="normal"><a href="#__codelineno-0-3642">3642</a></span>
+<span class="normal"><a href="#__codelineno-0-3643">3643</a></span>
+<span class="normal"><a href="#__codelineno-0-3644">3644</a></span>
+<span class="normal"><a href="#__codelineno-0-3645">3645</a></span>
+<span class="normal"><a href="#__codelineno-0-3646">3646</a></span>
+<span class="normal"><a href="#__codelineno-0-3647">3647</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-523" name="__codelineno-0-523"></a><span class="k">class</span><span class="w"> </span><span class="nc">DatasetCollection</span><span class="p">:</span>
 <a id="__codelineno-0-524" name="__codelineno-0-524"></a><span class="w">    </span><span class="sd">"""Time-stacked collection of co-registered rasters.</span>
 <a id="__codelineno-0-525" name="__codelineno-0-525"></a>
 <a id="__codelineno-0-526" name="__codelineno-0-526"></a><span class="sd">    Holds N rasters that share a spatial template (rows, columns,</span>
@@ -14158,125 +14170,137 @@ to construct one.")``.
 <a id="__codelineno-0-3514" name="__codelineno-0-3514"></a><span class="sd">                ``"sum"``.</span>
 <a id="__codelineno-0-3515" name="__codelineno-0-3515"></a><span class="sd">            bbox (Sequence[float] | None):</span>
 <a id="__codelineno-0-3516" name="__codelineno-0-3516"></a><span class="sd">                Optional ``(west, south, east, north)`` window, forwarded to</span>
-<a id="__codelineno-0-3517" name="__codelineno-0-3517"></a><span class="sd">                :func:`~pyramids.dataset.merge.merge_rasters`. Restricts what is</span>
-<a id="__codelineno-0-3518" name="__codelineno-0-3518"></a><span class="sd">                read rather than cropping afterwards, which matters most when the</span>
-<a id="__codelineno-0-3519" name="__codelineno-0-3519"></a><span class="sd">                timesteps are remote. ``None`` (default) merges the full extent.</span>
-<a id="__codelineno-0-3520" name="__codelineno-0-3520"></a><span class="sd">            bbox_crs (Any):</span>
-<a id="__codelineno-0-3521" name="__codelineno-0-3521"></a><span class="sd">                CRS of ``bbox``; ``None`` (default) means it is already in the</span>
-<a id="__codelineno-0-3522" name="__codelineno-0-3522"></a><span class="sd">                mosaic's CRS.</span>
-<a id="__codelineno-0-3523" name="__codelineno-0-3523"></a>
-<a id="__codelineno-0-3524" name="__codelineno-0-3524"></a><span class="sd">        Returns:</span>
-<a id="__codelineno-0-3525" name="__codelineno-0-3525"></a><span class="sd">            None</span>
-<a id="__codelineno-0-3526" name="__codelineno-0-3526"></a><span class="sd">        """</span>
-<a id="__codelineno-0-3527" name="__codelineno-0-3527"></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_files</span><span class="p">:</span>
-<a id="__codelineno-0-3528" name="__codelineno-0-3528"></a>            <span class="n">merge_rasters</span><span class="p">(</span>
-<a id="__codelineno-0-3529" name="__codelineno-0-3529"></a>                <span class="bp">self</span><span class="o">.</span><span class="n">_files</span><span class="p">,</span>
-<a id="__codelineno-0-3530" name="__codelineno-0-3530"></a>                <span class="n">dst</span><span class="p">,</span>
-<a id="__codelineno-0-3531" name="__codelineno-0-3531"></a>                <span class="n">no_data_value</span><span class="o">=</span><span class="n">no_data_value</span><span class="p">,</span>
-<a id="__codelineno-0-3532" name="__codelineno-0-3532"></a>                <span class="n">init</span><span class="o">=</span><span class="n">init</span><span class="p">,</span>
-<a id="__codelineno-0-3533" name="__codelineno-0-3533"></a>                <span class="n">n</span><span class="o">=</span><span class="n">n</span><span class="p">,</span>
-<a id="__codelineno-0-3534" name="__codelineno-0-3534"></a>                <span class="n">method</span><span class="o">=</span><span class="n">method</span><span class="p">,</span>
-<a id="__codelineno-0-3535" name="__codelineno-0-3535"></a>                <span class="n">bbox</span><span class="o">=</span><span class="n">bbox</span><span class="p">,</span>
-<a id="__codelineno-0-3536" name="__codelineno-0-3536"></a>                <span class="n">bbox_crs</span><span class="o">=</span><span class="n">bbox_crs</span><span class="p">,</span>
-<a id="__codelineno-0-3537" name="__codelineno-0-3537"></a>            <span class="p">)</span>
-<a id="__codelineno-0-3538" name="__codelineno-0-3538"></a>            <span class="k">return</span>
-<a id="__codelineno-0-3539" name="__codelineno-0-3539"></a>        <span class="c1"># In-memory collection (legacy `DatasetCollection(src,</span>
-<a id="__codelineno-0-3540" name="__codelineno-0-3540"></a>        <span class="c1"># time_length=N)` or anything returned by</span>
-<a id="__codelineno-0-3541" name="__codelineno-0-3541"></a>        <span class="c1"># `crop(inplace=False)` / `apply()` / `to_crs(inplace=False)` /</span>
-<a id="__codelineno-0-3542" name="__codelineno-0-3542"></a>        <span class="c1"># `align(inplace=False)`). Stage each timestep through a</span>
-<a id="__codelineno-0-3543" name="__codelineno-0-3543"></a>        <span class="c1"># tempfile, merge the temp paths, then drop the staging</span>
-<a id="__codelineno-0-3544" name="__codelineno-0-3544"></a>        <span class="c1"># directory. The tempfile pass is unavoidable: gdal_merge /</span>
-<a id="__codelineno-0-3545" name="__codelineno-0-3545"></a>        <span class="c1"># BuildVRT both take on-disk paths.</span>
-<a id="__codelineno-0-3546" name="__codelineno-0-3546"></a>        <span class="k">with</span> <span class="n">tempfile</span><span class="o">.</span><span class="n">TemporaryDirectory</span><span class="p">(</span><span class="n">prefix</span><span class="o">=</span><span class="s2">"pyramids-merge-"</span><span class="p">)</span> <span class="k">as</span> <span class="n">staging</span><span class="p">:</span>
-<a id="__codelineno-0-3547" name="__codelineno-0-3547"></a>            <span class="n">staging_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">staging</span><span class="p">)</span>
-<a id="__codelineno-0-3548" name="__codelineno-0-3548"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">to_file</span><span class="p">(</span><span class="n">staging_path</span><span class="p">,</span> <span class="n">driver</span><span class="o">=</span><span class="s2">"geotiff"</span><span class="p">)</span>
-<a id="__codelineno-0-3549" name="__codelineno-0-3549"></a>            <span class="n">staged_files</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">staging_path</span><span class="o">.</span><span class="n">glob</span><span class="p">(</span><span class="n">_DEFAULT_GLOB</span><span class="p">))</span>
-<a id="__codelineno-0-3550" name="__codelineno-0-3550"></a>            <span class="n">merge_rasters</span><span class="p">(</span>
-<a id="__codelineno-0-3551" name="__codelineno-0-3551"></a>                <span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">p</span><span class="p">)</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">staged_files</span><span class="p">],</span>
-<a id="__codelineno-0-3552" name="__codelineno-0-3552"></a>                <span class="n">dst</span><span class="p">,</span>
-<a id="__codelineno-0-3553" name="__codelineno-0-3553"></a>                <span class="n">no_data_value</span><span class="o">=</span><span class="n">no_data_value</span><span class="p">,</span>
-<a id="__codelineno-0-3554" name="__codelineno-0-3554"></a>                <span class="n">init</span><span class="o">=</span><span class="n">init</span><span class="p">,</span>
-<a id="__codelineno-0-3555" name="__codelineno-0-3555"></a>                <span class="n">n</span><span class="o">=</span><span class="n">n</span><span class="p">,</span>
-<a id="__codelineno-0-3556" name="__codelineno-0-3556"></a>                <span class="n">method</span><span class="o">=</span><span class="n">method</span><span class="p">,</span>
-<a id="__codelineno-0-3557" name="__codelineno-0-3557"></a>                <span class="n">bbox</span><span class="o">=</span><span class="n">bbox</span><span class="p">,</span>
-<a id="__codelineno-0-3558" name="__codelineno-0-3558"></a>                <span class="n">bbox_crs</span><span class="o">=</span><span class="n">bbox_crs</span><span class="p">,</span>
-<a id="__codelineno-0-3559" name="__codelineno-0-3559"></a>            <span class="p">)</span>
-<a id="__codelineno-0-3560" name="__codelineno-0-3560"></a>
-<a id="__codelineno-0-3561" name="__codelineno-0-3561"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">apply</span><span class="p">(</span>
-<a id="__codelineno-0-3562" name="__codelineno-0-3562"></a>        <span class="bp">self</span><span class="p">,</span> <span class="n">ufunc</span><span class="p">:</span> <span class="n">Callable</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">inplace</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
-<a id="__codelineno-0-3563" name="__codelineno-0-3563"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">DatasetCollection</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-3564" name="__codelineno-0-3564"></a><span class="w">        </span><span class="sd">"""Apply a function to every timestep raster.</span>
-<a id="__codelineno-0-3565" name="__codelineno-0-3565"></a>
-<a id="__codelineno-0-3566" name="__codelineno-0-3566"></a><span class="sd">        Each timestep ``Dataset.apply(ufunc)`` runs over the</span>
-<a id="__codelineno-0-3567" name="__codelineno-0-3567"></a><span class="sd">        in-domain cells of its band; the result is a new</span>
-<a id="__codelineno-0-3568" name="__codelineno-0-3568"></a><span class="sd">        ``Dataset``. The list of new ``Datasets`` is wrapped in a</span>
-<a id="__codelineno-0-3569" name="__codelineno-0-3569"></a><span class="sd">        new collection (out-of-place) or replaces this collection's</span>
-<a id="__codelineno-0-3570" name="__codelineno-0-3570"></a><span class="sd">        handles (inplace).</span>
-<a id="__codelineno-0-3571" name="__codelineno-0-3571"></a>
-<a id="__codelineno-0-3572" name="__codelineno-0-3572"></a><span class="sd">        Out-of-place is the default — the previous in-place</span>
-<a id="__codelineno-0-3573" name="__codelineno-0-3573"></a><span class="sd">        signature mutated a shared numpy cube; with the</span>
-<a id="__codelineno-0-3574" name="__codelineno-0-3574"></a><span class="sd">        ``Dataset``-list backing there is no shared cube to mutate</span>
-<a id="__codelineno-0-3575" name="__codelineno-0-3575"></a><span class="sd">        and per-timestep ops always produce a new ``Dataset``.</span>
-<a id="__codelineno-0-3576" name="__codelineno-0-3576"></a>
-<a id="__codelineno-0-3577" name="__codelineno-0-3577"></a><span class="sd">        Args:</span>
-<a id="__codelineno-0-3578" name="__codelineno-0-3578"></a><span class="sd">            ufunc (Callable):</span>
-<a id="__codelineno-0-3579" name="__codelineno-0-3579"></a><span class="sd">                Callable universal function (builtin or user defined). See</span>
-<a id="__codelineno-0-3580" name="__codelineno-0-3580"></a><span class="sd">                https://numpy.org/doc/stable/reference/ufuncs.html</span>
-<a id="__codelineno-0-3581" name="__codelineno-0-3581"></a><span class="sd">                To create a ufunc from a normal function: https://numpy.org/doc/stable/reference/generated/numpy.frompyfunc.html</span>
-<a id="__codelineno-0-3582" name="__codelineno-0-3582"></a><span class="sd">            inplace (bool):</span>
-<a id="__codelineno-0-3583" name="__codelineno-0-3583"></a><span class="sd">                When True, replace this collection's per-timestep</span>
-<a id="__codelineno-0-3584" name="__codelineno-0-3584"></a><span class="sd">                ``Dataset`` handles with the new outputs and return</span>
-<a id="__codelineno-0-3585" name="__codelineno-0-3585"></a><span class="sd">                ``None``. When False (default), return a new</span>
-<a id="__codelineno-0-3586" name="__codelineno-0-3586"></a><span class="sd">                ``DatasetCollection`` wrapping the new outputs.</span>
-<a id="__codelineno-0-3587" name="__codelineno-0-3587"></a>
-<a id="__codelineno-0-3588" name="__codelineno-0-3588"></a><span class="sd">        Returns:</span>
-<a id="__codelineno-0-3589" name="__codelineno-0-3589"></a><span class="sd">            DatasetCollection | None: New collection when</span>
-<a id="__codelineno-0-3590" name="__codelineno-0-3590"></a><span class="sd">            ``inplace=False``; ``None`` when ``inplace=True``.</span>
-<a id="__codelineno-0-3591" name="__codelineno-0-3591"></a>
-<a id="__codelineno-0-3592" name="__codelineno-0-3592"></a><span class="sd">        Examples:</span>
-<a id="__codelineno-0-3593" name="__codelineno-0-3593"></a><span class="sd">            - Apply a simple modulo operation to each value:</span>
-<a id="__codelineno-0-3594" name="__codelineno-0-3594"></a>
-<a id="__codelineno-0-3595" name="__codelineno-0-3595"></a><span class="sd">              ```python</span>
-<a id="__codelineno-0-3596" name="__codelineno-0-3596"></a><span class="sd">              &gt;&gt;&gt; def func(val):</span>
-<a id="__codelineno-0-3597" name="__codelineno-0-3597"></a><span class="sd">              ...    return val % 2</span>
-<a id="__codelineno-0-3598" name="__codelineno-0-3598"></a><span class="sd">              &gt;&gt;&gt; ufunc = np.frompyfunc(func, 1, 1)</span>
-<a id="__codelineno-0-3599" name="__codelineno-0-3599"></a><span class="sd">              &gt;&gt;&gt; result = collection.apply(ufunc)  # doctest: +SKIP</span>
-<a id="__codelineno-0-3600" name="__codelineno-0-3600"></a>
-<a id="__codelineno-0-3601" name="__codelineno-0-3601"></a><span class="sd">              ```</span>
-<a id="__codelineno-0-3602" name="__codelineno-0-3602"></a><span class="sd">        """</span>
-<a id="__codelineno-0-3603" name="__codelineno-0-3603"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="nb">callable</span><span class="p">(</span><span class="n">ufunc</span><span class="p">):</span>
-<a id="__codelineno-0-3604" name="__codelineno-0-3604"></a>            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s2">"The Second argument should be a function"</span><span class="p">)</span>
-<a id="__codelineno-0-3605" name="__codelineno-0-3605"></a>        <span class="n">new_datasets</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_apply_per_timestep</span><span class="p">(</span><span class="s2">"apply"</span><span class="p">,</span> <span class="n">ufunc</span><span class="p">)</span>
-<a id="__codelineno-0-3606" name="__codelineno-0-3606"></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_finalize_per_timestep_result</span><span class="p">(</span><span class="n">new_datasets</span><span class="p">,</span> <span class="n">inplace</span><span class="o">=</span><span class="n">inplace</span><span class="p">)</span>
-<a id="__codelineno-0-3607" name="__codelineno-0-3607"></a>
-<a id="__codelineno-0-3608" name="__codelineno-0-3608"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">overlay</span><span class="p">(</span>
-<a id="__codelineno-0-3609" name="__codelineno-0-3609"></a>        <span class="bp">self</span><span class="p">,</span>
-<a id="__codelineno-0-3610" name="__codelineno-0-3610"></a>        <span class="n">classes_map</span><span class="p">,</span>
-<a id="__codelineno-0-3611" name="__codelineno-0-3611"></a>        <span class="n">exclude_value</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-3612" name="__codelineno-0-3612"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">]]:</span>
-<a id="__codelineno-0-3613" name="__codelineno-0-3613"></a><span class="w">        </span><span class="sd">"""Overlay.</span>
-<a id="__codelineno-0-3614" name="__codelineno-0-3614"></a>
-<a id="__codelineno-0-3615" name="__codelineno-0-3615"></a><span class="sd">        Args:</span>
-<a id="__codelineno-0-3616" name="__codelineno-0-3616"></a><span class="sd">            classes_map (Dataset):</span>
-<a id="__codelineno-0-3617" name="__codelineno-0-3617"></a><span class="sd">                Dataset object for the raster that has classes to overlay with.</span>
-<a id="__codelineno-0-3618" name="__codelineno-0-3618"></a><span class="sd">            exclude_value (float | int, optional):</span>
-<a id="__codelineno-0-3619" name="__codelineno-0-3619"></a><span class="sd">                Values to exclude from extracted values. Defaults to None.</span>
-<a id="__codelineno-0-3620" name="__codelineno-0-3620"></a>
-<a id="__codelineno-0-3621" name="__codelineno-0-3621"></a><span class="sd">        Returns:</span>
-<a id="__codelineno-0-3622" name="__codelineno-0-3622"></a><span class="sd">            dict[float, list[float]]:</span>
-<a id="__codelineno-0-3623" name="__codelineno-0-3623"></a><span class="sd">                Dictionary with a list of values in the basemap as keys and for each key a list of all the</span>
-<a id="__codelineno-0-3624" name="__codelineno-0-3624"></a><span class="sd">                intersected values in the maps from the path.</span>
-<a id="__codelineno-0-3625" name="__codelineno-0-3625"></a><span class="sd">        """</span>
-<a id="__codelineno-0-3626" name="__codelineno-0-3626"></a>        <span class="n">values</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
-<a id="__codelineno-0-3627" name="__codelineno-0-3627"></a>        <span class="k">for</span> <span class="n">ds</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">datasets</span><span class="p">:</span>
-<a id="__codelineno-0-3628" name="__codelineno-0-3628"></a>            <span class="n">dict_i</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">overlay</span><span class="p">(</span><span class="n">classes_map</span><span class="p">,</span> <span class="n">exclude_value</span><span class="p">)</span>
-<a id="__codelineno-0-3629" name="__codelineno-0-3629"></a>
-<a id="__codelineno-0-3630" name="__codelineno-0-3630"></a>            <span class="c1"># these are the distinct values from the BaseMap which are keys in the</span>
-<a id="__codelineno-0-3631" name="__codelineno-0-3631"></a>            <span class="c1"># values dict with each one having a list of values</span>
-<a id="__codelineno-0-3632" name="__codelineno-0-3632"></a>            <span class="k">for</span> <span class="n">class_i</span><span class="p">,</span> <span class="n">vals</span> <span class="ow">in</span> <span class="n">dict_i</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
-<a id="__codelineno-0-3633" name="__codelineno-0-3633"></a>                <span class="n">values</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="n">class_i</span><span class="p">,</span> <span class="p">[])</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">vals</span><span class="p">)</span>
-<a id="__codelineno-0-3634" name="__codelineno-0-3634"></a>
-<a id="__codelineno-0-3635" name="__codelineno-0-3635"></a>        <span class="k">return</span> <span class="n">values</span>
+<a id="__codelineno-0-3517" name="__codelineno-0-3517"></a><span class="sd">                :func:`~pyramids.dataset.merge.merge_rasters`. ``None`` (default)</span>
+<a id="__codelineno-0-3518" name="__codelineno-0-3518"></a><span class="sd">                merges the full extent.</span>
+<a id="__codelineno-0-3519" name="__codelineno-0-3519"></a>
+<a id="__codelineno-0-3520" name="__codelineno-0-3520"></a><span class="sd">                For a **file-backed** collection this restricts what is read rather</span>
+<a id="__codelineno-0-3521" name="__codelineno-0-3521"></a><span class="sd">                than cropping afterwards, which is what makes a small area of</span>
+<a id="__codelineno-0-3522" name="__codelineno-0-3522"></a><span class="sd">                interest cheap to pull from remote timesteps. For an **in-memory**</span>
+<a id="__codelineno-0-3523" name="__codelineno-0-3523"></a><span class="sd">                collection it only narrows the output: every timestep is staged to</span>
+<a id="__codelineno-0-3524" name="__codelineno-0-3524"></a><span class="sd">                disk at full extent before the merge runs, so nothing is saved on</span>
+<a id="__codelineno-0-3525" name="__codelineno-0-3525"></a><span class="sd">                the read.</span>
+<a id="__codelineno-0-3526" name="__codelineno-0-3526"></a><span class="sd">            bbox_crs (int | str | None):</span>
+<a id="__codelineno-0-3527" name="__codelineno-0-3527"></a><span class="sd">                CRS of ``bbox``; ``None`` (default) means it is already in the</span>
+<a id="__codelineno-0-3528" name="__codelineno-0-3528"></a><span class="sd">                mosaic's CRS.</span>
+<a id="__codelineno-0-3529" name="__codelineno-0-3529"></a>
+<a id="__codelineno-0-3530" name="__codelineno-0-3530"></a><span class="sd">        Returns:</span>
+<a id="__codelineno-0-3531" name="__codelineno-0-3531"></a><span class="sd">            None</span>
+<a id="__codelineno-0-3532" name="__codelineno-0-3532"></a>
+<a id="__codelineno-0-3533" name="__codelineno-0-3533"></a><span class="sd">        Raises:</span>
+<a id="__codelineno-0-3534" name="__codelineno-0-3534"></a><span class="sd">            TypeError: ``bbox`` is not four numbers.</span>
+<a id="__codelineno-0-3535" name="__codelineno-0-3535"></a><span class="sd">            ValueError: ``bbox`` is malformed, does not overlap the mosaic, or</span>
+<a id="__codelineno-0-3536" name="__codelineno-0-3536"></a><span class="sd">                cannot be projected into the mosaic's CRS. Validation happens</span>
+<a id="__codelineno-0-3537" name="__codelineno-0-3537"></a><span class="sd">                before any I/O.</span>
+<a id="__codelineno-0-3538" name="__codelineno-0-3538"></a><span class="sd">        """</span>
+<a id="__codelineno-0-3539" name="__codelineno-0-3539"></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_files</span><span class="p">:</span>
+<a id="__codelineno-0-3540" name="__codelineno-0-3540"></a>            <span class="n">merge_rasters</span><span class="p">(</span>
+<a id="__codelineno-0-3541" name="__codelineno-0-3541"></a>                <span class="bp">self</span><span class="o">.</span><span class="n">_files</span><span class="p">,</span>
+<a id="__codelineno-0-3542" name="__codelineno-0-3542"></a>                <span class="n">dst</span><span class="p">,</span>
+<a id="__codelineno-0-3543" name="__codelineno-0-3543"></a>                <span class="n">no_data_value</span><span class="o">=</span><span class="n">no_data_value</span><span class="p">,</span>
+<a id="__codelineno-0-3544" name="__codelineno-0-3544"></a>                <span class="n">init</span><span class="o">=</span><span class="n">init</span><span class="p">,</span>
+<a id="__codelineno-0-3545" name="__codelineno-0-3545"></a>                <span class="n">n</span><span class="o">=</span><span class="n">n</span><span class="p">,</span>
+<a id="__codelineno-0-3546" name="__codelineno-0-3546"></a>                <span class="n">method</span><span class="o">=</span><span class="n">method</span><span class="p">,</span>
+<a id="__codelineno-0-3547" name="__codelineno-0-3547"></a>                <span class="n">bbox</span><span class="o">=</span><span class="n">bbox</span><span class="p">,</span>
+<a id="__codelineno-0-3548" name="__codelineno-0-3548"></a>                <span class="n">bbox_crs</span><span class="o">=</span><span class="n">bbox_crs</span><span class="p">,</span>
+<a id="__codelineno-0-3549" name="__codelineno-0-3549"></a>            <span class="p">)</span>
+<a id="__codelineno-0-3550" name="__codelineno-0-3550"></a>            <span class="k">return</span>
+<a id="__codelineno-0-3551" name="__codelineno-0-3551"></a>        <span class="c1"># In-memory collection (legacy `DatasetCollection(src,</span>
+<a id="__codelineno-0-3552" name="__codelineno-0-3552"></a>        <span class="c1"># time_length=N)` or anything returned by</span>
+<a id="__codelineno-0-3553" name="__codelineno-0-3553"></a>        <span class="c1"># `crop(inplace=False)` / `apply()` / `to_crs(inplace=False)` /</span>
+<a id="__codelineno-0-3554" name="__codelineno-0-3554"></a>        <span class="c1"># `align(inplace=False)`). Stage each timestep through a</span>
+<a id="__codelineno-0-3555" name="__codelineno-0-3555"></a>        <span class="c1"># tempfile, merge the temp paths, then drop the staging</span>
+<a id="__codelineno-0-3556" name="__codelineno-0-3556"></a>        <span class="c1"># directory. The tempfile pass is unavoidable: gdal_merge /</span>
+<a id="__codelineno-0-3557" name="__codelineno-0-3557"></a>        <span class="c1"># BuildVRT both take on-disk paths.</span>
+<a id="__codelineno-0-3558" name="__codelineno-0-3558"></a>        <span class="k">with</span> <span class="n">tempfile</span><span class="o">.</span><span class="n">TemporaryDirectory</span><span class="p">(</span><span class="n">prefix</span><span class="o">=</span><span class="s2">"pyramids-merge-"</span><span class="p">)</span> <span class="k">as</span> <span class="n">staging</span><span class="p">:</span>
+<a id="__codelineno-0-3559" name="__codelineno-0-3559"></a>            <span class="n">staging_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">staging</span><span class="p">)</span>
+<a id="__codelineno-0-3560" name="__codelineno-0-3560"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">to_file</span><span class="p">(</span><span class="n">staging_path</span><span class="p">,</span> <span class="n">driver</span><span class="o">=</span><span class="s2">"geotiff"</span><span class="p">)</span>
+<a id="__codelineno-0-3561" name="__codelineno-0-3561"></a>            <span class="n">staged_files</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">staging_path</span><span class="o">.</span><span class="n">glob</span><span class="p">(</span><span class="n">_DEFAULT_GLOB</span><span class="p">))</span>
+<a id="__codelineno-0-3562" name="__codelineno-0-3562"></a>            <span class="n">merge_rasters</span><span class="p">(</span>
+<a id="__codelineno-0-3563" name="__codelineno-0-3563"></a>                <span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">p</span><span class="p">)</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">staged_files</span><span class="p">],</span>
+<a id="__codelineno-0-3564" name="__codelineno-0-3564"></a>                <span class="n">dst</span><span class="p">,</span>
+<a id="__codelineno-0-3565" name="__codelineno-0-3565"></a>                <span class="n">no_data_value</span><span class="o">=</span><span class="n">no_data_value</span><span class="p">,</span>
+<a id="__codelineno-0-3566" name="__codelineno-0-3566"></a>                <span class="n">init</span><span class="o">=</span><span class="n">init</span><span class="p">,</span>
+<a id="__codelineno-0-3567" name="__codelineno-0-3567"></a>                <span class="n">n</span><span class="o">=</span><span class="n">n</span><span class="p">,</span>
+<a id="__codelineno-0-3568" name="__codelineno-0-3568"></a>                <span class="n">method</span><span class="o">=</span><span class="n">method</span><span class="p">,</span>
+<a id="__codelineno-0-3569" name="__codelineno-0-3569"></a>                <span class="n">bbox</span><span class="o">=</span><span class="n">bbox</span><span class="p">,</span>
+<a id="__codelineno-0-3570" name="__codelineno-0-3570"></a>                <span class="n">bbox_crs</span><span class="o">=</span><span class="n">bbox_crs</span><span class="p">,</span>
+<a id="__codelineno-0-3571" name="__codelineno-0-3571"></a>            <span class="p">)</span>
+<a id="__codelineno-0-3572" name="__codelineno-0-3572"></a>
+<a id="__codelineno-0-3573" name="__codelineno-0-3573"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">apply</span><span class="p">(</span>
+<a id="__codelineno-0-3574" name="__codelineno-0-3574"></a>        <span class="bp">self</span><span class="p">,</span> <span class="n">ufunc</span><span class="p">:</span> <span class="n">Callable</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">inplace</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+<a id="__codelineno-0-3575" name="__codelineno-0-3575"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">DatasetCollection</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-3576" name="__codelineno-0-3576"></a><span class="w">        </span><span class="sd">"""Apply a function to every timestep raster.</span>
+<a id="__codelineno-0-3577" name="__codelineno-0-3577"></a>
+<a id="__codelineno-0-3578" name="__codelineno-0-3578"></a><span class="sd">        Each timestep ``Dataset.apply(ufunc)`` runs over the</span>
+<a id="__codelineno-0-3579" name="__codelineno-0-3579"></a><span class="sd">        in-domain cells of its band; the result is a new</span>
+<a id="__codelineno-0-3580" name="__codelineno-0-3580"></a><span class="sd">        ``Dataset``. The list of new ``Datasets`` is wrapped in a</span>
+<a id="__codelineno-0-3581" name="__codelineno-0-3581"></a><span class="sd">        new collection (out-of-place) or replaces this collection's</span>
+<a id="__codelineno-0-3582" name="__codelineno-0-3582"></a><span class="sd">        handles (inplace).</span>
+<a id="__codelineno-0-3583" name="__codelineno-0-3583"></a>
+<a id="__codelineno-0-3584" name="__codelineno-0-3584"></a><span class="sd">        Out-of-place is the default — the previous in-place</span>
+<a id="__codelineno-0-3585" name="__codelineno-0-3585"></a><span class="sd">        signature mutated a shared numpy cube; with the</span>
+<a id="__codelineno-0-3586" name="__codelineno-0-3586"></a><span class="sd">        ``Dataset``-list backing there is no shared cube to mutate</span>
+<a id="__codelineno-0-3587" name="__codelineno-0-3587"></a><span class="sd">        and per-timestep ops always produce a new ``Dataset``.</span>
+<a id="__codelineno-0-3588" name="__codelineno-0-3588"></a>
+<a id="__codelineno-0-3589" name="__codelineno-0-3589"></a><span class="sd">        Args:</span>
+<a id="__codelineno-0-3590" name="__codelineno-0-3590"></a><span class="sd">            ufunc (Callable):</span>
+<a id="__codelineno-0-3591" name="__codelineno-0-3591"></a><span class="sd">                Callable universal function (builtin or user defined). See</span>
+<a id="__codelineno-0-3592" name="__codelineno-0-3592"></a><span class="sd">                https://numpy.org/doc/stable/reference/ufuncs.html</span>
+<a id="__codelineno-0-3593" name="__codelineno-0-3593"></a><span class="sd">                To create a ufunc from a normal function: https://numpy.org/doc/stable/reference/generated/numpy.frompyfunc.html</span>
+<a id="__codelineno-0-3594" name="__codelineno-0-3594"></a><span class="sd">            inplace (bool):</span>
+<a id="__codelineno-0-3595" name="__codelineno-0-3595"></a><span class="sd">                When True, replace this collection's per-timestep</span>
+<a id="__codelineno-0-3596" name="__codelineno-0-3596"></a><span class="sd">                ``Dataset`` handles with the new outputs and return</span>
+<a id="__codelineno-0-3597" name="__codelineno-0-3597"></a><span class="sd">                ``None``. When False (default), return a new</span>
+<a id="__codelineno-0-3598" name="__codelineno-0-3598"></a><span class="sd">                ``DatasetCollection`` wrapping the new outputs.</span>
+<a id="__codelineno-0-3599" name="__codelineno-0-3599"></a>
+<a id="__codelineno-0-3600" name="__codelineno-0-3600"></a><span class="sd">        Returns:</span>
+<a id="__codelineno-0-3601" name="__codelineno-0-3601"></a><span class="sd">            DatasetCollection | None: New collection when</span>
+<a id="__codelineno-0-3602" name="__codelineno-0-3602"></a><span class="sd">            ``inplace=False``; ``None`` when ``inplace=True``.</span>
+<a id="__codelineno-0-3603" name="__codelineno-0-3603"></a>
+<a id="__codelineno-0-3604" name="__codelineno-0-3604"></a><span class="sd">        Examples:</span>
+<a id="__codelineno-0-3605" name="__codelineno-0-3605"></a><span class="sd">            - Apply a simple modulo operation to each value:</span>
+<a id="__codelineno-0-3606" name="__codelineno-0-3606"></a>
+<a id="__codelineno-0-3607" name="__codelineno-0-3607"></a><span class="sd">              ```python</span>
+<a id="__codelineno-0-3608" name="__codelineno-0-3608"></a><span class="sd">              &gt;&gt;&gt; def func(val):</span>
+<a id="__codelineno-0-3609" name="__codelineno-0-3609"></a><span class="sd">              ...    return val % 2</span>
+<a id="__codelineno-0-3610" name="__codelineno-0-3610"></a><span class="sd">              &gt;&gt;&gt; ufunc = np.frompyfunc(func, 1, 1)</span>
+<a id="__codelineno-0-3611" name="__codelineno-0-3611"></a><span class="sd">              &gt;&gt;&gt; result = collection.apply(ufunc)  # doctest: +SKIP</span>
+<a id="__codelineno-0-3612" name="__codelineno-0-3612"></a>
+<a id="__codelineno-0-3613" name="__codelineno-0-3613"></a><span class="sd">              ```</span>
+<a id="__codelineno-0-3614" name="__codelineno-0-3614"></a><span class="sd">        """</span>
+<a id="__codelineno-0-3615" name="__codelineno-0-3615"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="nb">callable</span><span class="p">(</span><span class="n">ufunc</span><span class="p">):</span>
+<a id="__codelineno-0-3616" name="__codelineno-0-3616"></a>            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s2">"The Second argument should be a function"</span><span class="p">)</span>
+<a id="__codelineno-0-3617" name="__codelineno-0-3617"></a>        <span class="n">new_datasets</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_apply_per_timestep</span><span class="p">(</span><span class="s2">"apply"</span><span class="p">,</span> <span class="n">ufunc</span><span class="p">)</span>
+<a id="__codelineno-0-3618" name="__codelineno-0-3618"></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_finalize_per_timestep_result</span><span class="p">(</span><span class="n">new_datasets</span><span class="p">,</span> <span class="n">inplace</span><span class="o">=</span><span class="n">inplace</span><span class="p">)</span>
+<a id="__codelineno-0-3619" name="__codelineno-0-3619"></a>
+<a id="__codelineno-0-3620" name="__codelineno-0-3620"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">overlay</span><span class="p">(</span>
+<a id="__codelineno-0-3621" name="__codelineno-0-3621"></a>        <span class="bp">self</span><span class="p">,</span>
+<a id="__codelineno-0-3622" name="__codelineno-0-3622"></a>        <span class="n">classes_map</span><span class="p">,</span>
+<a id="__codelineno-0-3623" name="__codelineno-0-3623"></a>        <span class="n">exclude_value</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-3624" name="__codelineno-0-3624"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">]]:</span>
+<a id="__codelineno-0-3625" name="__codelineno-0-3625"></a><span class="w">        </span><span class="sd">"""Overlay.</span>
+<a id="__codelineno-0-3626" name="__codelineno-0-3626"></a>
+<a id="__codelineno-0-3627" name="__codelineno-0-3627"></a><span class="sd">        Args:</span>
+<a id="__codelineno-0-3628" name="__codelineno-0-3628"></a><span class="sd">            classes_map (Dataset):</span>
+<a id="__codelineno-0-3629" name="__codelineno-0-3629"></a><span class="sd">                Dataset object for the raster that has classes to overlay with.</span>
+<a id="__codelineno-0-3630" name="__codelineno-0-3630"></a><span class="sd">            exclude_value (float | int, optional):</span>
+<a id="__codelineno-0-3631" name="__codelineno-0-3631"></a><span class="sd">                Values to exclude from extracted values. Defaults to None.</span>
+<a id="__codelineno-0-3632" name="__codelineno-0-3632"></a>
+<a id="__codelineno-0-3633" name="__codelineno-0-3633"></a><span class="sd">        Returns:</span>
+<a id="__codelineno-0-3634" name="__codelineno-0-3634"></a><span class="sd">            dict[float, list[float]]:</span>
+<a id="__codelineno-0-3635" name="__codelineno-0-3635"></a><span class="sd">                Dictionary with a list of values in the basemap as keys and for each key a list of all the</span>
+<a id="__codelineno-0-3636" name="__codelineno-0-3636"></a><span class="sd">                intersected values in the maps from the path.</span>
+<a id="__codelineno-0-3637" name="__codelineno-0-3637"></a><span class="sd">        """</span>
+<a id="__codelineno-0-3638" name="__codelineno-0-3638"></a>        <span class="n">values</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
+<a id="__codelineno-0-3639" name="__codelineno-0-3639"></a>        <span class="k">for</span> <span class="n">ds</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">datasets</span><span class="p">:</span>
+<a id="__codelineno-0-3640" name="__codelineno-0-3640"></a>            <span class="n">dict_i</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">overlay</span><span class="p">(</span><span class="n">classes_map</span><span class="p">,</span> <span class="n">exclude_value</span><span class="p">)</span>
+<a id="__codelineno-0-3641" name="__codelineno-0-3641"></a>
+<a id="__codelineno-0-3642" name="__codelineno-0-3642"></a>            <span class="c1"># these are the distinct values from the BaseMap which are keys in the</span>
+<a id="__codelineno-0-3643" name="__codelineno-0-3643"></a>            <span class="c1"># values dict with each one having a list of values</span>
+<a id="__codelineno-0-3644" name="__codelineno-0-3644"></a>            <span class="k">for</span> <span class="n">class_i</span><span class="p">,</span> <span class="n">vals</span> <span class="ow">in</span> <span class="n">dict_i</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+<a id="__codelineno-0-3645" name="__codelineno-0-3645"></a>                <span class="n">values</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="n">class_i</span><span class="p">,</span> <span class="p">[])</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">vals</span><span class="p">)</span>
+<a id="__codelineno-0-3646" name="__codelineno-0-3646"></a>
+<a id="__codelineno-0-3647" name="__codelineno-0-3647"></a>        <span class="k">return</span> <span class="n">values</span>
 </code></pre></div></td></tr></table></div>
               </details>
 
@@ -23995,9 +24019,14 @@ pixel value.</p>
             <td>
               <div class="doc-md-description">
                 <p>Optional <code>(west, south, east, north)</code> window, forwarded to
-:func:<code>~pyramids.dataset.merge.merge_rasters</code>. Restricts what is
-read rather than cropping afterwards, which matters most when the
-timesteps are remote. <code>None</code> (default) merges the full extent.</p>
+:func:<code>~pyramids.dataset.merge.merge_rasters</code>. <code>None</code> (default)
+merges the full extent.</p>
+<p>For a <strong>file-backed</strong> collection this restricts what is read rather
+than cropping afterwards, which is what makes a small area of
+interest cheap to pull from remote timesteps. For an <strong>in-memory</strong>
+collection it only narrows the output: every timestep is staged to
+disk at full extent before the merge runs, so nothing is saved on
+the read.</p>
               </div>
             </td>
             <td>
@@ -24009,7 +24038,7 @@ timesteps are remote. <code>None</code> (default) merges the full extent.</p>
                 <code>bbox_crs</code>
             </td>
             <td>
-                  <code><span title="typing.Any">Any</span></code>
+                  <code><span title="int">int</span> | <span title="str">str</span> | None</code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -24041,6 +24070,41 @@ mosaic's CRS.</p>
             <td>
               <div class="doc-md-description">
                 <p>None</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="TypeError">TypeError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>bbox</code> is not four numbers.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="ValueError">ValueError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>bbox</code> is malformed, does not overlap the mosaic, or
+cannot be projected into the mosaic's CRS. Validation happens
+before any I/O.</p>
               </div>
             </td>
           </tr>
@@ -24133,7 +24197,19 @@ mosaic's CRS.</p>
 <span class="normal"><a href="#__codelineno-0-3556">3556</a></span>
 <span class="normal"><a href="#__codelineno-0-3557">3557</a></span>
 <span class="normal"><a href="#__codelineno-0-3558">3558</a></span>
-<span class="normal"><a href="#__codelineno-0-3559">3559</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-3476" name="__codelineno-0-3476"></a><span class="k">def</span><span class="w"> </span><span class="nf">merge</span><span class="p">(</span>
+<span class="normal"><a href="#__codelineno-0-3559">3559</a></span>
+<span class="normal"><a href="#__codelineno-0-3560">3560</a></span>
+<span class="normal"><a href="#__codelineno-0-3561">3561</a></span>
+<span class="normal"><a href="#__codelineno-0-3562">3562</a></span>
+<span class="normal"><a href="#__codelineno-0-3563">3563</a></span>
+<span class="normal"><a href="#__codelineno-0-3564">3564</a></span>
+<span class="normal"><a href="#__codelineno-0-3565">3565</a></span>
+<span class="normal"><a href="#__codelineno-0-3566">3566</a></span>
+<span class="normal"><a href="#__codelineno-0-3567">3567</a></span>
+<span class="normal"><a href="#__codelineno-0-3568">3568</a></span>
+<span class="normal"><a href="#__codelineno-0-3569">3569</a></span>
+<span class="normal"><a href="#__codelineno-0-3570">3570</a></span>
+<span class="normal"><a href="#__codelineno-0-3571">3571</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-3476" name="__codelineno-0-3476"></a><span class="k">def</span><span class="w"> </span><span class="nf">merge</span><span class="p">(</span>
 <a id="__codelineno-0-3477" name="__codelineno-0-3477"></a>    <span class="bp">self</span><span class="p">,</span>
 <a id="__codelineno-0-3478" name="__codelineno-0-3478"></a>    <span class="n">dst</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
 <a id="__codelineno-0-3479" name="__codelineno-0-3479"></a>    <span class="n">no_data_value</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"0"</span><span class="p">,</span>
@@ -24174,49 +24250,61 @@ mosaic's CRS.</p>
 <a id="__codelineno-0-3514" name="__codelineno-0-3514"></a><span class="sd">            ``"sum"``.</span>
 <a id="__codelineno-0-3515" name="__codelineno-0-3515"></a><span class="sd">        bbox (Sequence[float] | None):</span>
 <a id="__codelineno-0-3516" name="__codelineno-0-3516"></a><span class="sd">            Optional ``(west, south, east, north)`` window, forwarded to</span>
-<a id="__codelineno-0-3517" name="__codelineno-0-3517"></a><span class="sd">            :func:`~pyramids.dataset.merge.merge_rasters`. Restricts what is</span>
-<a id="__codelineno-0-3518" name="__codelineno-0-3518"></a><span class="sd">            read rather than cropping afterwards, which matters most when the</span>
-<a id="__codelineno-0-3519" name="__codelineno-0-3519"></a><span class="sd">            timesteps are remote. ``None`` (default) merges the full extent.</span>
-<a id="__codelineno-0-3520" name="__codelineno-0-3520"></a><span class="sd">        bbox_crs (Any):</span>
-<a id="__codelineno-0-3521" name="__codelineno-0-3521"></a><span class="sd">            CRS of ``bbox``; ``None`` (default) means it is already in the</span>
-<a id="__codelineno-0-3522" name="__codelineno-0-3522"></a><span class="sd">            mosaic's CRS.</span>
-<a id="__codelineno-0-3523" name="__codelineno-0-3523"></a>
-<a id="__codelineno-0-3524" name="__codelineno-0-3524"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-3525" name="__codelineno-0-3525"></a><span class="sd">        None</span>
-<a id="__codelineno-0-3526" name="__codelineno-0-3526"></a><span class="sd">    """</span>
-<a id="__codelineno-0-3527" name="__codelineno-0-3527"></a>    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_files</span><span class="p">:</span>
-<a id="__codelineno-0-3528" name="__codelineno-0-3528"></a>        <span class="n">merge_rasters</span><span class="p">(</span>
-<a id="__codelineno-0-3529" name="__codelineno-0-3529"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_files</span><span class="p">,</span>
-<a id="__codelineno-0-3530" name="__codelineno-0-3530"></a>            <span class="n">dst</span><span class="p">,</span>
-<a id="__codelineno-0-3531" name="__codelineno-0-3531"></a>            <span class="n">no_data_value</span><span class="o">=</span><span class="n">no_data_value</span><span class="p">,</span>
-<a id="__codelineno-0-3532" name="__codelineno-0-3532"></a>            <span class="n">init</span><span class="o">=</span><span class="n">init</span><span class="p">,</span>
-<a id="__codelineno-0-3533" name="__codelineno-0-3533"></a>            <span class="n">n</span><span class="o">=</span><span class="n">n</span><span class="p">,</span>
-<a id="__codelineno-0-3534" name="__codelineno-0-3534"></a>            <span class="n">method</span><span class="o">=</span><span class="n">method</span><span class="p">,</span>
-<a id="__codelineno-0-3535" name="__codelineno-0-3535"></a>            <span class="n">bbox</span><span class="o">=</span><span class="n">bbox</span><span class="p">,</span>
-<a id="__codelineno-0-3536" name="__codelineno-0-3536"></a>            <span class="n">bbox_crs</span><span class="o">=</span><span class="n">bbox_crs</span><span class="p">,</span>
-<a id="__codelineno-0-3537" name="__codelineno-0-3537"></a>        <span class="p">)</span>
-<a id="__codelineno-0-3538" name="__codelineno-0-3538"></a>        <span class="k">return</span>
-<a id="__codelineno-0-3539" name="__codelineno-0-3539"></a>    <span class="c1"># In-memory collection (legacy `DatasetCollection(src,</span>
-<a id="__codelineno-0-3540" name="__codelineno-0-3540"></a>    <span class="c1"># time_length=N)` or anything returned by</span>
-<a id="__codelineno-0-3541" name="__codelineno-0-3541"></a>    <span class="c1"># `crop(inplace=False)` / `apply()` / `to_crs(inplace=False)` /</span>
-<a id="__codelineno-0-3542" name="__codelineno-0-3542"></a>    <span class="c1"># `align(inplace=False)`). Stage each timestep through a</span>
-<a id="__codelineno-0-3543" name="__codelineno-0-3543"></a>    <span class="c1"># tempfile, merge the temp paths, then drop the staging</span>
-<a id="__codelineno-0-3544" name="__codelineno-0-3544"></a>    <span class="c1"># directory. The tempfile pass is unavoidable: gdal_merge /</span>
-<a id="__codelineno-0-3545" name="__codelineno-0-3545"></a>    <span class="c1"># BuildVRT both take on-disk paths.</span>
-<a id="__codelineno-0-3546" name="__codelineno-0-3546"></a>    <span class="k">with</span> <span class="n">tempfile</span><span class="o">.</span><span class="n">TemporaryDirectory</span><span class="p">(</span><span class="n">prefix</span><span class="o">=</span><span class="s2">"pyramids-merge-"</span><span class="p">)</span> <span class="k">as</span> <span class="n">staging</span><span class="p">:</span>
-<a id="__codelineno-0-3547" name="__codelineno-0-3547"></a>        <span class="n">staging_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">staging</span><span class="p">)</span>
-<a id="__codelineno-0-3548" name="__codelineno-0-3548"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">to_file</span><span class="p">(</span><span class="n">staging_path</span><span class="p">,</span> <span class="n">driver</span><span class="o">=</span><span class="s2">"geotiff"</span><span class="p">)</span>
-<a id="__codelineno-0-3549" name="__codelineno-0-3549"></a>        <span class="n">staged_files</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">staging_path</span><span class="o">.</span><span class="n">glob</span><span class="p">(</span><span class="n">_DEFAULT_GLOB</span><span class="p">))</span>
-<a id="__codelineno-0-3550" name="__codelineno-0-3550"></a>        <span class="n">merge_rasters</span><span class="p">(</span>
-<a id="__codelineno-0-3551" name="__codelineno-0-3551"></a>            <span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">p</span><span class="p">)</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">staged_files</span><span class="p">],</span>
-<a id="__codelineno-0-3552" name="__codelineno-0-3552"></a>            <span class="n">dst</span><span class="p">,</span>
-<a id="__codelineno-0-3553" name="__codelineno-0-3553"></a>            <span class="n">no_data_value</span><span class="o">=</span><span class="n">no_data_value</span><span class="p">,</span>
-<a id="__codelineno-0-3554" name="__codelineno-0-3554"></a>            <span class="n">init</span><span class="o">=</span><span class="n">init</span><span class="p">,</span>
-<a id="__codelineno-0-3555" name="__codelineno-0-3555"></a>            <span class="n">n</span><span class="o">=</span><span class="n">n</span><span class="p">,</span>
-<a id="__codelineno-0-3556" name="__codelineno-0-3556"></a>            <span class="n">method</span><span class="o">=</span><span class="n">method</span><span class="p">,</span>
-<a id="__codelineno-0-3557" name="__codelineno-0-3557"></a>            <span class="n">bbox</span><span class="o">=</span><span class="n">bbox</span><span class="p">,</span>
-<a id="__codelineno-0-3558" name="__codelineno-0-3558"></a>            <span class="n">bbox_crs</span><span class="o">=</span><span class="n">bbox_crs</span><span class="p">,</span>
-<a id="__codelineno-0-3559" name="__codelineno-0-3559"></a>        <span class="p">)</span>
+<a id="__codelineno-0-3517" name="__codelineno-0-3517"></a><span class="sd">            :func:`~pyramids.dataset.merge.merge_rasters`. ``None`` (default)</span>
+<a id="__codelineno-0-3518" name="__codelineno-0-3518"></a><span class="sd">            merges the full extent.</span>
+<a id="__codelineno-0-3519" name="__codelineno-0-3519"></a>
+<a id="__codelineno-0-3520" name="__codelineno-0-3520"></a><span class="sd">            For a **file-backed** collection this restricts what is read rather</span>
+<a id="__codelineno-0-3521" name="__codelineno-0-3521"></a><span class="sd">            than cropping afterwards, which is what makes a small area of</span>
+<a id="__codelineno-0-3522" name="__codelineno-0-3522"></a><span class="sd">            interest cheap to pull from remote timesteps. For an **in-memory**</span>
+<a id="__codelineno-0-3523" name="__codelineno-0-3523"></a><span class="sd">            collection it only narrows the output: every timestep is staged to</span>
+<a id="__codelineno-0-3524" name="__codelineno-0-3524"></a><span class="sd">            disk at full extent before the merge runs, so nothing is saved on</span>
+<a id="__codelineno-0-3525" name="__codelineno-0-3525"></a><span class="sd">            the read.</span>
+<a id="__codelineno-0-3526" name="__codelineno-0-3526"></a><span class="sd">        bbox_crs (int | str | None):</span>
+<a id="__codelineno-0-3527" name="__codelineno-0-3527"></a><span class="sd">            CRS of ``bbox``; ``None`` (default) means it is already in the</span>
+<a id="__codelineno-0-3528" name="__codelineno-0-3528"></a><span class="sd">            mosaic's CRS.</span>
+<a id="__codelineno-0-3529" name="__codelineno-0-3529"></a>
+<a id="__codelineno-0-3530" name="__codelineno-0-3530"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-3531" name="__codelineno-0-3531"></a><span class="sd">        None</span>
+<a id="__codelineno-0-3532" name="__codelineno-0-3532"></a>
+<a id="__codelineno-0-3533" name="__codelineno-0-3533"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-3534" name="__codelineno-0-3534"></a><span class="sd">        TypeError: ``bbox`` is not four numbers.</span>
+<a id="__codelineno-0-3535" name="__codelineno-0-3535"></a><span class="sd">        ValueError: ``bbox`` is malformed, does not overlap the mosaic, or</span>
+<a id="__codelineno-0-3536" name="__codelineno-0-3536"></a><span class="sd">            cannot be projected into the mosaic's CRS. Validation happens</span>
+<a id="__codelineno-0-3537" name="__codelineno-0-3537"></a><span class="sd">            before any I/O.</span>
+<a id="__codelineno-0-3538" name="__codelineno-0-3538"></a><span class="sd">    """</span>
+<a id="__codelineno-0-3539" name="__codelineno-0-3539"></a>    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_files</span><span class="p">:</span>
+<a id="__codelineno-0-3540" name="__codelineno-0-3540"></a>        <span class="n">merge_rasters</span><span class="p">(</span>
+<a id="__codelineno-0-3541" name="__codelineno-0-3541"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_files</span><span class="p">,</span>
+<a id="__codelineno-0-3542" name="__codelineno-0-3542"></a>            <span class="n">dst</span><span class="p">,</span>
+<a id="__codelineno-0-3543" name="__codelineno-0-3543"></a>            <span class="n">no_data_value</span><span class="o">=</span><span class="n">no_data_value</span><span class="p">,</span>
+<a id="__codelineno-0-3544" name="__codelineno-0-3544"></a>            <span class="n">init</span><span class="o">=</span><span class="n">init</span><span class="p">,</span>
+<a id="__codelineno-0-3545" name="__codelineno-0-3545"></a>            <span class="n">n</span><span class="o">=</span><span class="n">n</span><span class="p">,</span>
+<a id="__codelineno-0-3546" name="__codelineno-0-3546"></a>            <span class="n">method</span><span class="o">=</span><span class="n">method</span><span class="p">,</span>
+<a id="__codelineno-0-3547" name="__codelineno-0-3547"></a>            <span class="n">bbox</span><span class="o">=</span><span class="n">bbox</span><span class="p">,</span>
+<a id="__codelineno-0-3548" name="__codelineno-0-3548"></a>            <span class="n">bbox_crs</span><span class="o">=</span><span class="n">bbox_crs</span><span class="p">,</span>
+<a id="__codelineno-0-3549" name="__codelineno-0-3549"></a>        <span class="p">)</span>
+<a id="__codelineno-0-3550" name="__codelineno-0-3550"></a>        <span class="k">return</span>
+<a id="__codelineno-0-3551" name="__codelineno-0-3551"></a>    <span class="c1"># In-memory collection (legacy `DatasetCollection(src,</span>
+<a id="__codelineno-0-3552" name="__codelineno-0-3552"></a>    <span class="c1"># time_length=N)` or anything returned by</span>
+<a id="__codelineno-0-3553" name="__codelineno-0-3553"></a>    <span class="c1"># `crop(inplace=False)` / `apply()` / `to_crs(inplace=False)` /</span>
+<a id="__codelineno-0-3554" name="__codelineno-0-3554"></a>    <span class="c1"># `align(inplace=False)`). Stage each timestep through a</span>
+<a id="__codelineno-0-3555" name="__codelineno-0-3555"></a>    <span class="c1"># tempfile, merge the temp paths, then drop the staging</span>
+<a id="__codelineno-0-3556" name="__codelineno-0-3556"></a>    <span class="c1"># directory. The tempfile pass is unavoidable: gdal_merge /</span>
+<a id="__codelineno-0-3557" name="__codelineno-0-3557"></a>    <span class="c1"># BuildVRT both take on-disk paths.</span>
+<a id="__codelineno-0-3558" name="__codelineno-0-3558"></a>    <span class="k">with</span> <span class="n">tempfile</span><span class="o">.</span><span class="n">TemporaryDirectory</span><span class="p">(</span><span class="n">prefix</span><span class="o">=</span><span class="s2">"pyramids-merge-"</span><span class="p">)</span> <span class="k">as</span> <span class="n">staging</span><span class="p">:</span>
+<a id="__codelineno-0-3559" name="__codelineno-0-3559"></a>        <span class="n">staging_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">staging</span><span class="p">)</span>
+<a id="__codelineno-0-3560" name="__codelineno-0-3560"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">to_file</span><span class="p">(</span><span class="n">staging_path</span><span class="p">,</span> <span class="n">driver</span><span class="o">=</span><span class="s2">"geotiff"</span><span class="p">)</span>
+<a id="__codelineno-0-3561" name="__codelineno-0-3561"></a>        <span class="n">staged_files</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">staging_path</span><span class="o">.</span><span class="n">glob</span><span class="p">(</span><span class="n">_DEFAULT_GLOB</span><span class="p">))</span>
+<a id="__codelineno-0-3562" name="__codelineno-0-3562"></a>        <span class="n">merge_rasters</span><span class="p">(</span>
+<a id="__codelineno-0-3563" name="__codelineno-0-3563"></a>            <span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">p</span><span class="p">)</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">staged_files</span><span class="p">],</span>
+<a id="__codelineno-0-3564" name="__codelineno-0-3564"></a>            <span class="n">dst</span><span class="p">,</span>
+<a id="__codelineno-0-3565" name="__codelineno-0-3565"></a>            <span class="n">no_data_value</span><span class="o">=</span><span class="n">no_data_value</span><span class="p">,</span>
+<a id="__codelineno-0-3566" name="__codelineno-0-3566"></a>            <span class="n">init</span><span class="o">=</span><span class="n">init</span><span class="p">,</span>
+<a id="__codelineno-0-3567" name="__codelineno-0-3567"></a>            <span class="n">n</span><span class="o">=</span><span class="n">n</span><span class="p">,</span>
+<a id="__codelineno-0-3568" name="__codelineno-0-3568"></a>            <span class="n">method</span><span class="o">=</span><span class="n">method</span><span class="p">,</span>
+<a id="__codelineno-0-3569" name="__codelineno-0-3569"></a>            <span class="n">bbox</span><span class="o">=</span><span class="n">bbox</span><span class="p">,</span>
+<a id="__codelineno-0-3570" name="__codelineno-0-3570"></a>            <span class="n">bbox_crs</span><span class="o">=</span><span class="n">bbox_crs</span><span class="p">,</span>
+<a id="__codelineno-0-3571" name="__codelineno-0-3571"></a>        <span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -24344,19 +24432,7 @@ To create a ufunc from a normal function: https://numpy.org/doc/stable/reference
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/dataset/collection.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-3561">3561</a></span>
-<span class="normal"><a href="#__codelineno-0-3562">3562</a></span>
-<span class="normal"><a href="#__codelineno-0-3563">3563</a></span>
-<span class="normal"><a href="#__codelineno-0-3564">3564</a></span>
-<span class="normal"><a href="#__codelineno-0-3565">3565</a></span>
-<span class="normal"><a href="#__codelineno-0-3566">3566</a></span>
-<span class="normal"><a href="#__codelineno-0-3567">3567</a></span>
-<span class="normal"><a href="#__codelineno-0-3568">3568</a></span>
-<span class="normal"><a href="#__codelineno-0-3569">3569</a></span>
-<span class="normal"><a href="#__codelineno-0-3570">3570</a></span>
-<span class="normal"><a href="#__codelineno-0-3571">3571</a></span>
-<span class="normal"><a href="#__codelineno-0-3572">3572</a></span>
-<span class="normal"><a href="#__codelineno-0-3573">3573</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-3573">3573</a></span>
 <span class="normal"><a href="#__codelineno-0-3574">3574</a></span>
 <span class="normal"><a href="#__codelineno-0-3575">3575</a></span>
 <span class="normal"><a href="#__codelineno-0-3576">3576</a></span>
@@ -24389,52 +24465,64 @@ To create a ufunc from a normal function: https://numpy.org/doc/stable/reference
 <span class="normal"><a href="#__codelineno-0-3603">3603</a></span>
 <span class="normal"><a href="#__codelineno-0-3604">3604</a></span>
 <span class="normal"><a href="#__codelineno-0-3605">3605</a></span>
-<span class="normal"><a href="#__codelineno-0-3606">3606</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-3561" name="__codelineno-0-3561"></a><span class="k">def</span><span class="w"> </span><span class="nf">apply</span><span class="p">(</span>
-<a id="__codelineno-0-3562" name="__codelineno-0-3562"></a>    <span class="bp">self</span><span class="p">,</span> <span class="n">ufunc</span><span class="p">:</span> <span class="n">Callable</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">inplace</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
-<a id="__codelineno-0-3563" name="__codelineno-0-3563"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">DatasetCollection</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-3564" name="__codelineno-0-3564"></a><span class="w">    </span><span class="sd">"""Apply a function to every timestep raster.</span>
-<a id="__codelineno-0-3565" name="__codelineno-0-3565"></a>
-<a id="__codelineno-0-3566" name="__codelineno-0-3566"></a><span class="sd">    Each timestep ``Dataset.apply(ufunc)`` runs over the</span>
-<a id="__codelineno-0-3567" name="__codelineno-0-3567"></a><span class="sd">    in-domain cells of its band; the result is a new</span>
-<a id="__codelineno-0-3568" name="__codelineno-0-3568"></a><span class="sd">    ``Dataset``. The list of new ``Datasets`` is wrapped in a</span>
-<a id="__codelineno-0-3569" name="__codelineno-0-3569"></a><span class="sd">    new collection (out-of-place) or replaces this collection's</span>
-<a id="__codelineno-0-3570" name="__codelineno-0-3570"></a><span class="sd">    handles (inplace).</span>
-<a id="__codelineno-0-3571" name="__codelineno-0-3571"></a>
-<a id="__codelineno-0-3572" name="__codelineno-0-3572"></a><span class="sd">    Out-of-place is the default — the previous in-place</span>
-<a id="__codelineno-0-3573" name="__codelineno-0-3573"></a><span class="sd">    signature mutated a shared numpy cube; with the</span>
-<a id="__codelineno-0-3574" name="__codelineno-0-3574"></a><span class="sd">    ``Dataset``-list backing there is no shared cube to mutate</span>
-<a id="__codelineno-0-3575" name="__codelineno-0-3575"></a><span class="sd">    and per-timestep ops always produce a new ``Dataset``.</span>
-<a id="__codelineno-0-3576" name="__codelineno-0-3576"></a>
-<a id="__codelineno-0-3577" name="__codelineno-0-3577"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-3578" name="__codelineno-0-3578"></a><span class="sd">        ufunc (Callable):</span>
-<a id="__codelineno-0-3579" name="__codelineno-0-3579"></a><span class="sd">            Callable universal function (builtin or user defined). See</span>
-<a id="__codelineno-0-3580" name="__codelineno-0-3580"></a><span class="sd">            https://numpy.org/doc/stable/reference/ufuncs.html</span>
-<a id="__codelineno-0-3581" name="__codelineno-0-3581"></a><span class="sd">            To create a ufunc from a normal function: https://numpy.org/doc/stable/reference/generated/numpy.frompyfunc.html</span>
-<a id="__codelineno-0-3582" name="__codelineno-0-3582"></a><span class="sd">        inplace (bool):</span>
-<a id="__codelineno-0-3583" name="__codelineno-0-3583"></a><span class="sd">            When True, replace this collection's per-timestep</span>
-<a id="__codelineno-0-3584" name="__codelineno-0-3584"></a><span class="sd">            ``Dataset`` handles with the new outputs and return</span>
-<a id="__codelineno-0-3585" name="__codelineno-0-3585"></a><span class="sd">            ``None``. When False (default), return a new</span>
-<a id="__codelineno-0-3586" name="__codelineno-0-3586"></a><span class="sd">            ``DatasetCollection`` wrapping the new outputs.</span>
-<a id="__codelineno-0-3587" name="__codelineno-0-3587"></a>
-<a id="__codelineno-0-3588" name="__codelineno-0-3588"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-3589" name="__codelineno-0-3589"></a><span class="sd">        DatasetCollection | None: New collection when</span>
-<a id="__codelineno-0-3590" name="__codelineno-0-3590"></a><span class="sd">        ``inplace=False``; ``None`` when ``inplace=True``.</span>
-<a id="__codelineno-0-3591" name="__codelineno-0-3591"></a>
-<a id="__codelineno-0-3592" name="__codelineno-0-3592"></a><span class="sd">    Examples:</span>
-<a id="__codelineno-0-3593" name="__codelineno-0-3593"></a><span class="sd">        - Apply a simple modulo operation to each value:</span>
-<a id="__codelineno-0-3594" name="__codelineno-0-3594"></a>
-<a id="__codelineno-0-3595" name="__codelineno-0-3595"></a><span class="sd">          ```python</span>
-<a id="__codelineno-0-3596" name="__codelineno-0-3596"></a><span class="sd">          &gt;&gt;&gt; def func(val):</span>
-<a id="__codelineno-0-3597" name="__codelineno-0-3597"></a><span class="sd">          ...    return val % 2</span>
-<a id="__codelineno-0-3598" name="__codelineno-0-3598"></a><span class="sd">          &gt;&gt;&gt; ufunc = np.frompyfunc(func, 1, 1)</span>
-<a id="__codelineno-0-3599" name="__codelineno-0-3599"></a><span class="sd">          &gt;&gt;&gt; result = collection.apply(ufunc)  # doctest: +SKIP</span>
-<a id="__codelineno-0-3600" name="__codelineno-0-3600"></a>
-<a id="__codelineno-0-3601" name="__codelineno-0-3601"></a><span class="sd">          ```</span>
-<a id="__codelineno-0-3602" name="__codelineno-0-3602"></a><span class="sd">    """</span>
-<a id="__codelineno-0-3603" name="__codelineno-0-3603"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">callable</span><span class="p">(</span><span class="n">ufunc</span><span class="p">):</span>
-<a id="__codelineno-0-3604" name="__codelineno-0-3604"></a>        <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s2">"The Second argument should be a function"</span><span class="p">)</span>
-<a id="__codelineno-0-3605" name="__codelineno-0-3605"></a>    <span class="n">new_datasets</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_apply_per_timestep</span><span class="p">(</span><span class="s2">"apply"</span><span class="p">,</span> <span class="n">ufunc</span><span class="p">)</span>
-<a id="__codelineno-0-3606" name="__codelineno-0-3606"></a>    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_finalize_per_timestep_result</span><span class="p">(</span><span class="n">new_datasets</span><span class="p">,</span> <span class="n">inplace</span><span class="o">=</span><span class="n">inplace</span><span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-3606">3606</a></span>
+<span class="normal"><a href="#__codelineno-0-3607">3607</a></span>
+<span class="normal"><a href="#__codelineno-0-3608">3608</a></span>
+<span class="normal"><a href="#__codelineno-0-3609">3609</a></span>
+<span class="normal"><a href="#__codelineno-0-3610">3610</a></span>
+<span class="normal"><a href="#__codelineno-0-3611">3611</a></span>
+<span class="normal"><a href="#__codelineno-0-3612">3612</a></span>
+<span class="normal"><a href="#__codelineno-0-3613">3613</a></span>
+<span class="normal"><a href="#__codelineno-0-3614">3614</a></span>
+<span class="normal"><a href="#__codelineno-0-3615">3615</a></span>
+<span class="normal"><a href="#__codelineno-0-3616">3616</a></span>
+<span class="normal"><a href="#__codelineno-0-3617">3617</a></span>
+<span class="normal"><a href="#__codelineno-0-3618">3618</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-3573" name="__codelineno-0-3573"></a><span class="k">def</span><span class="w"> </span><span class="nf">apply</span><span class="p">(</span>
+<a id="__codelineno-0-3574" name="__codelineno-0-3574"></a>    <span class="bp">self</span><span class="p">,</span> <span class="n">ufunc</span><span class="p">:</span> <span class="n">Callable</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">inplace</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+<a id="__codelineno-0-3575" name="__codelineno-0-3575"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">DatasetCollection</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-3576" name="__codelineno-0-3576"></a><span class="w">    </span><span class="sd">"""Apply a function to every timestep raster.</span>
+<a id="__codelineno-0-3577" name="__codelineno-0-3577"></a>
+<a id="__codelineno-0-3578" name="__codelineno-0-3578"></a><span class="sd">    Each timestep ``Dataset.apply(ufunc)`` runs over the</span>
+<a id="__codelineno-0-3579" name="__codelineno-0-3579"></a><span class="sd">    in-domain cells of its band; the result is a new</span>
+<a id="__codelineno-0-3580" name="__codelineno-0-3580"></a><span class="sd">    ``Dataset``. The list of new ``Datasets`` is wrapped in a</span>
+<a id="__codelineno-0-3581" name="__codelineno-0-3581"></a><span class="sd">    new collection (out-of-place) or replaces this collection's</span>
+<a id="__codelineno-0-3582" name="__codelineno-0-3582"></a><span class="sd">    handles (inplace).</span>
+<a id="__codelineno-0-3583" name="__codelineno-0-3583"></a>
+<a id="__codelineno-0-3584" name="__codelineno-0-3584"></a><span class="sd">    Out-of-place is the default — the previous in-place</span>
+<a id="__codelineno-0-3585" name="__codelineno-0-3585"></a><span class="sd">    signature mutated a shared numpy cube; with the</span>
+<a id="__codelineno-0-3586" name="__codelineno-0-3586"></a><span class="sd">    ``Dataset``-list backing there is no shared cube to mutate</span>
+<a id="__codelineno-0-3587" name="__codelineno-0-3587"></a><span class="sd">    and per-timestep ops always produce a new ``Dataset``.</span>
+<a id="__codelineno-0-3588" name="__codelineno-0-3588"></a>
+<a id="__codelineno-0-3589" name="__codelineno-0-3589"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-3590" name="__codelineno-0-3590"></a><span class="sd">        ufunc (Callable):</span>
+<a id="__codelineno-0-3591" name="__codelineno-0-3591"></a><span class="sd">            Callable universal function (builtin or user defined). See</span>
+<a id="__codelineno-0-3592" name="__codelineno-0-3592"></a><span class="sd">            https://numpy.org/doc/stable/reference/ufuncs.html</span>
+<a id="__codelineno-0-3593" name="__codelineno-0-3593"></a><span class="sd">            To create a ufunc from a normal function: https://numpy.org/doc/stable/reference/generated/numpy.frompyfunc.html</span>
+<a id="__codelineno-0-3594" name="__codelineno-0-3594"></a><span class="sd">        inplace (bool):</span>
+<a id="__codelineno-0-3595" name="__codelineno-0-3595"></a><span class="sd">            When True, replace this collection's per-timestep</span>
+<a id="__codelineno-0-3596" name="__codelineno-0-3596"></a><span class="sd">            ``Dataset`` handles with the new outputs and return</span>
+<a id="__codelineno-0-3597" name="__codelineno-0-3597"></a><span class="sd">            ``None``. When False (default), return a new</span>
+<a id="__codelineno-0-3598" name="__codelineno-0-3598"></a><span class="sd">            ``DatasetCollection`` wrapping the new outputs.</span>
+<a id="__codelineno-0-3599" name="__codelineno-0-3599"></a>
+<a id="__codelineno-0-3600" name="__codelineno-0-3600"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-3601" name="__codelineno-0-3601"></a><span class="sd">        DatasetCollection | None: New collection when</span>
+<a id="__codelineno-0-3602" name="__codelineno-0-3602"></a><span class="sd">        ``inplace=False``; ``None`` when ``inplace=True``.</span>
+<a id="__codelineno-0-3603" name="__codelineno-0-3603"></a>
+<a id="__codelineno-0-3604" name="__codelineno-0-3604"></a><span class="sd">    Examples:</span>
+<a id="__codelineno-0-3605" name="__codelineno-0-3605"></a><span class="sd">        - Apply a simple modulo operation to each value:</span>
+<a id="__codelineno-0-3606" name="__codelineno-0-3606"></a>
+<a id="__codelineno-0-3607" name="__codelineno-0-3607"></a><span class="sd">          ```python</span>
+<a id="__codelineno-0-3608" name="__codelineno-0-3608"></a><span class="sd">          &gt;&gt;&gt; def func(val):</span>
+<a id="__codelineno-0-3609" name="__codelineno-0-3609"></a><span class="sd">          ...    return val % 2</span>
+<a id="__codelineno-0-3610" name="__codelineno-0-3610"></a><span class="sd">          &gt;&gt;&gt; ufunc = np.frompyfunc(func, 1, 1)</span>
+<a id="__codelineno-0-3611" name="__codelineno-0-3611"></a><span class="sd">          &gt;&gt;&gt; result = collection.apply(ufunc)  # doctest: +SKIP</span>
+<a id="__codelineno-0-3612" name="__codelineno-0-3612"></a>
+<a id="__codelineno-0-3613" name="__codelineno-0-3613"></a><span class="sd">          ```</span>
+<a id="__codelineno-0-3614" name="__codelineno-0-3614"></a><span class="sd">    """</span>
+<a id="__codelineno-0-3615" name="__codelineno-0-3615"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">callable</span><span class="p">(</span><span class="n">ufunc</span><span class="p">):</span>
+<a id="__codelineno-0-3616" name="__codelineno-0-3616"></a>        <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s2">"The Second argument should be a function"</span><span class="p">)</span>
+<a id="__codelineno-0-3617" name="__codelineno-0-3617"></a>    <span class="n">new_datasets</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_apply_per_timestep</span><span class="p">(</span><span class="s2">"apply"</span><span class="p">,</span> <span class="n">ufunc</span><span class="p">)</span>
+<a id="__codelineno-0-3618" name="__codelineno-0-3618"></a>    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_finalize_per_timestep_result</span><span class="p">(</span><span class="n">new_datasets</span><span class="p">,</span> <span class="n">inplace</span><span class="o">=</span><span class="n">inplace</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -24529,19 +24617,7 @@ intersected values in the maps from the path.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/dataset/collection.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-3608">3608</a></span>
-<span class="normal"><a href="#__codelineno-0-3609">3609</a></span>
-<span class="normal"><a href="#__codelineno-0-3610">3610</a></span>
-<span class="normal"><a href="#__codelineno-0-3611">3611</a></span>
-<span class="normal"><a href="#__codelineno-0-3612">3612</a></span>
-<span class="normal"><a href="#__codelineno-0-3613">3613</a></span>
-<span class="normal"><a href="#__codelineno-0-3614">3614</a></span>
-<span class="normal"><a href="#__codelineno-0-3615">3615</a></span>
-<span class="normal"><a href="#__codelineno-0-3616">3616</a></span>
-<span class="normal"><a href="#__codelineno-0-3617">3617</a></span>
-<span class="normal"><a href="#__codelineno-0-3618">3618</a></span>
-<span class="normal"><a href="#__codelineno-0-3619">3619</a></span>
-<span class="normal"><a href="#__codelineno-0-3620">3620</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-3620">3620</a></span>
 <span class="normal"><a href="#__codelineno-0-3621">3621</a></span>
 <span class="normal"><a href="#__codelineno-0-3622">3622</a></span>
 <span class="normal"><a href="#__codelineno-0-3623">3623</a></span>
@@ -24556,34 +24632,46 @@ intersected values in the maps from the path.</p>
 <span class="normal"><a href="#__codelineno-0-3632">3632</a></span>
 <span class="normal"><a href="#__codelineno-0-3633">3633</a></span>
 <span class="normal"><a href="#__codelineno-0-3634">3634</a></span>
-<span class="normal"><a href="#__codelineno-0-3635">3635</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-3608" name="__codelineno-0-3608"></a><span class="k">def</span><span class="w"> </span><span class="nf">overlay</span><span class="p">(</span>
-<a id="__codelineno-0-3609" name="__codelineno-0-3609"></a>    <span class="bp">self</span><span class="p">,</span>
-<a id="__codelineno-0-3610" name="__codelineno-0-3610"></a>    <span class="n">classes_map</span><span class="p">,</span>
-<a id="__codelineno-0-3611" name="__codelineno-0-3611"></a>    <span class="n">exclude_value</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-3612" name="__codelineno-0-3612"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">]]:</span>
-<a id="__codelineno-0-3613" name="__codelineno-0-3613"></a><span class="w">    </span><span class="sd">"""Overlay.</span>
-<a id="__codelineno-0-3614" name="__codelineno-0-3614"></a>
-<a id="__codelineno-0-3615" name="__codelineno-0-3615"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-3616" name="__codelineno-0-3616"></a><span class="sd">        classes_map (Dataset):</span>
-<a id="__codelineno-0-3617" name="__codelineno-0-3617"></a><span class="sd">            Dataset object for the raster that has classes to overlay with.</span>
-<a id="__codelineno-0-3618" name="__codelineno-0-3618"></a><span class="sd">        exclude_value (float | int, optional):</span>
-<a id="__codelineno-0-3619" name="__codelineno-0-3619"></a><span class="sd">            Values to exclude from extracted values. Defaults to None.</span>
-<a id="__codelineno-0-3620" name="__codelineno-0-3620"></a>
-<a id="__codelineno-0-3621" name="__codelineno-0-3621"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-3622" name="__codelineno-0-3622"></a><span class="sd">        dict[float, list[float]]:</span>
-<a id="__codelineno-0-3623" name="__codelineno-0-3623"></a><span class="sd">            Dictionary with a list of values in the basemap as keys and for each key a list of all the</span>
-<a id="__codelineno-0-3624" name="__codelineno-0-3624"></a><span class="sd">            intersected values in the maps from the path.</span>
-<a id="__codelineno-0-3625" name="__codelineno-0-3625"></a><span class="sd">    """</span>
-<a id="__codelineno-0-3626" name="__codelineno-0-3626"></a>    <span class="n">values</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
-<a id="__codelineno-0-3627" name="__codelineno-0-3627"></a>    <span class="k">for</span> <span class="n">ds</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">datasets</span><span class="p">:</span>
-<a id="__codelineno-0-3628" name="__codelineno-0-3628"></a>        <span class="n">dict_i</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">overlay</span><span class="p">(</span><span class="n">classes_map</span><span class="p">,</span> <span class="n">exclude_value</span><span class="p">)</span>
-<a id="__codelineno-0-3629" name="__codelineno-0-3629"></a>
-<a id="__codelineno-0-3630" name="__codelineno-0-3630"></a>        <span class="c1"># these are the distinct values from the BaseMap which are keys in the</span>
-<a id="__codelineno-0-3631" name="__codelineno-0-3631"></a>        <span class="c1"># values dict with each one having a list of values</span>
-<a id="__codelineno-0-3632" name="__codelineno-0-3632"></a>        <span class="k">for</span> <span class="n">class_i</span><span class="p">,</span> <span class="n">vals</span> <span class="ow">in</span> <span class="n">dict_i</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
-<a id="__codelineno-0-3633" name="__codelineno-0-3633"></a>            <span class="n">values</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="n">class_i</span><span class="p">,</span> <span class="p">[])</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">vals</span><span class="p">)</span>
-<a id="__codelineno-0-3634" name="__codelineno-0-3634"></a>
-<a id="__codelineno-0-3635" name="__codelineno-0-3635"></a>    <span class="k">return</span> <span class="n">values</span>
+<span class="normal"><a href="#__codelineno-0-3635">3635</a></span>
+<span class="normal"><a href="#__codelineno-0-3636">3636</a></span>
+<span class="normal"><a href="#__codelineno-0-3637">3637</a></span>
+<span class="normal"><a href="#__codelineno-0-3638">3638</a></span>
+<span class="normal"><a href="#__codelineno-0-3639">3639</a></span>
+<span class="normal"><a href="#__codelineno-0-3640">3640</a></span>
+<span class="normal"><a href="#__codelineno-0-3641">3641</a></span>
+<span class="normal"><a href="#__codelineno-0-3642">3642</a></span>
+<span class="normal"><a href="#__codelineno-0-3643">3643</a></span>
+<span class="normal"><a href="#__codelineno-0-3644">3644</a></span>
+<span class="normal"><a href="#__codelineno-0-3645">3645</a></span>
+<span class="normal"><a href="#__codelineno-0-3646">3646</a></span>
+<span class="normal"><a href="#__codelineno-0-3647">3647</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-3620" name="__codelineno-0-3620"></a><span class="k">def</span><span class="w"> </span><span class="nf">overlay</span><span class="p">(</span>
+<a id="__codelineno-0-3621" name="__codelineno-0-3621"></a>    <span class="bp">self</span><span class="p">,</span>
+<a id="__codelineno-0-3622" name="__codelineno-0-3622"></a>    <span class="n">classes_map</span><span class="p">,</span>
+<a id="__codelineno-0-3623" name="__codelineno-0-3623"></a>    <span class="n">exclude_value</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-3624" name="__codelineno-0-3624"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">]]:</span>
+<a id="__codelineno-0-3625" name="__codelineno-0-3625"></a><span class="w">    </span><span class="sd">"""Overlay.</span>
+<a id="__codelineno-0-3626" name="__codelineno-0-3626"></a>
+<a id="__codelineno-0-3627" name="__codelineno-0-3627"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-3628" name="__codelineno-0-3628"></a><span class="sd">        classes_map (Dataset):</span>
+<a id="__codelineno-0-3629" name="__codelineno-0-3629"></a><span class="sd">            Dataset object for the raster that has classes to overlay with.</span>
+<a id="__codelineno-0-3630" name="__codelineno-0-3630"></a><span class="sd">        exclude_value (float | int, optional):</span>
+<a id="__codelineno-0-3631" name="__codelineno-0-3631"></a><span class="sd">            Values to exclude from extracted values. Defaults to None.</span>
+<a id="__codelineno-0-3632" name="__codelineno-0-3632"></a>
+<a id="__codelineno-0-3633" name="__codelineno-0-3633"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-3634" name="__codelineno-0-3634"></a><span class="sd">        dict[float, list[float]]:</span>
+<a id="__codelineno-0-3635" name="__codelineno-0-3635"></a><span class="sd">            Dictionary with a list of values in the basemap as keys and for each key a list of all the</span>
+<a id="__codelineno-0-3636" name="__codelineno-0-3636"></a><span class="sd">            intersected values in the maps from the path.</span>
+<a id="__codelineno-0-3637" name="__codelineno-0-3637"></a><span class="sd">    """</span>
+<a id="__codelineno-0-3638" name="__codelineno-0-3638"></a>    <span class="n">values</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
+<a id="__codelineno-0-3639" name="__codelineno-0-3639"></a>    <span class="k">for</span> <span class="n">ds</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">datasets</span><span class="p">:</span>
+<a id="__codelineno-0-3640" name="__codelineno-0-3640"></a>        <span class="n">dict_i</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">overlay</span><span class="p">(</span><span class="n">classes_map</span><span class="p">,</span> <span class="n">exclude_value</span><span class="p">)</span>
+<a id="__codelineno-0-3641" name="__codelineno-0-3641"></a>
+<a id="__codelineno-0-3642" name="__codelineno-0-3642"></a>        <span class="c1"># these are the distinct values from the BaseMap which are keys in the</span>
+<a id="__codelineno-0-3643" name="__codelineno-0-3643"></a>        <span class="c1"># values dict with each one having a list of values</span>
+<a id="__codelineno-0-3644" name="__codelineno-0-3644"></a>        <span class="k">for</span> <span class="n">class_i</span><span class="p">,</span> <span class="n">vals</span> <span class="ow">in</span> <span class="n">dict_i</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+<a id="__codelineno-0-3645" name="__codelineno-0-3645"></a>            <span class="n">values</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="n">class_i</span><span class="p">,</span> <span class="p">[])</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">vals</span><span class="p">)</span>
+<a id="__codelineno-0-3646" name="__codelineno-0-3646"></a>
+<a id="__codelineno-0-3647" name="__codelineno-0-3647"></a>    <span class="k">return</span> <span class="n">values</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
