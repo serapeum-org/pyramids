@@ -19,6 +19,7 @@ from osgeo import gdal, osr
 from pyramids.base._utils import DEFAULT_RESAMPLING, resolve_resampling
 from pyramids.base.remote import signer_cloud_config
 from pyramids.dataset.dataset import _INHERIT_NO_DATA, Dataset
+from pyramids.feature.bbox import normalise_longitude
 from pyramids.feature.bbox import transform as bbox_transform
 
 _VRT_METHODS = ("first", "last")
@@ -95,6 +96,46 @@ def _validated_bbox(bbox: Sequence[float]) -> tuple[float, float, float, float]:
             "selects nothing."
         )
     return west, south, east, north
+
+
+def _match_longitude_convention(
+    west: float, east: float, projection: str, grid_west: float, grid_east: float
+) -> tuple[float, float]:
+    """Rewrite a lon/lat window into the longitude convention the mosaic uses.
+
+    Global grids derived from climate NetCDF commonly run ``0..360`` while callers
+    write bboxes as ``-180..180``. Left alone the two conventions overlap only
+    partially, and the clamp in `_restrict_grid` silently reduces the window to that
+    partial overlap — the caller gets the eastern sliver of the area they asked for
+    and a successful return.
+
+    Args:
+        west: Window's western edge, in the mosaic's CRS.
+        east: Window's eastern edge, in the mosaic's CRS.
+        projection: The mosaic's CRS as WKT, or any form
+            :meth:`osr.SpatialReference.SetFromUserInput` accepts.
+        grid_west: The mosaic's western edge.
+        grid_east: The mosaic's eastern edge.
+
+    Returns:
+        tuple[float, float]: ``(west, east)``, rewritten when the conventions differ
+        and left untouched otherwise (including for every projected CRS).
+    """
+    result = (west, east)
+    srs = osr.SpatialReference()
+    try:
+        srs.SetFromUserInput(projection)
+        geographic = bool(srs.IsGeographic())
+    except (RuntimeError, TypeError):
+        geographic = False
+    if geographic:
+        if grid_east > 180.0 and west < 0.0:
+            rewritten = normalise_longitude((west, 0.0, east, 0.0), "0..360")
+            result = (rewritten[0], rewritten[2])
+        elif grid_west < 0.0 and west > 180.0:
+            rewritten = normalise_longitude((west, 0.0, east, 0.0), "-180..180")
+            result = (rewritten[0], rewritten[2])
+    return result
 
 
 def _bbox_in_projection(
@@ -207,6 +248,24 @@ def _restrict_grid(
         raise ValueError(
             f"merge_rasters: mosaic has a zero pixel size ({pixel_w!r}, {pixel_h!r}); "
             "the bbox window cannot be resolved onto its grid."
+        )
+
+    # Put the window in the mosaic's longitude convention before measuring offsets
+    # against it. A -180..180 window against a 0..360 mosaic otherwise overlaps only
+    # partially, and the clamp below would quietly return that sliver as a success.
+    grid_edges = sorted((origin_x, origin_x + x_size * pixel_w))
+    west, east = _match_longitude_convention(
+        west, east, projection, grid_edges[0], grid_edges[1]
+    )
+    # Rewriting can itself put the window across the seam (a window spanning the prime
+    # meridian becomes 350..10 in 0..360). Reject it for the same reason the
+    # antimeridian case is rejected: sorting the edges below would silently resolve it
+    # into the complement of the requested area.
+    if west > east:
+        raise ValueError(
+            f"merge_rasters: bbox {tuple(bbox)!r} crosses the seam of the mosaic's "
+            f"longitude convention (it spans {west} to {east} once rewritten to "
+            "match). Split it either side of the seam and merge them separately."
         )
 
     # Column/row offsets of the window's edges on the union grid. Divide by the signed

@@ -1888,3 +1888,63 @@ class TestBboxAntimeridian:
         )
         assert west < east, f"west {west} should stay below east {east}"
         assert south < north, f"south {south} should stay below north {north}"
+
+
+class TestBboxLongitudeConvention:
+    """A lon/lat window is read in the mosaic's own longitude convention."""
+
+    SIGNED_GRID = (-180.0, 1.0, 0.0, 90.0, 0.0, -1.0)
+    WRAPPED_GRID = (0.0, 1.0, 0.0, 90.0, 0.0, -1.0)
+
+    def test_signed_window_on_a_wrapped_mosaic(self):
+        """A -180..180 window resolves against a 0..360 mosaic.
+
+        Test scenario:
+            Global grids from climate NetCDF commonly run 0..360 while callers write
+            signed bboxes. Untranslated, the two overlap only partially and the clamp
+            returned that sliver as a success — the eastern part of the requested
+            area, with no error.
+        """
+        clipped, x_size, y_size = merge_mod._restrict_grid(
+            self.WRAPPED_GRID, 360, 180, "EPSG:4326", (-10.0, -5.0, -2.0, 5.0), None
+        )
+        assert (x_size, y_size) == (8, 10), f"expected 8x10, got {x_size}x{y_size}"
+        assert clipped[0] == 350.0, f"expected origin 350.0, got {clipped[0]}"
+
+    def test_wrapped_window_on_a_signed_mosaic(self):
+        """A 0..360 window resolves against a -180..180 mosaic.
+
+        Test scenario:
+            The translation has to work in both directions, not just the one the
+            climate-grid case motivates.
+        """
+        clipped, x_size, y_size = merge_mod._restrict_grid(
+            self.SIGNED_GRID, 360, 180, "EPSG:4326", (350.0, -5.0, 358.0, 5.0), None
+        )
+        assert (x_size, y_size) == (8, 10), f"expected 8x10, got {x_size}x{y_size}"
+        assert clipped[0] == -10.0, f"expected origin -10.0, got {clipped[0]}"
+
+    def test_window_across_the_seam_is_refused(self):
+        """A window spanning the mosaic's longitude seam raises.
+
+        Test scenario:
+            A signed window over the prime meridian becomes 350..10 in 0..360 — west
+            past east. Sorting those edges would resolve it into the complement, the
+            same trap the antimeridian guard exists for.
+        """
+        with pytest.raises(ValueError, match="crosses the seam"):
+            merge_mod._restrict_grid(
+                self.WRAPPED_GRID, 360, 180, "EPSG:4326", (-10.0, -5.0, 10.0, 5.0), None
+            )
+
+    def test_projected_mosaic_is_untouched(self):
+        """Longitude rewriting never applies to a projected CRS.
+
+        Test scenario:
+            Easting values can legitimately be negative or exceed 180; treating them
+            as longitudes would corrupt every projected window.
+        """
+        _, x_size, y_size = merge_mod._restrict_grid(
+            (0.0, 1.0, 0.0, 4.0, 0.0, -1.0), 6, 4, "EPSG:3857", (1.0, 1.0, 4.0, 3.0), None
+        )
+        assert (x_size, y_size) == (3, 2), f"expected 3x2, got {x_size}x{y_size}"
