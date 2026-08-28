@@ -86,13 +86,9 @@ def _validated_bbox(bbox: Sequence[float]) -> tuple[float, float, float, float]:
     try:
         west, south, east, north = (float(v) for v in values)
     except (TypeError, ValueError) as exc:
-        raise TypeError(
-            f"bbox values must be numbers, got {tuple(values)!r}"
-        ) from exc
+        raise TypeError(f"bbox values must be numbers, got {tuple(values)!r}") from exc
     if not all(np.isfinite(v) for v in (west, south, east, north)):
-        raise ValueError(
-            f"bbox values must all be finite, got {tuple(values)!r}"
-        )
+        raise ValueError(f"bbox values must all be finite, got {tuple(values)!r}")
     if west >= east or south >= north:
         raise ValueError(
             f"bbox must be (west, south, east, north) with west < east "

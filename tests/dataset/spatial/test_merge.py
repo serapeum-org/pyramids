@@ -1826,9 +1826,7 @@ class TestCollectionMergeBbox:
             [1.0, 4.0], [1.0, 3.0], from_crs=4326, to_crs=3857, precision=None
         )
         out = tmp_path / "win_crs.tif"
-        two_day_collection.merge(
-            out, bbox=(xs[0], ys[0], xs[1], ys[1]), bbox_crs=3857
-        )
+        two_day_collection.merge(out, bbox=(xs[0], ys[0], xs[1], ys[1]), bbox_crs=3857)
         ds = gdal.Open(str(out))
         assert 3 <= ds.RasterXSize <= 4, f"expected ~3 cols, got {ds.RasterXSize}"
         assert 2 <= ds.RasterYSize <= 3, f"expected ~2 rows, got {ds.RasterYSize}"
@@ -1985,7 +1983,12 @@ class TestBboxLongitudeConvention:
             as longitudes would corrupt every projected window.
         """
         _, x_size, y_size = merge_mod._restrict_grid(
-            (0.0, 1.0, 0.0, 4.0, 0.0, -1.0), 6, 4, "EPSG:3857", (1.0, 1.0, 4.0, 3.0), None
+            (0.0, 1.0, 0.0, 4.0, 0.0, -1.0),
+            6,
+            4,
+            "EPSG:3857",
+            (1.0, 1.0, 4.0, 3.0),
+            None,
         )
         assert (x_size, y_size) == (3, 2), f"expected 3x2, got {x_size}x{y_size}"
 
@@ -2009,7 +2012,9 @@ class TestReduceWindowPrunesSources:
         paths = []
         for index in range(6):
             path = tmp_path / f"tile{index}.tif"
-            write_raster(path, np.full((4, 4), float(index), dtype="float32"), (index * 4, 4))
+            write_raster(
+                path, np.full((4, 4), float(index), dtype="float32"), (index * 4, 4)
+            )
             paths.append(str(path))
 
         calls = []
@@ -2020,7 +2025,9 @@ class TestReduceWindowPrunesSources:
             return real_warp(*args, **kwargs)
 
         monkeypatch.setattr(merge_mod.gdal, "Warp", counting_warp)
-        merge_rasters(paths, tmp_path / "win.tif", method="max", bbox=(1.0, 1.0, 3.0, 3.0))
+        merge_rasters(
+            paths, tmp_path / "win.tif", method="max", bbox=(1.0, 1.0, 3.0, 3.0)
+        )
         assert len(calls) == 1, (
             f"a window inside one tile should warp one source, got {len(calls)} warps"
         )

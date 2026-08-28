@@ -277,7 +277,6 @@ class TestMergeCommand:
         assert rc == 1, "single-input merge must exit 1"
         assert "at least two" in capsys.readouterr().err, "expected guidance"
 
-
     def test_merge_bbox_restricts_the_mosaic(self, src_raster, tmp_path):
         """`--bbox` narrows the mosaic to the requested window.
 
@@ -294,9 +293,7 @@ class TestMergeCommand:
             no_data_value=-9999.0,
         ).to_file(second)
         out_path = str(tmp_path / "windowed.tif")
-        rc = main(
-            ["merge", src_raster, second, out_path, "--bbox", "1", "1", "5", "5"]
-        )
+        rc = main(["merge", src_raster, second, out_path, "--bbox", "1", "1", "5", "5"])
         assert rc == 0, "a windowed merge must succeed"
         windowed = Dataset.read_file(out_path)
         assert windowed.columns == 4, f"expected 4 columns, got {windowed.columns}"
@@ -411,6 +408,7 @@ class TestMergeCommand:
         )
         assert rc == 1, "an inverted bbox must exit 1"
         assert "error: " in capsys.readouterr().err, "expected one-line error"
+
 
 class TestOverviewCommand:
     """`pyramids overview`."""
