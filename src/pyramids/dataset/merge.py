@@ -64,34 +64,34 @@ def _validated_bbox(bbox: Sequence[float]) -> tuple[float, float, float, float]:
     # four coordinates.
     if isinstance(bbox, (str, bytes)):
         raise TypeError(
-            f"merge_rasters: bbox must be four numbers (west, south, east, north), "
+            f"bbox must be four numbers (west, south, east, north), "
             f"got {type(bbox).__name__}: {bbox!r}"
         )
     try:
         values = list(bbox)
     except TypeError as exc:
         raise TypeError(
-            f"merge_rasters: bbox must be four numbers (west, south, east, north), "
+            f"bbox must be four numbers (west, south, east, north), "
             f"got {type(bbox).__name__}: {bbox!r}"
         ) from exc
     if len(values) != 4:
         raise ValueError(
-            f"merge_rasters: bbox must have exactly 4 values "
+            f"bbox must have exactly 4 values "
             f"(west, south, east, north), got {len(values)}: {tuple(values)!r}"
         )
     try:
         west, south, east, north = (float(v) for v in values)
     except (TypeError, ValueError) as exc:
         raise TypeError(
-            f"merge_rasters: bbox values must be numbers, got {tuple(values)!r}"
+            f"bbox values must be numbers, got {tuple(values)!r}"
         ) from exc
     if not all(np.isfinite(v) for v in (west, south, east, north)):
         raise ValueError(
-            f"merge_rasters: bbox values must all be finite, got {tuple(values)!r}"
+            f"bbox values must all be finite, got {tuple(values)!r}"
         )
     if west >= east or south >= north:
         raise ValueError(
-            f"merge_rasters: bbox must be (west, south, east, north) with west < east "
+            f"bbox must be (west, south, east, north) with west < east "
             f"and south < north, got {tuple(values)!r}. A zero-area or inverted box "
             "selects nothing."
         )
@@ -175,12 +175,12 @@ def _bbox_in_projection(
         )
     except Exception as exc:
         raise ValueError(
-            f"merge_rasters: bbox {tuple(bbox)!r} could not be reprojected from "
+            f"bbox {tuple(bbox)!r} could not be reprojected from "
             f"{bbox_crs!r} into the mosaic CRS: {exc}"
         ) from exc
     if not all(np.isfinite(v) for v in (west, south, east, north)):
         raise ValueError(
-            f"merge_rasters: bbox {tuple(bbox)!r} does not project from {bbox_crs!r} "
+            f"bbox {tuple(bbox)!r} does not project from {bbox_crs!r} "
             "into the mosaic CRS; it likely falls outside that CRS's area of use."
         )
     # `transform_bounds` signals an antimeridian crossing by returning west > east
@@ -192,7 +192,7 @@ def _bbox_in_projection(
     # shape here, where reprojection is what produced it.
     if west > east:
         raise ValueError(
-            f"merge_rasters: bbox {tuple(bbox)!r} crosses the antimeridian when "
+            f"bbox {tuple(bbox)!r} crosses the antimeridian when "
             f"reprojected from {bbox_crs!r} into the mosaic CRS (it spans "
             f"{west} to {east}). Split it into one window either side of "
             "180 deg and merge them separately."
@@ -243,14 +243,14 @@ def _restrict_grid(
     # rotated mosaic is not something merge_rasters handles either way.
     if row_skew or col_skew:
         raise ValueError(
-            "merge_rasters: cannot resolve a bbox against a rotated or sheared mosaic "
+            "cannot resolve a bbox against a rotated or sheared mosaic "
             f"(geotransform skew terms {row_skew!r}, {col_skew!r}); the window would "
             "be applied as if the grid were axis-aligned, mis-georeferencing the "
             "output."
         )
     if not pixel_w or not pixel_h:
         raise ValueError(
-            f"merge_rasters: mosaic has a zero pixel size ({pixel_w!r}, {pixel_h!r}); "
+            f"mosaic has a zero pixel size ({pixel_w!r}, {pixel_h!r}); "
             "the bbox window cannot be resolved onto its grid."
         )
 
@@ -267,7 +267,7 @@ def _restrict_grid(
     # into the complement of the requested area.
     if west > east:
         raise ValueError(
-            f"merge_rasters: bbox {tuple(bbox)!r} crosses the seam of the mosaic's "
+            f"bbox {tuple(bbox)!r} crosses the seam of the mosaic's "
             f"longitude convention (it spans {west} to {east} once rewritten to "
             "match). Split it either side of the seam and merge them separately."
         )
@@ -294,7 +294,7 @@ def _restrict_grid(
     # sends the caller to check their extents when the problem is the size of the box.
     if col_stop <= col_start or row_stop <= row_start:
         raise ValueError(
-            f"merge_rasters: bbox {tuple(bbox)!r} selects no whole pixel of the "
+            f"bbox {tuple(bbox)!r} selects no whole pixel of the "
             "mosaic; it is degenerately thin in at least one axis. Widen it to at "
             "least one cell."
         )
@@ -303,7 +303,7 @@ def _restrict_grid(
     row_start, row_stop = max(0, row_start), min(y_size, row_stop)
     if col_stop <= col_start or row_stop <= row_start:
         raise ValueError(
-            f"merge_rasters: bbox {tuple(bbox)!r} does not overlap the mosaic "
+            f"bbox {tuple(bbox)!r} does not overlap the mosaic "
             "extent; nothing would be written."
         )
 
