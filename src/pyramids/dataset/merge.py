@@ -56,30 +56,42 @@ def _validated_bbox(bbox: Sequence[float]) -> tuple[float, float, float, float]:
         ValueError: A coordinate is not finite, or the box is inverted or empty in
             either axis.
     """
-    if isinstance(bbox, (str, bytes)) or not isinstance(bbox, Sequence):
+    # Accept any non-string iterable rather than testing `isinstance(bbox, Sequence)`:
+    # `np.ndarray` does not register as a `Sequence`, and `GeoDataFrame.total_bounds`
+    # -- the most natural way a caller here produces a bbox -- returns exactly that.
+    # Strings are excluded first because a 4-character one would otherwise unpack into
+    # four coordinates.
+    if isinstance(bbox, (str, bytes)):
         raise TypeError(
-            f"merge_rasters: bbox must be a sequence of four numbers "
-            f"(west, south, east, north), got {type(bbox).__name__}: {bbox!r}"
-        )
-    if len(bbox) != 4:
-        raise ValueError(
-            f"merge_rasters: bbox must have exactly 4 values "
-            f"(west, south, east, north), got {len(bbox)}: {tuple(bbox)!r}"
+            f"merge_rasters: bbox must be four numbers (west, south, east, north), "
+            f"got {type(bbox).__name__}: {bbox!r}"
         )
     try:
-        west, south, east, north = (float(v) for v in bbox)
+        values = list(bbox)
+    except TypeError as exc:
+        raise TypeError(
+            f"merge_rasters: bbox must be four numbers (west, south, east, north), "
+            f"got {type(bbox).__name__}: {bbox!r}"
+        ) from exc
+    if len(values) != 4:
+        raise ValueError(
+            f"merge_rasters: bbox must have exactly 4 values "
+            f"(west, south, east, north), got {len(values)}: {tuple(values)!r}"
+        )
+    try:
+        west, south, east, north = (float(v) for v in values)
     except (TypeError, ValueError) as exc:
         raise TypeError(
-            f"merge_rasters: bbox values must be numbers, got {tuple(bbox)!r}"
+            f"merge_rasters: bbox values must be numbers, got {tuple(values)!r}"
         ) from exc
     if not all(np.isfinite(v) for v in (west, south, east, north)):
         raise ValueError(
-            f"merge_rasters: bbox values must all be finite, got {tuple(bbox)!r}"
+            f"merge_rasters: bbox values must all be finite, got {tuple(values)!r}"
         )
     if west >= east or south >= north:
         raise ValueError(
             f"merge_rasters: bbox must be (west, south, east, north) with west < east "
-            f"and south < north, got {tuple(bbox)!r}. A zero-area or inverted box "
+            f"and south < north, got {tuple(values)!r}. A zero-area or inverted box "
             "selects nothing."
         )
     return west, south, east, north

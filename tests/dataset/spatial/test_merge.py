@@ -1501,6 +1501,30 @@ class TestBboxValidation:
         with pytest.raises(exc):
             merge_mod._validated_bbox(bad)
 
+    @pytest.mark.parametrize(
+        "accepted",
+        [
+            np.array([1.0, 1.0, 4.0, 3.0]),
+            [1.0, 1.0, 4.0, 3.0],
+            (1, 1, 4, 3),
+        ],
+        ids=["ndarray", "list", "ints"],
+    )
+    def test_accepts_any_iterable_of_four_numbers(self, accepted):
+        """A bbox need not be a `Sequence` to be accepted.
+
+        Args:
+            accepted: A well-formed bbox in a container that should be allowed.
+
+        Test scenario:
+            `np.ndarray` does not register as a `collections.abc.Sequence`, so an
+            isinstance check on that ABC rejected `GeoDataFrame.total_bounds` — the
+            most natural way a caller in this codebase produces a bbox.
+        """
+        assert merge_mod._validated_bbox(accepted) == (1.0, 1.0, 4.0, 3.0), (
+            f"{type(accepted).__name__} should be accepted as a bbox"
+        )
+
     @pytest.mark.parametrize("method", ["last", "max"])
     def test_malformed_bbox_rejected_on_both_paths(
         self, overlapping_pair, tmp_path, method
