@@ -55,9 +55,11 @@ def _validated_bbox(bbox: Sequence[float]) -> tuple[float, float, float, float]:
         tuple[float, float, float, float]: ``(west, south, east, north)``.
 
     Raises:
-        TypeError: `bbox` is not a sequence of four numbers.
-        ValueError: A coordinate is not finite, or the box is inverted or empty in
-            either axis.
+        TypeError: `bbox` is a string or bytes, is not iterable, or holds a
+            non-numeric element. Any other iterable of four numbers is accepted,
+            `np.ndarray` included.
+        ValueError: There are not exactly four values, a coordinate is not finite,
+            or the box is inverted or empty in either axis.
     """
     # Accept any non-string iterable rather than testing `isinstance(bbox, Sequence)`:
     # `np.ndarray` does not register as a `Sequence`, and `GeoDataFrame.total_bounds`
@@ -159,7 +161,10 @@ def _bbox_in_projection(
 
     Raises:
         TypeError: `bbox` is not four numbers.
-        ValueError: The bbox is inverted, or does not project to a finite extent.
+        ValueError: The bbox is inverted, does not project to a finite extent, or
+            crosses the antimeridian once reprojected. `transform_bounds` signals
+            that last case by returning ``west > east``, which would otherwise be
+            read as a box spanning the long way round.
     """
     west, south, east, north = _validated_bbox(bbox)
     if bbox_crs is None:
@@ -474,7 +479,14 @@ def merge_rasters(
             two halves. :meth:`pyramids.dataset.Dataset.crop` handles the seam
             directly, but a mosaic is composited on one grid, which a seam-crossing
             window would not have.
-        bbox_crs (Any):
+
+            For a lon/lat mosaic the window is rewritten into the mosaic's own
+            longitude convention first, so a ``-180..180`` bbox reads correctly
+            against a ``0..360`` grid (and the reverse). A window that ends up
+            spanning that convention's seam is rejected on the same grounds as an
+            antimeridian one. A window extending past the mosaic is clipped to it;
+            one that misses it entirely raises.
+        bbox_crs (int | str | None):
             CRS that ``bbox`` is expressed in — an EPSG code (``4326``), an
             authority string (``"EPSG:4326"``), a WKT, or anything
             :meth:`pyproj.CRS.from_user_input` accepts. ``None`` (default) means
