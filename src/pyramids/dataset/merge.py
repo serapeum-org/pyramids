@@ -33,8 +33,9 @@ _MERGE_STRIP_ROWS = 512
 
 # Fraction of a pixel within which a window edge is treated as landing exactly on
 # a grid line. Reprojection and float arithmetic put an edge a few ulps past a
-# boundary; snapping outward on that noise costs a spurious row or column and
-# shifts the reduce path's origin away from the z-order path's.
+# boundary, and snapping outward on that noise costs a spurious row or column.
+# Note this is not what keeps the two merge paths consistent: both consume the one
+# window `_restrict_grid` resolves, so they agree for any tolerance, zero included.
 _GRID_SNAP_TOLERANCE = 1e-6
 
 
@@ -280,9 +281,8 @@ def _restrict_grid(
     rows = sorted(((north - origin_y) / pixel_h, (south - origin_y) / pixel_h))
 
     # Snap outward, but only past a real boundary: an edge that lands on a pixel line
-    # to within float noise must not add a spurious row or column. Without this the
-    # reduce path picks up an extra pixel and shifts its origin relative to the
-    # z-order path, so the two return different rasters for identical arguments.
+    # to within float noise must not add a spurious row or column, which would both
+    # widen the read and shift the output's origin off the caller's request.
     col_start = int(np.floor(cols[0] + _GRID_SNAP_TOLERANCE))
     col_stop = int(np.ceil(cols[1] - _GRID_SNAP_TOLERANCE))
     row_start = int(np.floor(rows[0] + _GRID_SNAP_TOLERANCE))
@@ -496,11 +496,14 @@ def merge_rasters(
         same integer inputs.
 
     Raises:
-        TypeError: ``resampling`` is not a string.
+        TypeError: ``resampling`` is not a string, or ``bbox`` is not four numbers
+            (a string, a scalar, or a sequence holding a non-numeric element).
         ValueError: ``method``/``resampling`` is not a supported value,
             ``dst_crs`` cannot be parsed as a CRS, a source carries no CRS, or
-            ``bbox`` does not overlap the mosaic / cannot be projected into its
-            CRS.
+            ``bbox`` is malformed (wrong length, non-finite, inverted, zero-area),
+            crosses the antimeridian or the mosaic's longitude seam once
+            reprojected, selects no whole pixel, does not overlap the mosaic, or
+            cannot be projected into its CRS.
         RuntimeError: GDAL failed to open a source, reproject it, or build the
             source mosaic.
 

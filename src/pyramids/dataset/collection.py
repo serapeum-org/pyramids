@@ -3514,15 +3514,27 @@ class DatasetCollection:
                 ``"sum"``.
             bbox (Sequence[float] | None):
                 Optional ``(west, south, east, north)`` window, forwarded to
-                :func:`~pyramids.dataset.merge.merge_rasters`. Restricts what is
-                read rather than cropping afterwards, which matters most when the
-                timesteps are remote. ``None`` (default) merges the full extent.
-            bbox_crs (Any):
+                :func:`~pyramids.dataset.merge.merge_rasters`. ``None`` (default)
+                merges the full extent.
+
+                For a **file-backed** collection this restricts what is read rather
+                than cropping afterwards, which is what makes a small area of
+                interest cheap to pull from remote timesteps. For an **in-memory**
+                collection it only narrows the output: every timestep is staged to
+                disk at full extent before the merge runs, so nothing is saved on
+                the read.
+            bbox_crs (int | str | None):
                 CRS of ``bbox``; ``None`` (default) means it is already in the
                 mosaic's CRS.
 
         Returns:
             None
+
+        Raises:
+            TypeError: ``bbox`` is not four numbers.
+            ValueError: ``bbox`` is malformed, does not overlap the mosaic, or
+                cannot be projected into the mosaic's CRS. Validation happens
+                before any I/O.
         """
         if self._files:
             merge_rasters(
