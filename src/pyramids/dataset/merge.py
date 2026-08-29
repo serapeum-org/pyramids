@@ -38,6 +38,11 @@ _MERGE_STRIP_ROWS = 512
 # window `_restrict_grid` resolves, so they agree for any tolerance, zero included.
 _GRID_SNAP_TOLERANCE = 1e-6
 
+# Value a strip accumulator starts at, per reduction, so the first real sample wins:
+# +inf loses every fmin, -inf loses every fmax, 0 is the additive identity. Cells that
+# never receive a sample keep this value and are replaced by the fill at the end.
+_REDUCE_IDENTITY = {"min": np.inf, "max": -np.inf, "sum": 0.0}
+
 
 def _validated_bbox(bbox: Sequence[float]) -> tuple[float, float, float, float]:
     """Coerce `bbox` to four finite floats in ``(west, south, east, north)`` order.
@@ -682,93 +687,6 @@ def _as_srs(crs: int | str) -> osr.SpatialReference:
     return srs
 
 
-def _open_source_with_srs(path: str) -> tuple[gdal.Dataset, osr.SpatialReference]:
-    """Open one merge source and read its CRS off that same handle.
-
-    The dataset and its CRS are produced together and consumed together, so they
-    are read in one place rather than reopening the file to ask for the CRS.
-
-    Args:
-        path: Path (or ``/vsi*`` URL) of the source raster.
-
-    Returns:
-        tuple[gdal.Dataset, osr.SpatialReference]: The open dataset and its CRS.
-
-    Raises:
-        RuntimeError: GDAL could not open the source.
-        ValueError: The source carries no CRS.
-    """
-    dataset = gdal.Open(path)
-    if dataset is None:
-        raise RuntimeError(f"gdal.Open returned None for source {path!r}.")
-    wkt = dataset.GetProjection()
-    if not wkt:
-        raise ValueError(
-            f"source {path!r} has no CRS; every source must carry a CRS to "
-            "be merged/reprojected."
-        )
-    srs = osr.SpatialReference()
-    srs.ImportFromWkt(wkt)
-    return dataset, srs
-
-
-def _resolve_target_srs(
-    source_srs: list[osr.SpatialReference], dst_crs: int | str | None
-) -> osr.SpatialReference | None:
-    """Return the CRS every source must end up in, or ``None`` if none need to move.
-
-    Args:
-        source_srs: One CRS per source, in `src_paths` order.
-        dst_crs: The caller's explicit target CRS, or ``None`` to auto-detect.
-
-    Returns:
-        osr.SpatialReference | None: The target CRS, or ``None`` when no `dst_crs`
-        was given and every source already shares one — the case where the sources
-        can be composited untouched.
-
-    Raises:
-        ValueError: `dst_crs` could not be parsed as a CRS.
-    """
-    if dst_crs is not None:
-        target = _as_srs(dst_crs)
-    else:
-        # Auto-detect: no reproject when every source already shares a CRS. An
-        # empty source list never indexes, since the slice is empty too.
-        disagree = any(not source_srs[0].IsSame(other) for other in source_srs[1:])
-        target = source_srs[0] if disagree else None
-    return target
-
-
-def _warp_to_srs(
-    dataset: gdal.Dataset, target_wkt: str, resample_alg: Any
-) -> gdal.Dataset:
-    """Reproject one open source onto `target_wkt` as an in-memory VRT.
-
-    Args:
-        dataset: The open source dataset.
-        target_wkt: The target CRS as WKT.
-        resample_alg: Resampling algorithm, already resolved for GDAL.
-
-    Returns:
-        gdal.Dataset: A warped VRT over `dataset`, in the target CRS.
-
-    Raises:
-        RuntimeError: :func:`gdal.Warp` failed.
-    """
-    warped = gdal.Warp(
-        "",
-        dataset,
-        options=gdal.WarpOptions(
-            format="VRT", dstSRS=target_wkt, resampleAlg=resample_alg
-        ),
-    )
-    if warped is None:
-        raise RuntimeError(
-            "gdal.Warp returned None reprojecting a source to the target CRS."
-        )
-    return warped
-
-
 def _prepare_sources(
     src_paths: list[str],
     dst_crs: int | str | None,
@@ -820,27 +738,142 @@ def _prepare_sources(
     opened: list = []
     source_srs: list[osr.SpatialReference] = []
     for path in src_paths:
-        dataset, srs = _open_source_with_srs(path)
+        dataset = gdal.Open(path)
+        if dataset is None:
+            raise RuntimeError(f"gdal.Open returned None for source {path!r}.")
+        wkt = dataset.GetProjection()
+        if not wkt:
+            raise ValueError(
+                f"source {path!r} has no CRS; every source must carry a CRS to "
+                "be merged/reprojected."
+            )
+        srs = osr.SpatialReference()
+        srs.ImportFromWkt(wkt)
         opened.append(dataset)
         source_srs.append(srs)
 
-    target_srs = _resolve_target_srs(source_srs, dst_crs)
+    target_srs = _as_srs(dst_crs) if dst_crs is not None else None
     if target_srs is None:
-        # Every source already shares a CRS and no target was forced.
-        result = (opened, opened)
+        # Auto-detect: no reproject when every source already shares a CRS.
+        disagree = any(not source_srs[0].IsSame(other) for other in source_srs[1:])
+        if not disagree:
+            return opened, opened
+        target_srs = source_srs[0]
+
+    # At least one source needs reprojecting (or dst_crs forces a target). Feed
+    # the compositor open datasets uniformly — gdal.BuildVRT rejects a mix of
+    # path strings and dataset objects.
+    target_wkt = target_srs.ExportToWkt()
+    sources: list = []
+    for dataset, srs in zip(opened, source_srs):
+        if srs.IsSame(target_srs):
+            sources.append(dataset)
+            continue
+        warped = gdal.Warp(
+            "",
+            dataset,
+            options=gdal.WarpOptions(
+                format="VRT", dstSRS=target_wkt, resampleAlg=resample_alg
+            ),
+        )
+        if warped is None:
+            raise RuntimeError(
+                "gdal.Warp returned None reprojecting a source to the target CRS."
+            )
+        sources.append(warped)
+    return sources, sources
+
+
+def _source_misses_strip(
+    bounds: tuple[float, float, float, float],
+    strip_lat: tuple[float, float],
+    strip_bounds: Sequence[float],
+) -> bool:
+    """Return whether a source's extent lies entirely outside this strip.
+
+    Warping such a source would only add all-no-data, leaving the accumulator and
+    coverage mask unchanged. Both axes are tested: a strip spans the *windowed*
+    grid's width, so on a wide east-west mosaic a latitude-only test still warped
+    every source sharing the strip's band, which is the cost a window exists to
+    avoid.
+
+    Args:
+        bounds: The source's ``(west, south, east, north)`` extent.
+        strip_lat: The strip's ``(south, north)`` edges.
+        strip_bounds: The strip's ``(west, south, east, north)`` extent.
+
+    Returns:
+        bool: `True` when the source cannot contribute to this strip.
+    """
+    src_west, src_south, src_east, src_north = bounds
+    strip_south, strip_north = strip_lat
+    strip_west, strip_east = strip_bounds[0], strip_bounds[2]
+    outside_lat = src_north <= strip_south or src_south >= strip_north
+    outside_lon = src_east <= strip_west or src_west >= strip_east
+    return outside_lat or outside_lon
+
+
+def _warp_onto_strip(
+    path: Any,
+    strip_bounds: Sequence[float],
+    x_size: int,
+    ysize: int,
+    src_nodata: float | int | str | None,
+) -> np.ndarray:
+    """Warp one source onto a strip's window and read it as a 3-D float64 cube.
+
+    Args:
+        path: Source path or an already-open :class:`gdal.Dataset`.
+        strip_bounds: The strip's ``(west, south, east, north)`` window.
+        x_size: Strip width in pixels.
+        ysize: Strip height in pixels.
+        src_nodata: The sources' no-data value, or `None`.
+
+    Returns:
+        np.ndarray: The warped strip, always ``(bands, rows, cols)``, no-data as NaN.
+
+    Raises:
+        RuntimeError: :func:`gdal.Warp` failed for this source.
+    """
+    warp_opts = gdal.WarpOptions(
+        format="MEM",
+        outputBounds=strip_bounds,
+        width=x_size,
+        height=ysize,
+        srcNodata=src_nodata,
+        dstNodata=float("nan"),
+    )
+    warped = gdal.Warp("", path, options=warp_opts)
+    if warped is None:
+        raise RuntimeError(
+            f"gdal.Warp returned None warping source {path!r} onto the union grid."
+        )
+    array = warped.ReadAsArray().astype("float64")
+    if array.ndim == 2:
+        array = array[np.newaxis, ...]
+    return array
+
+
+def _fold_into(
+    acc: np.ndarray, array: np.ndarray, valid: np.ndarray, method: str
+) -> None:
+    """Fold one warped source into the strip accumulator, in place.
+
+    Args:
+        acc: The strip accumulator, modified in place.
+        array: The warped source strip, no-data as NaN.
+        valid: Mask of the finite cells in `array`.
+        method: One of ``"min"``, ``"max"``, ``"sum"``.
+
+    Returns:
+        None
+    """
+    if method == "min":
+        np.fmin(acc, array, out=acc)  # fmin/fmax ignore NaN
+    elif method == "max":
+        np.fmax(acc, array, out=acc)
     else:
-        # At least one source needs reprojecting (or dst_crs forces a target). Feed
-        # the compositor open datasets uniformly — gdal.BuildVRT rejects a mix of
-        # path strings and dataset objects.
-        target_wkt = target_srs.ExportToWkt()
-        sources: list = [
-            dataset
-            if srs.IsSame(target_srs)
-            else _warp_to_srs(dataset, target_wkt, resample_alg)
-            for dataset, srs in zip(opened, source_srs)
-        ]
-        result = (sources, sources)
-    return result
+        np.add(acc, array, out=acc, where=valid)
 
 
 def _reduce_strip(
@@ -877,53 +910,18 @@ def _reduce_strip(
         RuntimeError: GDAL failed to warp a source onto the strip.
     """
     _, ysize, x_size = shape
-    strip_south, strip_north = strip_lat
-    if method == "min":
-        acc = np.full(shape, np.inf, dtype="float64")
-    elif method == "max":
-        acc = np.full(shape, -np.inf, dtype="float64")
-    else:
-        acc = np.zeros(shape, dtype="float64")
+    acc = np.full(shape, _REDUCE_IDENTITY[method], dtype="float64")
     # A boolean "has any valid source" mask suffices: min/max/sum never divide by a
     # count, only test presence below, so a bool cube (1 byte/px) replaces int64.
     covered = np.zeros(shape, dtype=bool)
 
-    strip_west, _, strip_east, _ = strip_bounds
-    for path, (src_west, south, src_east, north) in zip(src_paths, src_bounds):
-        # Skip a source whose extent misses this strip — warping it would only add
-        # all-no-data, leaving acc/covered unchanged. Both axes are tested: a strip
-        # spans the *windowed* grid's width, so on a wide east–west mosaic a narrow
-        # window otherwise still warped every source sharing its latitude band, which
-        # is precisely the cost the window exists to avoid.
-        if north <= strip_south or south >= strip_north:
+    for path, bounds in zip(src_paths, src_bounds):
+        if _source_misses_strip(bounds, strip_lat, strip_bounds):
             continue
-        if src_east <= strip_west or src_west >= strip_east:
-            continue
-        warp_opts = gdal.WarpOptions(
-            format="MEM",
-            outputBounds=strip_bounds,
-            width=x_size,
-            height=ysize,
-            srcNodata=src_nodata,
-            dstNodata=float("nan"),
-        )
-        warped = gdal.Warp("", path, options=warp_opts)
-        if warped is None:
-            raise RuntimeError(
-                f"gdal.Warp returned None warping source {path!r} onto the union grid."
-            )
-        array = warped.ReadAsArray().astype("float64")
-        warped = None
-        if array.ndim == 2:
-            array = array[np.newaxis, ...]
+        array = _warp_onto_strip(path, strip_bounds, x_size, ysize, src_nodata)
         valid = ~np.isnan(array)
         covered |= valid
-        if method == "min":
-            np.fmin(acc, array, out=acc)  # fmin/fmax ignore NaN
-        elif method == "max":
-            np.fmax(acc, array, out=acc)
-        else:
-            np.add(acc, array, out=acc, where=valid)
+        _fold_into(acc, array, valid, method)
         del array, valid
 
     # No-coverage cells are still +inf/-inf/0 in acc; replace them with the fill.
