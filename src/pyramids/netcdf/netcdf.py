@@ -2752,10 +2752,8 @@ class NetCDF(Dataset):
         Returns:
             bool: ``True`` when the variable has at least two dimensions with a
             recognised ``(y, x)`` pair among them; ``False`` for a 1-D / scalar
-            auxiliary variable, a 2-D variable with no spatial axes, a
-            **non-numeric** (character/compound) variable GDAL cannot rasterise
-            whatever its dimensions are named, or a name that cannot be opened as
-            an MDArray.
+            auxiliary variable, a 2-D variable with no spatial axes, or a name
+            that cannot be opened as an MDArray.
 
         Examples:
             - A gridded ``t2m(valid_time, lat, lon)`` variable is spatial, so
@@ -2778,16 +2776,6 @@ class NetCDF(Dataset):
         md = open_mdarray(rg, var_name)
         if md is None:
             return False
-        if self._variable_is_non_numeric(rg, var_name):
-            # GDAL cannot expose a non-numeric array as a raster, so it can never be operated on
-            # spatially however its dimensions are named. Without this, a character or compound
-            # variable gridded over `lat`/`lon` is classed spatial, handed to `get_variable`, and
-            # comes back as the raw MDArray `_read_md_array` returns — which the container fan-out
-            # then calls `crop`/`to_crs`/`reduce` on. Classing it auxiliary instead lets
-            # `_carry_aux_variables` copy it through untouched, so those ops succeed on a mixed
-            # file, and keeps this "can GDAL rasterise it?" decision in step with the one in
-            # `_read_md_array` (#1067).
-            return False
         var_dims = [d.GetName() for d in md.GetDimensions()]
         if len(var_dims) < 2:
             return False
@@ -2795,28 +2783,6 @@ class NetCDF(Dataset):
             self._cf_spatial_axes(rg, var_dims) is not None
             or self._named_spatial_axes(var_dims) is not None
         )
-
-    @staticmethod
-    def _variable_is_non_numeric(rg: Any, var_name: str) -> bool:
-        """True when ``var_name``'s data type is one GDAL cannot expose as a raster.
-
-        GDAL sorts extended data types into three classes; only ``GEDTC_NUMERIC`` can back a
-        classic raster, so a character/string (``GEDTC_STRING``) or struct (``GEDTC_COMPOUND``)
-        variable is non-spatial by dtype alone — see :meth:`_read_md_array`, which returns such a
-        variable as a raw ``MDArray`` for the same reason (#1067).
-
-        Args:
-            rg: The root :class:`osgeo.gdal.Group` of the open store.
-            var_name: Name of the variable to classify.
-
-        Returns:
-            bool: ``True`` for a non-numeric variable; ``False`` for a numeric one or a name
-            that cannot be opened as an MDArray.
-        """
-        md = open_mdarray(rg, var_name)
-        if md is None:
-            return False
-        return bool(md.GetDataType().GetClass() != gdal.GEDTC_NUMERIC)
 
     def _spatial_variable_names(self, rg: Any = None) -> list[str]:
         """Names of the container's gridded variables (have a recognised (y, x) pair).
@@ -3251,10 +3217,6 @@ class NetCDF(Dataset):
         / ensemble / bounds) don't count, so a legitimately non-spatial N-D aux variable (e.g.
         ``(time, level)``) does not trip the warning. ``warn_demoted=False`` suppresses the message
         on the eager fallback recursion, which already warned on the outer call.
-
-        A **non-numeric** grid is demoted for a different reason — GDAL cannot rasterise it at all,
-        whatever its axes are called (see :meth:`_variable_is_spatial`) — so it gets its own message
-        rather than advice about axis metadata that would not help (#1067).
         """
         demoted = [
             n
@@ -3268,26 +3230,13 @@ class NetCDF(Dataset):
             )
             >= 2
         ]
-        if not (demoted and warn_demoted):
-            return
-        non_numeric = [n for n in demoted if self._variable_is_non_numeric(rg, n)]
-        unrecognised = [n for n in demoted if n not in non_numeric]
-        if unrecognised:
+        if demoted and warn_demoted:
             warnings.warn(
-                f"{operation}() is carrying {len(unrecognised)} multi-dimensional "
-                f"variable(s) {unrecognised} through unchanged because their axes were "
+                f"{operation}() is carrying {len(demoted)} multi-dimensional "
+                f"variable(s) {demoted} through unchanged because their axes were "
                 f"not recognised as spatial (no CF axis attributes or known x/y "
                 f"names); they will NOT be cropped/reprojected. Add CF axis "
                 f"metadata (standard_name / axis) or rename the axes to y/x.",
-                stacklevel=4,
-            )
-        if non_numeric:
-            warnings.warn(
-                f"{operation}() is carrying {len(non_numeric)} multi-dimensional "
-                f"variable(s) {non_numeric} through unchanged because their data type is "
-                f"not numeric, so GDAL cannot expose them as a raster; they will NOT be "
-                f"cropped/reprojected. This is independent of their axes — adding CF axis "
-                f"metadata will not change it.",
                 stacklevel=4,
             )
 
@@ -5107,9 +5056,6 @@ class NetCDF(Dataset):
                 omitted, the latitude dimension is auto-detected, else
                 the second-to-last dimension is used.
 
-                Both are ignored for a variable that has no raster plane to
-                map them onto — a 1-D or non-numeric one (see `Returns`).
-
         Returns:
             NetCDF | gdal.MDArray: A subset backed by a classic dataset where every
                 non-spatial dimension is mapped onto bands. The new
@@ -5538,20 +5484,12 @@ class NetCDF(Dataset):
         array) when available, else the last two. The legacy `_band_dim_name`/`_band_dim_values`
         fields point at the first non-spatial dim so existing 3-D consumers are unaffected.
 
-        `cube` may be a raw `gdal.MDArray` with no band model (see `_read_md_array`), in which case
-        all five fields are cleared to the same empty defaults the no-band-dimension case uses —
-        there is no raster plane to split its axes around, so any tracking derived here would
-        describe a band model that does not exist (#1067).
+        `cube` may be a raw `gdal.MDArray` with no band model (see `_read_md_array`). The
+        per-dimension `_band_dim_names` / `_band_dim_sizes` / `_band_dim_values_map` tracking is
+        still recorded for it, but the legacy pair is left as `None`: deriving a primary band view
+        needs a band count the MDArray does not have (#1067).
         """
-        if not isinstance(cube, NetCDF):
-            # A variable GDAL cannot expose as a raster comes back as a raw `gdal.MDArray` (see
-            # `_read_md_array`: a 1-D variable, or a non-numeric one of any rank), which has no
-            # band model to describe. Clear the tracking rather than deriving it: the last-two-
-            # dimensions-are-spatial fallback below would invent a band split for axes that are
-            # not a raster plane (a string column's trailing axis is its max length), and
-            # `_read_band_dim_values` would pay a real coordinate read to record it (#1067).
-            band_dims = []
-        elif len(dims) > 2:
+        if len(dims) > 2:
             spatial = (
                 set(spatial_dim_indices)
                 if spatial_dim_indices is not None
@@ -5574,11 +5512,21 @@ class NetCDF(Dataset):
         cube._band_dim_values_map = {
             d.GetName(): NetCDF._read_band_dim_values(d) for d in band_dims
         }
+        band_count = getattr(cube, "_band_count", None)
+        if band_count is None:
+            # A variable GDAL cannot expose as a raster comes back as a raw `gdal.MDArray`, which
+            # has no band model at all (see `_read_md_array`: a 1-D variable, or a non-numeric one
+            # of any rank). Rank <= 2 exits at the `band_dims` branch above, but a rank >= 3 raw
+            # array reaches here, where deriving a primary band view would read the `_band_count`
+            # an MDArray does not have (#1067).
+            cube._band_dim_name = None
+            cube._band_dim_values = None
+            return
         cube._band_dim_name, cube._band_dim_values = NetCDF._derive_primary_band_view(
             cube._band_dim_names,
             cube._band_dim_values_map,
             cube._band_dim_sizes,
-            cube._band_count,
+            band_count,
         )
 
     @staticmethod

@@ -114,34 +114,6 @@ def _era5_like_cube(*, with_spatial=True, with_aux=True, with_second_spatial=Fal
     return nc
 
 
-def _attach_string_grid(nc, name, dim_names):
-    """Attach a string variable on existing root-group dimensions, straight through GDAL.
-
-    :func:`_attach` cannot express this — it builds a numeric ``ExtendedDataType`` and writes
-    a numpy buffer. The values are deliberately left unwritten: GDAL's SWIG bindings only
-    write a string MDArray of rank <= 1 (``MDArray.Write`` raises "not a unicode string,
-    bytes, bytearray or memoryview" above that), and only the dtype *class* drives the
-    classification under test.
-
-    Args:
-        nc: The in-memory container to attach the variable to.
-        name: Variable name.
-        dim_names: Ordered names of existing root-group dimensions for the variable's axes.
-
-    Returns:
-        Container: ``nc``, for chaining.
-    """
-    rg = nc._raster.GetRootGroup()
-    existing = {d.GetName(): d for d in (rg.GetDimensions() or [])}
-    rg.CreateMDArray(
-        name,
-        [existing[d] for d in dim_names],
-        gdal.ExtendedDataType.CreateString(),
-    )
-    nc._invalidate_caches()
-    return nc
-
-
 def _raw_values(cube, var_name):
     """Read a variable's raw MDArray values straight from the root group."""
     return np.asarray(cube._raster.GetRootGroup().OpenMDArray(var_name).ReadAsArray())
@@ -314,91 +286,6 @@ class TestMultiSpatialPlusAux:
         assert cropped.get_variable("tp").band_count == 4, "tp keeps its 4 bands"
 
 
-_CONTAINER_OPS = {
-    "crop": lambda cube: cube.crop(mask=_MASK, touch=True),
-    "to_crs": lambda cube: cube.to_crs(3857),
-    "reduce": lambda cube: cube.reduce("valid_time", "mean"),
-}
-
-
-class TestNonNumericGriddedAux:
-    """A non-numeric variable on recognised y/x axes is auxiliary, so the fan-out survives it.
-
-    ``_variable_is_spatial`` used to classify purely by dimension names, so a character
-    variable gridded over ``y``/``x`` was called spatial, handed to ``get_variable``, and came
-    back as the raw ``gdal.MDArray`` GDAL cannot rasterise. The fan-out then called raster
-    methods on it and every container operation died with ``AttributeError: 'MDArray' object
-    has no attribute 'crop'`` / ``'to_crs'`` / ``'no_data_value'`` (#1067).
-    """
-
-    @pytest.mark.parametrize("op_name", list(_CONTAINER_OPS), ids=list(_CONTAINER_OPS))
-    def test_container_op_succeeds_and_keeps_both_variables(self, op_name):
-        """A container op completes on a mixed numeric/non-numeric grid (#1067).
-
-        Args:
-            op_name: Which container operation to fan out — ``crop``, ``to_crs`` or
-                ``reduce``, all three of which reached the raw MDArray before the fix.
-
-        Test scenario:
-            ``t2m(valid_time, y, x)`` (numeric) plus a string ``label(y, x)`` on the *same*
-            recognised axes — expected: the operation returns instead of raising, ``t2m`` is
-            still raster-backed in the result, and ``label`` is carried into it as an
-            auxiliary variable rather than being fed to the raster machinery.
-        """
-        cube = _era5_like_cube(with_aux=False)
-        _attach_string_grid(cube, "label", ["y", "x"])
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            result = _CONTAINER_OPS[op_name](cube)
-        assert "t2m" in result.variable_names, (
-            f"the numeric grid must survive {op_name}(), got {result.variable_names}"
-        )
-        assert "label" in result.variable_names, (
-            f"the non-numeric grid must be carried through {op_name}() as an auxiliary "
-            f"variable, got {result.variable_names}"
-        )
-        assert isinstance(result.get_variable("t2m"), NetCDF), (
-            "the numeric grid must still come back raster-backed, not as a raw MDArray"
-        )
-
-    def test_non_numeric_grid_is_not_listed_spatial(self):
-        """The string grid is excluded from the fan-out's spatial variable list.
-
-        Test scenario:
-            ``t2m(valid_time, y, x)`` plus ``label(y, x)`` — expected:
-            ``_spatial_variable_names() == ["t2m"]``. This is what routes ``label`` into
-            ``_carry_aux_variables`` instead of ``get_variable``.
-        """
-        cube = _era5_like_cube(with_aux=False)
-        _attach_string_grid(cube, "label", ["y", "x"])
-        assert cube._spatial_variable_names() == ["t2m"], (
-            "a non-numeric variable must never be listed spatial, whatever its axes are "
-            f"named, got {cube._spatial_variable_names()}"
-        )
-
-    def test_demotion_warning_names_the_dtype_not_the_axes(self):
-        """The demotion warning blames the data type, not missing axis metadata (#1067).
-
-        Test scenario:
-            ``label(y, x)`` is demoted because GDAL cannot rasterise a string array, not
-            because its axes went unrecognised — they are literally ``y``/``x``. Expected: the
-            warning says so, and does not advise adding CF axis metadata, which would not help.
-        """
-        cube = _era5_like_cube(with_aux=False)
-        _attach_string_grid(cube, "label", ["y", "x"])
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            cube.crop(mask=_MASK, touch=True)
-        messages = [str(w.message) for w in caught if "label" in str(w.message)]
-        assert messages, f"a demotion warning naming 'label' is expected, got {caught}"
-        assert any("not numeric" in m for m in messages), (
-            f"the warning must name the data type as the reason, got {messages}"
-        )
-        assert not any("rename the axes to y/x" in m for m in messages), (
-            f"advising axis metadata is misleading for a dtype demotion, got {messages}"
-        )
-
-
 def _dim(name):
     """A Mock GDAL dimension whose ``GetName()`` returns ``name``."""
     dim = Mock()
@@ -431,9 +318,6 @@ def _fake_rg(var_dims, coord_attrs=None):
         if name in var_dims:
             md = Mock()
             md.GetDimensions.return_value = [_dim(d) for d in var_dims[name]]
-            # Model a real data variable: `_variable_is_spatial` also tests the dtype class, and a
-            # bare Mock reports one that is not GEDTC_NUMERIC — i.e. never spatial (#1067).
-            md.GetDataType.return_value.GetClass.return_value = gdal.GEDTC_NUMERIC
             return md
         if name in coord_attrs:
             coord = Mock()
