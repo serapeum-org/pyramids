@@ -1,6 +1,12 @@
 ﻿# Change log
 
 
+## 0.58.0 (2026-08-29)
+
+### Feat
+
+- **merge**: restrict merge_rasters to a bbox instead of the full extent (#1065)
+
 ## 0.57.1 (2026-08-27)
 
 ### Fix
