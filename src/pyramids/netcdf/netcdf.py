@@ -4942,11 +4942,16 @@ class NetCDF(Dataset):
         view's geotransform to match. See :meth:`_y_axis_is_bottom_up` /
         :meth:`_x_axis_is_right_to_left` for how each decision is made.
 
+        A **non-numeric** variable — a string/character column or a compound (struct) type,
+        neither of which GDAL can expose as a raster — is returned as the raw `MDArray`
+        whatever its rank, exactly like a 1-D variable; read it with `Read()` (#1067).
+
         Returns a tuple `(classic_dataset, md_array, root_group, x_index,
         y_index, y_flipped, x_flipped)` so callers can keep the GDAL objects alive and
         reuse the resolved plane indices (`x_index`/`y_index` are `None` for a
-        1-D variable). `y_flipped` / `x_flipped` record which axes were reversed here; the eager
-        materialize path needs them to re-apply the same flips to the unreversed array.
+        1-D or non-numeric variable). `y_flipped` / `x_flipped` record which axes were reversed
+        here; the eager materialize path needs them to re-apply the same flips to the unreversed
+        array.
         `AsClassicDataset` returns a **view** whose C++ backing depends on the
         MDArray and root group; if the Python SWIG wrappers for those are
         garbage-collected the view becomes a dangling pointer (segfault on
@@ -4966,6 +4971,17 @@ class NetCDF(Dataset):
             # A classic 2-D raster view needs >=2 dimensions, so AsClassicDataset cannot represent a
             # 1-D variable (a coordinate axis or a 1-D data series). Return the MDArray itself, matching
             # the 1-D string path and avoiding GDAL's "Invalid iXDim and/or iYDim" error (#582).
+            return md_arr, md_arr, rg, None, None, False, False
+
+        if md_arr.GetDataType().GetClass() != gdal.GEDTC_NUMERIC:
+            # `AsClassicDataset` exposes numeric arrays only ("Only arrays with numeric data types
+            # can be exposed as classic GDALDataset"), so the test is on the dtype *class* — string
+            # (however the driver exposes a character column) or compound — not on any particular
+            # shape. Rank alone cannot save such an array: `_resolve_spatial_dims` resolves a pair
+            # for anything with >= 2 dimensions (its last-two fallback never declines), which is how
+            # a character column reached the raster view and raised (#1067). Return the MDArray
+            # itself — the same shape the 1-D branch above returns — so the caller reads it with
+            # `Read()` like any other array.
             return md_arr, md_arr, rg, None, None, False, False
 
         # Resolve on the original array — the flips below rename the reversed dimensions and drop
@@ -5008,7 +5024,7 @@ class NetCDF(Dataset):
 
     def get_variable(
         self, variable_name: str, x_dim: str | None = None, y_dim: str | None = None
-    ) -> NetCDF:
+    ) -> NetCDF | gdal.MDArray:
         """Extract a single variable as a classic-raster NetCDF object.
 
         The returned object carries origin metadata so modified data
@@ -5040,13 +5056,25 @@ class NetCDF(Dataset):
                 omitted, the latitude dimension is auto-detected, else
                 the second-to-last dimension is used.
 
+                Both are ignored for a variable that has no raster plane to
+                map them onto — a 1-D or non-numeric one (see `Returns`).
+
         Returns:
-            NetCDF: A subset backed by a classic dataset where every
+            NetCDF | gdal.MDArray: A subset backed by a classic dataset where every
                 non-spatial dimension is mapped onto bands. The new
                 `_band_dim_names` / `_band_dim_values_map` /
                 `_band_dim_sizes` fields drive `sel()`; the legacy
                 `_band_dim_name` / `_band_dim_values` track the first
                 non-spatial dim.
+
+                A variable GDAL cannot expose as a raster comes back as
+                the raw `gdal.MDArray` instead: a 1-D variable (a
+                coordinate axis or data series), and any **non-numeric**
+                variable of any rank — a character/string column
+                (however the driver exposes it) or a compound (struct)
+                type. Such a raw array carries no band model, so the
+                band-dim tracking above is only partly populated. Read
+                it with `Read()` (#1067).
 
         Raises:
             ValueError: If `variable_name` is not present in the dataset.
@@ -5399,8 +5427,12 @@ class NetCDF(Dataset):
     ) -> None:
         """Populate band-dim tracking, variable attributes, and packing on a variable subset.
 
-        When `md_arr` is `None` (e.g. the file-backed gdal.Open path or a 1-D string variable) the
-        band/attr metadata is cleared to empty defaults.
+        When `md_arr` is `None` (e.g. the file-backed gdal.Open path) the band/attr metadata is
+        cleared to empty defaults. `cube` may also be a raw `gdal.MDArray` rather than a `NetCDF`
+        — a 1-D variable, or a non-numeric one of any rank (see `_read_md_array`) — which has no
+        band model, so `_track_band_dimensions` and `_apply_attribute_no_data` fall back rather
+        than read band attributes off it. `_copy_variable_attrs` is unaffected — it reads the
+        MDArray, not the cube.
         """
         if md_arr is None:
             self._clear_variable_metadata(cube)
@@ -5422,7 +5454,8 @@ class NetCDF(Dataset):
         attributes and record it on the Python-side per-band list that :attr:`no_data_value` and the
         plot mask read. The view ignores ``SetNoDataValue``, so only the wrapper list is updated.
 
-        A 1-D variable comes back as a raw ``gdal.MDArray`` with no band model (no
+        A variable GDAL cannot expose as a raster — a 1-D one, or a non-numeric one of any rank
+        (see :meth:`_read_md_array`) — comes back as a raw ``gdal.MDArray`` with no band model (no
         ``_no_data_value``), so there is nothing to stamp and it is left untouched.
         """
         current = getattr(cube, "_no_data_value", None)
@@ -5453,6 +5486,12 @@ class NetCDF(Dataset):
         The spatial (X/Y) dimensions are taken from `spatial_dim_indices` (resolved on the unflipped
         array) when available, else the last two. The legacy `_band_dim_name`/`_band_dim_values`
         fields point at the first non-spatial dim so existing 3-D consumers are unaffected.
+
+        `cube` may be a raw `gdal.MDArray` with no band model (see `_read_md_array`). A rank <= 2
+        one takes the empty-`band_dims` exit below, which clears all five fields; a rank >= 3 one
+        still gets the per-dimension `_band_dim_names` / `_band_dim_sizes` / `_band_dim_values_map`
+        tracking, but its legacy pair is left as `None`, because deriving a primary band view needs
+        a band count the MDArray does not have (#1067).
         """
         if len(dims) > 2:
             spatial = (
@@ -5477,11 +5516,21 @@ class NetCDF(Dataset):
         cube._band_dim_values_map = {
             d.GetName(): NetCDF._read_band_dim_values(d) for d in band_dims
         }
+        band_count = getattr(cube, "_band_count", None)
+        if band_count is None:
+            # A variable GDAL cannot expose as a raster comes back as a raw `gdal.MDArray`, which
+            # has no band model at all (see `_read_md_array`: a 1-D variable, or a non-numeric one
+            # of any rank). Rank <= 2 exits at the `band_dims` branch above, but a rank >= 3 raw
+            # array reaches here, where deriving a primary band view would read the `_band_count`
+            # an MDArray does not have (#1067).
+            cube._band_dim_name = None
+            cube._band_dim_values = None
+            return
         cube._band_dim_name, cube._band_dim_values = NetCDF._derive_primary_band_view(
             cube._band_dim_names,
             cube._band_dim_values_map,
             cube._band_dim_sizes,
-            cube._band_count,
+            band_count,
         )
 
     @staticmethod
