@@ -96,12 +96,14 @@ class TestReadMdArray1D:
 
 
 class TestReadMdArrayNonNumeric:
-    """A non-numeric (character/string) variable comes back as the raw MDArray (#1067).
+    """A non-numeric variable — string/character or compound — comes back as the raw MDArray (#1067).
 
     NetCDF stores a character column two-dimensionally as `(records, max string length)`, so
     `_resolve_spatial_dims` resolves a plane for it via its last-two fallback and the old code
     called `AsClassicDataset` — which accepts numeric arrays only and raised
-    "Only arrays with numeric data types can be exposed as classic GDALDataset".
+    "Only arrays with numeric data types can be exposed as classic GDALDataset". The guard keys
+    on the dtype class, so it covers a compound type and any rank >= 2 as well, not just the 2-D
+    string case from the issue.
     """
 
     @staticmethod
