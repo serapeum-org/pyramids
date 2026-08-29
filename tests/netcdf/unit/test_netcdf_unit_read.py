@@ -120,6 +120,65 @@ class TestReadMdArrayNonNumeric:
         numeric.Write(np.arange(12, dtype="float32").reshape(4, 3))
         return ds
 
+    @staticmethod
+    def _single_var_multidim(dtype, sizes):
+        """Build a MEM multidim dataset holding one array `v` of `dtype` over `sizes`."""
+        ds = gdal.GetDriverByName("MEM").CreateMultiDimensional("test")
+        rg = ds.GetRootGroup()
+        dims = [
+            rg.CreateDimension(f"d{i}", None, None, size)
+            for i, size in enumerate(sizes)
+        ]
+        rg.CreateMDArray("v", dims, dtype)
+        return ds
+
+    def test_read_md_array_3d_string_returns_md_array(self):
+        """The guard is shape-agnostic: a 3-D string variable is not made a raster.
+
+        Test scenario:
+            `_read_md_array` on a 3-D `(2, 4, 3)` string array — expected: the MDArray
+            itself, proving the guard keys on the dtype class rather than on the 2-D
+            `(records, max string length)` layout alone.
+        """
+        ds = self._single_var_multidim(gdal.ExtendedDataType.CreateString(), (2, 4, 3))
+        nc = Container(ds)
+        result_src, result_md, _rg, x_index, y_index, _yf, _xf = nc._read_md_array("v")
+        assert result_src is result_md, (
+            "a 3-D string array must come back as the MDArray"
+        )
+        assert x_index is None, f"no raster plane for a string array, got x={x_index}"
+        assert y_index is None, f"no raster plane for a string array, got y={y_index}"
+
+    def test_read_md_array_compound_returns_md_array(self):
+        """A compound (user-defined struct) variable is also returned as the MDArray.
+
+        Test scenario:
+            `_read_md_array` on a 2-D array of a two-field compound type — expected: the
+            MDArray itself. `AsClassicDataset` rejects every non-numeric dtype class, not
+            just strings, so the guard must test `!= GEDTC_NUMERIC` rather than
+            `== GEDTC_STRING`.
+        """
+        compound = gdal.ExtendedDataType.CreateCompound(
+            "record_t",
+            8,
+            [
+                gdal.EDTComponent.Create(
+                    "a", 0, gdal.ExtendedDataType.Create(gdal.GDT_Int32)
+                ),
+                gdal.EDTComponent.Create(
+                    "b", 4, gdal.ExtendedDataType.Create(gdal.GDT_Int32)
+                ),
+            ],
+        )
+        nc = Container(self._single_var_multidim(compound, (4, 3)))
+        result_src, result_md, _rg, x_index, y_index, _yf, _xf = nc._read_md_array("v")
+        assert result_src is result_md, "a compound array must come back as the MDArray"
+        assert result_md.GetDataType().GetClass() == gdal.GEDTC_COMPOUND, (
+            "the returned array must keep its compound dtype"
+        )
+        assert x_index is None, f"no raster plane for a compound array, got x={x_index}"
+        assert y_index is None, f"no raster plane for a compound array, got y={y_index}"
+
     def test_read_md_array_2d_string_returns_md_array(self):
         """A 2-D string variable returns the MDArray instead of raising.
 
