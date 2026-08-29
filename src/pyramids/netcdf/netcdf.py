@@ -5500,11 +5500,21 @@ class NetCDF(Dataset):
         cube._band_dim_values_map = {
             d.GetName(): NetCDF._read_band_dim_values(d) for d in band_dims
         }
+        band_count = getattr(cube, "_band_count", None)
+        if band_count is None:
+            # A variable GDAL cannot expose as a raster comes back as a raw `gdal.MDArray`, which
+            # has no band model at all (see `_read_md_array`: a 1-D variable, or a non-numeric one
+            # of any rank). Rank <= 2 exits at the `band_dims` branch above, but a rank >= 3 raw
+            # array reaches here, where deriving a primary band view would read the `_band_count`
+            # an MDArray does not have (#1067).
+            cube._band_dim_name = None
+            cube._band_dim_values = None
+            return
         cube._band_dim_name, cube._band_dim_values = NetCDF._derive_primary_band_view(
             cube._band_dim_names,
             cube._band_dim_values_map,
             cube._band_dim_sizes,
-            cube._band_count,
+            band_count,
         )
 
     @staticmethod

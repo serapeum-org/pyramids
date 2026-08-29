@@ -249,6 +249,45 @@ class TestReadMdArrayNonNumeric:
         finally:
             nc.close()
 
+    @pytest.mark.parametrize("sizes", [(4, 3), (2, 4, 3)], ids=["rank2", "rank3"])
+    @pytest.mark.parametrize("dtype_name", ["string", "compound"])
+    def test_get_variable_returns_md_array_for_any_rank(self, sizes, dtype_name):
+        """`get_variable` returns the MDArray for a non-numeric variable of any rank.
+
+        Args:
+            sizes: Dimension sizes, covering a rank-2 and a rank-3 array.
+            dtype_name: Which non-numeric dtype class to build.
+
+        Test scenario:
+            The `_read_md_array` guard alone is not enough: `get_variable` goes on to attach
+            band-dimension metadata, which derives a primary band view from a band model a raw
+            MDArray does not have. Only a rank >= 3 array reaches that code (rank <= 2 exits at
+            the empty-`band_dims` branch), so this used to raise
+            `AttributeError: '_band_count'` — expected now: the MDArray, for both ranks and both
+            non-numeric dtype classes.
+        """
+        if dtype_name == "string":
+            dtype = gdal.ExtendedDataType.CreateString()
+        else:
+            dtype = gdal.ExtendedDataType.CreateCompound(
+                "record_t",
+                4,
+                [
+                    gdal.EDTComponent.Create(
+                        "a", 0, gdal.ExtendedDataType.Create(gdal.GDT_Int32)
+                    )
+                ],
+            )
+        nc = Container(self._single_var_multidim(dtype, sizes))
+        variable = nc.get_variable("v")
+        assert isinstance(variable, gdal.MDArray), (
+            f"a non-numeric rank-{len(sizes)} variable must come back as an MDArray, "
+            f"got {type(variable).__name__}"
+        )
+        assert variable.GetDataType().GetClass() != gdal.GEDTC_NUMERIC, (
+            "the returned array must keep its non-numeric dtype"
+        )
+
 
 class TestNeedsYFlip:
     """Tests for the _needs_y_flip instance method."""
