@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -92,6 +93,100 @@ class TestReadMdArray1D:
             "For string 1D arrays, src and md_arr should be the same object"
         )
         assert result_rg is not None, "root group ref should not be None"
+
+
+class TestReadMdArrayNonNumeric:
+    """A non-numeric (character/string) variable comes back as the raw MDArray (#1067).
+
+    NetCDF stores a character column two-dimensionally as `(records, max string length)`, so
+    `_resolve_spatial_dims` resolves a plane for it via its last-two fallback and the old code
+    called `AsClassicDataset` — which accepts numeric arrays only and raised
+    "Only arrays with numeric data types can be exposed as classic GDALDataset".
+    """
+
+    @staticmethod
+    def _mixed_multidim(driver: str, path: str = "test"):
+        """Build a multidim dataset with a 2-D string and a 2-D numeric variable."""
+        ds = gdal.GetDriverByName(driver).CreateMultiDimensional(path)
+        rg = ds.GetRootGroup()
+        records = rg.CreateDimension("record", None, None, 4)
+        strlen = rg.CreateDimension("strlen", None, None, 3)
+        rg.CreateMDArray(
+            "units", [records, strlen], gdal.ExtendedDataType.CreateString()
+        )
+        numeric = rg.CreateMDArray(
+            "obs", [records, strlen], gdal.ExtendedDataType.Create(gdal.GDT_Float32)
+        )
+        numeric.Write(np.arange(12, dtype="float32").reshape(4, 3))
+        return ds
+
+    def test_read_md_array_2d_string_returns_md_array(self):
+        """A 2-D string variable returns the MDArray instead of raising.
+
+        Test scenario:
+            `_read_md_array` on a `(record, strlen)` string array — expected: `src` is the
+            MDArray itself (as for the 1-D case) and the plane indices are `None`, rather
+            than the `RuntimeError` `AsClassicDataset` raises for a non-numeric dtype.
+        """
+        nc = Container(self._mixed_multidim("MEM"))
+        result_src, result_md, result_rg, x_index, y_index, y_flip, x_flip = (
+            nc._read_md_array("units")
+        )
+        assert result_src is result_md, "a string array must come back as the MDArray"
+        assert result_rg is not None, "root group ref should not be None"
+        assert x_index is None, f"no raster plane for a string array, got x={x_index}"
+        assert y_index is None, f"no raster plane for a string array, got y={y_index}"
+        assert not y_flip, "a non-raster array cannot be flipped"
+        assert not x_flip, "a non-raster array cannot be flipped"
+
+    def test_read_md_array_2d_numeric_still_classic(self):
+        """The numeric path is unchanged: a 2-D numeric variable still becomes a classic view."""
+        nc = Container(self._mixed_multidim("MEM"))
+        result_src, result_md, _rg, x_index, y_index, _yf, _xf = nc._read_md_array(
+            "obs"
+        )
+        assert result_src is not result_md, "a numeric array must become a classic view"
+        assert isinstance(result_src, gdal.Dataset), (
+            f"expected a classic gdal.Dataset, got {type(result_src).__name__}"
+        )
+        assert (x_index, y_index) == (1, 0), (
+            f"numeric plane indices should resolve, got {(x_index, y_index)}"
+        )
+
+    def test_get_variable_on_mixed_file_reads_both(self, tmp_path):
+        """A file mixing numeric and character variables is fully readable (#1067).
+
+        Test scenario:
+            Write a real `.nc` holding a 2-D string `units` and a 2-D numeric `obs`, both with
+            resolvable spatial dims — expected: `get_variable("units")` returns a readable
+            `gdal.MDArray` (it used to raise) while `get_variable("obs")` still returns a
+            raster-backed variable.
+        """
+        path = str(tmp_path / "mixed.nc")
+        ds = self._mixed_multidim("netCDF", path)
+        ds.Close()
+        del ds
+        gc.collect()
+
+        nc = NetCDF.read_file(path)
+        try:
+            assert set(nc.variable_names) == {"units", "obs"}, (
+                f"both variables must be discoverable, got {nc.variable_names}"
+            )
+            string_var = nc.get_variable("units")
+            assert isinstance(string_var, gdal.MDArray), (
+                f"a character variable must come back as an MDArray, got {type(string_var)}"
+            )
+            assert string_var.GetDataType().GetClass() == gdal.GEDTC_STRING, (
+                "the returned array must keep its string dtype"
+            )
+            assert len(string_var.Read()) == 12, "the MDArray must be readable"
+            numeric_var = nc.get_variable("obs")
+            assert isinstance(numeric_var, NetCDF), (
+                f"a numeric variable must still be raster-backed, got {type(numeric_var)}"
+            )
+        finally:
+            nc.close()
 
 
 class TestNeedsYFlip:

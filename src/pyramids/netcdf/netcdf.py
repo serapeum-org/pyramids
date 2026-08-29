@@ -4942,10 +4942,14 @@ class NetCDF(Dataset):
         view's geotransform to match. See :meth:`_y_axis_is_bottom_up` /
         :meth:`_x_axis_is_right_to_left` for how each decision is made.
 
+        A **non-numeric** variable (a character/string column, which GDAL cannot expose as a
+        raster) is returned as the raw `MDArray`, exactly like a 1-D variable — read it with
+        `Read()` (#1067).
+
         Returns a tuple `(classic_dataset, md_array, root_group, x_index,
         y_index, y_flipped, x_flipped)` so callers can keep the GDAL objects alive and
         reuse the resolved plane indices (`x_index`/`y_index` are `None` for a
-        1-D variable). `y_flipped` / `x_flipped` record which axes were reversed here; the eager
+        1-D or non-numeric variable). `y_flipped` / `x_flipped` record which axes were reversed here; the eager
         materialize path needs them to re-apply the same flips to the unreversed array.
         `AsClassicDataset` returns a **view** whose C++ backing depends on the
         MDArray and root group; if the Python SWIG wrappers for those are
@@ -4966,6 +4970,15 @@ class NetCDF(Dataset):
             # A classic 2-D raster view needs >=2 dimensions, so AsClassicDataset cannot represent a
             # 1-D variable (a coordinate axis or a 1-D data series). Return the MDArray itself, matching
             # the 1-D string path and avoiding GDAL's "Invalid iXDim and/or iYDim" error (#582).
+            return md_arr, md_arr, rg, None, None, False, False
+
+        if md_arr.GetDataType().GetClass() != gdal.GEDTC_NUMERIC:
+            # `AsClassicDataset` exposes numeric arrays only ("Only arrays with numeric data types
+            # can be exposed as classic GDALDataset"). A character column is stored two-dimensionally
+            # (records x max string length), so `_resolve_spatial_dims` always resolves a pair for it
+            # (its last-two fallback never declines) and the raster view would raise. Return the
+            # MDArray itself — the same shape the 1-D branch above returns — so the caller reads it
+            # with `Read()` like any other array (#1067).
             return md_arr, md_arr, rg, None, None, False, False
 
         # Resolve on the original array — the flips below rename the reversed dimensions and drop
@@ -5047,6 +5060,13 @@ class NetCDF(Dataset):
                 `_band_dim_sizes` fields drive `sel()`; the legacy
                 `_band_dim_name` / `_band_dim_values` track the first
                 non-spatial dim.
+
+                A variable GDAL cannot expose as a raster comes back as
+                the raw `gdal.MDArray` instead: a 1-D variable (a
+                coordinate axis or data series) and any **non-numeric**
+                variable — a character/string column, which NetCDF stores
+                two-dimensionally as `(records, max string length)`. Read
+                those with `Read()` (#1067).
 
         Raises:
             ValueError: If `variable_name` is not present in the dataset.
