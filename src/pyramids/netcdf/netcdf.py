@@ -5056,6 +5056,9 @@ class NetCDF(Dataset):
                 omitted, the latitude dimension is auto-detected, else
                 the second-to-last dimension is used.
 
+                Both are ignored for a variable that has no raster plane to
+                map them onto — a 1-D or non-numeric one (see `Returns`).
+
         Returns:
             NetCDF | gdal.MDArray: A subset backed by a classic dataset where every
                 non-spatial dimension is mapped onto bands. The new
@@ -5484,10 +5487,11 @@ class NetCDF(Dataset):
         array) when available, else the last two. The legacy `_band_dim_name`/`_band_dim_values`
         fields point at the first non-spatial dim so existing 3-D consumers are unaffected.
 
-        `cube` may be a raw `gdal.MDArray` with no band model (see `_read_md_array`). The
-        per-dimension `_band_dim_names` / `_band_dim_sizes` / `_band_dim_values_map` tracking is
-        still recorded for it, but the legacy pair is left as `None`: deriving a primary band view
-        needs a band count the MDArray does not have (#1067).
+        `cube` may be a raw `gdal.MDArray` with no band model (see `_read_md_array`). A rank <= 2
+        one takes the empty-`band_dims` exit below, which clears all five fields; a rank >= 3 one
+        still gets the per-dimension `_band_dim_names` / `_band_dim_sizes` / `_band_dim_values_map`
+        tracking, but its legacy pair is left as `None`, because deriving a primary band view needs
+        a band count the MDArray does not have (#1067).
         """
         if len(dims) > 2:
             spatial = (
