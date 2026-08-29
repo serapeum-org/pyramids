@@ -3682,6 +3682,115 @@ class NetCDF(Dataset):
             self._reconcile_band_no_data(result)
         return result
 
+    def _window_via_mdarray(
+        self, x_off: int, y_off: int, x_size: int, y_size: int
+    ) -> gdal.Dataset | None:
+        """Read one raster window straight from the MDArray, as a small north-up ``MEM`` raster.
+
+        The classic ``AsClassicDataset`` view is the wrong tool for a *small* window over a remote
+        store. A variable stored ``(time, longitude, latitude)`` is presented by that view as
+        ``rows=latitude, cols=longitude``, so every raster row is a strided gather and a windowed
+        read costs roughly what a full one does. Measured against a 14 GB ``/vsicurl`` NetCDF-4:
+        the same ``16x8x8`` window takes ~0.8 s through :meth:`osgeo.gdal.MDArray.Read` and ~7.5 s
+        through the classic view. (For a *whole*-array read the classic view wins, which is why
+        :meth:`_copy_raw_view` still uses it — this is a windowed-read shortcut, not a replacement.)
+
+        The window is given in **raster** space (north-up, post-flip, matching
+        :attr:`geotransform`); the raw indices are derived from it, so a reversed axis is read as a
+        forward contiguous slice and reversed afterwards with NumPy.
+
+        Args:
+            x_off: Column offset of the window in raster space.
+            y_off: Row offset of the window in raster space.
+            x_size: Window width in columns.
+            y_size: Window height in rows.
+
+        Returns:
+            gdal.Dataset | None: A ``MEM`` raster of the window carrying the sub-affine and the
+            wrapper's CRS, or ``None`` when the read is not possible (no root group, no source
+            variable, unresolved spatial dimensions, unknown flips, an out-of-range window, or a
+            failed read) — in which case the caller keeps its existing full-read path.
+        """
+        rg = self._gdal_rg_ref
+        var = self._source_var_name
+        spatial = self._md_spatial_dims
+        flips_known = isinstance(self._md_y_flipped, bool) and isinstance(
+            self._md_x_flipped, bool
+        )
+        if rg is None or var is None or spatial is None or not flips_known:
+            return None
+        x_index, y_index = spatial
+        try:
+            md_arr = rg.OpenMDArray(var)
+            sizes = [d.GetSize() for d in md_arr.GetDimensions()]
+        except (RuntimeError, AttributeError):
+            return None
+        if (
+            not (0 <= x_off and 0 <= y_off and x_size > 0 and y_size > 0)
+            or x_off + x_size > sizes[x_index]
+            or y_off + y_size > sizes[y_index]
+        ):
+            return None
+        # A reversed axis is stored back-to-front, so the raster window maps to the mirrored raw
+        # slice; read it forwards (negative steps are what the reversed view cannot serve) and undo
+        # the reversal on the small result below.
+        starts, counts = list(sizes), list(sizes)
+        for index, (offset, size, flipped) in (
+            (x_index, (x_off, x_size, self._md_x_flipped)),
+            (y_index, (y_off, y_size, self._md_y_flipped)),
+        ):
+            starts[index] = sizes[index] - offset - size if flipped else offset
+            counts[index] = size
+        for index in range(len(sizes)):
+            if index not in (x_index, y_index):
+                starts[index] = 0
+        try:
+            block = md_arr.ReadAsArray(array_start_idx=starts, count=counts)
+        except (RuntimeError, AttributeError):
+            return None
+        if block is None:
+            return None
+        block = np.asarray(block)
+        # The classic view flattens every non-spatial dimension into bands, in storage order, and
+        # presents the spatial pair as (rows, cols) — mirror that so band order is unchanged.
+        block = np.moveaxis(block, [y_index, x_index], [-2, -1]).reshape(
+            -1, y_size, x_size
+        )
+        if self._md_y_flipped:
+            block = block[:, ::-1, :]
+        if self._md_x_flipped:
+            block = block[:, :, ::-1]
+        target = gdal.GetDriverByName("MEM").Create(
+            "", x_size, y_size, block.shape[0], numpy_to_gdal_dtype(block.dtype)
+        )
+        if target is None:
+            return None
+        for band_index in range(block.shape[0]):
+            target.GetRasterBand(band_index + 1).WriteArray(
+                np.ascontiguousarray(block[band_index])
+            )
+        gt = self._geotransform
+        target.SetGeoTransform(
+            (
+                gt[0] + x_off * gt[1],
+                gt[1],
+                gt[2],
+                gt[3] + y_off * gt[5],
+                gt[4],
+                gt[5],
+            )
+        )
+        wrapper_srs = self._raster.GetSpatialRef() if self._raster is not None else None
+        if wrapper_srs is not None:
+            target.SetSpatialRef(wrapper_srs)
+        elif self.epsg:
+            # The MDArray view often carries no SRS of its own, while the variable still knows its
+            # EPSG. A cutline warp against a projection-less raster warns and — for a cutline in
+            # another CRS — clips the wrong region, so stamp it here rather than inherit nothing.
+            target.SetProjection(sr_from_epsg(int(self.epsg)).ExportToWkt())
+        self._reconcile_band_no_data(target)
+        return target
+
     def _copy_raw_view(self) -> gdal.Dataset | None:
         """Rebuild the **unreversed** classic view of the source variable and copy it into MEM.
 

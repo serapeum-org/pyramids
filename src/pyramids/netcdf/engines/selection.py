@@ -488,25 +488,87 @@ class Selection(_Engine["NetCDF"]):
                     "chunks= is only supported for curvilinear crop; the affine "
                     "(rectilinear) crop path is eager."
                 )
-            # Stamp the variable's known CRS onto its backing raster before the cutline warp.
-            # A NetCDF variable tracks its EPSG even when the raster (the AsClassicDataset MDArray
-            # view, or a wrap_longitude/materialized MEM raster) carries no projection string;
-            # without it GDAL's cutline warp warns ("the input vector layer has a SRS, but the
-            # source raster dataset does not") and — for a cutline in a different CRS — would clip
-            # the wrong region. The driver-less MDArray view does not persist SetProjection, so
-            # materialize it first (the affine crop reads it fully anyway). See issue #629.
-            if nc.epsg and nc._raster is not None and not nc._raster.GetProjection():
-                wkt = sr_from_epsg(int(nc.epsg)).ExportToWkt()
-                nc._raster.SetProjection(wkt)
-                if not nc._raster.GetProjection():
-                    nc._materialize_md_view()
+            # Crop the mask's window rather than the whole variable when that window can be read
+            # straight from the MDArray: the affine crop reads its source in full, which over a
+            # remote store means fetching the entire variable to clip a few cells. This has to run
+            # *before* the CRS stamping below, because materializing drops the root-group reference
+            # the windowed read needs — and the windowed raster carries the CRS already (#1071).
+            source = self._mask_window_source(mask)
+            if source is None:
+                # Stamp the variable's known CRS onto its backing raster before the cutline warp.
+                # A NetCDF variable tracks its EPSG even when the raster (the AsClassicDataset
+                # MDArray view, or a wrap_longitude/materialized MEM raster) carries no projection
+                # string; without it GDAL's cutline warp warns ("the input vector layer has a SRS,
+                # but the source raster dataset does not") and — for a cutline in a different CRS —
+                # would clip the wrong region. The driver-less MDArray view does not persist
+                # SetProjection, so materialize it first (that path reads it fully anyway).
+                # See issue #629.
+                if (
+                    nc.epsg
+                    and nc._raster is not None
+                    and not nc._raster.GetProjection()
+                ):
+                    wkt = sr_from_epsg(int(nc.epsg)).ExportToWkt()
                     nc._raster.SetProjection(wkt)
+                    if not nc._raster.GetProjection():
+                        nc._materialize_md_view()
+                        nc._raster.SetProjection(wkt)
+                source = nc
             # `nc.spatial.crop` is the base Dataset affine crop — exactly what the
             # NetCDF.crop override reached via `super().crop(...)`, bypassing this engine.
             result = nc._preserve_netcdf_metadata(
-                nc.spatial.crop(mask=mask, touch=touch)
+                source.spatial.crop(mask=mask, touch=touch)
             )
         return result
+
+    def _mask_window_source(self, mask: FeatureCollection) -> Dataset | None:
+        """A `Dataset` over just the mask's window, read straight from the MDArray.
+
+        The affine crop reads its whole source before clipping. That is cheap for a local file
+        and expensive for a remote one — the classic view a variable is backed by turns a small
+        windowed read into a strided gather, so clipping a few cells out of a 14 GB `/vsicurl`
+        NetCDF-4 costs seconds. Reading the window through
+        :meth:`~pyramids.netcdf.NetCDF._window_via_mdarray` instead is roughly an order of
+        magnitude cheaper, and the clip that follows is identical because the window is built to
+        contain the mask.
+
+        Declines (returns ``None``, leaving the caller to crop the full variable) whenever the
+        shortcut is not provably equivalent: a rotated or degenerate affine, a mask in a different
+        CRS (whose cutline the warp must reproject), a mask that misses the grid, a window that is
+        not appreciably smaller than the variable, or a read the MDArray cannot serve.
+
+        Args:
+            mask: The resolved polygon mask the crop will clip with.
+
+        Returns:
+            Dataset | None: A raster of the window carrying its sub-affine, or ``None``.
+        """
+        nc = self._ds
+        gt = nc._geotransform
+        if not gt or not gt[1] or not gt[5] or gt[2] or gt[4]:
+            return None
+        mask_epsg = getattr(mask, "epsg", None)
+        if nc.epsg and mask_epsg and int(mask_epsg) != int(nc.epsg):
+            return None
+        try:
+            xmin, ymin, xmax, ymax = (float(bound) for bound in mask.total_bounds)
+        except (AttributeError, TypeError, ValueError):
+            return None
+        columns = [(xmin - gt[0]) / gt[1], (xmax - gt[0]) / gt[1]]
+        rows = [(ymax - gt[3]) / gt[5], (ymin - gt[3]) / gt[5]]
+        # One cell of slack on every side so `touch=True` and half-open rounding cannot clip a
+        # boundary cell the full-read path would have kept.
+        x_off = max(0, math.floor(min(columns)) - 1)
+        y_off = max(0, math.floor(min(rows)) - 1)
+        x_end = min(nc.columns, math.ceil(max(columns)) + 1)
+        y_end = min(nc.rows, math.ceil(max(rows)) + 1)
+        x_size, y_size = x_end - x_off, y_end - y_off
+        if x_size <= 0 or y_size <= 0:
+            return None
+        if x_size * y_size * 2 >= nc.columns * nc.rows:
+            return None
+        raster = nc._window_via_mdarray(x_off, y_off, x_size, y_size)
+        return None if raster is None else Dataset(raster)
 
     def _crop_curvilinear(
         self,
