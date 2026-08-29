@@ -5057,7 +5057,7 @@ class NetCDF(Dataset):
                 the second-to-last dimension is used.
 
         Returns:
-            NetCDF: A subset backed by a classic dataset where every
+            NetCDF | gdal.MDArray: A subset backed by a classic dataset where every
                 non-spatial dimension is mapped onto bands. The new
                 `_band_dim_names` / `_band_dim_values_map` /
                 `_band_dim_sizes` fields drive `sel()`; the legacy
@@ -5067,10 +5067,11 @@ class NetCDF(Dataset):
                 A variable GDAL cannot expose as a raster comes back as
                 the raw `gdal.MDArray` instead: a 1-D variable (a
                 coordinate axis or data series), and any **non-numeric**
-                variable of any rank — a character/string column (which
-                NetCDF stores two-dimensionally as
-                `(records, max string length)`) or a compound (struct)
-                type. Read those with `Read()` (#1067).
+                variable of any rank — a character/string column
+                (however the driver exposes it) or a compound (struct)
+                type. Such a raw array carries no band model, so the
+                band-dim tracking above is only partly populated. Read
+                it with `Read()` (#1067).
 
         Raises:
             ValueError: If `variable_name` is not present in the dataset.
@@ -5426,7 +5427,9 @@ class NetCDF(Dataset):
         When `md_arr` is `None` (e.g. the file-backed gdal.Open path) the band/attr metadata is
         cleared to empty defaults. `cube` may also be a raw `gdal.MDArray` rather than a `NetCDF`
         — a 1-D variable, or a non-numeric one of any rank (see `_read_md_array`) — which has no
-        band model, so the helpers below fall back rather than read band attributes off it.
+        band model, so `_track_band_dimensions` and `_apply_attribute_no_data` fall back rather
+        than read band attributes off it. `_copy_variable_attrs` is unaffected — it reads the
+        MDArray, not the cube.
         """
         if md_arr is None:
             self._clear_variable_metadata(cube)
@@ -5480,6 +5483,11 @@ class NetCDF(Dataset):
         The spatial (X/Y) dimensions are taken from `spatial_dim_indices` (resolved on the unflipped
         array) when available, else the last two. The legacy `_band_dim_name`/`_band_dim_values`
         fields point at the first non-spatial dim so existing 3-D consumers are unaffected.
+
+        `cube` may be a raw `gdal.MDArray` with no band model (see `_read_md_array`). The
+        per-dimension `_band_dim_names` / `_band_dim_sizes` / `_band_dim_values_map` tracking is
+        still recorded for it, but the legacy pair is left as `None`: deriving a primary band view
+        needs a band count the MDArray does not have (#1067).
         """
         if len(dims) > 2:
             spatial = (
