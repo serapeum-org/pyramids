@@ -108,16 +108,22 @@ class TestReadMdArrayNonNumeric:
 
     @staticmethod
     def _mixed_multidim(driver: str, path: str = "test"):
-        """Build a multidim dataset with a 2-D string and a 2-D numeric variable."""
+        """Build a multidim dataset mixing a character column and a numeric grid.
+
+        `units` is the string column — `(record, strlen)`, the layout a character variable has.
+        `obs` is a plain numeric grid on its own `(record, level)` axes rather than sharing the
+        string-length axis, which would be a meaningless grid to assert against.
+        """
         ds = gdal.GetDriverByName(driver).CreateMultiDimensional(path)
         rg = ds.GetRootGroup()
         records = rg.CreateDimension("record", None, None, 4)
         strlen = rg.CreateDimension("strlen", None, None, 3)
+        level = rg.CreateDimension("level", None, None, 3)
         rg.CreateMDArray(
             "units", [records, strlen], gdal.ExtendedDataType.CreateString()
         )
         numeric = rg.CreateMDArray(
-            "obs", [records, strlen], gdal.ExtendedDataType.Create(gdal.GDT_Float32)
+            "obs", [records, level], gdal.ExtendedDataType.Create(gdal.GDT_Float32)
         )
         numeric.Write(np.arange(12, dtype="float32").reshape(4, 3))
         return ds
