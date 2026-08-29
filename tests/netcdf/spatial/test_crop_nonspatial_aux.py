@@ -376,6 +376,28 @@ class TestNonNumericGriddedAux:
             f"named, got {cube._spatial_variable_names()}"
         )
 
+    def test_demotion_warning_names_the_dtype_not_the_axes(self):
+        """The demotion warning blames the data type, not missing axis metadata (#1067).
+
+        Test scenario:
+            ``label(y, x)`` is demoted because GDAL cannot rasterise a string array, not
+            because its axes went unrecognised — they are literally ``y``/``x``. Expected: the
+            warning says so, and does not advise adding CF axis metadata, which would not help.
+        """
+        cube = _era5_like_cube(with_aux=False)
+        _attach_string_grid(cube, "label", ["y", "x"])
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            cube.crop(mask=_MASK, touch=True)
+        messages = [str(w.message) for w in caught if "label" in str(w.message)]
+        assert messages, f"a demotion warning naming 'label' is expected, got {caught}"
+        assert any("not numeric" in m for m in messages), (
+            f"the warning must name the data type as the reason, got {messages}"
+        )
+        assert not any("rename the axes to y/x" in m for m in messages), (
+            f"advising axis metadata is misleading for a dtype demotion, got {messages}"
+        )
+
 
 def _dim(name):
     """A Mock GDAL dimension whose ``GetName()`` returns ``name``."""

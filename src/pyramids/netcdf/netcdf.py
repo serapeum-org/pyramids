@@ -2778,7 +2778,7 @@ class NetCDF(Dataset):
         md = open_mdarray(rg, var_name)
         if md is None:
             return False
-        if md.GetDataType().GetClass() != gdal.GEDTC_NUMERIC:
+        if self._variable_is_non_numeric(rg, var_name):
             # GDAL cannot expose a non-numeric array as a raster, so it can never be operated on
             # spatially however its dimensions are named. Without this, a character or compound
             # variable gridded over `lat`/`lon` is classed spatial, handed to `get_variable`, and
@@ -2795,6 +2795,28 @@ class NetCDF(Dataset):
             self._cf_spatial_axes(rg, var_dims) is not None
             or self._named_spatial_axes(var_dims) is not None
         )
+
+    @staticmethod
+    def _variable_is_non_numeric(rg: Any, var_name: str) -> bool:
+        """True when ``var_name``'s data type is one GDAL cannot expose as a raster.
+
+        GDAL sorts extended data types into three classes; only ``GEDTC_NUMERIC`` can back a
+        classic raster, so a character/string (``GEDTC_STRING``) or struct (``GEDTC_COMPOUND``)
+        variable is non-spatial by dtype alone — see :meth:`_read_md_array`, which returns such a
+        variable as a raw ``MDArray`` for the same reason (#1067).
+
+        Args:
+            rg: The root :class:`osgeo.gdal.Group` of the open store.
+            var_name: Name of the variable to classify.
+
+        Returns:
+            bool: ``True`` for a non-numeric variable; ``False`` for a numeric one or a name
+            that cannot be opened as an MDArray.
+        """
+        md = open_mdarray(rg, var_name)
+        if md is None:
+            return False
+        return bool(md.GetDataType().GetClass() != gdal.GEDTC_NUMERIC)
 
     def _spatial_variable_names(self, rg: Any = None) -> list[str]:
         """Names of the container's gridded variables (have a recognised (y, x) pair).
@@ -3229,6 +3251,10 @@ class NetCDF(Dataset):
         / ensemble / bounds) don't count, so a legitimately non-spatial N-D aux variable (e.g.
         ``(time, level)``) does not trip the warning. ``warn_demoted=False`` suppresses the message
         on the eager fallback recursion, which already warned on the outer call.
+
+        A **non-numeric** grid is demoted for a different reason — GDAL cannot rasterise it at all,
+        whatever its axes are called (see :meth:`_variable_is_spatial`) — so it gets its own message
+        rather than advice about axis metadata that would not help (#1067).
         """
         demoted = [
             n
@@ -3242,13 +3268,26 @@ class NetCDF(Dataset):
             )
             >= 2
         ]
-        if demoted and warn_demoted:
+        if not (demoted and warn_demoted):
+            return
+        non_numeric = [n for n in demoted if self._variable_is_non_numeric(rg, n)]
+        unrecognised = [n for n in demoted if n not in non_numeric]
+        if unrecognised:
             warnings.warn(
-                f"{operation}() is carrying {len(demoted)} multi-dimensional "
-                f"variable(s) {demoted} through unchanged because their axes were "
+                f"{operation}() is carrying {len(unrecognised)} multi-dimensional "
+                f"variable(s) {unrecognised} through unchanged because their axes were "
                 f"not recognised as spatial (no CF axis attributes or known x/y "
                 f"names); they will NOT be cropped/reprojected. Add CF axis "
                 f"metadata (standard_name / axis) or rename the axes to y/x.",
+                stacklevel=4,
+            )
+        if non_numeric:
+            warnings.warn(
+                f"{operation}() is carrying {len(non_numeric)} multi-dimensional "
+                f"variable(s) {non_numeric} through unchanged because their data type is "
+                f"not numeric, so GDAL cannot expose them as a raster; they will NOT be "
+                f"cropped/reprojected. This is independent of their axes — adding CF axis "
+                f"metadata will not change it.",
                 stacklevel=4,
             )
 
