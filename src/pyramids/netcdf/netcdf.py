@@ -5246,6 +5246,43 @@ class NetCDF(Dataset):
                 break
         return values, found
 
+    def _coordinate_candidates(self, axis: str) -> tuple[str, ...]:
+        """Ordered coordinate-variable names to try when georeferencing `axis` (``"X"`` / ``"Y"``).
+
+        The order is deliberate, and `_first_coordinate` takes the first that reads:
+
+        1. the two legacy names (``lon``/``x``, ``lat``/``y``) — kept first so a file that already
+           resolved keeps resolving to exactly the same coordinate;
+        2. names the file's own CF attributes identify as this axis (:meth:`_axis_role`), which is
+           the principled signal and catches a coordinate under any name;
+        3. the remaining well-known names (:data:`_X_DIM_NAMES` / :data:`_Y_DIM_NAMES`) matched
+           **case-insensitively against the names actually present**, so ``Latitude`` or ``LON``
+           resolve without another hardcoded spelling.
+
+        Stages 2 and 3 are why a CF-standard ``latitude`` / ``longitude`` grid is georeferenced at
+        all: the legacy pair never named them, so a variable whose driver does not supply an affine
+        (the HDF5 driver, which serves any ``/vsi`` NetCDF-4 read on Windows) was left in index
+        space (#1071). A frozenset is never iterated directly here — its order is not defined, and
+        this lookup is first-match.
+
+        Args:
+            axis: ``"X"`` for the longitude/easting axis, ``"Y"`` for latitude/northing.
+
+        Returns:
+            tuple[str, ...]: Candidate names, most-specific first, without duplicates.
+        """
+        legacy = ("lon", "x") if axis == "X" else ("lat", "y")
+        well_known = _X_DIM_NAMES if axis == "X" else _Y_DIM_NAMES
+        rg = self._working_group()
+        present = list(rg.GetMDArrayNames() or []) if rg is not None else []
+        cf_named = [name for name in present if self._axis_role(rg, name) == axis]
+        well_known_present = [name for name in present if name.lower() in well_known]
+        ordered: list[str] = []
+        for name in (*legacy, *cf_named, *well_known_present, *sorted(well_known)):
+            if name not in ordered:
+                ordered.append(name)
+        return tuple(ordered)
+
     @staticmethod
     def _coordinates_index_subset(cube: NetCDF, lon, lat, lon_name: str | None) -> bool:
         """Whether the parent's 1-D lon/lat legitimately index `cube`'s spatial grid.
@@ -5285,8 +5322,10 @@ class NetCDF(Dataset):
     def _coordinate_derived_geotransform(self, cube: NetCDF) -> tuple | None:
         """Real-world geotransform from the parent's lon/lat coordinates, or ``None``.
 
-        Returns the north-up affine implied by the parent container's 1-D ``lon``/``lat`` (or
-        ``x``/``y``) coordinate variables when they (a) match the subset's grid shape, (b) index the
+        Returns the north-up affine implied by the parent container's 1-D longitude/latitude
+        coordinate variables — located by :meth:`_coordinate_candidates`, so CF-standard
+        ``latitude``/``longitude`` and the other well-known spellings count, not just ``lon``/``lat``
+        or ``x``/``y`` (#1071) — when they (a) match the subset's grid shape, (b) index the
         subset's spatial dimensions by name (CF coordinate-variable convention — guards a same-shaped
         but different staggered/rotated axis from adopting the wrong coordinates), and (c) actually
         differ from the subset's current (index-space) geotransform. When no 1-D coordinate indexes
@@ -5294,8 +5333,8 @@ class NetCDF(Dataset):
         over those 2-D coordinates (:meth:`_curvilinear_bbox_geotransform`, #1039). Otherwise ``None``.
         """
         result = None
-        lon, lon_name = self._first_coordinate(("lon", "x"))
-        lat, _ = self._first_coordinate(("lat", "y"))
+        lon, lon_name = self._first_coordinate(self._coordinate_candidates("X"))
+        lat, _ = self._first_coordinate(self._coordinate_candidates("Y"))
         if self._coordinates_index_subset(cube, lon, lat, lon_name):
             # Anchor the affine on the coordinate that the *array's* first column / row actually
             # sits at. `_read_md_array` reverses an axis it decided was backwards, so after a flip
