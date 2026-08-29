@@ -682,6 +682,93 @@ def _as_srs(crs: int | str) -> osr.SpatialReference:
     return srs
 
 
+def _open_source_with_srs(path: str) -> tuple[gdal.Dataset, osr.SpatialReference]:
+    """Open one merge source and read its CRS off that same handle.
+
+    The dataset and its CRS are produced together and consumed together, so they
+    are read in one place rather than reopening the file to ask for the CRS.
+
+    Args:
+        path: Path (or ``/vsi*`` URL) of the source raster.
+
+    Returns:
+        tuple[gdal.Dataset, osr.SpatialReference]: The open dataset and its CRS.
+
+    Raises:
+        RuntimeError: GDAL could not open the source.
+        ValueError: The source carries no CRS.
+    """
+    dataset = gdal.Open(path)
+    if dataset is None:
+        raise RuntimeError(f"gdal.Open returned None for source {path!r}.")
+    wkt = dataset.GetProjection()
+    if not wkt:
+        raise ValueError(
+            f"source {path!r} has no CRS; every source must carry a CRS to "
+            "be merged/reprojected."
+        )
+    srs = osr.SpatialReference()
+    srs.ImportFromWkt(wkt)
+    return dataset, srs
+
+
+def _resolve_target_srs(
+    source_srs: list[osr.SpatialReference], dst_crs: int | str | None
+) -> osr.SpatialReference | None:
+    """Return the CRS every source must end up in, or ``None`` if none need to move.
+
+    Args:
+        source_srs: One CRS per source, in `src_paths` order.
+        dst_crs: The caller's explicit target CRS, or ``None`` to auto-detect.
+
+    Returns:
+        osr.SpatialReference | None: The target CRS, or ``None`` when no `dst_crs`
+        was given and every source already shares one — the case where the sources
+        can be composited untouched.
+
+    Raises:
+        ValueError: `dst_crs` could not be parsed as a CRS.
+    """
+    if dst_crs is not None:
+        target = _as_srs(dst_crs)
+    else:
+        # Auto-detect: no reproject when every source already shares a CRS. An
+        # empty source list never indexes, since the slice is empty too.
+        disagree = any(not source_srs[0].IsSame(other) for other in source_srs[1:])
+        target = source_srs[0] if disagree else None
+    return target
+
+
+def _warp_to_srs(
+    dataset: gdal.Dataset, target_wkt: str, resample_alg: Any
+) -> gdal.Dataset:
+    """Reproject one open source onto `target_wkt` as an in-memory VRT.
+
+    Args:
+        dataset: The open source dataset.
+        target_wkt: The target CRS as WKT.
+        resample_alg: Resampling algorithm, already resolved for GDAL.
+
+    Returns:
+        gdal.Dataset: A warped VRT over `dataset`, in the target CRS.
+
+    Raises:
+        RuntimeError: :func:`gdal.Warp` failed.
+    """
+    warped = gdal.Warp(
+        "",
+        dataset,
+        options=gdal.WarpOptions(
+            format="VRT", dstSRS=target_wkt, resampleAlg=resample_alg
+        ),
+    )
+    if warped is None:
+        raise RuntimeError(
+            "gdal.Warp returned None reprojecting a source to the target CRS."
+        )
+    return warped
+
+
 def _prepare_sources(
     src_paths: list[str],
     dst_crs: int | str | None,
@@ -733,50 +820,27 @@ def _prepare_sources(
     opened: list = []
     source_srs: list[osr.SpatialReference] = []
     for path in src_paths:
-        dataset = gdal.Open(path)
-        if dataset is None:
-            raise RuntimeError(f"gdal.Open returned None for source {path!r}.")
-        wkt = dataset.GetProjection()
-        if not wkt:
-            raise ValueError(
-                f"source {path!r} has no CRS; every source must carry a CRS to "
-                "be merged/reprojected."
-            )
-        srs = osr.SpatialReference()
-        srs.ImportFromWkt(wkt)
+        dataset, srs = _open_source_with_srs(path)
         opened.append(dataset)
         source_srs.append(srs)
 
-    target_srs = _as_srs(dst_crs) if dst_crs is not None else None
+    target_srs = _resolve_target_srs(source_srs, dst_crs)
     if target_srs is None:
-        # Auto-detect: no reproject when every source already shares a CRS.
-        disagree = any(not source_srs[0].IsSame(other) for other in source_srs[1:])
-        if not disagree:
-            return opened, opened
-        target_srs = source_srs[0]
-
-    # At least one source needs reprojecting (or dst_crs forces a target). Feed
-    # the compositor open datasets uniformly — gdal.BuildVRT rejects a mix of
-    # path strings and dataset objects.
-    target_wkt = target_srs.ExportToWkt()
-    sources: list = []
-    for dataset, srs in zip(opened, source_srs):
-        if srs.IsSame(target_srs):
-            sources.append(dataset)
-            continue
-        warped = gdal.Warp(
-            "",
-            dataset,
-            options=gdal.WarpOptions(
-                format="VRT", dstSRS=target_wkt, resampleAlg=resample_alg
-            ),
-        )
-        if warped is None:
-            raise RuntimeError(
-                "gdal.Warp returned None reprojecting a source to the target CRS."
-            )
-        sources.append(warped)
-    return sources, sources
+        # Every source already shares a CRS and no target was forced.
+        result = (opened, opened)
+    else:
+        # At least one source needs reprojecting (or dst_crs forces a target). Feed
+        # the compositor open datasets uniformly — gdal.BuildVRT rejects a mix of
+        # path strings and dataset objects.
+        target_wkt = target_srs.ExportToWkt()
+        sources: list = [
+            dataset
+            if srs.IsSame(target_srs)
+            else _warp_to_srs(dataset, target_wkt, resample_alg)
+            for dataset, srs in zip(opened, source_srs)
+        ]
+        result = (sources, sources)
+    return result
 
 
 def _reduce_strip(
