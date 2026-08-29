@@ -848,7 +848,9 @@ def _warp_onto_strip(
         raise RuntimeError(
             f"gdal.Warp returned None warping source {path!r} onto the union grid."
         )
-    array = warped.ReadAsArray().astype("float64")
+    # np.asarray pins the type: GDAL's ReadAsArray is untyped, so without it the
+    # float64 cube is inferred as Any and leaks out of the annotated return.
+    array = np.asarray(warped.ReadAsArray()).astype("float64")
     if array.ndim == 2:
         array = array[np.newaxis, ...]
     return array
