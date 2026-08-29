@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
+from pyramids.base.crs import reproject_coordinates
 from pyramids.cli import main
 from pyramids.dataset import Dataset
 from pyramids.feature import FeatureCollection
@@ -275,6 +276,138 @@ class TestMergeCommand:
         rc = main(["merge", src_raster, str(tmp_path / "m.tif")])
         assert rc == 1, "single-input merge must exit 1"
         assert "at least two" in capsys.readouterr().err, "expected guidance"
+
+    def test_merge_bbox_restricts_the_mosaic(self, src_raster, tmp_path):
+        """`--bbox` narrows the mosaic to the requested window.
+
+        Test scenario:
+            The flag is the CLI's only route to the windowed merge; without a test
+            a typo in the `nargs`/`type` wiring would surface only at runtime.
+        """
+        second = str(tmp_path / "b.tif")
+        Dataset.create_from_array(
+            np.ones((8, 8), dtype="float32"),
+            top_left_corner=(4, 8),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=-9999.0,
+        ).to_file(second)
+        out_path = str(tmp_path / "windowed.tif")
+        rc = main(["merge", src_raster, second, out_path, "--bbox", "1", "1", "5", "5"])
+        assert rc == 0, "a windowed merge must succeed"
+        windowed = Dataset.read_file(out_path)
+        assert windowed.columns == 4, f"expected 4 columns, got {windowed.columns}"
+        assert windowed.rows == 4, f"expected 4 rows, got {windowed.rows}"
+
+    def test_merge_bbox_crs_reprojects_the_window(self, src_raster, tmp_path):
+        """`--bbox-crs` reads the window in the CRS it names.
+
+        Test scenario:
+            A dropped `--bbox-crs` would be read as if the window were already in
+            the mosaic's CRS, silently selecting the wrong area rather than failing.
+        """
+        second = str(tmp_path / "b.tif")
+        Dataset.create_from_array(
+            np.ones((8, 8), dtype="float32"),
+            top_left_corner=(4, 8),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=-9999.0,
+        ).to_file(second)
+        xs, ys = reproject_coordinates(
+            [1.0, 5.0], [1.0, 5.0], from_crs=4326, to_crs=3857, precision=None
+        )
+        out_path = str(tmp_path / "windowed_crs.tif")
+        rc = main(
+            [
+                "merge",
+                src_raster,
+                second,
+                out_path,
+                "--bbox",
+                str(xs[0]),
+                str(ys[0]),
+                str(xs[1]),
+                str(ys[1]),
+                "--bbox-crs",
+                "3857",
+            ]
+        )
+        assert rc == 0, "a reprojected window must succeed"
+        windowed = Dataset.read_file(out_path)
+        assert 4 <= windowed.columns <= 5, f"expected ~4 cols, got {windowed.columns}"
+        assert 4 <= windowed.rows <= 5, f"expected ~4 rows, got {windowed.rows}"
+
+    def test_merge_without_bbox_is_unchanged(self, src_raster, tmp_path):
+        """Omitting `--bbox` still mosaics the full extent.
+
+        Test scenario:
+            The window is opt-in; adding the flags must not alter the default.
+        """
+        second = str(tmp_path / "b.tif")
+        Dataset.create_from_array(
+            np.ones((8, 8), dtype="float32"),
+            top_left_corner=(4, 8),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=-9999.0,
+        ).to_file(second)
+        out_path = str(tmp_path / "full.tif")
+        assert main(["merge", src_raster, second, out_path]) == 0
+        assert Dataset.read_file(out_path).columns > 8, "mosaic must span both tiles"
+
+    def test_bbox_crs_without_bbox_exits_one(self, src_raster, tmp_path, capsys):
+        """`--bbox-crs` alone is refused rather than silently dropped.
+
+        Test scenario:
+            merge_rasters ignores bbox_crs when bbox is None, so forgetting --bbox
+            (or mistyping it) would otherwise look like a successful full-extent
+            merge — the classic silently-ignored-flag trap.
+        """
+        second = str(tmp_path / "b.tif")
+        Dataset.create_from_array(
+            np.ones((8, 8), dtype="float32"),
+            top_left_corner=(4, 8),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=-9999.0,
+        ).to_file(second)
+        rc = main(
+            ["merge", src_raster, second, str(tmp_path / "x.tif"), "--bbox-crs", "3857"]
+        )
+        assert rc == 1, "--bbox-crs without --bbox must exit 1"
+        assert "error: " in capsys.readouterr().err, "expected one-line error"
+
+    def test_merge_malformed_bbox_exits_one(self, src_raster, tmp_path, capsys):
+        """An inverted `--bbox` exits 1 with a message rather than a traceback.
+
+        Test scenario:
+            merge_rasters raises ValueError for an inverted window; the CLI must
+            turn that into a clean one-line error like every other subcommand.
+        """
+        second = str(tmp_path / "b.tif")
+        Dataset.create_from_array(
+            np.ones((8, 8), dtype="float32"),
+            top_left_corner=(4, 8),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=-9999.0,
+        ).to_file(second)
+        rc = main(
+            [
+                "merge",
+                src_raster,
+                second,
+                str(tmp_path / "bad.tif"),
+                "--bbox",
+                "5",
+                "1",
+                "1",
+                "5",
+            ]
+        )
+        assert rc == 1, "an inverted bbox must exit 1"
+        assert "error: " in capsys.readouterr().err, "expected one-line error"
 
 
 class TestOverviewCommand:

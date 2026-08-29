@@ -33,13 +33,17 @@ pyramids convert in.asc out.tif                       # re-encode; --driver GTif
 pyramids warp in.tif out.tif --crs 4326 --resampling bilinear
 pyramids clip in.tif out.tif --bbox 440000 475000 480000 515000    # or: --vector aoi.geojson
 pyramids merge tileA.tif tileB.tif tileC.tif mosaic.tif            # two or more inputs, last arg = output
+pyramids merge tileA.tif tileB.tif aoi.tif --bbox 4.1 51.9 4.6 52.2 --bbox-crs 4326   # read only the window
 pyramids overview dem.tif --levels 2 4 8 --resampling average      # build image pyramids IN PLACE
 ```
 
 - **`convert`** — re-save a raster in another format (driver inferred from the extension, or `--driver`).
 - **`warp`** — reproject to `--crs` with an optional `--resampling`.
 - **`clip`** — crop by `--bbox MINX MINY MAXX MAXY` (in the raster CRS) **or** by a polygon `--vector`.
-- **`merge`** — mosaic two-or-more rasters; the **last** positional argument is the output.
+- **`merge`** — mosaic two-or-more rasters; the **last** positional argument is the output. `--bbox MINX MINY
+  MAXX MAXY` restricts the mosaic to that window and reads only it, which is what makes a small area of interest
+  cheap to pull from remote sources instead of transferring every source in full. The window is in the mosaic's
+  own CRS unless `--bbox-crs` names another.
 - **`overview`** — build power-of-two overviews (`--levels 2 4 8 …`) into the file itself.
 
 ## Cloud-Optimized GeoTIFF

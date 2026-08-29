@@ -1653,14 +1653,14 @@ class DatasetCollection:
                 order).
             patch_url: Optional low-level callable rewriting each href
                 (runs before `signer`).
-            bbox: M6 — **input filter**, `(minx, miny, maxx, maxy)` in
+            bbox: **input filter**, `(minx, miny, maxx, maxy)` in
                 **lon/lat** (EPSG:4326). Selects *which STAC items* are read:
                 items whose footprint doesn't intersect it are dropped before
                 their hrefs are resolved. It does **not** clip the output — that
                 is the `grid`'s bounds (see :class:`~pyramids.dataset.Grid`).
                 (Note the difference from odc-stac, where `bbox` sets the output
                 extent.)
-            max_items: M6 — cap the number of items consumed (after
+            max_items: cap the number of items consumed (after
                 bbox filtering). Useful for quick-look workflows.
             signer: Optional signer (e.g. a
                 :class:`pyramids.stac.signers.Signer`). Its
@@ -3480,6 +3480,9 @@ class DatasetCollection:
         init: float | int | str = "nan",
         n: float | int | str = "nan",
         method: str = "last",
+        *,
+        bbox: Sequence[float] | None = None,
+        bbox_crs: int | str | None = None,
     ) -> None:
         """Merge this collection's timesteps into one raster.
 
@@ -3509,9 +3512,29 @@ class DatasetCollection:
                 :func:`~pyramids.dataset.merge.merge_rasters`: one of
                 ``"first"``, ``"last"`` (default), ``"min"``, ``"max"``,
                 ``"sum"``.
+            bbox (Sequence[float] | None):
+                Optional ``(west, south, east, north)`` window, forwarded to
+                :func:`~pyramids.dataset.merge.merge_rasters`. ``None`` (default)
+                merges the full extent.
+
+                For a **file-backed** collection this restricts what is read rather
+                than cropping afterwards, which is what makes a small area of
+                interest cheap to pull from remote timesteps. For an **in-memory**
+                collection it only narrows the output: every timestep is staged to
+                disk at full extent before the merge runs, so nothing is saved on
+                the read.
+            bbox_crs (int | str | None):
+                CRS of ``bbox``; ``None`` (default) means it is already in the
+                mosaic's CRS.
 
         Returns:
             None
+
+        Raises:
+            TypeError: ``bbox`` is not four numbers.
+            ValueError: ``bbox`` is malformed, does not overlap the mosaic, or
+                cannot be projected into the mosaic's CRS. Validation happens
+                before any I/O.
         """
         if self._files:
             merge_rasters(
@@ -3521,6 +3544,8 @@ class DatasetCollection:
                 init=init,
                 n=n,
                 method=method,
+                bbox=bbox,
+                bbox_crs=bbox_crs,
             )
             return
         # In-memory collection (legacy `DatasetCollection(src,
@@ -3541,6 +3566,8 @@ class DatasetCollection:
                 init=init,
                 n=n,
                 method=method,
+                bbox=bbox,
+                bbox_crs=bbox_crs,
             )
 
     def apply(

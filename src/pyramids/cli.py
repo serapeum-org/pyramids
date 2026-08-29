@@ -8,7 +8,8 @@ standard-library :mod:`argparse` (no extra dependency):
 - `pyramids bounds FILE [--crs CRS] [--json]` — bounding box
 - `pyramids clip SRC DST (--bbox MINX MINY MAXX MAXY | --vector PATH)` — crop
 - `pyramids warp SRC DST --crs CRS [--resampling M]` — reproject
-- `pyramids merge SRC... DST` — mosaic
+- `pyramids merge SRC... DST [--bbox MINX MINY MAXX MAXY] [--bbox-crs CRS]` —
+  mosaic, reading only the window when one is given
 - `pyramids overview FILE [--resampling M] [--levels N...]` — build overviews
 - `pyramids sample FILE --points "x,y;x,y..." [--json]` — point sampling
 - `pyramids convert SRC DST [--driver NAME]` — format conversion
@@ -683,18 +684,32 @@ def _cmd_merge(args: argparse.Namespace) -> int:
     """Handle `pyramids merge` — mosaic rasters into one file.
 
     Args:
-        args: Parsed arguments with `inputs` (>= 2 paths) and `output`.
+        args: Parsed arguments with `inputs` (>= 2 paths), `output`, and the
+            optional `bbox` / `bbox_crs` window.
 
     Returns:
         int: `0` on success.
 
     Raises:
-        ValueError: Fewer than two input rasters are given.
+        ValueError: Fewer than two input rasters are given, `--bbox-crs` is given
+            without `--bbox`, or the window itself is malformed.
     """
     if len(args.inputs) < 2:
         raise ValueError("merge needs at least two input rasters.")
+    # A --bbox-crs with no --bbox would be accepted and then dropped, so a typo in
+    # the window (or forgetting it) would look like a successful full-extent merge.
+    if args.bbox_crs is not None and not args.bbox:
+        raise ValueError(
+            "merge --bbox-crs names the CRS of --bbox, but no --bbox was given; "
+            "pass --bbox MINX MINY MAXX MAXY as well, or drop --bbox-crs."
+        )
     _refuse_existing(args.output, args.overwrite)
-    merge_rasters(args.inputs, args.output)
+    merge_rasters(
+        args.inputs,
+        args.output,
+        bbox=tuple(args.bbox) if args.bbox else None,
+        bbox_crs=args.bbox_crs,
+    )
     print(f"wrote {args.output}")
     return 0
 
@@ -879,6 +894,18 @@ def _build_parser() -> argparse.ArgumentParser:
     merge = sub.add_parser("merge", help="mosaic rasters into one file")
     merge.add_argument("inputs", nargs="+", help="source raster paths (two or more)")
     merge.add_argument("output", help=_HELP_DST_RASTER)
+    merge.add_argument(
+        "--bbox",
+        nargs=4,
+        type=float,
+        metavar=("MINX", "MINY", "MAXX", "MAXY"),
+        help="restrict the merge to this window, so only it is read",
+    )
+    merge.add_argument(
+        "--bbox-crs",
+        dest="bbox_crs",
+        help="CRS of --bbox (default: the mosaic's own CRS)",
+    )
     merge.add_argument("--overwrite", action="store_true", help=_HELP_OVERWRITE)
     merge.set_defaults(func=_cmd_merge)
 
