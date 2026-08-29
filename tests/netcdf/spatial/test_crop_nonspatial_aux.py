@@ -318,6 +318,9 @@ def _fake_rg(var_dims, coord_attrs=None):
         if name in var_dims:
             md = Mock()
             md.GetDimensions.return_value = [_dim(d) for d in var_dims[name]]
+            # Model a real data variable: `_variable_is_spatial` also tests the dtype class, and a
+            # bare Mock reports one that is not GEDTC_NUMERIC — i.e. never spatial (#1067).
+            md.GetDataType.return_value.GetClass.return_value = gdal.GEDTC_NUMERIC
             return md
         if name in coord_attrs:
             coord = Mock()

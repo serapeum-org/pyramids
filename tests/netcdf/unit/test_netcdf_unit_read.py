@@ -294,6 +294,33 @@ class TestReadMdArrayNonNumeric:
             "the returned array must keep its non-numeric dtype"
         )
 
+    def test_non_numeric_gridded_variable_is_not_spatial(self):
+        """A character variable on recognised y/x axes is auxiliary, not spatial (#1067).
+
+        Test scenario:
+            A string `label(lat, lon)` next to a numeric `t2m(lat, lon)` — expected: only `t2m`
+            is reported spatial. `_variable_is_spatial` classifies by dimension names, so without
+            a dtype test `label` was handed to the container fan-out, which called raster
+            operations on the raw MDArray `get_variable` returns for it.
+        """
+        ds = gdal.GetDriverByName("MEM").CreateMultiDimensional("test")
+        rg = ds.GetRootGroup()
+        lat = rg.CreateDimension("lat", None, None, 3)
+        lon = rg.CreateDimension("lon", None, None, 4)
+        rg.CreateMDArray("label", [lat, lon], gdal.ExtendedDataType.CreateString())
+        numeric = rg.CreateMDArray(
+            "t2m", [lat, lon], gdal.ExtendedDataType.Create(gdal.GDT_Float32)
+        )
+        numeric.Write(np.zeros((3, 4), dtype="float32"))
+        nc = Container(ds)
+        assert nc._spatial_variable_names() == ["t2m"], (
+            "only the numeric grid is spatial; the string grid must be carried as auxiliary, "
+            f"got {nc._spatial_variable_names()}"
+        )
+        assert nc._variable_is_spatial(rg, "label") is False, (
+            "a non-numeric variable is never spatial, whatever its dimensions are named"
+        )
+
 
 class TestNeedsYFlip:
     """Tests for the _needs_y_flip instance method."""
