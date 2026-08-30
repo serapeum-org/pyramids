@@ -251,6 +251,27 @@ _Y_DIM_NAMES = frozenset(
 _X_DIM_NAMES = frozenset(
     {"x", "lon", "longitude", "rlon", "west_east", "easting", "grid_longitude"}
 )
+# The same names in *preference* order, for the blind tail of `_coordinate_candidates` (the file
+# named none of them outright). A set has no order and sorting it alphabetically is an accident
+# that puts `grid_latitude` -- a rotated-pole axis -- ahead of plain `latitude`.
+_Y_NAME_PREFERENCE = (
+    "latitude",
+    "lat",
+    "y",
+    "northing",
+    "rlat",
+    "grid_latitude",
+    "south_north",
+)
+_X_NAME_PREFERENCE = (
+    "longitude",
+    "lon",
+    "x",
+    "easting",
+    "rlon",
+    "grid_longitude",
+    "west_east",
+)
 # Dimension names that clearly denote a non-spatial axis. Used to suppress the
 # "demoted grid" warning for legitimately non-spatial N-D aux variables
 # (e.g. a (time, level) table, time-bounds (time, nv)) — only a variable with
@@ -3731,19 +3752,24 @@ class NetCDF(Dataset):
             or y_off + y_size > sizes[y_index]
         ):
             return None
+        # The caller derived this window from the *wrapper* raster's rows/columns, but it is served
+        # from the raw MDArray. Those agree today only through a chain of non-local invariants
+        # (`_md_spatial_dims` is set once, in `get_variable`, and every reshaping operation
+        # materializes the view and so disables this path). Check it here rather than trust the
+        # chain: a mismatch would silently read a differently-sized grid at the same indices.
+        if sizes[x_index] != self.columns or sizes[y_index] != self.rows:
+            return None
         # A reversed axis is stored back-to-front, so the raster window maps to the mirrored raw
         # slice; read it forwards (negative steps are what the reversed view cannot serve) and undo
-        # the reversal on the small result below.
-        starts, counts = list(sizes), list(sizes)
+        # the reversal on the small result below. Every non-spatial axis is read whole, from 0, so
+        # it flattens into bands exactly as the classic view presents them.
+        starts, counts = [0] * len(sizes), list(sizes)
         for index, (offset, size, flipped) in (
             (x_index, (x_off, x_size, self._md_x_flipped)),
             (y_index, (y_off, y_size, self._md_y_flipped)),
         ):
             starts[index] = sizes[index] - offset - size if flipped else offset
             counts[index] = size
-        for index in range(len(sizes)):
-            if index not in (x_index, y_index):
-                starts[index] = 0
         try:
             block = md_arr.ReadAsArray(array_start_idx=starts, count=counts)
         except (RuntimeError, AttributeError):
@@ -3788,6 +3814,19 @@ class NetCDF(Dataset):
             # EPSG. A cutline warp against a projection-less raster warns and — for a cutline in
             # another CRS — clips the wrong region, so stamp it here rather than inherit nothing.
             target.SetProjection(sr_from_epsg(int(self.epsg)).ExportToWkt())
+        # `_copy_raw_view` gets scale/offset for free from `CreateCopy`; a hand-built MEM raster
+        # does not. Carry them over, or a packed variable (`scale_factor`/`add_offset`, ordinary in
+        # CF) would come back through the shortcut in raw counts while the full-read path returned
+        # the same window in physical units.
+        carried = min(target.RasterCount, self._raster.RasterCount)
+        for band_index in range(1, carried + 1):
+            source_band = self._raster.GetRasterBand(band_index)
+            target_band = target.GetRasterBand(band_index)
+            scale, offset = source_band.GetScale(), source_band.GetOffset()
+            if scale is not None:
+                target_band.SetScale(scale)
+            if offset is not None:
+                target_band.SetOffset(offset)
         self._reconcile_band_no_data(target)
         return target
 
@@ -5346,13 +5385,41 @@ class NetCDF(Dataset):
         return cube
 
     def _first_coordinate(self, candidates: tuple[str, ...]) -> tuple[Any, str | None]:
-        """The first readable coordinate variable among `candidates`, with the name it was found under."""
+        """The first *usable* coordinate variable among `candidates`, with the name it was found under.
+
+        Usable means a 1-D array of at least two values — what an affine can be derived from.
+        Scanning past the unusable ones matters because the candidate list is built partly from CF
+        attributes, and CF says a bounds variable inherits its parent's ``units`` and
+        ``standard_name``: ``latitude_bnds`` / ``lon_vertices`` therefore look exactly like axis
+        coordinates. Committing to the first name that merely *opens* would return that 2-D bounds
+        array, and the caller — which requires ``ndim == 1`` — would silently fall through to the
+        curvilinear branch and leave the variable in index space, defeating the #1071 rescue on a
+        very ordinary CF layout.
+
+        Falls back to the first readable array of any rank when nothing 1-D is found, so a genuinely
+        curvilinear file reaches :meth:`_curvilinear_bbox_geotransform` exactly as before.
+
+        Args:
+            candidates: Ordered names to try, from :meth:`_coordinate_candidates`.
+
+        Returns:
+            tuple[Any, str | None]: The coordinate values and the name they were found under, or
+            ``(None, None)`` when nothing readable matched.
+        """
         values, found = None, None
+        fallback, fallback_name = None, None
         for name in candidates:
             array = self._read_variable(name)
-            if array is not None:
-                values, found = np.asarray(array), name
+            if array is None:
+                continue
+            array = np.asarray(array)
+            if array.ndim == 1 and array.size >= 2:
+                values, found = array, name
                 break
+            if fallback is None:
+                fallback, fallback_name = array, name
+        if values is None:
+            values, found = fallback, fallback_name
         return values, found
 
     def _coordinate_candidates(self, axis: str) -> tuple[str, ...]:
@@ -5382,12 +5449,13 @@ class NetCDF(Dataset):
         """
         legacy = ("lon", "x") if axis == "X" else ("lat", "y")
         well_known = _X_DIM_NAMES if axis == "X" else _Y_DIM_NAMES
+        preferred = _X_NAME_PREFERENCE if axis == "X" else _Y_NAME_PREFERENCE
         rg = self._working_group()
         present = list(rg.GetMDArrayNames() or []) if rg is not None else []
         cf_named = [name for name in present if self._axis_role(rg, name) == axis]
         well_known_present = [name for name in present if name.lower() in well_known]
         ordered: list[str] = []
-        for name in (*legacy, *cf_named, *well_known_present, *sorted(well_known)):
+        for name in (*legacy, *cf_named, *well_known_present, *preferred):
             if name not in ordered:
                 ordered.append(name)
         return tuple(ordered)
