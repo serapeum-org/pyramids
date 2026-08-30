@@ -1666,8 +1666,37 @@ class Spatial(_Engine["Dataset"]):
         # crop the src raster with the aligned mask
         dst_obj = self._crop_aligned(mask)
 
-        dst_obj = Spatial._correct_wrap_cutline_error(dst_obj)
+        # Hand the trim the *base* Dataset, not the subclass. `_crop_aligned` builds its result as
+        # `self._ds.__class__(...)`, so on a NetCDF receiver it is a NetCDF — and
+        # `_correct_wrap_cutline_error` calls `create_from_array(..., geo=...)`, whose NetCDF
+        # override takes `geo_ref=` and no `geo` at all, so the whole raster-mask crop died with
+        # `TypeError: create_from_array() got an unexpected keyword argument 'geo'` (#1073). The
+        # polygon path already avoids this the same way; only this one was missed.
+        dst_obj = Spatial._correct_wrap_cutline_error(Spatial._as_base_dataset(dst_obj))
         return dst_obj
+
+    @staticmethod
+    def _as_base_dataset(src: RasterBase) -> Dataset:
+        """Re-wrap `src` as the plain `Dataset` sitting directly above `RasterBase`.
+
+        Intermediate GDAL results must not be built through a subclass: a subclass may override the
+        constructors shared raster code calls — `NetCDF.create_from_array` takes `geo_ref=` where
+        the base takes `geo=` — so a helper that is correct for a `Dataset` raises `TypeError` on a
+        `NetCDF`. Returns `src` unchanged when it already is the base class.
+
+        Args:
+            src: The dataset to normalise.
+
+        Returns:
+            Dataset: `src` itself, or a base-class wrapper over the same GDAL dataset.
+        """
+        base_cls = next(
+            c
+            for c in src.__class__.__mro__
+            if RasterBase in getattr(c, "__bases__", ())
+        )
+        result = src if type(src) is base_cls else base_cls(src.raster)
+        return cast("Dataset", result)
 
     @staticmethod
     def _cutline_window_bounds(

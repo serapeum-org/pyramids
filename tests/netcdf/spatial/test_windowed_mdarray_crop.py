@@ -631,11 +631,8 @@ class TestCropUsesTheWindow:
             written for `GeoDataFrame`'s pyproj `crs` raises `AttributeError` on it. Matching CRS
             must be offered the window and a differing one declined, without either raising.
 
-            Deliberately exercises `_mask_window_source` rather than `crop()`: cropping a NetCDF
-            variable with a raster mask is broken independently of this shortcut (it raises
-            `TypeError: create_from_array() got an unexpected keyword argument 'geo'` on `main`
-            with the shortcut disabled), so an end-to-end assertion here would be testing that
-            unrelated defect.
+            Exercises `_mask_window_source` directly so the guard is pinned regardless of what the
+            surrounding crop does; the end-to-end raster-mask crop is covered separately.
         """
         var = NetCDF.read_file(grid_path).get_variable("v")
         template = gdal.GetDriverByName("MEM").Create("", 4, 3, 1, gdal.GDT_Float32)
@@ -649,6 +646,46 @@ class TestCropUsesTheWindow:
         assert (source is not None) is expected, (
             f"EPSG:{epsg} mask: expected shortcut offered={expected}"
         )
+
+    def test_raster_mask_crop_takes_the_mask_grid(self, grid_path, monkeypatch):
+        """Cropping with a `Dataset` mask returns the mask's grid, by either path.
+
+        Args:
+            grid_path: The written grid fixture.
+            monkeypatch: Used to disable the shortcut for the reference crop.
+
+        Test scenario:
+            A raster mask is an alignment target, not just a clip: the crop takes the mask's own
+            grid. This whole path used to raise `TypeError: create_from_array() got an unexpected
+            keyword argument 'geo'`, because the shared trim builds an intermediate through
+            `self.__class__` and the NetCDF override of `create_from_array` takes a different
+            signature (#1073). Asserts the result matches the mask *and* that the shortcut changes
+            nothing.
+        """
+        template = gdal.GetDriverByName("MEM").Create("", 4, 3, 1, gdal.GDT_Float32)
+        template.SetGeoTransform([-179.75, CELL, 0.0, -88.25, 0.0, -CELL])
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(4326)
+        template.SetSpatialRef(srs)
+
+        def _cropped():
+            var = NetCDF.read_file(grid_path).get_variable("v")
+            return var.crop(mask=Dataset(template), touch=True)
+
+        fast = _cropped()
+        assert (fast.rows, fast.columns) == (3, 4), (
+            f"expected the mask's 3x4 grid, got {(fast.rows, fast.columns)}"
+        )
+        assert np.allclose(
+            fast.geotransform, [-179.75, CELL, 0.0, -88.25, 0.0, -CELL]
+        ), f"expected the mask's affine, got {fast.geotransform}"
+        monkeypatch.setattr(
+            selection_module.Selection, "_mask_window_source", lambda self, mask: None
+        )
+        reference = _cropped()
+        assert np.array_equal(
+            _as_bands(fast.read_array()), _as_bands(reference.read_array())
+        ), "the windowed and full-read raster-mask crops differ"
 
     def test_crop_after_an_in_place_mutation_sees_the_mutation(
         self, grid_path, monkeypatch
