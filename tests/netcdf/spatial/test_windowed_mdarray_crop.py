@@ -128,6 +128,71 @@ def cube_path(tmp_path) -> str:
     return path
 
 
+N_LEVEL = 3
+
+
+@pytest.fixture
+def hypercube_path(tmp_path) -> str:
+    """A `(time, level, latitude, longitude)` grid — two non-spatial dimensions.
+
+    Three dimensions only ever collapse one axis into bands, which cannot tell a correct
+    flattening from one that transposes the two. Here `time` x `level` must flatten to
+    `N_TIME * N_LEVEL` bands in storage order, time slowest.
+
+    Args:
+        tmp_path: pytest temp directory.
+
+    Returns:
+        str: Path to the written file.
+    """
+    path = str(tmp_path / "hypercube.nc")
+    ds = gdal.GetDriverByName("netCDF").CreateMultiDimensional(path)
+    rg = ds.GetRootGroup()
+    d_time = rg.CreateDimension("time", "", "", N_TIME)
+    d_level = rg.CreateDimension("level", "", "", N_LEVEL)
+    d_lat = rg.CreateDimension("latitude", "", "", N_LAT)
+    d_lon = rg.CreateDimension("longitude", "", "", N_LON)
+    time = rg.CreateMDArray(
+        "time", [d_time], gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+    )
+    time.Write(np.arange(N_TIME, dtype="float64"))
+    level = rg.CreateMDArray(
+        "level", [d_level], gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+    )
+    level.Write(np.arange(N_LEVEL, dtype="float64"))
+    lat = rg.CreateMDArray(
+        "latitude", [d_lat], gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+    )
+    lat.Write(LAT_FIRST + CELL * np.arange(N_LAT))
+    lon = rg.CreateMDArray(
+        "longitude", [d_lon], gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+    )
+    lon.Write(LON_FIRST + CELL * np.arange(N_LON))
+    for arr, std, axis, units in (
+        (lat, "latitude", "Y", "degrees_north"),
+        (lon, "longitude", "X", "degrees_east"),
+    ):
+        for key, value in (("standard_name", std), ("axis", axis), ("units", units)):
+            attr = arr.CreateAttribute(key, [], gdal.ExtendedDataType.CreateString())
+            attr.Write(value)
+    var = rg.CreateMDArray(
+        "v",
+        [d_time, d_level, d_lat, d_lon],
+        gdal.ExtendedDataType.Create(gdal.GDT_Float32),
+    )
+    var.Write(
+        np.arange(N_TIME * N_LEVEL * N_LAT * N_LON, dtype="float32").reshape(
+            N_TIME, N_LEVEL, N_LAT, N_LON
+        )
+    )
+    time = level = lat = lon = var = None
+    d_time = d_level = d_lat = d_lon = rg = None
+    ds.Close()
+    del ds
+    gc.collect()
+    return path
+
+
 def _as_bands(array) -> np.ndarray:
     """Normalise a read to `(bands, rows, cols)` so 2-D and 3-D reads compare alike."""
     values = np.asarray(array)
@@ -285,6 +350,42 @@ class TestWindowViaMdArrayMultiBand:
         )
         assert np.array_equal(got, expected), (
             f"window ({x_off},{y_off},{x_size},{y_size}) does not match the full read"
+        )
+
+    @pytest.mark.parametrize(
+        "x_off, y_off, x_size, y_size",
+        [(0, 0, N_LON, N_LAT), (2, 1, 4, 3)],
+        ids=["whole", "interior"],
+    )
+    def test_two_non_spatial_dimensions_keep_band_order(
+        self, hypercube_path, x_off, y_off, x_size, y_size
+    ):
+        """A `(time, level, y, x)` variable flattens to bands in the classic view's own order.
+
+        Args:
+            hypercube_path: The written 4-D fixture.
+            x_off: Column offset of the window in raster space.
+            y_off: Row offset of the window in raster space.
+            x_size: Window width.
+            y_size: Window height.
+
+        Test scenario:
+            With a single non-spatial axis, a transposed flattening is indistinguishable from a
+            correct one — both yield the same band sequence. Two non-spatial axes separate them:
+            `time` must vary slowest and `level` fastest, exactly as `AsClassicDataset` orders
+            them, or band `k` of the window holds a different slice than band `k` of a full read.
+        """
+        var = NetCDF.read_file(hypercube_path).get_variable("v")
+        full = _as_bands(var.read_array())
+        window = var._window_via_mdarray(x_off, y_off, x_size, y_size)
+        assert window is not None, "the window read must be served"
+        got = _as_bands(window.ReadAsArray())
+        assert got.shape[0] == N_TIME * N_LEVEL, (
+            f"expected {N_TIME * N_LEVEL} bands, got {got.shape[0]}"
+        )
+        expected = full[:, y_off : y_off + y_size, x_off : x_off + x_size]
+        assert np.array_equal(got, expected), (
+            "band order or window placement differs from the classic view for a 4-D variable"
         )
 
     def test_window_keeps_every_band(self, cube_path):
