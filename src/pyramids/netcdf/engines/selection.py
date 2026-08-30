@@ -26,7 +26,7 @@ import geopandas as gpd
 import numpy as np
 from shapely import box, contains_xy
 
-from pyramids.base.crs import crs_spec, sr_from_epsg, sr_from_user_input
+from pyramids.base.crs import crs_equal, crs_spec, sr_from_epsg, sr_from_user_input
 from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
 from pyramids.dataset.engines._base import _Engine
 from pyramids.dataset.engines.spatial import (
@@ -42,6 +42,16 @@ from pyramids.netcdf.array_options import GeoReference
 
 if TYPE_CHECKING:
     from pyramids.netcdf.netcdf import NetCDF
+
+# The window must cover strictly less than 1/N of the variable's cells before reading it through
+# the MDArray earns a second code path: the windowed read pays off by skipping most of the
+# variable, and at parity it is the same work plus an extra copy.
+#
+# Deliberately relative only, with no absolute floor on the variable's size. A floor would spare a
+# small local grid a shortcut that gains it nothing — but it gains nothing there either way, the
+# two paths are asserted to agree cell for cell, and a floor high enough to matter (thousands of
+# cells) would take every test fixture below it and quietly stop exercising this path at all.
+_MIN_WINDOW_SAVING = 2
 
 
 class Selection(_Engine["NetCDF"]):
@@ -462,6 +472,14 @@ class Selection(_Engine["NetCDF"]):
         affine cutline warp, so they mask on their 2-D coordinates; rectilinear grids use the affine
         crop and re-wrap to preserve NetCDF metadata. ``chunks`` is valid only on the curvilinear path.
 
+        The rectilinear path first offers the crop to :meth:`_mask_window_source`, which reads just
+        the mask's window from the MDArray when it can prove that equivalent, and otherwise declines
+        so the existing full-read crop runs unchanged (#1071). The returned crop is identical either
+        way; the difference is a side effect on the *receiver*, which the shortcut skips — a crop
+        that declines stamps the variable's CRS onto its backing raster, and may materialize the
+        multidim view, so a subsequent operation finds a raster that has already been fixed up. A
+        crop that takes the shortcut leaves the receiver untouched.
+
         Args:
             mask: The resolved polygon/raster mask to crop with.
             touch: If True, include cells touching the mask boundary. Defaults to True.
@@ -488,25 +506,116 @@ class Selection(_Engine["NetCDF"]):
                     "chunks= is only supported for curvilinear crop; the affine "
                     "(rectilinear) crop path is eager."
                 )
-            # Stamp the variable's known CRS onto its backing raster before the cutline warp.
-            # A NetCDF variable tracks its EPSG even when the raster (the AsClassicDataset MDArray
-            # view, or a wrap_longitude/materialized MEM raster) carries no projection string;
-            # without it GDAL's cutline warp warns ("the input vector layer has a SRS, but the
-            # source raster dataset does not") and — for a cutline in a different CRS — would clip
-            # the wrong region. The driver-less MDArray view does not persist SetProjection, so
-            # materialize it first (the affine crop reads it fully anyway). See issue #629.
-            if nc.epsg and nc._raster is not None and not nc._raster.GetProjection():
-                wkt = sr_from_epsg(int(nc.epsg)).ExportToWkt()
-                nc._raster.SetProjection(wkt)
-                if not nc._raster.GetProjection():
-                    nc._materialize_md_view()
+            # Crop the mask's window rather than the whole variable when that window can be read
+            # straight from the MDArray: the affine crop reads its source in full, which over a
+            # remote store means fetching the entire variable to clip a few cells. This has to run
+            # *before* the CRS stamping below, because materializing drops the root-group reference
+            # the windowed read needs — and the windowed raster carries the CRS already (#1071).
+            source = self._mask_window_source(mask)
+            if source is None:
+                # Stamp the variable's known CRS onto its backing raster before the cutline warp.
+                # A NetCDF variable tracks its EPSG even when the raster (the AsClassicDataset
+                # MDArray view, or a wrap_longitude/materialized MEM raster) carries no projection
+                # string; without it GDAL's cutline warp warns ("the input vector layer has a SRS,
+                # but the source raster dataset does not") and — for a cutline in a different CRS —
+                # would clip the wrong region. The driver-less MDArray view does not persist
+                # SetProjection, so materialize it first (that path reads it fully anyway).
+                # See issue #629.
+                if (
+                    nc.epsg
+                    and nc._raster is not None
+                    and not nc._raster.GetProjection()
+                ):
+                    wkt = sr_from_epsg(int(nc.epsg)).ExportToWkt()
                     nc._raster.SetProjection(wkt)
+                    if not nc._raster.GetProjection():
+                        nc._materialize_md_view()
+                        nc._raster.SetProjection(wkt)
+                source = nc
             # `nc.spatial.crop` is the base Dataset affine crop — exactly what the
             # NetCDF.crop override reached via `super().crop(...)`, bypassing this engine.
             result = nc._preserve_netcdf_metadata(
-                nc.spatial.crop(mask=mask, touch=touch)
+                source.spatial.crop(mask=mask, touch=touch)
             )
         return result
+
+    def _mask_window_source(self, mask: Any) -> Dataset | None:
+        """A `Dataset` over just the mask's window, read straight from the MDArray.
+
+        The affine crop reads its whole source before clipping. That is cheap for a local file
+        and expensive for a remote one — the classic view a variable is backed by turns a small
+        windowed read into a strided gather, so clipping a few cells out of a 14 GB `/vsicurl`
+        NetCDF-4 costs seconds. Reading the window through
+        :meth:`~pyramids.netcdf.NetCDF._window_via_mdarray` instead is roughly an order of
+        magnitude cheaper, and the clip that follows is identical because the window is built to
+        contain the mask.
+
+        Declines (returns ``None``, leaving the caller to crop the full variable) whenever the
+        shortcut is not provably equivalent: a rotated or degenerate affine, a mask whose CRS is
+        not known to equal the raster's (whose cutline the warp must reproject), non-finite mask
+        bounds, a mask that misses the grid, a window that is not appreciably smaller than the
+        variable, or a read the MDArray cannot serve.
+
+        Args:
+            mask: The resolved mask the crop will clip with — a `FeatureCollection`, a bare
+                `geopandas.GeoDataFrame` (passed straight through by `_resolve_crop_mask`), or a
+                `Dataset` whose footprint is used. Only `crs` and `total_bounds` are read, so any
+                of them is accepted; anything lacking them declines.
+
+        Returns:
+            Dataset | None: A raster of the window carrying its sub-affine, or ``None``.
+        """
+        nc = self._ds
+        gt = nc._geotransform
+        if not gt or not gt[1] or not gt[5] or gt[2] or gt[4]:
+            return None
+        # Compare the CRSs themselves, the way `Spatial._cutline_window_bounds` does. An `epsg`
+        # comparison fails open twice over: `crop(mask=...)` accepts a bare `GeoDataFrame`, which
+        # has no `.epsg` at all, and a grid with no authority code (rotated pole, geostationary)
+        # reports `epsg` as `None`. Either way the guard would be skipped and the mask's
+        # unreprojected coordinates divided through this raster's affine -- a plausible-looking
+        # window over the wrong part of the grid, which is wrong data rather than an error.
+        # Unknown on either side is not "equal": decline and let the warp reproject the cutline.
+        # `crs` is a pyproj CRS on a GeoDataFrame/FeatureCollection but a plain WKT string on a
+        # Dataset mask, so normalise before comparing rather than assume either shape.
+        mask_crs = getattr(mask, "crs", None)
+        if mask_crs is not None and hasattr(mask_crs, "to_wkt"):
+            mask_crs = mask_crs.to_wkt()
+        source_crs = nc.crs
+        if not source_crs or not mask_crs:
+            return None
+        if not crs_equal(source_crs, mask_crs):
+            return None
+        try:
+            xmin, ymin, xmax, ymax = (float(bound) for bound in mask.total_bounds)
+        except (AttributeError, TypeError, ValueError):
+            return None
+        # An empty or all-null-geometry mask has non-finite bounds; `math.floor(nan)` raises
+        # `ValueError` and `math.floor(inf)` `OverflowError`. The full-read path reports that as a
+        # clean "Did not get any cutline features", so decline rather than turn it into a numeric
+        # error raised out of an optimisation the caller never asked for.
+        if not all(math.isfinite(bound) for bound in (xmin, ymin, xmax, ymax)):
+            return None
+        columns = [(xmin - gt[0]) / gt[1], (xmax - gt[0]) / gt[1]]
+        rows = [(ymax - gt[3]) / gt[5], (ymin - gt[3]) / gt[5]]
+        # One cell of slack on every side so `touch=True` and half-open rounding cannot clip a
+        # boundary cell the full-read path would have kept.
+        x_off = max(0, math.floor(min(columns)) - 1)
+        y_off = max(0, math.floor(min(rows)) - 1)
+        x_end = min(nc.columns, math.ceil(max(columns)) + 1)
+        y_end = min(nc.rows, math.ceil(max(rows)) + 1)
+        x_size, y_size = x_end - x_off, y_end - y_off
+        if x_size <= 0 or y_size <= 0:
+            return None
+        if x_size * y_size * _MIN_WINDOW_SAVING >= nc.columns * nc.rows:
+            return None
+        try:
+            raster = nc._window_via_mdarray(x_off, y_off, x_size, y_size)
+        except (RuntimeError, AttributeError, ValueError):
+            # The shortcut is an optimisation the caller never asked for; anything it fails on must
+            # reach the ordinary full-read crop, not surface as an error out of `crop()`.
+            raster = None
+        return None if raster is None else Dataset(raster)
 
     def _crop_curvilinear(
         self,

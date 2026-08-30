@@ -1666,8 +1666,64 @@ class Spatial(_Engine["Dataset"]):
         # crop the src raster with the aligned mask
         dst_obj = self._crop_aligned(mask)
 
-        dst_obj = Spatial._correct_wrap_cutline_error(dst_obj)
+        # Hand the trim the *base* Dataset, not the subclass. `_crop_aligned` builds its result as
+        # `self._ds.__class__(...)`, so on a NetCDF receiver it is a NetCDF — and
+        # `_correct_wrap_cutline_error` calls `create_from_array(..., geo=...)`, whose NetCDF
+        # override takes `geo_ref=` and no `geo` at all, so the whole raster-mask crop died with
+        # `TypeError: create_from_array() got an unexpected keyword argument 'geo'` (#1073). The
+        # polygon path already avoids this the same way; only this one was missed.
+        dst_obj = Spatial._correct_wrap_cutline_error(Spatial._as_base_dataset(dst_obj))
         return dst_obj
+
+    @staticmethod
+    def _base_dataset_class(source: type) -> type[Dataset]:
+        """The plain `Dataset` class sitting directly above `RasterBase` in `source`'s MRO.
+
+        Intermediate GDAL results must not be built through a subclass: a subclass may override the
+        constructors shared raster code calls — `NetCDF.create_from_array` takes `geo_ref=` where
+        the base takes `geo=` — so a helper that is correct for a `Dataset` raises `TypeError` on a
+        `NetCDF`.
+
+        Args:
+            source: The class to walk, normally `type(some_dataset)`.
+
+        Returns:
+            type[Dataset]: The base class, or `source` unchanged when the walk finds nothing. That
+            leaves such a caller exactly where it was, which is safer than the bare `next()` this
+            replaced — whose `StopIteration` would have aborted the crop outright. (`Dataset`
+            itself is not usable as the default: this module imports it lazily to break a cycle,
+            so the name does not exist at call time.)
+        """
+        found = next(
+            (c for c in source.__mro__ if RasterBase in getattr(c, "__bases__", ())),
+            source,
+        )
+        return cast("type[Dataset]", found)
+
+    @staticmethod
+    def _as_base_dataset(src: RasterBase) -> Dataset:
+        """Re-wrap `src` as the plain `Dataset` above `RasterBase`, preserving how it was opened.
+
+        See :meth:`_base_dataset_class` for why the subclass must not carry into an intermediate.
+        Returns `src` unchanged when it already is the base class, so the common path allocates
+        nothing; otherwise the new wrapper is given the same access mode and GDAL environment, or
+        it would silently come back read-only and without the source's open options.
+
+        Args:
+            src: The dataset to normalise.
+
+        Returns:
+            Dataset: `src` itself, or a base-class wrapper over the same GDAL dataset.
+        """
+        base_cls = Spatial._base_dataset_class(src.__class__)
+        if type(src) is base_cls:
+            return cast("Dataset", src)
+        carried = {
+            name: getattr(src, name)
+            for name in ("access", "gdal_env", "open_options")
+            if getattr(src, name, None) is not None
+        }
+        return cast("Dataset", base_cls(src.raster, **carried))
 
     @staticmethod
     def _cutline_window_bounds(
@@ -1910,17 +1966,9 @@ class Spatial(_Engine["Dataset"]):
             if x_size > 0 and y_size > 0:
                 array = self._ds.read_array(window=[xoff, yoff, x_size, y_size])
                 new_gt = (x0 + xoff * dx, dx, 0.0, y0 + yoff * dy, 0.0, dy)
-                # Rebuild on the base Dataset class (never a subclass like NetCDF),
-                # whose create_from_array has the plain array->raster behaviour this
-                # path needs; mirrors _crop_with_polygon_warp's base-class walk.
-                base_cls = cast(
-                    "type[Dataset]",
-                    next(
-                        c
-                        for c in self._ds.__class__.__mro__
-                        if RasterBase in getattr(c, "__bases__", ())
-                    ),
-                )
+                # Rebuild on the base Dataset class (never a subclass like NetCDF), whose
+                # create_from_array has the plain array->raster behaviour this path needs.
+                base_cls = Spatial._base_dataset_class(self._ds.__class__)
                 dst = cast(
                     "Dataset",
                     base_cls.create_from_array(
@@ -1974,14 +2022,10 @@ class Spatial(_Engine["Dataset"]):
         # gdal.Warp's cutlineDSName needs a *path*; stage the vector in
         # /vsimem/ through the internal OGR bridge. The path is unlinked
         # automatically when the with-block exits.
-        # Use the base Dataset class (not a subclass like NetCDF) for intermediate GDAL warp results
-        # because _correct_wrap_cutline_error calls create_from_array which has different behavior in
-        # subclasses.
-        base_cls = next(
-            c
-            for c in self._ds.__class__.__mro__
-            if RasterBase in getattr(c, "__bases__", ())
-        )
+        # Intermediate GDAL warp results are built on the base Dataset class, never a subclass:
+        # `_correct_wrap_cutline_error` calls `create_from_array`, whose NetCDF override takes a
+        # different signature. See `_base_dataset_class`.
+        base_cls = Spatial._base_dataset_class(self._ds.__class__)
 
         # The warp output (VRT) may resolve the cutline lazily, so we must
         # complete every access that could touch the cutline path inside
@@ -2020,9 +2064,8 @@ class Spatial(_Engine["Dataset"]):
                     else None
                 ),
             )
-            # base_cls is a dynamic MRO walk that always resolves to Dataset itself
-            # (the class directly above RasterBase; see the comment above), never a
-            # subclass, so this is guaranteed to actually be a Dataset at runtime.
+            # `_base_dataset_class` already returns a `type[Dataset]`; the cast is for the
+            # checker's benefit only.
             # Routed through warp_to_dataset for the pin: with `touch` false the
             # result is the raw VRT, which reads through to the source on every
             # access and previously held nothing alive.

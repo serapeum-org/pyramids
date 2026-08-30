@@ -245,12 +245,40 @@ _REDUCERS: dict[str, tuple[Any, Any]] = {
 # ``NetCDF._detect_spatial_axes`` as a fallback when the coordinate variables
 # carry no CF axis / standard_name / units attributes (e.g. NWM names them
 # plainly ``x`` / ``y``). Compared case-insensitively.
-_Y_DIM_NAMES = frozenset(
-    {"y", "lat", "latitude", "rlat", "south_north", "northing", "grid_latitude"}
+# Listed in *preference* order — most common and most specific first. The order matters for the
+# blind tail of `_coordinate_candidates` (a store whose names could not be enumerated): a set has
+# none, and sorting alphabetically is an accident that puts `grid_latitude`, a rotated-pole axis,
+# ahead of plain `latitude`.
+_Y_NAME_PREFERENCE = (
+    "latitude",
+    "lat",
+    "y",
+    "northing",
+    "rlat",
+    "grid_latitude",
+    "south_north",
 )
-_X_DIM_NAMES = frozenset(
-    {"x", "lon", "longitude", "rlon", "west_east", "easting", "grid_longitude"}
+_X_NAME_PREFERENCE = (
+    "longitude",
+    "lon",
+    "x",
+    "easting",
+    "rlon",
+    "grid_longitude",
+    "west_east",
 )
+# Membership views of the same names for the case-insensitive "is this well known" test. Derived,
+# not written out a second time: two hand-kept copies of one list drift, and the drift is silent —
+# a name added to only one of them is either never matched or never tried.
+_Y_DIM_NAMES = frozenset(_Y_NAME_PREFERENCE)
+_X_DIM_NAMES = frozenset(_X_NAME_PREFERENCE)
+# Everything `_coordinate_candidates` needs for one axis, keyed by it: the two legacy names tried
+# first (kept for backward compatibility, so a file that already resolved keeps resolving to the
+# same coordinate), the membership set, and the blind-tail preference order.
+_AXIS_NAME_SOURCES = {
+    "X": (("lon", "x"), _X_DIM_NAMES, _X_NAME_PREFERENCE),
+    "Y": (("lat", "y"), _Y_DIM_NAMES, _Y_NAME_PREFERENCE),
+}
 # Dimension names that clearly denote a non-spatial axis. Used to suppress the
 # "demoted grid" warning for legitimately non-spatial N-D aux variables
 # (e.g. a (time, level) table, time-bounds (time, nv)) — only a variable with
@@ -797,6 +825,16 @@ class NetCDF(Dataset):
         _invalidate_cached_accessors(self)
         # Drop the memoised classic geolocation handle so it is re-resolved.
         self.__dict__.pop("_geolocation_source_memo", None)
+        # ... and the resolved axis-coordinate names, which are read off the store's layout.
+        self.__dict__.pop("_coordinate_candidate_cache", None)
+        # An in-place swap installs a raster holding *different* values — the whole point of
+        # `apply(inplace=True)`, `fill` and `add_band`. The multidim references above are preserved
+        # deliberately (this is still that variable of that file), but they no longer describe what
+        # `self._raster` holds, so a read that goes back to the MDArray returns the pre-mutation
+        # data. Nothing else can notice: the swap keeps the grid size, so a shape check sees
+        # nothing. Record the divergence so `_window_via_mdarray` stops serving windows from the
+        # source, and the crop falls back to reading the raster it was actually given.
+        self._raster_diverged_from_source = True
 
     def __str__(self):
         """Return a human-readable summary, or a `<Dataset: closed>` sentinel when closed.
@@ -3682,6 +3720,219 @@ class NetCDF(Dataset):
             self._reconcile_band_no_data(result)
         return result
 
+    def _window_via_mdarray(
+        self, x_off: int, y_off: int, x_size: int, y_size: int
+    ) -> gdal.Dataset | None:
+        """Read one raster window straight from the MDArray, as a small north-up ``MEM`` raster.
+
+        The classic ``AsClassicDataset`` view is the wrong tool for a *small* window over a remote
+        store. A variable stored ``(time, longitude, latitude)`` is presented by that view as
+        ``rows=latitude, cols=longitude``, so every raster row is a strided gather and a windowed
+        read costs roughly what a full one does. Measured against a 14 GB ``/vsicurl`` NetCDF-4:
+        the same ``16x8x8`` window takes ~0.8 s through :meth:`osgeo.gdal.MDArray.Read` and ~7.5 s
+        through the classic view. (For a *whole*-array read the classic view wins, which is why
+        :meth:`_copy_raw_view` still uses it — this is a windowed-read shortcut, not a replacement.)
+
+        The window is given in **raster** space (north-up, post-flip, matching
+        :attr:`geotransform`); the raw indices are derived from it, so a reversed axis is read as a
+        forward contiguous slice and reversed afterwards with NumPy.
+
+        Args:
+            x_off: Column offset of the window in raster space.
+            y_off: Row offset of the window in raster space.
+            x_size: Window width in columns.
+            y_size: Window height in rows.
+
+        Returns:
+            gdal.Dataset | None: A ``MEM`` raster of the window carrying the sub-affine and the
+            wrapper's CRS, or ``None`` when the read is not possible (no root group, no source
+            variable, unresolved spatial dimensions, unknown flips, an out-of-range window, or a
+            failed read) — in which case the caller keeps its existing full-read path.
+        """
+        plan = self._window_read_plan(x_off, y_off, x_size, y_size)
+        if plan is None:
+            return None
+        md_arr, starts, counts, spatial = plan
+        try:
+            block = md_arr.ReadAsArray(array_start_idx=starts, count=counts)
+        except (RuntimeError, AttributeError):
+            block = None
+        if block is None:
+            return None
+        target = self._window_raster(np.asarray(block), spatial, x_size, y_size)
+        if target is not None:
+            self._stamp_window_georeference(target, x_off, y_off)
+        return target
+
+    def _window_read_plan(
+        self, x_off: int, y_off: int, x_size: int, y_size: int
+    ) -> tuple[Any, list[int], list[int], tuple[int, int]] | None:
+        """Raw ``(array, start, count, spatial)`` for a raster window, or ``None`` to decline.
+
+        Owns every precondition of the windowed read and the raster-to-raw index mapping, so
+        :meth:`_window_via_mdarray` is left with read, build, stamp.
+
+        Args:
+            x_off: Column offset of the window in raster space.
+            y_off: Row offset of the window in raster space.
+            x_size: Window width in columns.
+            y_size: Window height in rows.
+
+        Returns:
+            tuple | None: The opened MDArray, its per-dimension start and count, and the
+            ``(x_index, y_index)`` spatial pair — or ``None`` when the read must not be served.
+        """
+        rg = self._gdal_rg_ref
+        var = self._source_var_name
+        spatial = self._md_spatial_dims
+        flips_known = isinstance(self._md_y_flipped, bool) and isinstance(
+            self._md_x_flipped, bool
+        )
+        if rg is None or var is None or spatial is None or not flips_known:
+            return None
+        # Reading from the MDArray is only equivalent while the wrapper's raster still *is* that
+        # variable. An in-place mutation (`apply(inplace=True)`, `fill`, `add_band`) swaps in a
+        # raster of the same size holding different values while keeping the multidim references,
+        # so every size and shape check still passes and the window would silently return the
+        # pre-mutation data (#1071 review).
+        if getattr(self, "_raster_diverged_from_source", False):
+            return None
+        x_index, y_index = spatial
+        try:
+            md_arr = rg.OpenMDArray(var)
+            sizes = [d.GetSize() for d in md_arr.GetDimensions()]
+        except (RuntimeError, AttributeError):
+            return None
+        in_range = (
+            0 <= x_off
+            and 0 <= y_off
+            and x_size > 0
+            and y_size > 0
+            and x_off + x_size <= sizes[x_index]
+            and y_off + y_size <= sizes[y_index]
+        )
+        # The caller derived this window from the *wrapper* raster's rows/columns, but it is served
+        # from the raw MDArray. Those agree today only through a chain of non-local invariants
+        # (`_md_spatial_dims` is set once, in `get_variable`, and every reshaping operation
+        # materializes the view and so disables this path). Check it here rather than trust the
+        # chain: a mismatch would silently read a differently-sized grid at the same indices.
+        same_grid = sizes[x_index] == self.columns and sizes[y_index] == self.rows
+        if not (in_range and same_grid):
+            return None
+        # A reversed axis is stored back-to-front, so the raster window maps to the mirrored raw
+        # slice; read it forwards (negative steps are what the reversed view cannot serve) and undo
+        # the reversal on the small result later. Every non-spatial axis is read whole, from 0, so
+        # it flattens into bands exactly as the classic view presents them.
+        starts, counts = [0] * len(sizes), list(sizes)
+        for index, (offset, size, flipped) in (
+            (x_index, (x_off, x_size, self._md_x_flipped)),
+            (y_index, (y_off, y_size, self._md_y_flipped)),
+        ):
+            starts[index] = sizes[index] - offset - size if flipped else offset
+            counts[index] = size
+        return md_arr, starts, counts, (x_index, y_index)
+
+    def _window_raster(
+        self,
+        block: np.ndarray,
+        spatial: tuple[int, int],
+        x_size: int,
+        y_size: int,
+    ) -> gdal.Dataset | None:
+        """Lay a raw window out the way the classic view does, as a ``MEM`` raster.
+
+        Args:
+            block: The raw window as read, in the variable's own dimension order.
+            spatial: The ``(x_index, y_index)`` positions of the spatial axes in `block`.
+            x_size: Window width in columns.
+            y_size: Window height in rows.
+
+        Returns:
+            gdal.Dataset | None: The ``MEM`` raster, or ``None`` if it could not be allocated.
+        """
+        x_index, y_index = spatial
+        # The classic view flattens every non-spatial dimension into bands, in storage order, and
+        # presents the spatial pair as (rows, cols) — mirror that so band order is unchanged.
+        # `moveaxis` and the flip slices are views; only the per-band `ascontiguousarray` below
+        # copies, one band at a time. Reshaping to `(-1, y, x)` here instead would force a copy of
+        # the whole window (the moved axes are not contiguous) and each flip another, holding the
+        # window three times over for a variable with long non-spatial axes.
+        moved = np.moveaxis(block, [y_index, x_index], [-2, -1])
+        rows = slice(None, None, -1) if self._md_y_flipped else slice(None)
+        columns = slice(None, None, -1) if self._md_x_flipped else slice(None)
+        band_shape = moved.shape[:-2]
+        band_count = int(np.prod(band_shape)) if band_shape else 1
+        target = gdal.GetDriverByName("MEM").Create(
+            "", x_size, y_size, band_count, numpy_to_gdal_dtype(moved.dtype)
+        )
+        if target is not None:
+            for band_index in range(band_count):
+                # `unravel_index` walks the non-spatial axes in C order — the same order the flat
+                # reshape would have produced, so band order matches the classic view exactly.
+                plane = (
+                    moved[np.unravel_index(band_index, band_shape)]
+                    if band_shape
+                    else moved
+                )
+                target.GetRasterBand(band_index + 1).WriteArray(
+                    np.ascontiguousarray(plane[rows, columns])
+                )
+        return target
+
+    def _stamp_window_georeference(
+        self, target: gdal.Dataset, x_off: int, y_off: int
+    ) -> None:
+        """Give a window raster the sub-affine, CRS, scale/offset and no-data of its parent.
+
+        Args:
+            target: The window raster to stamp.
+            x_off: Column offset of the window in raster space.
+            y_off: Row offset of the window in raster space.
+        """
+        gt = self._geotransform
+        target.SetGeoTransform(
+            (
+                gt[0] + x_off * gt[1],
+                gt[1],
+                gt[2],
+                gt[3] + y_off * gt[5],
+                gt[4],
+                gt[5],
+            )
+        )
+        source = self._raster
+        if source is None:
+            return
+        wrapper_srs = source.GetSpatialRef()
+        if wrapper_srs is not None:
+            target.SetSpatialRef(wrapper_srs)
+        else:
+            # The MDArray view often carries no SRS of its own, while the variable still knows its
+            # projection. A cutline warp against a projection-less raster warns and — for a cutline
+            # in another CRS — clips the wrong region, so stamp it here rather than inherit
+            # nothing. Prefer the resolved WKT over the EPSG code: a CRS with no authority code (a
+            # rotated pole, a spherical-earth GRIB GEOGCS) has no `epsg` to fall back on and would
+            # otherwise be dropped entirely.
+            wkt = self.crs
+            if wkt:
+                target.SetProjection(wkt)
+            elif self.epsg:
+                target.SetProjection(sr_from_epsg(int(self.epsg)).ExportToWkt())
+        # `_copy_raw_view` gets scale/offset for free from `CreateCopy`; a hand-built MEM raster
+        # does not. Carry them over, or a packed variable (`scale_factor`/`add_offset`, ordinary in
+        # CF) would come back through the shortcut in raw counts while the full-read path returned
+        # the same window in physical units.
+        carried = min(target.RasterCount, source.RasterCount)
+        for band_index in range(1, carried + 1):
+            source_band = source.GetRasterBand(band_index)
+            target_band = target.GetRasterBand(band_index)
+            scale, offset = source_band.GetScale(), source_band.GetOffset()
+            if scale is not None:
+                target_band.SetScale(scale)
+            if offset is not None:
+                target_band.SetOffset(offset)
+        self._reconcile_band_no_data(target)
+
     def _copy_raw_view(self) -> gdal.Dataset | None:
         """Rebuild the **unreversed** classic view of the source variable and copy it into MEM.
 
@@ -3727,13 +3978,19 @@ class NetCDF(Dataset):
                 band.WriteArray(np.ascontiguousarray(band.ReadAsArray()[rows, cols]))
 
     def _reconcile_band_no_data(self, target: gdal.Dataset) -> None:
-        """Copy the wrapper's per-band no-data onto a raster rebuilt from the raw view.
+        """Copy the wrapper's per-band no-data onto a raster built from the same MDArray.
 
-        The rebuilt view reads the same MDArray, so band order, scale and offset already agree. Its
-        no-data need not: an ``AsClassicDataset`` view silently ignores ``SetNoDataValue``, but the
-        VRT that :meth:`_georeference_index_subset` may wrap around it does not, so a no-data set on
-        the wrapper would be lost when the raster is rebuilt. Only a value actually present on the
-        wrapper is copied — never ``None`` over a value the raw view supplies.
+        Both callers build `target` by re-reading the source variable: :meth:`_copy_raw_view`
+        rebuilds the whole unreversed view, :meth:`_window_via_mdarray` reads a single window. Band
+        order therefore already agrees in both cases, and the window read carries scale and offset
+        across itself (a hand-built ``MEM`` raster gets neither for free, where ``CreateCopy``
+        does). No-data is the one thing neither inherits: an ``AsClassicDataset`` view silently
+        ignores ``SetNoDataValue``, but the VRT that :meth:`_georeference_index_subset` may wrap
+        around it does not, so a no-data set on the wrapper would be lost. Only a value actually
+        present on the wrapper is copied — never ``None`` over a value the source supplies.
+
+        Args:
+            target: The rebuilt raster to reconcile against ``self._raster``.
         """
         bands = min(target.RasterCount, self._raster.RasterCount)
         for index in range(1, bands + 1):
@@ -5237,14 +5494,159 @@ class NetCDF(Dataset):
         return cube
 
     def _first_coordinate(self, candidates: tuple[str, ...]) -> tuple[Any, str | None]:
-        """The first readable coordinate variable among `candidates`, with the name it was found under."""
+        """The first readable coordinate variable among `candidates`, with the name it was found under.
+
+        Strictly first-match: rank is **not** a tiebreak. Preferring a 1-D array here would look
+        like a harmless way to skip a 2-D CF bounds array, but it also promotes a 1-D index axis
+        (``x``/``y``) over the 2-D ``lon``/``lat`` of a curvilinear file — and the caller relies on
+        getting that 2-D array back to route into :meth:`_curvilinear_bbox_geotransform`, so the
+        grid would keep an index-space affine instead of its real extent (#1039). Bounds arrays are
+        excluded from the candidate list itself, by :meth:`_bounds_array_names`, which is where the
+        distinction can actually be drawn.
+
+        Args:
+            candidates: Ordered names to try, from :meth:`_coordinate_candidates`.
+
+        Returns:
+            tuple[Any, str | None]: The coordinate values and the name they were found under, or
+            ``(None, None)`` when nothing readable matched.
+        """
         values, found = None, None
-        for name in candidates:
-            array = self._read_variable(name)
-            if array is not None:
-                values, found = np.asarray(array), name
-                break
+        # These are probes: most candidates are absent, and in classic mode each miss is a real
+        # `gdal.Open("NETCDF:<file>:<name>")` that fails and pushes a GDAL error out to the user as
+        # a `RuntimeWarning` ("... is not a variable"). The misses are expected and handled — a
+        # name that does not read is simply the next one's turn — so quiet them here rather than
+        # let a routine lookup spray warnings the caller can do nothing about. Silencing the noise
+        # is the right lever; skipping the probes is not, because a readable coordinate is not
+        # always an enumerable one.
+        with gdal.quiet_errors():
+            for name in candidates:
+                array = self._read_variable(name)
+                if array is not None:
+                    values, found = np.asarray(array), name
+                    break
         return values, found
+
+    def _bounds_array_names(self, rg: Any, present: list[str]) -> set[str]:
+        """Names in `present` that are CF *bounds* arrays rather than axis coordinates.
+
+        CF says a bounds variable inherits its parent's ``units`` and ``standard_name``, so
+        ``latitude_bnds`` is indistinguishable from ``latitude`` by attributes alone and would
+        otherwise enter the candidate list and shadow the real coordinate (#1071 review).
+
+        Two signals, in order of authority: the ``bounds`` attribute a coordinate uses to name its
+        own bounds array — the CF-sanctioned link — and, for files that omit it, the conventional
+        ``_bnds`` / ``_bounds`` / ``_vertices`` suffixes.
+
+        Args:
+            rg: The store's multidimensional root group.
+            present: Array names in the working group.
+
+        Returns:
+            set[str]: Names to exclude from the axis-coordinate candidates.
+        """
+        declared: set[str] = set()
+        for name in present:
+            array = open_mdarray(rg, name)
+            if array is None:
+                continue
+            target = _read_attributes(array).get("bounds")
+            if isinstance(target, str) and target:
+                declared.add(target)
+        conventional = {
+            name
+            for name in present
+            if name.lower().endswith(("_bnds", "_bounds", "_vertices"))
+        }
+        return declared | conventional
+
+    def _present_coordinate_names(self) -> tuple[gdal.Group | None, list[str]]:
+        """The working group and the array names it enumerates, CF bounds arrays removed.
+
+        Multidimensional mode lists them off the working group; classic (non-MDIM) mode has no
+        group, so the subdataset list stands in.
+
+        This is what the store *enumerates*, which is narrower than what it can *read*: a
+        coordinate at the root is readable from a subgroup view without appearing here, and GDAL's
+        classic subdataset list holds only the >= 2-D data variables. Callers must therefore treat
+        an absent name as "not advertised", never as "not there" — see the tail in
+        :meth:`_coordinate_candidates`.
+
+        Returns:
+            tuple[gdal.Group | None, list[str]]: The working group (``None`` in classic mode) and
+            the enumerated names, with CF bounds arrays excluded.
+        """
+        rg = self._working_group()
+        if rg is None:
+            return None, self._classic_subdataset_variable_names()
+        present = list(rg.GetMDArrayNames() or [])
+        bounds = self._bounds_array_names(rg, present)
+        return rg, [name for name in present if name not in bounds]
+
+    def _coordinate_candidates(self, axis: str) -> tuple[str, ...]:
+        """Ordered coordinate-variable names to try when georeferencing `axis` (``"X"`` / ``"Y"``).
+
+        The order is deliberate, and `_first_coordinate` takes the first that reads:
+
+        1. the two legacy names (``lon``/``x``, ``lat``/``y``) — kept first so a file that already
+           resolved keeps resolving to exactly the same coordinate;
+        2. names the file's own CF attributes identify as this axis (:meth:`_axis_role`), which is
+           the principled signal and catches a coordinate under any name;
+        3. the remaining well-known names (:data:`_X_DIM_NAMES` / :data:`_Y_DIM_NAMES`) matched
+           **case-insensitively against the names actually present**, so ``Latitude`` or ``LON``
+           resolve without another hardcoded spelling.
+
+        Stages 2 and 3 are why a CF-standard ``latitude`` / ``longitude`` grid is georeferenced at
+        all: the legacy pair never named them, so a variable whose driver does not supply an affine
+        (the HDF5 driver, which serves any ``/vsi`` NetCDF-4 read on Windows) was left in index
+        space (#1071). A frozenset is never iterated directly here — its order is not defined, and
+        this lookup is first-match.
+
+        Cached per axis on the container. Stage 2 opens **every** array in the group to read its
+        attributes, and the rescue asks for both axes of every variable it georeferences — over
+        ``/vsicurl`` that is a round trip per array per variable, for an answer that depends only
+        on the container's own layout and cannot change while it is open.
+
+        Args:
+            axis: ``"X"`` for the longitude/easting axis, ``"Y"`` for latitude/northing.
+
+        Returns:
+            tuple[str, ...]: Candidate names, most-specific first, without duplicates.
+
+        Raises:
+            KeyError: `axis` is neither ``"X"`` nor ``"Y"``. Deliberate: the earlier
+                ``if axis == "X" else`` form silently treated any typo as the Y axis and returned
+                latitude names for it.
+        """
+        cache: dict[str, tuple[str, ...]] = self.__dict__.setdefault(
+            "_coordinate_candidate_cache", {}
+        )
+        if axis not in cache:
+            legacy, well_known, preferred = _AXIS_NAME_SOURCES[axis]
+            rg, present = self._present_coordinate_names()
+            cf_named = (
+                [name for name in present if self._axis_role(rg, name) == axis]
+                if rg is not None
+                else []
+            )
+            well_known_present = [
+                name for name in present if name.lower() in well_known
+            ]
+            # The well-known tail is always offered, never trimmed against `present`. "Not
+            # enumerated" does not mean "not readable": the resolver reaches further than the
+            # enumerator — `_read_indexing_variable` finds a coordinate that lives in the *root*
+            # group from a subgroup view, and GDAL's classic subdataset list holds only the >= 2-D
+            # data variables, never the 1-D coordinates, which `NETCDF:"<file>":latitude` opens
+            # perfectly well. Trimming the tail therefore silently un-georeferenced group-scoped
+            # and classic-mode stores. It costs nothing on a file that resolves anyway, because
+            # the tail is last and the lookup is first-match; the names below it are only ever
+            # tried when everything else has already missed.
+            ordered: list[str] = []
+            for name in (*legacy, *cf_named, *well_known_present, *preferred):
+                if name not in ordered:
+                    ordered.append(name)
+            cache[axis] = tuple(ordered)
+        return cache[axis]
 
     @staticmethod
     def _coordinates_index_subset(cube: NetCDF, lon, lat, lon_name: str | None) -> bool:
@@ -5285,8 +5687,10 @@ class NetCDF(Dataset):
     def _coordinate_derived_geotransform(self, cube: NetCDF) -> tuple | None:
         """Real-world geotransform from the parent's lon/lat coordinates, or ``None``.
 
-        Returns the north-up affine implied by the parent container's 1-D ``lon``/``lat`` (or
-        ``x``/``y``) coordinate variables when they (a) match the subset's grid shape, (b) index the
+        Returns the north-up affine implied by the parent container's 1-D longitude/latitude
+        coordinate variables — located by :meth:`_coordinate_candidates`, so CF-standard
+        ``latitude``/``longitude`` and the other well-known spellings count, not just ``lon``/``lat``
+        or ``x``/``y`` (#1071) — when they (a) match the subset's grid shape, (b) index the
         subset's spatial dimensions by name (CF coordinate-variable convention — guards a same-shaped
         but different staggered/rotated axis from adopting the wrong coordinates), and (c) actually
         differ from the subset's current (index-space) geotransform. When no 1-D coordinate indexes
@@ -5294,8 +5698,8 @@ class NetCDF(Dataset):
         over those 2-D coordinates (:meth:`_curvilinear_bbox_geotransform`, #1039). Otherwise ``None``.
         """
         result = None
-        lon, lon_name = self._first_coordinate(("lon", "x"))
-        lat, _ = self._first_coordinate(("lat", "y"))
+        lon, lon_name = self._first_coordinate(self._coordinate_candidates("X"))
+        lat, _ = self._first_coordinate(self._coordinate_candidates("Y"))
         if self._coordinates_index_subset(cube, lon, lat, lon_name):
             # Anchor the affine on the coordinate that the *array's* first column / row actually
             # sits at. `_read_md_array` reverses an axis it decided was backwards, so after a flip
