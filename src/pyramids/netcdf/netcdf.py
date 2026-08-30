@@ -818,6 +818,16 @@ class NetCDF(Dataset):
         _invalidate_cached_accessors(self)
         # Drop the memoised classic geolocation handle so it is re-resolved.
         self.__dict__.pop("_geolocation_source_memo", None)
+        # ... and the resolved axis-coordinate names, which are read off the store's layout.
+        self.__dict__.pop("_coordinate_candidate_cache", None)
+        # An in-place swap installs a raster holding *different* values — the whole point of
+        # `apply(inplace=True)`, `fill` and `add_band`. The multidim references above are preserved
+        # deliberately (this is still that variable of that file), but they no longer describe what
+        # `self._raster` holds, so a read that goes back to the MDArray returns the pre-mutation
+        # data. Nothing else can notice: the swap keeps the grid size, so a shape check sees
+        # nothing. Record the divergence so `_window_via_mdarray` stops serving windows from the
+        # source, and the crop falls back to reading the raster it was actually given.
+        self._raster_diverged_from_source = True
 
     def __str__(self):
         """Return a human-readable summary, or a `<Dataset: closed>` sentinel when closed.
@@ -3732,6 +3742,39 @@ class NetCDF(Dataset):
             variable, unresolved spatial dimensions, unknown flips, an out-of-range window, or a
             failed read) — in which case the caller keeps its existing full-read path.
         """
+        plan = self._window_read_plan(x_off, y_off, x_size, y_size)
+        if plan is None:
+            return None
+        md_arr, starts, counts, spatial = plan
+        try:
+            block = md_arr.ReadAsArray(array_start_idx=starts, count=counts)
+        except (RuntimeError, AttributeError):
+            block = None
+        if block is None:
+            return None
+        target = self._window_raster(np.asarray(block), spatial, x_size, y_size)
+        if target is not None:
+            self._stamp_window_georeference(target, x_off, y_off)
+        return target
+
+    def _window_read_plan(
+        self, x_off: int, y_off: int, x_size: int, y_size: int
+    ) -> tuple[Any, list[int], list[int], tuple[int, int]] | None:
+        """Raw ``(array, start, count, spatial)`` for a raster window, or ``None`` to decline.
+
+        Owns every precondition of the windowed read and the raster-to-raw index mapping, so
+        :meth:`_window_via_mdarray` is left with read, build, stamp.
+
+        Args:
+            x_off: Column offset of the window in raster space.
+            y_off: Row offset of the window in raster space.
+            x_size: Window width in columns.
+            y_size: Window height in rows.
+
+        Returns:
+            tuple | None: The opened MDArray, its per-dimension start and count, and the
+            ``(x_index, y_index)`` spatial pair — or ``None`` when the read must not be served.
+        """
         rg = self._gdal_rg_ref
         var = self._source_var_name
         spatial = self._md_spatial_dims
@@ -3740,28 +3783,38 @@ class NetCDF(Dataset):
         )
         if rg is None or var is None or spatial is None or not flips_known:
             return None
+        # Reading from the MDArray is only equivalent while the wrapper's raster still *is* that
+        # variable. An in-place mutation (`apply(inplace=True)`, `fill`, `add_band`) swaps in a
+        # raster of the same size holding different values while keeping the multidim references,
+        # so every size and shape check still passes and the window would silently return the
+        # pre-mutation data (#1071 review).
+        if getattr(self, "_raster_diverged_from_source", False):
+            return None
         x_index, y_index = spatial
         try:
             md_arr = rg.OpenMDArray(var)
             sizes = [d.GetSize() for d in md_arr.GetDimensions()]
         except (RuntimeError, AttributeError):
             return None
-        if (
-            not (0 <= x_off and 0 <= y_off and x_size > 0 and y_size > 0)
-            or x_off + x_size > sizes[x_index]
-            or y_off + y_size > sizes[y_index]
-        ):
-            return None
+        in_range = (
+            0 <= x_off
+            and 0 <= y_off
+            and x_size > 0
+            and y_size > 0
+            and x_off + x_size <= sizes[x_index]
+            and y_off + y_size <= sizes[y_index]
+        )
         # The caller derived this window from the *wrapper* raster's rows/columns, but it is served
         # from the raw MDArray. Those agree today only through a chain of non-local invariants
         # (`_md_spatial_dims` is set once, in `get_variable`, and every reshaping operation
         # materializes the view and so disables this path). Check it here rather than trust the
         # chain: a mismatch would silently read a differently-sized grid at the same indices.
-        if sizes[x_index] != self.columns or sizes[y_index] != self.rows:
+        same_grid = sizes[x_index] == self.columns and sizes[y_index] == self.rows
+        if not (in_range and same_grid):
             return None
         # A reversed axis is stored back-to-front, so the raster window maps to the mirrored raw
         # slice; read it forwards (negative steps are what the reversed view cannot serve) and undo
-        # the reversal on the small result below. Every non-spatial axis is read whole, from 0, so
+        # the reversal on the small result later. Every non-spatial axis is read whole, from 0, so
         # it flattens into bands exactly as the classic view presents them.
         starts, counts = [0] * len(sizes), list(sizes)
         for index, (offset, size, flipped) in (
@@ -3770,13 +3823,27 @@ class NetCDF(Dataset):
         ):
             starts[index] = sizes[index] - offset - size if flipped else offset
             counts[index] = size
-        try:
-            block = md_arr.ReadAsArray(array_start_idx=starts, count=counts)
-        except (RuntimeError, AttributeError):
-            return None
-        if block is None:
-            return None
-        block = np.asarray(block)
+        return md_arr, starts, counts, (x_index, y_index)
+
+    def _window_raster(
+        self,
+        block: np.ndarray,
+        spatial: tuple[int, int],
+        x_size: int,
+        y_size: int,
+    ) -> gdal.Dataset | None:
+        """Lay a raw window out the way the classic view does, as a ``MEM`` raster.
+
+        Args:
+            block: The raw window as read, in the variable's own dimension order.
+            spatial: The ``(x_index, y_index)`` positions of the spatial axes in `block`.
+            x_size: Window width in columns.
+            y_size: Window height in rows.
+
+        Returns:
+            gdal.Dataset | None: The ``MEM`` raster, or ``None`` if it could not be allocated.
+        """
+        x_index, y_index = spatial
         # The classic view flattens every non-spatial dimension into bands, in storage order, and
         # presents the spatial pair as (rows, cols) — mirror that so band order is unchanged.
         # `moveaxis` and the flip slices are views; only the per-band `ascontiguousarray` below
@@ -3791,17 +3858,30 @@ class NetCDF(Dataset):
         target = gdal.GetDriverByName("MEM").Create(
             "", x_size, y_size, band_count, numpy_to_gdal_dtype(moved.dtype)
         )
-        if target is None:
-            return None
-        for band_index in range(band_count):
-            # `unravel_index` walks the non-spatial axes in C order — the same order the flat
-            # reshape would have produced, so band order matches the classic view exactly.
-            plane = (
-                moved[np.unravel_index(band_index, band_shape)] if band_shape else moved
-            )
-            target.GetRasterBand(band_index + 1).WriteArray(
-                np.ascontiguousarray(plane[rows, columns])
-            )
+        if target is not None:
+            for band_index in range(band_count):
+                # `unravel_index` walks the non-spatial axes in C order — the same order the flat
+                # reshape would have produced, so band order matches the classic view exactly.
+                plane = (
+                    moved[np.unravel_index(band_index, band_shape)]
+                    if band_shape
+                    else moved
+                )
+                target.GetRasterBand(band_index + 1).WriteArray(
+                    np.ascontiguousarray(plane[rows, columns])
+                )
+        return target
+
+    def _stamp_window_georeference(
+        self, target: gdal.Dataset, x_off: int, y_off: int
+    ) -> None:
+        """Give a window raster the sub-affine, CRS, scale/offset and no-data of its parent.
+
+        Args:
+            target: The window raster to stamp.
+            x_off: Column offset of the window in raster space.
+            y_off: Row offset of the window in raster space.
+        """
         gt = self._geotransform
         target.SetGeoTransform(
             (
@@ -3835,7 +3915,6 @@ class NetCDF(Dataset):
             if offset is not None:
                 target_band.SetOffset(offset)
         self._reconcile_band_no_data(target)
-        return target
 
     def _copy_raw_view(self) -> gdal.Dataset | None:
         """Rebuild the **unreversed** classic view of the source variable and copy it into MEM.
@@ -5398,19 +5477,15 @@ class NetCDF(Dataset):
         return cube
 
     def _first_coordinate(self, candidates: tuple[str, ...]) -> tuple[Any, str | None]:
-        """The first *usable* coordinate variable among `candidates`, with the name it was found under.
+        """The first readable coordinate variable among `candidates`, with the name it was found under.
 
-        Usable means a 1-D array of at least two values — what an affine can be derived from.
-        Scanning past the unusable ones matters because the candidate list is built partly from CF
-        attributes, and CF says a bounds variable inherits its parent's ``units`` and
-        ``standard_name``: ``latitude_bnds`` / ``lon_vertices`` therefore look exactly like axis
-        coordinates. Committing to the first name that merely *opens* would return that 2-D bounds
-        array, and the caller — which requires ``ndim == 1`` — would silently fall through to the
-        curvilinear branch and leave the variable in index space, defeating the #1071 rescue on a
-        very ordinary CF layout.
-
-        Falls back to the first readable array of any rank when nothing 1-D is found, so a genuinely
-        curvilinear file reaches :meth:`_curvilinear_bbox_geotransform` exactly as before.
+        Strictly first-match: rank is **not** a tiebreak. Preferring a 1-D array here would look
+        like a harmless way to skip a 2-D CF bounds array, but it also promotes a 1-D index axis
+        (``x``/``y``) over the 2-D ``lon``/``lat`` of a curvilinear file — and the caller relies on
+        getting that 2-D array back to route into :meth:`_curvilinear_bbox_geotransform`, so the
+        grid would keep an index-space affine instead of its real extent (#1039). Bounds arrays are
+        excluded from the candidate list itself, by :meth:`_bounds_array_names`, which is where the
+        distinction can actually be drawn.
 
         Args:
             candidates: Ordered names to try, from :meth:`_coordinate_candidates`.
@@ -5420,20 +5495,45 @@ class NetCDF(Dataset):
             ``(None, None)`` when nothing readable matched.
         """
         values, found = None, None
-        fallback, fallback_name = None, None
         for name in candidates:
             array = self._read_variable(name)
+            if array is not None:
+                values, found = np.asarray(array), name
+                break
+        return values, found
+
+    def _bounds_array_names(self, rg: Any, present: list[str]) -> set[str]:
+        """Names in `present` that are CF *bounds* arrays rather than axis coordinates.
+
+        CF says a bounds variable inherits its parent's ``units`` and ``standard_name``, so
+        ``latitude_bnds`` is indistinguishable from ``latitude`` by attributes alone and would
+        otherwise enter the candidate list and shadow the real coordinate (#1071 review).
+
+        Two signals, in order of authority: the ``bounds`` attribute a coordinate uses to name its
+        own bounds array — the CF-sanctioned link — and, for files that omit it, the conventional
+        ``_bnds`` / ``_bounds`` / ``_vertices`` suffixes.
+
+        Args:
+            rg: The store's multidimensional root group.
+            present: Array names in the working group.
+
+        Returns:
+            set[str]: Names to exclude from the axis-coordinate candidates.
+        """
+        declared: set[str] = set()
+        for name in present:
+            array = open_mdarray(rg, name)
             if array is None:
                 continue
-            array = np.asarray(array)
-            if array.ndim == 1 and array.size >= 2:
-                values, found = array, name
-                break
-            if fallback is None:
-                fallback, fallback_name = array, name
-        if values is None:
-            values, found = fallback, fallback_name
-        return values, found
+            target = _read_attributes(array).get("bounds")
+            if isinstance(target, str) and target:
+                declared.add(target)
+        conventional = {
+            name
+            for name in present
+            if name.lower().endswith(("_bnds", "_bounds", "_vertices"))
+        }
+        return declared | conventional
 
     def _coordinate_candidates(self, axis: str) -> tuple[str, ...]:
         """Ordered coordinate-variable names to try when georeferencing `axis` (``"X"`` / ``"Y"``).
@@ -5474,6 +5574,9 @@ class NetCDF(Dataset):
             preferred = _X_NAME_PREFERENCE if axis == "X" else _Y_NAME_PREFERENCE
             rg = self._working_group()
             present = list(rg.GetMDArrayNames() or []) if rg is not None else []
+            if rg is not None:
+                bounds = self._bounds_array_names(rg, present)
+                present = [name for name in present if name not in bounds]
             cf_named = [name for name in present if self._axis_role(rg, name) == axis]
             well_known_present = [
                 name for name in present if name.lower() in well_known

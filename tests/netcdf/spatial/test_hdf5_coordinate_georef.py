@@ -120,6 +120,73 @@ def _write_grid(
     return path
 
 
+CURV_ROWS, CURV_COLUMNS = 6, 7
+
+
+def _write_curvilinear_grid(path: str) -> str:
+    """Write a curvilinear grid: 2-D ``lon``/``lat`` plus 1-D index axes ``x``/``y``.
+
+    A very common real layout — the 2-D arrays carry the geography, the 1-D ones merely number
+    the columns and rows. Written by a module-level helper rather than inline in the test so every
+    GDAL handle is released when it returns; a test frame holding them keeps the file open on
+    Windows and the reader then rejects it as an unsupported format.
+
+    Args:
+        path: Output ``.nc`` path.
+
+    Returns:
+        str: ``path``, for chaining.
+    """
+    ds = gdal.GetDriverByName("netCDF").CreateMultiDimensional(path)
+    rg = ds.GetRootGroup()
+    d_y = rg.CreateDimension("y", "", "", CURV_ROWS)
+    d_x = rg.CreateDimension("x", "", "", CURV_COLUMNS)
+    x_index = rg.CreateMDArray(
+        "x", [d_x], gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+    )
+    x_index.Write(np.arange(CURV_COLUMNS, dtype="float64"))
+    y_index = rg.CreateMDArray(
+        "y", [d_y], gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+    )
+    y_index.Write(np.arange(CURV_ROWS, dtype="float64"))
+    lon2d = rg.CreateMDArray(
+        "lon", [d_y, d_x], gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+    )
+    lat2d = rg.CreateMDArray(
+        "lat", [d_y, d_x], gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+    )
+    grid_x, grid_y = np.meshgrid(
+        np.linspace(12.0, 15.0, CURV_COLUMNS), np.linspace(40.0, 43.0, CURV_ROWS)
+    )
+    lon2d.Write(grid_x)
+    lat2d.Write(grid_y)
+    for arr, std, units in (
+        (lon2d, "longitude", "degrees_east"),
+        (lat2d, "latitude", "degrees_north"),
+    ):
+        for key, value in (("standard_name", std), ("units", units)):
+            attr = arr.CreateAttribute(key, [], gdal.ExtendedDataType.CreateString())
+            attr.Write(value)
+    var = rg.CreateMDArray(
+        "v", [d_y, d_x], gdal.ExtendedDataType.Create(gdal.GDT_Float32)
+    )
+    var.Write(
+        np.arange(CURV_ROWS * CURV_COLUMNS, dtype="float32").reshape(
+            CURV_ROWS, CURV_COLUMNS
+        )
+    )
+    coords = var.CreateAttribute(
+        "coordinates", [], gdal.ExtendedDataType.CreateString()
+    )
+    coords.Write("lon lat")
+    x_index = y_index = lon2d = lat2d = var = coords = None
+    d_y = d_x = rg = None
+    ds.Close()
+    del ds
+    gc.collect()
+    return path
+
+
 def _index_space_cube(dim_names: list[str]) -> SimpleNamespace:
     """A stand-in variable subset carrying the index-space affine the HDF5 path produces.
 
@@ -222,6 +289,38 @@ class TestCoordinateDerivedGeotransform:
             cube.columns = N_LON + 3
             assert nc._coordinate_derived_geotransform(cube) is None, (
                 "a coordinate whose length does not match the grid must be declined"
+            )
+        finally:
+            nc.close()
+
+
+class TestCurvilinearIsNotDisturbed:
+    """Excluding bounds arrays must not disturb the 2-D coordinate rescue (#1039)."""
+
+    def test_curvilinear_grid_keeps_its_bbox_affine(self, tmp_path):
+        """A curvilinear file resolves to its real extent, not to its 1-D index axes.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            A curvilinear grid carries 2-D `lon`/`lat` *and*, very often, 1-D index coordinates
+            `x`/`y` that merely number the columns and rows. The 2-D array must win: it is what
+            routes the variable into the bounding-box fallback that gives it a real geotransform.
+            Preferring a 1-D coordinate here — an inviting way to skip a 2-D bounds array — picks
+            the index axis instead, whose derived affine equals the index-space one already in
+            place, so the fallback never runs and the grid keeps a placeholder georeference that
+            misplaces the data entirely (#1039).
+        """
+        path = _write_curvilinear_grid(str(tmp_path / "curvilinear.nc"))
+        nc = NetCDF.read_file(path)
+        try:
+            geotransform = nc.get_variable("v").geotransform
+            assert geotransform[0] == pytest.approx(11.75, abs=0.01), (
+                f"expected the real longitude origin, got index space: {geotransform}"
+            )
+            assert geotransform[1] == pytest.approx(0.5, abs=0.01), (
+                f"expected the real cell size, got index space: {geotransform}"
             )
         finally:
             nc.close()

@@ -23,6 +23,7 @@ from osgeo import gdal, osr
 from shapely.geometry import box
 
 import pyramids.netcdf.engines.selection as selection_module
+from pyramids.base.crs import crs_equal
 from pyramids.dataset import Dataset
 from pyramids.feature import FeatureCollection
 from pyramids.netcdf import NetCDF
@@ -513,7 +514,8 @@ class TestCropUsesTheWindow:
 
         monkeypatch.setattr(selection_module.Selection, "_mask_window_source", _spy)
         fast = NetCDF.read_file(grid_path).get_variable("v").crop(mask=mask, touch=True)
-        assert taken and any(taken), (
+        assert taken, "the crop never consulted the window shortcut at all"
+        assert any(taken), (
             "the crop did not take the window shortcut, so this comparison proves nothing"
         )
         monkeypatch.setattr(
@@ -648,6 +650,43 @@ class TestCropUsesTheWindow:
             f"EPSG:{epsg} mask: expected shortcut offered={expected}"
         )
 
+    def test_crop_after_an_in_place_mutation_sees_the_mutation(
+        self, grid_path, monkeypatch
+    ):
+        """`apply(inplace=True)` then `crop()` must return the transformed values.
+
+        Args:
+            grid_path: The written grid fixture.
+            monkeypatch: Used to disable the shortcut for the reference crop.
+
+        Test scenario:
+            An in-place update swaps in a raster of the *same size* holding different values while
+            keeping the multidim references, so every size and shape guard still passes. Reading
+            the window from the MDArray then returns the original on-disk data and discards the
+            mutation silently — wrong data from a public API, for the ordinary sequence
+            read -> transform -> crop.
+        """
+        mask = gpd.GeoDataFrame(
+            geometry=[box(-179.6, -89.6, -178.9, -89.1)], crs="EPSG:4326"
+        )
+
+        def _cropped():
+            var = NetCDF.read_file(grid_path).get_variable("v")
+            var.apply(lambda values: values + 1000.0, inplace=True)
+            return np.asarray(var.crop(mask=mask, touch=True).read_array())
+
+        fast = _cropped()
+        monkeypatch.setattr(
+            selection_module.Selection, "_mask_window_source", lambda self, mask: None
+        )
+        reference = _cropped()
+        assert fast.shape == reference.shape, (
+            f"shape differs: {fast.shape} vs {reference.shape}"
+        )
+        assert np.array_equal(fast, reference), (
+            "the crop discarded the in-place mutation and returned the pre-mutation data"
+        )
+
     def test_shortcut_declines_for_a_rotated_affine(self, grid_path):
         """A rotated or degenerate affine is not windowable by row/column arithmetic.
 
@@ -691,14 +730,19 @@ class TestCropUsesTheWindow:
 
         Test scenario:
             `total_bounds` is read defensively; anything that is not four numbers must reach the
-            ordinary crop path rather than surface a `TypeError` from the shortcut.
+            ordinary crop path rather than surface a `TypeError` from the shortcut. The stand-in
+            must carry a *matching* CRS, or it declines at the CRS guard and never reaches the
+            `total_bounds` unpacking this test exists to cover.
         """
         var = NetCDF.read_file(grid_path).get_variable("v")
 
         class _NoBounds:
-            epsg = 4326
+            crs = var.crs
             total_bounds = None
 
+        assert crs_equal(_NoBounds.crs, var.crs), (
+            "the stand-in must pass the CRS guard, or this test covers the wrong branch"
+        )
         assert var.selection._mask_window_source(_NoBounds()) is None
 
     def test_shortcut_declines_when_the_window_is_most_of_the_grid(self, grid_path):
