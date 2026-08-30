@@ -468,6 +468,14 @@ class Selection(_Engine["NetCDF"]):
         affine cutline warp, so they mask on their 2-D coordinates; rectilinear grids use the affine
         crop and re-wrap to preserve NetCDF metadata. ``chunks`` is valid only on the curvilinear path.
 
+        The rectilinear path first offers the crop to :meth:`_mask_window_source`, which reads just
+        the mask's window from the MDArray when it can prove that equivalent, and otherwise declines
+        so the existing full-read crop runs unchanged (#1071). The returned crop is identical either
+        way; the difference is a side effect on the *receiver*, which the shortcut skips — a crop
+        that declines stamps the variable's CRS onto its backing raster, and may materialize the
+        multidim view, so a subsequent operation finds a raster that has already been fixed up. A
+        crop that takes the shortcut leaves the receiver untouched.
+
         Args:
             mask: The resolved polygon/raster mask to crop with.
             touch: If True, include cells touching the mask boundary. Defaults to True.
@@ -564,11 +572,15 @@ class Selection(_Engine["NetCDF"]):
         # unreprojected coordinates divided through this raster's affine -- a plausible-looking
         # window over the wrong part of the grid, which is wrong data rather than an error.
         # Unknown on either side is not "equal": decline and let the warp reproject the cutline.
+        # `crs` is a pyproj CRS on a GeoDataFrame/FeatureCollection but a plain WKT string on a
+        # Dataset mask, so normalise before comparing rather than assume either shape.
         mask_crs = getattr(mask, "crs", None)
+        if mask_crs is not None and hasattr(mask_crs, "to_wkt"):
+            mask_crs = mask_crs.to_wkt()
         source_crs = nc.crs
-        if not source_crs or mask_crs is None:
+        if not source_crs or not mask_crs:
             return None
-        if not crs_equal(source_crs, mask_crs.to_wkt()):
+        if not crs_equal(source_crs, mask_crs):
             return None
         try:
             xmin, ymin, xmax, ymax = (float(bound) for bound in mask.total_bounds)

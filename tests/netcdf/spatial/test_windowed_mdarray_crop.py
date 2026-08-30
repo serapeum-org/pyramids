@@ -23,6 +23,7 @@ from osgeo import gdal, osr
 from shapely.geometry import box
 
 import pyramids.netcdf.engines.selection as selection_module
+from pyramids.dataset import Dataset
 from pyramids.feature import FeatureCollection
 from pyramids.netcdf import NetCDF
 
@@ -613,6 +614,39 @@ class TestCropUsesTheWindow:
         assert var.selection._mask_window_source(empty) is None
         with pytest.raises(RuntimeError, match="cutline"):
             var.crop(mask=empty, touch=True)
+
+    @pytest.mark.parametrize("epsg, expected", [(4326, True), (3857, False)])
+    def test_raster_mask_crs_is_read_from_a_wkt_string(self, grid_path, epsg, expected):
+        """A `Dataset` mask states its CRS as WKT, not as a pyproj object.
+
+        Args:
+            grid_path: The written grid fixture.
+            epsg: CRS to stamp on the raster mask.
+            expected: Whether the shortcut should be offered for it.
+
+        Test scenario:
+            `crop(mask=...)` also accepts a raster, whose `crs` is a plain WKT string — a guard
+            written for `GeoDataFrame`'s pyproj `crs` raises `AttributeError` on it. Matching CRS
+            must be offered the window and a differing one declined, without either raising.
+
+            Deliberately exercises `_mask_window_source` rather than `crop()`: cropping a NetCDF
+            variable with a raster mask is broken independently of this shortcut (it raises
+            `TypeError: create_from_array() got an unexpected keyword argument 'geo'` on `main`
+            with the shortcut disabled), so an end-to-end assertion here would be testing that
+            unrelated defect.
+        """
+        var = NetCDF.read_file(grid_path).get_variable("v")
+        template = gdal.GetDriverByName("MEM").Create("", 4, 3, 1, gdal.GDT_Float32)
+        template.SetGeoTransform([-179.75, CELL, 0.0, -88.25, 0.0, -CELL])
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(epsg)
+        template.SetSpatialRef(srs)
+        mask = Dataset(template)
+        assert isinstance(mask.crs, str), "a Dataset mask must state its CRS as WKT"
+        source = var.selection._mask_window_source(mask)
+        assert (source is not None) is expected, (
+            f"EPSG:{epsg} mask: expected shortcut offered={expected}"
+        )
 
     def test_shortcut_declines_for_a_rotated_affine(self, grid_path):
         """A rotated or degenerate affine is not windowable by row/column arithmetic.

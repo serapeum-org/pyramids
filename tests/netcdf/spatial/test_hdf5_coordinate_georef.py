@@ -39,7 +39,11 @@ EXPECTED_GT = (-180.0, CELL, 0.0, LAT_FIRST + (N_LAT - 1) * CELL + CELL / 2, 0.0
 
 
 def _write_grid(
-    path: str, lat_name: str, lon_name: str, with_bounds: bool = False
+    path: str,
+    lat_name: str,
+    lon_name: str,
+    with_bounds: bool = False,
+    with_aliases: bool = False,
 ) -> str:
     """Write a netCDF-4 grid whose coordinates carry CF axis attributes.
 
@@ -49,6 +53,8 @@ def _write_grid(
         lon_name: Name to give the longitude coordinate (and its dimension).
         with_bounds: Also write ``<name>_bnds`` arrays, created *before* the coordinates so they
             enumerate first, and carrying the same CF attributes real files give them.
+        with_aliases: Also write legacy-spelled ``lat``/``lon`` copies over the same dimensions,
+            so a file carries both spellings and the candidate ordering is observable.
 
     Returns:
         str: ``path``, for chaining.
@@ -91,11 +97,22 @@ def _write_grid(
         for key, value in (("standard_name", std), ("axis", axis), ("units", units)):
             attr = arr.CreateAttribute(key, [], gdal.ExtendedDataType.CreateString())
             attr.Write(value)
+    aliases = []
+    if with_aliases:
+        for alias, dim, values in (
+            ("lat", d_lat, LAT_FIRST + CELL * np.arange(N_LAT)),
+            ("lon", d_lon, LON_FIRST + CELL * np.arange(N_LON)),
+        ):
+            arr = rg.CreateMDArray(
+                alias, [dim], gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+            )
+            arr.Write(values)
+            aliases.append(arr)
     var = rg.CreateMDArray(
         "v", [d_lat, d_lon], gdal.ExtendedDataType.Create(gdal.GDT_Float32)
     )
     var.Write(np.arange(N_LAT * N_LON, dtype="float32").reshape(N_LAT, N_LON))
-    tagged = bounds = None
+    tagged = bounds = aliases = None
     lat = lon = var = d_lat = d_lon = rg = None
     ds.Close()
     del ds
@@ -220,17 +237,21 @@ class TestCoordinateCandidates:
             tmp_path: pytest temp directory.
 
         Test scenario:
-            The lookup is first-match, so ordering is behaviour. Anything that previously
-            resolved via `lon`/`x` must not start resolving to a different coordinate.
+            The lookup is first-match, so ordering is behaviour. On a file carrying *both*
+            spellings the legacy one must win, so a grid that resolved before the #1071 change
+            resolves to exactly the same coordinate after it. Asserting the literal tuple
+            `("lon", "x")` instead would only restate the code, and would keep passing if the
+            stage that consumes the order broke.
         """
-        path = _write_grid(str(tmp_path / "order.nc"), "latitude", "longitude")
+        path = _write_grid(
+            str(tmp_path / "order.nc"), "latitude", "longitude", with_aliases=True
+        )
         nc = NetCDF.read_file(path)
         try:
-            assert nc._coordinate_candidates("X")[:2] == ("lon", "x"), (
-                "the legacy X names must stay first"
-            )
-            assert nc._coordinate_candidates("Y")[:2] == ("lat", "y"), (
-                "the legacy Y names must stay first"
+            _, x_name = nc._first_coordinate(nc._coordinate_candidates("X"))
+            _, y_name = nc._first_coordinate(nc._coordinate_candidates("Y"))
+            assert (x_name, y_name) == ("lon", "lat"), (
+                f"the legacy spelling must win when both are present, got {x_name}/{y_name}"
             )
         finally:
             nc.close()

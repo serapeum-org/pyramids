@@ -3779,21 +3779,28 @@ class NetCDF(Dataset):
         block = np.asarray(block)
         # The classic view flattens every non-spatial dimension into bands, in storage order, and
         # presents the spatial pair as (rows, cols) — mirror that so band order is unchanged.
-        block = np.moveaxis(block, [y_index, x_index], [-2, -1]).reshape(
-            -1, y_size, x_size
-        )
-        if self._md_y_flipped:
-            block = block[:, ::-1, :]
-        if self._md_x_flipped:
-            block = block[:, :, ::-1]
+        # `moveaxis` and the flip slices are views; only the per-band `ascontiguousarray` below
+        # copies, one band at a time. Reshaping to `(-1, y, x)` here instead would force a copy of
+        # the whole window (the moved axes are not contiguous) and each flip another, holding the
+        # window three times over for a variable with long non-spatial axes.
+        moved = np.moveaxis(block, [y_index, x_index], [-2, -1])
+        rows = slice(None, None, -1) if self._md_y_flipped else slice(None)
+        columns = slice(None, None, -1) if self._md_x_flipped else slice(None)
+        band_shape = moved.shape[:-2]
+        band_count = int(np.prod(band_shape)) if band_shape else 1
         target = gdal.GetDriverByName("MEM").Create(
-            "", x_size, y_size, block.shape[0], numpy_to_gdal_dtype(block.dtype)
+            "", x_size, y_size, band_count, numpy_to_gdal_dtype(moved.dtype)
         )
         if target is None:
             return None
-        for band_index in range(block.shape[0]):
+        for band_index in range(band_count):
+            # `unravel_index` walks the non-spatial axes in C order — the same order the flat
+            # reshape would have produced, so band order matches the classic view exactly.
+            plane = (
+                moved[np.unravel_index(band_index, band_shape)] if band_shape else moved
+            )
             target.GetRasterBand(band_index + 1).WriteArray(
-                np.ascontiguousarray(block[band_index])
+                np.ascontiguousarray(plane[rows, columns])
             )
         gt = self._geotransform
         target.SetGeoTransform(
@@ -3875,13 +3882,19 @@ class NetCDF(Dataset):
                 band.WriteArray(np.ascontiguousarray(band.ReadAsArray()[rows, cols]))
 
     def _reconcile_band_no_data(self, target: gdal.Dataset) -> None:
-        """Copy the wrapper's per-band no-data onto a raster rebuilt from the raw view.
+        """Copy the wrapper's per-band no-data onto a raster built from the same MDArray.
 
-        The rebuilt view reads the same MDArray, so band order, scale and offset already agree. Its
-        no-data need not: an ``AsClassicDataset`` view silently ignores ``SetNoDataValue``, but the
-        VRT that :meth:`_georeference_index_subset` may wrap around it does not, so a no-data set on
-        the wrapper would be lost when the raster is rebuilt. Only a value actually present on the
-        wrapper is copied — never ``None`` over a value the raw view supplies.
+        Both callers build `target` by re-reading the source variable: :meth:`_copy_raw_view`
+        rebuilds the whole unreversed view, :meth:`_window_via_mdarray` reads a single window. Band
+        order therefore already agrees in both cases, and the window read carries scale and offset
+        across itself (a hand-built ``MEM`` raster gets neither for free, where ``CreateCopy``
+        does). No-data is the one thing neither inherits: an ``AsClassicDataset`` view silently
+        ignores ``SetNoDataValue``, but the VRT that :meth:`_georeference_index_subset` may wrap
+        around it does not, so a no-data set on the wrapper would be lost. Only a value actually
+        present on the wrapper is copied — never ``None`` over a value the source supplies.
+
+        Args:
+            target: The rebuilt raster to reconcile against ``self._raster``.
         """
         bands = min(target.RasterCount, self._raster.RasterCount)
         for index in range(1, bands + 1):
@@ -5441,24 +5454,36 @@ class NetCDF(Dataset):
         space (#1071). A frozenset is never iterated directly here — its order is not defined, and
         this lookup is first-match.
 
+        Cached per axis on the container. Stage 2 opens **every** array in the group to read its
+        attributes, and the rescue asks for both axes of every variable it georeferences — over
+        ``/vsicurl`` that is a round trip per array per variable, for an answer that depends only
+        on the container's own layout and cannot change while it is open.
+
         Args:
             axis: ``"X"`` for the longitude/easting axis, ``"Y"`` for latitude/northing.
 
         Returns:
             tuple[str, ...]: Candidate names, most-specific first, without duplicates.
         """
-        legacy = ("lon", "x") if axis == "X" else ("lat", "y")
-        well_known = _X_DIM_NAMES if axis == "X" else _Y_DIM_NAMES
-        preferred = _X_NAME_PREFERENCE if axis == "X" else _Y_NAME_PREFERENCE
-        rg = self._working_group()
-        present = list(rg.GetMDArrayNames() or []) if rg is not None else []
-        cf_named = [name for name in present if self._axis_role(rg, name) == axis]
-        well_known_present = [name for name in present if name.lower() in well_known]
-        ordered: list[str] = []
-        for name in (*legacy, *cf_named, *well_known_present, *preferred):
-            if name not in ordered:
-                ordered.append(name)
-        return tuple(ordered)
+        cache: dict[str, tuple[str, ...]] = self.__dict__.setdefault(
+            "_coordinate_candidate_cache", {}
+        )
+        if axis not in cache:
+            legacy = ("lon", "x") if axis == "X" else ("lat", "y")
+            well_known = _X_DIM_NAMES if axis == "X" else _Y_DIM_NAMES
+            preferred = _X_NAME_PREFERENCE if axis == "X" else _Y_NAME_PREFERENCE
+            rg = self._working_group()
+            present = list(rg.GetMDArrayNames() or []) if rg is not None else []
+            cf_named = [name for name in present if self._axis_role(rg, name) == axis]
+            well_known_present = [
+                name for name in present if name.lower() in well_known
+            ]
+            ordered: list[str] = []
+            for name in (*legacy, *cf_named, *well_known_present, *preferred):
+                if name not in ordered:
+                    ordered.append(name)
+            cache[axis] = tuple(ordered)
+        return cache[axis]
 
     @staticmethod
     def _coordinates_index_subset(cube: NetCDF, lon, lat, lon_name: str | None) -> bool:
