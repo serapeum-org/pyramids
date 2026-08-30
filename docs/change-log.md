@@ -1,6 +1,13 @@
 ﻿# Change log
 
 
+## 0.58.1 (2026-08-30)
+
+### Fix
+
+- **netcdf**: georeference and window CF-named coordinates on the HDF5 path (#1072)
+- **netcdf**: return the MDArray for a non-numeric variable instead of raising (#1069)
+
 ## 0.58.0 (2026-08-29)
 
 ### Feat
