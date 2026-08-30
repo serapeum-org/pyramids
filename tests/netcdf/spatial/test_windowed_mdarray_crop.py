@@ -19,10 +19,11 @@ import gc
 import geopandas as gpd
 import numpy as np
 import pytest
-from osgeo import gdal
+from osgeo import gdal, osr
 from shapely.geometry import box
 
 import pyramids.netcdf.engines.selection as selection_module
+from pyramids.feature import FeatureCollection
 from pyramids.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
@@ -73,6 +74,60 @@ def grid_path(tmp_path) -> str:
     return path
 
 
+N_TIME = 3
+
+
+@pytest.fixture
+def cube_path(tmp_path) -> str:
+    """A `(time, latitude, longitude)` grid with longitude stored east-to-west.
+
+    Exercises the two shapes a 2-D ascending-latitude grid cannot: a non-spatial dimension that
+    the window read must pin to index 0 and flatten into bands, and a reversed X axis.
+
+    Args:
+        tmp_path: pytest temp directory.
+
+    Returns:
+        str: Path to the written file.
+    """
+    path = str(tmp_path / "cube.nc")
+    ds = gdal.GetDriverByName("netCDF").CreateMultiDimensional(path)
+    rg = ds.GetRootGroup()
+    d_time = rg.CreateDimension("time", "", "", N_TIME)
+    d_lat = rg.CreateDimension("latitude", "", "", N_LAT)
+    d_lon = rg.CreateDimension("longitude", "", "", N_LON)
+    time = rg.CreateMDArray(
+        "time", [d_time], gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+    )
+    time.Write(np.arange(N_TIME, dtype="float64"))
+    lat = rg.CreateMDArray(
+        "latitude", [d_lat], gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+    )
+    lat.Write(LAT_FIRST + CELL * np.arange(N_LAT))
+    lon = rg.CreateMDArray(
+        "longitude", [d_lon], gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+    )
+    lon.Write((LON_FIRST + CELL * np.arange(N_LON))[::-1])
+    for arr, std, axis, units in (
+        (lat, "latitude", "Y", "degrees_north"),
+        (lon, "longitude", "X", "degrees_east"),
+    ):
+        for key, value in (("standard_name", std), ("axis", axis), ("units", units)):
+            attr = arr.CreateAttribute(key, [], gdal.ExtendedDataType.CreateString())
+            attr.Write(value)
+    var = rg.CreateMDArray(
+        "v", [d_time, d_lat, d_lon], gdal.ExtendedDataType.Create(gdal.GDT_Float32)
+    )
+    var.Write(
+        np.arange(N_TIME * N_LAT * N_LON, dtype="float32").reshape(N_TIME, N_LAT, N_LON)
+    )
+    time = lat = lon = var = d_time = d_lat = d_lon = rg = None
+    ds.Close()
+    del ds
+    gc.collect()
+    return path
+
+
 def _as_bands(array) -> np.ndarray:
     """Normalise a read to `(bands, rows, cols)` so 2-D and 3-D reads compare alike."""
     values = np.asarray(array)
@@ -112,6 +167,35 @@ class TestWindowViaMdArray:
         expected = full[:, y_off : y_off + y_size, x_off : x_off + x_size]
         assert np.array_equal(got, expected), (
             f"window ({x_off},{y_off},{x_size},{y_size}) does not match the full read"
+        )
+
+    def test_window_prefers_the_wrapper_srs(self, grid_path):
+        """A CRS already on the wrapper is carried onto the window verbatim.
+
+        Args:
+            grid_path: The written grid fixture.
+
+        Test scenario:
+            The EPSG fallback exists only for a view that carries no SRS of its own. When the
+            wrapper does have one — the VRT `_georeference_index_subset` installs, say — that exact
+            SRS must win, or a crop against a cutline would clip the wrong region. A deliberately
+            different code (3035, against the variable's 4326) is used so the assertion tells the
+            two branches apart; an `AsClassicDataset` view silently ignores `SetSpatialRef`, so the
+            wrapper is stood in for by a raster that does keep one.
+        """
+        var = NetCDF.read_file(grid_path).get_variable("v")
+        stand_in = gdal.GetDriverByName("MEM").Create(
+            "", N_LON, N_LAT, 1, gdal.GDT_Float32
+        )
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(3035)
+        stand_in.SetSpatialRef(srs)
+        var._raster = stand_in
+        window = var._window_via_mdarray(1, 1, 4, 4)
+        assert window is not None
+        assert window.GetSpatialRef() is not None, "the window must carry a CRS"
+        assert window.GetSpatialRef().GetAuthorityCode(None) == "3035", (
+            "the window must carry the wrapper's own SRS, not the EPSG fallback"
         )
 
     def test_window_carries_the_sub_affine(self, grid_path):
@@ -162,6 +246,132 @@ class TestWindowViaMdArray:
         """
         var = NetCDF.read_file(grid_path).get_variable("v")
         assert var._window_via_mdarray(x_off, y_off, x_size, y_size) is None
+
+
+class TestWindowViaMdArrayMultiBand:
+    """The window read over a `(time, y, x)` cube with a reversed X axis."""
+
+    @pytest.mark.parametrize(
+        "x_off, y_off, x_size, y_size",
+        [(0, 0, N_LON, N_LAT), (3, 2, 4, 4), (8, 0, 4, 3)],
+        ids=["whole", "interior", "edge"],
+    )
+    def test_window_matches_the_full_read(
+        self, cube_path, x_off, y_off, x_size, y_size
+    ):
+        """A window of a 3-D cube equals the same slice of the full read.
+
+        Args:
+            cube_path: The written cube fixture.
+            x_off: Column offset of the window in raster space.
+            y_off: Row offset of the window in raster space.
+            x_size: Window width.
+            y_size: Window height.
+
+        Test scenario:
+            Both axes are reversed here — latitude ascending and longitude east-to-west — and the
+            time dimension must be pinned to index 0 and flattened into bands in storage order. A
+            band read in the wrong order, or an axis un-reversed on the wrong side, shows up as a
+            mismatch against the classic view's own full read.
+        """
+        var = NetCDF.read_file(cube_path).get_variable("v")
+        full = _as_bands(var.read_array())
+        window = var._window_via_mdarray(x_off, y_off, x_size, y_size)
+        assert window is not None, "the window read must be served"
+        got = _as_bands(window.ReadAsArray())
+        expected = full[:, y_off : y_off + y_size, x_off : x_off + x_size]
+        assert got.shape == expected.shape, (
+            f"expected shape {expected.shape}, got {got.shape}"
+        )
+        assert np.array_equal(got, expected), (
+            f"window ({x_off},{y_off},{x_size},{y_size}) does not match the full read"
+        )
+
+    def test_window_keeps_every_band(self, cube_path):
+        """The window carries one band per non-spatial slice, not just the first.
+
+        Args:
+            cube_path: The written cube fixture.
+
+        Test scenario:
+            Pinning the time dimension to index 0 must select the whole axis for the band stack;
+            reading only one slice would silently drop the other time steps.
+        """
+        var = NetCDF.read_file(cube_path).get_variable("v")
+        window = var._window_via_mdarray(2, 2, 3, 3)
+        assert window is not None
+        assert window.RasterCount == N_TIME, (
+            f"expected {N_TIME} bands, got {window.RasterCount}"
+        )
+
+
+class TestWindowViaMdArrayDeclines:
+    """Every guard that makes the window read return `None` rather than a wrong raster."""
+
+    def test_missing_root_group_declines(self, grid_path):
+        """A variable whose multidim references were dropped cannot be windowed.
+
+        Args:
+            grid_path: The written grid fixture.
+
+        Test scenario:
+            `_materialize_md_view` nulls `_gdal_rg_ref`; the shortcut must then decline instead of
+            dereferencing `None`.
+        """
+        var = NetCDF.read_file(grid_path).get_variable("v")
+        var._gdal_rg_ref = None
+        assert var._window_via_mdarray(0, 0, 4, 4) is None
+
+    def test_unopenable_array_declines(self, grid_path, monkeypatch):
+        """A failing `OpenMDArray` falls back rather than propagating.
+
+        Args:
+            grid_path: The written grid fixture.
+            monkeypatch: Used to make the open raise.
+
+        Test scenario:
+            The caller treats `None` as "use the full-read path", so a GDAL error here must not
+            escape to the user.
+        """
+        var = NetCDF.read_file(grid_path).get_variable("v")
+
+        def _raise(_name):
+            raise RuntimeError("cannot open")
+
+        monkeypatch.setattr(var._gdal_rg_ref, "OpenMDArray", _raise)
+        assert var._window_via_mdarray(0, 0, 4, 4) is None
+
+    @pytest.mark.parametrize(
+        "outcome", ["raise", "none"], ids=["read-raises", "read-returns-none"]
+    )
+    def test_failed_read_declines(self, grid_path, monkeypatch, outcome):
+        """A read that fails or yields nothing declines instead of building an empty raster.
+
+        Args:
+            grid_path: The written grid fixture.
+            monkeypatch: Used to break the array read.
+            outcome: Whether the read raises or returns `None`.
+
+        Test scenario:
+            Both failure shapes must reach the same fallback; a `None` block reaching NumPy would
+            raise far from the cause.
+        """
+        var = NetCDF.read_file(grid_path).get_variable("v")
+        real_open = var._gdal_rg_ref.OpenMDArray
+
+        def _open(name):
+            array = real_open(name)
+
+            def _read(*args, **kwargs):
+                if outcome == "raise":
+                    raise RuntimeError("read failed")
+                return None
+
+            monkeypatch.setattr(array, "ReadAsArray", _read)
+            return array
+
+        monkeypatch.setattr(var._gdal_rg_ref, "OpenMDArray", _open)
+        assert var._window_via_mdarray(0, 0, 4, 4) is None
 
 
 class TestCropUsesTheWindow:
@@ -215,14 +425,70 @@ class TestCropUsesTheWindow:
 
         Test scenario:
             The window is computed in the raster's own coordinates, so adopting a mask stated in
-            another CRS would window the wrong region.
+            another CRS would window the wrong region. The mask must be a `FeatureCollection`: the
+            check reads `mask.epsg`, which a bare `GeoDataFrame` does not have, so a plain frame
+            would decline further down for an unrelated reason and never exercise this guard.
         """
         var = NetCDF.read_file(grid_path).get_variable("v")
-        mask = gpd.GeoDataFrame(
+        mask = FeatureCollection(
             geometry=[box(-19970000, -19970000, -19900000, -19900000)],
             crs="EPSG:3857",
         )
+        assert int(mask.epsg) != int(var.epsg), "the mask must be in a different CRS"
         assert var.selection._mask_window_source(mask) is None
+
+    def test_shortcut_declines_for_a_rotated_affine(self, grid_path):
+        """A rotated or degenerate affine is not windowable by row/column arithmetic.
+
+        Args:
+            grid_path: The written grid fixture.
+
+        Test scenario:
+            The window is derived by dividing through `gt[1]`/`gt[5]`, which only describes an
+            axis-aligned grid; a rotation term would place the window somewhere else entirely.
+        """
+        var = NetCDF.read_file(grid_path).get_variable("v")
+        gt = list(var.geotransform)
+        gt[2] = 0.1
+        var._geotransform = tuple(gt)
+        mask = gpd.GeoDataFrame(
+            geometry=[box(-179.6, -89.6, -178.9, -89.1)], crs="EPSG:4326"
+        )
+        assert var.selection._mask_window_source(mask) is None
+
+    def test_shortcut_declines_for_a_mask_off_the_grid(self, grid_path):
+        """A mask that misses the variable entirely yields no window.
+
+        Args:
+            grid_path: The written grid fixture.
+
+        Test scenario:
+            An empty window must decline rather than clamp to a zero-sized read, which the
+            MDArray could not serve anyway.
+        """
+        var = NetCDF.read_file(grid_path).get_variable("v")
+        mask = gpd.GeoDataFrame(
+            geometry=[box(120.0, 40.0, 121.0, 41.0)], crs="EPSG:4326"
+        )
+        assert var.selection._mask_window_source(mask) is None
+
+    def test_shortcut_declines_for_an_unusable_mask(self, grid_path):
+        """A mask with no readable bounds declines instead of raising.
+
+        Args:
+            grid_path: The written grid fixture.
+
+        Test scenario:
+            `total_bounds` is read defensively; anything that is not four numbers must reach the
+            ordinary crop path rather than surface a `TypeError` from the shortcut.
+        """
+        var = NetCDF.read_file(grid_path).get_variable("v")
+
+        class _NoBounds:
+            epsg = 4326
+            total_bounds = None
+
+        assert var.selection._mask_window_source(_NoBounds()) is None
 
     def test_shortcut_declines_when_the_window_is_most_of_the_grid(self, grid_path):
         """A mask covering the grid falls back — the shortcut must earn its second code path.
