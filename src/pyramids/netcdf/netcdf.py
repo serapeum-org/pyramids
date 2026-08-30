@@ -5545,6 +5545,27 @@ class NetCDF(Dataset):
         }
         return declared | conventional
 
+    def _present_coordinate_names(self) -> tuple[Any, list[str]]:
+        """The working group and the array names the store actually holds, bounds removed.
+
+        Multidimensional mode lists them off the root group. Classic (non-MDIM) mode has no root
+        group, but its subdataset list names the same variables — enumerate that rather than
+        report nothing, because every candidate that is not present costs a real
+        ``gdal.Open("NETCDF:<file>:<name>")`` that fails and surfaces a ``RuntimeWarning`` to the
+        user: 12 per variable extraction, and up to 16 remote opens per variable over ``/vsicurl``,
+        precisely the case this path exists to make cheaper.
+
+        Returns:
+            tuple[Any, list[str]]: The root group (``None`` in classic mode) and the names present,
+            with CF bounds arrays excluded.
+        """
+        rg = self._working_group()
+        if rg is None:
+            return None, self._classic_subdataset_variable_names()
+        present = list(rg.GetMDArrayNames() or [])
+        bounds = self._bounds_array_names(rg, present)
+        return rg, [name for name in present if name not in bounds]
+
     def _coordinate_candidates(self, axis: str) -> tuple[str, ...]:
         """Ordered coordinate-variable names to try when georeferencing `axis` (``"X"`` / ``"Y"``).
 
@@ -5582,23 +5603,12 @@ class NetCDF(Dataset):
             legacy = ("lon", "x") if axis == "X" else ("lat", "y")
             well_known = _X_DIM_NAMES if axis == "X" else _Y_DIM_NAMES
             preferred = _X_NAME_PREFERENCE if axis == "X" else _Y_NAME_PREFERENCE
-            rg = self._working_group()
-            cf_named: list[str] = []
-            if rg is not None:
-                present = list(rg.GetMDArrayNames() or [])
-                bounds = self._bounds_array_names(rg, present)
-                present = [name for name in present if name not in bounds]
-                cf_named = [
-                    name for name in present if self._axis_role(rg, name) == axis
-                ]
-            else:
-                # Classic (non-MDIM) mode has no root group, but the subdataset list names the
-                # same variables. Enumerate it rather than leave `present` empty: every candidate
-                # that is not present costs a real `gdal.Open("NETCDF:<file>:<name>")` that fails,
-                # and GDAL surfaces a RuntimeWarning to the user for each one — 12 per variable
-                # extraction, and up to 16 remote opens per variable over `/vsicurl`, which is
-                # precisely the case this whole path exists to make cheaper.
-                present = self._classic_subdataset_variable_names()
+            rg, present = self._present_coordinate_names()
+            cf_named = (
+                [name for name in present if self._axis_role(rg, name) == axis]
+                if rg is not None
+                else []
+            )
             well_known_present = [
                 name for name in present if name.lower() in well_known
             ]
