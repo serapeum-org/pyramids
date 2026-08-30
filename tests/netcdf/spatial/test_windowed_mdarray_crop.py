@@ -236,18 +236,32 @@ class TestWindowViaMdArray:
             f"window ({x_off},{y_off},{x_size},{y_size}) does not match the full read"
         )
 
-    def test_window_falls_back_to_the_variable_crs(self, grid_path):
+    def test_window_falls_back_to_the_variable_crs(self, grid_path, monkeypatch):
         """A view with no SRS of its own still yields a projected window.
 
         Args:
             grid_path: The written grid fixture.
+            monkeypatch: Used to give the variable a CRS with no authority code.
 
         Test scenario:
             A multidim view frequently carries no SRS while the variable knows its projection. An
             unprojected window would make the cutline warp warn and, for a cutline in another CRS,
             clip the wrong region — so the fallback must produce a CRS, not nothing.
+
+            The variable's CRS is overridden with a WKT that has **no authority code**, so `epsg`
+            cannot supply it. An EPSG-backed fixture would be satisfied by an `epsg`-only fallback
+            too, and the test would not distinguish the two.
         """
         var = NetCDF.read_file(grid_path).get_variable("v")
+        srs = osr.SpatialReference()
+        srs.ImportFromProj4(
+            "+proj=longlat +a=6371229 +b=6371229 +no_defs"
+        )  # spherical earth: no EPSG code
+        code_less = srs.ExportToWkt()
+        assert srs.GetAuthorityCode(None) is None, (
+            "the fixture CRS must have no EPSG code, or this test cannot discriminate"
+        )
+        monkeypatch.setattr(var, "_get_crs", lambda: code_less)
         stand_in = gdal.GetDriverByName("MEM").Create(
             "", N_LON, N_LAT, 1, gdal.GDT_Float32
         )
@@ -257,6 +271,9 @@ class TestWindowViaMdArray:
         assert window is not None
         assert window.GetProjection(), (
             "an unprojected view must still yield a projected window"
+        )
+        assert "6371229" in window.GetProjection(), (
+            "the window must carry the variable's own CRS, not an EPSG round-trip"
         )
 
     def test_window_carries_scale_and_offset(self, grid_path):

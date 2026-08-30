@@ -20,6 +20,7 @@ state the HDF5 path produces, and the input the rescue exists to handle.
 from __future__ import annotations
 
 import gc
+import warnings
 from types import SimpleNamespace
 
 import numpy as np
@@ -290,6 +291,109 @@ class TestCoordinateDerivedGeotransform:
             assert nc._coordinate_derived_geotransform(cube) is None, (
                 "a coordinate whose length does not match the grid must be declined"
             )
+        finally:
+            nc.close()
+
+
+def _write_grouped_grid(path: str) -> str:
+    """Write a grid whose coordinates live at the root and whose data variable is in a subgroup.
+
+    Args:
+        path: Output ``.nc`` path.
+
+    Returns:
+        str: ``path``, for chaining.
+    """
+    ds = gdal.GetDriverByName("netCDF").CreateMultiDimensional(path)
+    rg = ds.GetRootGroup()
+    d_lat = rg.CreateDimension("latitude", "", "", N_LAT)
+    d_lon = rg.CreateDimension("longitude", "", "", N_LON)
+    lat = rg.CreateMDArray(
+        "latitude", [d_lat], gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+    )
+    lat.Write(LAT_FIRST + CELL * np.arange(N_LAT))
+    lon = rg.CreateMDArray(
+        "longitude", [d_lon], gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+    )
+    lon.Write(LON_FIRST + CELL * np.arange(N_LON))
+    for arr, std, axis, units in (
+        (lat, "latitude", "Y", "degrees_north"),
+        (lon, "longitude", "X", "degrees_east"),
+    ):
+        for key, value in (("standard_name", std), ("axis", axis), ("units", units)):
+            attr = arr.CreateAttribute(key, [], gdal.ExtendedDataType.CreateString())
+            attr.Write(value)
+    group = rg.CreateGroup("forecast")
+    var = group.CreateMDArray(
+        "v", [d_lat, d_lon], gdal.ExtendedDataType.Create(gdal.GDT_Float32)
+    )
+    var.Write(np.arange(N_LAT * N_LON, dtype="float32").reshape(N_LAT, N_LON))
+    lat = lon = var = group = d_lat = d_lon = rg = None
+    ds.Close()
+    del ds
+    gc.collect()
+    return path
+
+
+class TestCoordinatesOutsideTheWorkingGroup:
+    """A coordinate that is readable but not enumerable must still be found."""
+
+    def test_root_coordinates_resolve_from_a_subgroup_variable(self, tmp_path):
+        """Coordinates at the root georeference a variable that lives in a subgroup.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            The resolver reaches further than the enumerator: a subgroup's dimensions belong to the
+            root group, so `GetIndexingVariable` finds `latitude`/`longitude` even though the
+            subgroup's own `GetMDArrayNames()` does not list them. Restricting the candidate names
+            to what the working group enumerates therefore leaves this file in index space — the
+            #1071 symptom, reintroduced for every group-scoped store.
+        """
+        path = _write_grouped_grid(str(tmp_path / "grouped.nc"))
+        nc = NetCDF.read_file(path)
+        try:
+            view = nc.get_group("forecast")
+            assert "longitude" not in (view._working_group().GetMDArrayNames() or []), (
+                "the subgroup must not enumerate the coordinate — that is the whole point"
+            )
+            assert "longitude" in view._coordinate_candidates("X"), (
+                "a coordinate outside the working group must still be offered"
+            )
+            cube = _index_space_cube(["latitude", "longitude"])
+            assert view._coordinate_derived_geotransform(cube) == pytest.approx(
+                EXPECTED_GT
+            ), "root-group coordinates must georeference a subgroup variable"
+        finally:
+            nc.close()
+
+    def test_coordinate_probing_is_quiet(self, tmp_path):
+        """Probing absent candidate names emits no warning to the caller.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            Most candidates are absent by design and each miss is a failed GDAL open, which GDAL
+            reports as a `RuntimeWarning` the caller can do nothing about. The misses are expected
+            and handled, so they must stay quiet — without that, the only way to silence them is to
+            stop probing, which loses the coordinates this rescue exists to find.
+
+            Opened in classic (non-MDIM) mode deliberately: only there does a miss become a real
+            `gdal.Open("NETCDF:<file>:<name>")` that fails and reports itself. The multidim path
+            resolves through the group and is silent either way, so an MDIM fixture would pass
+            whether or not the probes are quietened.
+        """
+        path = _write_grid(str(tmp_path / "quiet.nc"), "latitude", "longitude")
+        nc = NetCDF.read_file(path, open_as_multi_dimensional=False)
+        try:
+            assert nc._working_group() is None, "the fixture must be in classic mode"
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                nc._first_coordinate(nc._coordinate_candidates("X"))
+            noisy = [w for w in caught if "not a variable" in str(w.message)]
+            assert not noisy, f"coordinate probing emitted {len(noisy)} warning(s)"
         finally:
             nc.close()
 

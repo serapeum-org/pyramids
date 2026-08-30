@@ -5512,11 +5512,19 @@ class NetCDF(Dataset):
             ``(None, None)`` when nothing readable matched.
         """
         values, found = None, None
-        for name in candidates:
-            array = self._read_variable(name)
-            if array is not None:
-                values, found = np.asarray(array), name
-                break
+        # These are probes: most candidates are absent, and in classic mode each miss is a real
+        # `gdal.Open("NETCDF:<file>:<name>")` that fails and pushes a GDAL error out to the user as
+        # a `RuntimeWarning` ("... is not a variable"). The misses are expected and handled — a
+        # name that does not read is simply the next one's turn — so quiet them here rather than
+        # let a routine lookup spray warnings the caller can do nothing about. Silencing the noise
+        # is the right lever; skipping the probes is not, because a readable coordinate is not
+        # always an enumerable one.
+        with gdal.quiet_errors():
+            for name in candidates:
+                array = self._read_variable(name)
+                if array is not None:
+                    values, found = np.asarray(array), name
+                    break
         return values, found
 
     def _bounds_array_names(self, rg: Any, present: list[str]) -> set[str]:
@@ -5552,19 +5560,21 @@ class NetCDF(Dataset):
         }
         return declared | conventional
 
-    def _present_coordinate_names(self) -> tuple[Any, list[str]]:
-        """The working group and the array names the store actually holds, bounds removed.
+    def _present_coordinate_names(self) -> tuple[gdal.Group | None, list[str]]:
+        """The working group and the array names it enumerates, CF bounds arrays removed.
 
-        Multidimensional mode lists them off the root group. Classic (non-MDIM) mode has no root
-        group, but its subdataset list names the same variables — enumerate that rather than
-        report nothing, because every candidate that is not present costs a real
-        ``gdal.Open("NETCDF:<file>:<name>")`` that fails and surfaces a ``RuntimeWarning`` to the
-        user: 12 per variable extraction, and up to 16 remote opens per variable over ``/vsicurl``,
-        precisely the case this path exists to make cheaper.
+        Multidimensional mode lists them off the working group; classic (non-MDIM) mode has no
+        group, so the subdataset list stands in.
+
+        This is what the store *enumerates*, which is narrower than what it can *read*: a
+        coordinate at the root is readable from a subgroup view without appearing here, and GDAL's
+        classic subdataset list holds only the >= 2-D data variables. Callers must therefore treat
+        an absent name as "not advertised", never as "not there" — see the tail in
+        :meth:`_coordinate_candidates`.
 
         Returns:
-            tuple[Any, list[str]]: The root group (``None`` in classic mode) and the names present,
-            with CF bounds arrays excluded.
+            tuple[gdal.Group | None, list[str]]: The working group (``None`` in classic mode) and
+            the enumerated names, with CF bounds arrays excluded.
         """
         rg = self._working_group()
         if rg is None:
@@ -5602,6 +5612,11 @@ class NetCDF(Dataset):
 
         Returns:
             tuple[str, ...]: Candidate names, most-specific first, without duplicates.
+
+        Raises:
+            KeyError: `axis` is neither ``"X"`` nor ``"Y"``. Deliberate: the earlier
+                ``if axis == "X" else`` form silently treated any typo as the Y axis and returned
+                latitude names for it.
         """
         cache: dict[str, tuple[str, ...]] = self.__dict__.setdefault(
             "_coordinate_candidate_cache", {}
@@ -5617,12 +5632,17 @@ class NetCDF(Dataset):
             well_known_present = [
                 name for name in present if name.lower() in well_known
             ]
-            # The blind tail is a last resort for a store whose names could not be enumerated at
-            # all. When they could, anything not in `present` is known to be absent, so probing it
-            # only buys a failed open and a warning.
-            tail = preferred if not present else ()
+            # The well-known tail is always offered, never trimmed against `present`. "Not
+            # enumerated" does not mean "not readable": the resolver reaches further than the
+            # enumerator — `_read_indexing_variable` finds a coordinate that lives in the *root*
+            # group from a subgroup view, and GDAL's classic subdataset list holds only the >= 2-D
+            # data variables, never the 1-D coordinates, which `NETCDF:"<file>":latitude` opens
+            # perfectly well. Trimming the tail therefore silently un-georeferenced group-scoped
+            # and classic-mode stores. It costs nothing on a file that resolves anyway, because
+            # the tail is last and the lookup is first-match; the names below it are only ever
+            # tried when everything else has already missed.
             ordered: list[str] = []
-            for name in (*legacy, *cf_named, *well_known_present, *tail):
+            for name in (*legacy, *cf_named, *well_known_present, *preferred):
                 if name not in ordered:
                     ordered.append(name)
             cache[axis] = tuple(ordered)

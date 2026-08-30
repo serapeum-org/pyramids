@@ -43,9 +43,9 @@ from pyramids.netcdf.array_options import GeoReference
 if TYPE_CHECKING:
     from pyramids.netcdf.netcdf import NetCDF
 
-# The window must cover at most 1/N of the variable's cells before reading it through the MDArray
-# earns a second code path: the windowed read pays off by skipping most of the variable, and at
-# parity it is the same work plus an extra copy.
+# The window must cover strictly less than 1/N of the variable's cells before reading it through
+# the MDArray earns a second code path: the windowed read pays off by skipping most of the
+# variable, and at parity it is the same work plus an extra copy.
 #
 # Deliberately relative only, with no absolute floor on the variable's size. A floor would spare a
 # small local grid a shortcut that gains it nothing — but it gains nothing there either way, the
