@@ -497,10 +497,24 @@ class TestCropUsesTheWindow:
 
         Test scenario:
             Shape, geotransform and every cell must agree — the shortcut is an optimisation, so
-            any difference at all is a defect.
+            any difference at all is a defect. The run is asserted to have *taken* the shortcut:
+            without that, a change to the window/variable size threshold would silently compare
+            the full-read path against itself and the test would pass while covering nothing.
         """
         mask = gpd.GeoDataFrame(geometry=[box(*bounds)], crs="EPSG:4326")
+        real_source = selection_module.Selection._mask_window_source
+        taken: list[bool] = []
+
+        def _spy(self, mask):
+            source = real_source(self, mask)
+            taken.append(source is not None)
+            return source
+
+        monkeypatch.setattr(selection_module.Selection, "_mask_window_source", _spy)
         fast = NetCDF.read_file(grid_path).get_variable("v").crop(mask=mask, touch=True)
+        assert taken and any(taken), (
+            "the crop did not take the window shortcut, so this comparison proves nothing"
+        )
         monkeypatch.setattr(
             selection_module.Selection, "_mask_window_source", lambda self, mask: None
         )
@@ -526,9 +540,9 @@ class TestCropUsesTheWindow:
 
         Test scenario:
             The window is computed in the raster's own coordinates, so adopting a mask stated in
-            another CRS would window the wrong region. The mask must be a `FeatureCollection`: the
-            check reads `mask.epsg`, which a bare `GeoDataFrame` does not have, so a plain frame
-            would decline further down for an unrelated reason and never exercise this guard.
+            another CRS would window the wrong region. Covers the `FeatureCollection` mask type;
+            the bare-`GeoDataFrame` case is covered separately, since the two reach the guard by
+            different attributes.
         """
         var = NetCDF.read_file(grid_path).get_variable("v")
         mask = FeatureCollection(
@@ -537,6 +551,68 @@ class TestCropUsesTheWindow:
         )
         assert int(mask.epsg) != int(var.epsg), "the mask must be in a different CRS"
         assert var.selection._mask_window_source(mask) is None
+
+    def test_bare_geodataframe_in_another_crs_declines(self, grid_path):
+        """A plain `GeoDataFrame` in a different CRS declines — it has no `.epsg` to read.
+
+        Args:
+            grid_path: The written grid fixture.
+
+        Test scenario:
+            `crop(mask=...)` accepts a bare `GeoDataFrame` and passes it through unchanged, so
+            this is the *common* mask type, not an edge case. An `epsg`-based guard is skipped
+            entirely for it, and the mask's unreprojected coordinates then get divided through the
+            raster's affine — a plausible window over the wrong part of the grid, returned as data
+            rather than an error.
+
+            The mask's coordinates are deliberately chosen to fall *inside* the grid's numeric
+            range while being stated in another CRS. A far-away box would decline for an unrelated
+            reason — an out-of-range window — and the test would pass without ever reaching the
+            CRS guard.
+        """
+        var = NetCDF.read_file(grid_path).get_variable("v")
+        mask = gpd.GeoDataFrame(
+            geometry=[box(-179.6, -89.6, -178.9, -89.1)], crs="EPSG:3857"
+        )
+        assert not hasattr(mask, "epsg"), (
+            "a bare GeoDataFrame must have no .epsg — that is the point of this test"
+        )
+        assert var.selection._mask_window_source(mask) is None
+
+    def test_bare_geodataframe_in_the_same_crs_still_uses_the_shortcut(self, grid_path):
+        """Tightening the CRS guard must not disable the optimisation for ordinary masks.
+
+        Args:
+            grid_path: The written grid fixture.
+
+        Test scenario:
+            The guard declines on *unknown or differing* CRS. A bare `GeoDataFrame` carrying the
+            raster's own CRS is neither, so it must still take the fast path — otherwise the fix
+            for the fail-open would have quietly removed the feature.
+        """
+        var = NetCDF.read_file(grid_path).get_variable("v")
+        mask = gpd.GeoDataFrame(
+            geometry=[box(-179.6, -89.6, -178.9, -89.1)], crs="EPSG:4326"
+        )
+        assert var.selection._mask_window_source(mask) is not None
+
+    def test_empty_mask_declines_instead_of_raising(self, grid_path):
+        """An empty mask keeps the full-read path's error, not a numeric conversion error.
+
+        Args:
+            grid_path: The written grid fixture.
+
+        Test scenario:
+            An empty or all-null-geometry frame has `total_bounds == [nan] * 4`, and
+            `math.floor(nan)` raises `ValueError: cannot convert float NaN to integer`. Turning a
+            clear domain error into that, from an optimisation the caller never asked for, is a
+            regression in the error contract.
+        """
+        var = NetCDF.read_file(grid_path).get_variable("v")
+        empty = gpd.GeoDataFrame(geometry=[], crs="EPSG:4326")
+        assert var.selection._mask_window_source(empty) is None
+        with pytest.raises(RuntimeError, match="cutline"):
+            var.crop(mask=empty, touch=True)
 
     def test_shortcut_declines_for_a_rotated_affine(self, grid_path):
         """A rotated or degenerate affine is not windowable by row/column arithmetic.

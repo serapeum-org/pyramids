@@ -27,6 +27,7 @@ import pytest
 from osgeo import gdal
 
 from pyramids.netcdf import NetCDF
+from pyramids.netcdf.netcdf import _X_DIM_NAMES
 
 pytestmark = pytest.mark.core
 
@@ -37,13 +38,17 @@ LAT_FIRST, LON_FIRST = -89.875, -179.875
 EXPECTED_GT = (-180.0, CELL, 0.0, LAT_FIRST + (N_LAT - 1) * CELL + CELL / 2, 0.0, -CELL)
 
 
-def _write_grid(path: str, lat_name: str, lon_name: str) -> str:
+def _write_grid(
+    path: str, lat_name: str, lon_name: str, with_bounds: bool = False
+) -> str:
     """Write a netCDF-4 grid whose coordinates carry CF axis attributes.
 
     Args:
         path: Output ``.nc`` path.
         lat_name: Name to give the latitude coordinate (and its dimension).
         lon_name: Name to give the longitude coordinate (and its dimension).
+        with_bounds: Also write ``<name>_bnds`` arrays, created *before* the coordinates so they
+            enumerate first, and carrying the same CF attributes real files give them.
 
     Returns:
         str: ``path``, for chaining.
@@ -52,6 +57,17 @@ def _write_grid(path: str, lat_name: str, lon_name: str) -> str:
     rg = ds.GetRootGroup()
     d_lat = rg.CreateDimension(lat_name, "", "", N_LAT)
     d_lon = rg.CreateDimension(lon_name, "", "", N_LON)
+    bounds = []
+    if with_bounds:
+        d_nv = rg.CreateDimension("nv", "", "", 2)
+        for name, dim, size in ((lat_name, d_lat, N_LAT), (lon_name, d_lon, N_LON)):
+            arr = rg.CreateMDArray(
+                f"{name}_bnds",
+                [dim, d_nv],
+                gdal.ExtendedDataType.Create(gdal.GDT_Float64),
+            )
+            arr.Write(np.zeros((size, 2)))
+            bounds.append(arr)
     lat = rg.CreateMDArray(
         lat_name, [d_lat], gdal.ExtendedDataType.Create(gdal.GDT_Float64)
     )
@@ -60,10 +76,18 @@ def _write_grid(path: str, lat_name: str, lon_name: str) -> str:
         lon_name, [d_lon], gdal.ExtendedDataType.Create(gdal.GDT_Float64)
     )
     lon.Write(LON_FIRST + CELL * np.arange(N_LON))
-    for arr, std, axis, units in (
+    tagged = [
         (lat, "latitude", "Y", "degrees_north"),
         (lon, "longitude", "X", "degrees_east"),
-    ):
+    ]
+    if bounds:
+        # Real files tag bounds with the parent's units/standard_name, which is exactly why they
+        # are indistinguishable from the coordinate by attributes alone.
+        tagged += [
+            (bounds[0], "latitude", "Y", "degrees_north"),
+            (bounds[1], "longitude", "X", "degrees_east"),
+        ]
+    for arr, std, axis, units in tagged:
         for key, value in (("standard_name", std), ("axis", axis), ("units", units)):
             attr = arr.CreateAttribute(key, [], gdal.ExtendedDataType.CreateString())
             attr.Write(value)
@@ -71,6 +95,7 @@ def _write_grid(path: str, lat_name: str, lon_name: str) -> str:
         "v", [d_lat, d_lon], gdal.ExtendedDataType.Create(gdal.GDT_Float32)
     )
     var.Write(np.arange(N_LAT * N_LON, dtype="float32").reshape(N_LAT, N_LON))
+    tagged = bounds = None
     lat = lon = var = d_lat = d_lon = rg = None
     ds.Close()
     del ds
@@ -210,21 +235,60 @@ class TestCoordinateCandidates:
         finally:
             nc.close()
 
-    def test_cf_named_coordinates_are_offered(self, tmp_path):
-        """The file's actual CF-named coordinates appear as candidates.
+    def test_cf_attributes_alone_identify_a_coordinate(self, tmp_path):
+        """A coordinate under an unrecognised name is found from its CF attributes.
 
         Args:
             tmp_path: pytest temp directory.
 
         Test scenario:
-            `longitude`/`latitude` are absent from the legacy pair, so they must come from the
-            CF-attribute or well-known-name stage — otherwise the grid is unrescuable.
+            Deliberately uses names in neither the legacy pair nor `_X_DIM_NAMES`/`_Y_DIM_NAMES`,
+            so the only stage that can supply them is the `axis`/`standard_name` detection. Asking
+            for `latitude`/`longitude` instead would prove nothing: the well-known tail offers
+            those unconditionally, whether or not the file contains them.
         """
-        path = _write_grid(str(tmp_path / "cands.nc"), "latitude", "longitude")
+        path = _write_grid(str(tmp_path / "cf_only.nc"), "ordinate", "abscissa")
         nc = NetCDF.read_file(path)
         try:
-            assert "longitude" in nc._coordinate_candidates("X")
-            assert "latitude" in nc._coordinate_candidates("Y")
+            assert "abscissa" not in _X_DIM_NAMES, (
+                "the fixture name must not be well-known"
+            )
+            assert "abscissa" in nc._coordinate_candidates("X"), (
+                "the CF-attribute stage must offer a coordinate under any name"
+            )
+            assert "ordinate" in nc._coordinate_candidates("Y")
+            cube = _index_space_cube(["ordinate", "abscissa"])
+            assert nc._coordinate_derived_geotransform(cube) == pytest.approx(
+                EXPECTED_GT
+            ), "a CF-attribute-only coordinate must still yield the affine"
+        finally:
+            nc.close()
+
+    def test_bounds_variables_do_not_defeat_the_rescue(self, tmp_path):
+        """A CF bounds array is not mistaken for the axis coordinate.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            CF says a bounds variable inherits its parent's `units` and `standard_name`, so
+            `latitude_bnds` is indistinguishable from `latitude` by attributes alone and enters the
+            candidate list. Written here *before* the real coordinates so it enumerates first: the
+            lookup must scan past the 2-D array rather than commit to it, or the affine comes back
+            `None` and the variable stays in index space — the very #1071 symptom, on an ordinary
+            CF layout.
+        """
+        path = _write_grid(
+            str(tmp_path / "bounds.nc"), "latitude", "longitude", with_bounds=True
+        )
+        nc = NetCDF.read_file(path)
+        try:
+            _, x_name = nc._first_coordinate(nc._coordinate_candidates("X"))
+            assert x_name == "longitude", f"expected the 1-D coordinate, got {x_name!r}"
+            cube = _index_space_cube(["latitude", "longitude"])
+            assert nc._coordinate_derived_geotransform(cube) == pytest.approx(
+                EXPECTED_GT
+            ), "bounds variables must not defeat the affine rescue"
         finally:
             nc.close()
 
