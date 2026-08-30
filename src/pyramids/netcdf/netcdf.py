@@ -272,6 +272,13 @@ _X_NAME_PREFERENCE = (
 # a name added to only one of them is either never matched or never tried.
 _Y_DIM_NAMES = frozenset(_Y_NAME_PREFERENCE)
 _X_DIM_NAMES = frozenset(_X_NAME_PREFERENCE)
+# Everything `_coordinate_candidates` needs for one axis, keyed by it: the two legacy names tried
+# first (kept for backward compatibility, so a file that already resolved keeps resolving to the
+# same coordinate), the membership set, and the blind-tail preference order.
+_AXIS_NAME_SOURCES = {
+    "X": (("lon", "x"), _X_DIM_NAMES, _X_NAME_PREFERENCE),
+    "Y": (("lat", "y"), _Y_DIM_NAMES, _Y_NAME_PREFERENCE),
+}
 # Dimension names that clearly denote a non-spatial axis. Used to suppress the
 # "demoted grid" warning for legitimately non-spatial N-D aux variables
 # (e.g. a (time, level) table, time-bounds (time, nv)) — only a variable with
@@ -5600,9 +5607,7 @@ class NetCDF(Dataset):
             "_coordinate_candidate_cache", {}
         )
         if axis not in cache:
-            legacy = ("lon", "x") if axis == "X" else ("lat", "y")
-            well_known = _X_DIM_NAMES if axis == "X" else _Y_DIM_NAMES
-            preferred = _X_NAME_PREFERENCE if axis == "X" else _Y_NAME_PREFERENCE
+            legacy, well_known, preferred = _AXIS_NAME_SOURCES[axis]
             rg, present = self._present_coordinate_names()
             cf_named = (
                 [name for name in present if self._axis_role(rg, name) == axis]
