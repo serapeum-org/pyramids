@@ -43,11 +43,15 @@ from pyramids.netcdf.array_options import GeoReference
 if TYPE_CHECKING:
     from pyramids.netcdf.netcdf import NetCDF
 
-# How much smaller than the whole variable a crop window must be before reading it through the
-# MDArray is worth a second code path. The windowed read only pays off when it skips most of the
-# variable; at parity it is the same work plus an extra copy, so a window covering half the grid
-# or more keeps the ordinary full-read crop.
-_MIN_WINDOW_SPEEDUP = 2
+# The window must cover at most 1/N of the variable's cells before reading it through the MDArray
+# earns a second code path: the windowed read pays off by skipping most of the variable, and at
+# parity it is the same work plus an extra copy.
+#
+# Deliberately relative only, with no absolute floor on the variable's size. A floor would spare a
+# small local grid a shortcut that gains it nothing — but it gains nothing there either way, the
+# two paths are asserted to agree cell for cell, and a floor high enough to matter (thousands of
+# cells) would take every test fixture below it and quietly stop exercising this path at all.
+_MIN_WINDOW_SAVING = 2
 
 
 class Selection(_Engine["NetCDF"]):
@@ -603,9 +607,14 @@ class Selection(_Engine["NetCDF"]):
         x_size, y_size = x_end - x_off, y_end - y_off
         if x_size <= 0 or y_size <= 0:
             return None
-        if x_size * y_size * _MIN_WINDOW_SPEEDUP >= nc.columns * nc.rows:
+        if x_size * y_size * _MIN_WINDOW_SAVING >= nc.columns * nc.rows:
             return None
-        raster = nc._window_via_mdarray(x_off, y_off, x_size, y_size)
+        try:
+            raster = nc._window_via_mdarray(x_off, y_off, x_size, y_size)
+        except (RuntimeError, AttributeError, ValueError):
+            # The shortcut is an optimisation the caller never asked for; anything it fails on must
+            # reach the ordinary full-read crop, not surface as an error out of `crop()`.
+            raster = None
         return None if raster is None else Dataset(raster)
 
     def _crop_curvilinear(

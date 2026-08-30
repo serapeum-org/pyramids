@@ -245,15 +245,10 @@ _REDUCERS: dict[str, tuple[Any, Any]] = {
 # ``NetCDF._detect_spatial_axes`` as a fallback when the coordinate variables
 # carry no CF axis / standard_name / units attributes (e.g. NWM names them
 # plainly ``x`` / ``y``). Compared case-insensitively.
-_Y_DIM_NAMES = frozenset(
-    {"y", "lat", "latitude", "rlat", "south_north", "northing", "grid_latitude"}
-)
-_X_DIM_NAMES = frozenset(
-    {"x", "lon", "longitude", "rlon", "west_east", "easting", "grid_longitude"}
-)
-# The same names in *preference* order, for the blind tail of `_coordinate_candidates` (the file
-# named none of them outright). A set has no order and sorting it alphabetically is an accident
-# that puts `grid_latitude` -- a rotated-pole axis -- ahead of plain `latitude`.
+# Listed in *preference* order — most common and most specific first. The order matters for the
+# blind tail of `_coordinate_candidates` (a store whose names could not be enumerated): a set has
+# none, and sorting alphabetically is an accident that puts `grid_latitude`, a rotated-pole axis,
+# ahead of plain `latitude`.
 _Y_NAME_PREFERENCE = (
     "latitude",
     "lat",
@@ -272,6 +267,11 @@ _X_NAME_PREFERENCE = (
     "grid_longitude",
     "west_east",
 )
+# Membership views of the same names for the case-insensitive "is this well known" test. Derived,
+# not written out a second time: two hand-kept copies of one list drift, and the drift is silent —
+# a name added to only one of them is either never matched or never tried.
+_Y_DIM_NAMES = frozenset(_Y_NAME_PREFERENCE)
+_X_DIM_NAMES = frozenset(_X_NAME_PREFERENCE)
 # Dimension names that clearly denote a non-spatial axis. Used to suppress the
 # "demoted grid" warning for legitimately non-spatial N-D aux variables
 # (e.g. a (time, level) table, time-bounds (time, nv)) — only a variable with
@@ -3893,21 +3893,31 @@ class NetCDF(Dataset):
                 gt[5],
             )
         )
-        wrapper_srs = self._raster.GetSpatialRef() if self._raster is not None else None
+        source = self._raster
+        if source is None:
+            return
+        wrapper_srs = source.GetSpatialRef()
         if wrapper_srs is not None:
             target.SetSpatialRef(wrapper_srs)
-        elif self.epsg:
+        else:
             # The MDArray view often carries no SRS of its own, while the variable still knows its
-            # EPSG. A cutline warp against a projection-less raster warns and — for a cutline in
-            # another CRS — clips the wrong region, so stamp it here rather than inherit nothing.
-            target.SetProjection(sr_from_epsg(int(self.epsg)).ExportToWkt())
+            # projection. A cutline warp against a projection-less raster warns and — for a cutline
+            # in another CRS — clips the wrong region, so stamp it here rather than inherit
+            # nothing. Prefer the resolved WKT over the EPSG code: a CRS with no authority code (a
+            # rotated pole, a spherical-earth GRIB GEOGCS) has no `epsg` to fall back on and would
+            # otherwise be dropped entirely.
+            wkt = self.crs
+            if wkt:
+                target.SetProjection(wkt)
+            elif self.epsg:
+                target.SetProjection(sr_from_epsg(int(self.epsg)).ExportToWkt())
         # `_copy_raw_view` gets scale/offset for free from `CreateCopy`; a hand-built MEM raster
         # does not. Carry them over, or a packed variable (`scale_factor`/`add_offset`, ordinary in
         # CF) would come back through the shortcut in raw counts while the full-read path returned
         # the same window in physical units.
-        carried = min(target.RasterCount, self._raster.RasterCount)
+        carried = min(target.RasterCount, source.RasterCount)
         for band_index in range(1, carried + 1):
-            source_band = self._raster.GetRasterBand(band_index)
+            source_band = source.GetRasterBand(band_index)
             target_band = target.GetRasterBand(band_index)
             scale, offset = source_band.GetScale(), source_band.GetOffset()
             if scale is not None:
@@ -5573,16 +5583,31 @@ class NetCDF(Dataset):
             well_known = _X_DIM_NAMES if axis == "X" else _Y_DIM_NAMES
             preferred = _X_NAME_PREFERENCE if axis == "X" else _Y_NAME_PREFERENCE
             rg = self._working_group()
-            present = list(rg.GetMDArrayNames() or []) if rg is not None else []
+            cf_named: list[str] = []
             if rg is not None:
+                present = list(rg.GetMDArrayNames() or [])
                 bounds = self._bounds_array_names(rg, present)
                 present = [name for name in present if name not in bounds]
-            cf_named = [name for name in present if self._axis_role(rg, name) == axis]
+                cf_named = [
+                    name for name in present if self._axis_role(rg, name) == axis
+                ]
+            else:
+                # Classic (non-MDIM) mode has no root group, but the subdataset list names the
+                # same variables. Enumerate it rather than leave `present` empty: every candidate
+                # that is not present costs a real `gdal.Open("NETCDF:<file>:<name>")` that fails,
+                # and GDAL surfaces a RuntimeWarning to the user for each one — 12 per variable
+                # extraction, and up to 16 remote opens per variable over `/vsicurl`, which is
+                # precisely the case this whole path exists to make cheaper.
+                present = self._classic_subdataset_variable_names()
             well_known_present = [
                 name for name in present if name.lower() in well_known
             ]
+            # The blind tail is a last resort for a store whose names could not be enumerated at
+            # all. When they could, anything not in `present` is known to be absent, so probing it
+            # only buys a failed open and a warning.
+            tail = preferred if not present else ()
             ordered: list[str] = []
-            for name in (*legacy, *cf_named, *well_known_present, *preferred):
+            for name in (*legacy, *cf_named, *well_known_present, *tail):
                 if name not in ordered:
                     ordered.append(name)
             cache[axis] = tuple(ordered)

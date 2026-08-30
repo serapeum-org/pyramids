@@ -236,6 +236,81 @@ class TestWindowViaMdArray:
             f"window ({x_off},{y_off},{x_size},{y_size}) does not match the full read"
         )
 
+    def test_window_falls_back_to_the_variable_crs(self, grid_path):
+        """A view with no SRS of its own still yields a projected window.
+
+        Args:
+            grid_path: The written grid fixture.
+
+        Test scenario:
+            A multidim view frequently carries no SRS while the variable knows its projection. An
+            unprojected window would make the cutline warp warn and, for a cutline in another CRS,
+            clip the wrong region — so the fallback must produce a CRS, not nothing.
+        """
+        var = NetCDF.read_file(grid_path).get_variable("v")
+        stand_in = gdal.GetDriverByName("MEM").Create(
+            "", N_LON, N_LAT, 1, gdal.GDT_Float32
+        )
+        assert stand_in.GetSpatialRef() is None, "the stand-in must start unprojected"
+        var._raster = stand_in
+        window = var._window_via_mdarray(1, 1, 4, 4)
+        assert window is not None
+        assert window.GetProjection(), (
+            "an unprojected view must still yield a projected window"
+        )
+
+    def test_window_carries_scale_and_offset(self, grid_path):
+        """A packed variable's scale/offset reach the window raster.
+
+        Args:
+            grid_path: The written grid fixture.
+
+        Test scenario:
+            `CreateCopy` supplies these for free on the full-read path; a hand-built MEM raster
+            gets neither. Without them a packed CF variable (`scale_factor`/`add_offset`) comes
+            back through the shortcut in raw counts while the full read returns physical units.
+
+            The values are set on a stand-in raster rather than on the wrapper's own: like
+            `SetSpatialRef`, an `AsClassicDataset` view silently ignores `SetScale`, so setting
+            them there would leave nothing to carry and the test would pass on an empty check.
+        """
+        var = NetCDF.read_file(grid_path).get_variable("v")
+        stand_in = gdal.GetDriverByName("MEM").Create(
+            "", N_LON, N_LAT, 1, gdal.GDT_Float32
+        )
+        stand_in.GetRasterBand(1).SetScale(0.01)
+        stand_in.GetRasterBand(1).SetOffset(5.0)
+        assert stand_in.GetRasterBand(1).GetScale() == pytest.approx(0.01), (
+            "the stand-in must actually keep the scale, or this test proves nothing"
+        )
+        var._raster = stand_in
+        window = var._window_via_mdarray(1, 1, 4, 4)
+        assert window is not None
+        assert window.GetRasterBand(1).GetScale() == pytest.approx(0.01), (
+            "the window dropped the band scale"
+        )
+        assert window.GetRasterBand(1).GetOffset() == pytest.approx(5.0), (
+            "the window dropped the band offset"
+        )
+
+    def test_window_declines_when_the_source_grid_differs(self, grid_path):
+        """A wrapper whose grid no longer matches the source array is not windowed.
+
+        Args:
+            grid_path: The written grid fixture.
+
+        Test scenario:
+            The offsets are computed against the wrapper's rows/columns but served from the raw
+            MDArray. They agree only through non-local invariants, so a mismatch is checked rather
+            than assumed — otherwise the read would return a differently-sized grid's cells at the
+            same indices. `columns` is a cached attribute, not a read of the raster, so the
+            mismatch has to be introduced there rather than by swapping the raster.
+        """
+        var = NetCDF.read_file(grid_path).get_variable("v")
+        var._columns = N_LON - 3
+        assert var.columns != N_LON, "the wrapper must disagree with the source array"
+        assert var._window_via_mdarray(0, 0, 2, 2) is None
+
     def test_window_prefers_the_wrapper_srs(self, grid_path):
         """A CRS already on the wrapper is carried onto the window verbatim.
 
