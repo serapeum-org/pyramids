@@ -112,7 +112,7 @@ classDiagram
         +offset()
         +offset(value)
         +read_file(path, read_only)
-        +from_array(arr, top_left_corner, cell_size, epsg)
+        +from_array(arr, geo_ref, no_data_value, path)
         +read_array(band, window)
         +_read_block(band, window)
         +_resolve_plot_band(band, rgb)
