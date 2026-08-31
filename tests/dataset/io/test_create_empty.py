@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
-from pyramids.base._errors import DriverNotExistError
+from pyramids.base._errors import DriverNotExistError, FileFormatNotSupportedError
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset, NoDataSentinelWarning, Window
 from pyramids.dataset.dataset import OUT_OF_CORE_CREATION_OPTIONS, _resolves_to_gtiff
@@ -643,10 +643,10 @@ class TestResolvesToGtiff:
             ("out.tiff", True),
             ("out.TIF", True),
             ("out.nc", False),
-            ("out.vrt", False),
+            ("out.img", False),
             (Path("out.tif"), True),
         ],
-        ids=["none", "tif", "tiff", "upper", "nc", "vrt", "path-object"],
+        ids=["none", "tif", "tiff", "upper", "nc", "img", "path-object"],
     )
     def test_only_a_gtiff_path_is_true(self, path, expected):
         """Only a path whose extension resolves to GTiff is true.
@@ -666,16 +666,27 @@ class TestResolvesToGtiff:
             f"_resolves_to_gtiff({path!r}) should be {expected}"
         )
 
-    def test_an_uncatalogued_extension_propagates_the_error(self):
-        """An unknown extension raises rather than answering False.
+    @pytest.mark.parametrize(
+        "path, error",
+        [("out.zzz", DriverNotExistError), ("out.vrt", FileFormatNotSupportedError)],
+        ids=["unknown-extension", "not-buildable"],
+    )
+    def test_an_unusable_extension_propagates_the_error(self, path, error):
+        """An unusable extension raises rather than answering False.
+
+        Args:
+            path: The destination under test.
+            error: The exception the resolver raises for it.
 
         Test scenario:
             Swallowing the error and returning False would silently skip the
             GTiff option set for a path that is going to fail moments later in
             the allocator anyway -- better to surface the real problem here.
+            `.vrt` is the second case: GDAL reports DCAP_CREATE for VRT, but a
+            VRT owns no pixel storage, so the catalog refuses it up front.
         """
-        with pytest.raises(DriverNotExistError):
-            _resolves_to_gtiff("out.zzz")
+        with pytest.raises(error):
+            _resolves_to_gtiff(path)
 
 
 class TestCreateOptionsBackCompat:

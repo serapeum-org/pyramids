@@ -34,6 +34,8 @@ netcdf:
   Geo-referencing: yes
   Build requirements: libnetcdf
   extension: nc
+  aliases:
+    - nc4
 
 cog:
   GDAL Name: COG
@@ -113,7 +115,12 @@ post gis raster:
 vrt:
   GDAL Name: VRT
   Long name: GDAL Virtual Format
-  Creation: yes
+  # GDAL reports DCAP_CREATE=YES for VRT, but a VRT owns no pixel storage:
+  # Create() succeeds and the WriteArray that follows dies with "Writing
+  # through VRTSourcedRasterBand is not supported". This flag means "the
+  # pyramids constructors can build it", which is the question the resolver
+  # actually asks, so it is No despite the GDAL capability bit.
+  Creation: No
   Copy: yes
   Geo-referencing: yes
   Build requirements: Built-in by default

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -12,6 +13,7 @@ from osgeo import gdal
 from pyramids import _io
 from pyramids.base._errors import (
     DriverNotExistError,
+    DtypeNarrowingWarning,
     FailedToSaveError,
 )
 from pyramids.base._file_manager import CachingFileManager
@@ -202,6 +204,7 @@ def _write_to_file_sync(
 
     path = Path(path)
     driver, driver_name = _resolve_output_driver(driver, path)
+    _warn_if_driver_narrows_dtype(ds, driver_name, path)
 
     if driver == "ascii":
         arr = ds.read_array(band=band)
@@ -250,6 +253,42 @@ def _write_cog(
     ds.to_cog(path, **cog_kwargs)
 
 
+def _warn_if_driver_narrows_dtype(ds: Dataset, driver_name: str, path: Path) -> None:
+    """Warn when the target driver cannot carry the dataset's band dtype.
+
+    `CreateCopy` silently substitutes the nearest type a driver does support --
+    a float32 DEM written to `.png` becomes 8-bit `Byte`, destroying the values
+    -- and reports it only as a GDAL `RuntimeWarning`, which a caller filtering
+    on their own warning categories will not see. This raises the same fact to a
+    `pyramids` warning that names both dtypes and the driver.
+
+    Args:
+        ds: The dataset being written.
+        driver_name: The resolved GDAL driver short name.
+        path: The destination, named in the message.
+    """
+    driver = gdal.GetDriverByName(driver_name)
+    if driver is None:
+        return
+    supported = driver.GetMetadataItem("DMD_CREATIONDATATYPES")
+    if not supported:
+        # The driver does not advertise a list (MEM, VRT); nothing to check.
+        return
+    accepted = set(supported.split())
+    source = gdal.GetDataTypeName(ds.raster.GetRasterBand(1).DataType)
+    if source in accepted:
+        return
+    warnings.warn(
+        f"the {driver_name} driver cannot store {source} data, so writing "
+        f"{str(path)!r} will convert the bands to one of {sorted(accepted)} -- "
+        "values outside the target range are clipped and fractional values are "
+        "lost. Convert deliberately (e.g. scale to Byte) if that is intended, "
+        "or choose a format that carries the dtype.",
+        DtypeNarrowingWarning,
+        stacklevel=3,
+    )
+
+
 def _resolve_output_driver(driver: str | None, path: Path) -> tuple[str, str]:
     """Resolve the catalog driver key and GDAL driver name for an output path.
 
@@ -262,7 +301,11 @@ def _resolve_output_driver(driver: str | None, path: Path) -> tuple[str, str]:
             GDAL driver name.
     """
     if driver is None:
-        extension = path.suffix[1:]
+        # Lower-cased to match `_driver.resolve_output_driver`, which the
+        # constructors use. Without it the two disagreed on case, so a raster
+        # could be built as `x.TIF` and then not written to `x.TIF`: this side
+        # looked up "TIF" while the catalog holds "tif".
+        extension = path.suffix[1:].lower()
         driver = CATALOG.get_driver_name_by_extension(extension)
     elif not CATALOG.exists(driver):
         catalog_key = CATALOG.get_driver_name(driver)

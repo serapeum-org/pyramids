@@ -4,7 +4,7 @@ memory:
   Creation: yes
   Geo-referencing: yes
   Build requirements: Built-in by default
-  extension: None
+  extension: null
 
 geojson:
   GDAL Name: GeoJSON
@@ -12,7 +12,12 @@ geojson:
   Creation: yes
   Geo-referencing: yes
   Build requirements: Built-in by default
-  extension: .geojson
+  # Dot-less, like every raster row: `get_driver_name_by_extension` is given
+  # a stripped suffix, so a leading dot here never matched. The unquoted
+  # `None` on the other rows likewise parsed as the *string* "None",
+  # leaving them reachable by a lookup for "None" — both are the bugs
+  # fixed on the raster catalog; the vector one carried them too.
+  extension: geojson
 
 arrow:
   GDAL Name: Arrow
@@ -20,7 +25,7 @@ arrow:
   Creation: yes
   Geo-referencing: yes
   Build requirements: Apache Arrow C++ library
-  extension: None
+  extension: null
 
 csv:
   GDAL Name: CSV
@@ -28,7 +33,7 @@ csv:
   Creation: yes
   Geo-referencing: yes
   Build requirements: Built-in by default
-  extension: None
+  extension: null
 
 flat geobuf:
   GDAL Name: FlatGeobuf
@@ -36,7 +41,7 @@ flat geobuf:
   Creation: yes
   Geo-referencing: yes
   Build requirements: Built-in by default
-  extension: None
+  extension: null
 
 gpkg:
   GDAL Name: GPKG
@@ -44,7 +49,7 @@ gpkg:
   Creation: yes
   Geo-referencing: yes
   Build requirements: libsqlite3
-  extension: None
+  extension: null
 
 netcdf:
   GDAL Name: netCDF
@@ -52,7 +57,7 @@ netcdf:
   Creation: yes
   Geo-referencing: yes
   Build requirements: libnetcdf
-  extension: None
+  extension: null
 
 parquet:
   GDAL Name: Parquet
@@ -60,7 +65,7 @@ parquet:
   Creation: yes
   Geo-referencing: yes
   Build requirements: Parquet component of the Apache Arrow C++ library
-  extension: None
+  extension: null
 
 postgresql:
   GDAL Name: PostgreSQL
@@ -68,7 +73,7 @@ postgresql:
   Creation: yes
   Geo-referencing: yes
   Build requirements: PostgreSQL client library libpq
-  extension: None
+  extension: null
 
 kml:
   GDAL Name: KML
@@ -76,7 +81,7 @@ kml:
   Creation: yes
   Geo-referencing: yes
   Build requirements: read support needs libexpat
-  extension: None
+  extension: null
 
 esri shapefile:
   GDAL Name: ESRI Shapefile
@@ -84,7 +89,7 @@ esri shapefile:
   Creation: yes
   Geo-referencing: yes
   Build requirements: Built-in by default
-  extension: None
+  extension: null
 
 sqlite:
   GDAL Name: SQLite
@@ -92,7 +97,7 @@ sqlite:
   Creation: yes
   Geo-referencing: yes
   Build requirements: libsqlite3 or libspatialite
-  extension: None
+  extension: null
 
 vrt:
   GDAL Name: VRT
@@ -100,7 +105,7 @@ vrt:
   Creation: yes
   Geo-referencing: yes
   Build requirements: Built-in by default
-  extension: None
+  extension: null
 
 amigo cloud:
   GDAL Name: AmigoCloud
@@ -108,7 +113,7 @@ amigo cloud:
   Creation: yes
   Geo-referencing: yes
   Build requirements: libcurl
-  extension: None
+  extension: null
 
 carto:
   GDAL Name: CARTO
@@ -116,7 +121,7 @@ carto:
   Creation: yes
   Geo-referencing: yes
   Build requirements: libcurl
-  extension: None
+  extension: null
 
 dgn:
   GDAL Name: DGN
@@ -124,7 +129,7 @@ dgn:
   Creation: yes
   Geo-referencing: yes
   Build requirements: Built-in by default
-  extension: None
+  extension: null
 
 dgn v8:
   GDAL Name: DGNv8
@@ -132,7 +137,7 @@ dgn v8:
   Creation: yes
   Geo-referencing: yes
   Build requirements: Open Design Alliance Teigha library
-  extension: None
+  extension: null
 
 dxf:
   GDAL Name: DXF
@@ -140,7 +145,7 @@ dxf:
   Creation: yes
   Geo-referencing: No
   Build requirements: Built-in by default
-  extension: None
+  extension: null
 
 elastic search:
   GDAL Name: Elasticsearch
@@ -148,7 +153,7 @@ elastic search:
   Creation: yes
   Geo-referencing: yes
   Build requirements: libcurl
-  extension: None
+  extension: null
 
 file gdb:
   GDAL Name: FileGDB
@@ -156,7 +161,7 @@ file gdb:
   Creation: yes
   Geo-referencing: yes
   Build requirements: FileGDB API library
-  extension: None
+  extension: null
 
 geo concept:
   GDAL Name: Geoconcept
@@ -164,7 +169,7 @@ geo concept:
   Creation: yes
   Geo-referencing: yes
   Build requirements: Built-in by default
-  extension: None
+  extension: null
 
 geojson seq:
   GDAL Name: GeoJSONSeq
@@ -172,7 +177,7 @@ geojson seq:
   Creation: yes
   Geo-referencing: yes
   Build requirements:  Built-in by default
-  extension: None
+  extension: null
 
 geo rss:
   GDAL Name: GeoRSS
@@ -180,7 +185,7 @@ geo rss:
   Creation: yes
   Geo-referencing: yes
   Build requirements: read support needs libexpat
-  extension: None
+  extension: null
 
 gml:
   GDAL Name: GML
@@ -188,7 +193,7 @@ gml:
   Creation: yes
   Geo-referencing: yes
   Build requirements: read support needs Xerces or libexpat
-  extension: None
+  extension: null
 
 gmt:
   GDAL Name: GMT
@@ -196,7 +201,7 @@ gmt:
   Creation: yes
   Geo-referencing: yes
   Build requirements: Built-in by default
-  extension: None
+  extension: null
 
 lib kml:
   GDAL Name: LIBKML
@@ -204,7 +209,7 @@ lib kml:
   Creation: yes
   Geo-referencing: yes
   Build requirements: libkml
-  extension: None
+  extension: null
 
 map info file:
   GDAL Name: MapInfo File
@@ -212,7 +217,7 @@ map info file:
   Creation: yes
   Geo-referencing: yes
   Build requirements: Built-in by default
-  extension: None
+  extension: null
 
 mongo db v3:
   GDAL Name: MongoDBv3
@@ -220,7 +225,7 @@ mongo db v3:
   Creation: yes
   Geo-referencing: yes
   Build requirements: Mongo CXX >= 3.4.0 client library
-  extension: None
+  extension: null
 
 ms sql spatial:
   GDAL Name: MSSQLSpatial
@@ -228,7 +233,7 @@ ms sql spatial:
   Creation: yes
   Geo-referencing: yes
   Build requirements: ODBC library
-  extension: None
+  extension: null
 
 mvt:
   GDAL Name: MVT
@@ -236,7 +241,7 @@ mvt:
   Creation: yes
   Geo-referencing: yes
   Build requirements: requires SQLite and GEOS for write support
-  extension: None
+  extension: null
 
 mysql:
   GDAL Name: MySQL
@@ -244,7 +249,7 @@ mysql:
   Creation: yes
   Geo-referencing: yes
   Build requirements: MySQL library
-  extension: None
+  extension: null
 
 oci:
   GDAL Name: OCI
@@ -252,7 +257,7 @@ oci:
   Creation: yes
   Geo-referencing: yes
   Build requirements: OCI library
-  extension: None
+  extension: null
 
 open file gdb:
   GDAL Name: OpenFileGDB
@@ -260,7 +265,7 @@ open file gdb:
   Creation: yes
   Geo-referencing: yes
   Build requirements: Built-in by default
-  extension: None
+  extension: null
 
 pdf:
   GDAL Name: PDF
@@ -268,7 +273,7 @@ pdf:
   Creation: yes
   Geo-referencing: yes
   Build requirements: none for write support, Poppler/PoDoFo/PDFium for read support
-  extension: None
+  extension: null
 
 pg dump:
   GDAL Name: PGDump
@@ -276,7 +281,7 @@ pg dump:
   Creation: yes
   Geo-referencing: yes
   Build requirements: Built-in by default
-  extension: None
+  extension: null
 
 xlsx:
   GDAL Name: XLSX
@@ -284,4 +289,4 @@ xlsx:
   Creation: yes
   Geo-referencing: No
   Build requirements: libexpat
-  extension: None
+  extension: null

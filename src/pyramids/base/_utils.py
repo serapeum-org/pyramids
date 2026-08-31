@@ -673,15 +673,25 @@ class Catalog:
             - :meth:`get_driver_by_extension`: The same lookup, returning the driver entry.
             - :meth:`get_extension`: The inverse — the canonical extension for a catalog key.
         """
+        # Guard the *argument*, not the row. Dropping the old per-row
+        # `extension is not None` check is what lets a row carrying only
+        # `aliases` be found at all, but it would also let a `None` argument
+        # match the null-extension `memory` row by `None == None` -- a lookup
+        # for nothing resolving to the in-memory driver.
+        if not extension:
+            raise DriverNotExistError(
+                "An empty extension is not associated with any driver; pass the "
+                "file extension to look up."
+            )
         try:
             key = next(
                 key
                 for key, value in self.drivers.items()
-                if value.get("extension") is not None
-                and (
-                    value.get("extension") == extension
-                    or extension in (value.get("aliases") or ())
-                )
+                # No `extension is not None` guard on the row: it skipped the
+                # entry before the alias test was reached, so a row carrying
+                # only `aliases` was unreachable by any of them.
+                if value.get("extension") == extension
+                or extension in (value.get("aliases") or ())
             )
         except StopIteration:
             raise DriverNotExistError(

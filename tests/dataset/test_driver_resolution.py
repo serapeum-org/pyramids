@@ -53,10 +53,16 @@ class TestResolveOutputDriverFromExtension:
             ("out.tif", "GTiff"),
             ("out.tiff", "GTiff"),
             ("out.nc", "netCDF"),
-            ("out.vrt", "VRT"),
+            ("out.nc4", "netCDF"),
             ("out.img", "HFA"),
         ],
-        ids=["geotiff", "geotiff-tiff-alias", "netcdf", "vrt", "erdas-imagine"],
+        ids=[
+            "geotiff",
+            "geotiff-tiff-alias",
+            "netcdf",
+            "netcdf-nc4-alias",
+            "erdas-imagine",
+        ],
     )
     def test_a_creatable_extension_resolves_to_its_gdal_driver(
         self, filename, expected
@@ -135,12 +141,13 @@ class TestResolveOutputDriverFailures:
         "filename, driver",
         [
             ("out.png", "PNG"),
+            ("out.vrt", "VRT"),
             ("out.jp2", "JP2OpenJPEG"),
             ("out.j2k", "JP2OpenJPEG"),
             ("out.jpeg", "JPEG"),
             ("out.jpg", "JPEG"),
         ],
-        ids=["png", "jp2", "jp2-j2k-alias", "jpeg", "jpeg-jpg-alias"],
+        ids=["png", "vrt", "jp2", "jp2-j2k-alias", "jpeg", "jpeg-jpg-alias"],
     )
     def test_a_copy_only_format_raises_before_gdal(self, filename, driver):
         """A catalogued but `CreateCopy`-only format fails up front.
@@ -162,6 +169,38 @@ class TestResolveOutputDriverFailures:
         )
         assert driver in message, f"message must name the driver: {message}"
         assert "copy" in message.lower(), f"message must give the reason: {message}"
+
+    @pytest.mark.parametrize(
+        "filename, driver",
+        [("out.png", "PNG"), ("out.jpg", "JPEG"), ("out.jp2", "JP2OpenJPEG")],
+    )
+    def test_for_copy_accepts_what_create_cannot_build(self, filename, driver):
+        """`for_copy=True` lifts the refusal for a copy-only format.
+
+        Args:
+            filename: A destination in a write-by-copy-only format.
+            driver: The GDAL driver it resolves to.
+
+        Test scenario:
+            The `Creation` flag records `Create` support, so callers that write
+            with `CreateCopy` -- `translate`, `copy`, `to_terrain_rgb`,
+            `from_band_files`' VRT branch -- must not inherit the refusal.
+            They could produce these files all along; routing them through the
+            default gate briefly rejected a `.png` they can write.
+        """
+        assert resolve_output_driver(filename, for_copy=True) == driver
+        with pytest.raises(FileFormatNotSupportedError):
+            resolve_output_driver(filename)
+
+    def test_for_copy_still_refuses_an_unknown_extension(self):
+        """`for_copy` lifts the capability gate, not the catalog lookup.
+
+        Test scenario:
+            An extension nothing claims is still unresolvable however the
+            caller intends to write it.
+        """
+        with pytest.raises(DriverNotExistError):
+            resolve_output_driver("out.zzz", for_copy=True)
 
     def test_the_two_failures_are_different_exception_types(self):
         """A caller can tell "unknown format" from "cannot Create" by type.
@@ -265,13 +304,16 @@ class TestCatalogAgreesWithGdal:
         "extension, creatable",
         [
             ("tif", True),
+            ("tiff", True),
             ("nc", True),
-            ("vrt", True),
+            ("nc4", True),
             ("img", True),
             ("asc", False),
             ("png", False),
             ("jpeg", False),
+            ("jpg", False),
             ("jp2", False),
+            ("j2k", False),
         ],
     )
     def test_the_creation_flag_matches_the_real_driver_capability(
@@ -288,8 +330,10 @@ class TestCatalogAgreesWithGdal:
             one either rejects a writable format or lets an unwritable one
             through to an opaque GDAL failure. Two entries (`hdf4`, `adrg`)
             were wrong before #1075 for exactly this reason. Every catalogued,
-            resolver-reachable extension is covered, so the same drift cannot
-            recur unnoticed in the ones left out.
+            resolver-reachable extension is covered -- canonical spellings and
+            aliases alike -- so the same drift cannot recur unnoticed in the
+            ones left out. `vrt` is the documented exception, asserted
+            separately below.
         """
         catalog = Catalog(raster_driver=True)
         entry = catalog.get_driver(catalog.get_driver_name_by_extension(extension))
@@ -309,6 +353,28 @@ class TestCatalogAgreesWithGdal:
             f".{extension}: catalog says Creation={entry['Creation']}, GDAL says {real}"
         )
 
+    def test_vrt_is_refused_despite_gdal_reporting_create(self):
+        """`.vrt` is the one place the flag deliberately disagrees with GDAL.
+
+        Test scenario:
+            GDAL reports `DCAP_CREATE=YES` for VRT, but a VRT owns no pixel
+            storage: `Create()` succeeds and the `WriteArray` that follows dies
+            with "Writing through VRTSourcedRasterBand is not supported". The
+            `Creation` flag answers "can the pyramids constructors build it",
+            which is the question the resolver actually asks, so it is `No`
+            here and the refusal happens up front instead of inside GDAL.
+        """
+        catalog = Catalog(raster_driver=True)
+        entry = catalog.get_driver(catalog.get_driver_name_by_extension("vrt"))
+        driver = gdal.GetDriverByName(entry["GDAL Name"])
+        assert driver.GetMetadata().get("DCAP_CREATE") == "YES", (
+            "the divergence this test documents only exists while GDAL reports "
+            "DCAP_CREATE for VRT"
+        )
+        assert not entry["Creation"], "the catalog must refuse .vrt regardless"
+        with pytest.raises(FileFormatNotSupportedError):
+            resolve_output_driver("out.vrt")
+
     def test_every_resolver_reachable_extension_is_covered_above(self):
         """The parametrisation above lists every extension the resolver can reach.
 
@@ -319,12 +385,27 @@ class TestCatalogAgreesWithGdal:
             which is how `asc` and `jpeg` came to be omitted.
         """
         catalog = Catalog(raster_driver=True)
-        reachable = {
-            value["extension"]
-            for value in catalog.drivers.values()
-            if value.get("extension") is not None
+        reachable: set[str] = set()
+        for value in catalog.drivers.values():
+            if value.get("extension") is not None:
+                reachable.add(value["extension"])
+            # Aliases are reachable by the resolver too, so a row that gains one
+            # must not escape this guard -- which is the whole point of it.
+            reachable.update(value.get("aliases") or ())
+        covered = {
+            "tif",
+            "tiff",
+            "nc",
+            "nc4",
+            "vrt",
+            "img",
+            "asc",
+            "png",
+            "jpeg",
+            "jpg",
+            "jp2",
+            "j2k",
         }
-        covered = {"tif", "nc", "vrt", "img", "asc", "png", "jpeg", "jp2"}
         assert reachable == covered, (
             f"catalog extensions {sorted(reachable)} != covered {sorted(covered)}; "
             "add the new one to test_the_creation_flag_matches_the_real_driver_capability"
