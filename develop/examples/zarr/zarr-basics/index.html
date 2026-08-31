@@ -7063,7 +7063,11 @@ build a temp workspace with a small synthetic raster.</p>
 
 <span class="n">rows</span><span class="p">,</span> <span class="n">cols</span> <span class="o">=</span> <span class="mi">32</span><span class="p">,</span> <span class="mi">48</span>
 <span class="n">arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="n">rows</span> <span class="o">*</span> <span class="n">cols</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="n">rows</span><span class="p">,</span> <span class="n">cols</span><span class="p">)</span>
-<span class="n">mem</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">no_data_value</span><span class="o">=-</span><span class="mf">9999.0</span><span class="p">,</span> <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">top_left_corner</span><span class="o">=</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="n">rows</span><span class="p">)),</span> <span class="n">cell_size</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">))</span>
+<span class="n">mem</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span>
+    <span class="n">arr</span><span class="p">,</span>
+    <span class="n">no_data_value</span><span class="o">=-</span><span class="mf">9999.0</span><span class="p">,</span>
+    <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">top_left_corner</span><span class="o">=</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="n">rows</span><span class="p">)),</span> <span class="n">cell_size</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">),</span>
+<span class="p">)</span>
 <span class="n">mem</span><span class="o">.</span><span class="n">band_names</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"red"</span><span class="p">,</span> <span class="s2">"nir"</span><span class="p">]</span>
 
 <span class="c1"># `to_zarr` builds a dask graph that reopens the source by path, so round-trip the</span>
@@ -7087,7 +7091,11 @@ print("workspace:", workspace)
 
 rows, cols = 32, 48
 arr = np.arange(2 * rows * cols, dtype=np.float32).reshape(2, rows, cols)
-mem = Dataset.from_array(arr, no_data_value=-9999.0, geo_ref=GeoReference(top_left_corner=(0.0, float(rows)), cell_size=1.0, epsg=4326))
+mem = Dataset.from_array(
+    arr,
+    no_data_value=-9999.0,
+    geo_ref=GeoReference(top_left_corner=(0.0, float(rows)), cell_size=1.0, epsg=4326),
+)
 mem.band_names = ["red", "nir"]
 
 # `to_zarr` builds a dask graph that reopens the source by path, so round-trip the
@@ -7108,7 +7116,7 @@ ds.shape, ds.cell_size, ds.epsg</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>workspace: /tmp/pyramids-zarr-basics-fzi55q7b
+<pre>workspace: /tmp/pyramids-zarr-basics-pv6c2clo
 </pre>
 </div>
 </div>
@@ -7251,7 +7259,7 @@ rt.plot(
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[3]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7f7a10e18ec0&gt;</pre>
+<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7f99ad710ec0&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">

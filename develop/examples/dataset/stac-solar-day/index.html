@@ -7152,7 +7152,7 @@ work</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[1]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>'/tmp/solar_day_demo_apt6a5nt'</pre>
+<pre>'/tmp/solar_day_demo_pt6en77f'</pre>
 </div>
 </div>
 </div>
@@ -7192,14 +7192,24 @@ work</div>
 <span class="w">    </span><span class="sd">"""Write a small 1-band GeoTIFF tile and return its path."""</span>
     <span class="n">path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">work</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
     <span class="n">arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">((</span><span class="mi">20</span><span class="p">,</span> <span class="mi">20</span><span class="p">),</span> <span class="n">value</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">"float32"</span><span class="p">)</span>
-    <span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">no_data_value</span><span class="o">=-</span><span class="mf">9999.0</span><span class="p">,</span> <span class="n">path</span><span class="o">=</span><span class="n">path</span><span class="p">,</span> <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">top_left_corner</span><span class="o">=</span><span class="n">top_left</span><span class="p">,</span> <span class="n">cell_size</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">))</span>
+    <span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span>
+        <span class="n">arr</span><span class="p">,</span>
+        <span class="n">no_data_value</span><span class="o">=-</span><span class="mf">9999.0</span><span class="p">,</span>
+        <span class="n">path</span><span class="o">=</span><span class="n">path</span><span class="p">,</span>
+        <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">top_left_corner</span><span class="o">=</span><span class="n">top_left</span><span class="p">,</span> <span class="n">cell_size</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">),</span>
+    <span class="p">)</span>
     <span class="k">return</span> <span class="n">path</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-2">def make_tile(name, top_left, value):
     """Write a small 1-band GeoTIFF tile and return its path."""
     path = os.path.join(work, name)
     arr = np.full((20, 20), value, dtype="float32")
-    Dataset.from_array(arr, no_data_value=-9999.0, path=path, geo_ref=GeoReference(top_left_corner=top_left, cell_size=0.05, epsg=4326))
+    Dataset.from_array(
+        arr,
+        no_data_value=-9999.0,
+        path=path,
+        geo_ref=GeoReference(top_left_corner=top_left, cell_size=0.05, epsg=4326),
+    )
     return path</div>
 </div>
 </div>
@@ -7258,9 +7268,9 @@ tile_c = make_tile("c.tif", top_left=(10.0, 41.0), value=3.0)  # day 2
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[3]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>['/tmp/solar_day_demo_apt6a5nt/a.tif',
- '/tmp/solar_day_demo_apt6a5nt/b.tif',
- '/tmp/solar_day_demo_apt6a5nt/c.tif']</pre>
+<pre>['/tmp/solar_day_demo_pt6en77f/a.tif',
+ '/tmp/solar_day_demo_pt6en77f/b.tif',
+ '/tmp/solar_day_demo_pt6en77f/c.tif']</pre>
 </div>
 </div>
 </div>
@@ -7521,7 +7531,7 @@ solar-day mosaic (west tile = 1, east tile = 2).</p>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[7]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7f5f440641a0&gt;</pre>
+<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7f28bce681a0&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">

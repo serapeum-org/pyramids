@@ -7068,7 +7068,13 @@ grid, one per timestep, that we'll then write, extend, and reduce.</p>
 <span class="k">def</span><span class="w"> </span><span class="nf">make_step</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""Write a 1-band tif filled with `value` on a shared lat/lon grid."""</span>
     <span class="n">arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">((</span><span class="mi">1</span><span class="p">,</span> <span class="n">ROWS</span><span class="p">,</span> <span class="n">COLS</span><span class="p">),</span> <span class="n">value</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
-    <span class="n">d</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">no_data_value</span><span class="o">=-</span><span class="mf">9999.0</span><span class="p">,</span> <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">top_left_corner</span><span class="o">=</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="n">ROWS</span><span class="p">)),</span> <span class="n">cell_size</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">))</span>
+    <span class="n">d</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span>
+        <span class="n">arr</span><span class="p">,</span>
+        <span class="n">no_data_value</span><span class="o">=-</span><span class="mf">9999.0</span><span class="p">,</span>
+        <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span>
+            <span class="n">top_left_corner</span><span class="o">=</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="n">ROWS</span><span class="p">)),</span> <span class="n">cell_size</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span>
+        <span class="p">),</span>
+    <span class="p">)</span>
     <span class="n">d</span><span class="o">.</span><span class="n">band_names</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"rainfall_mm"</span><span class="p">]</span>
     <span class="n">path</span> <span class="o">=</span> <span class="n">workspace</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">.tif"</span>
     <span class="n">d</span><span class="o">.</span><span class="n">to_file</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
@@ -7098,7 +7104,13 @@ ROWS, COLS = 24, 24
 def make_step(value: float, name: str) -&gt; Path:
     """Write a 1-band tif filled with `value` on a shared lat/lon grid."""
     arr = np.full((1, ROWS, COLS), value, dtype=np.float32)
-    d = Dataset.from_array(arr, no_data_value=-9999.0, geo_ref=GeoReference(top_left_corner=(0.0, float(ROWS)), cell_size=1.0, epsg=4326))
+    d = Dataset.from_array(
+        arr,
+        no_data_value=-9999.0,
+        geo_ref=GeoReference(
+            top_left_corner=(0.0, float(ROWS)), cell_size=1.0, epsg=4326
+        ),
+    )
     d.band_names = ["rainfall_mm"]
     path = workspace / f"{name}.tif"
     d.to_file(path)
@@ -7120,7 +7132,7 @@ print("step files:", [p.name for p in (jan + feb + mar)])</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>workspace: /tmp/pyramids-zarr-cube-46kg2dmt
+<pre>workspace: /tmp/pyramids-zarr-cube-n2ucf4so
 step files: ['jan.tif', 'feb.tif', 'mar.tif']
 </pre>
 </div>
@@ -7478,7 +7490,7 @@ col.plot(
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[6]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7f75294f7cb0&gt;</pre>
+<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7fc60c2fbcb0&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">

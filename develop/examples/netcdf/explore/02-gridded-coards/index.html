@@ -7295,13 +7295,23 @@ print('dimensions after reducing time:', dict(time_mean.dimension_sizes))</div>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">work</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">tempfile</span><span class="o">.</span><span class="n">mkdtemp</span><span class="p">())</span>
 <span class="n">slice2d</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="nb">tuple</span><span class="p">(</span><span class="mi">0</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">ndim</span> <span class="o">-</span> <span class="mi">2</span><span class="p">))]</span>
-<span class="n">NetCDF</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span><span class="n">arr</span><span class="o">=</span><span class="n">slice2d</span><span class="p">,</span> <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">geo</span><span class="o">=</span><span class="n">var</span><span class="o">.</span><span class="n">geotransform</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="n">var</span><span class="o">.</span><span class="n">epsg</span> <span class="ow">or</span> <span class="mi">4326</span><span class="p">),</span> <span class="n">variable_name</span><span class="o">=</span><span class="s1">'air_slice0'</span><span class="p">,</span> <span class="n">path</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">work</span> <span class="o">/</span> <span class="s1">'derived.nc'</span><span class="p">))</span>
+<span class="n">NetCDF</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span>
+    <span class="n">arr</span><span class="o">=</span><span class="n">slice2d</span><span class="p">,</span>
+    <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">geo</span><span class="o">=</span><span class="n">var</span><span class="o">.</span><span class="n">geotransform</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="n">var</span><span class="o">.</span><span class="n">epsg</span> <span class="ow">or</span> <span class="mi">4326</span><span class="p">),</span>
+    <span class="n">variable_name</span><span class="o">=</span><span class="s1">'air_slice0'</span><span class="p">,</span>
+    <span class="n">path</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">work</span> <span class="o">/</span> <span class="s1">'derived.nc'</span><span class="p">),</span>
+<span class="p">)</span>
 <span class="n">nc</span><span class="o">.</span><span class="n">add_variable</span><span class="p">(</span><span class="n">NetCDF</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">work</span> <span class="o">/</span> <span class="s1">'derived.nc'</span><span class="p">)),</span> <span class="s1">'air_slice0'</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="s1">'variables after add:'</span><span class="p">,</span> <span class="n">nc</span><span class="o">.</span><span class="n">variable_names</span><span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-8">work = Path(tempfile.mkdtemp())
 slice2d = data[tuple(0 for _ in range(data.ndim - 2))]
-NetCDF.from_array(arr=slice2d, geo_ref=GeoReference(geo=var.geotransform, epsg=var.epsg or 4326), variable_name='air_slice0', path=str(work / 'derived.nc'))
+NetCDF.from_array(
+    arr=slice2d,
+    geo_ref=GeoReference(geo=var.geotransform, epsg=var.epsg or 4326),
+    variable_name='air_slice0',
+    path=str(work / 'derived.nc'),
+)
 nc.add_variable(NetCDF.read_file(str(work / 'derived.nc')), 'air_slice0')
 print('variables after add:', nc.variable_names)</div>
 </div>
@@ -8045,13 +8055,23 @@ print('dimensions after reducing time:', dict(time_mean.dimension_sizes))</div>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">work</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">tempfile</span><span class="o">.</span><span class="n">mkdtemp</span><span class="p">())</span>
 <span class="n">slice2d</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="nb">tuple</span><span class="p">(</span><span class="mi">0</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">ndim</span> <span class="o">-</span> <span class="mi">2</span><span class="p">))]</span>
-<span class="n">NetCDF</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span><span class="n">arr</span><span class="o">=</span><span class="n">slice2d</span><span class="p">,</span> <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">geo</span><span class="o">=</span><span class="n">var</span><span class="o">.</span><span class="n">geotransform</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="n">var</span><span class="o">.</span><span class="n">epsg</span> <span class="ow">or</span> <span class="mi">4326</span><span class="p">),</span> <span class="n">variable_name</span><span class="o">=</span><span class="s1">'rhum_slice0'</span><span class="p">,</span> <span class="n">path</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">work</span> <span class="o">/</span> <span class="s1">'derived.nc'</span><span class="p">))</span>
+<span class="n">NetCDF</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span>
+    <span class="n">arr</span><span class="o">=</span><span class="n">slice2d</span><span class="p">,</span>
+    <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">geo</span><span class="o">=</span><span class="n">var</span><span class="o">.</span><span class="n">geotransform</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="n">var</span><span class="o">.</span><span class="n">epsg</span> <span class="ow">or</span> <span class="mi">4326</span><span class="p">),</span>
+    <span class="n">variable_name</span><span class="o">=</span><span class="s1">'rhum_slice0'</span><span class="p">,</span>
+    <span class="n">path</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">work</span> <span class="o">/</span> <span class="s1">'derived.nc'</span><span class="p">),</span>
+<span class="p">)</span>
 <span class="n">nc</span><span class="o">.</span><span class="n">add_variable</span><span class="p">(</span><span class="n">NetCDF</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">work</span> <span class="o">/</span> <span class="s1">'derived.nc'</span><span class="p">)),</span> <span class="s1">'rhum_slice0'</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="s1">'variables after add:'</span><span class="p">,</span> <span class="n">nc</span><span class="o">.</span><span class="n">variable_names</span><span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-19">work = Path(tempfile.mkdtemp())
 slice2d = data[tuple(0 for _ in range(data.ndim - 2))]
-NetCDF.from_array(arr=slice2d, geo_ref=GeoReference(geo=var.geotransform, epsg=var.epsg or 4326), variable_name='rhum_slice0', path=str(work / 'derived.nc'))
+NetCDF.from_array(
+    arr=slice2d,
+    geo_ref=GeoReference(geo=var.geotransform, epsg=var.epsg or 4326),
+    variable_name='rhum_slice0',
+    path=str(work / 'derived.nc'),
+)
 nc.add_variable(NetCDF.read_file(str(work / 'derived.nc')), 'rhum_slice0')
 print('variables after add:', nc.variable_names)</div>
 </div>

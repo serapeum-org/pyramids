@@ -7137,13 +7137,17 @@ the coastline on top — it's North America:</p>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">first_step</span> <span class="o">=</span> <span class="n">air</span><span class="o">.</span><span class="n">read_array</span><span class="p">(</span><span class="n">band</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">unpack</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># unpack the int16 values to Kelvin</span>
 <span class="n">geo</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">air</span><span class="o">.</span><span class="n">geotransform</span><span class="p">)</span>
 <span class="n">geo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">geo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">-</span> <span class="mi">360</span>  <span class="c1"># 200..330 E  -&gt;  -160..-30 (same grid, shifted frame)</span>
-<span class="n">shifted_file</span> <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span><span class="n">arr</span><span class="o">=</span><span class="n">first_step</span><span class="p">,</span> <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">geo</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="n">geo</span><span class="p">),</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">),</span> <span class="n">variable_name</span><span class="o">=</span><span class="s1">'air'</span><span class="p">)</span>
+<span class="n">shifted_file</span> <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span>
+    <span class="n">arr</span><span class="o">=</span><span class="n">first_step</span><span class="p">,</span> <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">geo</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="n">geo</span><span class="p">),</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">),</span> <span class="n">variable_name</span><span class="o">=</span><span class="s1">'air'</span>
+<span class="p">)</span>
 <span class="n">shifted</span> <span class="o">=</span> <span class="n">shifted_file</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="s1">'air'</span><span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-5">first_step = air.read_array(band=0, unpack=True)  # unpack the int16 values to Kelvin
 geo = list(air.geotransform)
 geo[0] = geo[0] - 360  # 200..330 E  -&gt;  -160..-30 (same grid, shifted frame)
-shifted_file = NetCDF.from_array(arr=first_step, geo_ref=GeoReference(geo=tuple(geo), epsg=4326), variable_name='air')
+shifted_file = NetCDF.from_array(
+    arr=first_step, geo_ref=GeoReference(geo=tuple(geo), epsg=4326), variable_name='air'
+)
 shifted = shifted_file.get_variable('air')</div>
 </div>
 </div>

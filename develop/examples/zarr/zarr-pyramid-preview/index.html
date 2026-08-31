@@ -7021,7 +7021,11 @@ and shows the bytes-on-disk cost vs the bytes-read win for a thumbnail-style pre
 <span class="n">rad</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">hypot</span><span class="p">(</span><span class="n">yy</span> <span class="o">-</span> <span class="n">ROWS</span> <span class="o">/</span> <span class="mi">2</span><span class="p">,</span> <span class="n">xx</span> <span class="o">-</span> <span class="n">COLS</span> <span class="o">/</span> <span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
 <span class="n">arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">stack</span><span class="p">([</span><span class="n">rad</span><span class="p">,</span> <span class="n">rad</span> <span class="o">/</span> <span class="n">rad</span><span class="o">.</span><span class="n">max</span><span class="p">()</span> <span class="o">*</span> <span class="mf">100.0</span><span class="p">])</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
 
-<span class="n">mem</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">no_data_value</span><span class="o">=-</span><span class="mf">9999.0</span><span class="p">,</span> <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">top_left_corner</span><span class="o">=</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="n">ROWS</span><span class="p">)),</span> <span class="n">cell_size</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">))</span>
+<span class="n">mem</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span>
+    <span class="n">arr</span><span class="p">,</span>
+    <span class="n">no_data_value</span><span class="o">=-</span><span class="mf">9999.0</span><span class="p">,</span>
+    <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">top_left_corner</span><span class="o">=</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="n">ROWS</span><span class="p">)),</span> <span class="n">cell_size</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">),</span>
+<span class="p">)</span>
 <span class="n">mem</span><span class="o">.</span><span class="n">band_names</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"distance_m"</span><span class="p">,</span> <span class="s2">"distance_pct"</span><span class="p">]</span>
 
 <span class="n">source_tif</span> <span class="o">=</span> <span class="n">workspace</span> <span class="o">/</span> <span class="s2">"source.tif"</span>
@@ -7050,7 +7054,11 @@ yy, xx = np.mgrid[0:ROWS, 0:COLS].astype(np.float32)
 rad = np.hypot(yy - ROWS / 2, xx - COLS / 2).astype(np.float32)
 arr = np.stack([rad, rad / rad.max() * 100.0]).astype(np.float32)
 
-mem = Dataset.from_array(arr, no_data_value=-9999.0, geo_ref=GeoReference(top_left_corner=(0.0, float(ROWS)), cell_size=1.0, epsg=4326))
+mem = Dataset.from_array(
+    arr,
+    no_data_value=-9999.0,
+    geo_ref=GeoReference(top_left_corner=(0.0, float(ROWS)), cell_size=1.0, epsg=4326),
+)
 mem.band_names = ["distance_m", "distance_pct"]
 
 source_tif = workspace / "source.tif"
@@ -7070,7 +7078,7 @@ print("cell_size:", ds.cell_size)</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>workspace: /tmp/pyramids-zarr-pyramid-y0ybaguf
+<pre>workspace: /tmp/pyramids-zarr-pyramid-q76awqey
 shape    : (2, 256, 512)
 cell_size: 1.0
 </pre>
