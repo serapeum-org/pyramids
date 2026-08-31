@@ -16,9 +16,10 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
+from pyramids.base._errors import DriverNotExistError
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset, NoDataSentinelWarning, Window
-from pyramids.dataset.dataset import OUT_OF_CORE_CREATION_OPTIONS
+from pyramids.dataset.dataset import OUT_OF_CORE_CREATION_OPTIONS, _resolves_to_gtiff
 
 pytestmark = pytest.mark.core
 
@@ -573,6 +574,108 @@ class TestEmptyLike:
             [7.0, 7.0],
             [7.0, 7.0],
         ], f"empty_like disk window did not round-trip: {back}"
+
+    def test_options_without_path_raises(self, template):
+        """`options` with no `path` raises instead of being silently dropped.
+
+        Args:
+            template: The template raster fixture.
+
+        Test scenario:
+            The MEM target takes no creation options, so accepting them would
+            drop the caller's list without a word. `create_empty` pins its own
+            copy of this guard; `empty_like`'s twin was unpinned, which is how
+            its message drifted out of step.
+        """
+        with pytest.raises(ValueError, match="apply only to a disk driver"):
+            Dataset.empty_like(template, options=["TILED=YES"])
+
+    def test_a_non_gtiff_target_does_not_warn_about_sparse_blocks(
+        self, template, tmp_path, recwarn
+    ):
+        """A `.nc` target with no no-data does not cite sparse blocks.
+
+        Args:
+            template: The template raster fixture.
+            tmp_path: Temporary directory fixture.
+            recwarn: Pytest's warning recorder.
+
+        Test scenario:
+            The warning explains that unwritten *sparse* blocks read back as 0,
+            which only a sparse GTiff does. `empty_like` gated it on "a path was
+            given", which meant a netCDF got a warning whose stated reason does
+            not apply to it.
+        """
+        Dataset.empty_like(
+            template, no_data_value=None, path=tmp_path / "like.nc"
+        ).close()
+        sentinel = [w for w in recwarn if issubclass(w.category, NoDataSentinelWarning)]
+        assert not sentinel, (
+            f"a netCDF target must not warn about sparse blocks: "
+            f"{[str(w.message) for w in sentinel]}"
+        )
+
+
+class TestCreateDatasetGuard:
+    """The low-level allocator's own options-without-path guard."""
+
+    def test_options_without_path_raises(self):
+        """`_create_dataset` refuses creation options for an in-memory raster.
+
+        Test scenario:
+            `create_empty` and `empty_like` each guard this before delegating,
+            so the allocator's own check is the backstop for any other caller
+            reaching it directly. It was the one branch of the reworked
+            creation-option selection that no test exercised.
+        """
+        with pytest.raises(ValueError, match="creation options need a path"):
+            Dataset._create_dataset(4, 4, 1, gdal.GDT_Float32, options=["TILED=YES"])
+
+
+class TestResolvesToGtiff:
+    """The shared "does this path select GTiff" predicate."""
+
+    @pytest.mark.parametrize(
+        "path, expected",
+        [
+            (None, False),
+            ("out.tif", True),
+            ("out.tiff", True),
+            ("out.TIF", True),
+            ("out.nc", False),
+            ("out.vrt", False),
+            (Path("out.tif"), True),
+        ],
+        ids=["none", "tif", "tiff", "upper", "nc", "vrt", "path-object"],
+    )
+    def test_only_a_gtiff_path_is_true(self, path, expected):
+        """Only a path whose extension resolves to GTiff is true.
+
+        Args:
+            path: The destination under test.
+            expected: Whether it selects GTiff.
+
+        Test scenario:
+            This predicate gates the sparse / tiled / BigTIFF creation options
+            and the unwritten-block no-data warning, both GTiff-specific. It
+            replaced a hardcoded `path is not None`, which conflated "written to
+            disk" with "written as GTiff" -- true only while the driver was
+            passed down explicitly.
+        """
+        assert _resolves_to_gtiff(path) is expected, (
+            f"_resolves_to_gtiff({path!r}) should be {expected}"
+        )
+
+    def test_an_uncatalogued_extension_propagates_the_error(self):
+        """An unknown extension raises rather than answering False.
+
+        Test scenario:
+            Swallowing the error and returning False would silently skip the
+            GTiff option set for a path that is going to fail moments later in
+            the allocator anyway -- better to surface the real problem here.
+        """
+        with pytest.raises(DriverNotExistError):
+            _resolves_to_gtiff("out.zzz")
 
 
 class TestCreateOptionsBackCompat:
