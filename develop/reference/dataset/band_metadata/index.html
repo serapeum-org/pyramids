@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -8513,7 +8513,11 @@ Hold "Ctrl" to enable pan &amp; zoom
 <span class="normal"><a href="#__codelineno-0-2016">2016</a></span>
 <span class="normal"><a href="#__codelineno-0-2017">2017</a></span>
 <span class="normal"><a href="#__codelineno-0-2018">2018</a></span>
-<span class="normal"><a href="#__codelineno-0-2019">2019</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-76" name="__codelineno-0-76"></a><span class="k">class</span><span class="w"> </span><span class="nc">Bands</span><span class="p">(</span><span class="n">_Engine</span><span class="p">[</span><span class="s2">"Dataset"</span><span class="p">]):</span>
+<span class="normal"><a href="#__codelineno-0-2019">2019</a></span>
+<span class="normal"><a href="#__codelineno-0-2020">2020</a></span>
+<span class="normal"><a href="#__codelineno-0-2021">2021</a></span>
+<span class="normal"><a href="#__codelineno-0-2022">2022</a></span>
+<span class="normal"><a href="#__codelineno-0-2023">2023</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-76" name="__codelineno-0-76"></a><span class="k">class</span><span class="w"> </span><span class="nc">Bands</span><span class="p">(</span><span class="n">_Engine</span><span class="p">[</span><span class="s2">"Dataset"</span><span class="p">]):</span>
 <a id="__codelineno-0-77" name="__codelineno-0-77"></a><span class="w">    </span><span class="sd">"""Mixin providing band metadata, attribute table, and color table operations."""</span>
 <a id="__codelineno-0-78" name="__codelineno-0-78"></a>
 <a id="__codelineno-0-79" name="__codelineno-0-79"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_iloc</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">i</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">gdal</span><span class="o">.</span><span class="n">Band</span><span class="p">:</span>
@@ -10309,154 +10313,158 @@ Hold "Ctrl" to enable pan &amp; zoom
 <a id="__codelineno-0-1869" name="__codelineno-0-1869"></a><span class="sd">                in RAM — genuinely out-of-core for a block-based format such as GTiff.</span>
 <a id="__codelineno-0-1870" name="__codelineno-0-1870"></a><span class="sd">                `None` (default) keeps the result in memory.</span>
 <a id="__codelineno-0-1871" name="__codelineno-0-1871"></a>
-<a id="__codelineno-0-1872" name="__codelineno-0-1872"></a><span class="sd">                The driver must be one whose `CreateCopy` hands back a *writable*</span>
-<a id="__codelineno-0-1873" name="__codelineno-0-1873"></a><span class="sd">                dataset, since the swap is written into the clone. PNG and JPEG do not</span>
-<a id="__codelineno-0-1874" name="__codelineno-0-1874"></a><span class="sd">                — they return a read-only handle — so those extensions reach GDAL and</span>
-<a id="__codelineno-0-1875" name="__codelineno-0-1875"></a><span class="sd">                then fail with :class:`ReadOnlyError`; use `.tif`, `.nc`, or another</span>
-<a id="__codelineno-0-1876" name="__codelineno-0-1876"></a><span class="sd">                updatable format.</span>
-<a id="__codelineno-0-1877" name="__codelineno-0-1877"></a>
-<a id="__codelineno-0-1878" name="__codelineno-0-1878"></a><span class="sd">        Returns:</span>
-<a id="__codelineno-0-1879" name="__codelineno-0-1879"></a><span class="sd">            Dataset | None:</span>
-<a id="__codelineno-0-1880" name="__codelineno-0-1880"></a><span class="sd">                A new Dataset with the updated no-data value, or ``None``</span>
-<a id="__codelineno-0-1881" name="__codelineno-0-1881"></a><span class="sd">                when ``inplace=True`` -- see :meth:`Analysis.apply` for why.</span>
-<a id="__codelineno-0-1882" name="__codelineno-0-1882"></a>
-<a id="__codelineno-0-1883" name="__codelineno-0-1883"></a><span class="sd">        Raises:</span>
-<a id="__codelineno-0-1884" name="__codelineno-0-1884"></a><span class="sd">            NoDataValueError:</span>
-<a id="__codelineno-0-1885" name="__codelineno-0-1885"></a><span class="sd">                If `new_value` cannot be stored in a band's dtype — e.g. `None` or `NaN`</span>
-<a id="__codelineno-0-1886" name="__codelineno-0-1886"></a><span class="sd">                given for an integer band — the dtype mismatch is reported instead of</span>
-<a id="__codelineno-0-1887" name="__codelineno-0-1887"></a><span class="sd">                leaking a raw numpy `TypeError`/`ValueError`. Also raised when</span>
-<a id="__codelineno-0-1888" name="__codelineno-0-1888"></a><span class="sd">                `new_value` or `old_value` is given as a list whose length does not</span>
-<a id="__codelineno-0-1889" name="__codelineno-0-1889"></a><span class="sd">                match `band_count`.</span>
-<a id="__codelineno-0-1890" name="__codelineno-0-1890"></a><span class="sd">            DriverNotExistError:</span>
-<a id="__codelineno-0-1891" name="__codelineno-0-1891"></a><span class="sd">                `path` has no extension, or one the driver catalog does not know.</span>
-<a id="__codelineno-0-1892" name="__codelineno-0-1892"></a><span class="sd">            ReadOnlyError:</span>
-<a id="__codelineno-0-1893" name="__codelineno-0-1893"></a><span class="sd">                `path`'s driver returns a read-only dataset from `CreateCopy` (PNG,</span>
-<a id="__codelineno-0-1894" name="__codelineno-0-1894"></a><span class="sd">                JPEG), so the swapped values cannot be written back into the clone.</span>
-<a id="__codelineno-0-1895" name="__codelineno-0-1895"></a>
-<a id="__codelineno-0-1896" name="__codelineno-0-1896"></a><span class="sd">        Warning:</span>
-<a id="__codelineno-0-1897" name="__codelineno-0-1897"></a><span class="sd">            With `path=None` the method clones the raster in memory to change the</span>
-<a id="__codelineno-0-1898" name="__codelineno-0-1898"></a><span class="sd">            `no_data_value`; pass `path` for a disk-backed, out-of-core result.</span>
-<a id="__codelineno-0-1899" name="__codelineno-0-1899"></a><span class="sd">        Examples:</span>
-<a id="__codelineno-0-1900" name="__codelineno-0-1900"></a><span class="sd">            - Create a Dataset (4 bands, 10 rows, 10 columns) at lon/lat (0, 0):</span>
-<a id="__codelineno-0-1901" name="__codelineno-0-1901"></a><span class="sd">              ```python</span>
-<a id="__codelineno-0-1902" name="__codelineno-0-1902"></a><span class="sd">              &gt;&gt;&gt; from pyramids.dataset import Dataset, GeoReference</span>
-<a id="__codelineno-0-1903" name="__codelineno-0-1903"></a><span class="sd">              &gt;&gt;&gt; dataset = Dataset.create(</span>
-<a id="__codelineno-0-1904" name="__codelineno-0-1904"></a><span class="sd">              ...     rows=3,</span>
-<a id="__codelineno-0-1905" name="__codelineno-0-1905"></a><span class="sd">              ...     columns=3,</span>
-<a id="__codelineno-0-1906" name="__codelineno-0-1906"></a><span class="sd">              ...     bands=1,</span>
-<a id="__codelineno-0-1907" name="__codelineno-0-1907"></a><span class="sd">              ...     dtype="float32",</span>
-<a id="__codelineno-0-1908" name="__codelineno-0-1908"></a><span class="sd">              ...     no_data_value=-9,</span>
-<a id="__codelineno-0-1909" name="__codelineno-0-1909"></a><span class="sd">              ...     geo_ref=GeoReference(cell_size=0.05, top_left_corner=(0, 0), epsg=4326),</span>
-<a id="__codelineno-0-1910" name="__codelineno-0-1910"></a><span class="sd">              ... )</span>
-<a id="__codelineno-0-1911" name="__codelineno-0-1911"></a><span class="sd">              &gt;&gt;&gt; arr = dataset.read_array()</span>
-<a id="__codelineno-0-1912" name="__codelineno-0-1912"></a><span class="sd">              &gt;&gt;&gt; print(arr)</span>
-<a id="__codelineno-0-1913" name="__codelineno-0-1913"></a><span class="sd">              [[-9. -9. -9.]</span>
-<a id="__codelineno-0-1914" name="__codelineno-0-1914"></a><span class="sd">               [-9. -9. -9.]</span>
-<a id="__codelineno-0-1915" name="__codelineno-0-1915"></a><span class="sd">               [-9. -9. -9.]]</span>
-<a id="__codelineno-0-1916" name="__codelineno-0-1916"></a><span class="sd">              &gt;&gt;&gt; print(dataset.no_data_value) # doctest: +SKIP</span>
-<a id="__codelineno-0-1917" name="__codelineno-0-1917"></a><span class="sd">              [-9.0]</span>
-<a id="__codelineno-0-1918" name="__codelineno-0-1918"></a>
-<a id="__codelineno-0-1919" name="__codelineno-0-1919"></a><span class="sd">              ```</span>
-<a id="__codelineno-0-1920" name="__codelineno-0-1920"></a><span class="sd">            - The dataset is full of the no_data_value. Now change it using `change_no_data_value`:</span>
-<a id="__codelineno-0-1921" name="__codelineno-0-1921"></a><span class="sd">              ```python</span>
-<a id="__codelineno-0-1922" name="__codelineno-0-1922"></a><span class="sd">              &gt;&gt;&gt; new_dataset = dataset.change_no_data_value(-10, -9)</span>
-<a id="__codelineno-0-1923" name="__codelineno-0-1923"></a><span class="sd">              &gt;&gt;&gt; arr = new_dataset.read_array()</span>
-<a id="__codelineno-0-1924" name="__codelineno-0-1924"></a><span class="sd">              &gt;&gt;&gt; print(arr)</span>
-<a id="__codelineno-0-1925" name="__codelineno-0-1925"></a><span class="sd">              [[-10. -10. -10.]</span>
-<a id="__codelineno-0-1926" name="__codelineno-0-1926"></a><span class="sd">               [-10. -10. -10.]</span>
-<a id="__codelineno-0-1927" name="__codelineno-0-1927"></a><span class="sd">               [-10. -10. -10.]]</span>
-<a id="__codelineno-0-1928" name="__codelineno-0-1928"></a><span class="sd">              &gt;&gt;&gt; print(new_dataset.no_data_value) # doctest: +SKIP</span>
-<a id="__codelineno-0-1929" name="__codelineno-0-1929"></a><span class="sd">              [-10.0]</span>
-<a id="__codelineno-0-1930" name="__codelineno-0-1930"></a>
-<a id="__codelineno-0-1931" name="__codelineno-0-1931"></a><span class="sd">              ```</span>
-<a id="__codelineno-0-1932" name="__codelineno-0-1932"></a><span class="sd">        """</span>
-<a id="__codelineno-0-1933" name="__codelineno-0-1933"></a>        <span class="n">new_value</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_normalize_no_data_arg</span><span class="p">(</span><span class="n">new_value</span><span class="p">,</span> <span class="s2">"new_value"</span><span class="p">)</span>
-<a id="__codelineno-0-1934" name="__codelineno-0-1934"></a>        <span class="k">if</span> <span class="n">old_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-1935" name="__codelineno-0-1935"></a>            <span class="n">old_value</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_normalize_no_data_arg</span><span class="p">(</span><span class="n">old_value</span><span class="p">,</span> <span class="s2">"old_value"</span><span class="p">)</span>
-<a id="__codelineno-0-1936" name="__codelineno-0-1936"></a>        <span class="c1"># Clone the full header + pixels with GDAL's block-based CreateCopy so</span>
-<a id="__codelineno-0-1937" name="__codelineno-0-1937"></a>        <span class="c1"># every band's colour table, description, scale/offset, RAT and metadata</span>
-<a id="__codelineno-0-1938" name="__codelineno-0-1938"></a>        <span class="c1"># survive exactly (no explicit per-property copy to drift out of sync).</span>
-<a id="__codelineno-0-1939" name="__codelineno-0-1939"></a>        <span class="c1"># A `path` makes the clone a disk-backed GeoTIFF, so with the tiled swap</span>
-<a id="__codelineno-0-1940" name="__codelineno-0-1940"></a>        <span class="c1"># below the whole raster is never held in RAM (out-of-core); `None` keeps</span>
-<a id="__codelineno-0-1941" name="__codelineno-0-1941"></a>        <span class="c1"># it in memory. The old&lt;-&gt;new no-data swap is then streamed one tile at a</span>
-<a id="__codelineno-0-1942" name="__codelineno-0-1942"></a>        <span class="c1"># time, so a full band is never materialised as a NumPy array (#969).</span>
-<a id="__codelineno-0-1943" name="__codelineno-0-1943"></a>        <span class="c1"># From the extension, not hardcoded: a `.nc` path silently produced a</span>
-<a id="__codelineno-0-1944" name="__codelineno-0-1944"></a>        <span class="c1"># mislabelled GTiff. NOT `for_copy`, despite the CreateCopy below: this</span>
-<a id="__codelineno-0-1945" name="__codelineno-0-1945"></a>        <span class="c1"># method streams the no-data swap into the clone afterwards, and a</span>
-<a id="__codelineno-0-1946" name="__codelineno-0-1946"></a>        <span class="c1"># copy-only driver hands back a read-only handle -- `.png` passed the</span>
-<a id="__codelineno-0-1947" name="__codelineno-0-1947"></a>        <span class="c1"># resolver and then died with a ReadOnlyError naming nothing about the</span>
-<a id="__codelineno-0-1948" name="__codelineno-0-1948"></a>        <span class="c1"># format. The strict gate refuses it up front, with a message that does.</span>
-<a id="__codelineno-0-1949" name="__codelineno-0-1949"></a>        <span class="n">driver</span> <span class="o">=</span> <span class="n">resolve_output_driver</span><span class="p">(</span><span class="n">path</span><span class="p">)</span> <span class="k">if</span> <span class="n">path</span> <span class="k">else</span> <span class="n">MEMORY_DRIVER</span>
-<a id="__codelineno-0-1950" name="__codelineno-0-1950"></a>        <span class="n">target</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">path</span><span class="p">)</span> <span class="k">if</span> <span class="n">path</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="s2">""</span>
-<a id="__codelineno-0-1951" name="__codelineno-0-1951"></a>        <span class="n">dst</span> <span class="o">=</span> <span class="n">gdal</span><span class="o">.</span><span class="n">GetDriverByName</span><span class="p">(</span><span class="n">driver</span><span class="p">)</span><span class="o">.</span><span class="n">CreateCopy</span><span class="p">(</span><span class="n">target</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">raster</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
-<a id="__codelineno-0-1952" name="__codelineno-0-1952"></a>        <span class="n">new_dataset</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="vm">__class__</span><span class="p">(</span><span class="n">dst</span><span class="p">,</span> <span class="s2">"write"</span><span class="p">)</span>
-<a id="__codelineno-0-1953" name="__codelineno-0-1953"></a>        <span class="k">try</span><span class="p">:</span>
-<a id="__codelineno-0-1954" name="__codelineno-0-1954"></a>            <span class="c1"># _set_no_data_value may coerce new_value to each band's dtype; read it</span>
-<a id="__codelineno-0-1955" name="__codelineno-0-1955"></a>            <span class="c1"># back from the object so the swap below uses the stored values.</span>
-<a id="__codelineno-0-1956" name="__codelineno-0-1956"></a>            <span class="n">new_dataset</span><span class="o">.</span><span class="n">_set_no_data_value</span><span class="p">(</span><span class="n">new_value</span><span class="p">)</span>
-<a id="__codelineno-0-1957" name="__codelineno-0-1957"></a>            <span class="n">new_value</span> <span class="o">=</span> <span class="n">new_dataset</span><span class="o">.</span><span class="n">no_data_value</span>
-<a id="__codelineno-0-1958" name="__codelineno-0-1958"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_swap_all_bands</span><span class="p">(</span><span class="n">new_dataset</span><span class="p">,</span> <span class="n">new_value</span><span class="p">,</span> <span class="n">old_value</span><span class="p">)</span>
-<a id="__codelineno-0-1959" name="__codelineno-0-1959"></a>        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
-<a id="__codelineno-0-1960" name="__codelineno-0-1960"></a>            <span class="c1"># A mid-stream failure must not leave a half-written GeoTIFF behind:</span>
-<a id="__codelineno-0-1961" name="__codelineno-0-1961"></a>            <span class="c1"># drop the local handle and let the helper release + delete the partial</span>
-<a id="__codelineno-0-1962" name="__codelineno-0-1962"></a>            <span class="c1"># file before re-raising (best-effort, so it never masks the error).</span>
-<a id="__codelineno-0-1963" name="__codelineno-0-1963"></a>            <span class="k">if</span> <span class="n">path</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-1964" name="__codelineno-0-1964"></a>                <span class="n">dst</span> <span class="o">=</span> <span class="kc">None</span>
-<a id="__codelineno-0-1965" name="__codelineno-0-1965"></a>                <span class="bp">self</span><span class="o">.</span><span class="n">_discard_partial_output</span><span class="p">(</span><span class="n">new_dataset</span><span class="p">,</span> <span class="n">target</span><span class="p">)</span>
-<a id="__codelineno-0-1966" name="__codelineno-0-1966"></a>            <span class="k">raise</span>
-<a id="__codelineno-0-1967" name="__codelineno-0-1967"></a>        <span class="c1"># Flush the block cache so a disk-backed GeoTIFF has the swapped pixels on</span>
-<a id="__codelineno-0-1968" name="__codelineno-0-1968"></a>        <span class="c1"># disk before it is reopened (a no-op for the in-memory driver).</span>
-<a id="__codelineno-0-1969" name="__codelineno-0-1969"></a>        <span class="n">new_dataset</span><span class="o">.</span><span class="n">raster</span><span class="o">.</span><span class="n">FlushCache</span><span class="p">()</span>
-<a id="__codelineno-0-1970" name="__codelineno-0-1970"></a>
-<a id="__codelineno-0-1971" name="__codelineno-0-1971"></a>        <span class="k">if</span> <span class="n">inplace</span><span class="p">:</span>
-<a id="__codelineno-0-1972" name="__codelineno-0-1972"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">_update_inplace</span><span class="p">(</span><span class="n">new_dataset</span><span class="o">.</span><span class="n">raster</span><span class="p">)</span>
-<a id="__codelineno-0-1973" name="__codelineno-0-1973"></a>            <span class="k">return</span> <span class="kc">None</span>
-<a id="__codelineno-0-1974" name="__codelineno-0-1974"></a>        <span class="k">return</span> <span class="n">new_dataset</span>
-<a id="__codelineno-0-1975" name="__codelineno-0-1975"></a>
-<a id="__codelineno-0-1976" name="__codelineno-0-1976"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_swap_no_data_tiled</span><span class="p">(</span>
-<a id="__codelineno-0-1977" name="__codelineno-0-1977"></a>        <span class="bp">self</span><span class="p">,</span>
-<a id="__codelineno-0-1978" name="__codelineno-0-1978"></a>        <span class="n">new_dataset</span><span class="p">:</span> <span class="n">Dataset</span><span class="p">,</span>
-<a id="__codelineno-0-1979" name="__codelineno-0-1979"></a>        <span class="n">band</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
-<a id="__codelineno-0-1980" name="__codelineno-0-1980"></a>        <span class="n">band_old_value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
-<a id="__codelineno-0-1981" name="__codelineno-0-1981"></a>        <span class="n">new_band_value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
-<a id="__codelineno-0-1982" name="__codelineno-0-1982"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-1983" name="__codelineno-0-1983"></a><span class="w">        </span><span class="sd">"""Replace a band's old-no-data cells with the new value, one tile at a time.</span>
-<a id="__codelineno-0-1984" name="__codelineno-0-1984"></a>
-<a id="__codelineno-0-1985" name="__codelineno-0-1985"></a><span class="sd">        The caller's `_set_no_data_value` fills the destination band with the new</span>
-<a id="__codelineno-0-1986" name="__codelineno-0-1986"></a><span class="sd">        no-data value, so every tile is read from the *source*, has its old</span>
-<a id="__codelineno-0-1987" name="__codelineno-0-1987"></a><span class="sd">        no-data cells swapped to the new value, and is written back at its offset</span>
-<a id="__codelineno-0-1988" name="__codelineno-0-1988"></a><span class="sd">        -- reconstructing the band exactly as the previous whole-band read/swap/</span>
-<a id="__codelineno-0-1989" name="__codelineno-0-1989"></a><span class="sd">        write did, but never holding more than one tile as a NumPy array. The swap</span>
-<a id="__codelineno-0-1990" name="__codelineno-0-1990"></a><span class="sd">        is attempted on every tile so an invalid `new_band_value` dtype raises just</span>
-<a id="__codelineno-0-1991" name="__codelineno-0-1991"></a><span class="sd">        as the whole-band assignment did, even for a band with no matching cells.</span>
-<a id="__codelineno-0-1992" name="__codelineno-0-1992"></a>
-<a id="__codelineno-0-1993" name="__codelineno-0-1993"></a><span class="sd">        Args:</span>
-<a id="__codelineno-0-1994" name="__codelineno-0-1994"></a><span class="sd">            new_dataset: The destination Dataset written in place.</span>
-<a id="__codelineno-0-1995" name="__codelineno-0-1995"></a><span class="sd">            band: Zero-based index of the band to swap.</span>
-<a id="__codelineno-0-1996" name="__codelineno-0-1996"></a><span class="sd">            band_old_value: The old no-data value to locate (``None`` matches NaN).</span>
-<a id="__codelineno-0-1997" name="__codelineno-0-1997"></a><span class="sd">            new_band_value: The new no-data value written into the matched cells.</span>
-<a id="__codelineno-0-1998" name="__codelineno-0-1998"></a>
-<a id="__codelineno-0-1999" name="__codelineno-0-1999"></a><span class="sd">        Raises:</span>
-<a id="__codelineno-0-2000" name="__codelineno-0-2000"></a><span class="sd">            NoDataValueError: `new_band_value` cannot be stored in the band dtype.</span>
-<a id="__codelineno-0-2001" name="__codelineno-0-2001"></a><span class="sd">        """</span>
-<a id="__codelineno-0-2002" name="__codelineno-0-2002"></a>        <span class="n">dst_band</span> <span class="o">=</span> <span class="n">new_dataset</span><span class="o">.</span><span class="n">raster</span><span class="o">.</span><span class="n">GetRasterBand</span><span class="p">(</span><span class="n">band</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
-<a id="__codelineno-0-2003" name="__codelineno-0-2003"></a>        <span class="k">for</span> <span class="n">xoff</span><span class="p">,</span> <span class="n">yoff</span><span class="p">,</span> <span class="n">xsize</span><span class="p">,</span> <span class="n">ysize</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">io</span><span class="o">.</span><span class="n">_tile_offsets</span><span class="p">():</span>
-<a id="__codelineno-0-2004" name="__codelineno-0-2004"></a>            <span class="n">tile</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">read_array</span><span class="p">(</span><span class="n">band</span><span class="o">=</span><span class="n">band</span><span class="p">,</span> <span class="n">window</span><span class="o">=</span><span class="p">[</span><span class="n">xoff</span><span class="p">,</span> <span class="n">yoff</span><span class="p">,</span> <span class="n">xsize</span><span class="p">,</span> <span class="n">ysize</span><span class="p">])</span>
-<a id="__codelineno-0-2005" name="__codelineno-0-2005"></a>            <span class="n">mask</span> <span class="o">=</span> <span class="n">is_no_data</span><span class="p">(</span><span class="n">tile</span><span class="p">,</span> <span class="n">band_old_value</span><span class="p">)</span>
-<a id="__codelineno-0-2006" name="__codelineno-0-2006"></a>            <span class="k">try</span><span class="p">:</span>
-<a id="__codelineno-0-2007" name="__codelineno-0-2007"></a>                <span class="k">with</span> <span class="n">np</span><span class="o">.</span><span class="n">errstate</span><span class="p">(</span><span class="n">invalid</span><span class="o">=</span><span class="s2">"raise"</span><span class="p">):</span>
-<a id="__codelineno-0-2008" name="__codelineno-0-2008"></a>                    <span class="n">tile</span><span class="p">[</span><span class="n">mask</span><span class="p">]</span> <span class="o">=</span> <span class="n">new_band_value</span>
-<a id="__codelineno-0-2009" name="__codelineno-0-2009"></a>            <span class="c1"># A dtype mismatch surfaces differently across numpy paths: a None value</span>
-<a id="__codelineno-0-2010" name="__codelineno-0-2010"></a>            <span class="c1"># is not subscriptable (TypeError), a NaN cast into an integer band raises</span>
-<a id="__codelineno-0-2011" name="__codelineno-0-2011"></a>            <span class="c1"># ValueError ("cannot convert float NaN to integer"), and an invalid</span>
-<a id="__codelineno-0-2012" name="__codelineno-0-2012"></a>            <span class="c1"># floating-point cast trips errstate (FloatingPointError). Map all of them</span>
-<a id="__codelineno-0-2013" name="__codelineno-0-2013"></a>            <span class="c1"># to the package-level NoDataValueError.</span>
-<a id="__codelineno-0-2014" name="__codelineno-0-2014"></a>            <span class="k">except</span> <span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="ne">FloatingPointError</span><span class="p">):</span>
-<a id="__codelineno-0-2015" name="__codelineno-0-2015"></a>                <span class="k">raise</span> <span class="n">NoDataValueError</span><span class="p">(</span>
-<a id="__codelineno-0-2016" name="__codelineno-0-2016"></a>                    <span class="sa">f</span><span class="s2">"The dtype of the given no_data_value: </span><span class="si">{</span><span class="n">new_band_value</span><span class="si">}</span><span class="s2"> differs from the dtype of the "</span>
-<a id="__codelineno-0-2017" name="__codelineno-0-2017"></a>                    <span class="sa">f</span><span class="s2">"band: </span><span class="si">{</span><span class="n">gdal_to_numpy_dtype</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">gdal_dtype</span><span class="p">[</span><span class="n">band</span><span class="p">])</span><span class="si">}</span><span class="s2">"</span>
-<a id="__codelineno-0-2018" name="__codelineno-0-2018"></a>                <span class="p">)</span>
-<a id="__codelineno-0-2019" name="__codelineno-0-2019"></a>            <span class="n">dst_band</span><span class="o">.</span><span class="n">WriteArray</span><span class="p">(</span><span class="n">tile</span><span class="p">,</span> <span class="n">xoff</span><span class="p">,</span> <span class="n">yoff</span><span class="p">)</span>
+<a id="__codelineno-0-1872" name="__codelineno-0-1872"></a><span class="sd">                The driver must be one the raster can be *built* with, not merely</span>
+<a id="__codelineno-0-1873" name="__codelineno-0-1873"></a><span class="sd">                copied to: the swap is written into the clone afterwards, and a</span>
+<a id="__codelineno-0-1874" name="__codelineno-0-1874"></a><span class="sd">                write-by-copy-only driver hands back a read-only handle. PNG and</span>
+<a id="__codelineno-0-1875" name="__codelineno-0-1875"></a><span class="sd">                JPEG are therefore refused up front with</span>
+<a id="__codelineno-0-1876" name="__codelineno-0-1876"></a><span class="sd">                :class:`FileFormatNotSupportedError`, naming the extension and the</span>
+<a id="__codelineno-0-1877" name="__codelineno-0-1877"></a><span class="sd">                driver — rather than reaching GDAL and failing with a</span>
+<a id="__codelineno-0-1878" name="__codelineno-0-1878"></a><span class="sd">                :class:`ReadOnlyError` that says nothing about the format. Use</span>
+<a id="__codelineno-0-1879" name="__codelineno-0-1879"></a><span class="sd">                `.tif`, `.nc`, or another updatable format.</span>
+<a id="__codelineno-0-1880" name="__codelineno-0-1880"></a>
+<a id="__codelineno-0-1881" name="__codelineno-0-1881"></a><span class="sd">        Returns:</span>
+<a id="__codelineno-0-1882" name="__codelineno-0-1882"></a><span class="sd">            Dataset | None:</span>
+<a id="__codelineno-0-1883" name="__codelineno-0-1883"></a><span class="sd">                A new Dataset with the updated no-data value, or ``None``</span>
+<a id="__codelineno-0-1884" name="__codelineno-0-1884"></a><span class="sd">                when ``inplace=True`` -- see :meth:`Analysis.apply` for why.</span>
+<a id="__codelineno-0-1885" name="__codelineno-0-1885"></a>
+<a id="__codelineno-0-1886" name="__codelineno-0-1886"></a><span class="sd">        Raises:</span>
+<a id="__codelineno-0-1887" name="__codelineno-0-1887"></a><span class="sd">            NoDataValueError:</span>
+<a id="__codelineno-0-1888" name="__codelineno-0-1888"></a><span class="sd">                If `new_value` cannot be stored in a band's dtype — e.g. `None` or `NaN`</span>
+<a id="__codelineno-0-1889" name="__codelineno-0-1889"></a><span class="sd">                given for an integer band — the dtype mismatch is reported instead of</span>
+<a id="__codelineno-0-1890" name="__codelineno-0-1890"></a><span class="sd">                leaking a raw numpy `TypeError`/`ValueError`. Also raised when</span>
+<a id="__codelineno-0-1891" name="__codelineno-0-1891"></a><span class="sd">                `new_value` or `old_value` is given as a list whose length does not</span>
+<a id="__codelineno-0-1892" name="__codelineno-0-1892"></a><span class="sd">                match `band_count`.</span>
+<a id="__codelineno-0-1893" name="__codelineno-0-1893"></a><span class="sd">            DriverNotExistError:</span>
+<a id="__codelineno-0-1894" name="__codelineno-0-1894"></a><span class="sd">                `path` has no extension, or one the driver catalog does not know.</span>
+<a id="__codelineno-0-1895" name="__codelineno-0-1895"></a><span class="sd">            FileFormatNotSupportedError:</span>
+<a id="__codelineno-0-1896" name="__codelineno-0-1896"></a><span class="sd">                `path`'s extension maps to a write-by-copy-only driver (PNG, JPEG).</span>
+<a id="__codelineno-0-1897" name="__codelineno-0-1897"></a><span class="sd">                Such a driver returns a read-only dataset from `CreateCopy`, so the</span>
+<a id="__codelineno-0-1898" name="__codelineno-0-1898"></a><span class="sd">                swapped values could not be written back into the clone.</span>
+<a id="__codelineno-0-1899" name="__codelineno-0-1899"></a>
+<a id="__codelineno-0-1900" name="__codelineno-0-1900"></a><span class="sd">        Warning:</span>
+<a id="__codelineno-0-1901" name="__codelineno-0-1901"></a><span class="sd">            With `path=None` the method clones the raster in memory to change the</span>
+<a id="__codelineno-0-1902" name="__codelineno-0-1902"></a><span class="sd">            `no_data_value`; pass `path` for a disk-backed, out-of-core result.</span>
+<a id="__codelineno-0-1903" name="__codelineno-0-1903"></a><span class="sd">        Examples:</span>
+<a id="__codelineno-0-1904" name="__codelineno-0-1904"></a><span class="sd">            - Create a Dataset (4 bands, 10 rows, 10 columns) at lon/lat (0, 0):</span>
+<a id="__codelineno-0-1905" name="__codelineno-0-1905"></a><span class="sd">              ```python</span>
+<a id="__codelineno-0-1906" name="__codelineno-0-1906"></a><span class="sd">              &gt;&gt;&gt; from pyramids.dataset import Dataset, GeoReference</span>
+<a id="__codelineno-0-1907" name="__codelineno-0-1907"></a><span class="sd">              &gt;&gt;&gt; dataset = Dataset.create(</span>
+<a id="__codelineno-0-1908" name="__codelineno-0-1908"></a><span class="sd">              ...     rows=3,</span>
+<a id="__codelineno-0-1909" name="__codelineno-0-1909"></a><span class="sd">              ...     columns=3,</span>
+<a id="__codelineno-0-1910" name="__codelineno-0-1910"></a><span class="sd">              ...     bands=1,</span>
+<a id="__codelineno-0-1911" name="__codelineno-0-1911"></a><span class="sd">              ...     dtype="float32",</span>
+<a id="__codelineno-0-1912" name="__codelineno-0-1912"></a><span class="sd">              ...     no_data_value=-9,</span>
+<a id="__codelineno-0-1913" name="__codelineno-0-1913"></a><span class="sd">              ...     geo_ref=GeoReference(cell_size=0.05, top_left_corner=(0, 0), epsg=4326),</span>
+<a id="__codelineno-0-1914" name="__codelineno-0-1914"></a><span class="sd">              ... )</span>
+<a id="__codelineno-0-1915" name="__codelineno-0-1915"></a><span class="sd">              &gt;&gt;&gt; arr = dataset.read_array()</span>
+<a id="__codelineno-0-1916" name="__codelineno-0-1916"></a><span class="sd">              &gt;&gt;&gt; print(arr)</span>
+<a id="__codelineno-0-1917" name="__codelineno-0-1917"></a><span class="sd">              [[-9. -9. -9.]</span>
+<a id="__codelineno-0-1918" name="__codelineno-0-1918"></a><span class="sd">               [-9. -9. -9.]</span>
+<a id="__codelineno-0-1919" name="__codelineno-0-1919"></a><span class="sd">               [-9. -9. -9.]]</span>
+<a id="__codelineno-0-1920" name="__codelineno-0-1920"></a><span class="sd">              &gt;&gt;&gt; print(dataset.no_data_value) # doctest: +SKIP</span>
+<a id="__codelineno-0-1921" name="__codelineno-0-1921"></a><span class="sd">              [-9.0]</span>
+<a id="__codelineno-0-1922" name="__codelineno-0-1922"></a>
+<a id="__codelineno-0-1923" name="__codelineno-0-1923"></a><span class="sd">              ```</span>
+<a id="__codelineno-0-1924" name="__codelineno-0-1924"></a><span class="sd">            - The dataset is full of the no_data_value. Now change it using `change_no_data_value`:</span>
+<a id="__codelineno-0-1925" name="__codelineno-0-1925"></a><span class="sd">              ```python</span>
+<a id="__codelineno-0-1926" name="__codelineno-0-1926"></a><span class="sd">              &gt;&gt;&gt; new_dataset = dataset.change_no_data_value(-10, -9)</span>
+<a id="__codelineno-0-1927" name="__codelineno-0-1927"></a><span class="sd">              &gt;&gt;&gt; arr = new_dataset.read_array()</span>
+<a id="__codelineno-0-1928" name="__codelineno-0-1928"></a><span class="sd">              &gt;&gt;&gt; print(arr)</span>
+<a id="__codelineno-0-1929" name="__codelineno-0-1929"></a><span class="sd">              [[-10. -10. -10.]</span>
+<a id="__codelineno-0-1930" name="__codelineno-0-1930"></a><span class="sd">               [-10. -10. -10.]</span>
+<a id="__codelineno-0-1931" name="__codelineno-0-1931"></a><span class="sd">               [-10. -10. -10.]]</span>
+<a id="__codelineno-0-1932" name="__codelineno-0-1932"></a><span class="sd">              &gt;&gt;&gt; print(new_dataset.no_data_value) # doctest: +SKIP</span>
+<a id="__codelineno-0-1933" name="__codelineno-0-1933"></a><span class="sd">              [-10.0]</span>
+<a id="__codelineno-0-1934" name="__codelineno-0-1934"></a>
+<a id="__codelineno-0-1935" name="__codelineno-0-1935"></a><span class="sd">              ```</span>
+<a id="__codelineno-0-1936" name="__codelineno-0-1936"></a><span class="sd">        """</span>
+<a id="__codelineno-0-1937" name="__codelineno-0-1937"></a>        <span class="n">new_value</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_normalize_no_data_arg</span><span class="p">(</span><span class="n">new_value</span><span class="p">,</span> <span class="s2">"new_value"</span><span class="p">)</span>
+<a id="__codelineno-0-1938" name="__codelineno-0-1938"></a>        <span class="k">if</span> <span class="n">old_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1939" name="__codelineno-0-1939"></a>            <span class="n">old_value</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_normalize_no_data_arg</span><span class="p">(</span><span class="n">old_value</span><span class="p">,</span> <span class="s2">"old_value"</span><span class="p">)</span>
+<a id="__codelineno-0-1940" name="__codelineno-0-1940"></a>        <span class="c1"># Clone the full header + pixels with GDAL's block-based CreateCopy so</span>
+<a id="__codelineno-0-1941" name="__codelineno-0-1941"></a>        <span class="c1"># every band's colour table, description, scale/offset, RAT and metadata</span>
+<a id="__codelineno-0-1942" name="__codelineno-0-1942"></a>        <span class="c1"># survive exactly (no explicit per-property copy to drift out of sync).</span>
+<a id="__codelineno-0-1943" name="__codelineno-0-1943"></a>        <span class="c1"># A `path` makes the clone a disk-backed GeoTIFF, so with the tiled swap</span>
+<a id="__codelineno-0-1944" name="__codelineno-0-1944"></a>        <span class="c1"># below the whole raster is never held in RAM (out-of-core); `None` keeps</span>
+<a id="__codelineno-0-1945" name="__codelineno-0-1945"></a>        <span class="c1"># it in memory. The old&lt;-&gt;new no-data swap is then streamed one tile at a</span>
+<a id="__codelineno-0-1946" name="__codelineno-0-1946"></a>        <span class="c1"># time, so a full band is never materialised as a NumPy array (#969).</span>
+<a id="__codelineno-0-1947" name="__codelineno-0-1947"></a>        <span class="c1"># From the extension, not hardcoded: a `.nc` path silently produced a</span>
+<a id="__codelineno-0-1948" name="__codelineno-0-1948"></a>        <span class="c1"># mislabelled GTiff. NOT `for_copy`, despite the CreateCopy below: this</span>
+<a id="__codelineno-0-1949" name="__codelineno-0-1949"></a>        <span class="c1"># method streams the no-data swap into the clone afterwards, and a</span>
+<a id="__codelineno-0-1950" name="__codelineno-0-1950"></a>        <span class="c1"># copy-only driver hands back a read-only handle -- `.png` passed the</span>
+<a id="__codelineno-0-1951" name="__codelineno-0-1951"></a>        <span class="c1"># resolver and then died with a ReadOnlyError naming nothing about the</span>
+<a id="__codelineno-0-1952" name="__codelineno-0-1952"></a>        <span class="c1"># format. The strict gate refuses it up front, with a message that does.</span>
+<a id="__codelineno-0-1953" name="__codelineno-0-1953"></a>        <span class="n">driver</span> <span class="o">=</span> <span class="n">resolve_output_driver</span><span class="p">(</span><span class="n">path</span><span class="p">)</span> <span class="k">if</span> <span class="n">path</span> <span class="k">else</span> <span class="n">MEMORY_DRIVER</span>
+<a id="__codelineno-0-1954" name="__codelineno-0-1954"></a>        <span class="n">target</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">path</span><span class="p">)</span> <span class="k">if</span> <span class="n">path</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="s2">""</span>
+<a id="__codelineno-0-1955" name="__codelineno-0-1955"></a>        <span class="n">dst</span> <span class="o">=</span> <span class="n">gdal</span><span class="o">.</span><span class="n">GetDriverByName</span><span class="p">(</span><span class="n">driver</span><span class="p">)</span><span class="o">.</span><span class="n">CreateCopy</span><span class="p">(</span><span class="n">target</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">raster</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+<a id="__codelineno-0-1956" name="__codelineno-0-1956"></a>        <span class="n">new_dataset</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="vm">__class__</span><span class="p">(</span><span class="n">dst</span><span class="p">,</span> <span class="s2">"write"</span><span class="p">)</span>
+<a id="__codelineno-0-1957" name="__codelineno-0-1957"></a>        <span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-0-1958" name="__codelineno-0-1958"></a>            <span class="c1"># _set_no_data_value may coerce new_value to each band's dtype; read it</span>
+<a id="__codelineno-0-1959" name="__codelineno-0-1959"></a>            <span class="c1"># back from the object so the swap below uses the stored values.</span>
+<a id="__codelineno-0-1960" name="__codelineno-0-1960"></a>            <span class="n">new_dataset</span><span class="o">.</span><span class="n">_set_no_data_value</span><span class="p">(</span><span class="n">new_value</span><span class="p">)</span>
+<a id="__codelineno-0-1961" name="__codelineno-0-1961"></a>            <span class="n">new_value</span> <span class="o">=</span> <span class="n">new_dataset</span><span class="o">.</span><span class="n">no_data_value</span>
+<a id="__codelineno-0-1962" name="__codelineno-0-1962"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_swap_all_bands</span><span class="p">(</span><span class="n">new_dataset</span><span class="p">,</span> <span class="n">new_value</span><span class="p">,</span> <span class="n">old_value</span><span class="p">)</span>
+<a id="__codelineno-0-1963" name="__codelineno-0-1963"></a>        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+<a id="__codelineno-0-1964" name="__codelineno-0-1964"></a>            <span class="c1"># A mid-stream failure must not leave a half-written GeoTIFF behind:</span>
+<a id="__codelineno-0-1965" name="__codelineno-0-1965"></a>            <span class="c1"># drop the local handle and let the helper release + delete the partial</span>
+<a id="__codelineno-0-1966" name="__codelineno-0-1966"></a>            <span class="c1"># file before re-raising (best-effort, so it never masks the error).</span>
+<a id="__codelineno-0-1967" name="__codelineno-0-1967"></a>            <span class="k">if</span> <span class="n">path</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1968" name="__codelineno-0-1968"></a>                <span class="n">dst</span> <span class="o">=</span> <span class="kc">None</span>
+<a id="__codelineno-0-1969" name="__codelineno-0-1969"></a>                <span class="bp">self</span><span class="o">.</span><span class="n">_discard_partial_output</span><span class="p">(</span><span class="n">new_dataset</span><span class="p">,</span> <span class="n">target</span><span class="p">)</span>
+<a id="__codelineno-0-1970" name="__codelineno-0-1970"></a>            <span class="k">raise</span>
+<a id="__codelineno-0-1971" name="__codelineno-0-1971"></a>        <span class="c1"># Flush the block cache so a disk-backed GeoTIFF has the swapped pixels on</span>
+<a id="__codelineno-0-1972" name="__codelineno-0-1972"></a>        <span class="c1"># disk before it is reopened (a no-op for the in-memory driver).</span>
+<a id="__codelineno-0-1973" name="__codelineno-0-1973"></a>        <span class="n">new_dataset</span><span class="o">.</span><span class="n">raster</span><span class="o">.</span><span class="n">FlushCache</span><span class="p">()</span>
+<a id="__codelineno-0-1974" name="__codelineno-0-1974"></a>
+<a id="__codelineno-0-1975" name="__codelineno-0-1975"></a>        <span class="k">if</span> <span class="n">inplace</span><span class="p">:</span>
+<a id="__codelineno-0-1976" name="__codelineno-0-1976"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">_update_inplace</span><span class="p">(</span><span class="n">new_dataset</span><span class="o">.</span><span class="n">raster</span><span class="p">)</span>
+<a id="__codelineno-0-1977" name="__codelineno-0-1977"></a>            <span class="k">return</span> <span class="kc">None</span>
+<a id="__codelineno-0-1978" name="__codelineno-0-1978"></a>        <span class="k">return</span> <span class="n">new_dataset</span>
+<a id="__codelineno-0-1979" name="__codelineno-0-1979"></a>
+<a id="__codelineno-0-1980" name="__codelineno-0-1980"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_swap_no_data_tiled</span><span class="p">(</span>
+<a id="__codelineno-0-1981" name="__codelineno-0-1981"></a>        <span class="bp">self</span><span class="p">,</span>
+<a id="__codelineno-0-1982" name="__codelineno-0-1982"></a>        <span class="n">new_dataset</span><span class="p">:</span> <span class="n">Dataset</span><span class="p">,</span>
+<a id="__codelineno-0-1983" name="__codelineno-0-1983"></a>        <span class="n">band</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+<a id="__codelineno-0-1984" name="__codelineno-0-1984"></a>        <span class="n">band_old_value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+<a id="__codelineno-0-1985" name="__codelineno-0-1985"></a>        <span class="n">new_band_value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+<a id="__codelineno-0-1986" name="__codelineno-0-1986"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1987" name="__codelineno-0-1987"></a><span class="w">        </span><span class="sd">"""Replace a band's old-no-data cells with the new value, one tile at a time.</span>
+<a id="__codelineno-0-1988" name="__codelineno-0-1988"></a>
+<a id="__codelineno-0-1989" name="__codelineno-0-1989"></a><span class="sd">        The caller's `_set_no_data_value` fills the destination band with the new</span>
+<a id="__codelineno-0-1990" name="__codelineno-0-1990"></a><span class="sd">        no-data value, so every tile is read from the *source*, has its old</span>
+<a id="__codelineno-0-1991" name="__codelineno-0-1991"></a><span class="sd">        no-data cells swapped to the new value, and is written back at its offset</span>
+<a id="__codelineno-0-1992" name="__codelineno-0-1992"></a><span class="sd">        -- reconstructing the band exactly as the previous whole-band read/swap/</span>
+<a id="__codelineno-0-1993" name="__codelineno-0-1993"></a><span class="sd">        write did, but never holding more than one tile as a NumPy array. The swap</span>
+<a id="__codelineno-0-1994" name="__codelineno-0-1994"></a><span class="sd">        is attempted on every tile so an invalid `new_band_value` dtype raises just</span>
+<a id="__codelineno-0-1995" name="__codelineno-0-1995"></a><span class="sd">        as the whole-band assignment did, even for a band with no matching cells.</span>
+<a id="__codelineno-0-1996" name="__codelineno-0-1996"></a>
+<a id="__codelineno-0-1997" name="__codelineno-0-1997"></a><span class="sd">        Args:</span>
+<a id="__codelineno-0-1998" name="__codelineno-0-1998"></a><span class="sd">            new_dataset: The destination Dataset written in place.</span>
+<a id="__codelineno-0-1999" name="__codelineno-0-1999"></a><span class="sd">            band: Zero-based index of the band to swap.</span>
+<a id="__codelineno-0-2000" name="__codelineno-0-2000"></a><span class="sd">            band_old_value: The old no-data value to locate (``None`` matches NaN).</span>
+<a id="__codelineno-0-2001" name="__codelineno-0-2001"></a><span class="sd">            new_band_value: The new no-data value written into the matched cells.</span>
+<a id="__codelineno-0-2002" name="__codelineno-0-2002"></a>
+<a id="__codelineno-0-2003" name="__codelineno-0-2003"></a><span class="sd">        Raises:</span>
+<a id="__codelineno-0-2004" name="__codelineno-0-2004"></a><span class="sd">            NoDataValueError: `new_band_value` cannot be stored in the band dtype.</span>
+<a id="__codelineno-0-2005" name="__codelineno-0-2005"></a><span class="sd">        """</span>
+<a id="__codelineno-0-2006" name="__codelineno-0-2006"></a>        <span class="n">dst_band</span> <span class="o">=</span> <span class="n">new_dataset</span><span class="o">.</span><span class="n">raster</span><span class="o">.</span><span class="n">GetRasterBand</span><span class="p">(</span><span class="n">band</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+<a id="__codelineno-0-2007" name="__codelineno-0-2007"></a>        <span class="k">for</span> <span class="n">xoff</span><span class="p">,</span> <span class="n">yoff</span><span class="p">,</span> <span class="n">xsize</span><span class="p">,</span> <span class="n">ysize</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">io</span><span class="o">.</span><span class="n">_tile_offsets</span><span class="p">():</span>
+<a id="__codelineno-0-2008" name="__codelineno-0-2008"></a>            <span class="n">tile</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">read_array</span><span class="p">(</span><span class="n">band</span><span class="o">=</span><span class="n">band</span><span class="p">,</span> <span class="n">window</span><span class="o">=</span><span class="p">[</span><span class="n">xoff</span><span class="p">,</span> <span class="n">yoff</span><span class="p">,</span> <span class="n">xsize</span><span class="p">,</span> <span class="n">ysize</span><span class="p">])</span>
+<a id="__codelineno-0-2009" name="__codelineno-0-2009"></a>            <span class="n">mask</span> <span class="o">=</span> <span class="n">is_no_data</span><span class="p">(</span><span class="n">tile</span><span class="p">,</span> <span class="n">band_old_value</span><span class="p">)</span>
+<a id="__codelineno-0-2010" name="__codelineno-0-2010"></a>            <span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-0-2011" name="__codelineno-0-2011"></a>                <span class="k">with</span> <span class="n">np</span><span class="o">.</span><span class="n">errstate</span><span class="p">(</span><span class="n">invalid</span><span class="o">=</span><span class="s2">"raise"</span><span class="p">):</span>
+<a id="__codelineno-0-2012" name="__codelineno-0-2012"></a>                    <span class="n">tile</span><span class="p">[</span><span class="n">mask</span><span class="p">]</span> <span class="o">=</span> <span class="n">new_band_value</span>
+<a id="__codelineno-0-2013" name="__codelineno-0-2013"></a>            <span class="c1"># A dtype mismatch surfaces differently across numpy paths: a None value</span>
+<a id="__codelineno-0-2014" name="__codelineno-0-2014"></a>            <span class="c1"># is not subscriptable (TypeError), a NaN cast into an integer band raises</span>
+<a id="__codelineno-0-2015" name="__codelineno-0-2015"></a>            <span class="c1"># ValueError ("cannot convert float NaN to integer"), and an invalid</span>
+<a id="__codelineno-0-2016" name="__codelineno-0-2016"></a>            <span class="c1"># floating-point cast trips errstate (FloatingPointError). Map all of them</span>
+<a id="__codelineno-0-2017" name="__codelineno-0-2017"></a>            <span class="c1"># to the package-level NoDataValueError.</span>
+<a id="__codelineno-0-2018" name="__codelineno-0-2018"></a>            <span class="k">except</span> <span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="ne">FloatingPointError</span><span class="p">):</span>
+<a id="__codelineno-0-2019" name="__codelineno-0-2019"></a>                <span class="k">raise</span> <span class="n">NoDataValueError</span><span class="p">(</span>
+<a id="__codelineno-0-2020" name="__codelineno-0-2020"></a>                    <span class="sa">f</span><span class="s2">"The dtype of the given no_data_value: </span><span class="si">{</span><span class="n">new_band_value</span><span class="si">}</span><span class="s2"> differs from the dtype of the "</span>
+<a id="__codelineno-0-2021" name="__codelineno-0-2021"></a>                    <span class="sa">f</span><span class="s2">"band: </span><span class="si">{</span><span class="n">gdal_to_numpy_dtype</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">gdal_dtype</span><span class="p">[</span><span class="n">band</span><span class="p">])</span><span class="si">}</span><span class="s2">"</span>
+<a id="__codelineno-0-2022" name="__codelineno-0-2022"></a>                <span class="p">)</span>
+<a id="__codelineno-0-2023" name="__codelineno-0-2023"></a>            <span class="n">dst_band</span><span class="o">.</span><span class="n">WriteArray</span><span class="p">(</span><span class="n">tile</span><span class="p">,</span> <span class="n">xoff</span><span class="p">,</span> <span class="n">yoff</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
               </details>
 
@@ -13620,11 +13628,14 @@ Args:
         no-data swap is streamed tile by tile, so the whole raster is never held
         in RAM — genuinely out-of-core for a block-based format such as GTiff.
         <code>None</code> (default) keeps the result in memory.</p>
-<div class="highlight"><pre><span></span><code>    The driver must be one whose `CreateCopy` hands back a *writable*
-    dataset, since the swap is written into the clone. PNG and JPEG do not
-    — they return a read-only handle — so those extensions reach GDAL and
-    then fail with :class:`ReadOnlyError`; use `.tif`, `.nc`, or another
-    updatable format.
+<div class="highlight"><pre><span></span><code>    The driver must be one the raster can be *built* with, not merely
+    copied to: the swap is written into the clone afterwards, and a
+    write-by-copy-only driver hands back a read-only handle. PNG and
+    JPEG are therefore refused up front with
+    :class:`FileFormatNotSupportedError`, naming the extension and the
+    driver — rather than reaching GDAL and failing with a
+    :class:`ReadOnlyError` that says nothing about the format. Use
+    `.tif`, `.nc`, or another updatable format.
 </code></pre></div>
 
 
@@ -13688,12 +13699,13 @@ match <code>band_count</code>.</p>
           </tr>
           <tr class="doc-section-item">
             <td>
-                  <code><span title="pyramids.base._errors.ReadOnlyError">ReadOnlyError</span></code>
+                  <code><span title="FileFormatNotSupportedError">FileFormatNotSupportedError</span></code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p><code>path</code>'s driver returns a read-only dataset from <code>CreateCopy</code> (PNG,
-JPEG), so the swapped values cannot be written back into the clone.</p>
+                <p><code>path</code>'s extension maps to a write-by-copy-only driver (PNG, JPEG).
+Such a driver returns a read-only dataset from <code>CreateCopy</code>, so the
+swapped values could not be written back into the clone.</p>
               </div>
             </td>
           </tr>
@@ -13871,7 +13883,11 @@ JPEG), so the swapped values cannot be written back into the clone.</p>
 <span class="normal"><a href="#__codelineno-0-1971">1971</a></span>
 <span class="normal"><a href="#__codelineno-0-1972">1972</a></span>
 <span class="normal"><a href="#__codelineno-0-1973">1973</a></span>
-<span class="normal"><a href="#__codelineno-0-1974">1974</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1841" name="__codelineno-0-1841"></a><span class="k">def</span><span class="w"> </span><span class="nf">change_no_data_value</span><span class="p">(</span>
+<span class="normal"><a href="#__codelineno-0-1974">1974</a></span>
+<span class="normal"><a href="#__codelineno-0-1975">1975</a></span>
+<span class="normal"><a href="#__codelineno-0-1976">1976</a></span>
+<span class="normal"><a href="#__codelineno-0-1977">1977</a></span>
+<span class="normal"><a href="#__codelineno-0-1978">1978</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1841" name="__codelineno-0-1841"></a><span class="k">def</span><span class="w"> </span><span class="nf">change_no_data_value</span><span class="p">(</span>
 <a id="__codelineno-0-1842" name="__codelineno-0-1842"></a>    <span class="bp">self</span><span class="p">,</span>
 <a id="__codelineno-0-1843" name="__codelineno-0-1843"></a>    <span class="n">new_value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
 <a id="__codelineno-0-1844" name="__codelineno-0-1844"></a>    <span class="n">old_value</span><span class="p">:</span> <span class="n">Any</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -13902,109 +13918,113 @@ JPEG), so the swapped values cannot be written back into the clone.</p>
 <a id="__codelineno-0-1869" name="__codelineno-0-1869"></a><span class="sd">            in RAM — genuinely out-of-core for a block-based format such as GTiff.</span>
 <a id="__codelineno-0-1870" name="__codelineno-0-1870"></a><span class="sd">            `None` (default) keeps the result in memory.</span>
 <a id="__codelineno-0-1871" name="__codelineno-0-1871"></a>
-<a id="__codelineno-0-1872" name="__codelineno-0-1872"></a><span class="sd">            The driver must be one whose `CreateCopy` hands back a *writable*</span>
-<a id="__codelineno-0-1873" name="__codelineno-0-1873"></a><span class="sd">            dataset, since the swap is written into the clone. PNG and JPEG do not</span>
-<a id="__codelineno-0-1874" name="__codelineno-0-1874"></a><span class="sd">            — they return a read-only handle — so those extensions reach GDAL and</span>
-<a id="__codelineno-0-1875" name="__codelineno-0-1875"></a><span class="sd">            then fail with :class:`ReadOnlyError`; use `.tif`, `.nc`, or another</span>
-<a id="__codelineno-0-1876" name="__codelineno-0-1876"></a><span class="sd">            updatable format.</span>
-<a id="__codelineno-0-1877" name="__codelineno-0-1877"></a>
-<a id="__codelineno-0-1878" name="__codelineno-0-1878"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-1879" name="__codelineno-0-1879"></a><span class="sd">        Dataset | None:</span>
-<a id="__codelineno-0-1880" name="__codelineno-0-1880"></a><span class="sd">            A new Dataset with the updated no-data value, or ``None``</span>
-<a id="__codelineno-0-1881" name="__codelineno-0-1881"></a><span class="sd">            when ``inplace=True`` -- see :meth:`Analysis.apply` for why.</span>
-<a id="__codelineno-0-1882" name="__codelineno-0-1882"></a>
-<a id="__codelineno-0-1883" name="__codelineno-0-1883"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-1884" name="__codelineno-0-1884"></a><span class="sd">        NoDataValueError:</span>
-<a id="__codelineno-0-1885" name="__codelineno-0-1885"></a><span class="sd">            If `new_value` cannot be stored in a band's dtype — e.g. `None` or `NaN`</span>
-<a id="__codelineno-0-1886" name="__codelineno-0-1886"></a><span class="sd">            given for an integer band — the dtype mismatch is reported instead of</span>
-<a id="__codelineno-0-1887" name="__codelineno-0-1887"></a><span class="sd">            leaking a raw numpy `TypeError`/`ValueError`. Also raised when</span>
-<a id="__codelineno-0-1888" name="__codelineno-0-1888"></a><span class="sd">            `new_value` or `old_value` is given as a list whose length does not</span>
-<a id="__codelineno-0-1889" name="__codelineno-0-1889"></a><span class="sd">            match `band_count`.</span>
-<a id="__codelineno-0-1890" name="__codelineno-0-1890"></a><span class="sd">        DriverNotExistError:</span>
-<a id="__codelineno-0-1891" name="__codelineno-0-1891"></a><span class="sd">            `path` has no extension, or one the driver catalog does not know.</span>
-<a id="__codelineno-0-1892" name="__codelineno-0-1892"></a><span class="sd">        ReadOnlyError:</span>
-<a id="__codelineno-0-1893" name="__codelineno-0-1893"></a><span class="sd">            `path`'s driver returns a read-only dataset from `CreateCopy` (PNG,</span>
-<a id="__codelineno-0-1894" name="__codelineno-0-1894"></a><span class="sd">            JPEG), so the swapped values cannot be written back into the clone.</span>
-<a id="__codelineno-0-1895" name="__codelineno-0-1895"></a>
-<a id="__codelineno-0-1896" name="__codelineno-0-1896"></a><span class="sd">    Warning:</span>
-<a id="__codelineno-0-1897" name="__codelineno-0-1897"></a><span class="sd">        With `path=None` the method clones the raster in memory to change the</span>
-<a id="__codelineno-0-1898" name="__codelineno-0-1898"></a><span class="sd">        `no_data_value`; pass `path` for a disk-backed, out-of-core result.</span>
-<a id="__codelineno-0-1899" name="__codelineno-0-1899"></a><span class="sd">    Examples:</span>
-<a id="__codelineno-0-1900" name="__codelineno-0-1900"></a><span class="sd">        - Create a Dataset (4 bands, 10 rows, 10 columns) at lon/lat (0, 0):</span>
-<a id="__codelineno-0-1901" name="__codelineno-0-1901"></a><span class="sd">          ```python</span>
-<a id="__codelineno-0-1902" name="__codelineno-0-1902"></a><span class="sd">          &gt;&gt;&gt; from pyramids.dataset import Dataset, GeoReference</span>
-<a id="__codelineno-0-1903" name="__codelineno-0-1903"></a><span class="sd">          &gt;&gt;&gt; dataset = Dataset.create(</span>
-<a id="__codelineno-0-1904" name="__codelineno-0-1904"></a><span class="sd">          ...     rows=3,</span>
-<a id="__codelineno-0-1905" name="__codelineno-0-1905"></a><span class="sd">          ...     columns=3,</span>
-<a id="__codelineno-0-1906" name="__codelineno-0-1906"></a><span class="sd">          ...     bands=1,</span>
-<a id="__codelineno-0-1907" name="__codelineno-0-1907"></a><span class="sd">          ...     dtype="float32",</span>
-<a id="__codelineno-0-1908" name="__codelineno-0-1908"></a><span class="sd">          ...     no_data_value=-9,</span>
-<a id="__codelineno-0-1909" name="__codelineno-0-1909"></a><span class="sd">          ...     geo_ref=GeoReference(cell_size=0.05, top_left_corner=(0, 0), epsg=4326),</span>
-<a id="__codelineno-0-1910" name="__codelineno-0-1910"></a><span class="sd">          ... )</span>
-<a id="__codelineno-0-1911" name="__codelineno-0-1911"></a><span class="sd">          &gt;&gt;&gt; arr = dataset.read_array()</span>
-<a id="__codelineno-0-1912" name="__codelineno-0-1912"></a><span class="sd">          &gt;&gt;&gt; print(arr)</span>
-<a id="__codelineno-0-1913" name="__codelineno-0-1913"></a><span class="sd">          [[-9. -9. -9.]</span>
-<a id="__codelineno-0-1914" name="__codelineno-0-1914"></a><span class="sd">           [-9. -9. -9.]</span>
-<a id="__codelineno-0-1915" name="__codelineno-0-1915"></a><span class="sd">           [-9. -9. -9.]]</span>
-<a id="__codelineno-0-1916" name="__codelineno-0-1916"></a><span class="sd">          &gt;&gt;&gt; print(dataset.no_data_value) # doctest: +SKIP</span>
-<a id="__codelineno-0-1917" name="__codelineno-0-1917"></a><span class="sd">          [-9.0]</span>
-<a id="__codelineno-0-1918" name="__codelineno-0-1918"></a>
-<a id="__codelineno-0-1919" name="__codelineno-0-1919"></a><span class="sd">          ```</span>
-<a id="__codelineno-0-1920" name="__codelineno-0-1920"></a><span class="sd">        - The dataset is full of the no_data_value. Now change it using `change_no_data_value`:</span>
-<a id="__codelineno-0-1921" name="__codelineno-0-1921"></a><span class="sd">          ```python</span>
-<a id="__codelineno-0-1922" name="__codelineno-0-1922"></a><span class="sd">          &gt;&gt;&gt; new_dataset = dataset.change_no_data_value(-10, -9)</span>
-<a id="__codelineno-0-1923" name="__codelineno-0-1923"></a><span class="sd">          &gt;&gt;&gt; arr = new_dataset.read_array()</span>
-<a id="__codelineno-0-1924" name="__codelineno-0-1924"></a><span class="sd">          &gt;&gt;&gt; print(arr)</span>
-<a id="__codelineno-0-1925" name="__codelineno-0-1925"></a><span class="sd">          [[-10. -10. -10.]</span>
-<a id="__codelineno-0-1926" name="__codelineno-0-1926"></a><span class="sd">           [-10. -10. -10.]</span>
-<a id="__codelineno-0-1927" name="__codelineno-0-1927"></a><span class="sd">           [-10. -10. -10.]]</span>
-<a id="__codelineno-0-1928" name="__codelineno-0-1928"></a><span class="sd">          &gt;&gt;&gt; print(new_dataset.no_data_value) # doctest: +SKIP</span>
-<a id="__codelineno-0-1929" name="__codelineno-0-1929"></a><span class="sd">          [-10.0]</span>
-<a id="__codelineno-0-1930" name="__codelineno-0-1930"></a>
-<a id="__codelineno-0-1931" name="__codelineno-0-1931"></a><span class="sd">          ```</span>
-<a id="__codelineno-0-1932" name="__codelineno-0-1932"></a><span class="sd">    """</span>
-<a id="__codelineno-0-1933" name="__codelineno-0-1933"></a>    <span class="n">new_value</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_normalize_no_data_arg</span><span class="p">(</span><span class="n">new_value</span><span class="p">,</span> <span class="s2">"new_value"</span><span class="p">)</span>
-<a id="__codelineno-0-1934" name="__codelineno-0-1934"></a>    <span class="k">if</span> <span class="n">old_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-1935" name="__codelineno-0-1935"></a>        <span class="n">old_value</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_normalize_no_data_arg</span><span class="p">(</span><span class="n">old_value</span><span class="p">,</span> <span class="s2">"old_value"</span><span class="p">)</span>
-<a id="__codelineno-0-1936" name="__codelineno-0-1936"></a>    <span class="c1"># Clone the full header + pixels with GDAL's block-based CreateCopy so</span>
-<a id="__codelineno-0-1937" name="__codelineno-0-1937"></a>    <span class="c1"># every band's colour table, description, scale/offset, RAT and metadata</span>
-<a id="__codelineno-0-1938" name="__codelineno-0-1938"></a>    <span class="c1"># survive exactly (no explicit per-property copy to drift out of sync).</span>
-<a id="__codelineno-0-1939" name="__codelineno-0-1939"></a>    <span class="c1"># A `path` makes the clone a disk-backed GeoTIFF, so with the tiled swap</span>
-<a id="__codelineno-0-1940" name="__codelineno-0-1940"></a>    <span class="c1"># below the whole raster is never held in RAM (out-of-core); `None` keeps</span>
-<a id="__codelineno-0-1941" name="__codelineno-0-1941"></a>    <span class="c1"># it in memory. The old&lt;-&gt;new no-data swap is then streamed one tile at a</span>
-<a id="__codelineno-0-1942" name="__codelineno-0-1942"></a>    <span class="c1"># time, so a full band is never materialised as a NumPy array (#969).</span>
-<a id="__codelineno-0-1943" name="__codelineno-0-1943"></a>    <span class="c1"># From the extension, not hardcoded: a `.nc` path silently produced a</span>
-<a id="__codelineno-0-1944" name="__codelineno-0-1944"></a>    <span class="c1"># mislabelled GTiff. NOT `for_copy`, despite the CreateCopy below: this</span>
-<a id="__codelineno-0-1945" name="__codelineno-0-1945"></a>    <span class="c1"># method streams the no-data swap into the clone afterwards, and a</span>
-<a id="__codelineno-0-1946" name="__codelineno-0-1946"></a>    <span class="c1"># copy-only driver hands back a read-only handle -- `.png` passed the</span>
-<a id="__codelineno-0-1947" name="__codelineno-0-1947"></a>    <span class="c1"># resolver and then died with a ReadOnlyError naming nothing about the</span>
-<a id="__codelineno-0-1948" name="__codelineno-0-1948"></a>    <span class="c1"># format. The strict gate refuses it up front, with a message that does.</span>
-<a id="__codelineno-0-1949" name="__codelineno-0-1949"></a>    <span class="n">driver</span> <span class="o">=</span> <span class="n">resolve_output_driver</span><span class="p">(</span><span class="n">path</span><span class="p">)</span> <span class="k">if</span> <span class="n">path</span> <span class="k">else</span> <span class="n">MEMORY_DRIVER</span>
-<a id="__codelineno-0-1950" name="__codelineno-0-1950"></a>    <span class="n">target</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">path</span><span class="p">)</span> <span class="k">if</span> <span class="n">path</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="s2">""</span>
-<a id="__codelineno-0-1951" name="__codelineno-0-1951"></a>    <span class="n">dst</span> <span class="o">=</span> <span class="n">gdal</span><span class="o">.</span><span class="n">GetDriverByName</span><span class="p">(</span><span class="n">driver</span><span class="p">)</span><span class="o">.</span><span class="n">CreateCopy</span><span class="p">(</span><span class="n">target</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">raster</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
-<a id="__codelineno-0-1952" name="__codelineno-0-1952"></a>    <span class="n">new_dataset</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="vm">__class__</span><span class="p">(</span><span class="n">dst</span><span class="p">,</span> <span class="s2">"write"</span><span class="p">)</span>
-<a id="__codelineno-0-1953" name="__codelineno-0-1953"></a>    <span class="k">try</span><span class="p">:</span>
-<a id="__codelineno-0-1954" name="__codelineno-0-1954"></a>        <span class="c1"># _set_no_data_value may coerce new_value to each band's dtype; read it</span>
-<a id="__codelineno-0-1955" name="__codelineno-0-1955"></a>        <span class="c1"># back from the object so the swap below uses the stored values.</span>
-<a id="__codelineno-0-1956" name="__codelineno-0-1956"></a>        <span class="n">new_dataset</span><span class="o">.</span><span class="n">_set_no_data_value</span><span class="p">(</span><span class="n">new_value</span><span class="p">)</span>
-<a id="__codelineno-0-1957" name="__codelineno-0-1957"></a>        <span class="n">new_value</span> <span class="o">=</span> <span class="n">new_dataset</span><span class="o">.</span><span class="n">no_data_value</span>
-<a id="__codelineno-0-1958" name="__codelineno-0-1958"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_swap_all_bands</span><span class="p">(</span><span class="n">new_dataset</span><span class="p">,</span> <span class="n">new_value</span><span class="p">,</span> <span class="n">old_value</span><span class="p">)</span>
-<a id="__codelineno-0-1959" name="__codelineno-0-1959"></a>    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
-<a id="__codelineno-0-1960" name="__codelineno-0-1960"></a>        <span class="c1"># A mid-stream failure must not leave a half-written GeoTIFF behind:</span>
-<a id="__codelineno-0-1961" name="__codelineno-0-1961"></a>        <span class="c1"># drop the local handle and let the helper release + delete the partial</span>
-<a id="__codelineno-0-1962" name="__codelineno-0-1962"></a>        <span class="c1"># file before re-raising (best-effort, so it never masks the error).</span>
-<a id="__codelineno-0-1963" name="__codelineno-0-1963"></a>        <span class="k">if</span> <span class="n">path</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-1964" name="__codelineno-0-1964"></a>            <span class="n">dst</span> <span class="o">=</span> <span class="kc">None</span>
-<a id="__codelineno-0-1965" name="__codelineno-0-1965"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_discard_partial_output</span><span class="p">(</span><span class="n">new_dataset</span><span class="p">,</span> <span class="n">target</span><span class="p">)</span>
-<a id="__codelineno-0-1966" name="__codelineno-0-1966"></a>        <span class="k">raise</span>
-<a id="__codelineno-0-1967" name="__codelineno-0-1967"></a>    <span class="c1"># Flush the block cache so a disk-backed GeoTIFF has the swapped pixels on</span>
-<a id="__codelineno-0-1968" name="__codelineno-0-1968"></a>    <span class="c1"># disk before it is reopened (a no-op for the in-memory driver).</span>
-<a id="__codelineno-0-1969" name="__codelineno-0-1969"></a>    <span class="n">new_dataset</span><span class="o">.</span><span class="n">raster</span><span class="o">.</span><span class="n">FlushCache</span><span class="p">()</span>
-<a id="__codelineno-0-1970" name="__codelineno-0-1970"></a>
-<a id="__codelineno-0-1971" name="__codelineno-0-1971"></a>    <span class="k">if</span> <span class="n">inplace</span><span class="p">:</span>
-<a id="__codelineno-0-1972" name="__codelineno-0-1972"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">_update_inplace</span><span class="p">(</span><span class="n">new_dataset</span><span class="o">.</span><span class="n">raster</span><span class="p">)</span>
-<a id="__codelineno-0-1973" name="__codelineno-0-1973"></a>        <span class="k">return</span> <span class="kc">None</span>
-<a id="__codelineno-0-1974" name="__codelineno-0-1974"></a>    <span class="k">return</span> <span class="n">new_dataset</span>
+<a id="__codelineno-0-1872" name="__codelineno-0-1872"></a><span class="sd">            The driver must be one the raster can be *built* with, not merely</span>
+<a id="__codelineno-0-1873" name="__codelineno-0-1873"></a><span class="sd">            copied to: the swap is written into the clone afterwards, and a</span>
+<a id="__codelineno-0-1874" name="__codelineno-0-1874"></a><span class="sd">            write-by-copy-only driver hands back a read-only handle. PNG and</span>
+<a id="__codelineno-0-1875" name="__codelineno-0-1875"></a><span class="sd">            JPEG are therefore refused up front with</span>
+<a id="__codelineno-0-1876" name="__codelineno-0-1876"></a><span class="sd">            :class:`FileFormatNotSupportedError`, naming the extension and the</span>
+<a id="__codelineno-0-1877" name="__codelineno-0-1877"></a><span class="sd">            driver — rather than reaching GDAL and failing with a</span>
+<a id="__codelineno-0-1878" name="__codelineno-0-1878"></a><span class="sd">            :class:`ReadOnlyError` that says nothing about the format. Use</span>
+<a id="__codelineno-0-1879" name="__codelineno-0-1879"></a><span class="sd">            `.tif`, `.nc`, or another updatable format.</span>
+<a id="__codelineno-0-1880" name="__codelineno-0-1880"></a>
+<a id="__codelineno-0-1881" name="__codelineno-0-1881"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-1882" name="__codelineno-0-1882"></a><span class="sd">        Dataset | None:</span>
+<a id="__codelineno-0-1883" name="__codelineno-0-1883"></a><span class="sd">            A new Dataset with the updated no-data value, or ``None``</span>
+<a id="__codelineno-0-1884" name="__codelineno-0-1884"></a><span class="sd">            when ``inplace=True`` -- see :meth:`Analysis.apply` for why.</span>
+<a id="__codelineno-0-1885" name="__codelineno-0-1885"></a>
+<a id="__codelineno-0-1886" name="__codelineno-0-1886"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-1887" name="__codelineno-0-1887"></a><span class="sd">        NoDataValueError:</span>
+<a id="__codelineno-0-1888" name="__codelineno-0-1888"></a><span class="sd">            If `new_value` cannot be stored in a band's dtype — e.g. `None` or `NaN`</span>
+<a id="__codelineno-0-1889" name="__codelineno-0-1889"></a><span class="sd">            given for an integer band — the dtype mismatch is reported instead of</span>
+<a id="__codelineno-0-1890" name="__codelineno-0-1890"></a><span class="sd">            leaking a raw numpy `TypeError`/`ValueError`. Also raised when</span>
+<a id="__codelineno-0-1891" name="__codelineno-0-1891"></a><span class="sd">            `new_value` or `old_value` is given as a list whose length does not</span>
+<a id="__codelineno-0-1892" name="__codelineno-0-1892"></a><span class="sd">            match `band_count`.</span>
+<a id="__codelineno-0-1893" name="__codelineno-0-1893"></a><span class="sd">        DriverNotExistError:</span>
+<a id="__codelineno-0-1894" name="__codelineno-0-1894"></a><span class="sd">            `path` has no extension, or one the driver catalog does not know.</span>
+<a id="__codelineno-0-1895" name="__codelineno-0-1895"></a><span class="sd">        FileFormatNotSupportedError:</span>
+<a id="__codelineno-0-1896" name="__codelineno-0-1896"></a><span class="sd">            `path`'s extension maps to a write-by-copy-only driver (PNG, JPEG).</span>
+<a id="__codelineno-0-1897" name="__codelineno-0-1897"></a><span class="sd">            Such a driver returns a read-only dataset from `CreateCopy`, so the</span>
+<a id="__codelineno-0-1898" name="__codelineno-0-1898"></a><span class="sd">            swapped values could not be written back into the clone.</span>
+<a id="__codelineno-0-1899" name="__codelineno-0-1899"></a>
+<a id="__codelineno-0-1900" name="__codelineno-0-1900"></a><span class="sd">    Warning:</span>
+<a id="__codelineno-0-1901" name="__codelineno-0-1901"></a><span class="sd">        With `path=None` the method clones the raster in memory to change the</span>
+<a id="__codelineno-0-1902" name="__codelineno-0-1902"></a><span class="sd">        `no_data_value`; pass `path` for a disk-backed, out-of-core result.</span>
+<a id="__codelineno-0-1903" name="__codelineno-0-1903"></a><span class="sd">    Examples:</span>
+<a id="__codelineno-0-1904" name="__codelineno-0-1904"></a><span class="sd">        - Create a Dataset (4 bands, 10 rows, 10 columns) at lon/lat (0, 0):</span>
+<a id="__codelineno-0-1905" name="__codelineno-0-1905"></a><span class="sd">          ```python</span>
+<a id="__codelineno-0-1906" name="__codelineno-0-1906"></a><span class="sd">          &gt;&gt;&gt; from pyramids.dataset import Dataset, GeoReference</span>
+<a id="__codelineno-0-1907" name="__codelineno-0-1907"></a><span class="sd">          &gt;&gt;&gt; dataset = Dataset.create(</span>
+<a id="__codelineno-0-1908" name="__codelineno-0-1908"></a><span class="sd">          ...     rows=3,</span>
+<a id="__codelineno-0-1909" name="__codelineno-0-1909"></a><span class="sd">          ...     columns=3,</span>
+<a id="__codelineno-0-1910" name="__codelineno-0-1910"></a><span class="sd">          ...     bands=1,</span>
+<a id="__codelineno-0-1911" name="__codelineno-0-1911"></a><span class="sd">          ...     dtype="float32",</span>
+<a id="__codelineno-0-1912" name="__codelineno-0-1912"></a><span class="sd">          ...     no_data_value=-9,</span>
+<a id="__codelineno-0-1913" name="__codelineno-0-1913"></a><span class="sd">          ...     geo_ref=GeoReference(cell_size=0.05, top_left_corner=(0, 0), epsg=4326),</span>
+<a id="__codelineno-0-1914" name="__codelineno-0-1914"></a><span class="sd">          ... )</span>
+<a id="__codelineno-0-1915" name="__codelineno-0-1915"></a><span class="sd">          &gt;&gt;&gt; arr = dataset.read_array()</span>
+<a id="__codelineno-0-1916" name="__codelineno-0-1916"></a><span class="sd">          &gt;&gt;&gt; print(arr)</span>
+<a id="__codelineno-0-1917" name="__codelineno-0-1917"></a><span class="sd">          [[-9. -9. -9.]</span>
+<a id="__codelineno-0-1918" name="__codelineno-0-1918"></a><span class="sd">           [-9. -9. -9.]</span>
+<a id="__codelineno-0-1919" name="__codelineno-0-1919"></a><span class="sd">           [-9. -9. -9.]]</span>
+<a id="__codelineno-0-1920" name="__codelineno-0-1920"></a><span class="sd">          &gt;&gt;&gt; print(dataset.no_data_value) # doctest: +SKIP</span>
+<a id="__codelineno-0-1921" name="__codelineno-0-1921"></a><span class="sd">          [-9.0]</span>
+<a id="__codelineno-0-1922" name="__codelineno-0-1922"></a>
+<a id="__codelineno-0-1923" name="__codelineno-0-1923"></a><span class="sd">          ```</span>
+<a id="__codelineno-0-1924" name="__codelineno-0-1924"></a><span class="sd">        - The dataset is full of the no_data_value. Now change it using `change_no_data_value`:</span>
+<a id="__codelineno-0-1925" name="__codelineno-0-1925"></a><span class="sd">          ```python</span>
+<a id="__codelineno-0-1926" name="__codelineno-0-1926"></a><span class="sd">          &gt;&gt;&gt; new_dataset = dataset.change_no_data_value(-10, -9)</span>
+<a id="__codelineno-0-1927" name="__codelineno-0-1927"></a><span class="sd">          &gt;&gt;&gt; arr = new_dataset.read_array()</span>
+<a id="__codelineno-0-1928" name="__codelineno-0-1928"></a><span class="sd">          &gt;&gt;&gt; print(arr)</span>
+<a id="__codelineno-0-1929" name="__codelineno-0-1929"></a><span class="sd">          [[-10. -10. -10.]</span>
+<a id="__codelineno-0-1930" name="__codelineno-0-1930"></a><span class="sd">           [-10. -10. -10.]</span>
+<a id="__codelineno-0-1931" name="__codelineno-0-1931"></a><span class="sd">           [-10. -10. -10.]]</span>
+<a id="__codelineno-0-1932" name="__codelineno-0-1932"></a><span class="sd">          &gt;&gt;&gt; print(new_dataset.no_data_value) # doctest: +SKIP</span>
+<a id="__codelineno-0-1933" name="__codelineno-0-1933"></a><span class="sd">          [-10.0]</span>
+<a id="__codelineno-0-1934" name="__codelineno-0-1934"></a>
+<a id="__codelineno-0-1935" name="__codelineno-0-1935"></a><span class="sd">          ```</span>
+<a id="__codelineno-0-1936" name="__codelineno-0-1936"></a><span class="sd">    """</span>
+<a id="__codelineno-0-1937" name="__codelineno-0-1937"></a>    <span class="n">new_value</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_normalize_no_data_arg</span><span class="p">(</span><span class="n">new_value</span><span class="p">,</span> <span class="s2">"new_value"</span><span class="p">)</span>
+<a id="__codelineno-0-1938" name="__codelineno-0-1938"></a>    <span class="k">if</span> <span class="n">old_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1939" name="__codelineno-0-1939"></a>        <span class="n">old_value</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_normalize_no_data_arg</span><span class="p">(</span><span class="n">old_value</span><span class="p">,</span> <span class="s2">"old_value"</span><span class="p">)</span>
+<a id="__codelineno-0-1940" name="__codelineno-0-1940"></a>    <span class="c1"># Clone the full header + pixels with GDAL's block-based CreateCopy so</span>
+<a id="__codelineno-0-1941" name="__codelineno-0-1941"></a>    <span class="c1"># every band's colour table, description, scale/offset, RAT and metadata</span>
+<a id="__codelineno-0-1942" name="__codelineno-0-1942"></a>    <span class="c1"># survive exactly (no explicit per-property copy to drift out of sync).</span>
+<a id="__codelineno-0-1943" name="__codelineno-0-1943"></a>    <span class="c1"># A `path` makes the clone a disk-backed GeoTIFF, so with the tiled swap</span>
+<a id="__codelineno-0-1944" name="__codelineno-0-1944"></a>    <span class="c1"># below the whole raster is never held in RAM (out-of-core); `None` keeps</span>
+<a id="__codelineno-0-1945" name="__codelineno-0-1945"></a>    <span class="c1"># it in memory. The old&lt;-&gt;new no-data swap is then streamed one tile at a</span>
+<a id="__codelineno-0-1946" name="__codelineno-0-1946"></a>    <span class="c1"># time, so a full band is never materialised as a NumPy array (#969).</span>
+<a id="__codelineno-0-1947" name="__codelineno-0-1947"></a>    <span class="c1"># From the extension, not hardcoded: a `.nc` path silently produced a</span>
+<a id="__codelineno-0-1948" name="__codelineno-0-1948"></a>    <span class="c1"># mislabelled GTiff. NOT `for_copy`, despite the CreateCopy below: this</span>
+<a id="__codelineno-0-1949" name="__codelineno-0-1949"></a>    <span class="c1"># method streams the no-data swap into the clone afterwards, and a</span>
+<a id="__codelineno-0-1950" name="__codelineno-0-1950"></a>    <span class="c1"># copy-only driver hands back a read-only handle -- `.png` passed the</span>
+<a id="__codelineno-0-1951" name="__codelineno-0-1951"></a>    <span class="c1"># resolver and then died with a ReadOnlyError naming nothing about the</span>
+<a id="__codelineno-0-1952" name="__codelineno-0-1952"></a>    <span class="c1"># format. The strict gate refuses it up front, with a message that does.</span>
+<a id="__codelineno-0-1953" name="__codelineno-0-1953"></a>    <span class="n">driver</span> <span class="o">=</span> <span class="n">resolve_output_driver</span><span class="p">(</span><span class="n">path</span><span class="p">)</span> <span class="k">if</span> <span class="n">path</span> <span class="k">else</span> <span class="n">MEMORY_DRIVER</span>
+<a id="__codelineno-0-1954" name="__codelineno-0-1954"></a>    <span class="n">target</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">path</span><span class="p">)</span> <span class="k">if</span> <span class="n">path</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="s2">""</span>
+<a id="__codelineno-0-1955" name="__codelineno-0-1955"></a>    <span class="n">dst</span> <span class="o">=</span> <span class="n">gdal</span><span class="o">.</span><span class="n">GetDriverByName</span><span class="p">(</span><span class="n">driver</span><span class="p">)</span><span class="o">.</span><span class="n">CreateCopy</span><span class="p">(</span><span class="n">target</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">raster</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+<a id="__codelineno-0-1956" name="__codelineno-0-1956"></a>    <span class="n">new_dataset</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="vm">__class__</span><span class="p">(</span><span class="n">dst</span><span class="p">,</span> <span class="s2">"write"</span><span class="p">)</span>
+<a id="__codelineno-0-1957" name="__codelineno-0-1957"></a>    <span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-0-1958" name="__codelineno-0-1958"></a>        <span class="c1"># _set_no_data_value may coerce new_value to each band's dtype; read it</span>
+<a id="__codelineno-0-1959" name="__codelineno-0-1959"></a>        <span class="c1"># back from the object so the swap below uses the stored values.</span>
+<a id="__codelineno-0-1960" name="__codelineno-0-1960"></a>        <span class="n">new_dataset</span><span class="o">.</span><span class="n">_set_no_data_value</span><span class="p">(</span><span class="n">new_value</span><span class="p">)</span>
+<a id="__codelineno-0-1961" name="__codelineno-0-1961"></a>        <span class="n">new_value</span> <span class="o">=</span> <span class="n">new_dataset</span><span class="o">.</span><span class="n">no_data_value</span>
+<a id="__codelineno-0-1962" name="__codelineno-0-1962"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_swap_all_bands</span><span class="p">(</span><span class="n">new_dataset</span><span class="p">,</span> <span class="n">new_value</span><span class="p">,</span> <span class="n">old_value</span><span class="p">)</span>
+<a id="__codelineno-0-1963" name="__codelineno-0-1963"></a>    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+<a id="__codelineno-0-1964" name="__codelineno-0-1964"></a>        <span class="c1"># A mid-stream failure must not leave a half-written GeoTIFF behind:</span>
+<a id="__codelineno-0-1965" name="__codelineno-0-1965"></a>        <span class="c1"># drop the local handle and let the helper release + delete the partial</span>
+<a id="__codelineno-0-1966" name="__codelineno-0-1966"></a>        <span class="c1"># file before re-raising (best-effort, so it never masks the error).</span>
+<a id="__codelineno-0-1967" name="__codelineno-0-1967"></a>        <span class="k">if</span> <span class="n">path</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1968" name="__codelineno-0-1968"></a>            <span class="n">dst</span> <span class="o">=</span> <span class="kc">None</span>
+<a id="__codelineno-0-1969" name="__codelineno-0-1969"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_discard_partial_output</span><span class="p">(</span><span class="n">new_dataset</span><span class="p">,</span> <span class="n">target</span><span class="p">)</span>
+<a id="__codelineno-0-1970" name="__codelineno-0-1970"></a>        <span class="k">raise</span>
+<a id="__codelineno-0-1971" name="__codelineno-0-1971"></a>    <span class="c1"># Flush the block cache so a disk-backed GeoTIFF has the swapped pixels on</span>
+<a id="__codelineno-0-1972" name="__codelineno-0-1972"></a>    <span class="c1"># disk before it is reopened (a no-op for the in-memory driver).</span>
+<a id="__codelineno-0-1973" name="__codelineno-0-1973"></a>    <span class="n">new_dataset</span><span class="o">.</span><span class="n">raster</span><span class="o">.</span><span class="n">FlushCache</span><span class="p">()</span>
+<a id="__codelineno-0-1974" name="__codelineno-0-1974"></a>
+<a id="__codelineno-0-1975" name="__codelineno-0-1975"></a>    <span class="k">if</span> <span class="n">inplace</span><span class="p">:</span>
+<a id="__codelineno-0-1976" name="__codelineno-0-1976"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">_update_inplace</span><span class="p">(</span><span class="n">new_dataset</span><span class="o">.</span><span class="n">raster</span><span class="p">)</span>
+<a id="__codelineno-0-1977" name="__codelineno-0-1977"></a>        <span class="k">return</span> <span class="kc">None</span>
+<a id="__codelineno-0-1978" name="__codelineno-0-1978"></a>    <span class="k">return</span> <span class="n">new_dataset</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>

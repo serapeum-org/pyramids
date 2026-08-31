@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -7160,7 +7160,7 @@ print("work:", work)</div>
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
 <pre>data: /home/runner/work/pyramids/pyramids/examples/data
-work: /tmp/pyramids-cog-real-08_ejmi2
+work: /tmp/pyramids-cog-real-2wquxggc
 </pre>
 </div>
 </div>
@@ -7287,7 +7287,7 @@ valid COG: True | errors: []
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[3]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7f42bdb5d010&gt;</pre>
+<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7f5ffc629010&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7697,7 +7697,7 @@ projected CRS.</p>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[9]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7f42bd800b90&gt;</pre>
+<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7f5ffc2d0b90&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7842,23 +7842,17 @@ print("first slice is a valid COG:", validate(paths[0]).is_valid)</div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>/tmp/ipykernel_2606/3236988729.py:1: DeprecationWarning: DatasetCollection.read_multiple_files is deprecated; use from_files(path, glob=..., date_format=...) instead.
+  dc = DatasetCollection.read_multiple_files(DATA / "geotiff" / "rhine", with_order=False)
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
 <pre>slices written: 10 | time_length: 10
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>first slice is a valid COG: True
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>/tmp/ipykernel_2640/3236988729.py:1: DeprecationWarning: DatasetCollection.read_multiple_files is deprecated; use from_files(path, glob=..., date_format=...) instead.
-  dc = DatasetCollection.read_multiple_files(DATA / "geotiff" / "rhine", with_order=False)
+first slice is a valid COG: True
 </pre>
 </div>
 </div>
@@ -7910,7 +7904,7 @@ COG stack.</p>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[12]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7f42bc7674d0&gt;</pre>
+<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7f5ffc23b4d0&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7975,10 +7969,10 @@ main(["cog", "info", str(out)])</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>/tmp/pyramids-cog-real-08_ejmi2/noah_cog.tif: valid COG
+<pre>/tmp/pyramids-cog-real-2wquxggc/noah_cog.tif: valid COG
 validate exit code: 0
 --- info ---
-file:        /tmp/pyramids-cog-real-08_ejmi2/noah_cog.tif
+file:        /tmp/pyramids-cog-real-2wquxggc/noah_cog.tif
 is_cog:      True
 driver:      GTiff
 size:        720 x 360 (4 band(s))
