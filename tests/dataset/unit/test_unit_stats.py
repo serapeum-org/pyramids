@@ -9,6 +9,7 @@ from shapely.geometry import box
 
 from pyramids.dataset import Dataset
 from pyramids.dataset.engines import Bands
+from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -28,13 +29,11 @@ class TestGetHistogram:
             ],
             dtype=np.int32,
         )
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=-9999,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+             )
         hist, ranges = ds.get_histogram(band=0, bins=5)
         assert len(hist) == 5, f"Expected 5 bins, got {len(hist)}"
         assert len(ranges) == 5, f"Expected 5 ranges, got {len(ranges)}"
@@ -43,13 +42,11 @@ class TestGetHistogram:
     def test_histogram_with_min_max(self):
         """get_histogram should respect custom min/max."""
         arr = np.arange(1, 26, dtype=np.float32).reshape(5, 5)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=-9999.0,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+             )
         hist, _ = ds.get_histogram(band=0, bins=4, min_value=5, max_value=20)
         assert len(hist) == 4, "Should have 4 bins"
 
@@ -185,13 +182,11 @@ class TestStatsEdgeCases:
     def test_stats_zero_data_triggers_compute(self):
         """_get_stats on a dataset with zero-sum stats triggers ComputeStatistics."""
         arr = np.zeros((3, 3), dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=-9999.0,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+             )
         import warnings
 
         with warnings.catch_warnings():
@@ -250,13 +245,11 @@ class TestGetStatsRuntimeError:
         """_get_stats on all-nodata band raises RuntimeError from ComputeStatistics."""
         nd = -9999.0
         arr = np.full((3, 3), nd, dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=nd,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=nd,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+             )
         import warnings
 
         with warnings.catch_warnings():

@@ -12,6 +12,7 @@ import pytest
 from osgeo import gdal
 
 from pyramids.dataset import Dataset
+from pyramids.base.georeference import GeoReference
 from tests.dataset.cog.conftest import COG_GEOTRANSFORM
 
 pytestmark = pytest.mark.core
@@ -49,7 +50,7 @@ class TestIsCogCheap:
             A 600x600 COG -> is_cog True (and validate_cog agrees).
         """
         arr = (np.random.default_rng(0).random((600, 600)) * 100).astype("float32")
-        ds = Dataset.create_from_array(arr, geo=COG_GEOTRANSFORM, epsg=4326)
+        ds = Dataset.from_array(arr, geo_ref=GeoReference(geo=COG_GEOTRANSFORM, epsg=4326))
         out = ds.to_cog(tmp_path / "c.tif")
         reopened = Dataset.read_file(str(out))
         assert reopened.is_cog is True, "real COG should be is_cog True"
@@ -65,7 +66,7 @@ class TestIsCogCheap:
             A 64x64 COG has no overviews yet is still a valid COG -> True.
         """
         arr = np.ones((64, 64), dtype="float32")
-        ds = Dataset.create_from_array(arr, geo=COG_GEOTRANSFORM, epsg=4326)
+        ds = Dataset.from_array(arr, geo_ref=GeoReference(geo=COG_GEOTRANSFORM, epsg=4326))
         out = ds.to_cog(tmp_path / "s.tif")
         assert Dataset.read_file(str(out)).is_cog is True, "small COG should be True"
 

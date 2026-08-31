@@ -10,6 +10,7 @@ from osgeo import gdal
 
 from pyramids.dataset import Dataset
 from pyramids.netcdf.netcdf import Container
+from pyramids.base.georeference import GeoReference
 from tests.netcdf.conftest import make_3d_nc
 
 
@@ -45,12 +46,11 @@ def _make_dataset_2d(rows=10, cols=12, no_data=-9999.0):
     """
     arr = np.random.default_rng(77).random((rows, cols)).astype(np.float64)
     geo = (0.0, 1.0, 0, float(rows), 0, -1.0)
-    return Dataset.create_from_array(
-        arr,
-        geo=geo,
-        epsg=4326,
-        no_data_value=no_data,
-    )
+    return Dataset.from_array(
+               arr,
+               no_data_value=no_data,
+               geo_ref=GeoReference(geo=geo, epsg=4326),
+           )
 
 
 def _make_dataset_3d(bands=3, rows=10, cols=12, no_data=-9999.0):
@@ -61,12 +61,11 @@ def _make_dataset_3d(bands=3, rows=10, cols=12, no_data=-9999.0):
     """
     arr = np.random.default_rng(77).random((bands, rows, cols)).astype(np.float64)
     geo = (0.0, 1.0, 0, float(rows), 0, -1.0)
-    return Dataset.create_from_array(
-        arr,
-        geo=geo,
-        epsg=4326,
-        no_data_value=no_data,
-    )
+    return Dataset.from_array(
+               arr,
+               no_data_value=no_data,
+               geo_ref=GeoReference(geo=geo, epsg=4326),
+           )
 
 
 def _make_nc_with_time_units(

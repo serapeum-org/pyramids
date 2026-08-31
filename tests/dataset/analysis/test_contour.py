@@ -3,7 +3,7 @@
 Covers contour-line and contour-polygon generation via ``gdal.ContourGenerateEx``:
 regular ``interval`` levels, explicit ``fixed_levels``, the ``base`` anchor,
 custom attribute naming, no-data handling, the empty-result case, and every
-guard clause. All fixtures are in-memory ``create_from_array`` rasters.
+guard clause. All fixtures are in-memory ``from_array`` rasters.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ import pytest
 
 from pyramids.dataset import Dataset
 from pyramids.feature import FeatureCollection
+from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -25,9 +26,10 @@ def ramp() -> Dataset:
         Dataset: EPSG:4326 ramp suitable for predictable horizontal contours.
     """
     arr = np.tile(np.arange(10, dtype=np.float32), (10, 1))
-    return Dataset.create_from_array(
-        arr, top_left_corner=(0, 10), cell_size=1.0, epsg=4326
-    )
+    return Dataset.from_array(
+               arr,
+               geo_ref=GeoReference(top_left_corner=(0, 10), cell_size=1.0, epsg=4326),
+           )
 
 
 @pytest.fixture(scope="function")
@@ -38,9 +40,10 @@ def flat() -> Dataset:
         Dataset: EPSG:4326 constant raster.
     """
     arr = np.full((6, 6), 5.0, dtype=np.float32)
-    return Dataset.create_from_array(
-        arr, top_left_corner=(0, 6), cell_size=1.0, epsg=4326
-    )
+    return Dataset.from_array(
+               arr,
+               geo_ref=GeoReference(top_left_corner=(0, 6), cell_size=1.0, epsg=4326),
+           )
 
 
 class TestContour:
@@ -153,9 +156,10 @@ class TestContour:
         flat_band = np.zeros((5, 5), dtype=np.float32)
         ramp_band = np.tile(np.arange(5, dtype=np.float32), (5, 1))
         arr = np.stack([flat_band, ramp_band])
-        ds = Dataset.create_from_array(
-            arr, top_left_corner=(0, 5), cell_size=1.0, epsg=4326
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 geo_ref=GeoReference(top_left_corner=(0, 5), cell_size=1.0, epsg=4326),
+             )
         fc = ds.contour(interval=2.0, band=1)
         assert sorted(fc["elev"].tolist()) == [
             2.0,
@@ -171,13 +175,11 @@ class TestContour:
         """
         arr = np.tile(np.arange(10, dtype=np.float32), (10, 1))
         arr[:, 0] = -9999.0
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0, 10),
-            cell_size=1.0,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=-9999.0,
+                 geo_ref=GeoReference(top_left_corner=(0, 10), cell_size=1.0, epsg=4326),
+             )
         fc = ds.contour(interval=2.0)
         assert len(fc) > 0, "Expected contours from the valid gradient, got none"
         assert min(fc["elev"].tolist()) >= 2.0, (
@@ -192,9 +194,11 @@ class TestContour:
             exercising the branch that skips the NODATA contour option.
         """
         arr = np.tile(np.arange(10, dtype=np.float32), (10, 1))
-        ds = Dataset.create_from_array(
-            arr, top_left_corner=(0, 10), cell_size=1.0, epsg=4326, no_data_value=None
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=None,
+                 geo_ref=GeoReference(top_left_corner=(0, 10), cell_size=1.0, epsg=4326),
+             )
         assert ds.raster.GetRasterBand(1).GetNoDataValue() is None, (
             "fixture should have no nodata"
         )

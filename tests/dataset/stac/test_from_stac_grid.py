@@ -7,6 +7,7 @@ import pytest
 
 from pyramids.dataset import Dataset, DatasetCollection, Grid
 from pyramids.dataset._stac import _resolve_target_grid
+from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -22,13 +23,11 @@ def offset_grid_items(tmp_path):
     """
     items = []
     for i in range(2):
-        ds = Dataset.create_from_array(
-            np.full((2, 2), float(i + 1), dtype="float32"),
-            top_left_corner=(0.0, 4.0),
-            cell_size=2.0,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        ds = Dataset.from_array(
+                 np.full((2, 2), float(i + 1), dtype="float32"),
+                 no_data_value=-9999.0,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=2.0, epsg=4326),
+             )
         p = str(tmp_path / f"g{i}.tif")
         ds.to_file(p)
         items.append(
@@ -44,13 +43,11 @@ def offset_grid_items(tmp_path):
 @pytest.fixture
 def template(tmp_path):
     """A fine 4x4 EPSG:4326 grid (cell 1, top-left (0, 4)) to match against."""
-    return Dataset.create_from_array(
-        np.zeros((4, 4), dtype="float32"),
-        top_left_corner=(0.0, 4.0),
-        cell_size=1.0,
-        epsg=4326,
-        no_data_value=-9999.0,
-    )
+    return Dataset.from_array(
+               np.zeros((4, 4), dtype="float32"),
+               no_data_value=-9999.0,
+               geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326),
+           )
 
 
 class TestResolveTargetGrid:

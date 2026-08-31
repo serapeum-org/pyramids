@@ -15,6 +15,7 @@ import pytest
 
 from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.feature import FeatureCollection
+from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -34,12 +35,10 @@ def _write_raster(directory, name, values, *, epsg=4326):
         str: Path to the written GeoTIFF.
     """
     path = os.path.join(str(directory), name)
-    Dataset.create_from_array(
+    Dataset.from_array(
         np.asarray(values, dtype="int16"),
-        top_left_corner=(0.0, 0.0),
-        cell_size=CELL_SIZE,
-        epsg=epsg,
         path=path,
+        geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=CELL_SIZE, epsg=epsg),
     ).close()
     return path
 
@@ -111,12 +110,10 @@ class TestBboxClipPersistE2E:
         """
         arr = np.arange(100, dtype="int16").reshape(10, 10)
         src_path = os.path.join(str(tmp_path), "merc.tif")
-        Dataset.create_from_array(
+        Dataset.from_array(
             arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=10000.0,
-            epsg=3857,
             path=src_path,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=10000.0, epsg=3857),
         ).close()
         src = Dataset.read_file(src_path)
 

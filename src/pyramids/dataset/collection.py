@@ -55,6 +55,7 @@ from pyramids.dataset.ops._geobox_zarr import (
 from pyramids.dataset.ops._zarr import _resolve_store
 from pyramids.dataset.ops.io import _read_chunk
 from pyramids.feature import FeatureCollection
+from pyramids.base.georeference import GeoReference
 
 if TYPE_CHECKING:
     from cleopatra.basemap.geo import Basemap
@@ -548,7 +549,7 @@ class DatasetCollection:
           ``head``, ``tail``, ``first``, ``last``,
           ``values`` (read-side: derived per-call cube),
           ``values=`` (write-side: rebuilds the list with
-          ``Dataset.create_from_array(...)`` per slice).
+          ``Dataset.from_array(...)`` per slice).
         * Per-timestep ops: ``crop``, ``to_crs``, ``align``,
           ``apply``, ``overlay``, ``to_file``, ``to_cog_stack``.
           Each loops the handles via ``_apply_per_timestep`` and
@@ -1155,14 +1156,13 @@ class DatasetCollection:
         """
         src = self._base if source is None else source
         # epsg is None only for a no-EPSG CRS reported as such (a NetCDF geostationary
-        # grid); create_from_array raises CRSError on None, so fall back to the WKT.
+        # grid); from_array raises CRSError on None, so fall back to the WKT.
         # No-op for a plain Dataset (reports 4326) (#706).
-        return Dataset.create_from_array(
-            arr,
-            geo=src.geotransform,
-            epsg=crs_spec(src.epsg, src.crs),
-            no_data_value=src.no_data_value[0],
-        )
+        return Dataset.from_array(
+                   arr,
+                   no_data_value=src.no_data_value[0],
+                   geo_ref=GeoReference(geo=src.geotransform, epsg=crs_spec(src.epsg, src.crs)),
+               )
 
     def _require_files(self, method: str) -> list[str]:
         """Guard a method that needs a file-backed collection.
@@ -1584,7 +1584,7 @@ class DatasetCollection:
                 >>> for i in range(2):
                 ...     arr = (np.arange(20, dtype="int16").reshape(4, 5) + 100 * i)
                 ...     p = os.path.join(d, f"t{i}.tif")
-                ...     _ = Dataset.create_from_array(
+                ...     _ = Dataset.from_array(
                 ...         arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326,
                 ...         no_data_value=-9999, path=p,
                 ...     ).close()
@@ -2167,12 +2167,11 @@ class DatasetCollection:
             "tuple[float, float, float, float, float, float]",
             tuple(float(v) for v in geobox["geotransform"]),
         )
-        template = Dataset.create_from_array(
-            template_arr if bands > 1 else template_arr[0],
-            geo=geo_6,
-            epsg=geobox_crs(geobox),
-            no_data_value=no_data_value,
-        )
+        template = Dataset.from_array(
+                       template_arr if bands > 1 else template_arr[0],
+                       no_data_value=no_data_value,
+                       geo_ref=GeoReference(geo=geo_6, epsg=geobox_crs(geobox)),
+                   )
         if geobox["crs_wkt"]:
             template.crs = geobox["crs_wkt"]
         band_names = cast("list | None", data_attrs.get("band_names")) or []
@@ -2947,7 +2946,7 @@ class DatasetCollection:
               >>> import os, tempfile
               >>> import numpy as np
               >>> from pyramids.dataset import Dataset, DatasetCollection
-              >>> src = Dataset.create_from_array(
+              >>> src = Dataset.from_array(
               ...     np.ones((5, 5), dtype="float32"), top_left_corner=(0, 5), cell_size=1.0, epsg=4326,
               ... )
               >>> collection = DatasetCollection.from_dataset(src, 3)
@@ -2963,7 +2962,7 @@ class DatasetCollection:
               >>> import os, tempfile
               >>> import numpy as np
               >>> from pyramids.dataset import Dataset, DatasetCollection
-              >>> src = Dataset.create_from_array(
+              >>> src = Dataset.from_array(
               ...     np.full((4, 4), 7.0, dtype="float32"), top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
               ... )
               >>> collection = DatasetCollection.from_dataset(src, 2)
@@ -3004,7 +3003,7 @@ class DatasetCollection:
             # copied once instead of thrice. reopen=False keeps the borrowed handle from
             # iloc(i) unmutated. This also drops the old
             # read_array() + _mem_dataset_from_array() round-trip, which — besides the two
-            # extra full copies — flattened the output through create_from_array (band-0
+            # extra full copies — flattened the output through from_array (band-0
             # nodata only, no color table / per-band nodata / RAT); CreateCopy preserves
             # them. Mirrors the sibling to_cog_stack.
             #
@@ -3267,7 +3266,7 @@ class DatasetCollection:
               ```python
               >>> import numpy as np
               >>> from pyramids.dataset import Dataset, DatasetCollection
-              >>> mask = Dataset.create_from_array(
+              >>> mask = Dataset.from_array(
               ...     np.ones((10, 10), dtype="int16"), top_left_corner=(0, 0), cell_size=0.05, epsg=4326,
               ... )
               >>> collection = DatasetCollection.from_dataset(mask, 3)
@@ -3288,7 +3287,7 @@ class DatasetCollection:
               >>> paths = []
               >>> for t in range(2):
               ...     p = os.path.join(d, f"t{t}.tif")
-              ...     _ = Dataset.create_from_array(
+              ...     _ = Dataset.from_array(
               ...         (np.arange(100, dtype="int16").reshape(10, 10) * (t + 1)),
               ...         top_left_corner=(0, 0), cell_size=0.05, epsg=4326, path=p,
               ...     ).close()

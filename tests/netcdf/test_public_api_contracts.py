@@ -26,11 +26,11 @@ def small_nc():
         NetCDF: A 2x4x4 container with one ``t`` variable (a time axis of length 2).
     """
     arr = np.arange(2 * 4 * 4, dtype=np.float32).reshape(2, 4, 4)
-    return NetCDF.create_from_array(
-        arr,
-        geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
-        variable_name="t",
-    )
+    return NetCDF.from_array(
+               arr,
+               geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+               variable_name="t",
+           )
 
 
 class TestVariableNamesDeprecation:

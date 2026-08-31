@@ -19,6 +19,7 @@ from osgeo import gdal
 from pyramids.base._utils import resolve_cog_predictor
 from pyramids.dataset import Dataset
 from pyramids.dataset.cog import Compression
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset.cog.options import (
     _promote_nbits,
     _read_source_nbits,
@@ -283,13 +284,11 @@ def _nbits_source(value, np_dtype, nbits: int, no_data_value) -> Dataset:
     of the suite output.
     """
     arr = np.full((4, 4), value, dtype=np_dtype)
-    ds = Dataset.create_from_array(
-        arr,
-        top_left_corner=(0, 4),
-        cell_size=1.0,
-        epsg=4326,
-        no_data_value=no_data_value,
-    )
+    ds = Dataset.from_array(
+             arr,
+             no_data_value=no_data_value,
+             geo_ref=GeoReference(top_left_corner=(0, 4), cell_size=1.0, epsg=4326),
+         )
     ds.raster.GetRasterBand(1).SetMetadataItem("NBITS", str(nbits), "IMAGE_STRUCTURE")
     return ds
 

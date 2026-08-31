@@ -140,7 +140,7 @@ class Vectorize(_Engine["Dataset"]):
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
                 >>> arr = np.tile(np.arange(10, dtype="float32"), (10, 1))
-                >>> ds = Dataset.create_from_array(
+                >>> ds = Dataset.from_array(
                 ...     arr, top_left_corner=(0, 10), cell_size=1.0, epsg=4326
                 ... )
                 >>> contours = ds.contour(interval=2.0)
@@ -155,7 +155,7 @@ class Vectorize(_Engine["Dataset"]):
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
                 >>> arr = np.tile(np.arange(10, dtype="float32"), (10, 1))
-                >>> ds = Dataset.create_from_array(
+                >>> ds = Dataset.from_array(
                 ...     arr, top_left_corner=(0, 10), cell_size=1.0, epsg=4326
                 ... )
                 >>> contours = ds.contour(fixed_levels=[3.0, 5.0, 7.0])
@@ -266,7 +266,7 @@ class Vectorize(_Engine["Dataset"]):
               >>> arr = np.random.rand(2, 3, 3)
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
-              >>> dataset = Dataset.create_from_array(
+              >>> dataset = Dataset.from_array(
               ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326
               ... )
               >>> print(dataset.read_array(band=0)) # doctest: +SKIP
@@ -588,7 +588,7 @@ class Vectorize(_Engine["Dataset"]):
                      [2. 5. 2. 2. 9.]]
                     >>> top_left_corner = (0, 0)
                     >>> cell_size = 0.05
-                    >>> dataset = Dataset.create_from_array(
+                    >>> dataset = Dataset.from_array(
                     ...     arr, top_left_corner=top_left_corner, cell_size=cell_size,epsg=4326
                     ... )
                     >>> print(dataset)  # doctest: +SKIP
@@ -641,7 +641,7 @@ class Vectorize(_Engine["Dataset"]):
                     offset value to the array. we will create a dataset from the same array we created above (values
                     are between 1, and 10) with an offset of 100.
 
-                    >>> dataset = Dataset.create_from_array(
+                    >>> dataset = Dataset.from_array(
                     ...     arr, top_left_corner=top_left_corner, cell_size=cell_size,epsg=4326
                     ... )
                     >>> print(dataset)  # doctest: +SKIP
@@ -688,7 +688,7 @@ class Vectorize(_Engine["Dataset"]):
             Offset and Scale together:
                 - we can unscale and get rid of the offset at the same time.
 
-                    >>> dataset = Dataset.create_from_array(
+                    >>> dataset = Dataset.from_array(
                     ...     arr, top_left_corner=top_left_corner, cell_size=cell_size,epsg=4326
                     ... )
 
@@ -726,7 +726,7 @@ class Vectorize(_Engine["Dataset"]):
             - you can scale the values of the dataset between two values, for example, you can scale the values
                 between two values 0 and 1.
 
-                >>> dataset = Dataset.create_from_array(
+                >>> dataset = Dataset.from_array(
                 ...     arr, top_left_corner=top_left_corner, cell_size=cell_size,epsg=4326
                 ... )
                 >>> print(dataset.stats()) # doctest: +SKIP
@@ -907,7 +907,7 @@ class Vectorize(_Engine["Dataset"]):
                [2 4 2 3 2]]
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
-              >>> dataset = Dataset.create_from_array(
+              >>> dataset = Dataset.from_array(
               ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326
               ... )
               >>> from pyramids.plot import ColorScaling, CellValues  # doctest: +SKIP
@@ -1028,7 +1028,7 @@ class Vectorize(_Engine["Dataset"]):
                [2 3 2 2 4 2 1 3 2 2]]
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
-              >>> dataset = Dataset.create_from_array(
+              >>> dataset = Dataset.from_array(
               ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326
               ... )
 

@@ -60,7 +60,13 @@ from pyramids.netcdf._mdim import (
 )
 from pyramids.netcdf._mfdataset import open_mfdataset
 from pyramids.netcdf._plot import NetCDFPlot
-from pyramids.netcdf.array_options import ExtraDimensions, GeoReference
+from pyramids.dataset.abstract_dataset import DEFAULT_NO_DATA_VALUE
+from pyramids.netcdf.array_options import (
+    CFAttributes,
+    Encoding,
+    ExtraDimensions,
+    GeoReference,
+)
 from pyramids.netcdf.cf import (
     build_coordinate_attrs,
     detect_axis,
@@ -621,7 +627,7 @@ class NetCDF(Dataset):
             warnings.warn(
                 "Directly constructing NetCDF is deprecated and will stop returning a "
                 "usable instance in a future major release. Open a store with "
-                "NetCDF.read_file(...) / NetCDF.create_from_array(...) (returns a "
+                "NetCDF.read_file(...) / NetCDF.from_array(...) (returns a "
                 "Container) and extract variables with container.get_variable(...) "
                 "(returns a Variable). NetCDF remains an isinstance-compatible base "
                 "for one major version.",
@@ -1965,7 +1971,7 @@ class NetCDF(Dataset):
               >>> import numpy as np
               >>> from pyramids.netcdf import NetCDF, Selectors, GeoReference
               >>> arr = np.random.rand(4, 8, 8).astype(np.float32)
-              >>> nc = NetCDF.create_from_array(
+              >>> nc = NetCDF.from_array(
               ...     arr,
               ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.1, epsg=4326),
               ...     variable_name="t2m",
@@ -2137,7 +2143,7 @@ class NetCDF(Dataset):
               ...     np.linspace(0, 10, 4), np.linspace(0, 10, 4),
               ... )
               >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
-              >>> nc_curv = NetCDF.create_from_array(
+              >>> nc_curv = NetCDF.from_array(
               ...     arr,
               ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
               ...     variable_name="t2m",
@@ -3205,7 +3211,7 @@ class NetCDF(Dataset):
             )
             var_ndv = var_result.no_data_value
             # no_data_value is a TUPLE, so the old `isinstance(..., list)` test never fired and the
-            # full per-band tuple leaked into create_from_array (ARC-29). scalar_no_data handles both.
+            # full per-band tuple leaked into from_array (ARC-29). scalar_no_data handles both.
             var_ndv_scalar = scalar_no_data(var_ndv)
             extra_dims = (
                 [
@@ -3220,24 +3226,23 @@ class NetCDF(Dataset):
                 # First variable: build the container. `ExtraDimensions(dims=None)` falls back to
                 # the default single "time" axis, so both the band-dim and no-band-dim cases share
                 # this one call.
-                result = NetCDF.create_from_array(
-                    var_arr,
-                    geo_ref=GeoReference(
+                result = NetCDF.from_array(
+                             var_arr,
+                             geo_ref=GeoReference(
                         geo=var_result.geotransform,
                         epsg=crs_spec(var_result.epsg, var_result.crs),
                     ),
-                    no_data_value=var_ndv_scalar,
-                    variable_name=var_name,
-                    dims=ExtraDimensions(dims=extra_dims),
-                )
+                             no_data_value=var_ndv_scalar,
+                             variable_name=var_name,
+                             dims=ExtraDimensions(dims=extra_dims),
+                         )
             else:
                 # Subsequent variables: drop into the existing container.
-                ds = Dataset.create_from_array(
-                    var_arr,
-                    geo=var_result.geotransform,
-                    epsg=crs_spec(var_result.epsg, var_result.crs),
-                    no_data_value=var_ndv_scalar,
-                )
+                ds = Dataset.from_array(
+                         var_arr,
+                         no_data_value=var_ndv_scalar,
+                         geo_ref=GeoReference(geo=var_result.geotransform, epsg=crs_spec(var_result.epsg, var_result.crs)),
+                     )
                 NetCDF._copy_band_dim_metadata(ds, var)
                 # `result` is a private container built by this fan-out; nothing else
                 # references its raster yet, so mutate it in place (copy=False) to avoid
@@ -3315,7 +3320,7 @@ class NetCDF(Dataset):
     def _is_file_backed(var: NetCDF) -> bool:
         """True when the variable's data lives in a reopenable file, so a lazy chunk read is possible.
 
-        An in-memory container (e.g. built by `create_from_array`) has no file for the lazy chunk
+        An in-memory container (e.g. built by `from_array`) has no file for the lazy chunk
         graph to reopen; streaming it saves nothing and the reopen would fail.
 
         Args:
@@ -3328,7 +3333,7 @@ class NetCDF(Dataset):
         # Prefer the real /vsimem backing path over a cosmetic from_bytes `name=` that shadows
         # _file_name, so a *named* in-memory read is recognised as reopenable (streamable) too,
         # matching the unnamed case and the lazy read fix (#1059; shadow family #1050/#1053/#1057/
-        # #1058). A pure MEM container (create_from_array) has neither, so it stays not-file-backed.
+        # #1058). A pure MEM container (from_array) has neither, so it stays not-file-backed.
         path = getattr(parent, "_vsimem_path", None) or parent._file_name
         if not path:
             return False
@@ -3479,13 +3484,13 @@ class NetCDF(Dataset):
             else None
         )
         if result is None:
-            result = NetCDF.create_from_array(
-                arr,
-                geo_ref=GeoReference(geo=geo, epsg=epsg),
-                no_data_value=ndv,
-                variable_name=var_name,
-                dims=ExtraDimensions(dims=extra),
-            )
+            result = NetCDF.from_array(
+                         arr,
+                         geo_ref=GeoReference(geo=geo, epsg=epsg),
+                         no_data_value=ndv,
+                         variable_name=var_name,
+                         dims=ExtraDimensions(dims=extra),
+                     )
         else:
             # A Dataset stores at most one (flattened) band axis, so collapse the
             # trailing band dimensions to a single (prod(sizes), rows, cols) store.
@@ -3495,7 +3500,11 @@ class NetCDF(Dataset):
                 if len(band_names) > 1
                 else arr
             )
-            ds = Dataset.create_from_array(flat, geo=geo, epsg=epsg, no_data_value=ndv)
+            ds = Dataset.from_array(
+                     flat,
+                     no_data_value=ndv,
+                     geo_ref=GeoReference(geo=geo, epsg=epsg),
+                 )
             ds._band_dim_names = tuple(band_names)
             ds._band_dim_values_map = {
                 name: values_map.get(name) for name in band_names
@@ -6416,14 +6425,53 @@ class NetCDF(Dataset):
         return dim
 
     @classmethod
-    def create_from_array(cls, *args, **kwargs) -> NetCDF:
-        """Facade — :func:`create_from_array <pyramids.netcdf.engines.variables.create_from_array>`.
+    def from_array(
+        cls,
+        arr: np.ndarray,
+        *,
+        geo_ref: GeoReference,
+        no_data_value: Any | list = DEFAULT_NO_DATA_VALUE,
+        path: str | Path | None = None,
+        variable_name: str | None = None,
+        dims: ExtraDimensions | None = None,
+        encoding: Encoding | None = None,
+        attrs: CFAttributes | None = None,
+    ) -> Container:
+        """Build a :class:`Container` from a NumPy array.
 
-        Builds a new :class:`Container` from a NumPy array; the full signature and
-        contract live in the engine function. ``create_from_array`` always returns a
-        ``Container`` regardless of the subtype the classmethod is invoked on.
+        Declared with the engine's real parameters rather than ``*args,
+        **kwargs``. The bare form made an incompatible override invisible to
+        static checkers, which is how this constructor came to accept a
+        different keyword set from its own base class unnoticed.
+
+        The return type is :class:`Container`, not ``cls``: this always builds a
+        container regardless of the subtype it is invoked on. ``Container`` adds
+        no public API over :class:`NetCDF`, so nothing is lost — but the
+        annotation now says so instead of implying ``cls`` is honoured.
+
+        Args:
+            arr: The array to wrap.
+            geo_ref: How the array maps to space. Required.
+            no_data_value: Sentinel marking cells outside the domain.
+            path: Destination; `None` builds in memory.
+            variable_name: Name for the created variable.
+            dims: Non-spatial (time / level / …) dimensions of a 3-D+ array.
+            encoding: On-disk write options; effective only with a `path`.
+            attrs: CF global attributes.
+
+        Returns:
+            Container: The newly created store.
         """
-        return _variables.create_from_array(*args, **kwargs)
+        return _variables.from_array(
+            arr,
+            geo_ref=geo_ref,
+            no_data_value=no_data_value,
+            path=path,
+            variable_name=variable_name,
+            dims=dims,
+            encoding=encoding,
+            attrs=attrs,
+        )
 
     @staticmethod
     def _resolve_dst_dimensions(dst_group, src_dims):
@@ -6736,16 +6784,17 @@ class NetCDF(Dataset):
             if isinstance(no_data_value, (list, tuple)) and no_data_value
             else no_data_value
         )
-        materialized = Dataset.create_from_array(
+        # epsg is None only for a no-EPSG CRS reported as such (a NetCDF
+        # geostationary grid), and from_array raises CRSError on None, so fall
+        # back to the WKT (#706). to_crs(to_epsg: int, ...) always targets a
+        # concrete EPSG here, so epsg is provably non-None -- the fallback is
+        # defense-in-depth, matching the pattern used throughout pyramids.dataset.
+        materialized = Dataset.from_array(
             cast("np.typing.NDArray", arr),
-            geo=reprojected.geotransform,
-            # epsg is None only for a no-EPSG CRS reported as such (a NetCDF
-            # geostationary grid), and create_from_array raises CRSError on
-            # None, so fall back to the WKT (#706). to_crs(to_epsg: int, ...)
-            # always targets a concrete EPSG here, so epsg is provably
-            # non-None -- the fallback is defense-in-depth, matching the
-            # pattern used throughout pyramids.dataset.
-            epsg=crs_spec(reprojected.epsg, reprojected.crs),
+            geo_ref=GeoReference(
+                geo=reprojected.geotransform,
+                epsg=crs_spec(reprojected.epsg, reprojected.crs),
+            ),
             no_data_value=ndv_scalar,
         )
         NetCDF._copy_band_dim_metadata(materialized, var)
@@ -7356,7 +7405,7 @@ class Variable(NetCDF):
 class Container(NetCDF):
     """A NetCDF container (the root MDIM group) holding variables, dimensions, attributes.
 
-    Returned by :meth:`NetCDF.read_file`, :meth:`NetCDF.create_from_array`, and
+    Returned by :meth:`NetCDF.read_file`, :meth:`NetCDF.from_array`, and
     :meth:`NetCDF.get_group`. A container is **not** a single raster (``band_count == 0``);
     the raster-level operations inherited from :class:`~pyramids.dataset.Dataset`
     (``read_array``, a band-level ``crop`` on the container itself, …) are not meaningful

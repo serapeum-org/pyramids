@@ -217,7 +217,7 @@ def focal_mean(
             >>> from pyramids.dataset import Dataset
             >>> from pyramids.dataset.ops._focal import focal_mean
             >>> arr = np.arange(9, dtype=np.float32).reshape(3, 3)
-            >>> ds = Dataset.create_from_array(
+            >>> ds = Dataset.from_array(
             ...     arr, top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326,
             ... )
             >>> smoothed = focal_mean(ds, radius=1)
@@ -274,7 +274,7 @@ def focal_std(
             >>> from pyramids.dataset import Dataset
             >>> from pyramids.dataset.ops._focal import focal_std
             >>> arr = np.full((4, 4), 7.0, dtype=np.float32)
-            >>> ds = Dataset.create_from_array(
+            >>> ds = Dataset.from_array(
             ...     arr, top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326,
             ... )
             >>> std = focal_std(ds, radius=1)
@@ -350,7 +350,7 @@ def focal_apply(
             >>> from pyramids.dataset import Dataset
             >>> from pyramids.dataset.ops._focal import focal_apply
             >>> arr = np.arange(9, dtype=np.float32).reshape(3, 3)
-            >>> ds = Dataset.create_from_array(
+            >>> ds = Dataset.from_array(
             ...     arr, top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326,
             ... )
             >>> out = focal_apply(ds, np.max, radius=1)
@@ -365,7 +365,7 @@ def focal_apply(
             ```python
             >>> arr = np.arange(9, dtype=np.float32).reshape(3, 3)
             >>> arr[0, 0] = -9999.0
-            >>> ds = Dataset.create_from_array(
+            >>> ds = Dataset.from_array(
             ...     arr, top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326,
             ...     no_data_value=-9999.0,
             ... )
@@ -425,7 +425,7 @@ def slope(
             >>> from pyramids.dataset import Dataset
             >>> from pyramids.dataset.ops._focal import slope
             >>> flat = np.full((4, 4), 100.0, dtype=np.float32)
-            >>> ds = Dataset.create_from_array(
+            >>> ds = Dataset.from_array(
             ...     flat, top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=32636,
             ... )
             >>> float(round(float(slope(ds).max()), 6))
@@ -474,7 +474,7 @@ def aspect(
             >>> from pyramids.dataset import Dataset
             >>> from pyramids.dataset.ops._focal import aspect
             >>> arr = np.tile(np.arange(4, dtype=np.float32), (4, 1))
-            >>> ds = Dataset.create_from_array(
+            >>> ds = Dataset.from_array(
             ...     arr, top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=32636,
             ... )
             >>> a = aspect(ds)
@@ -527,7 +527,7 @@ def hillshade(
             >>> from pyramids.dataset import Dataset
             >>> from pyramids.dataset.ops._focal import hillshade
             >>> flat = np.full((4, 4), 100.0, dtype=np.float32)
-            >>> ds = Dataset.create_from_array(
+            >>> ds = Dataset.from_array(
             ...     flat, top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=32636,
             ... )
             >>> shade = hillshade(ds, azimuth=315, altitude=45)

@@ -11,6 +11,7 @@ import pytest
 
 from pyramids.dataset.dataset import Dataset
 from pyramids.dataset.engines import Vectorize
+from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -24,12 +25,10 @@ def make_dataset():
     """
 
     def _make(arr: np.ndarray) -> Dataset:
-        return Dataset.create_from_array(
-            arr,
-            top_left_corner=(0, 0),
-            cell_size=1.0,
-            epsg=4326,
-        )
+        return Dataset.from_array(
+                   arr,
+                   geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+               )
 
     return _make
 

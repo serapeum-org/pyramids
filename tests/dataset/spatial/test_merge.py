@@ -22,6 +22,7 @@ import pyramids.dataset.merge as merge_mod
 from pyramids.base.crs import reproject_coordinates
 from pyramids.base.remote import CloudConfig
 from pyramids.dataset import Dataset, DatasetCollection
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset.merge import (
     _as_srs,
     _cloud_config,
@@ -1126,20 +1127,16 @@ def uint16_mixed_res_bands(tmp_path):
     Returns:
         tuple[str, str]: (path_10m, path_20m).
     """
-    a = Dataset.create_from_array(
-        np.arange(16, dtype="uint16").reshape(4, 4),
-        top_left_corner=(0.0, 40.0),
-        cell_size=10.0,
-        epsg=32630,
-        no_data_value=0,
-    )
-    b = Dataset.create_from_array(
-        (np.arange(4, dtype="uint16") + 1).reshape(2, 2),
-        top_left_corner=(0.0, 40.0),
-        cell_size=20.0,
-        epsg=32630,
-        no_data_value=0,
-    )
+    a = Dataset.from_array(
+            np.arange(16, dtype="uint16").reshape(4, 4),
+            no_data_value=0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 40.0), cell_size=10.0, epsg=32630),
+        )
+    b = Dataset.from_array(
+            (np.arange(4, dtype="uint16") + 1).reshape(2, 2),
+            no_data_value=0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 40.0), cell_size=20.0, epsg=32630),
+        )
     pa, pb = str(tmp_path / "b10.tif"), str(tmp_path / "b20.tif")
     a.to_file(pa)
     b.to_file(pb)

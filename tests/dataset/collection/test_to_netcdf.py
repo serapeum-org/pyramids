@@ -24,6 +24,7 @@ from osgeo import gdal
 from pyramids.base._errors import AlignmentError
 from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.netcdf import NetCDF
+from pyramids.base.georeference import GeoReference
 from tests.dataset.collection._helpers import (
     make_int16_collection as _make_int16_collection,
 )
@@ -633,13 +634,11 @@ class TestToNetcdfNoData:
             root nor variable carries a ``nodata`` attribute after the write.
         """
         p = os.path.join(str(tmp_path), "no_nd.tif")
-        Dataset.create_from_array(
+        Dataset.from_array(
             np.arange(20, dtype="int16").reshape(4, 5),
-            top_left_corner=(0, 0),
-            cell_size=0.05,
-            epsg=4326,
             no_data_value=None,
             path=p,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
         ).close()
         col = DatasetCollection.from_files([p])
         out = tmp_path / "no_nd.nc"
@@ -682,13 +681,11 @@ class TestToNetcdfNoData:
             reports ``None`` for every band, i.e. the attribute fallback invents nothing.
         """
         p = os.path.join(str(tmp_path), "no_nd_rt.tif")
-        Dataset.create_from_array(
+        Dataset.from_array(
             np.arange(20, dtype="int16").reshape(4, 5),
-            top_left_corner=(0, 0),
-            cell_size=0.05,
-            epsg=4326,
             no_data_value=None,
             path=p,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
         ).close()
         out = tmp_path / "no_nd_rt.nc"
         DatasetCollection.from_files([p]).to_netcdf(str(out))
@@ -724,13 +721,11 @@ class TestToNetcdfNoData:
             arr = (np.arange(20, dtype="float32").reshape(4, 5) + i).astype("float32")
             arr[0, 0] = fill
             p = os.path.join(str(tmp_path), f"f{i}.tif")
-            Dataset.create_from_array(
+            Dataset.from_array(
                 arr,
-                top_left_corner=(0, 0),
-                cell_size=0.05,
-                epsg=4326,
                 no_data_value=fill,
                 path=p,
+                geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
             ).close()
             paths.append(p)
         return DatasetCollection.from_files(paths)
@@ -799,13 +794,11 @@ class TestToNetcdfNoFilesPath:
             real file.
         """
         src_path = os.path.join(str(tmp_path), "src.tif")
-        Dataset.create_from_array(
+        Dataset.from_array(
             np.arange(20, dtype="int16").reshape(4, 5),
-            top_left_corner=(0, 0),
-            cell_size=0.05,
-            epsg=4326,
             no_data_value=-9999,
             path=src_path,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
         ).close()
         src = Dataset.read_file(src_path)
         col = DatasetCollection.from_dataset(src, 3)
@@ -867,8 +860,10 @@ class TestToNetcdfStreaming:
                 axis=0,
             )
             p = str(tmp_path / f"mb_{t}.tif")
-            Dataset.create_from_array(
-                arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326, path=p
+            Dataset.from_array(
+                arr,
+                path=p,
+                geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
             ).close()
             arrays.append(arr)
             paths.append(p)
@@ -896,12 +891,10 @@ class TestToNetcdfStreaming:
         paths = []
         for t, shape in enumerate([(4, 5), (3, 3)]):
             p = str(tmp_path / f"h_{t}.tif")
-            Dataset.create_from_array(
+            Dataset.from_array(
                 np.zeros(shape, dtype="int16"),
-                top_left_corner=(0, 0),
-                cell_size=0.05,
-                epsg=4326,
                 path=p,
+                geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
             ).close()
             paths.append(p)
         col = DatasetCollection.from_files(paths)
@@ -929,12 +922,10 @@ class TestToNetcdfStreaming:
         paths = []
         for i, shape in enumerate([(4, 5), (3, 3)]):
             p = str(tmp_path / f"ov_{i}.tif")
-            Dataset.create_from_array(
+            Dataset.from_array(
                 np.zeros(shape, dtype="int16"),
-                top_left_corner=(0, 0),
-                cell_size=0.05,
-                epsg=4326,
                 path=p,
+                geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
             ).close()
             paths.append(p)
         bad = DatasetCollection.from_files(paths)
@@ -972,12 +963,10 @@ class TestToNetcdfStreaming:
             ``to_netcdf`` raises a ValueError naming the empty collection and
             writes no file.
         """
-        base = Dataset.create_from_array(
-            np.zeros((4, 5), dtype="int16"),
-            top_left_corner=(0, 0),
-            cell_size=0.05,
-            epsg=4326,
-        )
+        base = Dataset.from_array(
+                   np.zeros((4, 5), dtype="int16"),
+                   geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+               )
         col = DatasetCollection.from_dataset(base, 0)
         out = tmp_path / "empty.nc"
         with pytest.raises(ValueError, match="empty collection"):
@@ -1000,12 +989,10 @@ class TestToNetcdfStreaming:
             b0 = np.full((4, 5), t + 1, dtype="int16")
             b1 = np.full((4, 5), 100 + t, dtype="int16")
             p = str(tmp_path / f"vb_{t}.tif")
-            Dataset.create_from_array(
+            Dataset.from_array(
                 np.stack([b0, b1], axis=0),
-                top_left_corner=(0, 0),
-                cell_size=0.05,
-                epsg=4326,
                 path=p,
+                geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
             ).close()
             band0.append(b0)
             band1.append(b1)
@@ -1109,11 +1096,10 @@ class TestToNetcdfRoundTrip:
             arr = np.full((5, 4), nd, dtype="float32")
             arr[1:4, 1:3] = 10.0 + i
             path = os.path.join(str(tmp_path), f"g{i}.tif")
-            Dataset.create_from_array(
+            Dataset.from_array(
                 arr,
-                geo=(ox, cell, 0.0, oy, 0.0, -cell),
-                epsg=4647,
                 no_data_value=nd,
+                geo_ref=GeoReference(geo=(ox, cell, 0.0, oy, 0.0, -cell), epsg=4647),
             ).to_file(path)
             paths.append(path)
         out = tmp_path / "gt.nc"
@@ -1212,13 +1198,11 @@ class TestToNetcdfCfCoordinates:
         for i in range(2):
             arr = np.arange(20, dtype="int16").reshape(4, 5) + 100 * i
             p = os.path.join(str(tmp_path), f"p{i}.tif")
-            Dataset.create_from_array(
+            Dataset.from_array(
                 arr,
-                top_left_corner=(400000.0, 5800000.0),
-                cell_size=5000.0,
-                epsg=32632,
                 no_data_value=-9999,
                 path=p,
+                geo_ref=GeoReference(top_left_corner=(400000.0, 5800000.0), cell_size=5000.0, epsg=32632),
             ).close()
             paths.append(p)
         out = tmp_path / "proj.nc"

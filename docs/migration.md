@@ -165,6 +165,56 @@ that leaked out of an empty table lookup. Only affects code catching the old typ
 
 ### unreleased
 
+**`create_from_array` is now `from_array`, and takes a `GeoReference`.** Hard change, no deprecation alias — the
+old name and the old flat keywords are gone. The same rename applies to `UgridDataset.create_from_arrays` ->
+`from_arrays` (still plural: it takes three arrays, not one).
+
+The four flat georeferencing keywords are replaced by one `geo_ref` argument, and `driver_type` is gone
+entirely — the driver is now derived from the path extension:
+
+```python
+# Before
+Dataset.create_from_array(arr, geo=GEO, epsg=4326)
+Dataset.create_from_array(arr, top_left_corner=(0, 10), cell_size=0.05)
+Dataset.create_from_array(arr, driver_type="GTiff", path="out.tif")
+Dataset.create(cell_size=0.05, rows=r, columns=c, dtype="float32", bands=1,
+               top_left_corner=(0, 10), epsg=4326)
+Dataset.create_empty(rows, cols, geo=GEO, epsg=4326, driver_type="MEM")
+UgridDataset.create_from_arrays(node_x, node_y, faces)
+
+# After
+from pyramids.dataset import Dataset, GeoReference
+
+Dataset.from_array(arr, geo_ref=GeoReference(geo=GEO, epsg=4326))
+Dataset.from_array(arr, geo_ref=GeoReference(top_left_corner=(0, 10), cell_size=0.05))
+Dataset.from_array(arr, path="out.tif")                     # driver from the extension
+Dataset.create(rows=r, columns=c, dtype="float32", bands=1,
+               geo_ref=GeoReference(top_left_corner=(0, 10), cell_size=0.05, epsg=4326))
+Dataset.create_empty(rows, cols, geo_ref=GeoReference(geo=GEO, epsg=4326))
+UgridDataset.from_arrays(node_x, node_y, faces)
+```
+
+`GeoReference` is importable from `pyramids.dataset`, `pyramids.netcdf` and
+`pyramids.netcdf.array_options` — all three resolve to the same class.
+
+**Why there is no alias.** The signature and the name were both changing; keeping the old spelling working would
+have meant migrating twice. Both failure modes are loud — the old name raises `AttributeError`, a flat keyword
+raises `TypeError` — and because `NetCDF.from_array` now declares its real parameters instead of
+`*args, **kwargs`, **mypy catches both statically**, which the old facade prevented.
+
+**`driver_type` removed from `create_from_array` and `create_empty`.** `path` alone decides memory-vs-disk, and
+the extension names the format, so the parameter could only agree with `path` or contradict it. `path=None`
+gives an in-memory raster; `path="out.tif"` a GTiff; `path="out.nc"` a netCDF — the last of which used to be
+rejected outright. Creation `options` still require a `path`, which is the invariant the old
+`driver_type="GTiff"` guard was really enforcing.
+
+Formats that GDAL can only write by copy (`.png`, `.jp2`) now raise `FileFormatNotSupportedError` naming the
+extension and the driver, instead of failing inside GDAL. An extension the driver catalog does not know still
+raises `DriverNotExistError`.
+
+**`NetCDF.from_array` returns a `Container`.** It always did; the annotation said `NetCDF`. `Container` adds no
+public API over `NetCDF`, so nothing changes at runtime — the type is just honest now.
+
 **`create_overviews` now refuses a plain VRT whose description is not a path.** It raises `OverviewTargetError`
 instead of returning normally. That is a new exception, importable as
 `from pyramids.errors import OverviewTargetError`, which subclasses `ValueError`,
@@ -186,7 +236,7 @@ practice an inline VRT XML document passed to `Dataset.read_file(...)`, which pr
 These calls hand back such a handle, and so start raising:
 
 - `Dataset.get_overview_dataset(...)` — **only** its lazily described form, taken when the parent can be reopened
-  by name. When the parent cannot be (a `create_from_array` raster, for instance), the method materialises a
+  by name. When the parent cannot be (a `from_array` raster, for instance), the method materialises a
   `MEM` level instead, and that still builds.
 - anything wrapping a `gdal.Translate(..., format="VRT")` or `gdal.BuildVRT("", ...)` result kept in memory.
 - `NetCDF.get_variable(...)` when the classic view comes back in **index space** — an irregularly spaced

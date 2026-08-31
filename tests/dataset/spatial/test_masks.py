@@ -12,6 +12,7 @@ from osgeo import gdal
 
 from pyramids.base._errors import OutOfBoundsError, ReadOnlyError
 from pyramids.dataset import Dataset, Window
+from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -19,23 +20,21 @@ pytestmark = pytest.mark.core
 @pytest.fixture
 def nodata_dataset() -> Dataset:
     """A 4x4 float32 raster carrying a no-data value."""
-    return Dataset.create_from_array(
-        np.array([[1, 2, -9999, 4]] * 4, dtype="float32"),
-        top_left_corner=(0.0, 4.0),
-        cell_size=1.0,
-        no_data_value=-9999.0,
-    )
+    return Dataset.from_array(
+               np.array([[1, 2, -9999, 4]] * 4, dtype="float32"),
+               no_data_value=-9999.0,
+               geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0),
+           )
 
 
 @pytest.fixture
 def all_valid_dataset() -> Dataset:
     """A 4x4 float32 raster with no no-data value (fully valid)."""
-    return Dataset.create_from_array(
-        np.ones((4, 4), dtype="float32"),
-        top_left_corner=(0.0, 4.0),
-        cell_size=1.0,
-        no_data_value=None,
-    )
+    return Dataset.from_array(
+               np.ones((4, 4), dtype="float32"),
+               no_data_value=None,
+               geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0),
+           )
 
 
 @pytest.fixture
@@ -125,8 +124,9 @@ class TestCreateMaskBand:
             On a writable GeoTIFF, create_mask_band() -> mask_flags().per_dataset.
         """
         path = str(tmp_path / "m.tif")
-        Dataset.create_from_array(
-            np.ones((4, 4), "float32"), top_left_corner=(0.0, 4.0), cell_size=1.0
+        Dataset.from_array(
+            np.ones((4, 4), "float32"),
+            geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0),
         ).to_file(path)
         ds = Dataset.read_file(path, read_only=False)
         ds.create_mask_band()
@@ -139,8 +139,9 @@ class TestCreateMaskBand:
             read_only=True raises ReadOnlyError.
         """
         path = str(tmp_path / "ro.tif")
-        Dataset.create_from_array(
-            np.ones((4, 4), "float32"), top_left_corner=(0.0, 4.0), cell_size=1.0
+        Dataset.from_array(
+            np.ones((4, 4), "float32"),
+            geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0),
         ).to_file(path)
         ds = Dataset.read_file(path, read_only=True)
         with pytest.raises(ReadOnlyError):

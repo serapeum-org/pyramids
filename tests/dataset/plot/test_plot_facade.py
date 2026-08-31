@@ -8,6 +8,7 @@ import pytest
 
 from pyramids.dataset import Dataset
 from pyramids.dataset.engines import Analysis
+from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.plot
 
@@ -47,9 +48,10 @@ class TestDatasetPlotFacade:
         """
         rng = np.random.default_rng(1337)
         arr = rng.random((6, 6)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
-        )
+        dataset = Dataset.from_array(
+                      arr,
+                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+                  )
 
         result = dataset.plot()
         assert isinstance(result, ArrayGlyph), (
@@ -68,9 +70,10 @@ class TestDatasetPlotFacade:
         """
         rng = np.random.default_rng(1337)
         arr = rng.random((6, 6)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
-        )
+        dataset = Dataset.from_array(
+                      arr,
+                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+                  )
 
         first = dataset.plot()
         second = dataset.plot()
@@ -95,9 +98,10 @@ class TestDatasetPlotFacade:
         """
         rng = np.random.default_rng(7)
         arr = rng.random((5, 5)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
-        )
+        dataset = Dataset.from_array(
+                      arr,
+                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+                  )
 
         with pytest.raises(ValueError, match="color_scale"):
             dataset.plot(color_scale=color_scale)
@@ -114,9 +118,10 @@ class TestDatasetPlotFacade:
         """
         rng = np.random.default_rng(1337)
         arr = rng.random((6, 6)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
-        )
+        dataset = Dataset.from_array(
+                      arr,
+                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+                  )
 
         with patch.object(type(dataset.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "stub-glyph"
@@ -144,9 +149,10 @@ class TestDatasetPlotRgbOptions:
         """`rgb_options={"rgb": [...]}` works identically to the loose form."""
         rng = np.random.default_rng(11)
         arr = rng.random((3, 6, 6)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
-        )
+        dataset = Dataset.from_array(
+                      arr,
+                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+                  )
         with patch.object(type(dataset.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "stub"
             dataset.plot(rgb_options={"rgb": [2, 1, 0]})
@@ -158,9 +164,10 @@ class TestDatasetPlotRgbOptions:
         """All four Sentinel kwargs flow through the `rgb_options=` group."""
         rng = np.random.default_rng(12)
         arr = rng.random((3, 6, 6)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
-        )
+        dataset = Dataset.from_array(
+                      arr,
+                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+                  )
         opts = {
             "rgb": [0, 1, 2],
             "surface_reflectance": 10000,
@@ -181,9 +188,10 @@ class TestDatasetPlotRgbOptions:
         """Unknown keys in `rgb_options` are rejected with a clear error."""
         rng = np.random.default_rng(15)
         arr = rng.random((3, 6, 6)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
-        )
+        dataset = Dataset.from_array(
+                      arr,
+                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+                  )
         with pytest.raises(ValueError, match=r"Unknown keys"):
             dataset.plot(rgb_options={"bogus": True})
 
@@ -205,9 +213,10 @@ class TestDatasetPlotRgbOptionsEdges:
         """
         rng = np.random.default_rng(2025)
         arr = rng.random((3, 6, 6)).astype("float32")
-        return Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
-        )
+        return Dataset.from_array(
+                   arr,
+                   geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+               )
 
     @pytest.mark.plot
     def test_rgb_options_with_rgb_and_surface_reflectance(self, multiband_dataset):

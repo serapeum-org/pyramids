@@ -11,6 +11,7 @@ import pytest
 from osgeo import gdal, osr
 
 from pyramids.dataset import Dataset
+from pyramids.base.georeference import GeoReference
 from tests._marks import requires_dask
 
 pytestmark = pytest.mark.lazy
@@ -105,12 +106,10 @@ class TestEarlyPicklingError:
         import numpy as np
 
         arr = np.zeros((3, 4), dtype=np.float32)
-        mem_ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 3.0),
-            cell_size=1.0,
-            epsg=4326,
-        )
+        mem_ds = Dataset.from_array(
+                     arr,
+                     geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
+                 )
         out_path = str(tmp_path / "nope.tif")
         with pytest.raises(pickle.PicklingError, match="on-disk"):
             mem_ds.to_file(out_path, compute=False)

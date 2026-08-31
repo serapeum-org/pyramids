@@ -6,6 +6,7 @@ import pytest
 
 from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.stac._geoparquet import from_geoparquet, to_geoparquet
+from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -88,11 +89,9 @@ class TestRoundTrip:
         items = []
         for i in range(2):
             p = str(tmp_path / f"r{i}.tif")
-            Dataset.create_from_array(
+            Dataset.from_array(
                 np.ones((3, 3), "float32"),
-                top_left_corner=(0.0, 3.0),
-                cell_size=1.0,
-                epsg=4326,
+                geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
             ).to_file(p)
             items.append(
                 {
@@ -121,12 +120,10 @@ class TestRoundTrip:
 
         from pyramids.dataset import Dataset
 
-        ds = Dataset.create_from_array(
-            np.ones((4, 4), "float32"),
-            top_left_corner=(0.0, 4.0),
-            cell_size=1.0,
-            epsg=4326,
-        )
+        ds = Dataset.from_array(
+                 np.ones((4, 4), "float32"),
+                 geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326),
+             )
         item = ds.to_stac_item("scene-1", asset_href="s3://b/s.tif")
         path = str(tmp_path / "one.parquet")
         to_geoparquet([item], path)

@@ -2,7 +2,7 @@
 
 These tests exercise the lazy (dask-backed) path for NetCDF MDArray
 reads. The eager path is tested elsewhere (``test_unpack.py``,
-``test_windowed_reads.py``, ``test_create_from_array.py``); here we
+``test_windowed_reads.py``, ``test_from_array.py``); here we
 pin down only the new behavior:
 
 * ``chunks=None`` preserves the numpy return (regression guard).

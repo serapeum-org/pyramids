@@ -4,7 +4,7 @@ Covers ``gdal.ComputeProximity``-based distance-to-target rasters: distance 0 at
 targets growing outward, GEO vs PIXEL units, ``target_values`` selection,
 ``max_distance`` clamping with ``nodata`` fill, no-data band tagging, band
 selection, geo/CRS round-trip, and the guard clauses. All fixtures are in-memory
-``create_from_array`` rasters.
+``from_array`` rasters.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 
 from pyramids.dataset import Dataset
+from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -28,9 +29,10 @@ def single_target() -> Dataset:
     """
     arr = np.zeros((5, 5), dtype="int32")
     arr[2, 2] = 1
-    return Dataset.create_from_array(
-        arr, top_left_corner=(0, 5), cell_size=1.0, epsg=4326
-    )
+    return Dataset.from_array(
+               arr,
+               geo_ref=GeoReference(top_left_corner=(0, 5), cell_size=1.0, epsg=4326),
+           )
 
 
 @pytest.fixture(scope="function")
@@ -43,9 +45,10 @@ def two_classes() -> Dataset:
     arr = np.zeros((5, 5), dtype="int32")
     arr[2, 2] = 1
     arr[0, 0] = 5
-    return Dataset.create_from_array(
-        arr, top_left_corner=(0, 5), cell_size=1.0, epsg=4326
-    )
+    return Dataset.from_array(
+               arr,
+               geo_ref=GeoReference(top_left_corner=(0, 5), cell_size=1.0, epsg=4326),
+           )
 
 
 class TestProximity:
@@ -82,9 +85,10 @@ class TestProximity:
         """
         arr = np.zeros((5, 5), dtype="int32")
         arr[2, 2] = 1
-        ds = Dataset.create_from_array(
-            arr, top_left_corner=(0, 10), cell_size=2.0, epsg=4326
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 geo_ref=GeoReference(top_left_corner=(0, 10), cell_size=2.0, epsg=4326),
+             )
         result = ds.proximity(distance_units="GEO").read_array()
         assert float(result[2, 0]) == pytest.approx(4.0), f"Got {result[2, 0]}"
 
@@ -181,9 +185,10 @@ class TestProximity:
         target = np.zeros((5, 5), dtype="int32")
         target[2, 2] = 1
         arr = np.stack([zeros, target])
-        ds = Dataset.create_from_array(
-            arr, top_left_corner=(0, 5), cell_size=1.0, epsg=4326
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 geo_ref=GeoReference(top_left_corner=(0, 5), cell_size=1.0, epsg=4326),
+             )
         result = ds.proximity(band=1, distance_units="PIXEL").read_array()
         assert float(result[2, 2]) == pytest.approx(0.0), (
             f"Band-1 target should be 0, got {result[2, 2]}"

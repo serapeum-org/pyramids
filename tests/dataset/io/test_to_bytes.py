@@ -18,6 +18,7 @@ import pyramids.dataset.engines.io as io_engine
 from pyramids._io import new_vsimem_path, read_vsi_bytes
 from pyramids.dataset import Dataset
 from pyramids.dataset.engines.cog import COG
+from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -30,9 +31,11 @@ def ramp_dataset() -> Dataset:
         Dataset: In-memory single-band dataset, value == row*4 + col.
     """
     arr = np.arange(16, dtype="float32").reshape(4, 4)
-    return Dataset.create_from_array(
-        arr, top_left_corner=(0, 4), cell_size=1.0, epsg=4326, no_data_value=-9999.0
-    )
+    return Dataset.from_array(
+               arr,
+               no_data_value=-9999.0,
+               geo_ref=GeoReference(top_left_corner=(0, 4), cell_size=1.0, epsg=4326),
+           )
 
 
 class TestReadVsiBytes:
@@ -140,12 +143,10 @@ class TestToBytes:
             Creation options reach the driver; for a constant raster the
             deflate payload is strictly smaller.
         """
-        flat = Dataset.create_from_array(
-            np.zeros((64, 64), dtype="float32"),
-            top_left_corner=(0, 64),
-            cell_size=1.0,
-            epsg=4326,
-        )
+        flat = Dataset.from_array(
+                   np.zeros((64, 64), dtype="float32"),
+                   geo_ref=GeoReference(top_left_corner=(0, 64), cell_size=1.0, epsg=4326),
+               )
         compressed = flat.to_bytes(creation_options={"COMPRESS": "DEFLATE"})
         raw = flat.to_bytes()
         assert len(compressed) < len(raw), (
@@ -159,13 +160,11 @@ class TestToBytes:
             driver="PNG" emits the PNG magic; from_bytes reopens it and the
             pixel values survive.
         """
-        ds = Dataset.create_from_array(
-            np.full((8, 8), 7, dtype="uint8"),
-            top_left_corner=(0, 8),
-            cell_size=1.0,
-            epsg=4326,
-            no_data_value=255,
-        )
+        ds = Dataset.from_array(
+                 np.full((8, 8), 7, dtype="uint8"),
+                 no_data_value=255,
+                 geo_ref=GeoReference(top_left_corner=(0, 8), cell_size=1.0, epsg=4326),
+             )
         payload = ds.to_bytes(driver="PNG")
         assert payload[:4] == b"\x89PNG", f"not a PNG payload: {payload[:4]!r}"
         restored = Dataset.from_bytes(payload, suffix=".png")
@@ -257,9 +256,10 @@ class TestToBytes:
             Band count and every band's values are preserved.
         """
         arr = np.random.default_rng(7).random((3, 5, 5)).astype("float32")
-        ds = Dataset.create_from_array(
-            arr, top_left_corner=(0, 5), cell_size=1.0, epsg=4326
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 geo_ref=GeoReference(top_left_corner=(0, 5), cell_size=1.0, epsg=4326),
+             )
         restored = Dataset.from_bytes(ds.to_bytes())
         assert restored.band_count == 3, f"band count lost: {restored.band_count}"
         np.testing.assert_array_equal(
@@ -286,11 +286,9 @@ class TestToBytes:
             unlinked or mis-detected another call's files.
         """
         datasets = [
-            Dataset.create_from_array(
+            Dataset.from_array(
                 np.full((4, 4), value, dtype="float32"),
-                top_left_corner=(0, 4),
-                cell_size=1.0,
-                epsg=4326,
+                geo_ref=GeoReference(top_left_corner=(0, 4), cell_size=1.0, epsg=4326),
             )
             for value in range(8)
         ]

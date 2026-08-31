@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 from pyramids.dataset import Dataset, DatasetCollection
+from pyramids.base.georeference import GeoReference
 
 from ._render_helpers import render_array
 
@@ -46,9 +47,10 @@ class TestBasemapDispatch:
     def _dataset():
         """A small single-band EPSG:4326 dataset (basemap needs a CRS)."""
         arr = np.random.default_rng(0).random((1, 8, 8)).astype("float32")
-        return Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.1, epsg=4326
-        )
+        return Dataset.from_array(
+                   arr,
+                   geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.1, epsg=4326),
+               )
 
     @pytest.mark.parametrize("basemap", ["CartoDB.Positron", True])
     def test_string_or_true_draws_pyramids_tiles(self, basemap):

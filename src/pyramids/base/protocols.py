@@ -42,6 +42,8 @@ installed.
 
 from __future__ import annotations
 
+from pyramids.base.georeference import GeoReference
+
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
@@ -148,7 +150,7 @@ class RasterLike(SpatialObject, Protocol):
     (geotransform-derived geometry, grid shape, band / no-data metadata, the
     GDAL handle, array reads) **and** the public raster **operations**
     (`crop`, `to_crs`, `overlay`, `extract`, `change_no_data_value`, the
-    overview family) plus the `create_from_array` constructor — i.e. the
+    overview family) plus the `from_array` constructor — i.e. the
     structural mirror of the
     :class:`pyramids.dataset.abstract_dataset.RasterBase` abstract contract.
     Use it to annotate code that accepts or returns "a pyramids raster"
@@ -201,10 +203,20 @@ class RasterLike(SpatialObject, Protocol):
         ...
 
     @classmethod
-    def create_from_array(  # pragma: no cover - protocol stub
-        cls, *args: Any, **kwargs: Any
+    def from_array(  # pragma: no cover - protocol stub
+        cls,
+        arr: Any,
+        *,
+        geo_ref: GeoReference,
+        no_data_value: Any = ...,
+        path: Any = None,
     ) -> RasterLike:
-        """Construct a raster from an array (protocol stub; see concrete impls)."""
+        """Construct a raster from an array.
+
+        Declared with the real parameters rather than ``*args, **kwargs``: the
+        bare form made an incompatible override invisible to static checkers,
+        which is how the concrete implementations came to disagree.
+        """
         ...
 
     def crop(

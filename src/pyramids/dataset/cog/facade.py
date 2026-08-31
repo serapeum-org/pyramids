@@ -32,6 +32,7 @@ from osgeo import gdal
 from pyramids.base._errors import CRSError, ReadOnlyError
 from pyramids.base._utils import resolve_cog_predictor
 from pyramids.base.crs import epsg_from_user_input
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset.cog.options import CreationOptions
 from pyramids.dataset.cog.validate import ValidationReport
 from pyramids.dataset.cog.validate import validate as _validate_file
@@ -148,10 +149,12 @@ def _array_to_dataset(
             "Writing a COG from a NumPy array requires both `crs` and "
             "`transform` (a 6-tuple GDAL geotransform)."
         )
-    kwargs: dict[str, Any] = {"geo": tuple(transform), "epsg": _coerce_epsg(crs)}
+    kwargs: dict[str, Any] = {
+        "geo_ref": GeoReference(geo=tuple(transform), epsg=_coerce_epsg(crs))
+    }
     if nodata is not None:
         kwargs["no_data_value"] = nodata
-    return Dataset.create_from_array(arr, **kwargs)
+    return Dataset.from_array(arr, **kwargs)
 
 
 def _dataarray_to_dataset(

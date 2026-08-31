@@ -20,6 +20,7 @@ from pyramids.dataset._plot_helpers import ModeSpec, RenderRequest
 from pyramids.dataset._plot_helpers import render_array as _render_array
 from pyramids.netcdf import _coord_match
 from pyramids.netcdf.plot_options import CoordinateSpec, FacetSpec, Selectors
+from pyramids.base.georeference import GeoReference
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -1018,7 +1019,7 @@ class NetCDFPlot:
                 >>> from pyramids.netcdf import NetCDF, GeoReference
                 >>> from pyramids.netcdf._plot import NetCDFPlot
                 >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
-                >>> nc = NetCDF.create_from_array(
+                >>> nc = NetCDF.from_array(
                 ...     arr,
                 ...     geo_ref=GeoReference(
                 ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326
@@ -1042,7 +1043,7 @@ class NetCDFPlot:
                 >>> from pyramids.netcdf import NetCDF, GeoReference
                 >>> from pyramids.netcdf._plot import NetCDFPlot
                 >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
-                >>> nc = NetCDF.create_from_array(
+                >>> nc = NetCDF.from_array(
                 ...     arr,
                 ...     geo_ref=GeoReference(
                 ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326
@@ -1125,7 +1126,7 @@ class NetCDFPlot:
                 >>> from pyramids.netcdf import NetCDF, GeoReference
                 >>> from pyramids.netcdf._plot import NetCDFPlot
                 >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
-                >>> nc = NetCDF.create_from_array(
+                >>> nc = NetCDF.from_array(
                 ...     arr,
                 ...     geo_ref=GeoReference(
                 ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326
@@ -1155,7 +1156,7 @@ class NetCDFPlot:
                 >>> from pyramids.netcdf import NetCDF, GeoReference, ExtraDimensions
                 >>> from pyramids.netcdf._plot import NetCDFPlot
                 >>> arr4d = np.random.rand(3, 2, 4, 4).astype(np.float32)
-                >>> nc4d = NetCDF.create_from_array(
+                >>> nc4d = NetCDF.from_array(
                 ...     arr4d,
                 ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0, 4.0, 0, -1.0), epsg=4326),
                 ...     variable_name="temperature",
@@ -1279,7 +1280,7 @@ class NetCDFPlot:
                 >>> from pyramids.netcdf import NetCDF, GeoReference
                 >>> from pyramids.netcdf._plot import NetCDFPlot
                 >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
-                >>> nc = NetCDF.create_from_array(
+                >>> nc = NetCDF.from_array(
                 ...     arr,
                 ...     geo_ref=GeoReference(
                 ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326
@@ -1304,7 +1305,7 @@ class NetCDFPlot:
                 >>> from pyramids.netcdf import NetCDF, GeoReference
                 >>> from pyramids.netcdf._plot import NetCDFPlot
                 >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
-                >>> nc = NetCDF.create_from_array(
+                >>> nc = NetCDF.from_array(
                 ...     arr,
                 ...     geo_ref=GeoReference(
                 ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326
@@ -1429,7 +1430,7 @@ class NetCDFPlot:
                 >>> from pyramids.netcdf import NetCDF, GeoReference
                 >>> from pyramids.netcdf._plot import NetCDFPlot
                 >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
-                >>> nc = NetCDF.create_from_array(
+                >>> nc = NetCDF.from_array(
                 ...     arr,
                 ...     geo_ref=GeoReference(
                 ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326
@@ -1458,7 +1459,7 @@ class NetCDFPlot:
                 >>> from pyramids.netcdf import NetCDF, GeoReference
                 >>> from pyramids.netcdf._plot import NetCDFPlot
                 >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
-                >>> nc = NetCDF.create_from_array(
+                >>> nc = NetCDF.from_array(
                 ...     arr,
                 ...     geo_ref=GeoReference(
                 ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326
@@ -1582,7 +1583,7 @@ class NetCDFPlot:
                 >>> from pyramids.netcdf import NetCDF, GeoReference
                 >>> from pyramids.netcdf._plot import NetCDFPlot
                 >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
-                >>> nc = NetCDF.create_from_array(
+                >>> nc = NetCDF.from_array(
                 ...     arr,
                 ...     geo_ref=GeoReference(
                 ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326
@@ -1616,7 +1617,7 @@ class NetCDFPlot:
                 >>> from pyramids.netcdf._plot import NetCDFPlot
                 >>> from pyramids.netcdf import _plot as plot_mod
                 >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
-                >>> nc = NetCDF.create_from_array(
+                >>> nc = NetCDF.from_array(
                 ...     arr,
                 ...     geo_ref=GeoReference(
                 ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326
@@ -1719,7 +1720,7 @@ class NetCDFPlot:
                 >>> from pyramids.netcdf import NetCDF, GeoReference
                 >>> from pyramids.netcdf._plot import NetCDFPlot
                 >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
-                >>> nc = NetCDF.create_from_array(
+                >>> nc = NetCDF.from_array(
                 ...     arr,
                 ...     geo_ref=GeoReference(
                 ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326
@@ -1744,7 +1745,7 @@ class NetCDFPlot:
                 >>> from pyramids.netcdf import NetCDF, GeoReference
                 >>> from pyramids.netcdf._plot import NetCDFPlot
                 >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
-                >>> nc = NetCDF.create_from_array(
+                >>> nc = NetCDF.from_array(
                 ...     arr,
                 ...     geo_ref=GeoReference(
                 ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326
@@ -1773,7 +1774,7 @@ class NetCDFPlot:
                 >>> from pyramids.netcdf import NetCDF, GeoReference
                 >>> from pyramids.netcdf._plot import NetCDFPlot
                 >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
-                >>> nc = NetCDF.create_from_array(
+                >>> nc = NetCDF.from_array(
                 ...     arr,
                 ...     geo_ref=GeoReference(
                 ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326
@@ -1940,7 +1941,7 @@ class NetCDFPlot:
               >>> from pyramids.netcdf import NetCDF, GeoReference, ExtraDimensions
               >>> from pyramids.netcdf._plot import NetCDFPlot
               >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
-              >>> nc = NetCDF.create_from_array(
+              >>> nc = NetCDF.from_array(
               ...     arr,
               ...     geo_ref=GeoReference(
               ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326
@@ -1960,7 +1961,7 @@ class NetCDFPlot:
 
               ```python
               >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
-              >>> nc = NetCDF.create_from_array(
+              >>> nc = NetCDF.from_array(
               ...     arr,
               ...     geo_ref=GeoReference(
               ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326
@@ -2016,7 +2017,7 @@ class NetCDFPlot:
               >>> from pyramids.netcdf import NetCDF, GeoReference, ExtraDimensions
               >>> from pyramids.netcdf._plot import NetCDFPlot
               >>> arr = np.random.rand(2, 4, 4).astype(np.float32)
-              >>> nc = NetCDF.create_from_array(
+              >>> nc = NetCDF.from_array(
               ...     arr,
               ...     geo_ref=GeoReference(
               ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326
@@ -2035,7 +2036,7 @@ class NetCDFPlot:
 
               ```python
               >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
-              >>> nc = NetCDF.create_from_array(
+              >>> nc = NetCDF.from_array(
               ...     arr,
               ...     geo_ref=GeoReference(
               ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326
@@ -2091,7 +2092,7 @@ class NetCDFPlot:
               >>> from pyramids.netcdf import NetCDF, GeoReference, ExtraDimensions
               >>> from pyramids.netcdf._plot import NetCDFPlot
               >>> arr = np.random.rand(5, 4, 4).astype(np.float32)
-              >>> nc = NetCDF.create_from_array(
+              >>> nc = NetCDF.from_array(
               ...     arr,
               ...     geo_ref=GeoReference(
               ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326
@@ -2110,7 +2111,7 @@ class NetCDFPlot:
 
               ```python
               >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
-              >>> nc = NetCDF.create_from_array(
+              >>> nc = NetCDF.from_array(
               ...     arr,
               ...     geo_ref=GeoReference(
               ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326

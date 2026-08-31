@@ -17,6 +17,7 @@ from pyramids.base._utils import INTERPOLATION_METHODS, resolve_resampling
 from pyramids.dataset import Dataset
 from pyramids.dataset.engines.cog import _RESAMPLING_ALG
 from pyramids.dataset.merge import merge_rasters
+from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -47,9 +48,10 @@ def _checkerboard_dataset(size: int = 8) -> Dataset:
         Dataset: A single-band float32 EPSG:4326 dataset with a 0/100 checkerboard.
     """
     arr = np.indices((size, size)).sum(axis=0) % 2 * 100.0
-    return Dataset.create_from_array(
-        arr.astype("float32"), top_left_corner=(0, 0), cell_size=1.0, epsg=4326
-    )
+    return Dataset.from_array(
+               arr.astype("float32"),
+               geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+           )
 
 
 class TestInterpolationMethodsRegistry:
@@ -246,18 +248,14 @@ class TestMergeRastersNewMethods:
             newly-registered ``average`` algorithm produce a readable output —
             proving the resolver feeds gdal.Warp inside merge_rasters.
         """
-        a = Dataset.create_from_array(
-            np.full((4, 4), 10.0, dtype="float32"),
-            top_left_corner=(0, 4),
-            cell_size=1.0,
-            epsg=4326,
-        )
-        b = Dataset.create_from_array(
-            np.full((4, 4), 20.0, dtype="float32"),
-            top_left_corner=(2, 4),
-            cell_size=1.0,
-            epsg=4326,
-        )
+        a = Dataset.from_array(
+                np.full((4, 4), 10.0, dtype="float32"),
+                geo_ref=GeoReference(top_left_corner=(0, 4), cell_size=1.0, epsg=4326),
+            )
+        b = Dataset.from_array(
+                np.full((4, 4), 20.0, dtype="float32"),
+                geo_ref=GeoReference(top_left_corner=(2, 4), cell_size=1.0, epsg=4326),
+            )
         pa, pb = str(tmp_path / "a.tif"), str(tmp_path / "b.tif")
         a.to_file(pa)
         b.to_file(pb)
@@ -279,9 +277,10 @@ class TestCogEngineResamplingNames:
             Dataset: In-memory single-band dataset, value == row*64 + col.
         """
         arr = np.arange(64 * 64, dtype="float32").reshape(64, 64)
-        return Dataset.create_from_array(
-            arr, top_left_corner=(0, 64), cell_size=1.0, epsg=4326
-        )
+        return Dataset.from_array(
+                   arr,
+                   geo_ref=GeoReference(top_left_corner=(0, 64), cell_size=1.0, epsg=4326),
+               )
 
     def test_preview_is_case_insensitive(self, ramp):
         """``preview(resampling=" Average ")`` normalises and succeeds.

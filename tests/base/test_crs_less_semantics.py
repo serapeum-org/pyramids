@@ -27,6 +27,7 @@ from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.dataset.engines.spatial import Spatial
 from pyramids.dataset.ops._geobox_zarr import geobox_crs
 from pyramids.netcdf import NetCDF
+from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -166,19 +167,17 @@ class TestDatasetReportsAbsentCrs:
         dataset = Dataset.read_file(crs_less_raster)
         assert dataset.epsg is None, f"expected no CRS, got EPSG:{dataset.epsg}"
 
-    def test_create_from_array_propagates_absence(self):
+    def test_from_array_propagates_absence(self):
         """Building from a falsy `epsg` yields an ungeoreferenced raster.
 
         Test scenario:
             A result rebuilt from an ungeoreferenced source must not acquire a
             projection its input never had.
         """
-        dataset = Dataset.create_from_array(
-            np.ones((4, 4), dtype="float32"),
-            top_left_corner=(0.0, 0.0),
-            cell_size=1.0,
-            epsg=None,
-        )
+        dataset = Dataset.from_array(
+                      np.ones((4, 4), dtype="float32"),
+                      geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=None),
+                  )
         assert dataset.epsg is None, f"expected no CRS, got EPSG:{dataset.epsg}"
 
 
@@ -563,12 +562,10 @@ class TestNetCDFGlobalAttributeProvenance:
         paths = []
         for index in range(2):
             path = str(tmp_path / f"t{index}.tif")
-            Dataset.create_from_array(
+            Dataset.from_array(
                 np.arange(20, dtype="int16").reshape(4, 5),
-                top_left_corner=(400000, 5000000),
-                cell_size=30,
-                epsg=32636,
                 path=path,
+                geo_ref=GeoReference(top_left_corner=(400000, 5000000), cell_size=30, epsg=32636),
             ).close()
             paths.append(path)
         out = str(tmp_path / "cube.nc")

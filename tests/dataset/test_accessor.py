@@ -10,6 +10,7 @@ import pytest
 
 from pyramids.dataset import Dataset, register_dataset_accessor
 from pyramids.dataset.dataset import _ACCESSOR_REGISTRY
+from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -17,12 +18,10 @@ pytestmark = pytest.mark.core
 @pytest.fixture
 def plain() -> Dataset:
     """A small in-memory raster."""
-    return Dataset.create_from_array(
-        np.zeros((2, 3), dtype="float32"),
-        top_left_corner=(0, 0),
-        cell_size=1.0,
-        epsg=4326,
-    )
+    return Dataset.from_array(
+               np.zeros((2, 3), dtype="float32"),
+               geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+           )
 
 
 @pytest.fixture
@@ -216,9 +215,10 @@ class TestAccessorLifecycle:
             def __init__(self, ds):
                 self._ds = ds
 
-        ds = Dataset.create_from_array(
-            np.zeros((2, 2)), top_left_corner=(0, 0), cell_size=1.0, epsg=4326
-        )
+        ds = Dataset.from_array(
+                 np.zeros((2, 2)),
+                 geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+             )
         _ = ds.summary9
         ref = weakref.ref(ds)
         del ds
@@ -262,11 +262,9 @@ class TestAccessorLifecycle:
                 return self._ds.band_count
 
         path = tmp_path / "p.tif"
-        Dataset.create_from_array(
+        Dataset.from_array(
             np.zeros((2, 2), dtype="float32"),
-            top_left_corner=(0, 0),
-            cell_size=1.0,
-            epsg=4326,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
         ).to_file(str(path))
         ds = Dataset.read_file(str(path))
         _ = ds.summary11

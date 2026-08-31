@@ -1,6 +1,6 @@
-"""Grouped, validated option dataclasses for :func:`NetCDF.create_from_array`.
+"""Grouped, validated option dataclasses for :func:`NetCDF.from_array`.
 
-`create_from_array` used to take eighteen flat parameters. They are organised here into four
+`from_array` used to take eighteen flat parameters. They are organised here into four
 cohesive, frozen dataclasses so the call site reads as a handful of named groups instead of a long
 positional list:
 
@@ -53,7 +53,7 @@ class ExtraDimensions:
 
 @dataclass(frozen=True)
 class Encoding:
-    """On-disk write options. Only effective when `create_from_array` is given a `path`.
+    """On-disk write options. Only effective when `from_array` is given a `path`.
 
     Attributes:
         chunk_sizes: Chunk sizes for the data variable, matching the array dimensions (e.g.

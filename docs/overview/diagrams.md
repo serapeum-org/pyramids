@@ -373,8 +373,8 @@ classDiagram
         +io · spatial · bands · analysis
         +cell · vectorize · cog
         +read_file(path)
-        +create_from_array(arr, top_left_corner, cell_size, epsg)
-        +create_from_array(arr, geo, epsg)
+        +from_array(arr, top_left_corner, cell_size, epsg)
+        +from_array(arr, geo, epsg)
         +read_array(band, window)
         +to_file(path, driver)
         +to_cog(path, ...)
@@ -402,7 +402,7 @@ classDiagram
         +get_variable_names()
         +get_variables(read_only)
         +is_subset · is_md_array
-        +create_from_array(arr, geo, ...)
+        +from_array(arr, geo, ...)
         +add_variable(dataset, variable_name)
         +remove_variable(variable_name)
         +plot(variable, *, selectors, facet, axes, kind, animate, chunks, **kwargs)
@@ -414,7 +414,7 @@ classDiagram
         +mesh · n_face
         +data_variable_names
         +read_file(path)
-        +create_from_arrays(...)
+        +from_arrays(...)
         +to_dataset(...)
         +to_geodataframe()
         +plot(variable_name, ...)

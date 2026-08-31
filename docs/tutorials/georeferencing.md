@@ -20,11 +20,7 @@ from pyramids.dataset import Dataset
 from pyramids.dataset import GroundControlPoint
 
 # a raw 8x8 image with no useful geotransform
-raw = Dataset.create_from_array(
-    np.arange(64, dtype="float32").reshape(8, 8),
-    top_left_corner=(0.0, 8.0),
-    cell_size=1.0,
-)
+raw = Dataset.from_array(np.arange(64, dtype="float32").reshape(8, 8), geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0))
 
 # four corner tie points in EPSG:4326
 raw.set_gcps(

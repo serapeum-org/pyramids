@@ -1,4 +1,4 @@
-"""Unit tests for NetCDF creation and I/O: create_from_array, validation, to_file, copy, write mode."""
+"""Unit tests for NetCDF creation and I/O: from_array, validation, to_file, copy, write mode."""
 
 from __future__ import annotations
 
@@ -102,31 +102,31 @@ class TestCopy:
 
 
 class TestCreateFromArrayAlternatives:
-    """Tests for create_from_array alternative parameter paths."""
+    """Tests for from_array alternative parameter paths."""
 
-    def test_create_from_array_with_top_left_and_cell_size(self):
-        """Verify create_from_array builds geo from top_left_corner and cell_size.
+    def test_from_array_with_top_left_and_cell_size(self):
+        """Verify from_array builds geo from top_left_corner and cell_size.
 
         Covers the branch building geo from
         top_left_corner and cell_size.
         """
         arr = np.random.default_rng(0).random((5, 10)).astype(np.float64)
-        nc = NetCDF.create_from_array(
-            arr=arr,
-            geo_ref=GeoReference(
+        nc = NetCDF.from_array(
+                 arr=arr,
+                 geo_ref=GeoReference(
                 top_left_corner=(10.0, 50.0), cell_size=0.5, epsg=4326
             ),
-            no_data_value=-9999.0,
-            path=None,
-        )
+                 no_data_value=-9999.0,
+                 path=None,
+             )
         assert nc is not None, "NetCDF should be created"
         var = nc.get_variable("data")
         assert var.cell_size == pytest.approx(0.5), (
             f"Expected cell_size 0.5, got {var.cell_size}"
         )
 
-    def test_create_from_array_no_geo_raises(self):
-        """Verify create_from_array raises ValueError without geo information.
+    def test_from_array_no_geo_raises(self):
+        """Verify from_array raises ValueError without geo information.
 
         Covers the ValueError when geo is None and
         top_left_corner/cell_size are not both provided.
@@ -134,43 +134,39 @@ class TestCreateFromArrayAlternatives:
         arr = np.random.default_rng(0).random((5, 10)).astype(np.float64)
         geo_ref = GeoReference(epsg=4326)
         with pytest.raises(ValueError, match="Either 'geo'"):
-            NetCDF.create_from_array(
-                arr=arr,
-                geo_ref=geo_ref,
-                no_data_value=-9999.0,
-            )
+            NetCDF.from_array(arr=arr, geo_ref=geo_ref, no_data_value=-9999.0)
 
-    def test_create_from_array_default_variable_name(self):
-        """Verify create_from_array defaults variable_name to 'data'.
+    def test_from_array_default_variable_name(self):
+        """Verify from_array defaults variable_name to 'data'.
 
         Covers variable_name = 'data' default.
         """
         arr = np.random.default_rng(0).random((5, 10)).astype(np.float64)
         geo = (0.0, 1.0, 0, 5.0, 0, -1.0)
-        nc = NetCDF.create_from_array(
-            arr=arr,
-            geo_ref=GeoReference(geo=geo, epsg=4326),
-            no_data_value=-9999.0,
-            path=None,
-        )
+        nc = NetCDF.from_array(
+                 arr=arr,
+                 geo_ref=GeoReference(geo=geo, epsg=4326),
+                 no_data_value=-9999.0,
+                 path=None,
+             )
         assert "data" in nc.variable_names, (
             f"Expected 'data' in variable_names, got {nc.variable_names}"
         )
 
-    def test_create_from_array_default_extra_dim_values(self):
-        """Verify create_from_array defaults extra_dim_values to 0..N-1.
+    def test_from_array_default_extra_dim_values(self):
+        """Verify from_array defaults extra_dim_values to 0..N-1.
 
         Covers the default extra_dim_values generation for 3D arrays.
         """
         arr = np.random.default_rng(0).random((4, 5, 10)).astype(np.float64)
         geo = (0.0, 1.0, 0, 5.0, 0, -1.0)
-        nc = NetCDF.create_from_array(
-            arr=arr,
-            geo_ref=GeoReference(geo=geo, epsg=4326),
-            no_data_value=-9999.0,
-            variable_name="test_var",
-            path=None,
-        )
+        nc = NetCDF.from_array(
+                 arr=arr,
+                 geo_ref=GeoReference(geo=geo, epsg=4326),
+                 no_data_value=-9999.0,
+                 variable_name="test_var",
+                 path=None,
+             )
         var = nc.get_variable("test_var")
         assert var.band_count == 4, f"Expected 4 bands, got {var.band_count}"
 

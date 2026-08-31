@@ -90,7 +90,7 @@ class Georef(_Engine["Dataset"]):
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
                 >>> from pyramids.dataset._gcp import GroundControlPoint
-                >>> ds = Dataset.create_from_array(
+                >>> ds = Dataset.from_array(
                 ...     np.ones((4, 4), "float32"), top_left_corner=(0.0, 4.0), cell_size=1.0
                 ... )
                 >>> ds.set_gcps([GroundControlPoint(row=0, col=0, x=10.0, y=50.0)], 4326)
@@ -146,7 +146,7 @@ class Georef(_Engine["Dataset"]):
                 ```python
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
-                >>> ds = Dataset.create_from_array(
+                >>> ds = Dataset.from_array(
                 ...     np.ones((4, 4), "float32"), top_left_corner=(0.0, 4.0), cell_size=1.0
                 ... )
                 >>> ds.rpcs is None
@@ -194,7 +194,7 @@ class Georef(_Engine["Dataset"]):
                 ...     "HEIGHT_SCALE", "LINE_NUM_COEFF", "LINE_DEN_COEFF",
                 ...     "SAMP_NUM_COEFF", "SAMP_DEN_COEFF",
                 ... )}
-                >>> ds = Dataset.create_from_array(
+                >>> ds = Dataset.from_array(
                 ...     np.ones((4, 4), "float32"), top_left_corner=(0.0, 4.0), cell_size=1.0
                 ... )
                 >>> ds.set_rpcs(rpc)
@@ -347,7 +347,7 @@ class Georef(_Engine["Dataset"]):
 
         Replaces any existing GCPs. The dataset must be opened writable
         (``read_only=False``); a MEM-backed dataset (e.g. from
-        :meth:`Dataset.create_from_array`) is always writable.
+        :meth:`Dataset.from_array`) is always writable.
 
         Args:
             gcps: One or more :class:`GroundControlPoint` tie points.
@@ -365,7 +365,7 @@ class Georef(_Engine["Dataset"]):
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
                 >>> from pyramids.dataset._gcp import GroundControlPoint
-                >>> ds = Dataset.create_from_array(
+                >>> ds = Dataset.from_array(
                 ...     np.ones((8, 8), "float32"), top_left_corner=(0.0, 8.0), cell_size=1.0
                 ... )
                 >>> pts = [
@@ -438,7 +438,7 @@ class Georef(_Engine["Dataset"]):
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
                 >>> from pyramids.dataset._gcp import GroundControlPoint
-                >>> ds = Dataset.create_from_array(
+                >>> ds = Dataset.from_array(
                 ...     np.ones((8, 8), "float32"), top_left_corner=(0.0, 8.0), cell_size=1.0
                 ... )
                 >>> ds.set_gcps([
@@ -511,7 +511,7 @@ class Georef(_Engine["Dataset"]):
                 ```python
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
-                >>> ds = Dataset.create_from_array(
+                >>> ds = Dataset.from_array(
                 ...     np.zeros((2, 2)), top_left_corner=(0, 0), cell_size=1.0, epsg=4326
                 ... )
                 >>> ds.geolocation is None
@@ -539,7 +539,7 @@ class Georef(_Engine["Dataset"]):
                 ```python
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
-                >>> ds = Dataset.create_from_array(
+                >>> ds = Dataset.from_array(
                 ...     np.zeros((2, 2)), top_left_corner=(0, 0), cell_size=1.0, epsg=4326
                 ... )
                 >>> ds.has_geolocation
@@ -596,7 +596,7 @@ class Georef(_Engine["Dataset"]):
                 ```python
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
-                >>> ds = Dataset.create_from_array(
+                >>> ds = Dataset.from_array(
                 ...     np.zeros((2, 2)), top_left_corner=(0, 0), cell_size=1.0, epsg=4326
                 ... )
                 >>> ds.has_geolocation

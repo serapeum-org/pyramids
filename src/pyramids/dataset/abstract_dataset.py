@@ -28,6 +28,7 @@ import numpy as np
 from geopandas.geodataframe import GeoDataFrame
 from osgeo import gdal
 
+from pyramids.base.georeference import GeoReference
 from pyramids.base._errors import ReadOnlyError
 from pyramids.base._utils import (
     DEFAULT_RESAMPLING,
@@ -453,7 +454,7 @@ class RasterBase(ABC):
         the SWIG binding exposes no handle-level `GetAccess`.)
 
         The condition is "read-only access **and** backed by a real on-disk file":
-        an in-memory dataset (`copy`, `create_from_array()` with no path, a `/vsimem/`
+        an in-memory dataset (`copy`, `from_array()` with no path, a `/vsimem/`
         raster, a `MEM`-driver container) reports `access == "read_only"` by
         constructor default yet is a genuinely writable in-RAM handle that cannot spill
         a sidecar, so it is *not* blocked — that is the established
@@ -566,7 +567,7 @@ class RasterBase(ABC):
                 ```python
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
-                >>> ds = Dataset.create_from_array(
+                >>> ds = Dataset.from_array(
                 ...     np.ones((4, 4)), top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
                 ... )
                 >>> ds.transform * (0, 0)
@@ -608,7 +609,7 @@ class RasterBase(ABC):
                 ```python
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
-                >>> ds = Dataset.create_from_array(
+                >>> ds = Dataset.from_array(
                 ...     np.ones((4, 4)), top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
                 ... )
                 >>> ds.xy(0, 0)
@@ -621,7 +622,7 @@ class RasterBase(ABC):
                 ```python
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
-                >>> ds = Dataset.create_from_array(
+                >>> ds = Dataset.from_array(
                 ...     np.ones((4, 4)), top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
                 ... )
                 >>> xs, ys = ds.xy([0, 1], [0, 1])
@@ -687,7 +688,7 @@ class RasterBase(ABC):
                 ```python
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
-                >>> ds = Dataset.create_from_array(
+                >>> ds = Dataset.from_array(
                 ...     np.ones((4, 4)), top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
                 ... )
                 >>> ds.rowcol(0.5, 3.5)
@@ -700,7 +701,7 @@ class RasterBase(ABC):
                 ```python
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
-                >>> ds = Dataset.create_from_array(
+                >>> ds = Dataset.from_array(
                 ...     np.ones((4, 4)), top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
                 ... )
                 >>> ds.rowcol(*ds.xy(3, 1))
@@ -811,7 +812,7 @@ class RasterBase(ABC):
                 ```python
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
-                >>> ds = Dataset.create_from_array(
+                >>> ds = Dataset.from_array(
                 ...     np.zeros((2, 2)), top_left_corner=(0, 0), cell_size=1.0, epsg=4326
                 ... )
                 >>> ds.subdatasets
@@ -860,7 +861,7 @@ class RasterBase(ABC):
                 ```python
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
-                >>> ds = Dataset.create_from_array(
+                >>> ds = Dataset.from_array(
                 ...     np.zeros((2, 2)), top_left_corner=(0, 0), cell_size=1.0, epsg=4326
                 ... )
                 >>> ds.get_meta_data() == ds.meta_data
@@ -1004,7 +1005,7 @@ class RasterBase(ABC):
                 ```python
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
-                >>> ds = Dataset.create_from_array(
+                >>> ds = Dataset.from_array(
                 ...     np.ones((5, 5)), top_left_corner=(0, 5), cell_size=1.0, epsg=4326,
                 ... )
                 >>> windows = list(ds.block_windows())
@@ -1017,7 +1018,7 @@ class RasterBase(ABC):
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
                 >>> from pyramids.dataset.window import Window
-                >>> ds = Dataset.create_from_array(
+                >>> ds = Dataset.from_array(
                 ...     np.ones((6, 6)), top_left_corner=(0, 6), cell_size=1.0, epsg=4326,
                 ... )
                 >>> roi = Window(col_off=1, row_off=1, cols=3, rows=3)
@@ -1086,7 +1087,7 @@ class RasterBase(ABC):
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
                 >>> src_arr = np.arange(25, dtype="float32").reshape(5, 5)
-                >>> ds = Dataset.create_from_array(
+                >>> ds = Dataset.from_array(
                 ...     src_arr, top_left_corner=(0, 5), cell_size=1.0, epsg=4326,
                 ... )
                 >>> rebuilt = np.zeros_like(src_arr)
@@ -1289,16 +1290,13 @@ class RasterBase(ABC):
 
     @classmethod
     @abstractmethod
-    def create_from_array(
+    def from_array(
         cls,
         arr: np.ndarray,
-        geo: tuple[float, float, float, float, float, float],
-        bands_values: list | None = None,
-        epsg: str | int | None = 4326,
+        *,
+        geo_ref: GeoReference,
         no_data_value: Any | list = DEFAULT_NO_DATA_VALUE,
-        driver_type: str = "MEM",
-        path: str | None = None,
-        variable_name: str | None = None,
+        path: str | Path | None = None,
     ):
         """Create dataset from array.
 

@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 from pyramids.dataset import Dataset, DatasetCollection
+from pyramids.base.georeference import GeoReference
 from tests._marks import requires_dask
 
 pytestmark = pytest.mark.lazy
@@ -21,12 +22,10 @@ def three_files_4x5_ramp(tmp_path):
     paths = []
     for i in range(3):
         arr = np.full((4, 5), float(i + 1), dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 4.0),
-            cell_size=1.0,
-            epsg=4326,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326),
+             )
         p = str(tmp_path / f"f{i}.tif")
         ds.to_file(p)
         paths.append(p)
@@ -94,12 +93,10 @@ class TestSkipNaFalse:
 class TestNoFilesRaises:
     def test_reduction_without_files_raises(self):
         arr = np.zeros((4, 5), dtype=np.float32)
-        src = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 4.0),
-            cell_size=1.0,
-            epsg=4326,
-        )
+        src = Dataset.from_array(
+                  arr,
+                  geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326),
+              )
         collection = DatasetCollection(src, time_length=1)
         with pytest.raises(RuntimeError, match="file-backed"):
             collection.mean()

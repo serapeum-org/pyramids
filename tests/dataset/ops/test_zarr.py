@@ -14,6 +14,7 @@ import pytest
 
 from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.dataset import Dataset
+from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -31,12 +32,10 @@ def small_dataset(tmp_path):
     needs a real on-disk file to open inside the chunk reader.
     """
     arr = np.arange(30, dtype=np.float32).reshape(5, 6)
-    ds = Dataset.create_from_array(
-        arr,
-        top_left_corner=(0.0, 5.0),
-        cell_size=1.0,
-        epsg=4326,
-    )
+    ds = Dataset.from_array(
+             arr,
+             geo_ref=GeoReference(top_left_corner=(0.0, 5.0), cell_size=1.0, epsg=4326),
+         )
     src_path = str(tmp_path / "src.tif")
     ds.to_file(src_path)
     return Dataset.read_file(src_path)
@@ -81,13 +80,11 @@ class TestRoundtripEager:
             took band 0 only).
         """
         arr = np.arange(2 * 3 * 4, dtype=np.float32).reshape(2, 3, 4)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 3.0),
-            cell_size=1.0,
-            epsg=4326,
-            no_data_value=[5.0, 6.0],
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=[5.0, 6.0],
+                 geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
+             )
         src_path = str(tmp_path / "nd_src.tif")
         ds.to_file(src_path)
         Dataset.read_file(src_path).to_zarr(str(tmp_path / "nd.zarr"))
@@ -106,13 +103,11 @@ class TestRoundtripEager:
             not the ``-9999`` sentinel the old reader substituted.
         """
         arr = np.arange(12, dtype=np.float32).reshape(3, 4)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 3.0),
-            cell_size=1.0,
-            epsg=4326,
-            no_data_value=None,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=None,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
+             )
         src_path = str(tmp_path / "none_src.tif")
         ds.to_file(src_path)
         Dataset.read_file(src_path).to_zarr(str(tmp_path / "none.zarr"))
@@ -132,9 +127,10 @@ class TestRoundtripEager:
             CRS was rebuilt from EPSG only).
         """
         arr = np.arange(20, dtype=np.float32).reshape(4, 5)
-        ds = Dataset.create_from_array(
-            arr, top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=32636
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=32636),
+             )
         src_path = str(tmp_path / "utm.tif")
         ds.to_file(src_path)
         Dataset.read_file(src_path).to_zarr(str(tmp_path / "utm.zarr"))
@@ -152,9 +148,10 @@ class TestRoundtripEager:
             ``set_band_names`` method, so names were silently dropped).
         """
         arr = np.arange(2 * 4 * 5, dtype=np.float32).reshape(2, 4, 5)
-        ds = Dataset.create_from_array(
-            arr, top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326),
+             )
         ds.band_names = ["alpha", "beta"]
         src_path = str(tmp_path / "bn_src.tif")
         ds.to_file(src_path)
@@ -185,13 +182,11 @@ class TestRoundtripEager:
             source and stay finite — with the bug the store was entirely ``-9999``.
         """
         arr = np.arange(2 * 32 * 48, dtype=np.float32).reshape(2, 32, 48)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 32.0),
-            cell_size=1.0,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=-9999.0,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 32.0), cell_size=1.0, epsg=4326),
+             )
         src = str(tmp_path / "mb_src.tif")
         ds.to_file(src)
         Dataset.read_file(src).to_zarr(str(tmp_path / "mb.zarr"))
@@ -432,9 +427,10 @@ class TestMultiscalePyramid:
     @pytest.fixture
     def big_dataset(self, tmp_path):
         arr = np.arange(16 * 16, dtype=np.float32).reshape(16, 16)
-        ds = Dataset.create_from_array(
-            arr, top_left_corner=(0.0, 16.0), cell_size=1.0, epsg=4326
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 16.0), cell_size=1.0, epsg=4326),
+             )
         src = str(tmp_path / "big.tif")
         ds.to_file(src)
         return Dataset.read_file(src)
@@ -522,13 +518,11 @@ class TestMultiscalePyramid:
             same nodata tuple and band names rather than dropping them.
         """
         arr = np.arange(2 * 8 * 8, dtype=np.float32).reshape(2, 8, 8)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 8.0),
-            cell_size=1.0,
-            epsg=4326,
-            no_data_value=[-1.0, -2.0],
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=[-1.0, -2.0],
+                 geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0, epsg=4326),
+             )
         ds.band_names = ["red", "nir"]
         src = str(tmp_path / "ms_meta.tif")
         ds.to_file(src)

@@ -106,13 +106,13 @@ def make_3d_nc(
             dim_kwargs["values"] = list(extra_dim_values)
         dims = ExtraDimensions(**dim_kwargs)
 
-    nc = NetCDF.create_from_array(
-        arr,
-        geo_ref=GeoReference(geo=geo, epsg=epsg),
-        no_data_value=no_data_value,
-        variable_name=variable_name,
-        dims=dims,
-    )
+    nc = NetCDF.from_array(
+             arr,
+             geo_ref=GeoReference(geo=geo, epsg=epsg),
+             no_data_value=no_data_value,
+             variable_name=variable_name,
+             dims=dims,
+         )
     return nc
 
 
@@ -138,13 +138,13 @@ def make_2d_nc(
     # default_rng stream (vs the legacy RandomState it replaced) is fine here.
     arr = np.random.default_rng(99).random((rows, cols)).astype(np.float64)
     geo = (0.0, 1.0, 0, float(rows), 0, -1.0)
-    return NetCDF.create_from_array(
-        arr=arr,
-        geo_ref=GeoReference(geo=geo, epsg=4326),
-        no_data_value=-9999.0,
-        path=None,
-        variable_name=variable_name,
-    )
+    return NetCDF.from_array(
+               arr=arr,
+               geo_ref=GeoReference(geo=geo, epsg=4326),
+               no_data_value=-9999.0,
+               path=None,
+               variable_name=variable_name,
+           )
 
 
 def make_plot_3d_nc(n_times: int = 4, rows: int = 5, cols: int = 5) -> NetCDF:
@@ -165,12 +165,12 @@ def make_plot_3d_nc(n_times: int = 4, rows: int = 5, cols: int = 5) -> NetCDF:
     """
     rng = np.random.default_rng(0)
     arr = rng.random((n_times, rows, cols)).astype(np.float32)
-    nc = NetCDF.create_from_array(
-        arr=arr,
-        geo_ref=GeoReference(geo=(0.0, 1.0, 0, float(rows), 0, -1.0), epsg=4326),
-        variable_name="t2m",
-        dims=ExtraDimensions(name="time", values=list(range(n_times))),
-    )
+    nc = NetCDF.from_array(
+             arr=arr,
+             geo_ref=GeoReference(geo=(0.0, 1.0, 0, float(rows), 0, -1.0), epsg=4326),
+             variable_name="t2m",
+             dims=ExtraDimensions(name="time", values=list(range(n_times))),
+         )
     return nc
 
 

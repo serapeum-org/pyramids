@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 
 from pyramids.dataset import Dataset
+from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -28,13 +29,11 @@ def test_multiband_to_file_roundtrips_through_second_handle(tmp_path):
         (#570 read it back as all ``-9999`` on Unix).
     """
     a = np.arange(2 * 32 * 48, dtype=np.float32).reshape(2, 32, 48)
-    ds = Dataset.create_from_array(
-        a,
-        top_left_corner=(0.0, 32.0),
-        cell_size=1.0,
-        epsg=4326,
-        no_data_value=-9999.0,
-    )
+    ds = Dataset.from_array(
+             a,
+             no_data_value=-9999.0,
+             geo_ref=GeoReference(top_left_corner=(0.0, 32.0), cell_size=1.0, epsg=4326),
+         )
     out = str(tmp_path / "mb.tif")
     ds.to_file(out)
     reread = np.asarray(Dataset.read_file(out).read_array())

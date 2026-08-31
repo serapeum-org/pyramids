@@ -9,8 +9,8 @@ per variable) and **carries the non-spatial auxiliary variables through
 unchanged** into the result, leaving them alone.
 
 The cubes are built with pyramids' own writers: the gridded variable through
-``NetCDF.create_from_array``, and the non-spatial / non-gridded auxiliaries —
-which ``create_from_array`` cannot express — straight through the GDAL
+``NetCDF.from_array``, and the non-spatial / non-gridded auxiliaries —
+which ``from_array`` cannot express — straight through the GDAL
 multidim API (``_attach``), so the module needs no third-party NetCDF
 engine. ERA5's real
 ``expver`` is a string variable; the defect is dtype-agnostic (it is about a
@@ -40,7 +40,7 @@ def _attach(nc, name, dims, values, gdal_dtype):
 
     Existing dimensions are reused by name+size (so an aux variable shares the
     gridded variable's ``valid_time``), missing ones are created. This builds the
-    non-gridded auxiliaries that ``create_from_array`` cannot express — using
+    non-gridded auxiliaries that ``from_array`` cannot express — using
     only GDAL.
 
     Args:
@@ -73,7 +73,7 @@ def _era5_like_cube(*, with_spatial=True, with_aux=True, with_second_spatial=Fal
     """Build an ERA5-shaped multidimensional cube with pyramids' native writers.
 
     The gridded ``t2m(valid_time, y, x)`` is written by
-    ``NetCDF.create_from_array``; the non-spatial 1-D ``number(valid_time)`` and
+    ``NetCDF.from_array``; the non-spatial 1-D ``number(valid_time)`` and
     the optional second gridded ``tp`` are attached onto the same root group via
     :func:`_attach`, so the aux variable shares ``t2m``'s ``valid_time``.
 
@@ -87,12 +87,12 @@ def _era5_like_cube(*, with_spatial=True, with_aux=True, with_second_spatial=Fal
     """
     n_t, n_lat, n_lon = 4, 5, 5
     if with_spatial:
-        nc = NetCDF.create_from_array(
-            np.ones((n_t, n_lat, n_lon), "float32"),
-            geo_ref=GeoReference(top_left_corner=(0.0, 5.0), cell_size=1.0, epsg=4326),
-            dims=ExtraDimensions(dims=[("valid_time", list(range(n_t)))]),
-            variable_name="t2m",
-        )
+        nc = NetCDF.from_array(
+                 np.ones((n_t, n_lat, n_lon), "float32"),
+                 geo_ref=GeoReference(top_left_corner=(0.0, 5.0), cell_size=1.0, epsg=4326),
+                 dims=ExtraDimensions(dims=[("valid_time", list(range(n_t)))]),
+                 variable_name="t2m",
+             )
     else:
         nc = Container(gdal.GetDriverByName("MEM").CreateMultiDimensional("netcdf"))
     if with_second_spatial:

@@ -18,6 +18,7 @@ from osgeo import gdal
 
 from pyramids.dataset import Dataset
 from pyramids.dataset.engines._warp import carry_raster_metadata
+from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -34,9 +35,11 @@ def classified() -> Dataset:
         dataset carries metadata (`PROCESSING_BASELINE`).
     """
     arr = (np.arange(36, dtype="int16").reshape(6, 6) % 5).astype("int16")
-    ds = Dataset.create_from_array(
-        arr, top_left_corner=(0.0, 6.0), cell_size=1.0, epsg=32632, no_data_value=0
-    )
+    ds = Dataset.from_array(
+             arr,
+             no_data_value=0,
+             geo_ref=GeoReference(top_left_corner=(0.0, 6.0), cell_size=1.0, epsg=32632),
+         )
     band = ds.raster.GetRasterBand(1)
     band.SetCategoryNames(LABELS)
     band.SetMetadataItem("WAVELENGTH", "560")
@@ -60,12 +63,10 @@ def _cats(ds: Dataset) -> object:
 def _blank(bands: int = 1) -> Dataset:
     """A fresh raster on the same grid carrying no descriptive metadata."""
     shape = (6, 6) if bands == 1 else (bands, 6, 6)
-    return Dataset.create_from_array(
-        np.zeros(shape, dtype="int16"),
-        top_left_corner=(0.0, 6.0),
-        cell_size=1.0,
-        epsg=32632,
-    )
+    return Dataset.from_array(
+               np.zeros(shape, dtype="int16"),
+               geo_ref=GeoReference(top_left_corner=(0.0, 6.0), cell_size=1.0, epsg=32632),
+           )
 
 
 class TestWarpPathKeepsCategories:

@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 from pyramids.dataset import Dataset
+from pyramids.base.georeference import GeoReference
 from tests.dataset.cog.conftest import COG_GEOTRANSFORM
 
 pytestmark = pytest.mark.core
@@ -31,7 +32,7 @@ class TestStreamingWrite:
             GDAL streams from the source and the result validates.
         """
         arr = (np.random.default_rng(1).random((600, 600)) * 100).astype("float32")
-        plain = Dataset.create_from_array(arr, geo=COG_GEOTRANSFORM, epsg=4326)
+        plain = Dataset.from_array(arr, geo_ref=GeoReference(geo=COG_GEOTRANSFORM, epsg=4326))
         plain_path = tmp_path / "plain.tif"
         plain.to_file(plain_path)
 
@@ -54,6 +55,6 @@ class TestStreamingWrite:
         import pickle
 
         arr = np.ones((16, 16), dtype="float32")
-        mem = Dataset.create_from_array(arr, geo=COG_GEOTRANSFORM, epsg=4326)
+        mem = Dataset.from_array(arr, geo_ref=GeoReference(geo=COG_GEOTRANSFORM, epsg=4326))
         with pytest.raises(pickle.PicklingError):
             mem.to_file(tmp_path / "x.tif", compute=False)

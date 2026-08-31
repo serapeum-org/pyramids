@@ -17,6 +17,7 @@ from pyramids.base._errors import AlignmentError, CRSError
 from pyramids.dataset import Dataset
 from pyramids.dataset.dataset import _derive_band_names, _same_grid
 from pyramids.dataset.merge import stack_bands
+from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -50,13 +51,11 @@ def _make_band(
         str: Path to the written GeoTIFF.
     """
     path = os.path.join(str(tmp_path), name)
-    Dataset.create_from_array(
+    Dataset.from_array(
         np.full(shape, value, dtype=dtype),
-        top_left_corner=top_left,
-        cell_size=cell_size,
-        epsg=epsg,
         no_data_value=no_data_value,
         path=path,
+        geo_ref=GeoReference(top_left_corner=top_left, cell_size=cell_size, epsg=epsg),
     ).close()
     return path
 
@@ -254,12 +253,10 @@ class TestFromBandFiles:
             band per file``.
         """
         mb = os.path.join(str(tmp_path), "mb.tif")
-        Dataset.create_from_array(
+        Dataset.from_array(
             np.zeros((2, 4, 5), dtype="int16"),
-            top_left_corner=(0.0, 0.0),
-            cell_size=1.0,
-            epsg=4326,
             path=mb,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
         ).close()
         with pytest.raises(ValueError, match="one band per file"):
             Dataset.from_band_files([band_files[0], mb])
@@ -472,7 +469,7 @@ class TestFromBandFiles:
 
         Test scenario:
             ``from_band_files(..., path="out.png")`` — expected: ``TypeError``
-            mentioning ``.tif`` (matches ``create_from_array`` / ``dataset_like``).
+            mentioning ``.tif`` (matches ``from_array`` / ``dataset_like``).
         """
         with pytest.raises(TypeError, match=r"\.tif"):
             Dataset.from_band_files(band_files, path="out.png")

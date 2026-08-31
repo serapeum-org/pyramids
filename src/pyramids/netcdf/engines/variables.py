@@ -44,6 +44,7 @@ from pyramids.netcdf.cf import (
     write_global_attributes,
 )
 from pyramids.netcdf.dimensions import ClassicDimensionInfo
+from pyramids.base.georeference import GeoReference
 
 if TYPE_CHECKING:
     from pyramids.netcdf.netcdf import NetCDF
@@ -57,9 +58,9 @@ class Variables(_Engine["NetCDF"]):
     that name is the read-side property returning the lazy variable dict) and
     exposes thin façades, so ``nc.set_variable(...)`` and
     ``nc.varops.set_variable(...)`` are equivalent. The companion constructor
-    :func:`create_from_array` is a module-level function (it builds a new
+    :func:`from_array` is a module-level function (it builds a new
     container rather than mutating an existing one), reached through the
-    ``NetCDF.create_from_array`` classmethod façade.
+    ``NetCDF.from_array`` classmethod façade.
 
     Each method reaches the container's GDAL plumbing
     (``_writable_root_group`` / ``_replace_raster`` / ``_invalidate_caches`` /
@@ -426,10 +427,10 @@ def _build_variable_mdarray(
     return md_arr
 
 
-def create_from_array(
+def from_array(
     arr: np.ndarray,
     *,
-    geo_ref: GeoReference | None = None,
+    geo_ref: GeoReference,
     path: str | Path | None = None,
     variable_name: str | None = None,
     no_data_value: Any | list = DEFAULT_NO_DATA_VALUE,
@@ -504,12 +505,11 @@ def create_from_array(
         NetCDF: The newly created NetCDF dataset.
     """
     # Local import breaks the netcdf.py <-> engines.variables import cycle
-    # (netcdf.py imports this module at top level for wiring). create_from_array
+    # (netcdf.py imports this module at top level for wiring). from_array
     # always returns a Container regardless of which NetCDF subtype the façade
     # was invoked on, sidestepping the deprecated base-NetCDF construction path.
     from pyramids.netcdf.netcdf import Container
 
-    geo_ref = geo_ref or GeoReference()
     dims = dims or ExtraDimensions()
     encoding = encoding or Encoding()
     attrs = attrs or CFAttributes()
@@ -723,7 +723,7 @@ def _is_dask_array(obj: Any) -> bool:
     this module never imports — the caller supplies the live dask array.
 
     Args:
-        obj: Any candidate array passed as ``create_from_array``'s ``arr``.
+        obj: Any candidate array passed as ``from_array``'s ``arr``.
 
     Returns:
         bool: True only for a dask array.

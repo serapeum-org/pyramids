@@ -16,6 +16,7 @@ from pyproj import CRS
 
 from pyramids.base._raster_meta import RasterMeta
 from pyramids.dataset import Dataset
+from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -92,12 +93,10 @@ class TestGeotransform:
 class TestFromDataset:
     def test_snapshot_from_in_memory_dataset(self):
         arr = np.arange(20, dtype=np.float32).reshape(4, 5)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 4.0),
-            cell_size=1.0,
-            epsg=4326,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326),
+             )
         meta = RasterMeta.from_dataset(ds)
         assert meta.rows == 4
         assert meta.columns == 5
@@ -119,12 +118,10 @@ class TestFromDataset:
             :attr:`RasterMeta.dtype` must preserve the integer type.
         """
         arr = np.arange(20, dtype=np.int16).reshape(4, 5)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 4.0),
-            cell_size=1.0,
-            epsg=4326,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326),
+             )
         monkeypatch.setattr(type(ds), "numpy_dtype", property(lambda self: []))
         meta = RasterMeta.from_dataset(ds)
         assert meta.dtype == "int16", (

@@ -18,6 +18,7 @@ from pyramids.stac._loader import (
     which_engine,
 )
 from pyramids.stac.signers import AWSRequesterPaysSigner
+from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -472,12 +473,10 @@ class TestLoadZarrAsset:
     """STAC Zarr assets load via pyramids' GeoZarr reader (FR-9)."""
 
     def _raster_zarr(self, tmp_path):
-        ds = Dataset.create_from_array(
-            np.arange(12, dtype=np.float32).reshape(3, 4),
-            top_left_corner=(0.0, 3.0),
-            cell_size=1.0,
-            epsg=4326,
-        )
+        ds = Dataset.from_array(
+                 np.arange(12, dtype=np.float32).reshape(3, 4),
+                 geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
+             )
         tif = str(tmp_path / "r.tif")
         ds.to_file(tif)
         store = str(tmp_path / "r.zarr")
@@ -490,11 +489,9 @@ class TestLoadZarrAsset:
         paths = []
         for i in range(2):
             p = str(tmp_path / f"t{i}.tif")
-            Dataset.create_from_array(
+            Dataset.from_array(
                 np.full((3, 4), float(i), dtype=np.float32),
-                top_left_corner=(0.0, 3.0),
-                cell_size=1.0,
-                epsg=4326,
+                geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
             ).to_file(p)
             paths.append(p)
         store = str(tmp_path / "c.zarr")

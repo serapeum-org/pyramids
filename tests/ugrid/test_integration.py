@@ -30,7 +30,7 @@ class TestFullLifecycle:
             6. Verify the Dataset has valid data.
         """
 
-        ds = UgridDataset.create_from_arrays(
+        ds = UgridDataset.from_arrays(
             node_x=np.array([0.0, 1.0, 2.0, 0.0, 1.0, 2.0, 0.0, 1.0, 2.0]),
             node_y=np.array([0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0]),
             face_node_connectivity=np.array(
@@ -79,7 +79,7 @@ class TestFullLifecycle:
             Create mesh, convert to GeoDataFrame, verify polygon count
             and data values match.
         """
-        ds = UgridDataset.create_from_arrays(
+        ds = UgridDataset.from_arrays(
             node_x=np.array([0.0, 1.0, 0.5]),
             node_y=np.array([0.0, 0.0, 1.0]),
             face_node_connectivity=np.array([[0, 1, 2]]),
@@ -102,7 +102,7 @@ class TestFullLifecycle:
             Create mesh in UTM, reproject to WGS84, then interpolate
             to a regular grid.
         """
-        ds = UgridDataset.create_from_arrays(
+        ds = UgridDataset.from_arrays(
             node_x=np.array([500000.0, 500100.0, 500050.0]),
             node_y=np.array([5600000.0, 5600000.0, 5600100.0]),
             face_node_connectivity=np.array([[0, 1, 2]]),

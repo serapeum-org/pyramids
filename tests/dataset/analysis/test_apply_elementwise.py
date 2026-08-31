@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 from pyramids.dataset import Dataset
+from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -33,9 +34,10 @@ class TestApplyElementwise:
             ``apply(elementwise=True)`` on a 300x300 raster equals ``apply()`` cell for cell.
         """
         arr = (np.random.default_rng(0).random((300, 300)) * 50).astype("float64")
-        ds = Dataset.create_from_array(
-            arr, top_left_corner=(0.0, 15.0), cell_size=0.05, epsg=4326
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 15.0), cell_size=0.05, epsg=4326),
+             )
         streamed = ds.apply(func, elementwise=True).read_array()
         whole = ds.apply(func, elementwise=False).read_array()
         np.testing.assert_array_equal(
@@ -52,13 +54,11 @@ class TestApplyElementwise:
         arr = np.ones((300, 300), dtype="float64") * 3.0
         arr[10, 10] = -9999.0
         arr[290, 295] = -9999.0
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 15.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=-9999.0,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 15.0), cell_size=0.05, epsg=4326),
+             )
         streamed = ds.apply(lambda v: v * 2, elementwise=True).read_array()
         whole = ds.apply(lambda v: v * 2, elementwise=False).read_array()
         np.testing.assert_array_equal(
@@ -79,9 +79,10 @@ class TestApplyElementwise:
                 (np.random.default_rng(1).random((300, 300)) * 10).astype("float64"),
             ]
         )
-        ds = Dataset.create_from_array(
-            arr, top_left_corner=(0.0, 15.0), cell_size=0.05, epsg=4326
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 15.0), cell_size=0.05, epsg=4326),
+             )
         streamed = ds.apply(np.abs, band=1, elementwise=True).read_array()
         whole = ds.apply(np.abs, band=1, elementwise=False).read_array()
         assert streamed.shape == (300, 300), (
@@ -98,9 +99,10 @@ class TestApplyElementwise:
             The call returns ``self`` and the source array is the doubled result.
         """
         arr = (np.random.default_rng(2).random((300, 300)) * 4).astype("float64")
-        ds = Dataset.create_from_array(
-            arr, top_left_corner=(0.0, 15.0), cell_size=0.05, epsg=4326
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 15.0), cell_size=0.05, epsg=4326),
+             )
         result = ds.apply(lambda v: v * 2, inplace=True, elementwise=True)
         assert result is ds, "inplace streaming apply should return self"
         np.testing.assert_array_equal(
@@ -117,13 +119,11 @@ class TestApplyElementwise:
         """
         arr = (np.random.default_rng(3).random((300, 300)) * 10).astype("float64")
         arr[256:300, 256:300] = -9999.0
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 15.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=-9999.0,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 15.0), cell_size=0.05, epsg=4326),
+             )
         func = lambda v: 1.0 if v > 5 else 0.0  # noqa: E731 - forces vectorize fallback
         streamed = ds.apply(func, elementwise=True).read_array()
         whole = ds.apply(func, elementwise=False).read_array()

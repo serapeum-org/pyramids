@@ -42,6 +42,7 @@ from pyramids.dataset.engines._base import _Engine
 from pyramids.dataset.engines._warp import carry_raster_metadata, warp_to_dataset
 from pyramids.dataset.engines._warp import dst_srs_arg as _dst_srs_arg
 from pyramids.dataset.engines.vectorize import Vectorize
+from pyramids.base.georeference import GeoReference
 
 
 @overload
@@ -302,19 +303,21 @@ def _stitch_lon_halves(ds: RasterBase, west_part: Any, east_part: Any) -> Datase
         Dataset: The concatenated raster.
     """
     # Local import breaks the engines <-> Dataset cycle; the merged result must be a
-    # plain raster Dataset (create_from_array on a variable view would build a NetCDF
+    # plain raster Dataset (from_array on a variable view would build a NetCDF
     # container).
     from pyramids.dataset.dataset import Dataset
 
     _check_lon_halves_concatenable(west_part, east_part)
     merged = np.concatenate([west_part.read_array(), east_part.read_array()], axis=-1)
-    out = Dataset.create_from_array(
+    # epsg is None only for a no-EPSG CRS reported as such (a NetCDF
+    # geostationary grid); from_array raises CRSError on None, so fall back to
+    # the WKT. No-op for a plain Dataset (reports 4326) (#706).
+    out = Dataset.from_array(
         merged,
-        geo=west_part.geotransform,
-        # epsg is None only for a no-EPSG CRS reported as such (a NetCDF
-        # geostationary grid); create_from_array raises CRSError on None, so fall
-        # back to the WKT. No-op for a plain Dataset (reports 4326) (#706).
-        epsg=crs_spec(west_part.epsg, west_part.crs),
+        geo_ref=GeoReference(
+            geo=west_part.geotransform,
+            epsg=crs_spec(west_part.epsg, west_part.crs),
+        ),
         no_data_value=west_part.no_data_value,
     )
     out.band_names = ds.band_names
@@ -457,7 +460,7 @@ class Spatial(_Engine["Dataset"]):
               >>> import numpy as np
               >>> from pyramids.dataset import Dataset
               >>> arr = np.random.rand(4, 5, 5)
-              >>> dataset = Dataset.create_from_array(
+              >>> dataset = Dataset.from_array(
               ...     arr,
               ...     top_left_corner=(0.0, 0.0),
               ...     cell_size=0.05,
@@ -480,7 +483,7 @@ class Spatial(_Engine["Dataset"]):
               >>> from osgeo import osr
               >>> from pyramids.dataset import Dataset
               >>> arr = np.ones((5, 5), dtype=np.float32)
-              >>> dataset = Dataset.create_from_array(
+              >>> dataset = Dataset.from_array(
               ...     arr, top_left_corner=(0.0, 10.0), cell_size=1.0, epsg=4326
               ... )
               >>> robinson = dataset.to_crs(to_epsg="ESRI:54030")
@@ -496,7 +499,7 @@ class Spatial(_Engine["Dataset"]):
               >>> from osgeo import osr
               >>> from pyramids.dataset import Dataset
               >>> arr = np.ones((5, 5), dtype=np.float32)
-              >>> dataset = Dataset.create_from_array(
+              >>> dataset = Dataset.from_array(
               ...     arr, top_left_corner=(0.0, 10.0), cell_size=1.0, epsg=4326
               ... )
               >>> proj4 = "+proj=ortho +lat_0=39 +lon_0=-9 +datum=WGS84 +units=m +no_defs"
@@ -518,7 +521,7 @@ class Spatial(_Engine["Dataset"]):
               >>> import numpy as np
               >>> from pyramids.dataset import Dataset
               >>> arr = np.ones((10, 10), dtype=np.float32)
-              >>> dataset = Dataset.create_from_array(
+              >>> dataset = Dataset.from_array(
               ...     arr, top_left_corner=(10.0, 60.5), cell_size=0.1, epsg=4326
               ... )
               >>> default_warp = dataset.to_crs(to_epsg=3857)
@@ -633,7 +636,7 @@ class Spatial(_Engine["Dataset"]):
                 ```python
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
-                >>> src = Dataset.create_from_array(
+                >>> src = Dataset.from_array(
                 ...     np.random.rand(8, 8).astype("float32"),
                 ...     top_left_corner=(0, 8), cell_size=0.01, epsg=4326,
                 ... )
@@ -649,7 +652,7 @@ class Spatial(_Engine["Dataset"]):
                 ```python
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
-                >>> src = Dataset.create_from_array(
+                >>> src = Dataset.from_array(
                 ...     np.ones((4, 4), dtype="float32"),
                 ...     top_left_corner=(0, 4), cell_size=0.01, epsg=4326,
                 ... )
@@ -745,7 +748,7 @@ class Spatial(_Engine["Dataset"]):
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
                 >>> arr = np.arange(360, dtype=np.float32).reshape(1, 360)
-                >>> ds = Dataset.create_from_array(
+                >>> ds = Dataset.from_array(
                 ...     arr, top_left_corner=(0.0, 0.5), cell_size=1.0, epsg=4326,
                 ...     no_data_value=-9999.0,
                 ... )
@@ -762,7 +765,7 @@ class Spatial(_Engine["Dataset"]):
                 ```python
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
-                >>> ds = Dataset.create_from_array(
+                >>> ds = Dataset.from_array(
                 ...     np.ones((3, 3), dtype=np.float32), top_left_corner=(0.0, 0.0),
                 ...     cell_size=0.05, epsg=4326, no_data_value=-9999.0,
                 ... )
@@ -938,7 +941,7 @@ class Spatial(_Engine["Dataset"]):
               >>> import numpy as np
               >>> from pyramids.dataset import Dataset
               >>> arr = np.random.rand(4, 10, 10)
-              >>> dataset = Dataset.create_from_array(
+              >>> dataset = Dataset.from_array(
               ...     arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
               ... )
               >>> (dataset.rows, dataset.columns, dataset.band_count)
@@ -1061,7 +1064,7 @@ class Spatial(_Engine["Dataset"]):
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
                 >>> arr = np.ones((5, 5), dtype=np.float32)
-                >>> ds = Dataset.create_from_array(
+                >>> ds = Dataset.from_array(
                 ...     arr,
                 ...     top_left_corner=(10.0, 50.0),
                 ...     cell_size=0.5,
@@ -1083,7 +1086,7 @@ class Spatial(_Engine["Dataset"]):
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
                 >>> arr = np.ones((10, 10), dtype=np.float32)
-                >>> ds = Dataset.create_from_array(
+                >>> ds = Dataset.from_array(
                 ...     arr,
                 ...     top_left_corner=(10.0, 60.5),
                 ...     cell_size=0.1,
@@ -1508,7 +1511,7 @@ class Spatial(_Engine["Dataset"]):
               >>> import numpy as np
               >>> from pyramids.dataset import Dataset
               >>> arr = np.random.rand(5, 5)
-              >>> dataset = Dataset.create_from_array(
+              >>> dataset = Dataset.from_array(
               ...     arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
               ... )
               >>> (dataset.rows, dataset.columns, dataset.epsg, dataset.band_count)
@@ -1523,7 +1526,7 @@ class Spatial(_Engine["Dataset"]):
               >>> import numpy as np
               >>> from pyramids.dataset import Dataset
               >>> arr_target = np.random.rand(10, 10)
-              >>> dataset_target = Dataset.create_from_array(
+              >>> dataset_target = Dataset.from_array(
               ...     arr_target, top_left_corner=(-0.1, 0.1), cell_size=0.07, epsg=4326
               ... )
               >>> (dataset_target.rows, dataset_target.columns, dataset_target.geotransform[1])
@@ -1539,11 +1542,11 @@ class Spatial(_Engine["Dataset"]):
               ```python
               >>> import numpy as np
               >>> from pyramids.dataset import Dataset
-              >>> source = Dataset.create_from_array(
+              >>> source = Dataset.from_array(
               ...     np.random.rand(5, 5),
               ...     top_left_corner=(0, 0), cell_size=0.05, epsg=4326,
               ... )
-              >>> target = Dataset.create_from_array(
+              >>> target = Dataset.from_array(
               ...     np.random.rand(10, 10),
               ...     top_left_corner=(-0.1, 0.1), cell_size=0.07, epsg=4326,
               ... )
@@ -1561,11 +1564,11 @@ class Spatial(_Engine["Dataset"]):
               ```python
               >>> import numpy as np
               >>> from pyramids.dataset import Dataset
-              >>> source = Dataset.create_from_array(
+              >>> source = Dataset.from_array(
               ...     np.arange(25, dtype=np.float32).reshape(5, 5),
               ...     top_left_corner=(0, 0), cell_size=0.05, epsg=4326,
               ... )
-              >>> template = Dataset.create_from_array(
+              >>> template = Dataset.from_array(
               ...     np.zeros((10, 10), dtype=np.float32),
               ...     top_left_corner=(0, 0), cell_size=0.025, epsg=4326,
               ... )
@@ -1668,9 +1671,9 @@ class Spatial(_Engine["Dataset"]):
 
         # Hand the trim the *base* Dataset, not the subclass. `_crop_aligned` builds its result as
         # `self._ds.__class__(...)`, so on a NetCDF receiver it is a NetCDF — and
-        # `_correct_wrap_cutline_error` calls `create_from_array(..., geo=...)`, whose NetCDF
+        # `_correct_wrap_cutline_error` calls `from_array(..., geo=...)`, whose NetCDF
         # override takes `geo_ref=` and no `geo` at all, so the whole raster-mask crop died with
-        # `TypeError: create_from_array() got an unexpected keyword argument 'geo'` (#1073). The
+        # `TypeError: from_array() got an unexpected keyword argument 'geo'` (#1073). The
         # polygon path already avoids this the same way; only this one was missed.
         dst_obj = Spatial._correct_wrap_cutline_error(Spatial._as_base_dataset(dst_obj))
         return dst_obj
@@ -1680,7 +1683,7 @@ class Spatial(_Engine["Dataset"]):
         """The plain `Dataset` class sitting directly above `RasterBase` in `source`'s MRO.
 
         Intermediate GDAL results must not be built through a subclass: a subclass may override the
-        constructors shared raster code calls — `NetCDF.create_from_array` takes `geo_ref=` where
+        constructors shared raster code calls — `NetCDF.from_array` takes `geo_ref=` where
         the base takes `geo=` — so a helper that is correct for a `Dataset` raises `TypeError` on a
         `NetCDF`.
 
@@ -1967,12 +1970,14 @@ class Spatial(_Engine["Dataset"]):
                 array = self._ds.read_array(window=[xoff, yoff, x_size, y_size])
                 new_gt = (x0 + xoff * dx, dx, 0.0, y0 + yoff * dy, 0.0, dy)
                 # Rebuild on the base Dataset class (never a subclass like NetCDF), whose
-                # create_from_array has the plain array->raster behaviour this path needs.
+                # from_array has the plain array->raster behaviour this path needs.
                 base_cls = Spatial._base_dataset_class(self._ds.__class__)
                 dst = cast(
                     "Dataset",
-                    base_cls.create_from_array(
-                        array, geo=new_gt, no_data_value=self._ds.no_data_value
+                    base_cls.from_array(
+                        array,
+                        no_data_value=self._ds.no_data_value,
+                        geo_ref=GeoReference(geo=new_gt),
                     ),
                 )
                 # Preserve the source CRS from its WKT so _correct_wrap_cutline_error
@@ -2023,7 +2028,7 @@ class Spatial(_Engine["Dataset"]):
         # /vsimem/ through the internal OGR bridge. The path is unlinked
         # automatically when the with-block exits.
         # Intermediate GDAL warp results are built on the base Dataset class, never a subclass:
-        # `_correct_wrap_cutline_error` calls `create_from_array`, whose NetCDF override takes a
+        # `_correct_wrap_cutline_error` calls `from_array`, whose NetCDF override takes a
         # different signature. See `_base_dataset_class`.
         base_cls = Spatial._base_dataset_class(self._ds.__class__)
 
@@ -2100,7 +2105,7 @@ class Spatial(_Engine["Dataset"]):
         otherwise be relabelled — or, before issue #403 was fixed, crash
         on ``sr_from_epsg`` — so the exact source CRS is preserved. When the
         source is unprojected (``src.crs`` is empty) the copy is skipped, so
-        the rebuilt dataset keeps the :meth:`Dataset.create_from_array`
+        the rebuilt dataset keeps the :meth:`Dataset.from_array`
         default CRS instead of having its projection wiped to empty.
 
         Args:
@@ -2114,7 +2119,7 @@ class Spatial(_Engine["Dataset"]):
             Dataset: A new in-memory dataset with the all-nodata border
             rows/columns removed, the geotransform shifted to the trimmed
             top-left corner, and the no-data value and band count preserved.
-            The CRS is the source CRS, or the ``create_from_array`` default
+            The CRS is the source CRS, or the ``from_array`` default
             when the source is unprojected.
 
         Raises:
@@ -2170,15 +2175,17 @@ class Spatial(_Engine["Dataset"]):
         new_x = src.x[y_ind] - x_cell / 2
         new_y = src.y[x_ind] - y_cell / 2
         new_gt = (new_x, x_cell, 0, new_y, 0, y_cell)
-        new_src = src.create_from_array(
-            small_array, geo=new_gt, no_data_value=src.no_data_value
-        )
+        new_src = src.from_array(
+                      small_array,
+                      no_data_value=src.no_data_value,
+                      geo_ref=GeoReference(geo=new_gt),
+                  )
         # Preserve the source CRS from its WKT rather than round-tripping
         # through src.epsg: a custom CRS with no EPSG (e.g. a spherical-earth
         # GRIB GEOGCS) has no resolvable code, so passing epsg=src.epsg would
         # relabel — or, before issue #403 was fixed, crash on — the output.
         # Skip when the source is unprojected: setting an empty WKT would
-        # wipe the create_from_array default, so leave that default in place.
+        # wipe the from_array default, so leave that default in place.
         if src.crs:
             new_src.crs = src.crs
         return new_src
@@ -2387,7 +2394,7 @@ class Spatial(_Engine["Dataset"]):
               >>> arr = np.random.rand(4, 10, 10)
               >>> cell_size = 0.05
               >>> top_left_corner = (0, 0)
-              >>> dataset = Dataset.create_from_array(
+              >>> dataset = Dataset.from_array(
               ...         arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326
               ... )
 
@@ -2426,7 +2433,7 @@ class Spatial(_Engine["Dataset"]):
 
               ```python
               >>> geotransform = (0.1, 0.05, 0.0, -0.1, 0.0, -0.05)
-              >>> mask_dataset = Dataset.create_from_array(np.random.rand(2, 2), geo=geotransform, epsg=4326)
+              >>> mask_dataset = Dataset.from_array(np.random.rand(2, 2), geo=geotransform, epsg=4326)
 
               ```
             - Then use the mask dataset to crop the dataset.
@@ -2459,7 +2466,7 @@ class Spatial(_Engine["Dataset"]):
               >>> import numpy as np
               >>> from pyramids.dataset import Dataset
               >>> arr_int = np.arange(100, dtype="int16").reshape(10, 10)
-              >>> dataset_bbox = Dataset.create_from_array(
+              >>> dataset_bbox = Dataset.from_array(
               ...     arr_int, top_left_corner=(0, 0), cell_size=0.05, epsg=4326,
               ... )
               >>> cropped_bbox = dataset_bbox.crop(bbox=(0.1, -0.2, 0.2, -0.1))
@@ -2477,7 +2484,7 @@ class Spatial(_Engine["Dataset"]):
               ```python
               >>> import numpy as np
               >>> from pyramids.dataset import Dataset
-              >>> grid = Dataset.create_from_array(
+              >>> grid = Dataset.from_array(
               ...     np.arange(180 * 360, dtype="float32").reshape(180, 360),
               ...     top_left_corner=(-180.0, 90.0), cell_size=1.0, epsg=4326,
               ... )
@@ -2495,7 +2502,7 @@ class Spatial(_Engine["Dataset"]):
               >>> import numpy as np
               >>> from pyramids.dataset import Dataset
               >>> from pyramids.feature import FeatureCollection
-              >>> dataset_excl = Dataset.create_from_array(
+              >>> dataset_excl = Dataset.from_array(
               ...     np.zeros((4, 5), dtype="int16"),
               ...     top_left_corner=(0, 0), cell_size=0.05, epsg=4326,
               ... )

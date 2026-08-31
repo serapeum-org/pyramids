@@ -748,9 +748,9 @@ class TestCropUsesTheWindow:
 
         Test scenario:
             A raster mask is an alignment target, not just a clip: the crop takes the mask's own
-            grid. This whole path used to raise `TypeError: create_from_array() got an unexpected
+            grid. This whole path used to raise `TypeError: from_array() got an unexpected
             keyword argument 'geo'`, because the shared trim builds an intermediate through
-            `self.__class__` and the NetCDF override of `create_from_array` takes a different
+            `self.__class__` and the NetCDF override of `from_array` takes a different
             signature (#1073). Asserts the result matches the mask *and* that the shortcut changes
             nothing.
         """

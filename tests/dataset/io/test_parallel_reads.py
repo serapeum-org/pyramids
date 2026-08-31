@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from pyramids.dataset import Dataset, Window
+from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -18,10 +19,9 @@ pytestmark = pytest.mark.core
 def disk_raster(tmp_path) -> Dataset:
     """An 8x8 ramp GeoTIFF on disk (read_windows needs a reopenable path)."""
     path = str(tmp_path / "r.tif")
-    Dataset.create_from_array(
+    Dataset.from_array(
         np.arange(64, dtype="float32").reshape(8, 8),
-        top_left_corner=(0.0, 8.0),
-        cell_size=1.0,
+        geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0),
     ).to_file(path)
     return Dataset.read_file(path)
 
@@ -80,8 +80,9 @@ class TestReadWindows:
         Test scenario:
             read_windows on a MEM dataset raises a clear ValueError.
         """
-        mem = Dataset.create_from_array(
-            np.ones((8, 8), "float32"), top_left_corner=(0.0, 8.0), cell_size=1.0
-        )
+        mem = Dataset.from_array(
+                  np.ones((8, 8), "float32"),
+                  geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0),
+              )
         with pytest.raises(ValueError, match="path-backed"):
             mem.read_windows(quad_windows)

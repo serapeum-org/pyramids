@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 
 from pyramids.dataset import Dataset, DatasetCollection
+from pyramids.base.georeference import GeoReference
 from tests._marks import requires_kerchunk
 from tests.dataset.collection.conftest import NC_FIXTURE
 
@@ -50,12 +51,10 @@ class TestGeoTiffGuard:
 
     def test_geotiff_collection_raises(self, tmp_path):
         arr = np.zeros((3, 4), dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 3.0),
-            cell_size=1.0,
-            epsg=4326,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
+             )
         tif = str(tmp_path / "x.tif")
         ds.to_file(tif)
         collection = DatasetCollection.from_files([tif])
@@ -66,12 +65,10 @@ class TestGeoTiffGuard:
 class TestErrors:
     def test_no_files_raises(self, tmp_path):
         arr = np.zeros((3, 4), dtype=np.float32)
-        src = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 3.0),
-            cell_size=1.0,
-            epsg=4326,
-        )
+        src = Dataset.from_array(
+                  arr,
+                  geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
+              )
         collection = DatasetCollection(src, time_length=1)
         path = str(tmp_path / "nope.json")
         with pytest.raises(RuntimeError, match="file-backed"):

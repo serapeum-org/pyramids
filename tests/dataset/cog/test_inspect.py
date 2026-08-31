@@ -14,6 +14,7 @@ from osgeo import gdal
 
 from pyramids.dataset import Dataset
 from pyramids.dataset.cog import COGInfo, OverviewLevel, cog_info
+from pyramids.base.georeference import GeoReference
 from tests.dataset.cog.conftest import COG_GEOTRANSFORM
 
 pytestmark = pytest.mark.core
@@ -31,7 +32,7 @@ def big_float_cog(tmp_path) -> str:
     """
     rng = np.random.default_rng(seed=11)
     arr = (rng.random((600, 600)) * 100.0).astype("float32")
-    ds = Dataset.create_from_array(arr, geo=COG_GEOTRANSFORM, epsg=4326)
+    ds = Dataset.from_array(arr, geo_ref=GeoReference(geo=COG_GEOTRANSFORM, epsg=4326))
     out = ds.to_cog(tmp_path / "big.tif")
     return str(out)
 
@@ -223,6 +224,6 @@ class TestCogInfoFacade:
             An in-memory Dataset has no on-disk file to inspect.
         """
         arr = np.ones((8, 8), dtype="float32")
-        ds = Dataset.create_from_array(arr, geo=COG_GEOTRANSFORM, epsg=4326)
+        ds = Dataset.from_array(arr, geo_ref=GeoReference(geo=COG_GEOTRANSFORM, epsg=4326))
         with pytest.raises(FileNotFoundError):
             ds.cog_info()

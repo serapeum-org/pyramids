@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 from pyramids.dataset import Dataset
+from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -15,13 +16,11 @@ class TestFootprint:
     def test_footprint_no_nodata_in_array(self):
         """_footprint should still work when nodata value is absent from array."""
         arr = np.ones((3, 3), dtype=np.float32) * 5.0
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=-9999.0,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+             )
         result = ds.footprint()
         assert result is not None, "footprint should return a GeoDataFrame"
 
@@ -29,13 +28,11 @@ class TestFootprint:
         """_footprint on all-nodata raster should return None."""
         nd = -9999.0
         arr = np.full((3, 3), nd, dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=nd,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=nd,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+             )
         result = ds.footprint()
         assert result is None, "footprint on all-nodata raster should return None"
 
@@ -43,26 +40,22 @@ class TestFootprint:
         """footprint on raster entirely filled with nodata returns None."""
         nd = -9999.0
         arr = np.full((3, 3), nd, dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=nd,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=nd,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+             )
         result = ds.footprint()
         assert result is None, "All-nodata footprint should return None"
 
     def test_footprint_none_nodata_covers_non_nan(self):
         """footprint with a None nodata treats every non-NaN cell as covered and drops NaN cells."""
         arr = np.array([[1.0, np.nan, 3.0], [4.0, 5.0, np.nan]], dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=1.0,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=-9999.0,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
+             )
         ds._no_data_value = [None]
         result = ds.footprint()
         assert result is not None and len(result) > 0, (
@@ -76,13 +69,11 @@ class TestFootprint:
         arr = np.array(
             [[nd, nd, 5.0], [nd, 7.0, 9.0], [nd, nd, 11.0]], dtype=np.float64
         )
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=1.0,
-            epsg=4326,
-            no_data_value=nd,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=nd,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
+             )
         result = ds.footprint(band=0)
         assert result is not None and len(result) > 0, (
             "footprint should return polygons"
@@ -102,13 +93,11 @@ class TestFootprint:
         band1 = np.array(
             [[1.0, nd, 1.0], [1.0, 1.0, nd], [nd, 1.0, 1.0]], dtype=np.float64
         )
-        ds = Dataset.create_from_array(
-            np.stack([band0, band1]),
-            top_left_corner=(0.0, 0.0),
-            cell_size=1.0,
-            epsg=4326,
-            no_data_value=nd,
-        )
+        ds = Dataset.from_array(
+                 np.stack([band0, band1]),
+                 no_data_value=nd,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
+             )
         result = ds.footprint(band=1)
         assert result is not None and len(result) > 0, (
             "band-1 footprint should return polygons"
@@ -130,13 +119,11 @@ class TestBandToPolygon:
     def test_band_to_polygon(self):
         """_band_to_polygon should return a GeoDataFrame."""
         arr = np.array([[1, 1, 2], [2, 3, 3]], dtype=np.int32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=-9999,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+             )
         gdf = ds.vectorize._band_to_polygon(0, "class")
         assert gdf is not None, "_band_to_polygon should return GeoDataFrame"
         assert len(gdf) > 0, "Should have polygon features"
@@ -160,13 +147,11 @@ class TestToFeatureCollection:
     def test_to_feature_collection_tile_matches_non_tile(self):
         """Tiled and non-tiled extraction produce the same values in the presence of no-data."""
         arr = np.arange(1, 17, dtype=np.float32).reshape(4, 4)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=-9999.0,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+             )
         full_vals = sorted(ds.to_feature_collection(tile=False).iloc[:, 0].tolist())
         tiled_vals = sorted(
             ds.to_feature_collection(tile=True, tile_size=2).iloc[:, 0].tolist()
@@ -183,13 +168,11 @@ class TestToFeatureCollection:
             have zero rows.
         """
         arr = np.full((3, 3), -9999.0, dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=-9999.0,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+             )
         df = ds.to_feature_collection()
         assert isinstance(df, pd.DataFrame), f"Expected DataFrame, got {type(df)}"
         assert len(df) == 0, f"Expected 0 rows for all-nodata, got {len(df)}"
@@ -202,13 +185,11 @@ class TestToFeatureCollection:
             one row and one column.
         """
         arr = np.array([[42.0]], dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=1.0,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=-9999.0,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
+             )
         df = ds.to_feature_collection()
         assert len(df) == 1, f"Expected 1 row, got {len(df)}"
         assert df.iloc[0, 0] == pytest.approx(42.0), (
@@ -239,13 +220,11 @@ class TestToFeatureCollection:
         import geopandas as gpd
 
         arr = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=-9999.0,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+             )
         gdf = ds.to_feature_collection(add_geometry="point")
         assert isinstance(gdf, gpd.GeoDataFrame), (
             f"Expected GeoDataFrame, got {type(gdf)}"
@@ -263,13 +242,11 @@ class TestToFeatureCollection:
         import geopandas as gpd
 
         arr = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=-9999.0,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+             )
         gdf = ds.to_feature_collection(add_geometry="polygon")
         assert isinstance(gdf, gpd.GeoDataFrame), (
             f"Expected GeoDataFrame, got {type(gdf)}"
@@ -308,13 +285,11 @@ class TestToFeatureCollection:
             should only contain domain values.
         """
         arr = np.array([[1.0, -9999.0, 3.0], [4.0, 5.0, -9999.0]], dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=-9999.0,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+             )
         df = ds.to_feature_collection()
         assert len(df) == 4, f"Expected 4 domain cells, got {len(df)}"
         assert not df.isnull().any().any(), "No NaN values should remain in the output"
@@ -326,13 +301,11 @@ class TestToFeatureCollectionTile:
     def test_to_feature_collection_with_tile(self):
         """to_feature_collection with tile=True uses tiled processing."""
         arr = np.arange(1, 65, dtype=np.float32).reshape(8, 8)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=-9999.0,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+             )
         df = ds.to_feature_collection(tile=True, tile_size=4)
         assert isinstance(df, pd.DataFrame), "Should return a DataFrame"
         assert len(df) > 0, "Should have rows"
@@ -353,13 +326,11 @@ class TestToFeatureCollectionTile:
             ],
             dtype=np.float32,
         )
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=-9999.0,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+             )
         df_full = ds.to_feature_collection(tile=False)
         df_tiled = ds.to_feature_collection(tile=True, tile_size=2)
 
@@ -379,13 +350,11 @@ class TestToFeatureCollectionTile:
             DataFrame with the correct column names.
         """
         arr = np.full((4, 4), -9999.0, dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=-9999.0,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+             )
         df = ds.to_feature_collection(tile=True, tile_size=2)
         assert isinstance(df, pd.DataFrame), f"Expected DataFrame, got {type(df)}"
         assert len(df) == 0, f"Expected 0 rows for all-nodata, got {len(df)}"
@@ -410,13 +379,11 @@ class TestToFeatureCollectionWithMask:
     def test_to_feature_collection_none_nodata(self):
         """to_feature_collection with None nodata (branch 3674->3676)."""
         arr = np.ones((3, 3), dtype=np.float32) * 5.0
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=-9999.0,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+             )
         ds._no_data_value = [None]
         df = ds.to_feature_collection()
         assert isinstance(df, pd.DataFrame), (
@@ -426,13 +393,11 @@ class TestToFeatureCollectionWithMask:
     def test_to_feature_collection_tile_multi_band(self):
         """to_feature_collection tile=True on multi-band (branch 3651)."""
         arr = np.ones((2, 8, 8), dtype=np.float32) * 3.0
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=-9999.0,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+             )
         df = ds.to_feature_collection(tile=True, tile_size=4)
         assert isinstance(df, pd.DataFrame), "Should return DataFrame"
         assert df.shape[1] >= 2, "Should have columns for multi-band"

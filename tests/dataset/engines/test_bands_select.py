@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from pyramids.dataset import Dataset
+from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -17,9 +18,10 @@ MULTI_BANDS = "tests/data/geotiff/multi_bands.tif"
 def rich() -> Dataset:
     """A 4-band raster carrying per-band names/units/scale/offset/no-data/metadata."""
     arr = np.arange(4 * 4).reshape(4, 2, 2).astype("float32")
-    ds = Dataset.create_from_array(
-        arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326
-    )
+    ds = Dataset.from_array(
+             arr,
+             geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+         )
     ds.band_names = ["a", "b", "c", "d"]
     ds.band_units = ["m", "s", "kg", "K"]
     ds.scale = [0.1, 0.2, 0.3, 0.4]
@@ -93,12 +95,10 @@ class TestSelectCarryAcross:
 
     def test_carries_attribute_table(self):
         """The raster attribute table (category names) survives selection (#1024)."""
-        ds = Dataset.create_from_array(
-            np.array([[0, 1], [1, 0]], dtype="int32"),
-            top_left_corner=(0, 0),
-            cell_size=1.0,
-            epsg=4326,
-        )
+        ds = Dataset.from_array(
+                 np.array([[0, 1], [1, 0]], dtype="int32"),
+                 geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+             )
         ds.set_attribute_table(
             pd.DataFrame({"value": [0, 1], "label": ["sea", "land"]}), band=0
         )
@@ -110,12 +110,10 @@ class TestSelectCarryAcross:
         """The colour table and colour interpretation survive selection."""
         from osgeo import gdal
 
-        ds = Dataset.create_from_array(
-            np.array([[0, 1], [1, 0]], dtype="uint8"),
-            top_left_corner=(0, 0),
-            cell_size=1.0,
-            epsg=4326,
-        )
+        ds = Dataset.from_array(
+                 np.array([[0, 1], [1, 0]], dtype="uint8"),
+                 geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+             )
         table = gdal.ColorTable()
         table.SetColorEntry(0, (255, 0, 0, 255))
         table.SetColorEntry(1, (0, 255, 0, 255))

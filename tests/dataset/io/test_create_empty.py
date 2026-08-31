@@ -18,6 +18,7 @@ from osgeo import gdal
 
 from pyramids.dataset import Dataset, NoDataSentinelWarning, Window
 from pyramids.dataset.dataset import OUT_OF_CORE_CREATION_OPTIONS
+from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -379,13 +380,11 @@ class TestEmptyLike:
         Returns:
             Dataset: 3 x 4 x 5 in-memory raster at EPSG:4326, nodata -9999.
         """
-        return Dataset.create_from_array(
-            np.ones((3, 4, 5), dtype="float32"),
-            top_left_corner=(0.0, 10.0),
-            cell_size=0.5,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        return Dataset.from_array(
+                   np.ones((3, 4, 5), dtype="float32"),
+                   no_data_value=-9999.0,
+                   geo_ref=GeoReference(top_left_corner=(0.0, 10.0), cell_size=0.5, epsg=4326),
+               )
 
     def test_copies_template_footprint(self, template: Dataset):
         """``empty_like`` reproduces the template's shape, geo, epsg, and nodata.
@@ -435,13 +434,11 @@ class TestEmptyLike:
             bands, losing the per-band values.
         """
         arr = np.ones((3, 4, 5), dtype="float32")
-        template = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 10.0),
-            cell_size=0.5,
-            epsg=4326,
-            no_data_value=[-1.0, -2.0, -3.0],
-        )
+        template = Dataset.from_array(
+                       arr,
+                       no_data_value=[-1.0, -2.0, -3.0],
+                       geo_ref=GeoReference(top_left_corner=(0.0, 10.0), cell_size=0.5, epsg=4326),
+                   )
         out = Dataset.empty_like(template)
         assert list(out.no_data_value) == pytest.approx([-1.0, -2.0, -3.0]), (
             f"per-band no-data not preserved, got {out.no_data_value}"
@@ -517,26 +514,23 @@ class TestEmptyLike:
 class TestCreateOptionsBackCompat:
     """The new ``options`` threading must not change existing factory output."""
 
-    def test_create_from_array_unchanged_default_compression(self, tmp_path: Path):
-        """``create_from_array`` to disk still uses LZW (the historical default).
+    def test_from_array_unchanged_default_compression(self, tmp_path: Path):
+        """``from_array`` to disk still uses LZW (the historical default).
 
         Test scenario:
-            With no ``options`` passed anywhere, a disk-backed ``create_from_array``
+            With no ``options`` passed anywhere, a disk-backed ``from_array``
             keeps the historical ``COMPRESS=LZW`` creation option — the new ``options``
             parameter defaults to None and must not perturb existing callers.
         """
         path = tmp_path / "compat.tif"
-        Dataset.create_from_array(
+        Dataset.from_array(
             np.ones((4, 4), dtype="float32"),
-            top_left_corner=(0.0, 0.0),
-            cell_size=1.0,
-            epsg=4326,
-            driver_type="GTiff",
             path=str(path),
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
         )
         info = gdal.Info(str(path))
         assert "COMPRESSION=LZW" in info.upper(), (
-            f"existing create_from_array compression changed, gdalinfo:\n{info}"
+            f"existing from_array compression changed, gdalinfo:\n{info}"
         )
 
     def test_out_of_core_option_set_shape(self):

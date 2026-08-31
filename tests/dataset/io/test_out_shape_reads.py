@@ -12,6 +12,7 @@ import pytest
 
 from pyramids.base._errors import OutOfBoundsError
 from pyramids.dataset import Dataset, Window
+from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -24,9 +25,10 @@ def ramp_dataset() -> Dataset:
         Dataset: Single-band in-memory dataset, value == row*64 + col.
     """
     arr = np.arange(64 * 64, dtype="float32").reshape(64, 64)
-    return Dataset.create_from_array(
-        arr, top_left_corner=(0, 64), cell_size=1.0, epsg=4326
-    )
+    return Dataset.from_array(
+               arr,
+               geo_ref=GeoReference(top_left_corner=(0, 64), cell_size=1.0, epsg=4326),
+           )
 
 
 class TestOutShapeReads:
@@ -39,12 +41,10 @@ class TestOutShapeReads:
 
     def test_constant_raster_survives_nearest(self):
         """Nearest decimation of a constant raster stays constant."""
-        ds = Dataset.create_from_array(
-            np.full((16, 16), 5.0, dtype="float32"),
-            top_left_corner=(0, 16),
-            cell_size=1.0,
-            epsg=4326,
-        )
+        ds = Dataset.from_array(
+                 np.full((16, 16), 5.0, dtype="float32"),
+                 geo_ref=GeoReference(top_left_corner=(0, 16), cell_size=1.0, epsg=4326),
+             )
         result = ds.read_array(band=0, out_shape=(8, 8))
         assert np.isclose(result, 5.0).all(), "constant values must survive decimation"
 
@@ -56,9 +56,10 @@ class TestOutShapeReads:
             keeps the original values.
         """
         cb = (np.indices((16, 16)).sum(axis=0) % 2 * 100).astype("float32")
-        ds = Dataset.create_from_array(
-            cb, top_left_corner=(0, 16), cell_size=1.0, epsg=4326
-        )
+        ds = Dataset.from_array(
+                 cb,
+                 geo_ref=GeoReference(top_left_corner=(0, 16), cell_size=1.0, epsg=4326),
+             )
         averaged = ds.read_array(band=0, out_shape=(8, 8), resampling="average")
         nearest = ds.read_array(band=0, out_shape=(8, 8), resampling="nearest")
         assert np.allclose(averaged, 50.0), f"average of 0/100 must be 50: {averaged}"
@@ -85,9 +86,10 @@ class TestOutShapeReads:
         assert result.max() <= window_values.max(), (
             "values leaked from outside the window"
         )
-        slice_ds = Dataset.create_from_array(
-            window_values, top_left_corner=(0, 32), cell_size=1.0, epsg=4326
-        )
+        slice_ds = Dataset.from_array(
+                       window_values,
+                       geo_ref=GeoReference(top_left_corner=(0, 32), cell_size=1.0, epsg=4326),
+                   )
         np.testing.assert_array_equal(
             result,
             slice_ds.read_array(band=0, out_shape=(16, 16)),
@@ -121,9 +123,10 @@ class TestOutShapeReads:
             band=0, bbox=(0.0, 32.0, 32.0, 64.0), out_shape=(16, 16)
         )
         native = ramp_dataset.read_array(band=0, bbox=(0.0, 32.0, 32.0, 64.0))
-        slice_ds = Dataset.create_from_array(
-            native, top_left_corner=(0, 64), cell_size=1.0, epsg=4326
-        )
+        slice_ds = Dataset.from_array(
+                       native,
+                       geo_ref=GeoReference(top_left_corner=(0, 64), cell_size=1.0, epsg=4326),
+                   )
         np.testing.assert_array_equal(
             via_bbox,
             slice_ds.read_array(band=0, out_shape=(16, 16)),
@@ -138,12 +141,10 @@ class TestOutShapeReads:
     def test_multi_band_stacks(self):
         """An all-bands decimated read returns (bands, rows, cols)."""
         base = np.arange(64 * 64, dtype="float32").reshape(64, 64)
-        ds = Dataset.create_from_array(
-            np.stack([base, base + 1.0]),
-            top_left_corner=(0, 64),
-            cell_size=1.0,
-            epsg=4326,
-        )
+        ds = Dataset.from_array(
+                 np.stack([base, base + 1.0]),
+                 geo_ref=GeoReference(top_left_corner=(0, 64), cell_size=1.0, epsg=4326),
+             )
         result = ds.read_array(out_shape=(16, 16))
         assert result.shape == (2, 16, 16), f"unexpected shape {result.shape}"
         np.testing.assert_array_equal(
@@ -155,12 +156,10 @@ class TestOutShapeReads:
     def test_multi_band_window_composition(self):
         """An all-bands read composes a window with out_shape."""
         base = np.arange(64 * 64, dtype="float32").reshape(64, 64)
-        ds = Dataset.create_from_array(
-            np.stack([base, base + 1.0]),
-            top_left_corner=(0, 64),
-            cell_size=1.0,
-            epsg=4326,
-        )
+        ds = Dataset.from_array(
+                 np.stack([base, base + 1.0]),
+                 geo_ref=GeoReference(top_left_corner=(0, 64), cell_size=1.0, epsg=4326),
+             )
         result = ds.read_array(window=Window(0, 0, 32, 32), out_shape=(8, 8))
         assert result.shape == (2, 8, 8), f"unexpected shape {result.shape}"
         single = ds.read_array(band=0, window=Window(0, 0, 32, 32), out_shape=(8, 8))

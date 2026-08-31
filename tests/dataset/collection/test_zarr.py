@@ -16,6 +16,7 @@ import pytest
 
 from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.dataset import Dataset, DatasetCollection
+from pyramids.base.georeference import GeoReference
 from tests._marks import requires_lazy as requires_zarr
 
 try:
@@ -132,12 +133,10 @@ class TestComputeFalse:
 class TestErrors:
     def test_no_files_raises(self, tmp_path):
         arr = np.zeros((3, 4), dtype=np.float32)
-        src = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 3.0),
-            cell_size=1.0,
-            epsg=4326,
-        )
+        src = Dataset.from_array(
+                  arr,
+                  geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
+              )
         collection = DatasetCollection(src, time_length=1)
         path = str(tmp_path / "nope.zarr")
         with pytest.raises(RuntimeError, match="file-backed"):
@@ -228,12 +227,10 @@ class TestAppendAndRegion:
     def _col(self, tmp_path, vals, tag):
         paths = []
         for i, v in enumerate(vals):
-            ds = Dataset.create_from_array(
-                np.full((3, 4), float(v), dtype=np.float32),
-                top_left_corner=(0.0, 3.0),
-                cell_size=1.0,
-                epsg=4326,
-            )
+            ds = Dataset.from_array(
+                     np.full((3, 4), float(v), dtype=np.float32),
+                     geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
+                 )
             p = str(tmp_path / f"{tag}_{v}_{i}.tif")
             ds.to_file(p)
             paths.append(p)
@@ -296,12 +293,10 @@ class TestAppendAtomicity:
     def _col(self, tmp_path, vals, tag):
         paths = []
         for i, v in enumerate(vals):
-            ds = Dataset.create_from_array(
-                np.full((3, 4), float(v), dtype=np.float32),
-                top_left_corner=(0.0, 3.0),
-                cell_size=1.0,
-                epsg=4326,
-            )
+            ds = Dataset.from_array(
+                     np.full((3, 4), float(v), dtype=np.float32),
+                     geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
+                 )
             p = str(tmp_path / f"{tag}_{v}_{i}.tif")
             ds.to_file(p)
             paths.append(p)

@@ -26,6 +26,7 @@ from pyramids.processing.registry import (
     resolve,
 )
 from pyramids.processing.schema import ToolMetadata
+from pyramids.base.georeference import GeoReference
 
 # Extensions opened as vector; .json is included for GeoJSON.
 _VECTOR_EXTS = frozenset({".geojson", ".json", ".shp", ".gpkg", ".fgb", ".gml", ".kml"})
@@ -170,12 +171,11 @@ def _materialize_array(array: np.ndarray, source: Dataset, band: int = 0) -> Dat
         # or None when the source declares no no-data at all (avoids an IndexError).
         no_data_value = nodata[0] if nodata else None
     data = array if array.ndim == 3 else array[np.newaxis, :, :]
-    return Dataset.create_from_array(
-        data,
-        geo=source.geotransform,
-        epsg=source.epsg or source.crs,
-        no_data_value=no_data_value,
-    )
+    return Dataset.from_array(
+               data,
+               no_data_value=no_data_value,
+               geo_ref=GeoReference(geo=source.geotransform, epsg=source.epsg or source.crs),
+           )
 
 
 def _run_pipeline_on(

@@ -16,6 +16,7 @@ from pyramids.dataset.engines.spatial import (
     _split_lon_bbox,
 )
 from pyramids.feature import FeatureCollection
+from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -47,12 +48,10 @@ def _make_raster(
     if fill is None:
         fill = np.arange(shape[0] * shape[1], dtype="int16").reshape(shape)
     path = os.path.join(str(directory), name)
-    Dataset.create_from_array(
+    Dataset.from_array(
         fill,
-        top_left_corner=top_left,
-        cell_size=cell_size,
-        epsg=epsg,
         path=path,
+        geo_ref=GeoReference(top_left_corner=top_left, cell_size=cell_size, epsg=epsg),
     ).close()
     return path
 
@@ -107,34 +106,29 @@ def _bbox_in_3857(
 
 def _ds_multiband() -> Dataset:
     """A 3-band 10x10 square-pixel EPSG:4326 raster."""
-    return Dataset.create_from_array(
-        np.arange(3 * 10 * 10, dtype="int16").reshape(3, 10, 10),
-        top_left_corner=(0.0, 0.0),
-        cell_size=0.05,
-        epsg=4326,
-    )
+    return Dataset.from_array(
+               np.arange(3 * 10 * 10, dtype="int16").reshape(3, 10, 10),
+               geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+           )
 
 
 def _ds_non_square() -> Dataset:
     """A 10x10 raster with 0.1 deg columns and 0.05 deg rows (dx != -dy)."""
-    return Dataset.create_from_array(
-        np.arange(100, dtype="int16").reshape(10, 10),
-        geo=(0.0, 0.1, 0.0, 0.0, 0.0, -0.05),
-        epsg=4326,
-    )
+    return Dataset.from_array(
+               np.arange(100, dtype="int16").reshape(10, 10),
+               geo_ref=GeoReference(geo=(0.0, 0.1, 0.0, 0.0, 0.0, -0.05), epsg=4326),
+           )
 
 
 def _ds_nodata_edge() -> Dataset:
     """A raster with a full no-data row at index 3 (an all-no-data edge to trim)."""
     arr = np.arange(100, dtype="float32").reshape(10, 10)
     arr[3, :] = -9999.0
-    return Dataset.create_from_array(
-        arr,
-        top_left_corner=(0.0, 0.0),
-        cell_size=0.05,
-        epsg=4326,
-        no_data_value=-9999.0,
-    )
+    return Dataset.from_array(
+               arr,
+               no_data_value=-9999.0,
+               geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+           )
 
 
 class TestDatasetCropBbox:
@@ -286,13 +280,11 @@ class TestDatasetCropBbox:
         """
         arr = np.full((10, 10), -9999.0, dtype="float32")
         arr[0:5, 0:5] = 1.0  # valid only in the top-left quadrant
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 10.0),
-            cell_size=1.0,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=-9999.0,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 10.0), cell_size=1.0, epsg=4326),
+             )
         with pytest.raises(ValueError, match="no valid pixels"):
             ds.crop(bbox=(6.0, 0.0, 9.0, 4.0))  # bottom-right: all no-data
 
@@ -406,10 +398,10 @@ class TestWindowedBboxCropFastPath:
             ``_crop_bbox_windowed`` must return ``None`` so the crop uses the warp
             path, which handles the rotation correctly.
         """
-        ds = Dataset.create_from_array(
+        ds = Dataset.from_array(
             np.arange(100, dtype="int16").reshape(10, 10),
-            geo=(0.0, 0.05, 0.01, 0.0, 0.0, -0.05),  # non-zero row-skew -> rotated
-            epsg=4326,
+            # non-zero row-skew -> rotated
+            geo_ref=GeoReference(geo=(0.0, 0.05, 0.01, 0.0, 0.0, -0.05), epsg=4326),
         )
         assert ds.spatial._crop_bbox_windowed((0.1, -0.2, 0.2, -0.1), 4326) is None, (
             "a rotated grid must fall back to the warp path"
@@ -430,9 +422,10 @@ class TestWindowedBboxCropFastPath:
             ``_crop_bbox_windowed`` must return ``None`` for a non-north-up grid so the
             crop falls back to the warp path, which orients the axes correctly.
         """
-        ds = Dataset.create_from_array(
-            np.arange(100, dtype="int16").reshape(10, 10), geo=geo, epsg=4326
-        )
+        ds = Dataset.from_array(
+                 np.arange(100, dtype="int16").reshape(10, 10),
+                 geo_ref=GeoReference(geo=geo, epsg=4326),
+             )
         assert ds.spatial._crop_bbox_windowed((0.1, -0.2, 0.2, -0.1), 4326) is None, (
             "a flipped/non-north-up grid must fall back to the warp path"
         )
@@ -536,13 +529,11 @@ class TestWindowedBboxCropFastPath:
             the fast path reads exactly the overlap window; an aligned 2x2 bbox must return
             a 2x2 crop.
         """
-        ds = Dataset.create_from_array(
-            np.arange(100, dtype="int16").reshape(10, 10),
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=None,
-        )
+        ds = Dataset.from_array(
+                 np.arange(100, dtype="int16").reshape(10, 10),
+                 no_data_value=None,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+             )
         out = ds.crop(bbox=(0.1, -0.2, 0.2, -0.1))
         assert out.shape == (1, 2, 2), f"expected tight 2x2 crop, got {out.shape}"
 
@@ -554,9 +545,10 @@ class TestAntimeridianCrop:
     def _global(top_left_x=-180.0):
         """Return (source array, global 1-degree Dataset) with the given lon origin."""
         arr = np.arange(180 * 360, dtype="float32").reshape(180, 360)
-        ds = Dataset.create_from_array(
-            arr, top_left_corner=(top_left_x, 90.0), cell_size=1.0, epsg=4326
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 geo_ref=GeoReference(top_left_corner=(top_left_x, 90.0), cell_size=1.0, epsg=4326),
+             )
         return arr, ds
 
     def test_strip_values_and_extent(self):
@@ -581,12 +573,10 @@ class TestAntimeridianCrop:
     def test_multiband_keeps_all_bands(self):
         """A multi-band grid keeps all bands with correct stitched values."""
         arr, _ = self._global()
-        ds = Dataset.create_from_array(
-            np.stack([arr, arr + 1000.0]),
-            top_left_corner=(-180.0, 90.0),
-            cell_size=1.0,
-            epsg=4326,
-        )
+        ds = Dataset.from_array(
+                 np.stack([arr, arr + 1000.0]),
+                 geo_ref=GeoReference(top_left_corner=(-180.0, 90.0), cell_size=1.0, epsg=4326),
+             )
         strip = ds.crop(bbox=(170.0, -10.0, -170.0, 10.0))
         assert strip.shape == (2, 20, 20), "both bands retained"
         seam = np.concatenate([arr[80:100, 350:360], arr[80:100, 0:10]], axis=-1)
@@ -595,12 +585,10 @@ class TestAntimeridianCrop:
     def test_multiband_on_0_360_grid_keeps_all_bands(self):
         """A multi-band 0..360 grid keeps every band with correct 170..190 values."""
         arr, _ = self._global(top_left_x=0.0)
-        ds = Dataset.create_from_array(
-            np.stack([arr, arr + 1000.0]),
-            top_left_corner=(0.0, 90.0),
-            cell_size=1.0,
-            epsg=4326,
-        )
+        ds = Dataset.from_array(
+                 np.stack([arr, arr + 1000.0]),
+                 geo_ref=GeoReference(top_left_corner=(0.0, 90.0), cell_size=1.0, epsg=4326),
+             )
         strip = ds.crop(bbox=(170.0, -10.0, -170.0, 10.0))
         assert strip.shape == (2, 20, 20), "both bands retained"
         assert np.array_equal(strip.read_array(band=0), arr[80:100, 170:190]), "band 1"
@@ -611,12 +599,10 @@ class TestAntimeridianCrop:
     def test_float_overshoot_grid_keeps_both_halves(self):
         """A grid whose xmax floats past 180 is not misrouted to 0..360 (H1)."""
         cell = 360.0 / 169  # 169 cols -> bbox[2] == 180.00000000000006 > 180
-        ds = Dataset.create_from_array(
-            np.arange(20 * 169, dtype="float32").reshape(20, 169),
-            top_left_corner=(-180.0, 20.0),
-            cell_size=cell,
-            epsg=4326,
-        )
+        ds = Dataset.from_array(
+                 np.arange(20 * 169, dtype="float32").reshape(20, 169),
+                 geo_ref=GeoReference(top_left_corner=(-180.0, 20.0), cell_size=cell, epsg=4326),
+             )
         assert ds.bbox[2] > 180.0, "fixture must actually overshoot to exercise H1"
         strip = ds.crop(bbox=(170.0, -10.0, -170.0, 10.0))
         # both halves kept -> the strip's east edge continues to ~190, not ~180
@@ -630,30 +616,30 @@ class TestAntimeridianCrop:
 
     def test_projected_dataset_not_treated_as_antimeridian(self):
         """A geographic west>east bbox on a projected dataset is not an antimeridian crop."""
-        ds = Dataset.create_from_array(
-            np.zeros((5, 5), dtype="float32"),
-            top_left_corner=(0.0, 1000.0),
-            cell_size=1000.0,
-            epsg=3857,
-        )
+        ds = Dataset.from_array(
+                 np.zeros((5, 5), dtype="float32"),
+                 geo_ref=GeoReference(top_left_corner=(0.0, 1000.0), cell_size=1000.0, epsg=3857),
+             )
         with pytest.raises(ValueError, match="west < east"):
             ds.crop(bbox=(170.0, -10.0, -170.0, 10.0), epsg=4326)
 
     def test_regional_grid_reversed_bbox_raises(self):
         """A west>east bbox on a regional grid that never reaches the seam raises."""
         arr = np.arange(180 * 50, dtype="float32").reshape(180, 50)
-        ds = Dataset.create_from_array(
-            arr, top_left_corner=(-10.0, 90.0), cell_size=1.0, epsg=4326
-        )  # lon -10..40 (Europe): reaches neither +180 nor -180
+        ds = Dataset.from_array(
+                 arr,
+                 geo_ref=GeoReference(top_left_corner=(-10.0, 90.0), cell_size=1.0, epsg=4326),
+             )  # lon -10..40 (Europe): reaches neither +180 nor -180
         with pytest.raises(ValueError, match="transposed|does not reach the 180 seam"):
             ds.crop(bbox=(40.0, -10.0, 10.0, 10.0))
 
     def test_single_side_overlap_returns_half(self):
         """When only one side of the seam overlaps, that half is returned as-is."""
         arr = np.arange(180 * 10, dtype="float32").reshape(180, 10)
-        ds = Dataset.create_from_array(
-            arr, top_left_corner=(170.0, 90.0), cell_size=1.0, epsg=4326
-        )  # lon 170..180 only (west side of the seam)
+        ds = Dataset.from_array(
+                 arr,
+                 geo_ref=GeoReference(top_left_corner=(170.0, 90.0), cell_size=1.0, epsg=4326),
+             )  # lon 170..180 only (west side of the seam)
         strip = ds.crop(bbox=(175.0, -10.0, -170.0, 10.0))
         assert strip.bbox[0] == pytest.approx(175.0), "west edge kept"
         assert strip.bbox[2] == pytest.approx(180.0), "only the west half (no wrap)"
@@ -671,12 +657,10 @@ class TestAntimeridianCrop:
     )
     def test_reaches_antimeridian_seam(self, top_left_x, ncols, reaches):
         """The seam gate accepts grids reaching 180/-180 and rejects regional/partial ones."""
-        ds = Dataset.create_from_array(
-            np.zeros((2, ncols), dtype="float32"),
-            top_left_corner=(top_left_x, 1.0),
-            cell_size=1.0,
-            epsg=4326,
-        )
+        ds = Dataset.from_array(
+                 np.zeros((2, ncols), dtype="float32"),
+                 geo_ref=GeoReference(top_left_corner=(top_left_x, 1.0), cell_size=1.0, epsg=4326),
+             )
         assert _reaches_antimeridian_seam(ds) is reaches
 
     def test_split_lon_bbox_0_360_yields_single_half(self):
@@ -785,13 +769,11 @@ class TestDatasetReadArrayBbox:
         ramp = np.arange(100, dtype="uint16").reshape(10, 10)
         cube = np.stack([ramp + b * 1000 for b in range(3)]).astype("uint16")
         path = os.path.join(str(tmp_path), "mb.tif")
-        Dataset.create_from_array(
+        Dataset.from_array(
             cube,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
             no_data_value=0,
             path=path,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
         ).close()
         return Dataset.read_file(path)
 

@@ -36,7 +36,7 @@ def _assert_same(mem, streamed):
     CRS): non-spatial bounds variables inherit the container's global CRS in the streamed file but
     stay CRS-less in the eager path — a harmless, known divergence not asserted here. The
     geotransform tolerance is relative and loose (`rtol=1e-4`): the eager path reconstructs the
-    affine via `create_from_array` while the streamed file round-trips the native warp geotransform,
+    affine via `from_array` while the streamed file round-trips the native warp geotransform,
     so they differ sub-pixel (~1e-5 of a cell) — still far tighter than any real CRS/affine
     regression, which flips units or collapses to identity.
     """

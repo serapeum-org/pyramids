@@ -44,11 +44,11 @@ def ds() -> Dataset:
 @pytest.fixture
 def nc() -> NetCDF:
     """A small in-memory NetCDF container built from a 2-D array."""
-    return NetCDF.create_from_array(
-        arr=np.ones((5, 8), dtype=np.float64),
-        geo_ref=GeoReference(geo=GEO),
-        variable_name="v",
-    )
+    return NetCDF.from_array(
+               arr=np.ones((5, 8), dtype=np.float64),
+               geo_ref=GeoReference(geo=GEO),
+               variable_name="v",
+           )
 
 
 class TestRasterLikeProtocol:

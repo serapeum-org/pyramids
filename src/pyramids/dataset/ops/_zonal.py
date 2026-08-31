@@ -272,7 +272,7 @@ def zonal_stats(
             >>> from pyramids.dataset.ops._zonal import zonal_stats
             >>> from pyramids.feature import FeatureCollection
             >>> arr = np.full((4, 4), 5.0, dtype=np.float32)
-            >>> ds = Dataset.create_from_array(
+            >>> ds = Dataset.from_array(
             ...     arr, top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326,
             ... )
             >>> fc = FeatureCollection(gpd.GeoDataFrame(

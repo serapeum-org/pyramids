@@ -63,6 +63,7 @@ from pyramids.dataset.cog import PROFILES, Compression, Layout, cog_info, valida
 from pyramids.dataset.merge import merge_rasters
 from pyramids.feature import FeatureCollection
 from pyramids.processing.cli import add_processing_commands
+from pyramids.base.georeference import GeoReference
 
 
 def _json_safe(value: float | None) -> float | None:
@@ -379,15 +380,18 @@ def _cmd_georeference(args: argparse.Namespace) -> int:
     source = Dataset.read_file(args.input)
     # Reconstruct in a writable MEM dataset so attaching GCPs does not mutate the
     # input file; the source geotransform is irrelevant — GCPs replace it.
-    working = Dataset.create_from_array(
+    working = Dataset.from_array(
         source.read_array(),
-        top_left_corner=source.top_left_corner,
-        cell_size=source.cell_size,
-        # Scratch placeholder, not a claim about the data, and deliberately
-        # unlike `calc` (which refuses a CRS-less input): set_gcps replaces the
-        # georeference wholesale with the GCPs and --gcp-crs below, so this value
-        # never reaches the output. `epsg` is None for a CRS-less source.
-        epsg=source.epsg or 4326,
+        # The epsg here is a scratch placeholder, not a claim about the data, and
+        # deliberately unlike `calc` (which refuses a CRS-less input): set_gcps
+        # replaces the georeference wholesale with the GCPs and --gcp-crs below,
+        # so this value never reaches the output. `source.epsg` is None for a
+        # CRS-less source.
+        geo_ref=GeoReference(
+            top_left_corner=source.top_left_corner,
+            cell_size=source.cell_size,
+            epsg=source.epsg or 4326,
+        ),
         no_data_value=source.no_data_value,
     )
     working.set_gcps(points, args.gcp_crs)
@@ -565,11 +569,9 @@ def _cmd_calc(args: argparse.Namespace) -> int:
     result = np.asarray(_safe_calc_eval(ast.parse(args.expr, mode="eval"), variables))
     if args.dtype:
         result = result.astype(args.dtype)
-    Dataset.create_from_array(
+    Dataset.from_array(
         result,
-        top_left_corner=template.top_left_corner,
-        cell_size=template.cell_size,
-        epsg=crs_spec(template.epsg, template.crs),
+        geo_ref=GeoReference(top_left_corner=template.top_left_corner, cell_size=template.cell_size, epsg=crs_spec(template.epsg, template.crs)),
     ).to_file(output)
     print(f"wrote {output}")
     return 0

@@ -25,6 +25,7 @@ from pyramids.dataset.engines._read_strategies import (
     ThreadsafeRead,
 )
 from pyramids.feature import FeatureCollection
+from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -69,9 +70,11 @@ def single_band() -> Dataset:
     """
     arr = np.arange(36, dtype="float32").reshape(6, 6)
     arr[0, 0] = -9999.0
-    return Dataset.create_from_array(
-        arr, top_left_corner=(0, 6), cell_size=1.0, epsg=4326, no_data_value=-9999.0
-    )
+    return Dataset.from_array(
+               arr,
+               no_data_value=-9999.0,
+               geo_ref=GeoReference(top_left_corner=(0, 6), cell_size=1.0, epsg=4326),
+           )
 
 
 @pytest.fixture
@@ -85,9 +88,10 @@ def multi_band() -> Dataset:
         [np.arange(4 * 5, dtype="float32").reshape(4, 5) + b * 1000 for b in range(3)],
         axis=0,
     )
-    return Dataset.create_from_array(
-        bands, top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326
-    )
+    return Dataset.from_array(
+               bands,
+               geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326),
+           )
 
 
 class TestReadStrategyABC:
@@ -400,13 +404,11 @@ class TestEagerRead:
             axis=0,
         )
         bands[0, 0, 0] = -9999.0
-        ds = Dataset.create_from_array(
-            bands,
-            top_left_corner=(0.0, 4.0),
-            cell_size=1.0,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        ds = Dataset.from_array(
+                 bands,
+                 no_data_value=-9999.0,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326),
+             )
         result = EagerRead().read(ds.io, make_request(band=None, masked=True), None)
         assert isinstance(result, np.ma.MaskedArray), (
             "multiband masked read must return a MaskedArray"

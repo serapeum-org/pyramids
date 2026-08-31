@@ -31,6 +31,7 @@ from pyramids.base._artifacts import artifact_dir
 from pyramids.base._errors import StacAssetError
 from pyramids.dataset.grid import Grid
 from pyramids.utm import utm_epsg
+from pyramids.base.georeference import GeoReference
 
 if TYPE_CHECKING:
     from pyramids.dataset.collection import DatasetCollection
@@ -425,12 +426,10 @@ def _resolve_target_grid(grid: Grid | None) -> Any:
             "template. Use a coarser resolution, a smaller bounds, or pass "
             "like=<Dataset> to match an existing grid."
         )
-    return Dataset.create_from_array(
-        np.zeros((rows, cols), dtype="float32"),
-        top_left_corner=(minx, maxy),
-        cell_size=resolution,
-        epsg=crs,
-    )
+    return Dataset.from_array(
+               np.zeros((rows, cols), dtype="float32"),
+               geo_ref=GeoReference(top_left_corner=(minx, maxy), cell_size=resolution, epsg=crs),
+           )
 
 
 def _item_datetime(item: Any) -> _datetime_cls:
@@ -976,7 +975,7 @@ def to_stac_item(
             ```python
             >>> import numpy as np  # doctest: +SKIP
             >>> from pyramids.dataset import Dataset  # doctest: +SKIP
-            >>> ds = Dataset.create_from_array(  # doctest: +SKIP
+            >>> ds = Dataset.from_array(  # doctest: +SKIP
             ...     np.ones((4, 4), "float32"), top_left_corner=(0.0, 4.0),
             ...     cell_size=1.0, epsg=4326,
             ... )

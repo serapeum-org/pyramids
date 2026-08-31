@@ -16,6 +16,7 @@ from shapely.geometry import Polygon, box
 from pyramids.dataset import Dataset
 from pyramids.dataset.engines.spatial import Spatial
 from pyramids.feature import FeatureCollection
+from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -236,13 +237,11 @@ class TestReproject:
             enough to verify the DoD.
         """
         arr = np.ones((180, 360), dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(-180.0, 90.0),
-            cell_size=1.0,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=-9999.0,
+                 geo_ref=GeoReference(top_left_corner=(-180.0, 90.0), cell_size=1.0, epsg=4326),
+             )
         dst = ds.to_crs(
             to_epsg="+proj=ortho +lat_0=90 +lon_0=0 +datum=WGS84 +units=m +no_defs"
         )
@@ -264,13 +263,11 @@ class TestReproject:
             array (bilinear must produce finite values on the visible domain).
         """
         arr = np.linspace(0.0, 1.0, num=20 * 20, dtype=np.float32).reshape(20, 20)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 10.0),
-            cell_size=0.5,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=-9999.0,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 10.0), cell_size=0.5, epsg=4326),
+             )
         dst = ds.to_crs(to_epsg="ESRI:54009", method="bilinear")
         dst_sr = osr.SpatialReference(wkt=dst.crs)
         assert "Mollweide" in dst_sr.GetName(), (
@@ -292,13 +289,11 @@ class TestReproject:
             authority/WKT each call.
         """
         arr = np.ones((180, 360), dtype=np.float32)
-        src_ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(-180.0, 90.0),
-            cell_size=1.0,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        src_ds = Dataset.from_array(
+                     arr,
+                     no_data_value=-9999.0,
+                     geo_ref=GeoReference(top_left_corner=(-180.0, 90.0), cell_size=1.0, epsg=4326),
+                 )
         first = src_ds.to_crs(to_epsg="ESRI:54030")
         second = first.to_crs(to_epsg="ESRI:54030")
         assert (first.rows, first.columns) == (second.rows, second.columns), (
@@ -321,13 +316,11 @@ class TestReproject:
             interacts badly with gdal.Warp's multi-band handling.
         """
         arr = np.stack([np.full((10, 10), v, dtype=np.float32) for v in (1, 2, 3)])
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 10.0),
-            cell_size=1.0,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=-9999.0,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 10.0), cell_size=1.0, epsg=4326),
+             )
         dst = ds.to_crs(to_epsg="ESRI:54030")
         assert dst.band_count == ds.band_count, (
             f"band count drift: src={ds.band_count}, dst={dst.band_count}"
@@ -345,13 +338,11 @@ class TestReproject:
             silently round-trips through reproject_coordinates.
         """
         arr = np.ones((5, 5), dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(10.0, 50.0),
-            cell_size=0.5,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=-9999.0,
+                 geo_ref=GeoReference(top_left_corner=(10.0, 50.0), cell_size=0.5, epsg=4326),
+             )
         dst = ds.to_crs(to_epsg=4326, maintain_alignment=True)
         assert dst.geotransform == ds.geotransform
         assert dst.rows == ds.rows
@@ -368,13 +359,11 @@ class TestReproject:
             confirming that the SRS-based front door survives a full WKT round-trip.
         """
         arr = np.ones((5, 5), dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(30.0, 30.0),
-            cell_size=0.1,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=-9999.0,
+                 geo_ref=GeoReference(top_left_corner=(30.0, 30.0), cell_size=0.1, epsg=4326),
+             )
         wkt = PyprojCRS.from_epsg(32636).to_wkt()
         dst = ds.to_crs(to_epsg=wkt)
         assert dst.epsg == 32636, f"WKT input should resolve to 32636, got {dst.epsg}"
@@ -392,12 +381,11 @@ class TestReproject:
             that motivated the axis normalisation).
         """
         arr = np.ones((5, 5), dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            geo=(500_000.0, 100.0, 0.0, 5_500_000.0, 0.0, -100.0),
-            epsg=32636,
-            no_data_value=-9999.0,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=-9999.0,
+                 geo_ref=GeoReference(geo=(500_000.0, 100.0, 0.0, 5_500_000.0, 0.0, -100.0), epsg=32636),
+             )
         dst = ds.to_crs(to_epsg=32636, maintain_alignment=True)
         assert dst.geotransform == ds.geotransform, (
             f"projected identity shortcut should preserve geotransform; "
@@ -425,13 +413,11 @@ class TestReproject:
             but previously had no test coverage.
         """
         arr = np.ones((3, 3), dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(200.0, 50.0),
-            cell_size=1.0,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=-9999.0,
+                 geo_ref=GeoReference(top_left_corner=(200.0, 50.0), cell_size=1.0, epsg=4326),
+             )
         dst = ds.to_crs(to_epsg=3857, maintain_alignment=True)
         assert dst.epsg == 3857
         assert dst.geotransform[0] < 0, (
@@ -476,18 +462,14 @@ class TestAlign:
     @staticmethod
     def _gradient_source_and_template() -> tuple[Dataset, Dataset]:
         """A 5x5 gradient source and a co-extensive 10x10 template (2x finer)."""
-        source = Dataset.create_from_array(
-            np.arange(25, dtype=np.float32).reshape(5, 5),
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-        )
-        template = Dataset.create_from_array(
-            np.zeros((10, 10), dtype=np.float32),
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.025,
-            epsg=4326,
-        )
+        source = Dataset.from_array(
+                     np.arange(25, dtype=np.float32).reshape(5, 5),
+                     geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+                 )
+        template = Dataset.from_array(
+                       np.zeros((10, 10), dtype=np.float32),
+                       geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.025, epsg=4326),
+                   )
         return source, template
 
     def test_align_default_is_nearest_unchanged(self):
@@ -674,19 +656,15 @@ class TestAlign:
         """
         arr = np.ones((4, 4), dtype=np.float32)
         arr[0, 0] = 9999.0
-        source = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.25,
-            epsg=4326,
-            no_data_value=9999.0,
-        )
-        template = Dataset.create_from_array(
-            np.zeros((2, 2), dtype=np.float32),
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.5,
-            epsg=4326,
-        )
+        source = Dataset.from_array(
+                     arr,
+                     no_data_value=9999.0,
+                     geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.25, epsg=4326),
+                 )
+        template = Dataset.from_array(
+                       np.zeros((2, 2), dtype=np.float32),
+                       geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.5, epsg=4326),
+                   )
         aligned = source.align(template, method=method).read_array()
         assert aligned.max() < 100.0, (
             f"method={method!r} must exclude the declared 9999, got max {aligned.max()}"
@@ -702,15 +680,14 @@ class TestAlign:
         """
         arr = np.ones((4, 4), dtype=np.float32)
         arr[0, 0] = 9999.0
-        source = Dataset.create_from_array(
-            arr, top_left_corner=(0.0, 0.0), cell_size=0.25, epsg=4326
-        )
-        template = Dataset.create_from_array(
-            np.zeros((2, 2), dtype=np.float32),
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.5,
-            epsg=4326,
-        )
+        source = Dataset.from_array(
+                     arr,
+                     geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.25, epsg=4326),
+                 )
+        template = Dataset.from_array(
+                       np.zeros((2, 2), dtype=np.float32),
+                       geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.5, epsg=4326),
+                   )
         mixed = source.align(template, method="average").read_array()
         assert mixed.max() > 100.0, (
             f"an undeclared 9999 must mix into the average, got {mixed.max()}"
@@ -726,15 +703,14 @@ class TestAlign:
             onto a float32 template keeps the fractions.
         """
         src_arr = np.arange(25, dtype=np.float32).reshape(5, 5) * 0.3
-        source = Dataset.create_from_array(
-            src_arr, top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326
-        )
-        int_template = Dataset.create_from_array(
-            np.zeros((10, 10), dtype=np.int32),
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.025,
-            epsg=4326,
-        )
+        source = Dataset.from_array(
+                     src_arr,
+                     geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+                 )
+        int_template = Dataset.from_array(
+                           np.zeros((10, 10), dtype=np.int32),
+                           geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.025, epsg=4326),
+                       )
         aligned_int = source.align(int_template, method="bilinear").read_array()
         assert np.issubdtype(aligned_int.dtype, np.integer), (
             f"output must adopt the template's integer dtype, got {aligned_int.dtype}"
@@ -743,12 +719,10 @@ class TestAlign:
             "interpolated values must be whole numbers on an integer template"
         )
 
-        float_template = Dataset.create_from_array(
-            np.zeros((10, 10), dtype=np.float32),
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.025,
-            epsg=4326,
-        )
+        float_template = Dataset.from_array(
+                             np.zeros((10, 10), dtype=np.float32),
+                             geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.025, epsg=4326),
+                         )
         aligned_float = source.align(float_template, method="bilinear").read_array()
         assert not np.array_equal(aligned_float, np.floor(aligned_float)), (
             "the float-template align should keep fractional interpolated values"
@@ -809,11 +783,11 @@ class TestCrop:
         # the dataset has 4 bands
         arr = np.random.default_rng(0).random((4, 6, 5))
         geotransform = (0, 0.05, 0, 0, 0, -0.05)
-        dataset = Dataset.create_from_array(arr, geo=geotransform, epsg=4326)
+        dataset = Dataset.from_array(arr, geo_ref=GeoReference(geo=geotransform, epsg=4326))
         # the mask has 3 bands
         arr_mask = np.random.default_rng(0).random((3, 2, 2))
         geotransform = (0.1, 0.05, 0.0, -0.1, 0.0, -0.05)
-        mask = Dataset.create_from_array(arr_mask, geo=geotransform, epsg=4326)
+        mask = Dataset.from_array(arr_mask, geo_ref=GeoReference(geo=geotransform, epsg=4326))
         cropped_dataset = dataset.crop(mask=mask)
 
         assert cropped_dataset.shape == (4, 2, 2)
@@ -868,18 +842,22 @@ class TestCropAlignedTiling:
         arr = (rng.random(shape) * 100).astype("float32")
         src_no_data = -9999.0
         geotransform = (0.0, 0.05, 0.0, 15.0, 0.0, -0.05)
-        src = Dataset.create_from_array(
-            arr, geo=geotransform, epsg=4326, no_data_value=src_no_data
-        )
+        src = Dataset.from_array(
+                  arr,
+                  no_data_value=src_no_data,
+                  geo_ref=GeoReference(geo=geotransform, epsg=4326),
+              )
 
         mask_no_data = -1.0
         mask_arr = np.ones((300, 300), dtype="float32")
         mask_arr[10, 20] = mask_no_data
         mask_arr[275, 290] = mask_no_data
         mask_arr[128, 260] = mask_no_data
-        mask = Dataset.create_from_array(
-            mask_arr, geo=geotransform, epsg=4326, no_data_value=mask_no_data
-        )
+        mask = Dataset.from_array(
+                   mask_arr,
+                   no_data_value=mask_no_data,
+                   geo_ref=GeoReference(geo=geotransform, epsg=4326),
+               )
 
         cropped = src.spatial._crop_aligned(mask).read_array()
 
@@ -907,15 +885,19 @@ class TestCropAlignedTiling:
         arr = (rng.random((260, 260)) * 10).astype("float64")
         src_no_data = -32768.0
         geotransform = (0.0, 0.05, 0.0, 13.0, 0.0, -0.05)
-        src = Dataset.create_from_array(
-            arr, geo=geotransform, epsg=4326, no_data_value=src_no_data
-        )
+        src = Dataset.from_array(
+                  arr,
+                  no_data_value=src_no_data,
+                  geo_ref=GeoReference(geo=geotransform, epsg=4326),
+              )
         mask_arr = np.ones((260, 260), dtype="float64")
         mask_arr[5, 5] = -1.0
         mask_arr[259, 259] = -1.0
-        mask = Dataset.create_from_array(
-            mask_arr, geo=geotransform, epsg=4326, no_data_value=-1.0
-        )
+        mask = Dataset.from_array(
+                   mask_arr,
+                   no_data_value=-1.0,
+                   geo_ref=GeoReference(geo=geotransform, epsg=4326),
+               )
 
         tiled = src.spatial._crop_aligned(mask).read_array()
         eager = src.spatial._crop_aligned(mask_arr, mask_noval=-1.0).read_array()
@@ -971,7 +953,7 @@ class TestCropWithPolygon:
         """Test that the function works with multi-band raster."""
         arr = np.random.default_rng(0).random((4, 6, 5))
         geotransform = (0, 0.05, 0, 0, 0, -0.05)
-        dataset = Dataset.create_from_array(arr, geo=geotransform, epsg=4326)
+        dataset = Dataset.from_array(arr, geo_ref=GeoReference(geo=geotransform, epsg=4326))
         mask = gpd.GeoDataFrame(
             geometry=[Polygon([(0.1, -0.1), (0.1, -0.2), (0.2, -0.2), (0.2, -0.1)])],
             crs=4326,
@@ -1215,13 +1197,11 @@ class TestCutlineBorderTrim:
         """
         array = np.full((5, 5), no_data, dtype="float32")
         array[1:4, 1:4] = np.arange(9, dtype="float32").reshape(3, 3)
-        return Dataset.create_from_array(
-            array,
-            top_left_corner=(0.0, 5.0),
-            cell_size=1.0,
-            epsg=4326,
-            no_data_value=no_data,
-        )
+        return Dataset.from_array(
+                   array,
+                   no_data_value=no_data,
+                   geo_ref=GeoReference(top_left_corner=(0.0, 5.0), cell_size=1.0, epsg=4326),
+               )
 
     def test_a_nan_border_is_trimmed(self):
         """A NaN sentinel is detected and its frame removed.
@@ -1275,13 +1255,11 @@ class TestCropBoundsTheReadToTheCrop:
     def _large_source(no_data: float = -9999.0) -> Dataset:
         """A 400x400 raster over x[0,4] y[0,4] with a no-data value set."""
         array = np.arange(400 * 400, dtype="float32").reshape(400, 400)
-        return Dataset.create_from_array(
-            array,
-            top_left_corner=(0.0, 4.0),
-            cell_size=0.01,
-            epsg=4326,
-            no_data_value=no_data,
-        )
+        return Dataset.from_array(
+                   array,
+                   no_data_value=no_data,
+                   geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=0.01, epsg=4326),
+               )
 
     @staticmethod
     def _crs_less_source(no_data: float = -9999.0) -> Dataset:
@@ -1381,11 +1359,10 @@ class TestCropBoundsTheReadToTheCrop:
             cannot map onto them; the helper returns None and the caller warps
             the full source as before.
         """
-        rotated = Dataset.create_from_array(
-            np.zeros((10, 10), dtype="float32"),
-            geo=(0.0, 1.0, 0.5, 10.0, 0.5, -1.0),
-            epsg=4326,
-        )
+        rotated = Dataset.from_array(
+                      np.zeros((10, 10), dtype="float32"),
+                      geo_ref=GeoReference(geo=(0.0, 1.0, 0.5, 10.0, 0.5, -1.0), epsg=4326),
+                  )
         assert (
             Spatial._cutline_window_bounds(rotated, self._grid_aligned_mask()) is None
         ), "a rotated grid must fall back to the full-source warp"
@@ -1478,11 +1455,10 @@ class TestCropBoundsTheReadToTheCrop:
             the row snapping, so the helper must fall back rather than compute a wrong
             window.
         """
-        south_up = Dataset.create_from_array(
-            np.zeros((10, 10), dtype="float32"),
-            geo=(0.0, 1.0, 0.0, 0.0, 0.0, 1.0),
-            epsg=4326,
-        )
+        south_up = Dataset.from_array(
+                       np.zeros((10, 10), dtype="float32"),
+                       geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 0.0, 0.0, 1.0), epsg=4326),
+                   )
         window = Spatial._cutline_window_bounds(south_up, self._grid_aligned_mask())
         assert window is None, "a south-up grid must fall back to the full-source warp"
 
@@ -1546,13 +1522,11 @@ class TestCropBoundsTheReadToTheCrop:
     def test_bounded_touch_crop_is_grid_origin_independent(self):
         """The windowed crop matches the reference on a 0..360-longitude grid too."""
         array = np.arange(200 * 200, dtype="float32").reshape(200, 200)
-        source = Dataset.create_from_array(
-            array,
-            top_left_corner=(200.0, 40.0),
-            cell_size=0.1,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        source = Dataset.from_array(
+                     array,
+                     no_data_value=-9999.0,
+                     geo_ref=GeoReference(top_left_corner=(200.0, 40.0), cell_size=0.1, epsg=4326),
+                 )
         mask = gpd.GeoDataFrame(geometry=[box(210.0, 22.0, 213.0, 25.0)], crs=4326)
         windowed = source.crop(mask=mask, touch=True)
         reference = source.crop(mask=mask, touch=False)

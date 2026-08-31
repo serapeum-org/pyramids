@@ -18,6 +18,7 @@ from shapely.geometry import box
 
 from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.dataset.merge import stack_bands
+from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -35,13 +36,11 @@ def _write_band(
 ):
     """Write one constant-valued single-band GeoTIFF and return its path."""
     path = os.path.join(str(directory), name)
-    Dataset.create_from_array(
+    Dataset.from_array(
         np.full(shape, value, dtype="uint16"),
-        top_left_corner=top_left,
-        cell_size=cell_size,
-        epsg=epsg,
         no_data_value=no_data_value,
         path=path,
+        geo_ref=GeoReference(top_left_corner=top_left, cell_size=cell_size, epsg=epsg),
     ).close()
     return path
 

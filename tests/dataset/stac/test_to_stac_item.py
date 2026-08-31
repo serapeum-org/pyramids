@@ -10,6 +10,7 @@ from osgeo import gdal
 
 from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.dataset._stac import to_stac_item
+from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -17,13 +18,11 @@ pytestmark = pytest.mark.core
 @pytest.fixture
 def wgs84_dataset():
     """A 4x4 single-band EPSG:4326 dataset (top-left (0, 4), cell 1, nodata -9999)."""
-    return Dataset.create_from_array(
-        np.ones((4, 4), dtype="float32"),
-        top_left_corner=(0.0, 4.0),
-        cell_size=1.0,
-        epsg=4326,
-        no_data_value=-9999.0,
-    )
+    return Dataset.from_array(
+               np.ones((4, 4), dtype="float32"),
+               no_data_value=-9999.0,
+               geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326),
+           )
 
 
 class TestToStacItem:
@@ -85,12 +84,10 @@ class TestToStacItem:
         Test scenario:
             A UTM zone-33N grid yields a 4326 bbox within +/-180 / +/-90.
         """
-        ds = Dataset.create_from_array(
-            np.ones((8, 8), dtype="float32"),
-            top_left_corner=(500000.0, 5300000.0),
-            cell_size=10.0,
-            epsg=32633,
-        )
+        ds = Dataset.from_array(
+                 np.ones((8, 8), dtype="float32"),
+                 geo_ref=GeoReference(top_left_corner=(500000.0, 5300000.0), cell_size=10.0, epsg=32633),
+             )
         item = ds.to_stac_item("x", asset_href="s.tif")
         w, s, e, n = item["bbox"]
         assert -180 <= w <= 180 and -180 <= e <= 180, (

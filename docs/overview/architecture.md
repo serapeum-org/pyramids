@@ -84,7 +84,7 @@ graph LR
 graph LR
     subgraph Dataset
         DS_props["<b>Properties</b><br/>raster · rows · columns<br/>geotransform · epsg · crs<br/>band_count · band_names<br/>no_data_value · dtype"]
-        DS_create["<b>Create</b><br/>read_file<br/>create_from_array<br/>dataset_like"]
+        DS_create["<b>Create</b><br/>read_file<br/>from_array<br/>dataset_like"]
         DS_spatial["<b>Spatial</b><br/>crop · to_crs · align<br/>resample · overlay"]
         DS_data["<b>Data Access</b><br/>read_array · extract<br/>get_variables"]
         DS_math["<b>Math</b><br/>apply · fill · normalize"]
@@ -109,7 +109,7 @@ graph LR
 
     subgraph UgridDataset
         UG_props["<b>Properties</b><br/>mesh · epsg · n_face<br/>data_variable_names"]
-        UG_create["<b>Create</b><br/>read_file<br/>create_from_arrays"]
+        UG_create["<b>Create</b><br/>read_file<br/>from_arrays"]
         UG_spatial["<b>Spatial</b><br/>subset_by_bounds<br/>clip"]
         UG_convert["<b>Convert</b><br/>to_dataset<br/>to_geodataframe"]
         UG_io["<b>I/O</b><br/>plot · plot_outline<br/>sel_time"]

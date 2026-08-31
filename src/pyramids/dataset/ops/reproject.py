@@ -74,7 +74,7 @@ class Reprojector:
             >>> from pyramids.dataset import Dataset
             >>> from pyramids.dataset.ops.reproject import Reprojector
             >>> arr = np.zeros((2, 2), dtype=np.float32)
-            >>> src = Dataset.create_from_array(
+            >>> src = Dataset.from_array(
             ...     arr, top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326,
             ... )
             >>> op = Reprojector(target_epsg=3857)
@@ -136,11 +136,11 @@ class Aligner(Reprojector):
             >>> import numpy as np
             >>> from pyramids.dataset import Dataset
             >>> from pyramids.dataset.ops.reproject import Aligner
-            >>> ref = Dataset.create_from_array(
+            >>> ref = Dataset.from_array(
             ...     np.zeros((4, 4), dtype=np.float32),
             ...     top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326,
             ... )
-            >>> src = Dataset.create_from_array(
+            >>> src = Dataset.from_array(
             ...     np.zeros((8, 8), dtype=np.float32),
             ...     top_left_corner=(0.0, 0.0), cell_size=0.5, epsg=4326,
             ... )

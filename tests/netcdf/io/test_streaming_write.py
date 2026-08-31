@@ -1,4 +1,4 @@
-"""Tests for the streaming (memory-bounded) ``create_from_array`` write path (ARC-11).
+"""Tests for the streaming (memory-bounded) ``from_array`` write path (ARC-11).
 
 A ``dask.array.Array`` passed as ``arr`` is written to the netCDF/MEM MDArray one
 block at a time via windowed writes, producing output byte-identical to passing the
@@ -134,14 +134,14 @@ class TestStreamingParity:
         stream_path = str(tmp_path / "stream.nc")
         extra = [(f"d{i}", None) for i in range(len(shape) - 2)] or None
 
-        NetCDF.create_from_array(
+        NetCDF.from_array(
             arr=source,
             geo_ref=GeoReference(geo=GEO),
             variable_name="v",
             dims=ExtraDimensions(dims=extra),
             path=eager_path,
         )
-        NetCDF.create_from_array(
+        NetCDF.from_array(
             arr=dask_arr,
             geo_ref=GeoReference(geo=GEO),
             variable_name="v",
@@ -175,18 +175,18 @@ class TestStreamingParity:
         source = _source_array((4, 6, 8))
         dask_arr = da.from_array(source, chunks=(2, 6, 8))
 
-        eager = NetCDF.create_from_array(
-            arr=source,
-            geo_ref=GeoReference(geo=GEO),
-            variable_name="v",
-            dims=ExtraDimensions(name="time"),
-        )
-        streamed = NetCDF.create_from_array(
-            arr=dask_arr,
-            geo_ref=GeoReference(geo=GEO),
-            variable_name="v",
-            dims=ExtraDimensions(name="time"),
-        )
+        eager = NetCDF.from_array(
+                    arr=source,
+                    geo_ref=GeoReference(geo=GEO),
+                    variable_name="v",
+                    dims=ExtraDimensions(name="time"),
+                )
+        streamed = NetCDF.from_array(
+                       arr=dask_arr,
+                       geo_ref=GeoReference(geo=GEO),
+                       variable_name="v",
+                       dims=ExtraDimensions(name="time"),
+                   )
         assert_allclose(
             np.asarray(streamed.get_variable("v").read_array()),
             np.asarray(eager.get_variable("v").read_array()),
@@ -200,7 +200,7 @@ class TestStreamingParity:
         assert dask_arr.numblocks == (1, 1, 1), "fixture must be a single block"
         path = str(tmp_path / "single.nc")
 
-        NetCDF.create_from_array(
+        NetCDF.from_array(
             arr=dask_arr,
             geo_ref=GeoReference(geo=GEO),
             variable_name="v",
@@ -225,7 +225,7 @@ class TestStreamingStorageChunks:
         dask_arr = da.from_array(source, chunks=(1, 10, 15))
         path = str(tmp_path / "dask_chunks.nc")
 
-        NetCDF.create_from_array(
+        NetCDF.from_array(
             arr=dask_arr,
             geo_ref=GeoReference(geo=GEO),
             variable_name="v",
@@ -248,7 +248,7 @@ class TestStreamingStorageChunks:
         dask_arr = da.from_array(source, chunks=(1, 10, 15))
         path = str(tmp_path / "explicit_chunks.nc")
 
-        NetCDF.create_from_array(
+        NetCDF.from_array(
             arr=dask_arr,
             geo_ref=GeoReference(geo=GEO),
             variable_name="v",

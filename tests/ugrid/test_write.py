@@ -1,4 +1,4 @@
-"""Unit tests for UGRID write, GeoDataFrame interop, and create_from_arrays.
+"""Unit tests for UGRID write, GeoDataFrame interop, and from_arrays.
 
 Covers UGRID-15 (write), UGRID-16 (GeoDataFrame), UGRID-17 (create from arrays).
 """
@@ -27,7 +27,7 @@ class TestWriteUgrid:
             Create a simple mesh, write to file, read back,
             verify topology and data match.
         """
-        ds = UgridDataset.create_from_arrays(
+        ds = UgridDataset.from_arrays(
             node_x=np.array([0.0, 1.0, 0.5]),
             node_y=np.array([0.0, 0.0, 1.0]),
             face_node_connectivity=np.array([[0, 1, 2]]),
@@ -136,7 +136,7 @@ class TestToGeoDataFrame:
         Test scenario:
             Each face should become a Polygon row.
         """
-        ds = UgridDataset.create_from_arrays(
+        ds = UgridDataset.from_arrays(
             node_x=np.array([0.0, 1.0, 1.0, 0.0]),
             node_y=np.array([0.0, 0.0, 1.0, 1.0]),
             face_node_connectivity=np.array([[0, 1, 2, 3]]),
@@ -156,7 +156,7 @@ class TestToGeoDataFrame:
         Test scenario:
             Each node should become a Point row.
         """
-        ds = UgridDataset.create_from_arrays(
+        ds = UgridDataset.from_arrays(
             node_x=np.array([0.0, 1.0, 0.5]),
             node_y=np.array([0.0, 0.0, 1.0]),
             face_node_connectivity=np.array([[0, 1, 2]]),
@@ -173,7 +173,7 @@ class TestToGeoDataFrame:
         Test scenario:
             Should produce a GeoDataFrame with geometry only.
         """
-        ds = UgridDataset.create_from_arrays(
+        ds = UgridDataset.from_arrays(
             node_x=np.array([0.0, 1.0, 0.5]),
             node_y=np.array([0.0, 0.0, 1.0]),
             face_node_connectivity=np.array([[0, 1, 2]]),
@@ -188,7 +188,7 @@ class TestToGeoDataFrame:
         Test scenario:
             location='invalid' should raise ValueError.
         """
-        ds = UgridDataset.create_from_arrays(
+        ds = UgridDataset.from_arrays(
             node_x=np.array([0.0, 1.0, 0.5]),
             node_y=np.array([0.0, 0.0, 1.0]),
             face_node_connectivity=np.array([[0, 1, 2]]),
@@ -198,7 +198,7 @@ class TestToGeoDataFrame:
 
 
 class TestCreateFromArrays:
-    """Tests for UgridDataset.create_from_arrays() (UGRID-17)."""
+    """Tests for UgridDataset.from_arrays() (UGRID-17)."""
 
     def test_basic_creation(self):
         """Test creating a UgridDataset from raw arrays.
@@ -206,7 +206,7 @@ class TestCreateFromArrays:
         Test scenario:
             Create a single triangle mesh.
         """
-        ds = UgridDataset.create_from_arrays(
+        ds = UgridDataset.from_arrays(
             node_x=np.array([0.0, 1.0, 0.5]),
             node_y=np.array([0.0, 0.0, 1.0]),
             face_node_connectivity=np.array([[0, 1, 2]]),
@@ -220,7 +220,7 @@ class TestCreateFromArrays:
         Test scenario:
             Create mesh with temperature data on faces.
         """
-        ds = UgridDataset.create_from_arrays(
+        ds = UgridDataset.from_arrays(
             node_x=np.array([0.0, 1.0, 1.0, 0.0]),
             node_y=np.array([0.0, 0.0, 1.0, 1.0]),
             face_node_connectivity=np.array([[0, 1, 2, 3]]),
@@ -240,7 +240,7 @@ class TestCreateFromArrays:
         Test scenario:
             Create mesh with tri and quad faces using -1 fill.
         """
-        ds = UgridDataset.create_from_arrays(
+        ds = UgridDataset.from_arrays(
             node_x=np.array([0.0, 1.0, 2.0, 0.0, 1.0, 2.0]),
             node_y=np.array([0.0, 0.0, 0.0, 1.0, 1.0, 1.0]),
             face_node_connectivity=np.array(
@@ -259,7 +259,7 @@ class TestCreateFromArrays:
         Test scenario:
             Create with EPSG 32631 and verify.
         """
-        ds = UgridDataset.create_from_arrays(
+        ds = UgridDataset.from_arrays(
             node_x=np.array([500000.0, 500100.0, 500050.0]),
             node_y=np.array([5600000.0, 5600000.0, 5600100.0]),
             face_node_connectivity=np.array([[0, 1, 2]]),
@@ -277,7 +277,7 @@ class TestEdgeGeoDataFrame:
         Test scenario:
             Build edge connectivity, then convert edges to LineStrings.
         """
-        ds = UgridDataset.create_from_arrays(
+        ds = UgridDataset.from_arrays(
             node_x=np.array([0.0, 1.0, 0.5]),
             node_y=np.array([0.0, 0.0, 1.0]),
             face_node_connectivity=np.array([[0, 1, 2]]),
@@ -295,7 +295,7 @@ class TestEdgeGeoDataFrame:
         Test scenario:
             Without edge connectivity, should raise ValueError.
         """
-        ds = UgridDataset.create_from_arrays(
+        ds = UgridDataset.from_arrays(
             node_x=np.array([0.0, 1.0, 0.5]),
             node_y=np.array([0.0, 0.0, 1.0]),
             face_node_connectivity=np.array([[0, 1, 2]]),
@@ -313,7 +313,7 @@ class TestToFeatureCollection:
         Test scenario:
             Should wrap GeoDataFrame in a FeatureCollection.
         """
-        ds = UgridDataset.create_from_arrays(
+        ds = UgridDataset.from_arrays(
             node_x=np.array([0.0, 1.0, 0.5]),
             node_y=np.array([0.0, 0.0, 1.0]),
             face_node_connectivity=np.array([[0, 1, 2]]),
@@ -337,7 +337,7 @@ class TestTemporalWrite:
             verify time dimension and values are preserved.
         """
         temporal_data = np.array([[1.0, 2.0], [3.0, 4.0]])
-        ds = UgridDataset.create_from_arrays(
+        ds = UgridDataset.from_arrays(
             node_x=np.array([0.0, 1.0, 0.5, 1.5]),
             node_y=np.array([0.0, 0.0, 1.0, 1.0]),
             face_node_connectivity=np.array([[0, 1, 2], [1, 3, 2]]),

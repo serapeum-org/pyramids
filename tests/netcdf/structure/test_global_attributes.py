@@ -17,11 +17,7 @@ def _make_nc():
     """Create an in-memory NetCDF container."""
     arr = np.ones((5, 5), dtype=np.float64)
     geo = (0.0, 1.0, 0, 5.0, 0, -1.0)
-    return NetCDF.create_from_array(
-        arr=arr,
-        geo_ref=GeoReference(geo=geo),
-        variable_name="v",
-    )
+    return NetCDF.from_array(arr=arr, geo_ref=GeoReference(geo=geo), variable_name="v")
 
 
 class TestGlobalAttributesProperty:
@@ -31,7 +27,7 @@ class TestGlobalAttributesProperty:
         """A newly created NetCDF has exactly one global attribute: Conventions=CF-1.8.
 
         Test scenario:
-            create_from_array always writes Conventions=CF-1.8;
+            from_array always writes Conventions=CF-1.8;
             global_attributes should equal that single-key dict.
         """
         nc = _make_nc()

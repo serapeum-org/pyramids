@@ -8,6 +8,7 @@ import pytest
 from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.dataset import Dataset
 from pyramids.dataset.engines import Analysis
+from pyramids.base.georeference import GeoReference
 
 from ._render_helpers import render_array
 
@@ -60,9 +61,10 @@ class TestAnalysisPlotEngine:
         """
         rng = np.random.default_rng(1337)
         arr = rng.random((3, 6, 6)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
-        )
+        dataset = Dataset.from_array(
+                      arr,
+                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+                  )
 
         result = dataset.analysis.plot(band=2)
         assert isinstance(result, ArrayGlyph), (
@@ -81,9 +83,10 @@ class TestAnalysisPlotEngine:
         """
         rng = np.random.default_rng(1337)
         arr = rng.random((6, 6)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
-        )
+        dataset = Dataset.from_array(
+                      arr,
+                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+                  )
 
         with pytest.raises((ValueError, IndexError)):
             dataset.analysis.plot(band=42)
@@ -600,9 +603,10 @@ class TestStyleHillshadePresets:
 
         rng = np.random.default_rng(750)
         arr = rng.random((1, 8, 8)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr=arr, geo=(0, 0.1, 0, 2, 0, -0.1), epsg=4326
-        )
+        dataset = Dataset.from_array(
+                      arr=arr,
+                      geo_ref=GeoReference(geo=(0, 0.1, 0, 2, 0, -0.1), epsg=4326),
+                  )
         glyph = dataset.plot(band=0, data_style=DataStyle(style="flow_accumulation"))
         assert glyph.style == "flow_accumulation"
         glyph.apply_style("topography")
@@ -776,9 +780,10 @@ class TestPointOverlay:
         """Build a small single-band in-memory dataset."""
         rng = np.random.default_rng(760)
         arr = rng.random((1, 8, 8)).astype("float32")
-        return Dataset.create_from_array(
-            arr=arr, geo=(0, 0.1, 0, 2, 0, -0.1), epsg=4326
-        )
+        return Dataset.from_array(
+                   arr=arr,
+                   geo_ref=GeoReference(geo=(0, 0.1, 0, 2, 0, -0.1), epsg=4326),
+               )
 
     @staticmethod
     def _points():

@@ -51,6 +51,7 @@ from pyramids.netcdf.ugrid.spatial import (
     subset_by_bounds,
 )
 from pyramids.netcdf.utils import _dtype_to_str, _read_attributes
+from pyramids.base.georeference import GeoReference
 
 
 class UgridDataset:
@@ -292,12 +293,11 @@ class UgridDataset:
         )
 
         target_epsg = epsg or self.epsg or 4326
-        result = Dataset.create_from_array(
-            grid_array,
-            geo=cast("tuple[float, float, float, float, float, float]", geotransform),
-            epsg=target_epsg,
-            no_data_value=nodata,
-        )
+        result = Dataset.from_array(
+                     grid_array,
+                     no_data_value=nodata,
+                     geo_ref=GeoReference(geo=cast("tuple[float, float, float, float, float, float]", geotransform), epsg=target_epsg),
+                 )
         return result
 
     def crop(
@@ -758,7 +758,7 @@ class UgridDataset:
         return result
 
     @classmethod
-    def create_from_arrays(
+    def from_arrays(
         cls,
         node_x: np.ndarray,
         node_y: np.ndarray,

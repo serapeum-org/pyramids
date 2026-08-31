@@ -53,6 +53,7 @@ from pyramids.dataset.engines._base import (
 )
 from pyramids.dataset.engines.bands import _is_read_only_error
 from pyramids.dataset.engines.cog import _cached_transformer
+from pyramids.base.georeference import GeoReference
 
 
 @pytest.fixture
@@ -65,12 +66,10 @@ def in_memory_dataset() -> Dataset:
         through pickle (in-memory datasets cannot pickle by design).
     """
     arr = np.arange(16, dtype=np.float32).reshape(4, 4)
-    return Dataset.create_from_array(
-        arr=arr,
-        top_left_corner=(0.0, 0.0),
-        cell_size=1.0,
-        epsg=4326,
-    )
+    return Dataset.from_array(
+               arr=arr,
+               geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
+           )
 
 
 @pytest.fixture
@@ -157,12 +156,10 @@ class TestCollaboratorBase:
             leak and Windows file-unlink in tests intermittently fails.
         """
         arr = np.zeros((4, 4), dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr=arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=1.0,
-            epsg=4326,
-        )
+        ds = Dataset.from_array(
+                 arr=arr,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
+             )
         ref = weakref.ref(ds)
         collab = _Engine(ds)
         del ds
@@ -564,8 +561,9 @@ class TestIsReadOnlyError:
             and asserts the classifier recognises whatever GDAL raised.
         """
         path = tmp_path / "ro.tif"
-        Dataset.create_from_array(
-            np.zeros((4, 4), "float32"), top_left_corner=(0.0, 4.0), cell_size=1.0
+        Dataset.from_array(
+            np.zeros((4, 4), "float32"),
+            geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0),
         ).to_file(str(path))
         # `read_only` has to stay bound: a gdal.Band does not keep its dataset
         # alive, so chaining the two calls invalidates the band immediately.

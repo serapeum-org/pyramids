@@ -13,6 +13,7 @@ import pytest
 from pyramids import cli
 from pyramids.cli import main
 from pyramids.dataset import Dataset
+from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -28,13 +29,10 @@ def wgs84_raster(tmp_path: Path) -> str:
         str: Path to the created GeoTIFF.
     """
     path = str(tmp_path / "bounds.tif")
-    Dataset.create_from_array(
+    Dataset.from_array(
         np.ones((8, 8), dtype="float32"),
-        top_left_corner=(-10.0, 50.0),
-        cell_size=0.5,
-        epsg=4326,
-        driver_type="GTiff",
         path=path,
+        geo_ref=GeoReference(top_left_corner=(-10.0, 50.0), cell_size=0.5, epsg=4326),
     )
     return path
 

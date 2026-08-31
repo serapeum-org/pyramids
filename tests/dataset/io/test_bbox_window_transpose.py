@@ -34,6 +34,7 @@ from shapely.geometry import box
 from pyramids.base._errors import OutOfBoundsError
 from pyramids.dataset import Dataset
 from pyramids.feature import FeatureCollection
+from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -46,9 +47,10 @@ def non_square_raster() -> Dataset:
         Dataset: Single-band raster, `value == row * 40 + col`, top-left at `(0, 10)`, 1-degree cells.
     """
     arr = np.arange(10 * 40, dtype="float32").reshape(10, 40)
-    return Dataset.create_from_array(
-        arr, top_left_corner=(0.0, 10.0), cell_size=1.0, epsg=4326
-    )
+    return Dataset.from_array(
+               arr,
+               geo_ref=GeoReference(top_left_corner=(0.0, 10.0), cell_size=1.0, epsg=4326),
+           )
 
 
 @pytest.fixture()
@@ -66,9 +68,10 @@ def multiband_non_square_raster() -> Dataset:
         ],
         axis=0,
     )
-    return Dataset.create_from_array(
-        bands, top_left_corner=(0.0, 10.0), cell_size=1.0, epsg=4326
-    )
+    return Dataset.from_array(
+               bands,
+               geo_ref=GeoReference(top_left_corner=(0.0, 10.0), cell_size=1.0, epsg=4326),
+           )
 
 
 def _cover_window(
@@ -303,12 +306,10 @@ class TestBboxReprojection:
             A UTM-zone-32N bbox reprojected onto a UTM-zone-18N raster lands outside zone 18's valid
             domain (non-finite coordinates); the helper must raise rather than crash on `inf`.
         """
-        raster = Dataset.create_from_array(
-            np.zeros((10, 10), dtype="float32"),
-            top_left_corner=(400000.0, 5100000.0),
-            cell_size=1000.0,
-            epsg=32618,
-        )
+        raster = Dataset.from_array(
+                     np.zeros((10, 10), dtype="float32"),
+                     geo_ref=GeoReference(top_left_corner=(400000.0, 5100000.0), cell_size=1000.0, epsg=32618),
+                 )
         far_bbox = [456968.0, 504007.0, 460968.0, 508007.0]  # zone-32N easting/northing
         with pytest.raises(OutOfBoundsError, match="not finite"):
             raster.read_array(bbox=far_bbox, epsg=32632)
@@ -341,9 +342,10 @@ class TestBboxWindowFloatingPoint:
     def fine_raster(self) -> Dataset:
         """A 6x6 raster on a 0.05-degree grid, where `(coord - origin) / pixel` is FP-inexact."""
         arr = np.arange(6 * 6, dtype="float32").reshape(6, 6)
-        return Dataset.create_from_array(
-            arr, top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326
-        )
+        return Dataset.from_array(
+                   arr,
+                   geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+               )
 
     def test_grid_aligned_bbox_does_not_leak_a_column(self, fine_raster):
         """A bbox exactly equal to one column reads that column only, not its neighbour too.

@@ -57,11 +57,11 @@ def _make_grouped_nc():
 def _make_flat_nc():
     """Create an in-memory NetCDF with no sub-groups."""
     arr = np.ones((5, 8), dtype=np.float64)
-    return NetCDF.create_from_array(
-        arr=arr,
-        geo_ref=GeoReference(geo=(0, 1, 0, 5, 0, -1)),
-        variable_name="v",
-    )
+    return NetCDF.from_array(
+               arr=arr,
+               geo_ref=GeoReference(geo=(0, 1, 0, 5, 0, -1)),
+               variable_name="v",
+           )
 
 
 class TestGroupNames:
@@ -82,7 +82,7 @@ class TestGroupNames:
         """A container with no sub-groups should return [].
 
         Test scenario:
-            create_from_array produces a flat container.
+            from_array produces a flat container.
         """
         nc = _make_flat_nc()
         assert nc.group_names == [], f"Expected [], got {nc.group_names}"

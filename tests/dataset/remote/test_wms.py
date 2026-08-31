@@ -15,6 +15,7 @@ from osgeo import gdal
 
 from pyramids.dataset import Dataset, _wms
 from pyramids.errors import WMSError
+from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -24,9 +25,10 @@ BBOX = (5.0, 51.0, 6.0, 52.0)
 def _tiny_dataset(epsg: int = 4326) -> Dataset:
     """A 3-band 4x5 in-memory raster for offline reprojection tests."""
     arr = np.ones((3, 4, 5), dtype="float32")
-    return Dataset.create_from_array(
-        arr, top_left_corner=(0.0, 0.0), cell_size=0.1, epsg=epsg
-    )
+    return Dataset.from_array(
+               arr,
+               geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.1, epsg=epsg),
+           )
 
 
 class TestOutputSize:

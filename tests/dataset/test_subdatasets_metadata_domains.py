@@ -22,6 +22,7 @@ from pyramids.dataset._subdataset import SubDataset
 from pyramids.dataset.abstract_dataset import _reconstruct_dataset
 from pyramids.netcdf import NetCDF
 from pyramids.netcdf.netcdf import _reconstruct_netcdf
+from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -38,12 +39,10 @@ GEOTIFF_PLAIN = (
 @pytest.fixture
 def plain() -> Dataset:
     """A 2x3 in-memory raster with no subdatasets."""
-    return Dataset.create_from_array(
-        np.zeros((2, 3), dtype="float32"),
-        top_left_corner=(0, 0),
-        cell_size=1.0,
-        epsg=4326,
-    )
+    return Dataset.from_array(
+               np.zeros((2, 3), dtype="float32"),
+               geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+           )
 
 
 @pytest.fixture
@@ -421,11 +420,9 @@ class TestMetadataDomains:
     def test_set_meta_data_read_only_raises(self, tmp_path):
         """Writing metadata on a read-only on-disk dataset raises ReadOnlyError."""
         path = tmp_path / "m.tif"
-        Dataset.create_from_array(
+        Dataset.from_array(
             np.zeros((2, 2), dtype="float32"),
-            top_left_corner=(0, 0),
-            cell_size=1.0,
-            epsg=4326,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
         ).to_file(str(path))
         ds = Dataset.read_file(str(path), read_only=True)
         with pytest.raises(ReadOnlyError, match="read-only"):

@@ -15,6 +15,7 @@ from shapely.geometry import Point, box
 from pyramids.base._errors import ReadOnlyError
 from pyramids.dataset import Dataset
 from pyramids.netcdf import NetCDF
+from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -137,9 +138,10 @@ def test_change_no_data_value_on_variable_view(tos):
 
 def _classes(v):
     """A single-band integer classification raster aligned to the variable view."""
-    return Dataset.create_from_array(
-        np.ones((v.rows, v.columns), "int32"), geo=v.geotransform, epsg=v.epsg or 4326
-    )
+    return Dataset.from_array(
+               np.ones((v.rows, v.columns), "int32"),
+               geo_ref=GeoReference(geo=v.geotransform, epsg=v.epsg or 4326),
+           )
 
 
 def test_overlay_with_classes(tos):

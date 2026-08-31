@@ -446,7 +446,7 @@ class Bands(_Engine["Dataset"]):
               ```
 
         See Also:
-            Dataset.create_from_array: create a new dataset from an array.
+            Dataset.from_array: create a new dataset from an array.
             Dataset.create: create a new dataset with an empty band.
             Dataset.dataset_like: create a new dataset from another dataset.
             Dataset.get_attribute_table: get the attribute table for a specific band.
@@ -610,7 +610,7 @@ class Bands(_Engine["Dataset"]):
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
                 >>> arr = np.arange(3 * 4).reshape(3, 2, 2).astype("float32")
-                >>> ds = Dataset.create_from_array(
+                >>> ds = Dataset.from_array(
                 ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326
                 ... )
                 >>> subset = ds.bands.select([3, 1])
@@ -712,7 +712,7 @@ class Bands(_Engine["Dataset"]):
               >>> arr = np.random.randint(1, 3, size=(10, 10))
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
-              >>> dataset = Dataset.create_from_array(
+              >>> dataset = Dataset.from_array(
               ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326
               ... )
 
@@ -733,7 +733,7 @@ class Bands(_Engine["Dataset"]):
               >>> arr = np.random.randint(1, 3, size=(3, 10, 10))
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
-              >>> dataset = Dataset.create_from_array(
+              >>> dataset = Dataset.from_array(
               ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326
               ... )
               >>> dataset.band_color = {0: 'red', 1: 'green', 2: 'blue'}
@@ -773,7 +773,7 @@ class Bands(_Engine["Dataset"]):
               >>> import numpy as np
               >>> from pyramids.dataset import Dataset
               >>> arr = np.zeros((2, 4, 4), dtype="int16")
-              >>> dataset = Dataset.create_from_array(
+              >>> dataset = Dataset.from_array(
               ...     arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
               ... )
               >>> dataset.band_meta_data = [{"WAVELENGTH": "443"}, {"WAVELENGTH": "490"}]
@@ -790,7 +790,7 @@ class Bands(_Engine["Dataset"]):
               >>> import numpy as np
               >>> from pyramids.dataset import Dataset
               >>> arr = np.zeros((1, 4, 4), dtype="int16")
-              >>> dataset = Dataset.create_from_array(
+              >>> dataset = Dataset.from_array(
               ...     arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
               ... )
               >>> dataset.bands.metadata
@@ -862,7 +862,7 @@ class Bands(_Engine["Dataset"]):
               ```python
               >>> import numpy as np
               >>> from pyramids.dataset import Dataset
-              >>> dataset = Dataset.create_from_array(
+              >>> dataset = Dataset.from_array(
               ...     np.zeros((4, 4), dtype="int16"),
               ...     top_left_corner=(0, 0), cell_size=0.05, epsg=4326,
               ... )
@@ -1029,7 +1029,7 @@ class Bands(_Engine["Dataset"]):
               >>> arr = np.random.randint(1, 3, size=(3, 10, 10))
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
-              >>> dataset = Dataset.create_from_array(
+              >>> dataset = Dataset.from_array(
               ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326
               ... )
               >>> dataset.band_color = {0: 'red', 1: 'green', 2: 'blue'}
@@ -1071,7 +1071,7 @@ class Bands(_Engine["Dataset"]):
               >>> arr = np.random.randint(1, 3, size=(2, 10, 10))
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
-              >>> dataset = Dataset.create_from_array(
+              >>> dataset = Dataset.from_array(
               ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326
               ... )
 
@@ -1156,7 +1156,7 @@ class Bands(_Engine["Dataset"]):
               >>> arr = np.random.randint(1, 3, size=(2, 10, 10))
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
-              >>> dataset = Dataset.create_from_array(
+              >>> dataset = Dataset.from_array(
               ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326
               ... )
 
@@ -1288,7 +1288,7 @@ class Bands(_Engine["Dataset"]):
               >>> import numpy as np
               >>> from pyramids.dataset import Dataset
               >>> arr = np.random.randint(1, 6, size=(10, 10))
-              >>> ds = Dataset.create_from_array(
+              >>> ds = Dataset.from_array(
               ...     arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
               ... )
               >>> ds.set_color_ramp(
@@ -1313,7 +1313,7 @@ class Bands(_Engine["Dataset"]):
               >>> import numpy as np
               >>> from pyramids.dataset import Dataset
               >>> arr = np.random.randint(1, 6, size=(10, 10))
-              >>> ds = Dataset.create_from_array(
+              >>> ds = Dataset.from_array(
               ...     arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
               ... )
               >>> ds.set_color_ramp(band=1, start_value=1, end_value=5, colormap="viridis")

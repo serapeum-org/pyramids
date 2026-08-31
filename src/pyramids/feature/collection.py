@@ -408,7 +408,7 @@ class FeatureCollection(GeoDataFrame):
                 >>> from pyramids.dataset import Dataset
                 >>> from pyramids.feature import FeatureCollection
                 >>> arr = np.arange(100, dtype="int16").reshape(10, 10)
-                >>> ds = Dataset.create_from_array(
+                >>> ds = Dataset.from_array(
                 ...     arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326,
                 ... )
                 >>> fc = FeatureCollection.from_bbox((0.1, -0.2, 0.2, -0.1), epsg=4326)

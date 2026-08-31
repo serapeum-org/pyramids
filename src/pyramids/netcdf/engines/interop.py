@@ -508,7 +508,7 @@ def _apply_grid_mapping(
     geographic, e.g. ``transverse_mercator`` for a projected CRS — carrying
     ``grid_mapping_name`` + ``crs_wkt`` + the projection params) and link the data
     variable to it via
-    ``<var>#grid_mapping`` — the same mechanism ``create_from_array`` uses on the netCDF driver.
+    ``<var>#grid_mapping`` — the same mechanism ``from_array`` uses on the netCDF driver.
     The generated variable is hidden from the multidim array listing, so it never leaks into
     ``get_variable_names`` / ``variables``, and the CRS round-trips (``MDArray.GetSpatialRef``).
 

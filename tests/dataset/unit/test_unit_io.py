@@ -8,6 +8,7 @@ from osgeo import gdal
 
 from pyramids.base._errors import FailedToSaveError, OutOfBoundsError, ReadOnlyError
 from pyramids.dataset import Dataset
+from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -18,13 +19,11 @@ class TestTranslate:
     def test_translate_unscale(self):
         """translate(unscale=True) should apply scale and offset."""
         arr = np.array([[10.0, 20.0], [30.0, 40.0]], dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=-9999.0,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+             )
         ds.scale = [0.1]
         ds.offset = [100.0]
         unscaled = ds.translate(unscale=True)
@@ -44,13 +43,11 @@ class TestWriteArray:
     def test_write_array_no_offset(self):
         """write_array with default offset should overwrite from (0, 0)."""
         arr = np.ones((3, 3), dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=-9999.0,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+             )
         patch = np.array([[99.0, 99.0], [99.0, 99.0]], dtype=np.float32)
         ds.write_array(patch, top_left_corner=[0, 0])
         result = ds.read_array()
@@ -64,13 +61,11 @@ class TestWriteArray:
     def test_write_array_with_offset(self):
         """write_array with offset should write at the given position."""
         arr = np.zeros((4, 4), dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=-9999.0,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+             )
         patch = np.array([[7.0, 8.0], [9.0, 10.0]], dtype=np.float32)
         ds.write_array(patch, top_left_corner=[1, 1])
         result = ds.read_array()
@@ -88,12 +83,10 @@ class TestWriteArray:
         written at row/col offset (3, 5) must round-trip exactly on both bands.
         """
         base = np.zeros((2, 8, 8), dtype=np.float64)
-        ds = Dataset.create_from_array(
-            base,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-        )
+        ds = Dataset.from_array(
+                 base,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+             )
         arr = np.array([[[1, 2], [3, 4]], [[5, 6], [7, 8]]])
         xoff = 5
         yoff = 3
@@ -108,13 +101,11 @@ class TestToXyz:
     def test_to_xyz_specific_bands(self):
         """to_xyz with specific bands should only include those bands."""
         arr = np.ones((3, 4, 4), dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=-9999.0,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+             )
         df = ds.to_xyz(bands=[0])
         band_cols = [c for c in df.columns if c not in ("lon", "lat")]
         assert len(band_cols) == 1, f"Expected 1 band column, got {len(band_cols)}"
@@ -122,35 +113,31 @@ class TestToXyz:
     def test_to_xyz_invalid_bands_raises(self):
         """to_xyz with an invalid bands type raises ValueError with a guiding message."""
         arr = np.ones((3, 3), dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=-9999.0,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+             )
         with pytest.raises(ValueError, match="integer or a list"):
             ds.to_xyz(bands="invalid")
 
 
 class TestCreateFromArrayEdgeCases:
-    """Tests for create_from_array edge cases."""
+    """Tests for from_array edge cases."""
 
     def test_missing_geo_and_top_left_raises(self):
-        """create_from_array without geo or top_left_corner should raise."""
+        """from_array without geo or top_left_corner should raise."""
         arr = np.ones((3, 3), dtype=np.float32)
         with pytest.raises(ValueError, match="top_left_corner"):
-            Dataset.create_from_array(arr, epsg=4326)
+            Dataset.from_array(arr, geo_ref=GeoReference(epsg=4326))
 
     def test_3d_array_creates_multi_band(self):
         """A 3D array should create a multi-band dataset."""
         arr = np.ones((4, 5, 6), dtype=np.float64)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=1.0,
-            epsg=4326,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
+             )
         assert ds.band_count == 4, (
             f"Expected 4 bands from 3D array, got {ds.band_count}"
         )
@@ -209,12 +196,10 @@ class TestToFile:
             [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]],
             dtype=np.float32,
         )
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+             )
         path = tmp_path / "output.tif"
         ds.to_file(path)
         assert path.exists(), "File should exist after to_file"
@@ -240,12 +225,10 @@ class TestToFile:
             [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]],
             dtype=np.float32,
         )
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+             )
         path = tmp_path / "output.nc"
         ds.to_file(path)
         assert path.exists(), "File should exist after to_file"
@@ -268,12 +251,10 @@ class TestToFile:
         from osgeo import gdal
 
         arr = np.zeros((20, 20), dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+             )
         path = tmp_path / "compressed.tif"
         ds.to_file(path)
         info = gdal.Info(str(path))
@@ -386,14 +367,11 @@ class TestOverviews:
         """create_overviews should build overviews on a disk-based dataset."""
         arr = np.ones((64, 64), dtype=np.float32)
         path = str(tmp_path / "overview_test.tif")
-        Dataset.create_from_array(
+        Dataset.from_array(
             arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
             no_data_value=-9999.0,
-            driver_type="GTiff",
             path=path,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
         )
         ds = Dataset.read_file(path, read_only=False)
         ds.create_overviews(
@@ -407,14 +385,11 @@ class TestOverviews:
         """create_overviews with invalid levels should raise ValueError."""
         arr = np.ones((32, 32), dtype=np.float32)
         path = str(tmp_path / "ov_invalid.tif")
-        Dataset.create_from_array(
+        Dataset.from_array(
             arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
             no_data_value=-9999.0,
-            driver_type="GTiff",
             path=path,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
         )
         ds = Dataset.read_file(path, read_only=False)
         with pytest.raises(ValueError, match="power-of-two"):
@@ -424,14 +399,11 @@ class TestOverviews:
         """create_overviews with non-list levels should raise TypeError."""
         arr = np.ones((32, 32), dtype=np.float32)
         path = str(tmp_path / "ov_type.tif")
-        Dataset.create_from_array(
+        Dataset.from_array(
             arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
             no_data_value=-9999.0,
-            driver_type="GTiff",
             path=path,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
         )
         ds = Dataset.read_file(path, read_only=False)
         with pytest.raises(TypeError, match="list"):
@@ -441,14 +413,11 @@ class TestOverviews:
         """create_overviews with invalid method raises ValueError."""
         arr = np.ones((32, 32), dtype=np.float32)
         path = str(tmp_path / "ov_method.tif")
-        Dataset.create_from_array(
+        Dataset.from_array(
             arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
             no_data_value=-9999.0,
-            driver_type="GTiff",
             path=path,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
         )
         ds = Dataset.read_file(path, read_only=False)
         with pytest.raises(ValueError, match="resampling_method"):
@@ -463,14 +432,11 @@ class TestOverviews:
         """get_overview and read_overview_array should work after creation."""
         arr = np.arange(0, 64 * 64, dtype=np.float32).reshape(64, 64)
         path = str(tmp_path / "ov_read.tif")
-        Dataset.create_from_array(
+        Dataset.from_array(
             arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
             no_data_value=-9999.0,
-            driver_type="GTiff",
             path=path,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
         )
         ds = Dataset.read_file(path, read_only=False)
         ds.create_overviews(overview_levels=[2])
@@ -486,14 +452,11 @@ class TestOverviews:
         """get_overview with too large index should raise ValueError."""
         arr = np.ones((64, 64), dtype=np.float32)
         path = str(tmp_path / "ov_idx.tif")
-        Dataset.create_from_array(
+        Dataset.from_array(
             arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
             no_data_value=-9999.0,
-            driver_type="GTiff",
             path=path,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
         )
         ds = Dataset.read_file(path, read_only=False)
         ds.create_overviews(overview_levels=[2])
@@ -504,14 +467,11 @@ class TestOverviews:
         """recreate_overviews should refresh overview data."""
         arr = np.ones((64, 64), dtype=np.float32)
         path = str(tmp_path / "ov_recreate.tif")
-        Dataset.create_from_array(
+        Dataset.from_array(
             arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
             no_data_value=-9999.0,
-            driver_type="GTiff",
             path=path,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
         )
         ds = Dataset.read_file(path, read_only=False)
         ds.create_overviews(overview_levels=[2])
@@ -523,14 +483,11 @@ class TestOverviews:
         """recreate_overviews with invalid method raises ValueError."""
         arr = np.ones((64, 64), dtype=np.float32)
         path = str(tmp_path / "ov_bad_method.tif")
-        Dataset.create_from_array(
+        Dataset.from_array(
             arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
             no_data_value=-9999.0,
-            driver_type="GTiff",
             path=path,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
         )
         ds = Dataset.read_file(path, read_only=False)
         ds.create_overviews(overview_levels=[2])
@@ -541,14 +498,11 @@ class TestOverviews:
         """read_overview_array with band=None on multi-band reads all bands."""
         arr = np.ones((3, 64, 64), dtype=np.float32)
         path = str(tmp_path / "ov_multi.tif")
-        Dataset.create_from_array(
+        Dataset.from_array(
             arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
             no_data_value=-9999.0,
-            driver_type="GTiff",
             path=path,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
         )
         ds = Dataset.read_file(path, read_only=False)
         ds.create_overviews(overview_levels=[2])
@@ -560,14 +514,11 @@ class TestOverviews:
         """read_overview_array with out-of-range band should raise."""
         arr = np.ones((64, 64), dtype=np.float32)
         path = str(tmp_path / "ov_oob.tif")
-        Dataset.create_from_array(
+        Dataset.from_array(
             arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
             no_data_value=-9999.0,
-            driver_type="GTiff",
             path=path,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
         )
         ds = Dataset.read_file(path, read_only=False)
         ds.create_overviews(overview_levels=[2])
@@ -588,13 +539,11 @@ class TestToXyzPath:
     def test_to_xyz_all_bands_default(self):
         """to_xyz with bands=None should include all bands."""
         arr = np.ones((2, 3, 3), dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=-9999.0,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+             )
         df = ds.to_xyz()
         band_cols = [c for c in df.columns if c not in ("lon", "lat")]
         assert len(band_cols) == 2, f"Expected 2 band columns, got {len(band_cols)}"
@@ -607,14 +556,11 @@ class TestReadOverviewArrayBranches:
         """read_overview_array band=None on single-band."""
         arr = np.ones((64, 64), dtype=np.float32)
         path = str(tmp_path / "ov_single.tif")
-        Dataset.create_from_array(
+        Dataset.from_array(
             arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
             no_data_value=-9999.0,
-            driver_type="GTiff",
             path=path,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
         )
         ds = Dataset.read_file(path, read_only=False)
         ds.create_overviews(overview_levels=[2])
@@ -625,14 +571,11 @@ class TestReadOverviewArrayBranches:
         """read_overview_array band=None with no overview raises."""
         arr = np.ones((3, 64, 64), dtype=np.float32)
         path = str(tmp_path / "ov_none.tif")
-        Dataset.create_from_array(
+        Dataset.from_array(
             arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
             no_data_value=-9999.0,
-            driver_type="GTiff",
             path=path,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
         )
         ds = Dataset.read_file(path, read_only=False)
         with pytest.raises(ValueError, match="overviews"):
@@ -642,14 +585,11 @@ class TestReadOverviewArrayBranches:
         """read_overview_array with band having no overviews raises."""
         arr = np.ones((64, 64), dtype=np.float32)
         path = str(tmp_path / "ov_noov.tif")
-        Dataset.create_from_array(
+        Dataset.from_array(
             arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
             no_data_value=-9999.0,
-            driver_type="GTiff",
             path=path,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
         )
         ds = Dataset.read_file(path, read_only=False)
         with pytest.raises(ValueError, match="overviews"):
@@ -663,14 +603,11 @@ class TestRecreateOverviewsReadOnly:
         """recreate_overviews on read-only raises ReadOnlyError."""
         arr = np.ones((64, 64), dtype=np.float32)
         path = str(tmp_path / "ov_ro.tif")
-        Dataset.create_from_array(
+        Dataset.from_array(
             arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
             no_data_value=-9999.0,
-            driver_type="GTiff",
             path=path,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
         )
         ds_rw = Dataset.read_file(path, read_only=False)
         ds_rw.create_overviews(overview_levels=[2])
@@ -686,13 +623,11 @@ class TestGetTile:
     def test_get_tile_yields_arrays(self):
         """get_tile should yield numpy arrays."""
         arr = np.arange(100, dtype=np.float32).reshape(10, 10)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=-9999.0,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+             )
         tiles = list(ds.get_tile(size=5))
         assert len(tiles) > 0, "Should yield at least 1 tile"
         for t in tiles:
@@ -705,12 +640,10 @@ class TestWriteArrayException:
     def test_write_array_wrong_shape_raises(self):
         """write_array with incompatible shape raises an exception."""
         arr = np.ones((3, 3), dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+             )
         bad_arr = np.ones((10, 10), dtype=np.float32)
         with pytest.raises(OutOfBoundsError, match="falls outside"):
             ds.write_array(bad_arr, top_left_corner=[0, 0])
@@ -722,12 +655,10 @@ class TestReadBlockReRaise:
     def test_read_block_generic_error(self):
         """_read_block re-raises errors that are not out-of-bounds."""
         arr = np.ones((3, 3), dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+             )
         mock_band = MagicMock()
         mock_band.ReadAsArray.side_effect = RuntimeError("some read error")
         with patch.object(ds, "_iloc", return_value=mock_band):
@@ -741,13 +672,11 @@ class TestToFileBlockSize:
     def test_to_file_with_block_size(self, tmp_path):
         """to_file should include block size options when set."""
         arr = np.ones((3, 3), dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 no_data_value=-9999.0,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+             )
         ds._block_size = [(256, 256)]
         path = tmp_path / "block.tif"
         ds.to_file(path)
@@ -765,9 +694,10 @@ class TestMapBlocks:
             should have all values doubled.
         """
         arr = np.arange(1, 37, dtype=np.float32).reshape(6, 6)
-        ds = Dataset.create_from_array(
-            arr, top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
+             )
         result = ds.map_blocks(lambda tile: tile * 2, tile_size=3)
         expected = arr * 2
         np.testing.assert_array_almost_equal(
@@ -798,9 +728,10 @@ class TestMapBlocks:
             exact same array as read_array().
         """
         arr = np.random.default_rng(42).random((10, 10)).astype(np.float32)
-        ds = Dataset.create_from_array(
-            arr, top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
+             )
         result = ds.map_blocks(lambda tile: tile, tile_size=4)
         np.testing.assert_array_equal(
             result.read_array(),
@@ -818,9 +749,10 @@ class TestMapBlocks:
         arr = np.ones((2, 4, 4), dtype=np.float32)
         arr[0, :, :] = 10
         arr[1, :, :] = 20
-        ds = Dataset.create_from_array(
-            arr, top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
+             )
         result = ds.map_blocks(lambda tile: tile + 5, tile_size=2, band=1)
         assert result.band_count == 1, f"Expected 1 band, got {result.band_count}"
         result_arr = result.read_array()
@@ -836,9 +768,10 @@ class TestMapBlocks:
             edges. All tiles should be processed correctly.
         """
         arr = np.ones((7, 5), dtype=np.float32) * 3.0
-        ds = Dataset.create_from_array(
-            arr, top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
+             )
         result = ds.map_blocks(lambda tile: tile + 1, tile_size=3)
         assert np.allclose(result.read_array(), 4.0), (
             "All cells should be 4.0 (3+1), including edge tiles"
@@ -852,9 +785,10 @@ class TestMapBlocks:
             a normal array operation.
         """
         arr = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr, top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
+             )
         result = ds.map_blocks(lambda tile: tile**2, tile_size=1000)
         expected = np.array([[1.0, 4.0], [9.0, 16.0]], dtype=np.float32)
         np.testing.assert_array_almost_equal(
@@ -874,9 +808,10 @@ class TestMapBlocks:
         arr[0] = 1
         arr[1] = 2
         arr[2] = 3
-        ds = Dataset.create_from_array(
-            arr, top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326
-        )
+        ds = Dataset.from_array(
+                 arr,
+                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
+             )
         result = ds.map_blocks(lambda tile: tile * 10, tile_size=2)
         assert result.band_count == 3, f"Expected 3 bands, got {result.band_count}"
         assert np.allclose(result.read_array(band=0), 10.0), "Band 0 should be 10"

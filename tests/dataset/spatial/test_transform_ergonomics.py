@@ -15,6 +15,7 @@ from pandas import DataFrame
 
 import pyramids.dataset
 from pyramids.dataset import Dataset, GeoTransform
+from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -26,12 +27,10 @@ def unit_dataset() -> Dataset:
     Returns:
         Dataset: Single-band in-memory dataset.
     """
-    return Dataset.create_from_array(
-        np.ones((4, 4), dtype="float32"),
-        top_left_corner=(0, 4),
-        cell_size=1.0,
-        epsg=4326,
-    )
+    return Dataset.from_array(
+               np.ones((4, 4), dtype="float32"),
+               geo_ref=GeoReference(top_left_corner=(0, 4), cell_size=1.0, epsg=4326),
+           )
 
 
 @pytest.fixture(scope="function")
@@ -41,11 +40,10 @@ def rect_dataset() -> Dataset:
     Returns:
         Dataset: Single-band dataset, 4 rows x 3 cols.
     """
-    return Dataset.create_from_array(
-        np.ones((4, 3), dtype="float32"),
-        geo=(10.0, 2.0, 0.0, 8.0, 0.0, -0.5),
-        epsg=4326,
-    )
+    return Dataset.from_array(
+               np.ones((4, 3), dtype="float32"),
+               geo_ref=GeoReference(geo=(10.0, 2.0, 0.0, 8.0, 0.0, -0.5), epsg=4326),
+           )
 
 
 @pytest.fixture(scope="function")
@@ -55,11 +53,10 @@ def rotated_dataset() -> Dataset:
     Returns:
         Dataset: Single-band dataset, 4 rows x 4 cols, skewed grid.
     """
-    return Dataset.create_from_array(
-        np.ones((4, 4), dtype="float32"),
-        geo=(100.0, 1.0, 0.2, 200.0, 0.1, -1.0),
-        epsg=4326,
-    )
+    return Dataset.from_array(
+               np.ones((4, 4), dtype="float32"),
+               geo_ref=GeoReference(geo=(100.0, 1.0, 0.2, 200.0, 0.1, -1.0), epsg=4326),
+           )
 
 
 class TestGeoTransform:
