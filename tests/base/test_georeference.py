@@ -57,11 +57,36 @@ class TestGeoReferenceConstruction:
         with pytest.raises(dataclasses.FrozenInstanceError):
             ref.geo = None  # type: ignore[misc]
 
-    def test_equal_values_compare_equal(self):
-        """Dataclass equality holds, which makes the type usable in assertions."""
-        assert GeoReference(geo=GEO, epsg=4326) == GeoReference(geo=GEO, epsg=4326), (
-            "two references with identical fields must compare equal"
+    def test_equality_is_by_value_not_identity(self):
+        """Two distinct references with the same fields compare equal.
+
+        Test scenario:
+            Built from differently-spelled but equivalent inputs, so the
+            assertion cannot pass on identity alone -- comparing two
+            syntactically identical expressions would still succeed if
+            `__eq__` fell back to `is`, and would be testing `dataclasses`
+            rather than this type.
+        """
+        from_literal = GeoReference(geo=(0.0, 1.0, 0.0, 3.0, 0.0, -1.0), epsg=4326)
+        from_tuple_call = GeoReference(geo=tuple(GEO), epsg=4326)
+        assert from_literal is not from_tuple_call, "the fixtures must be distinct"
+        assert from_literal == from_tuple_call, (
+            f"equal fields must compare equal: {from_literal} != {from_tuple_call}"
         )
+
+    def test_a_differing_field_compares_unequal(self):
+        """A reference differing in one field is not equal.
+
+        Test scenario:
+            The negative half of the contract. Without it, an `__eq__` that
+            returned `True` unconditionally would pass the positive case.
+        """
+        assert GeoReference(geo=GEO, epsg=4326) != GeoReference(geo=GEO, epsg=3857), (
+            "references differing only in epsg must not compare equal"
+        )
+        assert GeoReference(geo=GEO) != GeoReference(
+            top_left_corner=(0.0, 3.0), cell_size=1.0
+        ), "references that resolve alike but hold different fields are not equal"
 
     def test_replace_produces_an_updated_copy(self):
         """`dataclasses.replace` works, which `create_empty` relies on.
