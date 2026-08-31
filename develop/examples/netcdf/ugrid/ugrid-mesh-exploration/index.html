@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -7788,7 +7788,7 @@ print(f"Velocity range: {velocity.min():.2f} to {velocity.max():.2f} m/s")</div>
 </clipboard-copy>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># Build a UgridDataset with the synthetic data</span>
-<span class="n">synth_ds</span> <span class="o">=</span> <span class="n">UgridDataset</span><span class="o">.</span><span class="n">create_from_arrays</span><span class="p">(</span>
+<span class="n">synth_ds</span> <span class="o">=</span> <span class="n">UgridDataset</span><span class="o">.</span><span class="n">from_arrays</span><span class="p">(</span>
     <span class="n">node_x</span><span class="o">=</span><span class="n">mesh</span><span class="o">.</span><span class="n">node_x</span><span class="p">,</span>
     <span class="n">node_y</span><span class="o">=</span><span class="n">mesh</span><span class="o">.</span><span class="n">node_y</span><span class="p">,</span>
     <span class="n">face_node_connectivity</span><span class="o">=</span><span class="n">mesh</span><span class="o">.</span><span class="n">face_node_connectivity</span><span class="o">.</span><span class="n">data</span><span class="p">,</span>
@@ -7806,7 +7806,7 @@ print(f"Velocity range: {velocity.min():.2f} to {velocity.max():.2f} m/s")</div>
 <span class="nb">print</span><span class="p">(</span><span class="n">synth_ds</span><span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-11"># Build a UgridDataset with the synthetic data
-synth_ds = UgridDataset.create_from_arrays(
+synth_ds = UgridDataset.from_arrays(
     node_x=mesh.node_x,
     node_y=mesh.node_y,
     face_node_connectivity=mesh.face_node_connectivity.data,
@@ -8709,7 +8709,7 @@ print(f"Range: [{water_levels.min():.2f}, {water_levels.max():.2f}] m")</div>
 </clipboard-copy>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># Create a temporal UgridDataset</span>
-<span class="n">temporal_ds</span> <span class="o">=</span> <span class="n">UgridDataset</span><span class="o">.</span><span class="n">create_from_arrays</span><span class="p">(</span>
+<span class="n">temporal_ds</span> <span class="o">=</span> <span class="n">UgridDataset</span><span class="o">.</span><span class="n">from_arrays</span><span class="p">(</span>
     <span class="n">node_x</span><span class="o">=</span><span class="n">subset</span><span class="o">.</span><span class="n">mesh</span><span class="o">.</span><span class="n">node_x</span><span class="p">,</span>
     <span class="n">node_y</span><span class="o">=</span><span class="n">subset</span><span class="o">.</span><span class="n">mesh</span><span class="o">.</span><span class="n">node_y</span><span class="p">,</span>
     <span class="n">face_node_connectivity</span><span class="o">=</span><span class="n">subset</span><span class="o">.</span><span class="n">mesh</span><span class="o">.</span><span class="n">face_node_connectivity</span><span class="o">.</span><span class="n">data</span><span class="p">,</span>
@@ -8724,7 +8724,7 @@ print(f"Range: [{water_levels.min():.2f}, {water_levels.max():.2f}] m")</div>
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Shape: </span><span class="si">{</span><span class="n">wl_var</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-29"># Create a temporal UgridDataset
-temporal_ds = UgridDataset.create_from_arrays(
+temporal_ds = UgridDataset.from_arrays(
     node_x=subset.mesh.node_x,
     node_y=subset.mesh.node_y,
     face_node_connectivity=subset.mesh.face_node_connectivity.data,
@@ -9010,7 +9010,7 @@ HTML(anim.to_jshtml())</div>
 </tr>
 <tr>
 <td>Create</td>
-<td><code>.create_from_arrays()</code></td>
+<td><code>.from_arrays()</code></td>
 <td>Programmatic construction</td>
 </tr>
 </tbody>

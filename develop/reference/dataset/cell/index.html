@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6875,7 +6875,7 @@ and <code>ds.cell.get_cell_coords(...)</code> are equivalent.</p>
 <a id="__codelineno-0-67" name="__codelineno-0-67"></a><span class="sd">              &gt;&gt;&gt; arr = np.random.randint(1,3, size=(3, 3))</span>
 <a id="__codelineno-0-68" name="__codelineno-0-68"></a><span class="sd">              &gt;&gt;&gt; top_left_corner = (0, 0)</span>
 <a id="__codelineno-0-69" name="__codelineno-0-69"></a><span class="sd">              &gt;&gt;&gt; cell_size = 0.05</span>
-<a id="__codelineno-0-70" name="__codelineno-0-70"></a><span class="sd">              &gt;&gt;&gt; dataset = Dataset.create_from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)</span>
+<a id="__codelineno-0-70" name="__codelineno-0-70"></a><span class="sd">              &gt;&gt;&gt; dataset = Dataset.from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)</span>
 <a id="__codelineno-0-71" name="__codelineno-0-71"></a>
 <a id="__codelineno-0-72" name="__codelineno-0-72"></a><span class="sd">              ```</span>
 <a id="__codelineno-0-73" name="__codelineno-0-73"></a>
@@ -7013,7 +7013,7 @@ and <code>ds.cell.get_cell_coords(...)</code> are equivalent.</p>
 <a id="__codelineno-0-205" name="__codelineno-0-205"></a><span class="sd">              &gt;&gt;&gt; arr = np.random.randint(1,3, size=(3, 3))</span>
 <a id="__codelineno-0-206" name="__codelineno-0-206"></a><span class="sd">              &gt;&gt;&gt; top_left_corner = (0, 0)</span>
 <a id="__codelineno-0-207" name="__codelineno-0-207"></a><span class="sd">              &gt;&gt;&gt; cell_size = 0.05</span>
-<a id="__codelineno-0-208" name="__codelineno-0-208"></a><span class="sd">              &gt;&gt;&gt; dataset = Dataset.create_from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)</span>
+<a id="__codelineno-0-208" name="__codelineno-0-208"></a><span class="sd">              &gt;&gt;&gt; dataset = Dataset.from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)</span>
 <a id="__codelineno-0-209" name="__codelineno-0-209"></a>
 <a id="__codelineno-0-210" name="__codelineno-0-210"></a><span class="sd">              ```</span>
 <a id="__codelineno-0-211" name="__codelineno-0-211"></a>
@@ -7098,7 +7098,7 @@ and <code>ds.cell.get_cell_coords(...)</code> are equivalent.</p>
 <a id="__codelineno-0-290" name="__codelineno-0-290"></a><span class="sd">              &gt;&gt;&gt; arr = np.random.randint(1,3, size=(3, 3))</span>
 <a id="__codelineno-0-291" name="__codelineno-0-291"></a><span class="sd">              &gt;&gt;&gt; top_left_corner = (0, 0)</span>
 <a id="__codelineno-0-292" name="__codelineno-0-292"></a><span class="sd">              &gt;&gt;&gt; cell_size = 0.05</span>
-<a id="__codelineno-0-293" name="__codelineno-0-293"></a><span class="sd">              &gt;&gt;&gt; dataset = Dataset.create_from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)</span>
+<a id="__codelineno-0-293" name="__codelineno-0-293"></a><span class="sd">              &gt;&gt;&gt; dataset = Dataset.from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)</span>
 <a id="__codelineno-0-294" name="__codelineno-0-294"></a>
 <a id="__codelineno-0-295" name="__codelineno-0-295"></a><span class="sd">              ```</span>
 <a id="__codelineno-0-296" name="__codelineno-0-296"></a>
@@ -7185,7 +7185,7 @@ and <code>ds.cell.get_cell_coords(...)</code> are equivalent.</p>
 <a id="__codelineno-0-377" name="__codelineno-0-377"></a><span class="sd">              &gt;&gt;&gt; arr = np.random.randint(1, 3, size=(2, 10, 10))</span>
 <a id="__codelineno-0-378" name="__codelineno-0-378"></a><span class="sd">              &gt;&gt;&gt; top_left_corner = (0, 0)</span>
 <a id="__codelineno-0-379" name="__codelineno-0-379"></a><span class="sd">              &gt;&gt;&gt; cell_size = 0.05</span>
-<a id="__codelineno-0-380" name="__codelineno-0-380"></a><span class="sd">              &gt;&gt;&gt; dataset = Dataset.create_from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)</span>
+<a id="__codelineno-0-380" name="__codelineno-0-380"></a><span class="sd">              &gt;&gt;&gt; dataset = Dataset.from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)</span>
 <a id="__codelineno-0-381" name="__codelineno-0-381"></a>
 <a id="__codelineno-0-382" name="__codelineno-0-382"></a><span class="sd">              ```</span>
 <a id="__codelineno-0-383" name="__codelineno-0-383"></a><span class="sd">            - DataFrame with x, y columns:</span>
@@ -7281,7 +7281,7 @@ and <code>ds.cell.get_cell_coords(...)</code> are equivalent.</p>
 <a id="__codelineno-0-473" name="__codelineno-0-473"></a><span class="sd">              &gt;&gt;&gt; arr = np.random.randint(1, 3, size=(10, 10))</span>
 <a id="__codelineno-0-474" name="__codelineno-0-474"></a><span class="sd">              &gt;&gt;&gt; top_left_corner = (0, 0)</span>
 <a id="__codelineno-0-475" name="__codelineno-0-475"></a><span class="sd">              &gt;&gt;&gt; cell_size = 0.05</span>
-<a id="__codelineno-0-476" name="__codelineno-0-476"></a><span class="sd">              &gt;&gt;&gt; dataset = Dataset.create_from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)</span>
+<a id="__codelineno-0-476" name="__codelineno-0-476"></a><span class="sd">              &gt;&gt;&gt; dataset = Dataset.from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)</span>
 <a id="__codelineno-0-477" name="__codelineno-0-477"></a>
 <a id="__codelineno-0-478" name="__codelineno-0-478"></a><span class="sd">              ```</span>
 <a id="__codelineno-0-479" name="__codelineno-0-479"></a>
@@ -7460,7 +7460,7 @@ Array with all the centers of cells in the domain of the DEM.</p>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="mi">3</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">3</span><span class="p">))</span>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">top_left_corner</span> <span class="o">=</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">cell_size</span> <span class="o">=</span> <span class="mf">0.05</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">dataset</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">top_left_corner</span><span class="o">=</span><span class="n">top_left_corner</span><span class="p">,</span> <span class="n">cell_size</span><span class="o">=</span><span class="n">cell_size</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">)</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">dataset</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">top_left_corner</span><span class="o">=</span><span class="n">top_left_corner</span><span class="p">,</span> <span class="n">cell_size</span><span class="o">=</span><span class="n">cell_size</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">)</span>
 </code></pre></div>
 <ul>
 <li>Get the coordinates of the center of cells inside the domain.</li>
@@ -7648,7 +7648,7 @@ Array with all the centers of cells in the domain of the DEM.</p>
 <a id="__codelineno-0-67" name="__codelineno-0-67"></a><span class="sd">          &gt;&gt;&gt; arr = np.random.randint(1,3, size=(3, 3))</span>
 <a id="__codelineno-0-68" name="__codelineno-0-68"></a><span class="sd">          &gt;&gt;&gt; top_left_corner = (0, 0)</span>
 <a id="__codelineno-0-69" name="__codelineno-0-69"></a><span class="sd">          &gt;&gt;&gt; cell_size = 0.05</span>
-<a id="__codelineno-0-70" name="__codelineno-0-70"></a><span class="sd">          &gt;&gt;&gt; dataset = Dataset.create_from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)</span>
+<a id="__codelineno-0-70" name="__codelineno-0-70"></a><span class="sd">          &gt;&gt;&gt; dataset = Dataset.from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)</span>
 <a id="__codelineno-0-71" name="__codelineno-0-71"></a>
 <a id="__codelineno-0-72" name="__codelineno-0-72"></a><span class="sd">          ```</span>
 <a id="__codelineno-0-73" name="__codelineno-0-73"></a>
@@ -7829,7 +7829,7 @@ raster has no CRS.</p>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="mi">3</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">3</span><span class="p">))</span>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">top_left_corner</span> <span class="o">=</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">cell_size</span> <span class="o">=</span> <span class="mf">0.05</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">dataset</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">top_left_corner</span><span class="o">=</span><span class="n">top_left_corner</span><span class="p">,</span> <span class="n">cell_size</span><span class="o">=</span><span class="n">cell_size</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">)</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">dataset</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">top_left_corner</span><span class="o">=</span><span class="n">top_left_corner</span><span class="p">,</span> <span class="n">cell_size</span><span class="o">=</span><span class="n">cell_size</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">)</span>
 </code></pre></div>
 <ul>
 <li>Get the coordinates of the center of cells inside the domain.</li>
@@ -7959,7 +7959,7 @@ raster has no CRS.</p>
 <a id="__codelineno-0-205" name="__codelineno-0-205"></a><span class="sd">          &gt;&gt;&gt; arr = np.random.randint(1,3, size=(3, 3))</span>
 <a id="__codelineno-0-206" name="__codelineno-0-206"></a><span class="sd">          &gt;&gt;&gt; top_left_corner = (0, 0)</span>
 <a id="__codelineno-0-207" name="__codelineno-0-207"></a><span class="sd">          &gt;&gt;&gt; cell_size = 0.05</span>
-<a id="__codelineno-0-208" name="__codelineno-0-208"></a><span class="sd">          &gt;&gt;&gt; dataset = Dataset.create_from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)</span>
+<a id="__codelineno-0-208" name="__codelineno-0-208"></a><span class="sd">          &gt;&gt;&gt; dataset = Dataset.from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)</span>
 <a id="__codelineno-0-209" name="__codelineno-0-209"></a>
 <a id="__codelineno-0-210" name="__codelineno-0-210"></a><span class="sd">          ```</span>
 <a id="__codelineno-0-211" name="__codelineno-0-211"></a>
@@ -8118,7 +8118,7 @@ raster has no CRS.</p>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="mi">3</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">3</span><span class="p">))</span>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">top_left_corner</span> <span class="o">=</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">cell_size</span> <span class="o">=</span> <span class="mf">0.05</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">dataset</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">top_left_corner</span><span class="o">=</span><span class="n">top_left_corner</span><span class="p">,</span> <span class="n">cell_size</span><span class="o">=</span><span class="n">cell_size</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">)</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">dataset</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">top_left_corner</span><span class="o">=</span><span class="n">top_left_corner</span><span class="p">,</span> <span class="n">cell_size</span><span class="o">=</span><span class="n">cell_size</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">)</span>
 </code></pre></div>
 <ul>
 <li>Get the coordinates of the center of cells inside the domain.</li>
@@ -8278,7 +8278,7 @@ raster has no CRS.</p>
 <a id="__codelineno-0-290" name="__codelineno-0-290"></a><span class="sd">          &gt;&gt;&gt; arr = np.random.randint(1,3, size=(3, 3))</span>
 <a id="__codelineno-0-291" name="__codelineno-0-291"></a><span class="sd">          &gt;&gt;&gt; top_left_corner = (0, 0)</span>
 <a id="__codelineno-0-292" name="__codelineno-0-292"></a><span class="sd">          &gt;&gt;&gt; cell_size = 0.05</span>
-<a id="__codelineno-0-293" name="__codelineno-0-293"></a><span class="sd">          &gt;&gt;&gt; dataset = Dataset.create_from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)</span>
+<a id="__codelineno-0-293" name="__codelineno-0-293"></a><span class="sd">          &gt;&gt;&gt; dataset = Dataset.from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)</span>
 <a id="__codelineno-0-294" name="__codelineno-0-294"></a>
 <a id="__codelineno-0-295" name="__codelineno-0-295"></a><span class="sd">          ```</span>
 <a id="__codelineno-0-296" name="__codelineno-0-296"></a>
@@ -8428,7 +8428,7 @@ Array with shape (N, 2) containing the row and column indices in the array.</p>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">10</span><span class="p">))</span>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">top_left_corner</span> <span class="o">=</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">cell_size</span> <span class="o">=</span> <span class="mf">0.05</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">dataset</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">top_left_corner</span><span class="o">=</span><span class="n">top_left_corner</span><span class="p">,</span> <span class="n">cell_size</span><span class="o">=</span><span class="n">cell_size</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">)</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">dataset</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">top_left_corner</span><span class="o">=</span><span class="n">top_left_corner</span><span class="p">,</span> <span class="n">cell_size</span><span class="o">=</span><span class="n">cell_size</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">)</span>
 </code></pre></div>
 - DataFrame with x, y columns:</p>
 <ul>
@@ -8571,7 +8571,7 @@ Array with shape (N, 2) containing the row and column indices in the array.</p>
 <a id="__codelineno-0-377" name="__codelineno-0-377"></a><span class="sd">          &gt;&gt;&gt; arr = np.random.randint(1, 3, size=(2, 10, 10))</span>
 <a id="__codelineno-0-378" name="__codelineno-0-378"></a><span class="sd">          &gt;&gt;&gt; top_left_corner = (0, 0)</span>
 <a id="__codelineno-0-379" name="__codelineno-0-379"></a><span class="sd">          &gt;&gt;&gt; cell_size = 0.05</span>
-<a id="__codelineno-0-380" name="__codelineno-0-380"></a><span class="sd">          &gt;&gt;&gt; dataset = Dataset.create_from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)</span>
+<a id="__codelineno-0-380" name="__codelineno-0-380"></a><span class="sd">          &gt;&gt;&gt; dataset = Dataset.from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)</span>
 <a id="__codelineno-0-381" name="__codelineno-0-381"></a>
 <a id="__codelineno-0-382" name="__codelineno-0-382"></a><span class="sd">          ```</span>
 <a id="__codelineno-0-383" name="__codelineno-0-383"></a><span class="sd">        - DataFrame with x, y columns:</span>
@@ -8772,7 +8772,7 @@ lengths (the indices are paired element-wise).</p>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">10</span><span class="p">))</span>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">top_left_corner</span> <span class="o">=</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">cell_size</span> <span class="o">=</span> <span class="mf">0.05</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">dataset</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">top_left_corner</span><span class="o">=</span><span class="n">top_left_corner</span><span class="p">,</span> <span class="n">cell_size</span><span class="o">=</span><span class="n">cell_size</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">)</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">dataset</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">top_left_corner</span><span class="o">=</span><span class="n">top_left_corner</span><span class="p">,</span> <span class="n">cell_size</span><span class="o">=</span><span class="n">cell_size</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">)</span>
 </code></pre></div>
 <ul>
 <li>Now call the function with two lists of row and column indices:</li>
@@ -8936,7 +8936,7 @@ non-square and rotated grids rather than assuming square pixels.</p>
 <a id="__codelineno-0-473" name="__codelineno-0-473"></a><span class="sd">          &gt;&gt;&gt; arr = np.random.randint(1, 3, size=(10, 10))</span>
 <a id="__codelineno-0-474" name="__codelineno-0-474"></a><span class="sd">          &gt;&gt;&gt; top_left_corner = (0, 0)</span>
 <a id="__codelineno-0-475" name="__codelineno-0-475"></a><span class="sd">          &gt;&gt;&gt; cell_size = 0.05</span>
-<a id="__codelineno-0-476" name="__codelineno-0-476"></a><span class="sd">          &gt;&gt;&gt; dataset = Dataset.create_from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)</span>
+<a id="__codelineno-0-476" name="__codelineno-0-476"></a><span class="sd">          &gt;&gt;&gt; dataset = Dataset.from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)</span>
 <a id="__codelineno-0-477" name="__codelineno-0-477"></a>
 <a id="__codelineno-0-478" name="__codelineno-0-478"></a><span class="sd">          ```</span>
 <a id="__codelineno-0-479" name="__codelineno-0-479"></a>

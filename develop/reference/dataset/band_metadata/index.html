@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -8841,7 +8841,7 @@ Hold "Ctrl" to enable pan &amp; zoom
 <a id="__codelineno-0-446" name="__codelineno-0-446"></a><span class="sd">              ```</span>
 <a id="__codelineno-0-447" name="__codelineno-0-447"></a>
 <a id="__codelineno-0-448" name="__codelineno-0-448"></a><span class="sd">        See Also:</span>
-<a id="__codelineno-0-449" name="__codelineno-0-449"></a><span class="sd">            Dataset.create_from_array: create a new dataset from an array.</span>
+<a id="__codelineno-0-449" name="__codelineno-0-449"></a><span class="sd">            Dataset.from_array: create a new dataset from an array.</span>
 <a id="__codelineno-0-450" name="__codelineno-0-450"></a><span class="sd">            Dataset.create: create a new dataset with an empty band.</span>
 <a id="__codelineno-0-451" name="__codelineno-0-451"></a><span class="sd">            Dataset.dataset_like: create a new dataset from another dataset.</span>
 <a id="__codelineno-0-452" name="__codelineno-0-452"></a><span class="sd">            Dataset.get_attribute_table: get the attribute table for a specific band.</span>
@@ -9005,7 +9005,7 @@ Hold "Ctrl" to enable pan &amp; zoom
 <a id="__codelineno-0-610" name="__codelineno-0-610"></a><span class="sd">                &gt;&gt;&gt; import numpy as np</span>
 <a id="__codelineno-0-611" name="__codelineno-0-611"></a><span class="sd">                &gt;&gt;&gt; from pyramids.dataset import Dataset</span>
 <a id="__codelineno-0-612" name="__codelineno-0-612"></a><span class="sd">                &gt;&gt;&gt; arr = np.arange(3 * 4).reshape(3, 2, 2).astype("float32")</span>
-<a id="__codelineno-0-613" name="__codelineno-0-613"></a><span class="sd">                &gt;&gt;&gt; ds = Dataset.create_from_array(</span>
+<a id="__codelineno-0-613" name="__codelineno-0-613"></a><span class="sd">                &gt;&gt;&gt; ds = Dataset.from_array(</span>
 <a id="__codelineno-0-614" name="__codelineno-0-614"></a><span class="sd">                ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326</span>
 <a id="__codelineno-0-615" name="__codelineno-0-615"></a><span class="sd">                ... )</span>
 <a id="__codelineno-0-616" name="__codelineno-0-616"></a><span class="sd">                &gt;&gt;&gt; subset = ds.bands.select([3, 1])</span>
@@ -9107,7 +9107,7 @@ Hold "Ctrl" to enable pan &amp; zoom
 <a id="__codelineno-0-712" name="__codelineno-0-712"></a><span class="sd">              &gt;&gt;&gt; arr = np.random.randint(1, 3, size=(10, 10))</span>
 <a id="__codelineno-0-713" name="__codelineno-0-713"></a><span class="sd">              &gt;&gt;&gt; top_left_corner = (0, 0)</span>
 <a id="__codelineno-0-714" name="__codelineno-0-714"></a><span class="sd">              &gt;&gt;&gt; cell_size = 0.05</span>
-<a id="__codelineno-0-715" name="__codelineno-0-715"></a><span class="sd">              &gt;&gt;&gt; dataset = Dataset.create_from_array(</span>
+<a id="__codelineno-0-715" name="__codelineno-0-715"></a><span class="sd">              &gt;&gt;&gt; dataset = Dataset.from_array(</span>
 <a id="__codelineno-0-716" name="__codelineno-0-716"></a><span class="sd">              ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326</span>
 <a id="__codelineno-0-717" name="__codelineno-0-717"></a><span class="sd">              ... )</span>
 <a id="__codelineno-0-718" name="__codelineno-0-718"></a>
@@ -9128,7 +9128,7 @@ Hold "Ctrl" to enable pan &amp; zoom
 <a id="__codelineno-0-733" name="__codelineno-0-733"></a><span class="sd">              &gt;&gt;&gt; arr = np.random.randint(1, 3, size=(3, 10, 10))</span>
 <a id="__codelineno-0-734" name="__codelineno-0-734"></a><span class="sd">              &gt;&gt;&gt; top_left_corner = (0, 0)</span>
 <a id="__codelineno-0-735" name="__codelineno-0-735"></a><span class="sd">              &gt;&gt;&gt; cell_size = 0.05</span>
-<a id="__codelineno-0-736" name="__codelineno-0-736"></a><span class="sd">              &gt;&gt;&gt; dataset = Dataset.create_from_array(</span>
+<a id="__codelineno-0-736" name="__codelineno-0-736"></a><span class="sd">              &gt;&gt;&gt; dataset = Dataset.from_array(</span>
 <a id="__codelineno-0-737" name="__codelineno-0-737"></a><span class="sd">              ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326</span>
 <a id="__codelineno-0-738" name="__codelineno-0-738"></a><span class="sd">              ... )</span>
 <a id="__codelineno-0-739" name="__codelineno-0-739"></a><span class="sd">              &gt;&gt;&gt; dataset.band_color = {0: 'red', 1: 'green', 2: 'blue'}</span>
@@ -9168,7 +9168,7 @@ Hold "Ctrl" to enable pan &amp; zoom
 <a id="__codelineno-0-773" name="__codelineno-0-773"></a><span class="sd">              &gt;&gt;&gt; import numpy as np</span>
 <a id="__codelineno-0-774" name="__codelineno-0-774"></a><span class="sd">              &gt;&gt;&gt; from pyramids.dataset import Dataset</span>
 <a id="__codelineno-0-775" name="__codelineno-0-775"></a><span class="sd">              &gt;&gt;&gt; arr = np.zeros((2, 4, 4), dtype="int16")</span>
-<a id="__codelineno-0-776" name="__codelineno-0-776"></a><span class="sd">              &gt;&gt;&gt; dataset = Dataset.create_from_array(</span>
+<a id="__codelineno-0-776" name="__codelineno-0-776"></a><span class="sd">              &gt;&gt;&gt; dataset = Dataset.from_array(</span>
 <a id="__codelineno-0-777" name="__codelineno-0-777"></a><span class="sd">              ...     arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326</span>
 <a id="__codelineno-0-778" name="__codelineno-0-778"></a><span class="sd">              ... )</span>
 <a id="__codelineno-0-779" name="__codelineno-0-779"></a><span class="sd">              &gt;&gt;&gt; dataset.band_meta_data = [{"WAVELENGTH": "443"}, {"WAVELENGTH": "490"}]</span>
@@ -9185,7 +9185,7 @@ Hold "Ctrl" to enable pan &amp; zoom
 <a id="__codelineno-0-790" name="__codelineno-0-790"></a><span class="sd">              &gt;&gt;&gt; import numpy as np</span>
 <a id="__codelineno-0-791" name="__codelineno-0-791"></a><span class="sd">              &gt;&gt;&gt; from pyramids.dataset import Dataset</span>
 <a id="__codelineno-0-792" name="__codelineno-0-792"></a><span class="sd">              &gt;&gt;&gt; arr = np.zeros((1, 4, 4), dtype="int16")</span>
-<a id="__codelineno-0-793" name="__codelineno-0-793"></a><span class="sd">              &gt;&gt;&gt; dataset = Dataset.create_from_array(</span>
+<a id="__codelineno-0-793" name="__codelineno-0-793"></a><span class="sd">              &gt;&gt;&gt; dataset = Dataset.from_array(</span>
 <a id="__codelineno-0-794" name="__codelineno-0-794"></a><span class="sd">              ...     arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326</span>
 <a id="__codelineno-0-795" name="__codelineno-0-795"></a><span class="sd">              ... )</span>
 <a id="__codelineno-0-796" name="__codelineno-0-796"></a><span class="sd">              &gt;&gt;&gt; dataset.bands.metadata</span>
@@ -9257,7 +9257,7 @@ Hold "Ctrl" to enable pan &amp; zoom
 <a id="__codelineno-0-862" name="__codelineno-0-862"></a><span class="sd">              ```python</span>
 <a id="__codelineno-0-863" name="__codelineno-0-863"></a><span class="sd">              &gt;&gt;&gt; import numpy as np</span>
 <a id="__codelineno-0-864" name="__codelineno-0-864"></a><span class="sd">              &gt;&gt;&gt; from pyramids.dataset import Dataset</span>
-<a id="__codelineno-0-865" name="__codelineno-0-865"></a><span class="sd">              &gt;&gt;&gt; dataset = Dataset.create_from_array(</span>
+<a id="__codelineno-0-865" name="__codelineno-0-865"></a><span class="sd">              &gt;&gt;&gt; dataset = Dataset.from_array(</span>
 <a id="__codelineno-0-866" name="__codelineno-0-866"></a><span class="sd">              ...     np.zeros((4, 4), dtype="int16"),</span>
 <a id="__codelineno-0-867" name="__codelineno-0-867"></a><span class="sd">              ...     top_left_corner=(0, 0), cell_size=0.05, epsg=4326,</span>
 <a id="__codelineno-0-868" name="__codelineno-0-868"></a><span class="sd">              ... )</span>
@@ -9424,7 +9424,7 @@ Hold "Ctrl" to enable pan &amp; zoom
 <a id="__codelineno-0-1029" name="__codelineno-0-1029"></a><span class="sd">              &gt;&gt;&gt; arr = np.random.randint(1, 3, size=(3, 10, 10))</span>
 <a id="__codelineno-0-1030" name="__codelineno-0-1030"></a><span class="sd">              &gt;&gt;&gt; top_left_corner = (0, 0)</span>
 <a id="__codelineno-0-1031" name="__codelineno-0-1031"></a><span class="sd">              &gt;&gt;&gt; cell_size = 0.05</span>
-<a id="__codelineno-0-1032" name="__codelineno-0-1032"></a><span class="sd">              &gt;&gt;&gt; dataset = Dataset.create_from_array(</span>
+<a id="__codelineno-0-1032" name="__codelineno-0-1032"></a><span class="sd">              &gt;&gt;&gt; dataset = Dataset.from_array(</span>
 <a id="__codelineno-0-1033" name="__codelineno-0-1033"></a><span class="sd">              ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326</span>
 <a id="__codelineno-0-1034" name="__codelineno-0-1034"></a><span class="sd">              ... )</span>
 <a id="__codelineno-0-1035" name="__codelineno-0-1035"></a><span class="sd">              &gt;&gt;&gt; dataset.band_color = {0: 'red', 1: 'green', 2: 'blue'}</span>
@@ -9466,7 +9466,7 @@ Hold "Ctrl" to enable pan &amp; zoom
 <a id="__codelineno-0-1071" name="__codelineno-0-1071"></a><span class="sd">              &gt;&gt;&gt; arr = np.random.randint(1, 3, size=(2, 10, 10))</span>
 <a id="__codelineno-0-1072" name="__codelineno-0-1072"></a><span class="sd">              &gt;&gt;&gt; top_left_corner = (0, 0)</span>
 <a id="__codelineno-0-1073" name="__codelineno-0-1073"></a><span class="sd">              &gt;&gt;&gt; cell_size = 0.05</span>
-<a id="__codelineno-0-1074" name="__codelineno-0-1074"></a><span class="sd">              &gt;&gt;&gt; dataset = Dataset.create_from_array(</span>
+<a id="__codelineno-0-1074" name="__codelineno-0-1074"></a><span class="sd">              &gt;&gt;&gt; dataset = Dataset.from_array(</span>
 <a id="__codelineno-0-1075" name="__codelineno-0-1075"></a><span class="sd">              ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326</span>
 <a id="__codelineno-0-1076" name="__codelineno-0-1076"></a><span class="sd">              ... )</span>
 <a id="__codelineno-0-1077" name="__codelineno-0-1077"></a>
@@ -9551,7 +9551,7 @@ Hold "Ctrl" to enable pan &amp; zoom
 <a id="__codelineno-0-1156" name="__codelineno-0-1156"></a><span class="sd">              &gt;&gt;&gt; arr = np.random.randint(1, 3, size=(2, 10, 10))</span>
 <a id="__codelineno-0-1157" name="__codelineno-0-1157"></a><span class="sd">              &gt;&gt;&gt; top_left_corner = (0, 0)</span>
 <a id="__codelineno-0-1158" name="__codelineno-0-1158"></a><span class="sd">              &gt;&gt;&gt; cell_size = 0.05</span>
-<a id="__codelineno-0-1159" name="__codelineno-0-1159"></a><span class="sd">              &gt;&gt;&gt; dataset = Dataset.create_from_array(</span>
+<a id="__codelineno-0-1159" name="__codelineno-0-1159"></a><span class="sd">              &gt;&gt;&gt; dataset = Dataset.from_array(</span>
 <a id="__codelineno-0-1160" name="__codelineno-0-1160"></a><span class="sd">              ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326</span>
 <a id="__codelineno-0-1161" name="__codelineno-0-1161"></a><span class="sd">              ... )</span>
 <a id="__codelineno-0-1162" name="__codelineno-0-1162"></a>
@@ -9683,7 +9683,7 @@ Hold "Ctrl" to enable pan &amp; zoom
 <a id="__codelineno-0-1288" name="__codelineno-0-1288"></a><span class="sd">              &gt;&gt;&gt; import numpy as np</span>
 <a id="__codelineno-0-1289" name="__codelineno-0-1289"></a><span class="sd">              &gt;&gt;&gt; from pyramids.dataset import Dataset</span>
 <a id="__codelineno-0-1290" name="__codelineno-0-1290"></a><span class="sd">              &gt;&gt;&gt; arr = np.random.randint(1, 6, size=(10, 10))</span>
-<a id="__codelineno-0-1291" name="__codelineno-0-1291"></a><span class="sd">              &gt;&gt;&gt; ds = Dataset.create_from_array(</span>
+<a id="__codelineno-0-1291" name="__codelineno-0-1291"></a><span class="sd">              &gt;&gt;&gt; ds = Dataset.from_array(</span>
 <a id="__codelineno-0-1292" name="__codelineno-0-1292"></a><span class="sd">              ...     arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326</span>
 <a id="__codelineno-0-1293" name="__codelineno-0-1293"></a><span class="sd">              ... )</span>
 <a id="__codelineno-0-1294" name="__codelineno-0-1294"></a><span class="sd">              &gt;&gt;&gt; ds.set_color_ramp(</span>
@@ -9708,7 +9708,7 @@ Hold "Ctrl" to enable pan &amp; zoom
 <a id="__codelineno-0-1313" name="__codelineno-0-1313"></a><span class="sd">              &gt;&gt;&gt; import numpy as np</span>
 <a id="__codelineno-0-1314" name="__codelineno-0-1314"></a><span class="sd">              &gt;&gt;&gt; from pyramids.dataset import Dataset</span>
 <a id="__codelineno-0-1315" name="__codelineno-0-1315"></a><span class="sd">              &gt;&gt;&gt; arr = np.random.randint(1, 6, size=(10, 10))</span>
-<a id="__codelineno-0-1316" name="__codelineno-0-1316"></a><span class="sd">              &gt;&gt;&gt; ds = Dataset.create_from_array(</span>
+<a id="__codelineno-0-1316" name="__codelineno-0-1316"></a><span class="sd">              &gt;&gt;&gt; ds = Dataset.from_array(</span>
 <a id="__codelineno-0-1317" name="__codelineno-0-1317"></a><span class="sd">              ...     arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326</span>
 <a id="__codelineno-0-1318" name="__codelineno-0-1318"></a><span class="sd">              ... )</span>
 <a id="__codelineno-0-1319" name="__codelineno-0-1319"></a><span class="sd">              &gt;&gt;&gt; ds.set_color_ramp(band=1, start_value=1, end_value=5, colormap="viridis")</span>
@@ -10487,7 +10487,7 @@ out of scope until domain support lands).</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="mi">2</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">"int16"</span><span class="p">)</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">dataset</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">dataset</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="o">...</span>     <span class="n">arr</span><span class="p">,</span> <span class="n">top_left_corner</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="n">cell_size</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="o">...</span> <span class="p">)</span>
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">dataset</span><span class="o">.</span><span class="n">band_meta_data</span> <span class="o">=</span> <span class="p">[{</span><span class="s2">"WAVELENGTH"</span><span class="p">:</span> <span class="s2">"443"</span><span class="p">},</span> <span class="p">{</span><span class="s2">"WAVELENGTH"</span><span class="p">:</span> <span class="s2">"490"</span><span class="p">}]</span>
@@ -10502,7 +10502,7 @@ out of scope until domain support lands).</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="mi">1</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">"int16"</span><span class="p">)</span>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">dataset</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">dataset</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span>
 <a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="o">...</span>     <span class="n">arr</span><span class="p">,</span> <span class="n">top_left_corner</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="n">cell_size</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span>
 <a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="o">...</span> <span class="p">)</span>
 <a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">dataset</span><span class="o">.</span><span class="n">bands</span><span class="o">.</span><span class="n">metadata</span>
@@ -10682,7 +10682,7 @@ out of scope until domain support lands).</p>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">10</span><span class="p">))</span>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">top_left_corner</span> <span class="o">=</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">cell_size</span> <span class="o">=</span> <span class="mf">0.05</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">dataset</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">dataset</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span>
 <a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="o">...</span>     <span class="n">arr</span><span class="p">,</span> <span class="n">top_left_corner</span><span class="o">=</span><span class="n">top_left_corner</span><span class="p">,</span> <span class="n">cell_size</span><span class="o">=</span><span class="n">cell_size</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span>
 <a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="o">...</span> <span class="p">)</span>
 </code></pre></div>
@@ -11497,7 +11497,7 @@ will be added to a new dataset. Default is False.</p>
 
 <details class="see-also" open>
   <summary>See Also</summary>
-  <p>Dataset.create_from_array: create a new dataset from an array.
+  <p>Dataset.from_array: create a new dataset from an array.
 Dataset.create: create a new dataset with an empty band.
 Dataset.dataset_like: create a new dataset from another dataset.
 Dataset.get_attribute_table: get the attribute table for a specific band.
@@ -11750,7 +11750,7 @@ Dataset.set_attribute_table: Set the attribute table for a specific band.</p>
 <a id="__codelineno-0-446" name="__codelineno-0-446"></a><span class="sd">          ```</span>
 <a id="__codelineno-0-447" name="__codelineno-0-447"></a>
 <a id="__codelineno-0-448" name="__codelineno-0-448"></a><span class="sd">    See Also:</span>
-<a id="__codelineno-0-449" name="__codelineno-0-449"></a><span class="sd">        Dataset.create_from_array: create a new dataset from an array.</span>
+<a id="__codelineno-0-449" name="__codelineno-0-449"></a><span class="sd">        Dataset.from_array: create a new dataset from an array.</span>
 <a id="__codelineno-0-450" name="__codelineno-0-450"></a><span class="sd">        Dataset.create: create a new dataset with an empty band.</span>
 <a id="__codelineno-0-451" name="__codelineno-0-451"></a><span class="sd">        Dataset.dataset_like: create a new dataset from another dataset.</span>
 <a id="__codelineno-0-452" name="__codelineno-0-452"></a><span class="sd">        Dataset.get_attribute_table: get the attribute table for a specific band.</span>
@@ -11940,7 +11940,7 @@ not among the band names.</p>
     <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">3</span> <span class="o">*</span> <span class="mi">4</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s2">"float32"</span><span class="p">)</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="o">...</span>     <span class="n">arr</span><span class="p">,</span> <span class="n">top_left_corner</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="n">cell_size</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="o">...</span> <span class="p">)</span>
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">subset</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">bands</span><span class="o">.</span><span class="n">select</span><span class="p">([</span><span class="mi">3</span><span class="p">,</span> <span class="mi">1</span><span class="p">])</span>
@@ -12064,7 +12064,7 @@ not among the band names.</p>
 <a id="__codelineno-0-610" name="__codelineno-0-610"></a><span class="sd">            &gt;&gt;&gt; import numpy as np</span>
 <a id="__codelineno-0-611" name="__codelineno-0-611"></a><span class="sd">            &gt;&gt;&gt; from pyramids.dataset import Dataset</span>
 <a id="__codelineno-0-612" name="__codelineno-0-612"></a><span class="sd">            &gt;&gt;&gt; arr = np.arange(3 * 4).reshape(3, 2, 2).astype("float32")</span>
-<a id="__codelineno-0-613" name="__codelineno-0-613"></a><span class="sd">            &gt;&gt;&gt; ds = Dataset.create_from_array(</span>
+<a id="__codelineno-0-613" name="__codelineno-0-613"></a><span class="sd">            &gt;&gt;&gt; ds = Dataset.from_array(</span>
 <a id="__codelineno-0-614" name="__codelineno-0-614"></a><span class="sd">            ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326</span>
 <a id="__codelineno-0-615" name="__codelineno-0-615"></a><span class="sd">            ... )</span>
 <a id="__codelineno-0-616" name="__codelineno-0-616"></a><span class="sd">            &gt;&gt;&gt; subset = ds.bands.select([3, 1])</span>
@@ -12241,7 +12241,7 @@ domain.</p>
 </ul>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">dataset</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">dataset</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="o">...</span>     <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="mi">4</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">"int16"</span><span class="p">),</span>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="o">...</span>     <span class="n">top_left_corner</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="n">cell_size</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">,</span>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="o">...</span> <span class="p">)</span>
@@ -12324,7 +12324,7 @@ domain.</p>
 <a id="__codelineno-0-862" name="__codelineno-0-862"></a><span class="sd">          ```python</span>
 <a id="__codelineno-0-863" name="__codelineno-0-863"></a><span class="sd">          &gt;&gt;&gt; import numpy as np</span>
 <a id="__codelineno-0-864" name="__codelineno-0-864"></a><span class="sd">          &gt;&gt;&gt; from pyramids.dataset import Dataset</span>
-<a id="__codelineno-0-865" name="__codelineno-0-865"></a><span class="sd">          &gt;&gt;&gt; dataset = Dataset.create_from_array(</span>
+<a id="__codelineno-0-865" name="__codelineno-0-865"></a><span class="sd">          &gt;&gt;&gt; dataset = Dataset.from_array(</span>
 <a id="__codelineno-0-866" name="__codelineno-0-866"></a><span class="sd">          ...     np.zeros((4, 4), dtype="int16"),</span>
 <a id="__codelineno-0-867" name="__codelineno-0-867"></a><span class="sd">          ...     top_left_corner=(0, 0), cell_size=0.05, epsg=4326,</span>
 <a id="__codelineno-0-868" name="__codelineno-0-868"></a><span class="sd">          ... )</span>
@@ -12813,7 +12813,7 @@ domain.</p>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">10</span><span class="p">))</span>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">top_left_corner</span> <span class="o">=</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">cell_size</span> <span class="o">=</span> <span class="mf">0.05</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">dataset</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">dataset</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span>
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="o">...</span>     <span class="n">arr</span><span class="p">,</span> <span class="n">top_left_corner</span><span class="o">=</span><span class="n">top_left_corner</span><span class="p">,</span> <span class="n">cell_size</span><span class="o">=</span><span class="n">cell_size</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span>
 <a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="o">...</span> <span class="p">)</span>
 <a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">dataset</span><span class="o">.</span><span class="n">band_color</span> <span class="o">=</span> <span class="p">{</span><span class="mi">0</span><span class="p">:</span> <span class="s1">'red'</span><span class="p">,</span> <span class="mi">1</span><span class="p">:</span> <span class="s1">'green'</span><span class="p">,</span> <span class="mi">2</span><span class="p">:</span> <span class="s1">'blue'</span><span class="p">}</span>
@@ -12894,7 +12894,7 @@ domain.</p>
 <a id="__codelineno-0-1029" name="__codelineno-0-1029"></a><span class="sd">          &gt;&gt;&gt; arr = np.random.randint(1, 3, size=(3, 10, 10))</span>
 <a id="__codelineno-0-1030" name="__codelineno-0-1030"></a><span class="sd">          &gt;&gt;&gt; top_left_corner = (0, 0)</span>
 <a id="__codelineno-0-1031" name="__codelineno-0-1031"></a><span class="sd">          &gt;&gt;&gt; cell_size = 0.05</span>
-<a id="__codelineno-0-1032" name="__codelineno-0-1032"></a><span class="sd">          &gt;&gt;&gt; dataset = Dataset.create_from_array(</span>
+<a id="__codelineno-0-1032" name="__codelineno-0-1032"></a><span class="sd">          &gt;&gt;&gt; dataset = Dataset.from_array(</span>
 <a id="__codelineno-0-1033" name="__codelineno-0-1033"></a><span class="sd">          ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326</span>
 <a id="__codelineno-0-1034" name="__codelineno-0-1034"></a><span class="sd">          ... )</span>
 <a id="__codelineno-0-1035" name="__codelineno-0-1035"></a><span class="sd">          &gt;&gt;&gt; dataset.band_color = {0: 'red', 1: 'green', 2: 'blue'}</span>
@@ -13113,7 +13113,7 @@ nor a colormap, or both); or <code>colormap</code> is not a known matplotlib nam
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">6</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">10</span><span class="p">))</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="o">...</span>     <span class="n">arr</span><span class="p">,</span> <span class="n">top_left_corner</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="n">cell_size</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="o">...</span> <span class="p">)</span>
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">ds</span><span class="o">.</span><span class="n">set_color_ramp</span><span class="p">(</span>
@@ -13136,7 +13136,7 @@ nor a colormap, or both); or <code>colormap</code> is not a known matplotlib nam
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">6</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">10</span><span class="p">))</span>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span>
 <a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="o">...</span>     <span class="n">arr</span><span class="p">,</span> <span class="n">top_left_corner</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="n">cell_size</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span>
 <a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="o">...</span> <span class="p">)</span>
 <a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">ds</span><span class="o">.</span><span class="n">set_color_ramp</span><span class="p">(</span><span class="n">band</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">start_value</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">end_value</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">colormap</span><span class="o">=</span><span class="s2">"viridis"</span><span class="p">)</span>
@@ -13362,7 +13362,7 @@ nor a colormap, or both); or <code>colormap</code> is not a known matplotlib nam
 <a id="__codelineno-0-1288" name="__codelineno-0-1288"></a><span class="sd">          &gt;&gt;&gt; import numpy as np</span>
 <a id="__codelineno-0-1289" name="__codelineno-0-1289"></a><span class="sd">          &gt;&gt;&gt; from pyramids.dataset import Dataset</span>
 <a id="__codelineno-0-1290" name="__codelineno-0-1290"></a><span class="sd">          &gt;&gt;&gt; arr = np.random.randint(1, 6, size=(10, 10))</span>
-<a id="__codelineno-0-1291" name="__codelineno-0-1291"></a><span class="sd">          &gt;&gt;&gt; ds = Dataset.create_from_array(</span>
+<a id="__codelineno-0-1291" name="__codelineno-0-1291"></a><span class="sd">          &gt;&gt;&gt; ds = Dataset.from_array(</span>
 <a id="__codelineno-0-1292" name="__codelineno-0-1292"></a><span class="sd">          ...     arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326</span>
 <a id="__codelineno-0-1293" name="__codelineno-0-1293"></a><span class="sd">          ... )</span>
 <a id="__codelineno-0-1294" name="__codelineno-0-1294"></a><span class="sd">          &gt;&gt;&gt; ds.set_color_ramp(</span>
@@ -13387,7 +13387,7 @@ nor a colormap, or both); or <code>colormap</code> is not a known matplotlib nam
 <a id="__codelineno-0-1313" name="__codelineno-0-1313"></a><span class="sd">          &gt;&gt;&gt; import numpy as np</span>
 <a id="__codelineno-0-1314" name="__codelineno-0-1314"></a><span class="sd">          &gt;&gt;&gt; from pyramids.dataset import Dataset</span>
 <a id="__codelineno-0-1315" name="__codelineno-0-1315"></a><span class="sd">          &gt;&gt;&gt; arr = np.random.randint(1, 6, size=(10, 10))</span>
-<a id="__codelineno-0-1316" name="__codelineno-0-1316"></a><span class="sd">          &gt;&gt;&gt; ds = Dataset.create_from_array(</span>
+<a id="__codelineno-0-1316" name="__codelineno-0-1316"></a><span class="sd">          &gt;&gt;&gt; ds = Dataset.from_array(</span>
 <a id="__codelineno-0-1317" name="__codelineno-0-1317"></a><span class="sd">          ...     arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326</span>
 <a id="__codelineno-0-1318" name="__codelineno-0-1318"></a><span class="sd">          ... )</span>
 <a id="__codelineno-0-1319" name="__codelineno-0-1319"></a><span class="sd">          &gt;&gt;&gt; ds.set_color_ramp(band=1, start_value=1, end_value=5, colormap="viridis")</span>
