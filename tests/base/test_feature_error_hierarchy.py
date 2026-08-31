@@ -107,7 +107,7 @@ class TestCRSError:
 
     def test_rasterize_crs_mismatch_raises_crs_error(self):
         """Dataset.from_features with mismatched CRS raises CRSError."""
-        from pyramids.dataset import Dataset
+        from pyramids.dataset import Dataset, GeoReference
 
         fc = FeatureCollection(
             gpd.GeoDataFrame(
@@ -117,14 +117,15 @@ class TestCRSError:
             )
         )
         template = Dataset.create(
-            cell_size=1000.0,
             rows=5,
             columns=5,
             dtype="float32",
             bands=1,
-            top_left_corner=(500000.0, 3500000.0),
-            epsg=32636,  # different from 4326
-            no_data_value=-9999.0,
+            geo_ref=GeoReference(
+                top_left_corner=(500000.0, 3500000.0),
+                cell_size=1000.0,
+                epsg=32636,  # different from 4326
+            ),
         )
         with pytest.raises(CRSError, match="not the same EPSG"):
             Dataset.from_features(fc, template=template)

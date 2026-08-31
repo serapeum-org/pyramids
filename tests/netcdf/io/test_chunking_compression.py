@@ -240,12 +240,12 @@ class TestInMemoryIgnoresOptions:
         """
         arr = np.random.default_rng(SEED).random((3, 10, 10)).astype(np.float64)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(geo=GEO),
-                 variable_name="v",
-                 dims=ExtraDimensions(name="time"),
-                 encoding=Encoding(chunk_sizes=(1, 5, 5)),
-             )
+            arr=arr,
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="v",
+            dims=ExtraDimensions(name="time"),
+            encoding=Encoding(chunk_sizes=(1, 5, 5)),
+        )
         var = nc.get_variable("v")
         assert var.shape == (3, 10, 10), f"Shape should be preserved, got {var.shape}"
 
@@ -257,11 +257,11 @@ class TestInMemoryIgnoresOptions:
         """
         arr = np.ones((5, 5), dtype=np.float64)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(geo=GEO),
-                 variable_name="v",
-                 encoding=Encoding(compression="DEFLATE", compression_level=9),
-             )
+            arr=arr,
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="v",
+            encoding=Encoding(compression="DEFLATE", compression_level=9),
+        )
         var = nc.get_variable("v")
         assert_allclose(
             var.read_array(band=0),

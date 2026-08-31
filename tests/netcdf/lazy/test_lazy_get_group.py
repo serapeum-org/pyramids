@@ -224,10 +224,10 @@ class TestFileBackedMutation:
         nc = NetCDF.read_file(path)
         view = nc.get_group("forecast")
         source = NetCDF.from_array(
-                     arr=np.full((5, 8), 7.0),
-                     geo_ref=GeoReference(geo=GEO),
-                     variable_name="precip",
-                 ).get_variable("precip")
+            arr=np.full((5, 8), 7.0),
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="precip",
+        ).get_variable("precip")
 
         view.set_variable("precip", source)
 
@@ -257,10 +257,10 @@ class TestInMemoryViewMutation:
         assert view._raster is nc._raster, "precondition: view shares the parent raster"
         parent_raster = nc._raster
         source = NetCDF.from_array(
-                     arr=np.full((5, 8), 7.0),
-                     geo_ref=GeoReference(geo=GEO),
-                     variable_name="precip",
-                 ).get_variable("precip")
+            arr=np.full((5, 8), 7.0),
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="precip",
+        ).get_variable("precip")
 
         view.set_variable("precip", source, copy=False)
 
@@ -286,10 +286,10 @@ class TestInMemoryViewMutation:
         assert view._raster is nc._raster, "precondition: view shares the parent raster"
         parent_raster = nc._raster
         source = NetCDF.from_array(
-                     arr=np.full((5, 8), 7.0),
-                     geo_ref=GeoReference(geo=GEO),
-                     variable_name="precip",
-                 )
+            arr=np.full((5, 8), 7.0),
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="precip",
+        )
 
         view.add_variable(source, variable_name="precip", copy=False)
 

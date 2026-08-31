@@ -9,8 +9,8 @@ import pytest
 from osgeo import gdal
 from pandas import DataFrame
 
-from pyramids.dataset import Dataset
 from pyramids.base.georeference import GeoReference
+from pyramids.dataset import Dataset
 
 pytestmark = pytest.mark.core
 
@@ -65,9 +65,9 @@ class TestToFileReopen:
         """
         rows = arr.shape[-2]
         return Dataset.from_array(
-                   arr,
-                   geo_ref=GeoReference(top_left_corner=(0, rows), cell_size=1.0, epsg=4326),
-               )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, rows), cell_size=1.0, epsg=4326),
+        )
 
     def test_reopen_false_leaves_mem_source_unmutated(self, tmp_path: Path):
         """reopen=False must not swap a MEM source's handle to the written file.
@@ -294,9 +294,11 @@ def test_to_xyz():
     top_left_corner = (0, 0)
     cell_size = 0.05
     dataset = Dataset.from_array(
-                  arr,
-                  geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
-              )
+        arr,
+        geo_ref=GeoReference(
+            top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326
+        ),
+    )
     # test with default parameters
     df = dataset.to_xyz()
     check_df = DataFrame(
@@ -327,9 +329,11 @@ class TestTranslate:
         top_left_corner = (0, 0)
         cell_size = 0.05
         dataset = Dataset.from_array(
-                      arr,
-                      geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
-                  )
+            arr,
+            geo_ref=GeoReference(
+                top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326
+            ),
+        )
         dataset.scale = [0.1]
         unscaled_dataset = dataset.translate(unscale=True)
         unscaled_arr = unscaled_dataset.read_array()

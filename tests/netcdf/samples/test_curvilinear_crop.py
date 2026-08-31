@@ -152,10 +152,10 @@ def _synthetic_curvilinear(lon2d, lat2d, epsg=4326):
     """
     ny, nx = lon2d.shape
     nc = NetCDF.from_array(
-             arr=np.zeros((1, ny, nx), dtype="float32"),
-             geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, float(ny), 0.0, -1.0), epsg=epsg),
-             variable_name="c",
-         )
+        arr=np.zeros((1, ny, nx), dtype="float32"),
+        geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, float(ny), 0.0, -1.0), epsg=epsg),
+        variable_name="c",
+    )
     var = nc.get_variable("c")
     var._curvilinear_coords = (lon2d.astype(float), lat2d.astype(float))
     return nc, var
@@ -311,10 +311,10 @@ def test_synthetic_curvilinear_antimeridian_masks_both_sides():
     lat2d = np.tile(np.linspace(9.0, -9.0, ny).reshape(ny, 1), (1, nx)).astype(float)
     data = np.arange(ny * nx, dtype="float32").reshape(1, ny, nx)
     nc = NetCDF.from_array(
-             arr=data,
-             geo_ref=GeoReference(geo=(172.0, 1.0, 0.0, 9.0, 0.0, -2.0), epsg=4326),
-             variable_name="c",
-         )
+        arr=data,
+        geo_ref=GeoReference(geo=(172.0, 1.0, 0.0, 9.0, 0.0, -2.0), epsg=4326),
+        variable_name="c",
+    )
     try:
         var = nc.get_variable("c")
         var._curvilinear_coords = (lon2d, lat2d)

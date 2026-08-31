@@ -361,10 +361,10 @@ class TestPlotStampsGlyphCRS:
             so a subsequent `add_features`/`add_tiles` needs no explicit `crs=`.
         """
         nc = NetCDF.from_array(
-                 np.arange(12.0).reshape(3, 4),
-                 geo_ref=GeoReference(geo=(0.0, 1.0, 0, 3.0, 0, -1.0), epsg=4326),
-                 variable_name="d",
-             )
+            np.arange(12.0).reshape(3, 4),
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0, 3.0, 0, -1.0), epsg=4326),
+            variable_name="d",
+        )
         glyph = nc.get_variable("d").plot()
         assert glyph.crs == 4326, f"expected glyph.crs == 4326, got {glyph.crs!r}"
 
@@ -375,9 +375,9 @@ class TestPlotStampsGlyphCRS:
             A variable declared EPSG:3857 yields a glyph whose `crs` is 3857.
         """
         nc = NetCDF.from_array(
-                 np.arange(12.0).reshape(3, 4),
-                 geo_ref=GeoReference(geo=(0.0, 1.0, 0, 3.0, 0, -1.0), epsg=3857),
-                 variable_name="d",
-             )
+            np.arange(12.0).reshape(3, 4),
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0, 3.0, 0, -1.0), epsg=3857),
+            variable_name="d",
+        )
         glyph = nc.get_variable("d").plot()
         assert glyph.crs == 3857, f"expected glyph.crs == 3857, got {glyph.crs!r}"

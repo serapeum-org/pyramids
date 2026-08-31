@@ -13,9 +13,9 @@ import numpy as np
 import pytest
 from osgeo import gdal, osr
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.dataset.engines._warp import dst_srs_arg, warp_to_dataset
-from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -24,9 +24,9 @@ pytestmark = pytest.mark.core
 def source() -> Dataset:
     """A 4x4 EPSG:4326 raster to warp."""
     return Dataset.from_array(
-               np.arange(16, dtype="float32").reshape(4, 4),
-               geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326),
-           )
+        np.arange(16, dtype="float32").reshape(4, 4),
+        geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326),
+    )
 
 
 class TestDstSrsArg:

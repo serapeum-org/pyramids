@@ -63,11 +63,14 @@ class Cell(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> arr = np.random.randint(1,3, size=(3, 3))
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
-              >>> dataset = Dataset.from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)
+              >>> dataset = Dataset.from_array(
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
+              ... )
 
               ```
 
@@ -201,11 +204,14 @@ class Cell(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> arr = np.random.randint(1,3, size=(3, 3))
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
-              >>> dataset = Dataset.from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)
+              >>> dataset = Dataset.from_array(
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
+              ... )
 
               ```
 
@@ -286,11 +292,14 @@ class Cell(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> arr = np.random.randint(1,3, size=(3, 3))
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
-              >>> dataset = Dataset.from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)
+              >>> dataset = Dataset.from_array(
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
+              ... )
 
               ```
 
@@ -373,11 +382,14 @@ class Cell(_Engine["Dataset"]):
               ```python
               >>> import numpy as np
               >>> import pandas as pd
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> arr = np.random.randint(1, 3, size=(2, 10, 10))
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
-              >>> dataset = Dataset.from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)
+              >>> dataset = Dataset.from_array(
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
+              ... )
 
               ```
             - DataFrame with x, y columns:
@@ -469,11 +481,14 @@ class Cell(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> arr = np.random.randint(1, 3, size=(10, 10))
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
-              >>> dataset = Dataset.from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)
+              >>> dataset = Dataset.from_array(
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
+              ... )
 
               ```
 

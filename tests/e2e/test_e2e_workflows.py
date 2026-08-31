@@ -22,10 +22,10 @@ import pytest
 from osgeo import gdal, osr
 from shapely.geometry import Point, box
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.dataset.ops.vectorize import _features_outside_template
 from pyramids.feature import FeatureCollection
-from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -41,14 +41,12 @@ def _make_dataset(
 ) -> Dataset:
     """Create a simple in-memory Dataset."""
     src = Dataset.create(
-        cell_size=cell_size,
         rows=rows,
         columns=cols,
         dtype="float32",
         bands=1,
-        top_left_corner=top_left,
-        epsg=epsg,
         no_data_value=no_data,
+        geo_ref=GeoReference(cell_size=cell_size, top_left_corner=top_left, epsg=epsg),
     )
     arr = np.full((rows, cols), fill_value, dtype=np.float32)
     src.raster.GetRasterBand(1).WriteArray(arr)
@@ -68,14 +66,14 @@ class TestCreateCropExtract:
 
         # Step 1 - Create dataset with sequential values
         src = Dataset.create(
-            cell_size=cell_size,
             rows=rows,
             columns=cols,
             dtype="float32",
             bands=1,
-            top_left_corner=top_left,
-            epsg=epsg,
             no_data_value=-9999.0,
+            geo_ref=GeoReference(
+                cell_size=cell_size, top_left_corner=top_left, epsg=epsg
+            ),
         )
         arr = np.arange(rows * cols, dtype=np.float32).reshape(rows, cols)
         src.raster.GetRasterBand(1).WriteArray(arr)
@@ -677,14 +675,14 @@ class TestRasterizeRoundTrip:
         cell_size = 1000.0
         top_left = (500000.0, 3400000.0)
         template = Dataset.create(
-            cell_size=cell_size,
             rows=5,
             columns=5,
             dtype="int32",
             bands=1,
-            top_left_corner=top_left,
-            epsg=epsg,
             no_data_value=-1,
+            geo_ref=GeoReference(
+                cell_size=cell_size, top_left_corner=top_left, epsg=epsg
+            ),
         )
         gdf = gpd.GeoDataFrame(
             {"v": [1]},
@@ -736,14 +734,14 @@ class TestRasterizeRoundTrip:
         top_left = (500000.0, 3400000.0)
 
         template = Dataset.create(
-            cell_size=cell_size,
             rows=10,
             columns=10,
             dtype="int32",
             bands=1,
-            top_left_corner=top_left,
-            epsg=epsg,
             no_data_value=None,
+            geo_ref=GeoReference(
+                cell_size=cell_size, top_left_corner=top_left, epsg=epsg
+            ),
         )
         # Precondition: template carries None as its no-data.
         assert template.no_data_value[0] is None
@@ -792,14 +790,14 @@ class TestRasterizeRoundTrip:
         top_left = (500000.0, 3400000.0)
 
         template = Dataset.create(
-            cell_size=cell_size,
             rows=5,
             columns=5,
             dtype=int_dtype,
             bands=1,
-            top_left_corner=top_left,
-            epsg=epsg,
             no_data_value=None,
+            geo_ref=GeoReference(
+                cell_size=cell_size, top_left_corner=top_left, epsg=epsg
+            ),
         )
 
         x0, y0 = top_left
@@ -831,14 +829,14 @@ class TestRasterizeRoundTrip:
         top_left = (500000.0, 3400000.0)
 
         template = Dataset.create(
-            cell_size=cell_size,
             rows=5,
             columns=5,
             dtype="float32",
             bands=1,
-            top_left_corner=top_left,
-            epsg=epsg,
             no_data_value=None,
+            geo_ref=GeoReference(
+                cell_size=cell_size, top_left_corner=top_left, epsg=epsg
+            ),
         )
         x0, y0 = top_left
         poly = box(x0, y0 - 3 * cell_size, x0 + 3 * cell_size, y0)
@@ -870,14 +868,14 @@ class TestRasterizeRoundTrip:
         top_left = (500000.0, 3400000.0)
 
         template = Dataset.create(
-            cell_size=cell_size,
             rows=5,
             columns=5,
             dtype="int32",
             bands=1,
-            top_left_corner=top_left,
-            epsg=epsg,
             no_data_value=-1,
+            geo_ref=GeoReference(
+                cell_size=cell_size, top_left_corner=top_left, epsg=epsg
+            ),
         )
         assert template.no_data_value[0] == -1
 
@@ -926,14 +924,14 @@ class TestRasterizeRoundTrip:
         assert "geometry" in restored.columns
 
         template = Dataset.create(
-            cell_size=cell_size,
             rows=5,
             columns=5,
             dtype="int32",
             bands=1,
-            top_left_corner=top_left,
-            epsg=epsg,
             no_data_value=None,
+            geo_ref=GeoReference(
+                cell_size=cell_size, top_left_corner=top_left, epsg=epsg
+            ),
         )
         r1 = Dataset.from_features(fc, template=template, column_name="class_id")
         r2 = Dataset.from_features(restored, template=template, column_name="class_id")
@@ -1110,18 +1108,18 @@ class TestClusterE2E:
             dtype=np.float32,
         )
         src = Dataset.from_array(
-                  arr,
-                  geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
-              )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+        )
         cluster_array, count, position, _ = src.cluster(1, 10)
 
         assert count == 3, f"Expected 2 clusters, got {count - 1}"
         assert len(position) == 8, f"Expected 8 cells clustered, got {len(position)}"
 
         result = Dataset.from_array(
-                     cluster_array.astype(np.float32),
-                     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
-                 )
+            cluster_array.astype(np.float32),
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+        )
 
         tmp_dir = Path(tempfile.mkdtemp())
         path = tmp_dir / "cluster_result.tif"
@@ -1151,9 +1149,9 @@ class TestClusterE2E:
         arr[2:5, 2:5] = 7.0
         arr[15:18, 15:18] = 7.0
         src = Dataset.from_array(
-                  arr,
-                  geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
-              )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
+        )
 
         crop_poly = box(-0.5, -5.5, 6.5, 0.5)
         crop_mask = gpd.GeoDataFrame(geometry=[crop_poly], crs="EPSG:4326")
@@ -1176,9 +1174,11 @@ class TestClusterE2E:
         rng = np.random.default_rng(77)
         arr = rng.choice([0.0, 5.0], size=(10, 10), p=[0.6, 0.4]).astype(np.float32)
         src = Dataset.from_array(
-                  arr,
-                  geo_ref=GeoReference(top_left_corner=(30.0, 31.0), cell_size=0.01, epsg=4326),
-              )
+            arr,
+            geo_ref=GeoReference(
+                top_left_corner=(30.0, 31.0), cell_size=0.01, epsg=4326
+            ),
+        )
 
         _, count_orig, _, _ = src.cluster(4, 6)
 
@@ -1208,16 +1208,16 @@ class TestClusterE2E:
             dtype=np.float32,
         )
         src = Dataset.from_array(
-                  arr,
-                  geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
-              )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
+        )
 
         cluster_array, _, _, _ = src.cluster(4, 6)
 
         cluster_ds = Dataset.from_array(
-                         cluster_array.astype(np.float32),
-                         geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
-                     )
+            cluster_array.astype(np.float32),
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
+        )
         gdf = cluster_ds.to_polygons()
 
         assert isinstance(gdf, gpd.GeoDataFrame), (
@@ -1238,9 +1238,9 @@ class TestClusterE2E:
         """
         arr = np.ones((300, 300), dtype=np.float32) * 5
         src = Dataset.from_array(
-                  arr,
-                  geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.01, epsg=4326),
-              )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.01, epsg=4326),
+        )
 
         cluster_array, count, position, _ = src.cluster(1, 10)
 
@@ -1261,10 +1261,10 @@ class TestApplyE2E:
         """
         arr = np.array([[2.0, 3.0], [4.0, 5.0]], dtype=np.float32)
         src = Dataset.from_array(
-                  arr,
-                  no_data_value=-9999.0,
-                  geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
-              )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
+        )
         result = src.apply(np.square)
         expected = np.array([[4.0, 9.0], [16.0, 25.0]], dtype=np.float32)
 
@@ -1293,10 +1293,10 @@ class TestApplyE2E:
         """
         arr = np.arange(1, 101, dtype=np.float32).reshape(10, 10)
         src = Dataset.from_array(
-                  arr,
-                  no_data_value=-9999.0,
-                  geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
-              )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
+        )
         doubled = src.apply(lambda x: x * 2)
 
         crop_poly = box(0.5, -4.5, 4.5, -0.5)
@@ -1320,10 +1320,10 @@ class TestApplyE2E:
         """
         arr = np.full((3, 3), 2.0, dtype=np.float32)
         src = Dataset.from_array(
-                  arr,
-                  no_data_value=-9999.0,
-                  geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
-              )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
+        )
         step1 = src.apply(lambda x: x + 3)
         step2 = step1.apply(lambda x: x * 10)
         result_arr = step2.read_array()
@@ -1353,10 +1353,10 @@ class TestApplyE2E:
             dtype=np.float32,
         )
         src = Dataset.from_array(
-                  arr,
-                  no_data_value=-9999.0,
-                  geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
-              )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
+        )
         result = src.apply(classify)
         result_arr = result.read_array()
         expected = np.array(
@@ -1378,10 +1378,10 @@ class TestApplyE2E:
         """
         arr = np.array([[10.0, -9999.0], [-9999.0, 20.0]], dtype=np.float32)
         src = Dataset.from_array(
-                  arr,
-                  no_data_value=-9999.0,
-                  geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
-              )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
+        )
         result = src.apply(lambda x: x + 5)
 
         tmp_dir = Path(tempfile.mkdtemp())
@@ -1415,10 +1415,10 @@ class TestApplyE2E:
         """
         arr = np.array([[3.0, 6.0], [9.0, 12.0]], dtype=np.float32)
         src = Dataset.from_array(
-                  arr,
-                  no_data_value=-9999.0,
-                  geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
-              )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
+        )
         src.apply(lambda x: x / 3, inplace=True)
 
         tmp_dir = Path(tempfile.mkdtemp())
@@ -1450,10 +1450,10 @@ class TestToFeatureCollectionE2E:
         """
         arr = np.array([[10.0, 20.0], [30.0, 40.0]], dtype=np.float32)
         src = Dataset.from_array(
-                  arr,
-                  no_data_value=-9999.0,
-                  geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
-              )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
+        )
         gdf = src.to_feature_collection(add_geometry="point")
 
         tmp_dir = Path(tempfile.mkdtemp())
@@ -1481,10 +1481,10 @@ class TestToFeatureCollectionE2E:
         """
         arr = np.arange(1, 101, dtype=np.float32).reshape(10, 10)
         src = Dataset.from_array(
-                  arr,
-                  no_data_value=-9999.0,
-                  geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
-              )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
+        )
         poly = box(1.5, -3.5, 4.5, -0.5)
         mask = gpd.GeoDataFrame(geometry=[poly], crs="EPSG:4326")
         cropped = src.crop(mask)
@@ -1505,10 +1505,10 @@ class TestToFeatureCollectionE2E:
         """
         arr = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float32)
         src = Dataset.from_array(
-                  arr,
-                  no_data_value=-9999.0,
-                  geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
-              )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
+        )
         transformed = src.apply(lambda x: x * 10)
         df = transformed.to_feature_collection()
 
@@ -1526,10 +1526,10 @@ class TestToFeatureCollectionE2E:
         """
         arr = np.random.default_rng(42).random((2, 4, 4)).astype(np.float32)
         src = Dataset.from_array(
-                  arr,
-                  no_data_value=-9999.0,
-                  geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
-              )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
+        )
         gdf = src.to_feature_collection(add_geometry="polygon")
 
         assert isinstance(gdf, gpd.GeoDataFrame), (
@@ -1558,10 +1558,12 @@ class TestContextManagerE2E:
         path = tmp_dir / "ctx_test.tif"
         try:
             ds = Dataset.from_array(
-                     arr,
-                     no_data_value=-9999.0,
-                     geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
-                 )
+                arr,
+                no_data_value=-9999.0,
+                geo_ref=GeoReference(
+                    top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326
+                ),
+            )
             with ds:
                 ds.to_file(path)
             assert ds._raster is None, "Dataset should be closed after with block"
@@ -1588,10 +1590,12 @@ class TestContextManagerE2E:
         path = tmp_dir / "ctx_apply.tif"
         try:
             ds = Dataset.from_array(
-                     arr,
-                     no_data_value=-9999.0,
-                     geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
-                 )
+                arr,
+                no_data_value=-9999.0,
+                geo_ref=GeoReference(
+                    top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326
+                ),
+            )
             with ds:
                 result = ds.apply(lambda x: x * 2)
                 result.to_file(path)
@@ -1619,17 +1623,21 @@ class TestContextManagerE2E:
         path = tmp_dir / "ctx_exception.tif"
         try:
             ds = Dataset.from_array(
-                     arr,
-                     geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
-                 )
+                arr,
+                geo_ref=GeoReference(
+                    top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326
+                ),
+            )
             with pytest.raises(ValueError):
                 with ds:
                     raise ValueError("intentional error")
 
             ds2 = Dataset.from_array(
-                      arr,
-                      geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
-                  )
+                arr,
+                geo_ref=GeoReference(
+                    top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326
+                ),
+            )
             ds2.to_file(path)
             assert path.exists(), "Should be able to write after exception cleanup"
         finally:

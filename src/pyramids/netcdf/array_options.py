@@ -24,8 +24,8 @@ from typing import Any
 # historical `from pyramids.netcdf.array_options import GeoReference` keeps working.
 from pyramids.base.georeference import (  # noqa: F401
     GeoReference,
-    GeoTransformTuple as GeoTransform,
 )
+
 
 @dataclass(frozen=True)
 class ExtraDimensions:

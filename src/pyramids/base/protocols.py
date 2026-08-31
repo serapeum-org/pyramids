@@ -42,8 +42,6 @@ installed.
 
 from __future__ import annotations
 
-from pyramids.base.georeference import GeoReference
-
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
@@ -57,6 +55,8 @@ from typing import (
 
 import numpy as np
 from numpy.typing import NDArray
+
+from pyramids.base.georeference import GeoReference
 
 if TYPE_CHECKING:  # pragma: no cover - only for type checkers
     import dask.array as da  # noqa: F401

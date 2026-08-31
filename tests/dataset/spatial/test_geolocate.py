@@ -7,8 +7,8 @@ import pytest
 from osgeo import osr
 
 from pyramids.base._errors import GeolocationArrayError
-from pyramids.dataset import Dataset
 from pyramids.base.georeference import GeoReference
+from pyramids.dataset import Dataset
 
 pytestmark = pytest.mark.core
 
@@ -29,9 +29,9 @@ def _make_geoloc_dataset(tmp_path, *, drop_x=False) -> Dataset:
         ).to_file(str(path))
     data = np.arange(rows * cols).reshape(rows, cols).astype("float32")
     ds = Dataset.from_array(
-             data,
-             geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
-         )
+        data,
+        geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+    )
     srs = osr.SpatialReference()
     srs.ImportFromEPSG(4326)
     domain = {
@@ -57,9 +57,9 @@ class TestGeolocationAccessor:
     def test_plain_raster_has_none(self):
         """A plain raster has no geolocation arrays."""
         ds = Dataset.from_array(
-                 np.zeros((2, 2)),
-                 geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
-             )
+            np.zeros((2, 2)),
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+        )
         assert ds.geolocation is None
         assert ds.has_geolocation is False
 
@@ -104,9 +104,9 @@ class TestGeolocate:
     def test_no_domain_raises(self):
         """geolocate on a plain raster raises GeolocationArrayError."""
         ds = Dataset.from_array(
-                 np.zeros((2, 2)),
-                 geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
-             )
+            np.zeros((2, 2)),
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+        )
         with pytest.raises(GeolocationArrayError, match="no geolocation arrays"):
             ds.geolocate()
 

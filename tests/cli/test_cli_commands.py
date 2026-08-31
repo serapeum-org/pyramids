@@ -16,10 +16,10 @@ import pytest
 from osgeo import gdal
 
 from pyramids.base.crs import reproject_coordinates
+from pyramids.base.georeference import GeoReference
 from pyramids.cli import main
 from pyramids.dataset import Dataset
 from pyramids.feature import FeatureCollection
-from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 

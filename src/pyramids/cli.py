@@ -56,6 +56,7 @@ from pandas import DataFrame
 from pyramids.base._errors import _PyramidsError
 from pyramids.base._utils import DEFAULT_RESAMPLING
 from pyramids.base.crs import crs_spec, sr_from_user_input, sr_from_wkt
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.dataset._gcp import GroundControlPoint
 from pyramids.dataset.abstract_dataset import OVERVIEW_LEVELS
@@ -63,7 +64,6 @@ from pyramids.dataset.cog import PROFILES, Compression, Layout, cog_info, valida
 from pyramids.dataset.merge import merge_rasters
 from pyramids.feature import FeatureCollection
 from pyramids.processing.cli import add_processing_commands
-from pyramids.base.georeference import GeoReference
 
 
 def _json_safe(value: float | None) -> float | None:
@@ -571,7 +571,11 @@ def _cmd_calc(args: argparse.Namespace) -> int:
         result = result.astype(args.dtype)
     Dataset.from_array(
         result,
-        geo_ref=GeoReference(top_left_corner=template.top_left_corner, cell_size=template.cell_size, epsg=crs_spec(template.epsg, template.crs)),
+        geo_ref=GeoReference(
+            top_left_corner=template.top_left_corner,
+            cell_size=template.cell_size,
+            epsg=crs_spec(template.epsg, template.crs),
+        ),
     ).to_file(output)
     print(f"wrote {output}")
     return 0

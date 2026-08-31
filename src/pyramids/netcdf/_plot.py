@@ -20,7 +20,6 @@ from pyramids.dataset._plot_helpers import ModeSpec, RenderRequest
 from pyramids.dataset._plot_helpers import render_array as _render_array
 from pyramids.netcdf import _coord_match
 from pyramids.netcdf.plot_options import CoordinateSpec, FacetSpec, Selectors
-from pyramids.base.georeference import GeoReference
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

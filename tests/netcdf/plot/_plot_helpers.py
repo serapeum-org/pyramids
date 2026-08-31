@@ -43,11 +43,11 @@ def _make_3d_nc_with_dates():
     times = ["2024-01-13", "2024-01-14", "2024-01-15", "2024-01-16"]
     arr = rng.random((len(times), 5, 5)).astype(np.float32)
     nc = NetCDF.from_array(
-             arr=arr,
-             geo_ref=GeoReference(geo=(0.0, 1.0, 0, 5.0, 0, -1.0), epsg=4326),
-             variable_name="t2m",
-             dims=ExtraDimensions(name="time", values=list(range(len(times)))),
-         )
+        arr=arr,
+        geo_ref=GeoReference(geo=(0.0, 1.0, 0, 5.0, 0, -1.0), epsg=4326),
+        variable_name="t2m",
+        dims=ExtraDimensions(name="time", values=list(range(len(times)))),
+    )
     var = nc.get_variable("t2m")
     var._band_dim_values = list(times)
     var._band_dim_values_map = dict(var._band_dim_values_map)
@@ -65,16 +65,16 @@ def _make_4d_nc():
     rng = np.random.default_rng(2)
     arr = rng.random((nt, nl, ny, nx)).astype(np.float32)
     nc = NetCDF.from_array(
-             arr=arr,
-             geo_ref=GeoReference(geo=(0.0, 1.0, 0, float(ny), 0, -1.0), epsg=4326),
-             variable_name="temperature",
-             dims=ExtraDimensions(
+        arr=arr,
+        geo_ref=GeoReference(geo=(0.0, 1.0, 0, float(ny), 0, -1.0), epsg=4326),
+        variable_name="temperature",
+        dims=ExtraDimensions(
             dims=[
                 ("time", [0, 6, 12]),
                 ("pressure_level", [1000, 500]),
             ]
         ),
-         )
+    )
     return nc
 
 
@@ -87,10 +87,10 @@ def _make_2d_nc():
     rng = np.random.default_rng(3)
     arr = rng.random((5, 5)).astype(np.float32)
     nc = NetCDF.from_array(
-             arr=arr,
-             geo_ref=GeoReference(geo=(0.0, 1.0, 0, 5.0, 0, -1.0), epsg=4326),
-             variable_name="surface",
-         )
+        arr=arr,
+        geo_ref=GeoReference(geo=(0.0, 1.0, 0, 5.0, 0, -1.0), epsg=4326),
+        variable_name="surface",
+    )
     return nc
 
 
@@ -103,11 +103,11 @@ def _make_ensemble_nc():
     rng = np.random.default_rng(4)
     arr = rng.random((3, 4, 4)).astype(np.float32)
     nc = NetCDF.from_array(
-             arr=arr,
-             geo_ref=GeoReference(geo=(0.0, 1.0, 0, 4.0, 0, -1.0), epsg=4326),
-             variable_name="forecast",
-             dims=ExtraDimensions(name="ensemble", values=[0, 1, 2]),
-         )
+        arr=arr,
+        geo_ref=GeoReference(geo=(0.0, 1.0, 0, 4.0, 0, -1.0), epsg=4326),
+        variable_name="forecast",
+        dims=ExtraDimensions(name="ensemble", values=[0, 1, 2]),
+    )
     return nc
 
 
@@ -121,11 +121,11 @@ def _make_3d_nc_anon_dim():
     rng = np.random.default_rng(5)
     arr = rng.random((3, 4, 4)).astype(np.float32)
     nc = NetCDF.from_array(
-             arr=arr,
-             geo_ref=GeoReference(geo=(0.0, 1.0, 0, 4.0, 0, -1.0), epsg=4326),
-             variable_name="signal",
-             dims=ExtraDimensions(name="alpha", values=[10, 20, 30]),
-         )
+        arr=arr,
+        geo_ref=GeoReference(geo=(0.0, 1.0, 0, 4.0, 0, -1.0), epsg=4326),
+        variable_name="signal",
+        dims=ExtraDimensions(name="alpha", values=[10, 20, 30]),
+    )
     return nc
 
 
@@ -250,18 +250,18 @@ def _make_curvilinear_nc(
     if n_times is None:
         arr = rng.random((rows, cols)).astype(np.float32)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(geo=(0.0, 1.0, 0, float(rows), 0, -1.0), epsg=4326),
-                 variable_name=data_var,
-             )
+            arr=arr,
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0, float(rows), 0, -1.0), epsg=4326),
+            variable_name=data_var,
+        )
     else:
         arr = rng.random((n_times, rows, cols)).astype(np.float32)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(geo=(0.0, 1.0, 0, float(rows), 0, -1.0), epsg=4326),
-                 variable_name=data_var,
-                 dims=ExtraDimensions(name="time", values=list(range(n_times))),
-             )
+            arr=arr,
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0, float(rows), 0, -1.0), epsg=4326),
+            variable_name=data_var,
+            dims=ExtraDimensions(name="time", values=list(range(n_times))),
+        )
     x_2d, y_2d = _attach_curvilinear_coords(
         nc,
         rows,

@@ -6,9 +6,9 @@ import numpy as np
 import pytest
 from hpc.indexing import get_pixels2
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.dataset.engines.io import IO
-from pyramids.base.georeference import GeoReference
 from tests._helpers import traced_peak
 
 pytestmark = pytest.mark.core
@@ -19,9 +19,9 @@ def _raster(bands: int = 1, rows: int = 7, cols: int = 5) -> Dataset:
     shape = (rows, cols) if bands == 1 else (bands, rows, cols)
     arr = np.arange(int(np.prod(shape)), dtype="int16").reshape(shape)
     return Dataset.from_array(
-               arr,
-               geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-           )
+        arr,
+        geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+    )
 
 
 class TestStreamTransform:
@@ -327,7 +327,9 @@ class TestStreamReduce:
             Dataset.from_array(
                 arr,
                 path=str(src_path),
-                geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.01, epsg=4326),
+                geo_ref=GeoReference(
+                    top_left_corner=(0.0, 0.0), cell_size=0.01, epsg=4326
+                ),
             ).close()
             # `arr` is allocated before tracing starts, so it never enters the peak below.
             expected = int(arr.sum(dtype="int64"))
@@ -383,15 +385,15 @@ class TestStreamedConsumers:
             built from the whole arrays in row-major order.
         """
         base = Dataset.from_array(
-                   np.arange(35, dtype="float32").reshape(7, 5),
-                   no_data_value=-9999.0,
-                   geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-               )
+            np.arange(35, dtype="float32").reshape(7, 5),
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         class_arr = np.tile(np.array([1, 2, 3, 1, 2], dtype="int32"), (7, 1))
         classes = Dataset.from_array(
-                      class_arr,
-                      geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-                  )
+            class_arr,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         result = base.overlay(classes)
         reference: dict[int, list[float]] = {}
         base_arr = base.read_array()
@@ -433,10 +435,10 @@ class TestStreamedConsumers:
         band0[5, 1] = -9999.0
         band1 = np.arange(35, dtype="float32").reshape(7, 5) + 100.0
         ds = Dataset.from_array(
-                 np.stack([band0, band1]),
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            np.stack([band0, band1]),
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         got = ds.extract()
         reference = get_pixels2(ds.read_array(), [ds.no_data_value[0]])
         assert np.array_equal(got, reference), "streamed multi-band extract diverged"

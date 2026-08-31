@@ -5,9 +5,9 @@ import pandas as pd
 import pytest
 from pandas import DataFrame
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.dataset.engines import Analysis
-from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.plot
 
@@ -37,9 +37,11 @@ class TestColorTable:
         top_left_corner = (0, 0)
         cell_size = 0.05
         dataset = Dataset.from_array(
-                      arr,
-                      geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
-                  )
+            arr,
+            geo_ref=GeoReference(
+                top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326
+            ),
+        )
 
         # without alpha
         color_table = pd.DataFrame(
@@ -149,9 +151,9 @@ class TestPalettePlot:
         """A single-band raster (values 1..3) tagged with a red/green/blue palette."""
         arr = np.array([[1, 2, 3], [3, 2, 1], [1, 2, 3]], dtype=np.int32)
         dataset = Dataset.from_array(
-                      arr,
-                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
-                  )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+        )
         dataset.color_table = pd.DataFrame(
             {
                 "band": [1, 1, 1],
@@ -198,9 +200,9 @@ class TestPalettePlot:
         """
         arr = np.array([[11, 21, 31, 11]], dtype=np.int32)
         dataset = Dataset.from_array(
-                      arr,
-                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
-                  )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+        )
         dataset.color_table = pd.DataFrame(
             {
                 "band": [1, 1, 1],
@@ -232,9 +234,9 @@ class TestPalettePlot:
         """
         arr = np.array([[10, 132, 200, 10]], dtype=np.int32)
         dataset = Dataset.from_array(
-                      arr,
-                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
-                  )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+        )
         dataset.color_table = pd.DataFrame(
             {
                 "band": [1, 1, 1],
@@ -264,9 +266,9 @@ class TestPalettePlot:
         """
         arr = np.zeros((1, 3), dtype=np.int32)
         dataset = Dataset.from_array(
-                      arr,
-                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
-                  )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+        )
         dataset.color_table = pd.DataFrame(
             {"band": [1], "values": [0], "color": ["#ff0000"]}
         )
@@ -305,9 +307,9 @@ class TestPalettePlot:
         """A raster with no colour table renders with cleopatra's default colormap."""
         arr = np.random.default_rng(0).random((5, 5)).astype("float32")
         dataset = Dataset.from_array(
-                      arr,
-                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
-                  )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+        )
         glyph = dataset.plot(band=0)
         assert glyph.im.cmap.name == "coolwarm_r"
 
@@ -347,9 +349,9 @@ class TestPalettePlot:
         mid = np.array([[1, 3, 1, 3]] * 4, dtype=np.int32)
         other = np.full((4, 4), 9, dtype=np.int32)
         dataset = Dataset.from_array(
-                      np.stack([other, mid, other]),
-                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
-                  )
+            np.stack([other, mid, other]),
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+        )
         dataset.color_table = pd.DataFrame(
             {"band": [2, 2], "values": [1, 3], "color": ["#ff0000", "#00ff00"]}
         )
@@ -372,9 +374,9 @@ class TestColorRamp:
         rng = np.random.default_rng(0)
         arr = rng.integers(1, 6, size=(10, 10))
         return Dataset.from_array(
-                   arr,
-                   geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
-               )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+        )
 
     def test_two_color_ramp_interpolates_the_intermediate_stops(self):
         """A two-colour ramp fills the values between the endpoints via CreateColorRamp.

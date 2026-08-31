@@ -265,13 +265,13 @@ class TestRootContainer4DSpatialOps:
         """`extra_dims` API materialises every non-spatial dim on a 4-D array."""
         arr = np.arange(2 * 3 * 5 * 6).reshape(2, 3, 5, 6).astype(np.float64)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(geo=(0.0, 1.0, 0, 5.0, 0, -1.0)),
-                 dims=ExtraDimensions(
+            arr=arr,
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0, 5.0, 0, -1.0)),
+            dims=ExtraDimensions(
                 dims=[("time", [10, 20]), ("level", [1000, 850, 500])]
             ),
-                 variable_name="temp",
-             )
+            variable_name="temp",
+        )
         var = nc.get_variable("temp")
         assert var._band_dim_names == (
             "time",
@@ -456,13 +456,13 @@ def _make_4d_writable_nc():
                 for x in range(NX):
                     arr[t, level, y, x] = t * 1000.0 + level * 100.0 + y * 10.0 + x
     return NetCDF.from_array(
-               arr=arr,
-               geo_ref=GeoReference(geo=(-10.0, 1.0, 0, 44.0, 0, -1.0), epsg=4326),
-               variable_name="temperature",
-               dims=ExtraDimensions(
+        arr=arr,
+        geo_ref=GeoReference(geo=(-10.0, 1.0, 0, 44.0, 0, -1.0), epsg=4326),
+        variable_name="temperature",
+        dims=ExtraDimensions(
             dims=[("time", TIME_VALUES), ("pressure_level", LEVEL_VALUES)]
         ),
-           )
+    )
 
 
 class TestSel4DRoundTrip:

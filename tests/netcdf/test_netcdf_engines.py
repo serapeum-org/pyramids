@@ -105,10 +105,10 @@ class TestEngineWiring:
             attribute rather than ``is`` (``_ds`` is a ``weakref.proxy``).
         """
         nc = NetCDF.from_array(
-                 np.arange(24.0).reshape(2, 3, 4),
-                 geo_ref=GeoReference(geo=(0.0, 1.0, 0, 2.0, 0, -1.0), epsg=4326),
-                 variable_name="data",
-             )
+            np.arange(24.0).reshape(2, 3, 4),
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0, 2.0, 0, -1.0), epsg=4326),
+            variable_name="data",
+        )
         nc.epsg = 3857
         assert isinstance(nc.selection, Selection), "selection engine lost on update"
         assert isinstance(nc.varops, Variables), "varops engine lost on update"
@@ -202,9 +202,9 @@ class TestVariablesEngine:
         from pyramids.dataset import Dataset
 
         donor = Dataset.from_array(
-                    np.ones((4, 5), dtype=np.float32),
-                    geo_ref=GeoReference(geo=(0, 1, 0, 4, 0, -1), epsg=4326),
-                )
+            np.ones((4, 5), dtype=np.float32),
+            geo_ref=GeoReference(geo=(0, 1, 0, 4, 0, -1), epsg=4326),
+        )
         with pytest.raises(ValueError, match="multidimensional container"):
             classic_container.set_variable("new", donor)
 
@@ -231,16 +231,28 @@ class TestVariablesEngine:
         with pytest.raises(ValueError, match="already exists"):
             mdim_container.rename_variable(names[0], names[1])
 
-    def test_from_array_requires_geo(self):
-        """``from_array`` raises ValueError without ``geo`` or corner+size.
+    def test_from_array_requires_geo_ref(self):
+        """``from_array`` rejects a missing ``geo_ref`` at the call site.
 
         Test scenario:
-            Neither a geotransform nor a ``(top_left_corner, cell_size)`` pair is
-            supplied, so the geobox is undefined and a ValueError is raised.
+            ``geo_ref`` is a required keyword-only argument, so omitting it is a
+            ``TypeError`` raised before the body runs -- earlier and clearer
+            than the old ``ValueError`` from inside ``resolve_geotransform``.
+        """
+        arr = np.zeros((2, 3))
+        with pytest.raises(TypeError, match="geo_ref"):
+            NetCDF.from_array(arr)
+
+    def test_from_array_rejects_an_empty_geo_ref(self):
+        """A ``GeoReference`` carrying no transform is still a ValueError.
+
+        Test scenario:
+            Supplying the argument but leaving it empty cannot be caught by the
+            signature, so ``resolve_geotransform`` raises and names both forms.
         """
         arr = np.zeros((2, 3))
         with pytest.raises(ValueError, match="geo.*top_left_corner|top_left_corner"):
-            NetCDF.from_array(arr)
+            NetCDF.from_array(arr, geo_ref=GeoReference())
 
     def test_add_variable_copies_all_from_netcdf_source(self):
         """``add_variable`` with no name copies every variable from a NetCDF source.
@@ -252,15 +264,15 @@ class TestVariablesEngine:
         """
         geo = (0.0, 1.0, 0, 4.0, 0, -1.0)
         src = NetCDF.from_array(
-                  np.ones((4, 5), dtype=np.float32),
-                  geo_ref=GeoReference(geo=geo),
-                  variable_name="a",
-              )
+            np.ones((4, 5), dtype=np.float32),
+            geo_ref=GeoReference(geo=geo),
+            variable_name="a",
+        )
         dst = NetCDF.from_array(
-                  np.zeros((4, 5), dtype=np.float32),
-                  geo_ref=GeoReference(geo=geo),
-                  variable_name="b",
-              )
+            np.zeros((4, 5), dtype=np.float32),
+            geo_ref=GeoReference(geo=geo),
+            variable_name="b",
+        )
         dst.add_variable(src)
         assert sorted(dst.variable_names) == [
             "a",
@@ -277,10 +289,10 @@ class TestVariablesEngine:
         """
         geo = (0.0, 1.0, 0, 4.0, 0, -1.0)
         nc = NetCDF.from_array(
-                 np.zeros((2, 3, 4, 5), dtype=np.float32),
-                 geo_ref=GeoReference(geo=geo),
-                 variable_name="v",
-             )
+            np.zeros((2, 3, 4, 5), dtype=np.float32),
+            geo_ref=GeoReference(geo=geo),
+            variable_name="v",
+        )
         var = nc.get_variable("v")
         assert var._band_dim_names == (
             "dim_0",
@@ -298,11 +310,11 @@ class TestVariablesEngine:
         """
         geo = (0.0, 1.0, 0, 4.0, 0, -1.0)
         nc = NetCDF.from_array(
-                 np.zeros((3, 4, 5), dtype=np.float32),
-                 geo_ref=GeoReference(geo=geo),
-                 variable_name="w",
-                 dims=ExtraDimensions(dims=[("lev", None)]),
-             )
+            np.zeros((3, 4, 5), dtype=np.float32),
+            geo_ref=GeoReference(geo=geo),
+            variable_name="w",
+            dims=ExtraDimensions(dims=[("lev", None)]),
+        )
         assert "w" in nc.variable_names, (
             "variable not created with None-filled dim values"
         )
@@ -315,9 +327,9 @@ class TestVariablesEngine:
             geotransform is synthesised and a Container is returned.
         """
         nc = NetCDF.from_array(
-                 np.arange(12.0).reshape(3, 4),
-                 geo_ref=GeoReference(top_left_corner=(0.0, 10.0), cell_size=1.0),
-             )
+            np.arange(12.0).reshape(3, 4),
+            geo_ref=GeoReference(top_left_corner=(0.0, 10.0), cell_size=1.0),
+        )
         assert "data" in nc.variable_names, "default variable not created"
 
 

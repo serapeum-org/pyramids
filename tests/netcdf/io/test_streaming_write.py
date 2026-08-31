@@ -176,17 +176,17 @@ class TestStreamingParity:
         dask_arr = da.from_array(source, chunks=(2, 6, 8))
 
         eager = NetCDF.from_array(
-                    arr=source,
-                    geo_ref=GeoReference(geo=GEO),
-                    variable_name="v",
-                    dims=ExtraDimensions(name="time"),
-                )
+            arr=source,
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="v",
+            dims=ExtraDimensions(name="time"),
+        )
         streamed = NetCDF.from_array(
-                       arr=dask_arr,
-                       geo_ref=GeoReference(geo=GEO),
-                       variable_name="v",
-                       dims=ExtraDimensions(name="time"),
-                   )
+            arr=dask_arr,
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="v",
+            dims=ExtraDimensions(name="time"),
+        )
         assert_allclose(
             np.asarray(streamed.get_variable("v").read_array()),
             np.asarray(eager.get_variable("v").read_array()),

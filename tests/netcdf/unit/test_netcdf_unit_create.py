@@ -112,13 +112,13 @@ class TestCreateFromArrayAlternatives:
         """
         arr = np.random.default_rng(0).random((5, 10)).astype(np.float64)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(
+            arr=arr,
+            geo_ref=GeoReference(
                 top_left_corner=(10.0, 50.0), cell_size=0.5, epsg=4326
             ),
-                 no_data_value=-9999.0,
-                 path=None,
-             )
+            no_data_value=-9999.0,
+            path=None,
+        )
         assert nc is not None, "NetCDF should be created"
         var = nc.get_variable("data")
         assert var.cell_size == pytest.approx(0.5), (
@@ -144,11 +144,11 @@ class TestCreateFromArrayAlternatives:
         arr = np.random.default_rng(0).random((5, 10)).astype(np.float64)
         geo = (0.0, 1.0, 0, 5.0, 0, -1.0)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(geo=geo, epsg=4326),
-                 no_data_value=-9999.0,
-                 path=None,
-             )
+            arr=arr,
+            geo_ref=GeoReference(geo=geo, epsg=4326),
+            no_data_value=-9999.0,
+            path=None,
+        )
         assert "data" in nc.variable_names, (
             f"Expected 'data' in variable_names, got {nc.variable_names}"
         )
@@ -161,12 +161,12 @@ class TestCreateFromArrayAlternatives:
         arr = np.random.default_rng(0).random((4, 5, 10)).astype(np.float64)
         geo = (0.0, 1.0, 0, 5.0, 0, -1.0)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(geo=geo, epsg=4326),
-                 no_data_value=-9999.0,
-                 variable_name="test_var",
-                 path=None,
-             )
+            arr=arr,
+            geo_ref=GeoReference(geo=geo, epsg=4326),
+            no_data_value=-9999.0,
+            variable_name="test_var",
+            path=None,
+        )
         var = nc.get_variable("test_var")
         assert var.band_count == 4, f"Expected 4 bands, got {var.band_count}"
 

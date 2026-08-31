@@ -17,10 +17,10 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.dataset.collection import _SIDECAR_SUFFIXES
 from pyramids.dataset.engines import io as io_engine
-from pyramids.base.georeference import GeoReference
 from tests._helpers import write_raster
 
 pytestmark = pytest.mark.core
@@ -360,9 +360,9 @@ class TestGdalEnvOnEveryReadPath:
             has its own read path independent of `IO`.
         """
         source = Dataset.from_array(
-                     np.full((64, 64), 5.0, "float32"),
-                     geo_ref=GeoReference(top_left_corner=(0.0, 64.0), cell_size=1.0, epsg=4326),
-                 )
+            np.full((64, 64), 5.0, "float32"),
+            geo_ref=GeoReference(top_left_corner=(0.0, 64.0), cell_size=1.0, epsg=4326),
+        )
         cog_path = str(source.to_cog(tmp_path / "c.tif"))
         ds = Dataset.read_file(cog_path, gdal_env=ENV)
         payer = self._payer_during(lambda: ds.cog.preview(max_size=8))

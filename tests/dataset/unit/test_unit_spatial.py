@@ -7,9 +7,9 @@ import pytest
 from osgeo import gdal
 
 from pyramids.base._errors import AlignmentError
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.dataset.engines import Analysis, Spatial, Vectorize
-from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -30,10 +30,10 @@ class TestCorrectWrapCutlineError:
             dtype=np.float32,
         )
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=nd,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=nd,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         corrected = Spatial._correct_wrap_cutline_error(ds)
         assert corrected.rows == 2, (
             f"Expected 2 rows after correction, got {corrected.rows}"
@@ -70,10 +70,10 @@ class TestCorrectWrapCutlineError:
         )
         arr = np.stack([band1, band2])
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=nd,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=nd,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         corrected = Spatial._correct_wrap_cutline_error(ds)
         assert corrected.rows == 1, "Expected 1 row after 3D correction"
         assert corrected.columns == 1, "Expected 1 col after 3D correction"
@@ -104,10 +104,10 @@ class TestCorrectWrapCutlineError:
             dtype=np.float32,
         )
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=nd,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=nd,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         ds.crs = grib_wkt
 
         corrected = Spatial._correct_wrap_cutline_error(ds)
@@ -145,10 +145,10 @@ class TestCorrectWrapCutlineError:
             dtype=np.float32,
         )
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=nd,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=nd,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         ds.raster.SetProjection("")
         assert ds.crs == "", "precondition: source must be unprojected"
 
@@ -220,10 +220,10 @@ class TestApply:
             [[1.0, 4.0, 7.0], [2.0, 5.0, 8.0], [3.0, 6.0, 9.0]], dtype=np.float32
         )
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         result = ds.apply(classify)
         result_arr = result.read_array()
         expected = np.array(
@@ -244,10 +244,10 @@ class TestApply:
         """
         arr = np.array([[1.0, -9999.0], [-9999.0, 4.0]], dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         result = ds.apply(lambda x: x * 10)
         result_arr = result.read_array()
         assert np.isclose(result_arr[0, 0], 10.0), (
@@ -272,10 +272,10 @@ class TestApply:
         """
         arr = np.full((3, 3), -9999.0, dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         result = ds.apply(lambda x: x * 100)
         result_arr = result.read_array()
         assert np.allclose(result_arr, -9999.0, rtol=0.001), (
@@ -290,10 +290,10 @@ class TestApply:
         """
         arr = np.array([[5.0]], dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         result = ds.apply(lambda x: x**2)
         assert np.isclose(result.read_array()[0, 0], 25.0), (
             f"Expected 25.0, got {result.read_array()[0, 0]}"
@@ -351,10 +351,10 @@ class TestApply:
         """
         arr = np.array([[2.0, 4.0], [6.0, 8.0]], dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         original_arr = ds.read_array().copy()
         ds.apply(lambda x: x * 0)
         np.testing.assert_array_equal(
@@ -459,10 +459,10 @@ class TestWrapLongitude:
         cols = 360
         arr = np.ones((1, cols), dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.5), cell_size=1.0, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.5), cell_size=1.0, epsg=4326),
+        )
         result = ds.wrap_longitude()
         assert result is not None, "wrap_longitude should return a Dataset"
         gt = result.geotransform
@@ -472,10 +472,10 @@ class TestWrapLongitude:
         """wrap_longitude should raise for a small, clearly non-global raster."""
         arr = np.ones((3, 3), dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         with pytest.raises(ValueError, match="global grid"):
             ds.wrap_longitude()
 
@@ -488,10 +488,12 @@ class TestWrapLongitude:
         """
         arr = np.ones((1, 53), dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(200.0, 10.0), cell_size=2.5, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(
+                top_left_corner=(200.0, 10.0), cell_size=2.5, epsg=4326
+            ),
+        )
         with pytest.raises(ValueError, match="global grid"):
             ds.wrap_longitude()
 
@@ -500,10 +502,10 @@ class TestWrapLongitude:
         cols = 360
         arr = np.ones((1, cols), dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.5), cell_size=1.0, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.5), cell_size=1.0, epsg=4326),
+        )
         result = ds.wrap_longitude()
         assert result is not None, "wrap_longitude should return a Dataset"
         assert isinstance(result, Dataset), "wrap_longitude should return a Dataset"
@@ -524,10 +526,10 @@ class TestWrapLongitudePaths:
         """An in-memory source is rolled exactly (eager path), preserving the no-data value."""
         arr = np.arange(360, dtype=np.float32).reshape(1, 360)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.5), cell_size=1.0, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.5), cell_size=1.0, epsg=4326),
+        )
         result = ds.wrap_longitude()
         assert result.raster.GetDriver().ShortName == "MEM"
         expected = arr[:, list(range(180, 360)) + list(range(0, 180))]
@@ -595,10 +597,10 @@ class TestWrapLongitudePaths:
             [np.arange(360, dtype=np.float32), np.arange(360, 720, dtype=np.float32)]
         ).reshape(2, 1, 360)
         dataset = Dataset.from_array(
-                      arr,
-                      no_data_value=-9999.0,
-                      geo_ref=GeoReference(top_left_corner=(0.0, 0.5), cell_size=1.0, epsg=4326),
-                  )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.5), cell_size=1.0, epsg=4326),
+        )
         result = dataset.wrap_longitude()
         order = list(range(180, 360)) + list(range(0, 180))
         for band in range(2):
@@ -616,10 +618,10 @@ class TestWrapLongitudePaths:
         """
         arr = np.ones((1, 360), dtype=np.float32)
         dataset = Dataset.from_array(
-                      arr,
-                      no_data_value=-9999.0,
-                      geo_ref=GeoReference(top_left_corner=(0.0, 0.5), cell_size=1.0, epsg=4326),
-                  )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.5), cell_size=1.0, epsg=4326),
+        )
         result = dataset.wrap_longitude()
         assert result.epsg == 4326, f"expected EPSG 4326, got {result.epsg}"
 
@@ -668,10 +670,10 @@ class TestWrapLongitudePaths:
         """
         arr = np.arange(360, dtype=np.float32).reshape(1, 360)
         dataset = Dataset.from_array(
-                      arr,
-                      no_data_value=-9999.0,
-                      geo_ref=GeoReference(top_left_corner=(0.0, 0.5), cell_size=1.0, epsg=4326),
-                  )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.5), cell_size=1.0, epsg=4326),
+        )
         dataset.raster.SetDescription("invalid\x00path")
         result = dataset.wrap_longitude()
         assert result.raster.GetDriver().ShortName == "MEM", (
@@ -688,9 +690,9 @@ class TestNonSquareResolution:
     def _square_source():
         """A 10×10 1° geographic raster to resample/reproject."""
         return Dataset.from_array(
-                   np.ones((1, 10, 10), dtype="float32"),
-                   geo_ref=GeoReference(top_left_corner=(0.0, 10.0), cell_size=1.0, epsg=4326),
-               )
+            np.ones((1, 10, 10), dtype="float32"),
+            geo_ref=GeoReference(top_left_corner=(0.0, 10.0), cell_size=1.0, epsg=4326),
+        )
 
     def test_resample_nonsquare_output(self):
         """resample((2, 1)) halves the columns, keeps the rows, and yields a 2°×1° grid."""
@@ -758,10 +760,12 @@ class TestToCrsWestHemisphere:
         """to_crs on a raster with longitude > 180 should handle conversion."""
         arr = np.ones((3, 3), dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(200.0, 50.0), cell_size=1.0, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(
+                top_left_corner=(200.0, 50.0), cell_size=1.0, epsg=4326
+            ),
+        )
         result = ds.to_crs(to_epsg=3857)
         assert result is not None, "to_crs should handle west-hemisphere longitudes"
 
@@ -774,19 +778,19 @@ class TestCropAligned:
         nd = -9999.0
         src_arr = np.arange(1, 10, dtype=np.float32).reshape(3, 3)
         src = Dataset.from_array(
-                  src_arr,
-                  no_data_value=nd,
-                  geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-              )
+            src_arr,
+            no_data_value=nd,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         mask_arr = np.array(
             [[1.0, 1.0, 1.0], [1.0, nd, 1.0], [1.0, 1.0, 1.0]],
             dtype=np.float32,
         )
         mask = Dataset.from_array(
-                   mask_arr,
-                   no_data_value=nd,
-                   geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-               )
+            mask_arr,
+            no_data_value=nd,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         result = src.spatial._crop_aligned(mask)
         arr = result.read_array()
         assert np.isclose(arr[1, 1], nd), "Masked cell should be nodata"
@@ -795,10 +799,10 @@ class TestCropAligned:
         """_crop_aligned with numpy mask but no mask_noval should raise."""
         src_arr = np.ones((3, 3), dtype=np.float32)
         src = Dataset.from_array(
-                  src_arr,
-                  no_data_value=-9999.0,
-                  geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-              )
+            src_arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         mask = np.ones((3, 3), dtype=np.float32)
         with pytest.raises(ValueError, match="no_val"):
             src.spatial._crop_aligned(mask, mask_noval=None)
@@ -807,10 +811,10 @@ class TestCropAligned:
         """_crop_aligned with invalid mask type should raise TypeError."""
         src_arr = np.ones((3, 3), dtype=np.float32)
         src = Dataset.from_array(
-                  src_arr,
-                  no_data_value=-9999.0,
-                  geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-              )
+            src_arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         with pytest.raises(TypeError):
             src.spatial._crop_aligned("not_a_mask")
 
@@ -818,16 +822,16 @@ class TestCropAligned:
         """_crop_aligned with different dimensions should raise ValueError."""
         src_arr = np.ones((3, 3), dtype=np.float32)
         src = Dataset.from_array(
-                  src_arr,
-                  no_data_value=-9999.0,
-                  geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-              )
+            src_arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         mask_arr = np.ones((5, 5), dtype=np.float32)
         mask = Dataset.from_array(
-                   mask_arr,
-                   no_data_value=-9999.0,
-                   geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-               )
+            mask_arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         with pytest.raises(ValueError, match="different number"):
             src.spatial._crop_aligned(mask)
 
@@ -836,16 +840,16 @@ class TestCropAligned:
         nd = -9999.0
         src_arr = np.ones((3, 3), dtype=np.float32)
         src = Dataset.from_array(
-                  src_arr,
-                  no_data_value=nd,
-                  geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-              )
+            src_arr,
+            no_data_value=nd,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         mask_arr = np.ones((3, 3), dtype=np.float32)
         mask = Dataset.from_array(
-                   mask_arr,
-                   no_data_value=nd,
-                   geo_ref=GeoReference(top_left_corner=(1.0, 1.0), cell_size=0.05, epsg=4326),
-               )
+            mask_arr,
+            no_data_value=nd,
+            geo_ref=GeoReference(top_left_corner=(1.0, 1.0), cell_size=0.05, epsg=4326),
+        )
         with pytest.raises(ValueError, match="upper left corner"):
             src.spatial._crop_aligned(mask)
 
@@ -854,16 +858,16 @@ class TestCropAligned:
         nd = -9999.0
         src_arr = np.ones((3, 3), dtype=np.float32)
         src = Dataset.from_array(
-                  src_arr,
-                  no_data_value=nd,
-                  geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-              )
+            src_arr,
+            no_data_value=nd,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         mask_arr = np.ones((3, 3), dtype=np.float32)
         mask = Dataset.from_array(
-                   mask_arr,
-                   no_data_value=nd,
-                   geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=3857),
-               )
+            mask_arr,
+            no_data_value=nd,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=3857),
+        )
         with pytest.raises(ValueError, match="coordinate system"):
             src.spatial._crop_aligned(mask)
 
@@ -872,17 +876,17 @@ class TestCropAligned:
         nd = -9999.0
         src_arr = np.ones((2, 3, 3), dtype=np.float32) * 5.0
         src = Dataset.from_array(
-                  src_arr,
-                  no_data_value=nd,
-                  geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-              )
+            src_arr,
+            no_data_value=nd,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         mask_arr = np.ones((3, 3), dtype=np.float32)
         mask_arr[1, 1] = np.nan
         mask = Dataset.from_array(
-                   mask_arr,
-                   no_data_value=np.nan,
-                   geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-               )
+            mask_arr,
+            no_data_value=np.nan,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         result = src.spatial._crop_aligned(mask)
         arr = result.read_array()
         assert arr.ndim == 3, "Multi-band result should be 3D"
@@ -892,17 +896,17 @@ class TestCropAligned:
         nd = -9999.0
         src_arr = np.ones((3, 3), dtype=np.float32) * 5.0
         src = Dataset.from_array(
-                  src_arr,
-                  no_data_value=nd,
-                  geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-              )
+            src_arr,
+            no_data_value=nd,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         mask_arr = np.ones((3, 3), dtype=np.float32)
         mask_arr[0, 0] = np.nan
         mask = Dataset.from_array(
-                   mask_arr,
-                   no_data_value=np.nan,
-                   geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-               )
+            mask_arr,
+            no_data_value=np.nan,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         result = src.spatial._crop_aligned(mask)
         assert result is not None, "Should return a cropped dataset"
 
@@ -1067,9 +1071,9 @@ class TestMapToArrayCoordinates:
         fixed ``array_to_map_coordinates`` (issue #505).
         """
         ds = Dataset.from_array(
-                 np.ones((4, 3), dtype="float32"),
-                 geo_ref=GeoReference(geo=(10.0, 2.0, 0.0, 8.0, 0.0, -0.5), epsg=4326),
-             )
+            np.ones((4, 3), dtype="float32"),
+            geo_ref=GeoReference(geo=(10.0, 2.0, 0.0, 8.0, 0.0, -0.5), epsg=4326),
+        )
         rows, cols = [0, 1, 3], [0, 1, 2]
         x, y = ds.array_to_map_coordinates(rows, cols, center=True)
         df = pd.DataFrame({"x": x, "y": y})
@@ -1109,9 +1113,9 @@ class TestArrayToMapCoordinates:
     def _nonsquare():
         """Grid with 2.0-wide, 0.5-tall pixels anchored at (10, 8)."""
         return Dataset.from_array(
-                   np.ones((4, 3), dtype="float32"),
-                   geo_ref=GeoReference(geo=(10.0, 2.0, 0.0, 8.0, 0.0, -0.5), epsg=4326),
-               )
+            np.ones((4, 3), dtype="float32"),
+            geo_ref=GeoReference(geo=(10.0, 2.0, 0.0, 8.0, 0.0, -0.5), epsg=4326),
+        )
 
     def test_array_to_map_nonsquare_center(self):
         """The y axis uses the pixel height, not the width, on non-square grids.
@@ -1139,9 +1143,9 @@ class TestArrayToMapCoordinates:
     def test_array_to_map_rotated(self):
         """The rotation terms are honoured (not dropped as before)."""
         rot = Dataset.from_array(
-                  np.ones((4, 4), dtype="float32"),
-                  geo_ref=GeoReference(geo=(0.0, 1.0, 0.5, 0.0, 0.5, -1.0), epsg=4326),
-              )
+            np.ones((4, 4), dtype="float32"),
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0.5, 0.0, 0.5, -1.0), epsg=4326),
+        )
         x, y = rot.array_to_map_coordinates([1], [2], center=False)
         # Column 2 and row 1 through the affine give x of 2.5 (two pixel
         # widths plus one row-rotation half) and y of 0.0 (one column
@@ -1196,9 +1200,9 @@ class TestArrayToMapCoordinates:
     def test_array_to_map_square_unchanged(self):
         """Square north-up grids match the historical width-based formula."""
         sq = Dataset.from_array(
-                 np.ones((10, 10), dtype="float32"),
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            np.ones((10, 10), dtype="float32"),
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         x, y = sq.array_to_map_coordinates([1, 3, 5], [2, 4, 6])
         assert x == pytest.approx([0.1, 0.2, 0.3]), f"square x changed: {x}"
         assert y == pytest.approx([-0.05, -0.15, -0.25]), f"square y changed: {y}"
@@ -1210,15 +1214,15 @@ class TestOverlay:
     def test_overlay_unaligned_raises(self):
         """overlay with unaligned dataset raises AlignmentError."""
         src = Dataset.from_array(
-                  np.ones((3, 3), dtype=np.float32),
-                  no_data_value=-9999.0,
-                  geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-              )
+            np.ones((3, 3), dtype=np.float32),
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         classes = Dataset.from_array(
-                      np.ones((5, 5), dtype=np.float32),
-                      no_data_value=-9999.0,
-                      geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-                  )
+            np.ones((5, 5), dtype=np.float32),
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         with pytest.raises(AlignmentError):
             src.overlay(classes)
 
@@ -1249,10 +1253,10 @@ class TestCluster2:
         """to_polygons with band as a list should use the first element."""
         arr = np.array([[1, 1, 2], [2, 3, 3], [3, 1, 2]], dtype=np.int32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         gdf = ds.to_polygons(band=[0])
         assert gdf is not None, (
             "to_polygons with list band should return a GeoDataFrame"
@@ -1268,10 +1272,10 @@ class TestCorrectWrapCutlineErrorNdim:
         nd = -9999.0
         arr = np.ones((3, 3), dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=nd,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=nd,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         ds._raster.GetRasterBand(1).WriteArray(arr)
         # We can't easily create a 4D array in GDAL, so we test
         # the static method behavior via mocker
@@ -1279,10 +1283,10 @@ class TestCorrectWrapCutlineErrorNdim:
         arr_3d = np.ones((2, 3, 3), dtype=np.float32)
         arr_3d[:, 0, :] = nd
         ds_3d = Dataset.from_array(
-                    arr_3d,
-                    no_data_value=nd,
-                    geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-                )
+            arr_3d,
+            no_data_value=nd,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         result = Spatial._correct_wrap_cutline_error(ds_3d)
         assert result.rows == 2, "Should trim first row of nodata"
 
@@ -1296,16 +1300,16 @@ class TestCropAlignedFillGaps:
         src_arr = np.ones((3, 3), dtype=np.float32) * 5.0
         src_arr[1, 1] = nd
         src = Dataset.from_array(
-                  src_arr,
-                  no_data_value=nd,
-                  geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-              )
+            src_arr,
+            no_data_value=nd,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         mask_arr = np.ones((3, 3), dtype=np.float32)
         mask = Dataset.from_array(
-                   mask_arr,
-                   no_data_value=nd,
-                   geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-               )
+            mask_arr,
+            no_data_value=nd,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         result = src.spatial._crop_aligned(mask, fill_gaps=True)
         arr = result.read_array()
         assert arr is not None, "Fill gaps result should have a valid array"
@@ -1318,10 +1322,12 @@ class TestToCrsSameEpsgPaths:
         """to_crs with same EPSG should preserve bounds."""
         arr = np.ones((5, 5), dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(10.0, 50.0), cell_size=0.5, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(
+                top_left_corner=(10.0, 50.0), cell_size=0.5, epsg=4326
+            ),
+        )
         result = ds.to_crs(to_epsg=4326)
         assert result is not None, "Should return a Dataset"
         assert result.epsg == 4326, "EPSG should stay 4326"
@@ -1336,10 +1342,12 @@ class TestToCrsWestHemLongitude:
         """to_crs on data with longitude > 180 uses special transform."""
         arr = np.ones((3, 3), dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(200.0, 50.0), cell_size=1.0, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(
+                top_left_corner=(200.0, 50.0), cell_size=1.0, epsg=4326
+            ),
+        )
         result = ds.to_crs(to_epsg=3857)
         assert result is not None, "Should handle >180 longitude"
         assert result.epsg == 3857, "EPSG should be 3857"
@@ -1367,10 +1375,12 @@ class TestReprojectNonSquareCells:
         """
         arr = np.ones((10, 10), dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(10.0, 60.5), cell_size=0.1, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(
+                top_left_corner=(10.0, 60.5), cell_size=0.1, epsg=4326
+            ),
+        )
         result = ds.to_crs(to_epsg=3857, maintain_alignment=True)
         x_spacing = abs(result.geotransform[1])
         y_spacing = abs(result.geotransform[5])
@@ -1391,10 +1401,12 @@ class TestReprojectNonSquareCells:
         """
         arr = np.ones((10, 10), dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(geo=(500_000.0, 2.0, 0.0, 5_500_000.0, 0.0, -14.0), epsg=32633),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(
+                geo=(500_000.0, 2.0, 0.0, 5_500_000.0, 0.0, -14.0), epsg=32633
+            ),
+        )
         result = ds.to_crs(to_epsg=3857, maintain_alignment=True)
         x_spacing = abs(result.geotransform[1])
         y_spacing = abs(result.geotransform[5])
@@ -1425,10 +1437,12 @@ class TestCropAlignedNanMask:
         src_top_left = (10.0, 50.0)
         src_cell = 0.05
         src = Dataset.from_array(
-                  src_arr,
-                  no_data_value=nd,
-                  geo_ref=GeoReference(top_left_corner=src_top_left, cell_size=src_cell, epsg=4326),
-              )
+            src_arr,
+            no_data_value=nd,
+            geo_ref=GeoReference(
+                top_left_corner=src_top_left, cell_size=src_cell, epsg=4326
+            ),
+        )
         mask_arr = np.ones((4, 4), dtype=np.float32)
         mask_arr[0, 0] = nd
         mask_arr[2, 3] = nd
@@ -1448,18 +1462,18 @@ class TestCropAlignedNanMask:
         nd = -9999.0
         src_arr = np.ones((2, 4, 4), dtype=np.float32) * 5.0
         src = Dataset.from_array(
-                  src_arr,
-                  no_data_value=nd,
-                  geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-              )
+            src_arr,
+            no_data_value=nd,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         mask_arr = np.ones((4, 4), dtype=np.float32)
         mask_arr[0, 0] = np.nan
         mask_arr[2, 3] = np.nan
         mask_ds = Dataset.from_array(
-                      mask_arr,
-                      no_data_value=-9999.0,
-                      geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-                  )
+            mask_arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         # Set mask nodata to None to trigger nan check path
         mask_ds._no_data_value = [None]
         result = src.spatial._crop_aligned(mask_ds)
@@ -1471,17 +1485,17 @@ class TestCropAlignedNanMask:
         nd = -9999.0
         src_arr = np.ones((4, 4), dtype=np.float32) * 10.0
         src = Dataset.from_array(
-                  src_arr,
-                  no_data_value=nd,
-                  geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-              )
+            src_arr,
+            no_data_value=nd,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         mask_arr = np.ones((4, 4), dtype=np.float32)
         mask_arr[1, 1] = np.nan
         mask_ds = Dataset.from_array(
-                      mask_arr,
-                      no_data_value=-9999.0,
-                      geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-                  )
+            mask_arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         mask_ds._no_data_value = [None]
         result = src.spatial._crop_aligned(mask_ds)
         result_arr = result.read_array()
@@ -1496,10 +1510,10 @@ class TestCropWithRasterString:
         nd = -9999.0
         src_arr = np.ones((5, 5), dtype=np.float32)
         src = Dataset.from_array(
-                  src_arr,
-                  no_data_value=nd,
-                  geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-              )
+            src_arr,
+            no_data_value=nd,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         mask_arr = np.ones((5, 5), dtype=np.float32)
         mask_arr[0, :] = nd
         mask_path = str(tmp_path / "mask.tif")
@@ -1520,10 +1534,10 @@ class TestCluster2BandList:
         """to_polygons with band=[0] should use the first element."""
         arr = np.array([[1, 2], [3, 4]], dtype=np.int32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         gdf = ds.to_polygons(band=[0])
         assert gdf is not None, "to_polygons should return a GeoDataFrame"
         assert len(gdf) > 0, "Should have some polygons"
@@ -1550,10 +1564,10 @@ class TestCluster2BandNone:
         """to_polygons with band=None should default to band 0."""
         arr = np.array([[1, 1, 2], [2, 3, 3]], dtype=np.int32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         gdf = ds.to_polygons(band=None)
         assert gdf is not None, "to_polygons with None band should work"
 
@@ -1561,10 +1575,10 @@ class TestCluster2BandNone:
         """to_polygons with band as integer."""
         arr = np.array([[1, 2], [3, 4]], dtype=np.int32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         gdf = ds.to_polygons(band=0)
         assert gdf is not None, "to_polygons with int band should work"
 
@@ -1572,10 +1586,10 @@ class TestCluster2BandNone:
         """to_polygons with band as a list should use first element."""
         arr = np.array([[1, 2], [3, 4]], dtype=np.int32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         gdf = ds.to_polygons(band=[0])
         assert gdf is not None, "to_polygons with list band should work"
 
@@ -1583,10 +1597,10 @@ class TestCluster2BandNone:
         """cluster2 is a deprecated alias that warns and returns the same result as to_polygons."""
         arr = np.array([[1, 1, 2], [2, 3, 3]], dtype=np.int32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         with pytest.warns(DeprecationWarning, match="cluster2 is deprecated"):
             legacy = ds.cluster2()
         assert len(legacy) == len(ds.to_polygons()), (
@@ -1602,10 +1616,10 @@ class TestWrapLongitudeInplace:
         cols = 360
         arr = np.ones((1, cols), dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.5), cell_size=1.0, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.5), cell_size=1.0, epsg=4326),
+        )
         result = ds.wrap_longitude()
         assert isinstance(result, Dataset), "Should return a new Dataset"
         assert result.geotransform[0] < 0, "New top-left x should be negative"
@@ -1656,10 +1670,10 @@ class TestNonSquareCells:
         gt = (0.0, 0.1, 0.0, 0.0, 0.0, -0.05)
         arr = np.ones((3, 3), dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(geo=gt, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(geo=gt, epsg=4326),
+        )
         coords = ds.get_cell_coords(location="center")
         assert coords is not None, "Should return coordinates for non-square cells"
 
@@ -1679,9 +1693,9 @@ class TestGroupNeighbours:
             dtype=np.int32,
         )
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         gdf = ds.to_polygons(band=0)
         assert len(gdf) >= 4, "Should find at least 4 clusters"

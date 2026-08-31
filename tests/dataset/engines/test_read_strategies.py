@@ -13,6 +13,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset, Window
 from pyramids.dataset.engines._read_request import ReadRequest
 from pyramids.dataset.engines._read_strategies import (
@@ -25,7 +26,6 @@ from pyramids.dataset.engines._read_strategies import (
     ThreadsafeRead,
 )
 from pyramids.feature import FeatureCollection
-from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -71,10 +71,10 @@ def single_band() -> Dataset:
     arr = np.arange(36, dtype="float32").reshape(6, 6)
     arr[0, 0] = -9999.0
     return Dataset.from_array(
-               arr,
-               no_data_value=-9999.0,
-               geo_ref=GeoReference(top_left_corner=(0, 6), cell_size=1.0, epsg=4326),
-           )
+        arr,
+        no_data_value=-9999.0,
+        geo_ref=GeoReference(top_left_corner=(0, 6), cell_size=1.0, epsg=4326),
+    )
 
 
 @pytest.fixture
@@ -89,9 +89,9 @@ def multi_band() -> Dataset:
         axis=0,
     )
     return Dataset.from_array(
-               bands,
-               geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326),
-           )
+        bands,
+        geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326),
+    )
 
 
 class TestReadStrategyABC:
@@ -405,10 +405,10 @@ class TestEagerRead:
         )
         bands[0, 0, 0] = -9999.0
         ds = Dataset.from_array(
-                 bands,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326),
-             )
+            bands,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326),
+        )
         result = EagerRead().read(ds.io, make_request(band=None, masked=True), None)
         assert isinstance(result, np.ma.MaskedArray), (
             "multiband masked read must return a MaskedArray"

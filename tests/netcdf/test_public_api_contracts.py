@@ -27,10 +27,10 @@ def small_nc():
     """
     arr = np.arange(2 * 4 * 4, dtype=np.float32).reshape(2, 4, 4)
     return NetCDF.from_array(
-               arr,
-               geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
-               variable_name="t",
-           )
+        arr,
+        geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+        variable_name="t",
+    )
 
 
 class TestVariableNamesDeprecation:

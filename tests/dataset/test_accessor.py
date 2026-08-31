@@ -8,9 +8,9 @@ import weakref
 import numpy as np
 import pytest
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset, register_dataset_accessor
 from pyramids.dataset.dataset import _ACCESSOR_REGISTRY
-from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -19,9 +19,9 @@ pytestmark = pytest.mark.core
 def plain() -> Dataset:
     """A small in-memory raster."""
     return Dataset.from_array(
-               np.zeros((2, 3), dtype="float32"),
-               geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
-           )
+        np.zeros((2, 3), dtype="float32"),
+        geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+    )
 
 
 @pytest.fixture
@@ -216,9 +216,9 @@ class TestAccessorLifecycle:
                 self._ds = ds
 
         ds = Dataset.from_array(
-                 np.zeros((2, 2)),
-                 geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
-             )
+            np.zeros((2, 2)),
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+        )
         _ = ds.summary9
         ref = weakref.ref(ds)
         del ds

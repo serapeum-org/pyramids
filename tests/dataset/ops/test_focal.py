@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 from osgeo import gdal, osr
 
-from pyramids.dataset import Dataset
 from pyramids.base.georeference import GeoReference
+from pyramids.dataset import Dataset
 
 pytestmark = pytest.mark.core
 
@@ -17,9 +17,9 @@ def constant_raster(tmp_path):
     """5×5 raster of constant value — focal_mean must equal that value."""
     arr = np.full((5, 5), 7.0, dtype=np.float32)
     ds = Dataset.from_array(
-             arr,
-             geo_ref=GeoReference(top_left_corner=(0.0, 5.0), cell_size=1.0, epsg=4326),
-         )
+        arr,
+        geo_ref=GeoReference(top_left_corner=(0.0, 5.0), cell_size=1.0, epsg=4326),
+    )
     path = str(tmp_path / "const.tif")
     ds.to_file(path)
     return Dataset.read_file(path)
@@ -30,9 +30,9 @@ def ramp_raster(tmp_path):
     """5×5 ramp along the x-axis so slope is non-zero."""
     arr = np.tile(np.arange(5, dtype=np.float32), (5, 1))
     ds = Dataset.from_array(
-             arr,
-             geo_ref=GeoReference(top_left_corner=(0.0, 5.0), cell_size=1.0, epsg=4326),
-         )
+        arr,
+        geo_ref=GeoReference(top_left_corner=(0.0, 5.0), cell_size=1.0, epsg=4326),
+    )
     path = str(tmp_path / "ramp.tif")
     ds.to_file(path)
     return Dataset.read_file(path)
@@ -286,7 +286,9 @@ class TestFocalApplyNoData:
         Dataset.from_array(
             array.astype("float32"),
             no_data_value=-9999.0,
-            geo_ref=GeoReference(top_left_corner=(0.0, float(array.shape[0])), cell_size=1.0, epsg=32636),
+            geo_ref=GeoReference(
+                top_left_corner=(0.0, float(array.shape[0])), cell_size=1.0, epsg=32636
+            ),
         ).to_file(str(path))
         return Dataset.read_file(str(path))
 
@@ -335,7 +337,9 @@ class TestFocalApplyNoData:
         path = tmp_path / "plain.tif"
         Dataset.from_array(
             array.astype("float32"),
-            geo_ref=GeoReference(top_left_corner=(0.0, 16.0), cell_size=1.0, epsg=32636),
+            geo_ref=GeoReference(
+                top_left_corner=(0.0, 16.0), cell_size=1.0, epsg=32636
+            ),
         ).to_file(str(path))
         out = np.asarray(Dataset.read_file(str(path)).focal_apply(np.max, radius=1))
         assert np.isfinite(out).all(), f"no sentinel means no blanking, got {out}"
@@ -407,7 +411,9 @@ class TestEagerAndLazyAgree:
         Dataset.from_array(
             array.astype("float32"),
             no_data_value=-9999.0,
-            geo_ref=GeoReference(top_left_corner=(0.0, 16.0), cell_size=1.0, epsg=32636),
+            geo_ref=GeoReference(
+                top_left_corner=(0.0, 16.0), cell_size=1.0, epsg=32636
+            ),
         ).to_file(str(path))
         return Dataset.read_file(str(path))
 

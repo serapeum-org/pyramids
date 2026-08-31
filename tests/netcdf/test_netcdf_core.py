@@ -14,9 +14,9 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.netcdf.netcdf import NetCDF
-from pyramids.base.georeference import GeoReference
 from tests.netcdf.conftest import make_2d_nc, make_3d_nc
 
 pytestmark = pytest.mark.core
@@ -554,10 +554,10 @@ class TestSetVariableEdgeCases:
         """
         nc = make_2d_nc()
         ds = Dataset.from_array(
-                 np.random.default_rng(0).random((10, 12)),
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(geo=(0.0, 1.0, 0, 10.0, 0, -1.0), epsg=4326),
-             )
+            np.random.default_rng(0).random((10, 12)),
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0, 10.0, 0, -1.0), epsg=4326),
+        )
         nc.set_variable(
             "pressure",
             ds,
@@ -577,10 +577,10 @@ class TestSetVariableEdgeCases:
         """
         nc = make_2d_nc()
         ds = Dataset.from_array(
-                 np.ones((10, 12)),
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(geo=(0.0, 1.0, 0, 10.0, 0, -1.0), epsg=4326),
-             )
+            np.ones((10, 12)),
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0, 10.0, 0, -1.0), epsg=4326),
+        )
         nc.set_variable("flat_var", ds)
         rg = nc._raster.GetRootGroup()
         md_arr = rg.OpenMDArray("flat_var")
@@ -597,10 +597,10 @@ class TestSetVariableEdgeCases:
         nc = _make_3d_nc()
         arr = np.random.default_rng(0).random((3, 10, 12))
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(geo=(0.0, 1.0, 0, 10.0, 0, -1.0), epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0, 10.0, 0, -1.0), epsg=4326),
+        )
         nc.set_variable(
             "timed_var",
             ds,
@@ -630,10 +630,10 @@ class TestReplaceRaster:
         new_arr = np.random.default_rng(0).random((4, 8, 10))
         new_geo = (0.0, 0.5, 0, 4.0, 0, -0.5)
         new_ds = Dataset.from_array(
-                     new_arr,
-                     no_data_value=-9999.0,
-                     geo_ref=GeoReference(geo=new_geo, epsg=4326),
-                 )
+            new_arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(geo=new_geo, epsg=4326),
+        )
         var._replace_raster(new_ds._raster)
         assert var.rows == 8, f"Expected 8 rows, got {var.rows}"
         assert var.columns == 10, f"Expected 10 columns, got {var.columns}"
@@ -650,10 +650,10 @@ class TestReplaceRaster:
         var = nc.get_variable("temperature")
         assert var._is_subset is True
         new_ds = Dataset.from_array(
-                     np.random.default_rng(0).random((3, 5, 5)),
-                     no_data_value=-9999.0,
-                     geo_ref=GeoReference(geo=(0.0, 1.0, 0, 5.0, 0, -1.0), epsg=4326),
-                 )
+            np.random.default_rng(0).random((3, 5, 5)),
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0, 5.0, 0, -1.0), epsg=4326),
+        )
         var._replace_raster(new_ds._raster)
         assert var._is_subset is True, "_is_subset should be preserved"
         assert var._is_md_array is True, "_is_md_array should be preserved"
@@ -836,10 +836,10 @@ class TestEndToEndRoundTrip:
         arr_orig = var.read_array()
         arr_modified = arr_orig * 2.0
         ds_modified = Dataset.from_array(
-                          arr_modified,
-                          no_data_value=var.no_data_value,
-                          geo_ref=GeoReference(geo=var.geotransform, epsg=var.epsg),
-                      )
+            arr_modified,
+            no_data_value=var.no_data_value,
+            geo_ref=GeoReference(geo=var.geotransform, epsg=var.epsg),
+        )
         ds_modified._band_dim_name = var._band_dim_name
         ds_modified._band_dim_values = var._band_dim_values
         nc.set_variable("precip_doubled", ds_modified)
@@ -886,10 +886,10 @@ class TestEndToEndRoundTrip:
         arr = var.read_array()
         arr_plus = arr + 100.0
         ds = Dataset.from_array(
-                 arr_plus,
-                 no_data_value=var.no_data_value,
-                 geo_ref=GeoReference(geo=var.geotransform, epsg=var.epsg),
-             )
+            arr_plus,
+            no_data_value=var.no_data_value,
+            geo_ref=GeoReference(geo=var.geotransform, epsg=var.epsg),
+        )
         nc.set_variable("temp_plus100", ds)
         out = str(tmp_path / "modified_roundtrip.nc")
         nc.to_file(out)

@@ -30,6 +30,7 @@ from pyramids.base._utils import (
     resolve_resampling,
 )
 from pyramids.base.crs import crs_spec, epsg_from_user_input
+from pyramids.base.georeference import GeoReference
 from pyramids.base.remote import cloud_config_from_env
 from pyramids.dataset._plot_helpers import (
     ModeSpec,
@@ -55,7 +56,6 @@ from pyramids.dataset.ops._geobox_zarr import (
 from pyramids.dataset.ops._zarr import _resolve_store
 from pyramids.dataset.ops.io import _read_chunk
 from pyramids.feature import FeatureCollection
-from pyramids.base.georeference import GeoReference
 
 if TYPE_CHECKING:
     from cleopatra.basemap.geo import Basemap
@@ -1159,10 +1159,12 @@ class DatasetCollection:
         # grid); from_array raises CRSError on None, so fall back to the WKT.
         # No-op for a plain Dataset (reports 4326) (#706).
         return Dataset.from_array(
-                   arr,
-                   no_data_value=src.no_data_value[0],
-                   geo_ref=GeoReference(geo=src.geotransform, epsg=crs_spec(src.epsg, src.crs)),
-               )
+            arr,
+            no_data_value=src.no_data_value[0],
+            geo_ref=GeoReference(
+                geo=src.geotransform, epsg=crs_spec(src.epsg, src.crs)
+            ),
+        )
 
     def _require_files(self, method: str) -> list[str]:
         """Guard a method that needs a file-backed collection.
@@ -1577,7 +1579,7 @@ class DatasetCollection:
                 ```python
                 >>> import os, tempfile
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset, DatasetCollection
+                >>> from pyramids.dataset import Dataset, DatasetCollection, GeoReference
                 >>> from pyramids.netcdf import NetCDF
                 >>> d = tempfile.mkdtemp()
                 >>> paths = []
@@ -1585,8 +1587,12 @@ class DatasetCollection:
                 ...     arr = (np.arange(20, dtype="int16").reshape(4, 5) + 100 * i)
                 ...     p = os.path.join(d, f"t{i}.tif")
                 ...     _ = Dataset.from_array(
-                ...         arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326,
-                ...         no_data_value=-9999, path=p,
+                ...         arr,
+                ...         geo_ref=GeoReference(
+                ...             top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+                ...         ),
+                ...         no_data_value=-9999,
+                ...         path=p,
                 ...     ).close()
                 ...     paths.append(p)
                 >>> col = DatasetCollection.from_files(paths)
@@ -2168,10 +2174,10 @@ class DatasetCollection:
             tuple(float(v) for v in geobox["geotransform"]),
         )
         template = Dataset.from_array(
-                       template_arr if bands > 1 else template_arr[0],
-                       no_data_value=no_data_value,
-                       geo_ref=GeoReference(geo=geo_6, epsg=geobox_crs(geobox)),
-                   )
+            template_arr if bands > 1 else template_arr[0],
+            no_data_value=no_data_value,
+            geo_ref=GeoReference(geo=geo_6, epsg=geobox_crs(geobox)),
+        )
         if geobox["crs_wkt"]:
             template.crs = geobox["crs_wkt"]
         band_names = cast("list | None", data_attrs.get("band_names")) or []
@@ -2945,9 +2951,10 @@ class DatasetCollection:
               ```python
               >>> import os, tempfile
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset, DatasetCollection
+              >>> from pyramids.dataset import Dataset, DatasetCollection, GeoReference
               >>> src = Dataset.from_array(
-              ...     np.ones((5, 5), dtype="float32"), top_left_corner=(0, 5), cell_size=1.0, epsg=4326,
+              ...     np.ones((5, 5), dtype="float32"),
+              ...     geo_ref=GeoReference(top_left_corner=(0, 5), cell_size=1.0, epsg=4326),
               ... )
               >>> collection = DatasetCollection.from_dataset(src, 3)
               >>> out_dir = tempfile.mkdtemp()
@@ -2963,7 +2970,8 @@ class DatasetCollection:
               >>> import numpy as np
               >>> from pyramids.dataset import Dataset, DatasetCollection
               >>> src = Dataset.from_array(
-              ...     np.full((4, 4), 7.0, dtype="float32"), top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
+              ...     np.full((4, 4), 7.0, dtype="float32"),
+              ...     geo_ref=GeoReference(top_left_corner=(0, 4), cell_size=1.0, epsg=4326),
               ... )
               >>> collection = DatasetCollection.from_dataset(src, 2)
               >>> out_dir = tempfile.mkdtemp()
@@ -3265,9 +3273,10 @@ class DatasetCollection:
 
               ```python
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset, DatasetCollection
+              >>> from pyramids.dataset import Dataset, DatasetCollection, GeoReference
               >>> mask = Dataset.from_array(
-              ...     np.ones((10, 10), dtype="int16"), top_left_corner=(0, 0), cell_size=0.05, epsg=4326,
+              ...     np.ones((10, 10), dtype="int16"),
+              ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
               ... )
               >>> collection = DatasetCollection.from_dataset(mask, 3)
               >>> cropped = collection.crop(mask=mask)
@@ -3289,7 +3298,10 @@ class DatasetCollection:
               ...     p = os.path.join(d, f"t{t}.tif")
               ...     _ = Dataset.from_array(
               ...         (np.arange(100, dtype="int16").reshape(10, 10) * (t + 1)),
-              ...         top_left_corner=(0, 0), cell_size=0.05, epsg=4326, path=p,
+              ...         geo_ref=GeoReference(
+              ...             top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+              ...         ),
+              ...         path=p,
               ...     ).close()
               ...     paths.append(p)
               >>> col = DatasetCollection.from_files(paths)

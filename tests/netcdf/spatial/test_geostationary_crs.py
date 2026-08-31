@@ -352,18 +352,18 @@ class TestNonGeostationaryEpsgUnaffected:
         """A plain lat/lon NetCDF still reports its EPSG code."""
         arr = np.zeros((5, 6), "f4")
         nc = NetCDF.from_array(
-                 arr,
-                 geo_ref=GeoReference(geo=(0, 1, 0, 5, 0, -1), epsg=4326),
-                 variable_name="t",
-             )
+            arr,
+            geo_ref=GeoReference(geo=(0, 1, 0, 5, 0, -1), epsg=4326),
+            variable_name="t",
+        )
         assert nc.get_variable("t").epsg == 4326
 
     def test_latlon_container_resample_unchanged(self):
         """A plain lat/lon container still resamples and keeps its EPSG code."""
         arr = np.zeros((6, 7), "f4")
         nc = NetCDF.from_array(
-                 arr,
-                 geo_ref=GeoReference(geo=(0, 1, 0, 6, 0, -1), epsg=4326),
-                 variable_name="t",
-             )
+            arr,
+            geo_ref=GeoReference(geo=(0, 1, 0, 6, 0, -1), epsg=4326),
+            variable_name="t",
+        )
         assert nc.resample(cell_size=2.0).get_variable("t").epsg == 4326

@@ -11,8 +11,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from pyramids.dataset import Dataset
 from pyramids.base.georeference import GeoReference
+from pyramids.dataset import Dataset
 
 pytestmark = pytest.mark.core
 
@@ -30,9 +30,9 @@ def speckled() -> Dataset:
     arr[0:3, 0:3] = 2
     arr[5, 5] = 2
     return Dataset.from_array(
-               arr,
-               geo_ref=GeoReference(top_left_corner=(0, 6), cell_size=1.0, epsg=4326),
-           )
+        arr,
+        geo_ref=GeoReference(top_left_corner=(0, 6), cell_size=1.0, epsg=4326),
+    )
 
 
 @pytest.fixture(scope="function")
@@ -46,9 +46,9 @@ def diagonal() -> Dataset:
     arr[1, 1] = 2
     arr[2, 2] = 2
     return Dataset.from_array(
-               arr,
-               geo_ref=GeoReference(top_left_corner=(0, 5), cell_size=1.0, epsg=4326),
-           )
+        arr,
+        geo_ref=GeoReference(top_left_corner=(0, 5), cell_size=1.0, epsg=4326),
+    )
 
 
 class TestSieve:
@@ -134,10 +134,10 @@ class TestSieve:
         arr = np.ones((6, 6), dtype="int32")
         arr[5, 5] = 2
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-1,
-                 geo_ref=GeoReference(top_left_corner=(0, 6), cell_size=1.0, epsg=4326),
-             )
+            arr,
+            no_data_value=-1,
+            geo_ref=GeoReference(top_left_corner=(0, 6), cell_size=1.0, epsg=4326),
+        )
         result = ds.sieve(threshold=4)
         assert result.no_data_value[0] == -1, (
             f"Expected nodata -1, got {result.no_data_value[0]}"
@@ -152,10 +152,10 @@ class TestSieve:
         arr = np.ones((6, 6), dtype="int32")
         arr[5, 5] = 2
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=None,
-                 geo_ref=GeoReference(top_left_corner=(0, 6), cell_size=1.0, epsg=4326),
-             )
+            arr,
+            no_data_value=None,
+            geo_ref=GeoReference(top_left_corner=(0, 6), cell_size=1.0, epsg=4326),
+        )
         result = ds.sieve(threshold=4)
         assert result.raster.GetRasterBand(1).GetNoDataValue() is None, (
             "Output should have no nodata"
@@ -173,9 +173,9 @@ class TestSieve:
         speck[5, 5] = 2
         arr = np.stack([clean, speck])
         ds = Dataset.from_array(
-                 arr,
-                 geo_ref=GeoReference(top_left_corner=(0, 6), cell_size=1.0, epsg=4326),
-             )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 6), cell_size=1.0, epsg=4326),
+        )
         result = ds.sieve(threshold=4, band=1).read_array()
         assert result[5, 5] == 1, f"Band-1 speckle not removed, got {result[5, 5]}"
 
@@ -188,9 +188,9 @@ class TestSieve:
         """
         mask_arr = np.ones((6, 6), dtype="int32")
         mask = Dataset.from_array(
-                   mask_arr,
-                   geo_ref=GeoReference(top_left_corner=(0, 6), cell_size=1.0, epsg=4326),
-               )
+            mask_arr,
+            geo_ref=GeoReference(top_left_corner=(0, 6), cell_size=1.0, epsg=4326),
+        )
         result = speckled.sieve(threshold=4, mask=mask).read_array()
         assert result[5, 5] == 1, (
             f"Small clump should be removed with mask, got {result[5, 5]}"

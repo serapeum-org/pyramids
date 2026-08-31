@@ -27,10 +27,10 @@ def nodata_dataset() -> Dataset:
     """
     arr = np.array([[1.0, -9999.0], [3.0, 4.0]], dtype="float32")
     return Dataset.from_array(
-               arr,
-               no_data_value=-9999.0,
-               geo_ref=GeoReference(top_left_corner=(0, 2), cell_size=1.0, epsg=4326),
-           )
+        arr,
+        no_data_value=-9999.0,
+        geo_ref=GeoReference(top_left_corner=(0, 2), cell_size=1.0, epsg=4326),
+    )
 
 
 @pytest.fixture(scope="function")
@@ -92,10 +92,10 @@ class TestMaskedReads:
         """
         arr = np.array([[-9999.0, -9990.0], [-9000.0, 1.0]], dtype="float32")
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0, 2), cell_size=1.0, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0, 2), cell_size=1.0, epsg=4326),
+        )
         result = ds.read_array(band=0, masked=True)
         assert result.mask[0, 0], "the exact -9999 cell must be masked"
         assert not result.mask[0, 1], "a valid -9990 pixel must not be masked"
@@ -112,10 +112,10 @@ class TestMaskedReads:
         """
         arr = np.array([[-100, -99], [0, 5]], dtype="int16")
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-100,
-                 geo_ref=GeoReference(top_left_corner=(0, 2), cell_size=1.0, epsg=4326),
-             )
+            arr,
+            no_data_value=-100,
+            geo_ref=GeoReference(top_left_corner=(0, 2), cell_size=1.0, epsg=4326),
+        )
         result = ds.read_array(band=0, masked=True)
         assert result.mask[0, 0], "the exact -100 cell must be masked"
         assert not result.mask[0, 1], "a valid -99 pixel must not be masked"
@@ -132,10 +132,10 @@ class TestMaskedReads:
         """
         arr = np.array([[np.nan, 2.0], [3.0, 4.0]], dtype="float32")
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=np.nan,
-                 geo_ref=GeoReference(top_left_corner=(0, 2), cell_size=1.0, epsg=4326),
-             )
+            arr,
+            no_data_value=np.nan,
+            geo_ref=GeoReference(top_left_corner=(0, 2), cell_size=1.0, epsg=4326),
+        )
         result = ds.read_array(band=0, masked=True)
         assert result.mask.sum() == 1, f"NaN cell not masked: {result.mask}"
         assert result.mask[0, 0], "the NaN cell must be the masked one"
@@ -150,10 +150,10 @@ class TestMaskedReads:
         band0 = np.array([[1.0, -9999.0], [3.0, 4.0]], dtype="float32")
         band1 = np.full((2, 2), 7.0, dtype="float32")
         ds = Dataset.from_array(
-                 np.stack([band0, band1]),
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0, 2), cell_size=1.0, epsg=4326),
-             )
+            np.stack([band0, band1]),
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0, 2), cell_size=1.0, epsg=4326),
+        )
         result = ds.read_array(masked=True)
         assert result.shape == (2, 2, 2), f"unexpected shape {result.shape}"
         assert result.mask[0].sum() == 1, "band 0 must have one masked cell"
@@ -223,10 +223,10 @@ class TestMaskedReads:
         arr = np.full((4, 4), 5.0, dtype="float32")
         arr[1, 1] = -9999.0
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0, 4), cell_size=1.0, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0, 4), cell_size=1.0, epsg=4326),
+        )
         result = ds.read_array(band=0, bbox=(1.0, 1.0, 3.0, 3.0), masked=True)
         assert isinstance(result, np.ma.MaskedArray), f"got {type(result).__name__}"
         assert result.shape == (2, 2), f"unexpected bbox shape {result.shape}"
@@ -272,10 +272,10 @@ class TestMaskedReads:
         """
         arr = np.array([[0.1, 2.0], [3.0, 4.0]], dtype="float32")
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=0.1,
-                 geo_ref=GeoReference(top_left_corner=(0, 2), cell_size=1.0, epsg=4326),
-             )
+            arr,
+            no_data_value=0.1,
+            geo_ref=GeoReference(top_left_corner=(0, 2), cell_size=1.0, epsg=4326),
+        )
         result = ds.read_array(band=0, masked=True)
         assert result.mask[0, 0], "float32-precision nodata cell must be masked"
         assert result.mask.sum() == 1, (
@@ -313,11 +313,11 @@ class TestNetCDFMaskedReads:
         """
         arr = np.array([[[1.0, -9999.0], [3.0, 4.0]]], dtype="float32")
         nc = NetCDF.from_array(
-                 arr,
-                 geo_ref=GeoReference(top_left_corner=(0, 2), cell_size=1.0, epsg=4326),
-                 variable_name="t",
-                 no_data_value=-9999.0,
-             )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 2), cell_size=1.0, epsg=4326),
+            variable_name="t",
+            no_data_value=-9999.0,
+        )
         return nc.get_variable("t")
 
     def test_subset_masked_read(self, nc_subset):

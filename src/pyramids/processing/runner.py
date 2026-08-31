@@ -16,6 +16,7 @@ from typing import Any
 
 import numpy as np
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.feature import FeatureCollection
 from pyramids.processing.pipeline import Pipeline, Step
@@ -26,7 +27,6 @@ from pyramids.processing.registry import (
     resolve,
 )
 from pyramids.processing.schema import ToolMetadata
-from pyramids.base.georeference import GeoReference
 
 # Extensions opened as vector; .json is included for GeoJSON.
 _VECTOR_EXTS = frozenset({".geojson", ".json", ".shp", ".gpkg", ".fgb", ".gml", ".kml"})
@@ -172,10 +172,10 @@ def _materialize_array(array: np.ndarray, source: Dataset, band: int = 0) -> Dat
         no_data_value = nodata[0] if nodata else None
     data = array if array.ndim == 3 else array[np.newaxis, :, :]
     return Dataset.from_array(
-               data,
-               no_data_value=no_data_value,
-               geo_ref=GeoReference(geo=source.geotransform, epsg=source.epsg or source.crs),
-           )
+        data,
+        no_data_value=no_data_value,
+        geo_ref=GeoReference(geo=source.geotransform, epsg=source.epsg or source.crs),
+    )
 
 
 def _run_pipeline_on(

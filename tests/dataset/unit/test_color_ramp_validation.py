@@ -8,8 +8,8 @@ import numpy as np
 import pytest
 
 from pyramids.base._errors import ReadOnlyError
-from pyramids.dataset import Dataset
 from pyramids.base.georeference import GeoReference
+from pyramids.dataset import Dataset
 
 pytestmark = pytest.mark.core
 
@@ -18,9 +18,9 @@ def _dataset(bands: int = 1) -> Dataset:
     """A writable in-memory raster with `bands` bands and values 1..5."""
     arr = np.random.default_rng(0).integers(1, 6, size=(bands, 10, 10))
     return Dataset.from_array(
-               arr,
-               geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
-           )
+        arr,
+        geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+    )
 
 
 class TestSetColorRampValidation:

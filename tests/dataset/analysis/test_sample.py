@@ -17,10 +17,10 @@ from osgeo import gdal, osr
 from shapely.geometry import Point
 
 from pyramids.base._errors import OutOfBoundsError
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.dataset.engines import analysis
 from pyramids.feature import FeatureCollection
-from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -37,10 +37,10 @@ def two_band() -> Dataset:
     """
     arr = np.arange(2 * 5 * 5, dtype="float32").reshape(2, 5, 5)
     return Dataset.from_array(
-               arr,
-               no_data_value=-9999.0,
-               geo_ref=GeoReference(top_left_corner=(0, 5), cell_size=1.0, epsg=4326),
-           )
+        arr,
+        no_data_value=-9999.0,
+        geo_ref=GeoReference(top_left_corner=(0, 5), cell_size=1.0, epsg=4326),
+    )
 
 
 @pytest.fixture(scope="function")
@@ -164,10 +164,10 @@ class TestSample:
         """
         arr = np.arange(25, dtype="int32").reshape(1, 5, 5)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=None,
-                 geo_ref=GeoReference(top_left_corner=(0, 5), cell_size=1.0, epsg=4326),
-             )
+            arr,
+            no_data_value=None,
+            geo_ref=GeoReference(top_left_corner=(0, 5), cell_size=1.0, epsg=4326),
+        )
         result = ds.sample(mixed_points, bands=0)
         assert result.dtype == np.float64, f"Expected float64, got {result.dtype}"
         assert result[0] == pytest.approx(12.0), f"Inside value wrong: {result[0]}"
@@ -341,10 +341,10 @@ class TestWindowedAndPerPointStrategiesAgree:
         """
         arr = np.arange(100 * 100, dtype="float64").reshape(100, 100)
         return Dataset.from_array(
-                   arr,
-                   no_data_value=-9999.0,
-                   geo_ref=GeoReference(top_left_corner=(0, 100), cell_size=1.0, epsg=4326),
-               )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0, 100), cell_size=1.0, epsg=4326),
+        )
 
     def test_a_sparse_batch_takes_the_per_point_branch(self, wide, monkeypatch):
         """Two corner points span too large a box to be worth one read.
@@ -541,10 +541,10 @@ class TestWindowedReadIsStripped:
         """A 1-band 100x100 raster of distinct values, nodata -9999."""
         arr = np.arange(100 * 100, dtype="float64").reshape(100, 100)
         return Dataset.from_array(
-                   arr,
-                   no_data_value=-9999.0,
-                   geo_ref=GeoReference(top_left_corner=(0, 100), cell_size=1.0, epsg=4326),
-               )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0, 100), cell_size=1.0, epsg=4326),
+        )
 
     def test_a_bounded_strip_still_reads_every_point_correctly(self, wide, monkeypatch):
         """Forcing several strips must not change a single value.

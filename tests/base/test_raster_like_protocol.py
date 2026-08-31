@@ -28,14 +28,14 @@ GEO = (0.0, 0.01, 0, 1.0, 0, -0.01)
 def ds() -> Dataset:
     """A small in-memory single-band Dataset in EPSG:32636."""
     src = Dataset.create(
-        cell_size=1000.0,
         rows=10,
         columns=10,
         dtype="float32",
         bands=1,
-        top_left_corner=(500000.0, 3410000.0),
-        epsg=32636,
         no_data_value=-9999.0,
+        geo_ref=GeoReference(
+            cell_size=1000.0, top_left_corner=(500000.0, 3410000.0), epsg=32636
+        ),
     )
     src.raster.GetRasterBand(1).WriteArray(np.ones((10, 10), dtype=np.float32))
     return src
@@ -45,10 +45,10 @@ def ds() -> Dataset:
 def nc() -> NetCDF:
     """A small in-memory NetCDF container built from a 2-D array."""
     return NetCDF.from_array(
-               arr=np.ones((5, 8), dtype=np.float64),
-               geo_ref=GeoReference(geo=GEO),
-               variable_name="v",
-           )
+        arr=np.ones((5, 8), dtype=np.float64),
+        geo_ref=GeoReference(geo=GEO),
+        variable_name="v",
+    )
 
 
 class TestRasterLikeProtocol:

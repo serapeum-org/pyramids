@@ -258,10 +258,10 @@ class TestMaterializeIntegrity:
         """An in-memory variable (no on-disk path) materializes to the same pixels."""
         arr = np.arange(20.0).reshape(4, 5)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(geo=(0.0, 1.0, 0, 4.0, 0, -1.0)),
-                 variable_name="v",
-             )
+            arr=arr,
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0, 4.0, 0, -1.0)),
+            variable_name="v",
+        )
         var = nc.get_variable("v")
         var._materialize_md_view()
         np.testing.assert_array_equal(var.read_array(band=0), arr)

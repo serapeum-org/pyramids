@@ -59,9 +59,9 @@ class TestPlotDataSet:
         """
         arr = np.ones((8, 8), dtype="float32")
         dataset = Dataset.from_array(
-                      arr,
-                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
-                  )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+        )
         array_glyph = dataset.plot(band=0)
         assert isinstance(array_glyph, ArrayGlyph)
 
@@ -111,10 +111,10 @@ class TestPlotDataSet:
         """
         arr = np.array([[1.0, 2.0, -9999.0], [3.0, 7.0, 7.0]], dtype="float32")
         dataset = Dataset.from_array(
-                      arr,
-                      no_data_value=-9999.0,
-                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
-                  )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+        )
         captured: dict = {}
 
         class _FakeSG:
@@ -149,9 +149,9 @@ class TestPlotDataSet:
         """
         arr = np.arange(100 * 100, dtype="float32").reshape(100, 100)
         dataset = Dataset.from_array(
-                      arr,
-                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
-                  )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+        )
         captured: dict = {}
 
         class _FakeSG:
@@ -246,9 +246,9 @@ class TestPlotDataSet:
 
         arr = np.full((4, 4), 5.0, dtype="float32")
         dataset = Dataset.from_array(
-                      arr,
-                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
-                  )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+        )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             image = dataset.to_image(band=0)
@@ -267,10 +267,10 @@ class TestPlotDataSet:
         """
         arr = np.full((4, 4), -9999.0, dtype="float32")
         dataset = Dataset.from_array(
-                      arr,
-                      no_data_value=-9999.0,
-                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
-                  )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+        )
         with pytest.raises(ValueError, match="no valid"):
             dataset.to_image(band=0)
 
@@ -286,10 +286,10 @@ class TestPlotDataSet:
         """
         arr = np.full((4, 4), -9999.0, dtype="float32")
         dataset = Dataset.from_array(
-                      arr,
-                      no_data_value=-9999.0,
-                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
-                  )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+        )
         with pytest.raises(ValueError, match="no valid samples"):
             dataset.plot_histogram(band=0)
 
@@ -305,10 +305,10 @@ class TestPlotDataSet:
         """
         arr = np.array([[1, 2, 0], [3, 4, 0]], dtype="int32")
         dataset = Dataset.from_array(
-                      arr,
-                      no_data_value=0,
-                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
-                  )
+            arr,
+            no_data_value=0,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+        )
         fig, ax, hist = dataset.plot_histogram(band=0, bins=4)
         assert fig is not None and ax is not None
         assert isinstance(hist, dict)
@@ -325,9 +325,9 @@ class TestPlotDataSet:
 
         arr = np.array([[1.0, 2.0], [3.0, 4.0]], dtype="float32")
         dataset = Dataset.from_array(
-                      arr,
-                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
-                  )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+        )
         _fig, host_ax = plt.subplots()
         _f, ax, _h = dataset.plot_histogram(band=0, ax=host_ax)
         assert ax is host_ax, "histogram must draw on the supplied ax"
@@ -347,10 +347,10 @@ class TestPlotDataSet:
 
         arr = np.array([[1.0, 2.0, 7.0], [3.0, 4.0, 7.0]], dtype="float32")
         dataset = Dataset.from_array(
-                      arr,
-                      no_data_value=-9999.0,
-                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
-                  )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+        )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             image = dataset.to_image(band=0, exclude_value=7.0)
@@ -369,9 +369,9 @@ class TestPlotDataSet:
         rng = np.random.default_rng(11)
         stack = rng.standard_normal((3, 6, 6)).astype("float32")
         dataset = Dataset.from_array(
-                      stack,
-                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
-                  )
+            stack,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+        )
         fig, ax, _ = dataset.plot_vector_field(u_band=1, v_band=2, kind="quiver")
         assert fig is not None and ax is not None
 
@@ -419,9 +419,9 @@ class TestPlotDataSet:
         v = rng.standard_normal((6, 6)).astype("float32")
         stack = np.stack([u, v])
         return Dataset.from_array(
-                   stack,
-                   geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
-               )
+            stack,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+        )
 
     @pytest.mark.plot
     @pytest.mark.parametrize("kind", ["quiver", "barbs", "streamplot"])
@@ -463,9 +463,9 @@ class TestPlotDataSet:
         """
         arr = np.ones((1, 5, 5), dtype="float32")
         dataset = Dataset.from_array(
-                      arr,
-                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
-                  )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+        )
         with pytest.raises(ValueError, match=r"v_band=1 is out of range"):
             dataset.plot_vector_field()
 
@@ -554,10 +554,10 @@ class TestPlotDatasetCollection:
         for i in range(3):
             arr = rng.random((1, 12, 12), dtype="float32")
             ds = Dataset.from_array(
-                     arr=arr,
-                     no_data_value=None,
-                     geo_ref=GeoReference(geo=(0, 0.1, 0, 2, 0, -0.1), epsg=4326),
-                 )
+                arr=arr,
+                no_data_value=None,
+                geo_ref=GeoReference(geo=(0, 0.1, 0, 2, 0, -0.1), epsg=4326),
+            )
             path = tmp_path / f"frame_{i}.tif"
             ds.to_file(str(path))
             files.append(str(path))
@@ -577,9 +577,9 @@ class TestPlotDatasetCollection:
                 "float32"
             )
             ds = Dataset.from_array(
-                     arr=arr,
-                     geo_ref=GeoReference(geo=(0, 1, 0, 0, 0, -1), epsg=4326),
-                 )
+                arr=arr,
+                geo_ref=GeoReference(geo=(0, 1, 0, 0, 0, -1), epsg=4326),
+            )
             path = tmp_path / f"rgb_{t}.tif"
             ds.to_file(str(path))
             files.append(str(path))
@@ -694,12 +694,12 @@ def _make_nc_subset_with_band_count(tmp_path, n_bands: int):
     rng = np.random.default_rng(42)
     arr = rng.random((n_bands, 5, 6)).astype("float32")
     nc = NetCDF.from_array(
-             arr=arr,
-             geo_ref=GeoReference(geo=(30.0, 0.5, 0, 35.0, 0, -0.5)),
-             variable_name="t2m",
-             path=None,
-             dims=ExtraDimensions(name="time", values=list(range(n_bands))),
-         )
+        arr=arr,
+        geo_ref=GeoReference(geo=(30.0, 0.5, 0, 35.0, 0, -0.5)),
+        variable_name="t2m",
+        path=None,
+        dims=ExtraDimensions(name="time", values=list(range(n_bands))),
+    )
     return nc.get_variable("t2m"), arr
 
 
@@ -771,8 +771,8 @@ class TestPlotStampsGlyphCRS:
             Plot an EPSG:4326 single-band raster; the returned glyph's `crs` is 4326.
         """
         ds = Dataset.from_array(
-                 np.arange(12.0).reshape(3, 4),
-                 geo_ref=GeoReference(geo=(0.0, 1.0, 0, 3.0, 0, -1.0), epsg=4326),
-             )
+            np.arange(12.0).reshape(3, 4),
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0, 3.0, 0, -1.0), epsg=4326),
+        )
         glyph = ds.plot()
         assert glyph.crs == 4326, f"expected glyph.crs == 4326, got {glyph.crs!r}"

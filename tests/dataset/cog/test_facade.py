@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset.cog import facade
 from pyramids.dataset.cog.facade import (
     PYRAMIDS_COG_DEFAULTS,
@@ -19,7 +20,6 @@ from pyramids.dataset.cog.facade import (
     write_cog,
 )
 from pyramids.dataset.dataset import Dataset
-from pyramids.base.georeference import GeoReference
 from tests.dataset.cog.conftest import COG_GEOTRANSFORM
 
 pytestmark = pytest.mark.core
@@ -238,9 +238,9 @@ class TestNormalizeToDataset:
             The same object identity is preserved.
         """
         ds = Dataset.from_array(
-                 float_array,
-                 geo_ref=GeoReference(geo=COG_GEOTRANSFORM, epsg=4326),
-             )
+            float_array,
+            geo_ref=GeoReference(geo=COG_GEOTRANSFORM, epsg=4326),
+        )
         result = _normalize_to_dataset(ds, None, None, None)
         assert result is ds, "Existing Dataset should pass through unchanged"
 
@@ -268,9 +268,9 @@ class TestNormalizeToDataset:
             A written GeoTIFF path is read back into a Dataset.
         """
         src = Dataset.from_array(
-                  float_array,
-                  geo_ref=GeoReference(geo=COG_GEOTRANSFORM, epsg=4326),
-              )
+            float_array,
+            geo_ref=GeoReference(geo=COG_GEOTRANSFORM, epsg=4326),
+        )
         p = tmp_path / "src.tif"
         src.to_file(str(p))
         result = _normalize_to_dataset(str(p), None, None, None)
@@ -552,9 +552,9 @@ class TestWriteCog:
             above; here we only assert the path → COG re-encode is valid.
         """
         src = Dataset.from_array(
-                  float_array,
-                  geo_ref=GeoReference(geo=COG_GEOTRANSFORM, epsg=4326),
-              )
+            float_array,
+            geo_ref=GeoReference(geo=COG_GEOTRANSFORM, epsg=4326),
+        )
         src_path = tmp_path / "plain.tif"
         src.to_file(str(src_path))
         out = tmp_path / "cog.tif"
@@ -564,9 +564,9 @@ class TestWriteCog:
     def test_nodata_on_read_only_path_input(self, float_array, tmp_path):
         """write_cog applies nodata for a path input (opened read-only) without raising (H1)."""
         src = Dataset.from_array(
-                  float_array,
-                  geo_ref=GeoReference(geo=COG_GEOTRANSFORM, epsg=4326),
-              )
+            float_array,
+            geo_ref=GeoReference(geo=COG_GEOTRANSFORM, epsg=4326),
+        )
         src_path = tmp_path / "plain.tif"
         src.to_file(str(src_path))
         out = tmp_path / "ro_path_cog.tif"
@@ -579,9 +579,9 @@ class TestWriteCog:
     def test_nodata_on_read_only_dataset_input(self, float_array, tmp_path):
         """write_cog applies nodata for a read-only on-disk Dataset input without raising (H1)."""
         src = Dataset.from_array(
-                  float_array,
-                  geo_ref=GeoReference(geo=COG_GEOTRANSFORM, epsg=4326),
-              )
+            float_array,
+            geo_ref=GeoReference(geo=COG_GEOTRANSFORM, epsg=4326),
+        )
         src_path = tmp_path / "plain.tif"
         src.to_file(str(src_path))
         ro = Dataset.read_file(str(src_path), read_only=True)

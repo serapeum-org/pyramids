@@ -138,10 +138,11 @@ class Vectorize(_Engine["Dataset"]):
               inspect the levels produced:
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> arr = np.tile(np.arange(10, dtype="float32"), (10, 1))
                 >>> ds = Dataset.from_array(
-                ...     arr, top_left_corner=(0, 10), cell_size=1.0, epsg=4326
+                ...     arr,
+                ...     geo_ref=GeoReference(top_left_corner=(0, 10), cell_size=1.0, epsg=4326),
                 ... )
                 >>> contours = ds.contour(interval=2.0)
                 >>> sorted(contours["elev"].tolist())
@@ -156,7 +157,8 @@ class Vectorize(_Engine["Dataset"]):
                 >>> from pyramids.dataset import Dataset
                 >>> arr = np.tile(np.arange(10, dtype="float32"), (10, 1))
                 >>> ds = Dataset.from_array(
-                ...     arr, top_left_corner=(0, 10), cell_size=1.0, epsg=4326
+                ...     arr,
+                ...     geo_ref=GeoReference(top_left_corner=(0, 10), cell_size=1.0, epsg=4326),
                 ... )
                 >>> contours = ds.contour(fixed_levels=[3.0, 5.0, 7.0])
                 >>> len(contours)
@@ -262,12 +264,13 @@ class Vectorize(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> arr = np.random.rand(2, 3, 3)
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
               >>> dataset = Dataset.from_array(
-              ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
               ... )
               >>> print(dataset.read_array(band=0)) # doctest: +SKIP
               [[0.88625832 0.81804328 0.99372706]
@@ -578,7 +581,7 @@ class Vectorize(_Engine["Dataset"]):
                     assign a scale of 0.1 to the dataset.
 
                     >>> import numpy as np
-                    >>> from pyramids.dataset import Dataset
+                    >>> from pyramids.dataset import Dataset, GeoReference
                     >>> arr = np.random.randint(1, 10, size=(5, 5)).astype(np.float32)
                     >>> print(arr) # doctest: +SKIP
                     [[5. 5. 3. 4. 2.]
@@ -589,7 +592,8 @@ class Vectorize(_Engine["Dataset"]):
                     >>> top_left_corner = (0, 0)
                     >>> cell_size = 0.05
                     >>> dataset = Dataset.from_array(
-                    ...     arr, top_left_corner=top_left_corner, cell_size=cell_size,epsg=4326
+                    ...     arr,
+                    ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
                     ... )
                     >>> print(dataset)  # doctest: +SKIP
                     <BLANKLINE>
@@ -642,7 +646,8 @@ class Vectorize(_Engine["Dataset"]):
                     are between 1, and 10) with an offset of 100.
 
                     >>> dataset = Dataset.from_array(
-                    ...     arr, top_left_corner=top_left_corner, cell_size=cell_size,epsg=4326
+                    ...     arr,
+                    ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
                     ... )
                     >>> print(dataset)  # doctest: +SKIP
                     <BLANKLINE>
@@ -689,7 +694,8 @@ class Vectorize(_Engine["Dataset"]):
                 - we can unscale and get rid of the offset at the same time.
 
                     >>> dataset = Dataset.from_array(
-                    ...     arr, top_left_corner=top_left_corner, cell_size=cell_size,epsg=4326
+                    ...     arr,
+                    ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
                     ... )
 
                 - set the offset to 100, and a scale of 0.1.
@@ -727,7 +733,8 @@ class Vectorize(_Engine["Dataset"]):
                 between two values 0 and 1.
 
                 >>> dataset = Dataset.from_array(
-                ...     arr, top_left_corner=top_left_corner, cell_size=cell_size,epsg=4326
+                ...     arr,
+                ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
                 ... )
                 >>> print(dataset.stats()) # doctest: +SKIP
                         min  max  mean      std
@@ -896,7 +903,7 @@ class Vectorize(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> np.random.seed(10)
               >>> arr = np.random.randint(1, 5, size=(5, 5))
               >>> print(arr) # doctest: +SKIP
@@ -908,7 +915,8 @@ class Vectorize(_Engine["Dataset"]):
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
               >>> dataset = Dataset.from_array(
-              ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
               ... )
               >>> from pyramids.plot import ColorScaling, CellValues  # doctest: +SKIP
               >>> dataset.plot(  # doctest: +SKIP
@@ -1012,7 +1020,7 @@ class Vectorize(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> np.random.seed(200)
               >>> arr = np.random.randint(1, 5, size=(10, 10))
               >>> print(arr)  # doctest: +SKIP
@@ -1029,7 +1037,8 @@ class Vectorize(_Engine["Dataset"]):
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
               >>> dataset = Dataset.from_array(
-              ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
               ... )
 
               ```

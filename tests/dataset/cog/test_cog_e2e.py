@@ -17,8 +17,8 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
-from pyramids.dataset import Dataset, cog
 from pyramids.base.georeference import GeoReference
+from pyramids.dataset import Dataset, cog
 
 pytestmark = pytest.mark.core
 
@@ -27,9 +27,9 @@ pytestmark = pytest.mark.core
 def float_dataset_128() -> Dataset:
     arr = np.arange(128 * 128, dtype=np.float32).reshape(128, 128)
     return Dataset.from_array(
-               arr,
-               geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.001, epsg=4326),
-           )
+        arr,
+        geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.001, epsg=4326),
+    )
 
 
 @pytest.fixture
@@ -37,9 +37,9 @@ def multiband_dataset() -> Dataset:
     rng = np.random.default_rng(42)
     arr = rng.random((3, 64, 64), dtype=np.float32)
     return Dataset.from_array(
-               arr,
-               geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.001, epsg=4326),
-           )
+        arr,
+        geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.001, epsg=4326),
+    )
 
 
 class TestCanonicalRoundtrip:
@@ -158,9 +158,11 @@ class TestValidatorAgreesWithIsCog:
         # Make a large enough stripped GTiff to trigger validator errors
         big = np.arange(2048 * 2048, dtype=np.float32).reshape(2048, 2048)
         ds = Dataset.from_array(
-                 big,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.001, epsg=4326),
-             )
+            big,
+            geo_ref=GeoReference(
+                top_left_corner=(0.0, 0.0), cell_size=0.001, epsg=4326
+            ),
+        )
         out = tmp_path / "plain.tif"
         ds.to_file(out)  # default GTiff
         reopened = Dataset.read_file(out)
@@ -174,10 +176,12 @@ class TestNoDataPreservation:
         arr = np.arange(100 * 100, dtype=np.float32).reshape(100, 100)
         arr[0:10, 0:10] = np.nan
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-1.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.001, epsg=4326),
-             )
+            arr,
+            no_data_value=-1.0,
+            geo_ref=GeoReference(
+                top_left_corner=(0.0, 0.0), cell_size=0.001, epsg=4326
+            ),
+        )
         out = ds.to_cog(tmp_path / "nd.tif")
         reopened = Dataset.read_file(out)
         assert reopened.no_data_value[0] == pytest.approx(-1.0)

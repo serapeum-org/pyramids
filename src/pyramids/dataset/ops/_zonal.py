@@ -268,12 +268,13 @@ def zonal_stats(
             >>> import geopandas as gpd
             >>> import numpy as np
             >>> from shapely.geometry import box
-            >>> from pyramids.dataset import Dataset
+            >>> from pyramids.dataset import Dataset, GeoReference
             >>> from pyramids.dataset.ops._zonal import zonal_stats
             >>> from pyramids.feature import FeatureCollection
             >>> arr = np.full((4, 4), 5.0, dtype=np.float32)
             >>> ds = Dataset.from_array(
-            ...     arr, top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326,
+            ...     arr,
+            ...     geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326),
             ... )
             >>> fc = FeatureCollection(gpd.GeoDataFrame(
             ...     {"zone": ["a"]}, geometry=[box(0, 0, 4, 4)], crs="EPSG:4326",

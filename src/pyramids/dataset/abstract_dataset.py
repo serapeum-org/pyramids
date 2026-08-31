@@ -28,13 +28,13 @@ import numpy as np
 from geopandas.geodataframe import GeoDataFrame
 from osgeo import gdal
 
-from pyramids.base.georeference import GeoReference
 from pyramids.base._errors import ReadOnlyError
 from pyramids.base._utils import (
     DEFAULT_RESAMPLING,
     Catalog,
 )
 from pyramids.base.crs import epsg_of_crs, sr_from_epsg
+from pyramids.base.georeference import GeoReference
 from pyramids.base.protocols import ArrayLike, FloatArray
 from pyramids.base.remote import cloud_config_from_env
 from pyramids.dataset._subdataset import SubDataset, subdatasets_of
@@ -566,9 +566,10 @@ class RasterBase(ABC):
             - Map the top-left pixel corner and invert back:
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> ds = Dataset.from_array(
-                ...     np.ones((4, 4)), top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
+                ...     np.ones((4, 4)),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 4), cell_size=1.0, epsg=4326),
                 ... )
                 >>> ds.transform * (0, 0)
                 (0.0, 4.0)
@@ -608,9 +609,10 @@ class RasterBase(ABC):
             - The centre of the top-left cell of a unit grid at (0, 4):
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> ds = Dataset.from_array(
-                ...     np.ones((4, 4)), top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
+                ...     np.ones((4, 4)),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 4), cell_size=1.0, epsg=4326),
                 ... )
                 >>> ds.xy(0, 0)
                 (0.5, 3.5)
@@ -623,7 +625,8 @@ class RasterBase(ABC):
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
                 >>> ds = Dataset.from_array(
-                ...     np.ones((4, 4)), top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
+                ...     np.ones((4, 4)),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 4), cell_size=1.0, epsg=4326),
                 ... )
                 >>> xs, ys = ds.xy([0, 1], [0, 1])
                 >>> xs
@@ -687,9 +690,10 @@ class RasterBase(ABC):
             - The cell containing a point on a unit grid at (0, 4):
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> ds = Dataset.from_array(
-                ...     np.ones((4, 4)), top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
+                ...     np.ones((4, 4)),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 4), cell_size=1.0, epsg=4326),
                 ... )
                 >>> ds.rowcol(0.5, 3.5)
                 (0, 0)
@@ -702,7 +706,8 @@ class RasterBase(ABC):
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
                 >>> ds = Dataset.from_array(
-                ...     np.ones((4, 4)), top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
+                ...     np.ones((4, 4)),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 4), cell_size=1.0, epsg=4326),
                 ... )
                 >>> ds.rowcol(*ds.xy(3, 1))
                 (3, 1)
@@ -811,9 +816,10 @@ class RasterBase(ABC):
             - A plain raster has no subdatasets:
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> ds = Dataset.from_array(
-                ...     np.zeros((2, 2)), top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+                ...     np.zeros((2, 2)),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
                 ... )
                 >>> ds.subdatasets
                 []
@@ -860,9 +866,10 @@ class RasterBase(ABC):
             - The default domain matches :attr:`meta_data` on a base ``Dataset``:
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> ds = Dataset.from_array(
-                ...     np.zeros((2, 2)), top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+                ...     np.zeros((2, 2)),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
                 ... )
                 >>> ds.get_meta_data() == ds.meta_data
                 True
@@ -1004,9 +1011,10 @@ class RasterBase(ABC):
               once (MEM rasters expose full-width strip blocks):
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> ds = Dataset.from_array(
-                ...     np.ones((5, 5)), top_left_corner=(0, 5), cell_size=1.0, epsg=4326,
+                ...     np.ones((5, 5)),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 5), cell_size=1.0, epsg=4326),
                 ... )
                 >>> windows = list(ds.block_windows())
                 >>> sum(w.cols * w.rows for w in windows) == ds.rows * ds.columns
@@ -1019,7 +1027,8 @@ class RasterBase(ABC):
                 >>> from pyramids.dataset import Dataset
                 >>> from pyramids.dataset.window import Window
                 >>> ds = Dataset.from_array(
-                ...     np.ones((6, 6)), top_left_corner=(0, 6), cell_size=1.0, epsg=4326,
+                ...     np.ones((6, 6)),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 6), cell_size=1.0, epsg=4326),
                 ... )
                 >>> roi = Window(col_off=1, row_off=1, cols=3, rows=3)
                 >>> all(w.intersection(roi) == w for w in ds.block_windows(window=roi))
@@ -1085,10 +1094,11 @@ class RasterBase(ABC):
             - Stream a raster and rebuild it block-by-block:
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> src_arr = np.arange(25, dtype="float32").reshape(5, 5)
                 >>> ds = Dataset.from_array(
-                ...     src_arr, top_left_corner=(0, 5), cell_size=1.0, epsg=4326,
+                ...     src_arr,
+                ...     geo_ref=GeoReference(top_left_corner=(0, 5), cell_size=1.0, epsg=4326),
                 ... )
                 >>> rebuilt = np.zeros_like(src_arr)
                 >>> for w, block in ds.iter_blocks():

@@ -39,8 +39,8 @@ if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
 
 from pyramids.base.crs import crs_spec
-from pyramids.dataset.engines._base import _Engine
 from pyramids.base.georeference import GeoReference
+from pyramids.dataset.engines._base import _Engine
 from pyramids.dataset.engines._validate import (
     resolve_band_indices,
     validate_band_index,
@@ -166,10 +166,10 @@ class Analysis(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> arr = np.random.rand(4, 10, 10)
               >>> geotransform = (0, 0.05, 0, 0, 0, -0.05)
-              >>> dataset = Dataset.from_array(arr, geo=geotransform, epsg=4326)
+              >>> dataset = Dataset.from_array(arr, geo_ref=GeoReference(geo=geotransform, epsg=4326))
               >>> print(dataset.stats()) # doctest: +SKIP
                            min       max      mean       std
               Band_1  0.006443  0.942943  0.468935  0.266634
@@ -352,12 +352,13 @@ class Analysis(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> arr = np.random.uniform(-1, 1, size=(5, 5))
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
               >>> dataset = Dataset.from_array(
-              ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326,
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
               ... )
               >>> print(dataset.read_array()) # doctest: +SKIP
               [[ 0.94997539 -0.80083622 -0.30948769 -0.77439961 -0.83836424]
@@ -485,11 +486,14 @@ class Analysis(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> arr = np.random.randint(1, 5, size=(5, 5))
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
-              >>> dataset = Dataset.from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)
+              >>> dataset = Dataset.from_array(
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
+              ... )
               >>> print(dataset.read_array()) # doctest: +SKIP
               [[1 1 3 1 2]
                [2 2 2 1 2]
@@ -592,11 +596,14 @@ class Analysis(_Engine["Dataset"]):
 
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> arr = np.random.randint(1, 5, size=(2, 4, 4))
                 >>> top_left_corner = (0, 0)
                 >>> cell_size = 0.05
-                >>> dataset = Dataset.from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)
+                >>> dataset = Dataset.from_array(
+                ...     arr,
+                ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
+                ... )
                 >>> (dataset.band_count, dataset.rows, dataset.columns)
                 (2, 4, 4)
                 >>> dataset.band_names
@@ -784,10 +791,11 @@ class Analysis(_Engine["Dataset"]):
                 >>> import numpy as np
                 >>> from geopandas import GeoDataFrame
                 >>> from shapely.geometry import Point
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> arr = np.arange(2 * 5 * 5, dtype="float32").reshape(2, 5, 5)
                 >>> ds = Dataset.from_array(
-                ...     arr, top_left_corner=(0, 5), cell_size=1.0, epsg=4326
+                ...     arr,
+                ...     geo_ref=GeoReference(top_left_corner=(0, 5), cell_size=1.0, epsg=4326),
                 ... )
                 >>> pts = GeoDataFrame(
                 ...     geometry=[Point(0.5, 4.5), Point(2.5, 2.5)], crs=4326
@@ -804,7 +812,8 @@ class Analysis(_Engine["Dataset"]):
                 >>> from pyramids.dataset import Dataset
                 >>> arr = np.arange(25, dtype="float32").reshape(1, 5, 5)
                 >>> ds = Dataset.from_array(
-                ...     arr, top_left_corner=(0, 5), cell_size=1.0, epsg=4326
+                ...     arr,
+                ...     geo_ref=GeoReference(top_left_corner=(0, 5), cell_size=1.0, epsg=4326),
                 ... )
                 >>> pts = GeoDataFrame(geometry=[Point(0.5, 4.5), Point(4.5, 0.5)], crs=4326)
                 >>> ds.sample(pts, bands=0).tolist()
@@ -819,8 +828,9 @@ class Analysis(_Engine["Dataset"]):
                 >>> from pyramids.dataset import Dataset
                 >>> arr = np.arange(25, dtype="float32").reshape(1, 5, 5)
                 >>> ds = Dataset.from_array(
-                ...     arr, top_left_corner=(0, 5), cell_size=1.0, epsg=4326,
+                ...     arr,
                 ...     no_data_value=-9999.0,
+                ...     geo_ref=GeoReference(top_left_corner=(0, 5), cell_size=1.0, epsg=4326),
                 ... )
                 >>> pts = GeoDataFrame(geometry=[Point(2.5, 2.5), Point(100, 100)], crs=4326)
                 >>> ds.sample(pts, bands=0).tolist()
@@ -1078,12 +1088,13 @@ class Analysis(_Engine["Dataset"]):
             - Remove an isolated speckle pixel from a classified raster:
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> arr = np.ones((6, 6), dtype="int32")
                 >>> arr[0:3, 0:3] = 2      # a 9-pixel clump (kept)
                 >>> arr[5, 5] = 2          # a lone pixel (removed)
                 >>> ds = Dataset.from_array(
-                ...     arr, top_left_corner=(0, 6), cell_size=1.0, epsg=4326
+                ...     arr,
+                ...     geo_ref=GeoReference(top_left_corner=(0, 6), cell_size=1.0, epsg=4326),
                 ... )
                 >>> cleaned = ds.sieve(threshold=4).read_array()
                 >>> int(cleaned[5, 5])     # merged into the background
@@ -1101,7 +1112,8 @@ class Analysis(_Engine["Dataset"]):
                 >>> arr[1, 1] = 2
                 >>> arr[2, 2] = 2          # touches (1,1) only diagonally
                 >>> ds = Dataset.from_array(
-                ...     arr, top_left_corner=(0, 5), cell_size=1.0, epsg=4326
+                ...     arr,
+                ...     geo_ref=GeoReference(top_left_corner=(0, 5), cell_size=1.0, epsg=4326),
                 ... )
                 >>> int(ds.sieve(threshold=2, connectedness=8).read_array()[1, 1])
                 2
@@ -1177,11 +1189,12 @@ class Analysis(_Engine["Dataset"]):
             - Distance (in pixels) from every cell to a single target pixel:
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> arr = np.zeros((5, 5), dtype="int32")
                 >>> arr[2, 2] = 1
                 >>> ds = Dataset.from_array(
-                ...     arr, top_left_corner=(0, 5), cell_size=1.0, epsg=4326
+                ...     arr,
+                ...     geo_ref=GeoReference(top_left_corner=(0, 5), cell_size=1.0, epsg=4326),
                 ... )
                 >>> dist = ds.proximity(distance_units="PIXEL").read_array()
                 >>> float(dist[2, 2])      # the target itself
@@ -1197,7 +1210,8 @@ class Analysis(_Engine["Dataset"]):
                 >>> arr = np.zeros((5, 5), dtype="int32")
                 >>> arr[2, 2] = 1
                 >>> ds = Dataset.from_array(
-                ...     arr, top_left_corner=(0, 10), cell_size=2.0, epsg=4326
+                ...     arr,
+                ...     geo_ref=GeoReference(top_left_corner=(0, 10), cell_size=2.0, epsg=4326),
                 ... )
                 >>> dist = ds.proximity(distance_units="GEO").read_array()
                 >>> float(dist[2, 0])      # two cells x 2.0 units
@@ -1262,14 +1276,16 @@ class Analysis(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> values = np.array([[10.0, 20.0], [30.0, 40.0]], dtype="float32")
               >>> dataset = Dataset.from_array(
-              ...     values, top_left_corner=(0, 2), cell_size=1.0, epsg=4326
+              ...     values,
+              ...     geo_ref=GeoReference(top_left_corner=(0, 2), cell_size=1.0, epsg=4326),
               ... )
               >>> class_map = np.array([[1, 1], [2, 2]], dtype="int32")
               >>> classes = Dataset.from_array(
-              ...     class_map, top_left_corner=(0, 2), cell_size=1.0, epsg=4326
+              ...     class_map,
+              ...     geo_ref=GeoReference(top_left_corner=(0, 2), cell_size=1.0, epsg=4326),
               ... )
 
               ```
@@ -1359,10 +1375,11 @@ class Analysis(_Engine["Dataset"]):
             - A band with a no-data value reports ``nodata``:
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> ds = Dataset.from_array(
-                ...     np.ones((4, 4), "float32"), top_left_corner=(0.0, 4.0),
-                ...     cell_size=1.0, no_data_value=-9999.0,
+                ...     np.ones((4, 4), "float32"),
+                ...     no_data_value=-9999.0,
+                ...     geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0),
                 ... )
                 >>> ds.mask_flags().nodata
                 True
@@ -1403,10 +1420,12 @@ class Analysis(_Engine["Dataset"]):
             - The mask of a no-data raster is ``0`` exactly at the no-data cells:
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> arr = np.array([[1.0, -9999.0, 3.0, 4.0]] * 4, dtype="float32")
                 >>> ds = Dataset.from_array(
-                ...     arr, top_left_corner=(0.0, 4.0), cell_size=1.0, no_data_value=-9999.0,
+                ...     arr,
+                ...     no_data_value=-9999.0,
+                ...     geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0),
                 ... )
                 >>> mask = ds.read_masks(0)
                 >>> mask.shape
@@ -1448,12 +1467,13 @@ class Analysis(_Engine["Dataset"]):
             - After creating a per-dataset mask, the flags report it:
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> import tempfile, os
                 >>> path = os.path.join(tempfile.mkdtemp(), "m.tif")
                 >>> Dataset.from_array(
-                ...     np.ones((4, 4), "float32"), top_left_corner=(0.0, 4.0), cell_size=1.0
-                ... ).to_file(path)
+                ...     np.ones((4, 4), "float32"),
+                ...     geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0)).to_file(path,
+                ... )
                 >>> ds = Dataset.read_file(path, read_only=False)
                 >>> ds.create_mask_band()
                 >>> ds.mask_flags().per_dataset
@@ -1564,11 +1584,12 @@ class Analysis(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> arr = np.zeros((4, 4), dtype="float32")
               >>> arr[1:3, 1:3] = 5.0    # a 2x2 block of flooded cells
               >>> dataset = Dataset.from_array(
-              ...     arr, top_left_corner=(0, 4), cell_size=1.0, epsg=4326
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=(0, 4), cell_size=1.0, epsg=4326),
               ... )
 
               ```
@@ -1619,10 +1640,12 @@ class Analysis(_Engine["Dataset"]):
         from pyramids.dataset.dataset import Dataset
 
         new_dataset = Dataset.from_array(
-                          arr,
-                          no_data_value=0,
-                          geo_ref=GeoReference(geo=geotransform, epsg=crs_spec(self._ds.epsg, self._ds.crs)),
-                      )
+            arr,
+            no_data_value=0,
+            geo_ref=GeoReference(
+                geo=geotransform, epsg=crs_spec(self._ds.epsg, self._ds.crs)
+            ),
+        )
         # The mask is always single-band (the one extracted band flagged as 2 / nodata),
         # so polygonise its first band regardless of the source band index.
         gdf = new_dataset.to_polygons(band=0)
@@ -1713,7 +1736,7 @@ class Analysis(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> arr = np.random.default_rng(1337).integers(1, 12, size=(10, 10))
               >>> print(arr)
               [[ 7 10  8  3  6 11  5 11  4 10]
@@ -1729,7 +1752,8 @@ class Analysis(_Engine["Dataset"]):
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
               >>> dataset = Dataset.from_array(
-              ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326,
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
               ... )
 
               ```
@@ -1916,9 +1940,12 @@ class Analysis(_Engine["Dataset"]):
 
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> arr = np.arange(100, dtype="float32").reshape(10, 10)
-                >>> ds = Dataset.from_array(arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326)
+                >>> ds = Dataset.from_array(
+                ...     arr,
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+                ... )
                 >>> fig, ax, hist = ds.plot_histogram(band=0, bins=8)  # doctest: +SKIP
                 >>> _ = ax.set_title("band 0 distribution")  # doctest: +SKIP
 
@@ -1927,7 +1954,10 @@ class Analysis(_Engine["Dataset"]):
 
                 ```python
                 >>> arr = np.array([[1.0, 2.0, 99.0], [3.0, 4.0, 99.0]], dtype="float32")
-                >>> ds = Dataset.from_array(arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326)
+                >>> ds = Dataset.from_array(
+                ...     arr,
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+                ... )
                 >>> fig, ax, hist = ds.plot_histogram(band=0, exclude_value=99.0)  # doctest: +SKIP
 
                 ```
@@ -1995,9 +2025,12 @@ class Analysis(_Engine["Dataset"]):
 
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> arr = np.arange(48, dtype="float32").reshape(6, 8)
-                >>> ds = Dataset.from_array(arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326)
+                >>> ds = Dataset.from_array(
+                ...     arr,
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+                ... )
                 >>> img = ds.to_image(band=0, cmap="viridis")  # doctest: +SKIP
                 >>> img.size  # (width, height) == (columns, rows)  # doctest: +SKIP
                 (8, 6)
@@ -2091,10 +2124,13 @@ class Analysis(_Engine["Dataset"]):
 
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> rng = np.random.default_rng(0)
                 >>> uv = rng.standard_normal((2, 6, 6)).astype("float32")
-                >>> ds = Dataset.from_array(uv, top_left_corner=(0, 0), cell_size=1.0, epsg=4326)
+                >>> ds = Dataset.from_array(
+                ...     uv,
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+                ... )
                 >>> fig, ax, im = ds.plot_vector_field(u_band=0, v_band=1, kind="quiver")  # doctest: +SKIP
 
                 ```
@@ -2264,7 +2300,10 @@ class Analysis(_Engine["Dataset"]):
               >>> arr = np.random.rand(4, 10, 10)
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
-              >>> dataset = Dataset.from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size,epsg=4326)
+              >>> dataset = Dataset.from_array(
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
+              ... )
               >>> dataset.plot(band=0)  # doctest: +SKIP
               (<Figure size 800x800 with 2 Axes>, <Axes: >)
 

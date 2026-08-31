@@ -5,9 +5,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.dataset.cog import validate
-from pyramids.base.georeference import GeoReference
 from tests.dataset.cog.conftest import COG_GEOTRANSFORM
 
 pytestmark = pytest.mark.core

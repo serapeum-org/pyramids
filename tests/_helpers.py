@@ -6,8 +6,8 @@ import tracemalloc
 from collections.abc import Iterator
 from contextlib import contextmanager
 
-from pyramids.dataset import Dataset
 from pyramids.base.georeference import GeoReference
+from pyramids.dataset import Dataset
 
 
 @contextmanager
@@ -57,9 +57,9 @@ def write_raster(path, arr, top_left, *, epsg=4326, cell_size=1.0, nodata=-9999.
         str: The output path as a string.
     """
     ds = Dataset.from_array(
-             arr,
-             no_data_value=nodata,
-             geo_ref=GeoReference(top_left_corner=top_left, cell_size=cell_size, epsg=epsg),
-         )
+        arr,
+        no_data_value=nodata,
+        geo_ref=GeoReference(top_left_corner=top_left, cell_size=cell_size, epsg=epsg),
+    )
     ds.to_file(str(path))
     return str(path)

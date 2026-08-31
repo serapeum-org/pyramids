@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 from shapely.geometry import Point, box
 
+from pyramids.base.georeference import GeoReference
 from pyramids.feature import FeatureCollection
 from pyramids.netcdf import NetCDF
 
@@ -17,7 +18,13 @@ pytestmark = pytest.mark.core
 
 
 def test_create():
-    ds = NetCDF.create(1.0, 5, 5, "float32", 1, (0, 10), 4326)
+    ds = NetCDF.create(
+        5,
+        5,
+        "float32",
+        1,
+        geo_ref=GeoReference(top_left_corner=(0, 10), cell_size=1.0, epsg=4326),
+    )
     assert ds.shape[-2:] == (5, 5)
 
 

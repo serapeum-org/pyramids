@@ -29,6 +29,7 @@ from osgeo import gdal, osr
 
 from pyramids.base._utils import numpy_to_gdal_dtype
 from pyramids.base.crs import sr_from_epsg, sr_from_user_input
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
 from pyramids.dataset.engines._base import _Engine
 from pyramids.netcdf._mdim import scalar_no_data, unflatten_band_axes
@@ -36,7 +37,6 @@ from pyramids.netcdf.array_options import (
     CFAttributes,
     Encoding,
     ExtraDimensions,
-    GeoReference,
 )
 from pyramids.netcdf.cf import (
     srs_to_grid_mapping,
@@ -44,7 +44,6 @@ from pyramids.netcdf.cf import (
     write_global_attributes,
 )
 from pyramids.netcdf.dimensions import ClassicDimensionInfo
-from pyramids.base.georeference import GeoReference
 
 if TYPE_CHECKING:
     from pyramids.netcdf.netcdf import NetCDF

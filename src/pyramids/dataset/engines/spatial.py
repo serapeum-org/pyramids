@@ -38,11 +38,11 @@ from pyramids.feature.bbox import split_antimeridian
 if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset.engines._base import _Engine
 from pyramids.dataset.engines._warp import carry_raster_metadata, warp_to_dataset
 from pyramids.dataset.engines._warp import dst_srs_arg as _dst_srs_arg
 from pyramids.dataset.engines.vectorize import Vectorize
-from pyramids.base.georeference import GeoReference
 
 
 @overload
@@ -458,13 +458,11 @@ class Spatial(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> arr = np.random.rand(4, 5, 5)
               >>> dataset = Dataset.from_array(
               ...     arr,
-              ...     top_left_corner=(0.0, 0.0),
-              ...     cell_size=0.05,
-              ...     epsg=4326,
+              ...     geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
               ... )
               >>> dataset.epsg
               4326
@@ -484,7 +482,8 @@ class Spatial(_Engine["Dataset"]):
               >>> from pyramids.dataset import Dataset
               >>> arr = np.ones((5, 5), dtype=np.float32)
               >>> dataset = Dataset.from_array(
-              ...     arr, top_left_corner=(0.0, 10.0), cell_size=1.0, epsg=4326
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=(0.0, 10.0), cell_size=1.0, epsg=4326),
               ... )
               >>> robinson = dataset.to_crs(to_epsg="ESRI:54030")
               >>> "Robinson" in osr.SpatialReference(wkt=robinson.crs).GetName()
@@ -500,7 +499,8 @@ class Spatial(_Engine["Dataset"]):
               >>> from pyramids.dataset import Dataset
               >>> arr = np.ones((5, 5), dtype=np.float32)
               >>> dataset = Dataset.from_array(
-              ...     arr, top_left_corner=(0.0, 10.0), cell_size=1.0, epsg=4326
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=(0.0, 10.0), cell_size=1.0, epsg=4326),
               ... )
               >>> proj4 = "+proj=ortho +lat_0=39 +lon_0=-9 +datum=WGS84 +units=m +no_defs"
               >>> ortho = dataset.to_crs(to_epsg=proj4)
@@ -522,7 +522,8 @@ class Spatial(_Engine["Dataset"]):
               >>> from pyramids.dataset import Dataset
               >>> arr = np.ones((10, 10), dtype=np.float32)
               >>> dataset = Dataset.from_array(
-              ...     arr, top_left_corner=(10.0, 60.5), cell_size=0.1, epsg=4326
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=(10.0, 60.5), cell_size=0.1, epsg=4326),
               ... )
               >>> default_warp = dataset.to_crs(to_epsg=3857)
               >>> (default_warp.rows, default_warp.columns)
@@ -635,10 +636,10 @@ class Spatial(_Engine["Dataset"]):
               a windowed read matches the eager reprojection:
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> src = Dataset.from_array(
                 ...     np.random.rand(8, 8).astype("float32"),
-                ...     top_left_corner=(0, 8), cell_size=0.01, epsg=4326,
+                ...     geo_ref=GeoReference(top_left_corner=(0, 8), cell_size=0.01, epsg=4326),
                 ... )
                 >>> view = src.warped_view(3857)
                 >>> view.epsg
@@ -654,7 +655,7 @@ class Spatial(_Engine["Dataset"]):
                 >>> from pyramids.dataset import Dataset
                 >>> src = Dataset.from_array(
                 ...     np.ones((4, 4), dtype="float32"),
-                ...     top_left_corner=(0, 4), cell_size=0.01, epsg=4326,
+                ...     geo_ref=GeoReference(top_left_corner=(0, 4), cell_size=0.01, epsg=4326),
                 ... )
                 >>> view = src.warped_view(3857)
                 >>> del src
@@ -746,11 +747,12 @@ class Spatial(_Engine["Dataset"]):
             - Shift an in-memory 0-360 global raster and inspect the new extent:
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> arr = np.arange(360, dtype=np.float32).reshape(1, 360)
                 >>> ds = Dataset.from_array(
-                ...     arr, top_left_corner=(0.0, 0.5), cell_size=1.0, epsg=4326,
+                ...     arr,
                 ...     no_data_value=-9999.0,
+                ...     geo_ref=GeoReference(top_left_corner=(0.0, 0.5), cell_size=1.0, epsg=4326),
                 ... )
                 >>> shifted = ds.wrap_longitude()
                 >>> shifted.top_left_corner[0]
@@ -766,8 +768,9 @@ class Spatial(_Engine["Dataset"]):
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
                 >>> ds = Dataset.from_array(
-                ...     np.ones((3, 3), dtype=np.float32), top_left_corner=(0.0, 0.0),
-                ...     cell_size=0.05, epsg=4326, no_data_value=-9999.0,
+                ...     np.ones((3, 3), dtype=np.float32),
+                ...     no_data_value=-9999.0,
+                ...     geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
                 ... )
                 >>> ds.wrap_longitude()  # doctest: +ELLIPSIS
                 Traceback (most recent call last):
@@ -939,10 +942,11 @@ class Spatial(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> arr = np.random.rand(4, 10, 10)
               >>> dataset = Dataset.from_array(
-              ...     arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
               ... )
               >>> (dataset.rows, dataset.columns, dataset.band_count)
               (10, 10, 4)
@@ -1062,14 +1066,12 @@ class Spatial(_Engine["Dataset"]):
               calling this private method directly:
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> arr = np.ones((5, 5), dtype=np.float32)
                 >>> ds = Dataset.from_array(
                 ...     arr,
-                ...     top_left_corner=(10.0, 50.0),
-                ...     cell_size=0.5,
-                ...     epsg=4326,
                 ...     no_data_value=-9999.0,
+                ...     geo_ref=GeoReference(top_left_corner=(10.0, 50.0), cell_size=0.5, epsg=4326),
                 ... )
                 >>> result = ds.to_crs(to_epsg=4326, maintain_alignment=True)
                 >>> result.geotransform == ds.geotransform
@@ -1088,10 +1090,8 @@ class Spatial(_Engine["Dataset"]):
                 >>> arr = np.ones((10, 10), dtype=np.float32)
                 >>> ds = Dataset.from_array(
                 ...     arr,
-                ...     top_left_corner=(10.0, 60.5),
-                ...     cell_size=0.1,
-                ...     epsg=4326,
                 ...     no_data_value=-9999.0,
+                ...     geo_ref=GeoReference(top_left_corner=(10.0, 60.5), cell_size=0.1, epsg=4326),
                 ... )
                 >>> result = ds.to_crs(to_epsg=3857, maintain_alignment=True)
                 >>> result.epsg
@@ -1359,8 +1359,9 @@ class Spatial(_Engine["Dataset"]):
 
         self._assert_crop_aligned(mask, row, col)
 
+        # No path -> in-memory, which is what driver="MEM" used to say explicitly.
         dst = self._ds.__class__._create_dataset(
-            col, row, band_count, self._ds.gdal_dtype[0], driver="MEM"
+            col, row, band_count, self._ds.gdal_dtype[0]
         )
         # if the mask is a numpy array there's no geotransform / CRS
         # to copy from it; fall back to the source raster's because
@@ -1509,10 +1510,11 @@ class Spatial(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> arr = np.random.rand(5, 5)
               >>> dataset = Dataset.from_array(
-              ...     arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
               ... )
               >>> (dataset.rows, dataset.columns, dataset.epsg, dataset.band_count)
               (5, 5, 4326, 1)
@@ -1527,7 +1529,8 @@ class Spatial(_Engine["Dataset"]):
               >>> from pyramids.dataset import Dataset
               >>> arr_target = np.random.rand(10, 10)
               >>> dataset_target = Dataset.from_array(
-              ...     arr_target, top_left_corner=(-0.1, 0.1), cell_size=0.07, epsg=4326
+              ...     arr_target,
+              ...     geo_ref=GeoReference(top_left_corner=(-0.1, 0.1), cell_size=0.07, epsg=4326),
               ... )
               >>> (dataset_target.rows, dataset_target.columns, dataset_target.geotransform[1])
               (10, 10, 0.07)
@@ -1544,11 +1547,11 @@ class Spatial(_Engine["Dataset"]):
               >>> from pyramids.dataset import Dataset
               >>> source = Dataset.from_array(
               ...     np.random.rand(5, 5),
-              ...     top_left_corner=(0, 0), cell_size=0.05, epsg=4326,
+              ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
               ... )
               >>> target = Dataset.from_array(
               ...     np.random.rand(10, 10),
-              ...     top_left_corner=(-0.1, 0.1), cell_size=0.07, epsg=4326,
+              ...     geo_ref=GeoReference(top_left_corner=(-0.1, 0.1), cell_size=0.07, epsg=4326),
               ... )
               >>> aligned = target.align(source)
               >>> (aligned.rows, aligned.columns, aligned.geotransform[1], aligned.epsg)
@@ -1566,11 +1569,11 @@ class Spatial(_Engine["Dataset"]):
               >>> from pyramids.dataset import Dataset
               >>> source = Dataset.from_array(
               ...     np.arange(25, dtype=np.float32).reshape(5, 5),
-              ...     top_left_corner=(0, 0), cell_size=0.05, epsg=4326,
+              ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
               ... )
               >>> template = Dataset.from_array(
               ...     np.zeros((10, 10), dtype=np.float32),
-              ...     top_left_corner=(0, 0), cell_size=0.025, epsg=4326,
+              ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.025, epsg=4326),
               ... )
               >>> aligned = source.align(template, method="bilinear")
               >>> (aligned.rows, aligned.columns, aligned.epsg)
@@ -2176,10 +2179,10 @@ class Spatial(_Engine["Dataset"]):
         new_y = src.y[x_ind] - y_cell / 2
         new_gt = (new_x, x_cell, 0, new_y, 0, y_cell)
         new_src = src.from_array(
-                      small_array,
-                      no_data_value=src.no_data_value,
-                      geo_ref=GeoReference(geo=new_gt),
-                  )
+            small_array,
+            no_data_value=src.no_data_value,
+            geo_ref=GeoReference(geo=new_gt),
+        )
         # Preserve the source CRS from its WKT rather than round-tripping
         # through src.epsg: a custom CRS with no EPSG (e.g. a spherical-earth
         # GRIB GEOGCS) has no resolvable code, so passing epsg=src.epsg would
@@ -2390,12 +2393,13 @@ class Spatial(_Engine["Dataset"]):
               >>> import numpy as np
               >>> import geopandas as gpd
               >>> from shapely.geometry import Polygon
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> arr = np.random.rand(4, 10, 10)
               >>> cell_size = 0.05
               >>> top_left_corner = (0, 0)
               >>> dataset = Dataset.from_array(
-              ...         arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
               ... )
 
               ```
@@ -2433,7 +2437,10 @@ class Spatial(_Engine["Dataset"]):
 
               ```python
               >>> geotransform = (0.1, 0.05, 0.0, -0.1, 0.0, -0.05)
-              >>> mask_dataset = Dataset.from_array(np.random.rand(2, 2), geo=geotransform, epsg=4326)
+              >>> mask_dataset = Dataset.from_array(
+              ...     np.random.rand(2, 2),
+              ...     geo_ref=GeoReference(geo=geotransform, epsg=4326),
+              ... )
 
               ```
             - Then use the mask dataset to crop the dataset.
@@ -2467,7 +2474,8 @@ class Spatial(_Engine["Dataset"]):
               >>> from pyramids.dataset import Dataset
               >>> arr_int = np.arange(100, dtype="int16").reshape(10, 10)
               >>> dataset_bbox = Dataset.from_array(
-              ...     arr_int, top_left_corner=(0, 0), cell_size=0.05, epsg=4326,
+              ...     arr_int,
+              ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
               ... )
               >>> cropped_bbox = dataset_bbox.crop(bbox=(0.1, -0.2, 0.2, -0.1))
               >>> cropped_bbox.shape
@@ -2486,7 +2494,7 @@ class Spatial(_Engine["Dataset"]):
               >>> from pyramids.dataset import Dataset
               >>> grid = Dataset.from_array(
               ...     np.arange(180 * 360, dtype="float32").reshape(180, 360),
-              ...     top_left_corner=(-180.0, 90.0), cell_size=1.0, epsg=4326,
+              ...     geo_ref=GeoReference(top_left_corner=(-180.0, 90.0), cell_size=1.0, epsg=4326),
               ... )
               >>> strip = grid.crop(bbox=(170.0, -10.0, -170.0, 10.0))
               >>> strip.shape
@@ -2504,7 +2512,7 @@ class Spatial(_Engine["Dataset"]):
               >>> from pyramids.feature import FeatureCollection
               >>> dataset_excl = Dataset.from_array(
               ...     np.zeros((4, 5), dtype="int16"),
-              ...     top_left_corner=(0, 0), cell_size=0.05, epsg=4326,
+              ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
               ... )
               >>> fc = FeatureCollection.from_bbox((0.0, -0.1, 0.1, 0.0), epsg=4326)
               >>> try:

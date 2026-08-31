@@ -56,12 +56,12 @@ class TestAntimeridianCrop:
         """Return (source array, global NetCDF variable) for the given lon origin."""
         arr = np.arange(180 * 360, dtype="float32").reshape(180, 360)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(
+            arr=arr,
+            geo_ref=GeoReference(
                 geo=(top_left_x, 1.0, 0.0, 90.0, 0.0, -1.0), epsg=4326
             ),
-                 variable_name="v",
-             )
+            variable_name="v",
+        )
         return arr, nc.get_variable("v")
 
     def test_strip_values_and_extent(self):
@@ -93,10 +93,10 @@ class TestAntimeridianCrop:
         """A west>east bbox on a regional variable that never reaches the seam raises."""
         arr = np.arange(180 * 50, dtype="float32").reshape(180, 50)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(geo=(-10.0, 1.0, 0.0, 90.0, 0.0, -1.0), epsg=4326),
-                 variable_name="v",
-             )  # lon -10..40 (Europe): reaches neither +180 nor -180
+            arr=arr,
+            geo_ref=GeoReference(geo=(-10.0, 1.0, 0.0, 90.0, 0.0, -1.0), epsg=4326),
+            variable_name="v",
+        )  # lon -10..40 (Europe): reaches neither +180 nor -180
         var = nc.get_variable("v")
         with pytest.raises(ValueError, match="transposed|does not reach the 180 seam"):
             var.crop(bbox=(40.0, -10.0, 10.0, 10.0))
@@ -107,11 +107,13 @@ class TestAntimeridianCrop:
         w_arr = (v_arr * -1.0).astype("float32")
         geo = (-180.0, 1.0, 0.0, 90.0, 0.0, -1.0)
         nc = NetCDF.from_array(
-                 arr=v_arr,
-                 geo_ref=GeoReference(geo=geo, epsg=4326),
-                 variable_name="v",
-             )
-        nc.set_variable("w", Dataset.from_array(w_arr, geo_ref=GeoReference(geo=geo, epsg=4326)))
+            arr=v_arr,
+            geo_ref=GeoReference(geo=geo, epsg=4326),
+            variable_name="v",
+        )
+        nc.set_variable(
+            "w", Dataset.from_array(w_arr, geo_ref=GeoReference(geo=geo, epsg=4326))
+        )
         cropped = nc.crop(bbox=(170.0, -10.0, -170.0, 10.0))
         assert isinstance(cropped, NetCDF), "container crop stays a NetCDF container"
         assert sorted(cropped.variable_names) == ["v", "w"], "every variable is kept"
@@ -130,11 +132,13 @@ class TestAntimeridianCrop:
         w_arr = (v_arr + 1000.0).astype("float32")
         geo = (0.0, 1.0, 0.0, 90.0, 0.0, -1.0)
         nc = NetCDF.from_array(
-                 arr=v_arr,
-                 geo_ref=GeoReference(geo=geo, epsg=4326),
-                 variable_name="v",
-             )
-        nc.set_variable("w", Dataset.from_array(w_arr, geo_ref=GeoReference(geo=geo, epsg=4326)))
+            arr=v_arr,
+            geo_ref=GeoReference(geo=geo, epsg=4326),
+            variable_name="v",
+        )
+        nc.set_variable(
+            "w", Dataset.from_array(w_arr, geo_ref=GeoReference(geo=geo, epsg=4326))
+        )
         cropped = nc.crop(bbox=(170.0, -10.0, -170.0, 10.0))
         assert sorted(cropped.variable_names) == ["v", "w"], "every variable is kept"
         for name, src in (("v", v_arr), ("w", w_arr)):
@@ -147,10 +151,10 @@ class TestAntimeridianCrop:
         """When only one side of the seam overlaps, that half is returned as-is."""
         arr = np.arange(180 * 10, dtype="float32").reshape(180, 10)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(geo=(170.0, 1.0, 0.0, 90.0, 0.0, -1.0), epsg=4326),
-                 variable_name="v",
-             )  # lon 170..180 only (west side of the seam)
+            arr=arr,
+            geo_ref=GeoReference(geo=(170.0, 1.0, 0.0, 90.0, 0.0, -1.0), epsg=4326),
+            variable_name="v",
+        )  # lon 170..180 only (west side of the seam)
         strip = nc.get_variable("v").crop(bbox=(175.0, -10.0, -170.0, 10.0))
         assert strip.bbox[0] == pytest.approx(175.0), "west edge kept"
         assert strip.bbox[2] == pytest.approx(180.0), "only the west half (no wrap)"
@@ -159,9 +163,9 @@ class TestAntimeridianCrop:
         """``chunks`` is unsupported for an antimeridian container crop (eager merge)."""
         arr = np.arange(180 * 360, dtype="float32").reshape(180, 360)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(geo=(-180.0, 1.0, 0.0, 90.0, 0.0, -1.0), epsg=4326),
-                 variable_name="v",
-             )
+            arr=arr,
+            geo_ref=GeoReference(geo=(-180.0, 1.0, 0.0, 90.0, 0.0, -1.0), epsg=4326),
+            variable_name="v",
+        )
         with pytest.raises(ValueError, match="chunks"):
             nc.crop(bbox=(170.0, -10.0, -170.0, 10.0), chunks="auto")

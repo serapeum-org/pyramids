@@ -14,9 +14,9 @@ from shapely.geometry import Polygon
 
 from pyramids.base._errors import OutOfBoundsError
 from pyramids.base.crs import sr_from_epsg
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.dataset.engines import Bands
-from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -43,10 +43,12 @@ class TestCreateRasterObject:
         top_left_corner = (src_geotransform[0], src_geotransform[3])
         cell_size = src_geotransform[1]
         src = Dataset.from_array(
-                  arr=src_arr,
-                  no_data_value=src_no_data_value,
-                  geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=src_epsg),
-              )
+            arr=src_arr,
+            no_data_value=src_no_data_value,
+            geo_ref=GeoReference(
+                top_left_corner=top_left_corner, cell_size=cell_size, epsg=src_epsg
+            ),
+        )
         assert isinstance(src.raster, gdal.Dataset)
         assert src.access == "write"
         assert np.isclose(src.raster.ReadAsArray(), src_arr, rtol=0.00001).all()
@@ -58,10 +60,10 @@ class TestCreateRasterObject:
         assert src.raster.GetGeoTransform() == src_geotransform
         # create dataset with the geotransform
         src = Dataset.from_array(
-                  arr=src_arr,
-                  no_data_value=src_no_data_value,
-                  geo_ref=GeoReference(geo=src_geotransform, epsg=src_epsg),
-              )
+            arr=src_arr,
+            no_data_value=src_no_data_value,
+            geo_ref=GeoReference(geo=src_geotransform, epsg=src_epsg),
+        )
         assert isinstance(src.raster, gdal.Dataset)
         assert src.access == "write"
         assert np.isclose(src.raster.ReadAsArray(), src_arr, rtol=0.00001).all()
@@ -82,14 +84,14 @@ class TestCreateRasterObject:
         ds_epsg = 32618
         no_data_value = -3.4028230607370965e38
         dataset_n = Dataset.create(
-            cell_size,
             rows,
             columns,
             dtype,
             bands_count,
-            top_left_corner,
-            ds_epsg,
-            no_data_value,
+            geo_ref=GeoReference(
+                top_left_corner=top_left_corner, cell_size=cell_size, epsg=ds_epsg
+            ),
+            no_data_value=no_data_value,
         )
         assert dataset_n.access == "write"
         assert dataset_n.rows == rows

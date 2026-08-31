@@ -21,11 +21,11 @@ def _make_nc(var_name="temperature"):
     """Create an in-memory NetCDF with one 3D variable."""
     arr = np.random.default_rng(SEED).random((3, 5, 8)).astype(np.float64)
     return NetCDF.from_array(
-               arr=arr,
-               geo_ref=GeoReference(geo=GEO),
-               variable_name=var_name,
-               dims=ExtraDimensions(name="time", values=[0, 6, 12]),
-           )
+        arr=arr,
+        geo_ref=GeoReference(geo=GEO),
+        variable_name=var_name,
+        dims=ExtraDimensions(name="time", values=[0, 6, 12]),
+    )
 
 
 def _make_multi_nc():
@@ -35,10 +35,10 @@ def _make_multi_nc():
     nc = _make_nc("temp")
     arr2 = np.random.default_rng(99).random((3, 5, 8)).astype(np.float64)
     ds2 = Dataset.from_array(
-              arr2,
-              no_data_value=-9999.0,
-              geo_ref=GeoReference(geo=GEO, epsg=4326),
-          )
+        arr2,
+        no_data_value=-9999.0,
+        geo_ref=GeoReference(geo=GEO, epsg=4326),
+    )
     nc.set_variable("pressure", ds2)
     return nc
 

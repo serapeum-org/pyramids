@@ -11,9 +11,9 @@ from osgeo import gdal
 from pandas import DataFrame
 from shapely.geometry import MultiPoint, Point, Polygon
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.dataset.engines.vectorize import Vectorize
-from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -27,9 +27,11 @@ class TestToFeatureCollection:
         top_left_corner = (0, 0)
         cell_size = 0.05
         dataset = Dataset.from_array(
-                      arr,
-                      geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
-                  )
+            arr,
+            geo_ref=GeoReference(
+                top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326
+            ),
+        )
         df = dataset.to_feature_collection(tile=True, tile_size=1, add_geometry="point")
         # compare extracted data with original data from arr
         np.testing.assert_array_equal(
@@ -249,9 +251,11 @@ class TestExtract:
         top_left_corner = (0, 0)
         cell_size = 0.05
         dataset = Dataset.from_array(
-                      arr,
-                      geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
-                  )
+            arr,
+            geo_ref=GeoReference(
+                top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326
+            ),
+        )
         points = gpd.GeoDataFrame(
             geometry=[
                 Point(0.1, -0.1),
@@ -273,9 +277,11 @@ class TestExtract:
         top_left_corner = (432968.1206170588, 520007.787999178)
         cell_size = 4000
         dataset = Dataset.from_array(
-                      arr,
-                      geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=32618),
-                  )
+            arr,
+            geo_ref=GeoReference(
+                top_left_corner=top_left_corner, cell_size=cell_size, epsg=32618
+            ),
+        )
         tile_xoff = [0, 0, 0, 6, 6, 6, 12, 12, 12]
         tile_yoff = [0, 6, 12, 0, 6, 12, 0, 6, 12]
         x_coords, y_coords = dataset.array_to_map_coordinates(
@@ -433,9 +439,11 @@ class TestFootPrint:
         arr = np.zeros((200, 200), dtype="float32")
         arr[50:150, 60:160] = 5.0
         ds = Dataset.from_array(
-                 arr,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 200.0), cell_size=1.0, epsg=3857),
-             )
+            arr,
+            geo_ref=GeoReference(
+                top_left_corner=(0.0, 200.0), cell_size=1.0, epsg=3857
+            ),
+        )
         extent = ds.footprint(exclude_values=[0])
         assert extent is not None, "A covered block must yield a footprint"
         assert float(extent.geometry.area.sum()) == pytest.approx(100 * 100), (
@@ -452,9 +460,11 @@ class TestFootPrint:
         arr = np.zeros((200, 200), dtype="float32")
         arr[50:150, 60:160] = 5.0
         ds = Dataset.from_array(
-                 arr,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 200.0), cell_size=1.0, epsg=3857),
-             )
+            arr,
+            geo_ref=GeoReference(
+                top_left_corner=(0.0, 200.0), cell_size=1.0, epsg=3857
+            ),
+        )
         approx = ds.footprint(exclude_values=[0], max_samples=400)
         assert approx is not None, "Decimated footprint must still be produced"
         minx, miny, maxx, maxy = approx.total_bounds
@@ -482,10 +492,10 @@ class TestFootPrint:
         """
         arr = np.ones((8, 8), dtype="float32")
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0, epsg=3857),
-             )
+            arr,
+            no_data_value=-9.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0, epsg=3857),
+        )
         with pytest.raises(ValueError, match="max_samples must be a positive integer"):
             ds.footprint(max_samples=bad)
 
@@ -500,10 +510,10 @@ class TestFootPrint:
         arr = np.ones((100, 100), dtype="float32")
         geotransform = (0.0, 1.0, 0.2, 50.0, 0.15, -1.0)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(geo=geotransform, epsg=3857),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(geo=geotransform, epsg=3857),
+        )
         exact = ds.footprint()
         approx = ds.footprint(max_samples=400)
         assert exact is not None, "exact footprint must exist"
@@ -685,10 +695,10 @@ class TestTiledRowOrder:
         array[5, 5] = -9999.0
         array[20, 40] = -9999.0
         return Dataset.from_array(
-                   array,
-                   no_data_value=-9999.0,
-                   geo_ref=GeoReference(top_left_corner=(0.0, 37.0), cell_size=1.0, epsg=4326),
-               )
+            array,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 37.0), cell_size=1.0, epsg=4326),
+        )
 
     def test_the_tiled_frame_matches_the_untiled_one(self, uneven):
         """Both paths return the same rows in the same order.

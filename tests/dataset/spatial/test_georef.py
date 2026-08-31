@@ -14,11 +14,11 @@ import pytest
 from osgeo import gdal
 
 from pyramids.base._errors import CRSError, ReadOnlyError
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.dataset._gcp import GroundControlPoint
 from pyramids.dataset.engines import georef as georef_module
 from pyramids.dataset.engines.georef import Georef
-from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -74,9 +74,9 @@ def writable_dataset() -> Dataset:
         Dataset: MEM-backed (always writable), no GCPs yet.
     """
     return Dataset.from_array(
-               np.ones((8, 8), dtype="float32"),
-               geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0),
-           )
+        np.ones((8, 8), dtype="float32"),
+        geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0),
+    )
 
 
 class TestGroundControlPoint:
@@ -236,9 +236,9 @@ class TestOrthorectify:
     def rpc_dataset(self) -> Dataset:
         """An 8x8 raster carrying the near-identity RPC sensor model."""
         ds = Dataset.from_array(
-                 np.arange(64).reshape(8, 8).astype("float32"),
-                 geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0),
-             )
+            np.arange(64).reshape(8, 8).astype("float32"),
+            geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0),
+        )
         ds.raster.SetMetadata(RPC_SAMPLE, "RPC")
         return ds
 
@@ -310,9 +310,9 @@ class TestOrthorectify:
             A MEM-backed Dataset (no on-disk description) resolves to /vsimem/.
         """
         dem = Dataset.from_array(
-                  np.ones((4, 4), "float32"),
-                  geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0),
-              )
+            np.ones((4, 4), "float32"),
+            geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0),
+        )
         assert Georef._resolve_dem_path(dem).startswith("/vsimem/")
 
 
@@ -462,9 +462,9 @@ class TestStagedDemLifetime:
     def rpc_dataset(self) -> Dataset:
         """An 8x8 raster carrying the near-identity RPC sensor model."""
         ds = Dataset.from_array(
-                 np.arange(64).reshape(8, 8).astype("float32"),
-                 geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0),
-             )
+            np.arange(64).reshape(8, 8).astype("float32"),
+            geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0),
+        )
         ds.raster.SetMetadata(RPC_SAMPLE, "RPC")
         return ds
 
@@ -472,9 +472,9 @@ class TestStagedDemLifetime:
     def mem_dem(self) -> Dataset:
         """A MEM-backed DEM, which orthorectify has to stage to /vsimem."""
         return Dataset.from_array(
-                   np.full((8, 8), 100.0, "float32"),
-                   geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0),
-               )
+            np.full((8, 8), 100.0, "float32"),
+            geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0),
+        )
 
     @staticmethod
     def _stub_warp(monkeypatch, outcome):
@@ -503,9 +503,9 @@ class TestStagedDemLifetime:
         self._stub_warp(
             monkeypatch,
             lambda: Dataset.from_array(
-                        np.zeros((4, 4), "float32"),
-                        geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0),
-                    ),
+                np.zeros((4, 4), "float32"),
+                geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0),
+            ),
         )
         rpc_dataset.orthorectify(dem=mem_dem)
         assert self._vsimem_dems() == before, (
@@ -573,9 +573,9 @@ class TestStagedDemLifetime:
         self._stub_warp(
             monkeypatch,
             lambda: Dataset.from_array(
-                        np.zeros((4, 4), "float32"),
-                        geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0),
-                    ),
+                np.zeros((4, 4), "float32"),
+                geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0),
+            ),
         )
         view = rpc_dataset.orthorectify(dem=mem_dem, lazy=True)
         staged = self._vsimem_dems() - before

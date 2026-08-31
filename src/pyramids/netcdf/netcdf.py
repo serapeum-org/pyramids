@@ -31,10 +31,12 @@ from pyramids.base.crs import (
     sr_from_wkt,
     within_lonlat_range,
 )
+from pyramids.base.georeference import GeoReference
 from pyramids.base.protocols import ArrayLike
 from pyramids.base.remote import is_remote
 from pyramids.dataset import Dataset
 from pyramids.dataset._plot_helpers import nonnull_group_kwargs
+from pyramids.dataset.abstract_dataset import DEFAULT_NO_DATA_VALUE
 from pyramids.dataset.dataset import (
     _COLLABORATOR_ATTRS,
     _RESERVED_ACCESSOR_NAMES,
@@ -60,12 +62,10 @@ from pyramids.netcdf._mdim import (
 )
 from pyramids.netcdf._mfdataset import open_mfdataset
 from pyramids.netcdf._plot import NetCDFPlot
-from pyramids.dataset.abstract_dataset import DEFAULT_NO_DATA_VALUE
 from pyramids.netcdf.array_options import (
     CFAttributes,
     Encoding,
     ExtraDimensions,
-    GeoReference,
 )
 from pyramids.netcdf.cf import (
     build_coordinate_attrs,
@@ -3227,22 +3227,25 @@ class NetCDF(Dataset):
                 # the default single "time" axis, so both the band-dim and no-band-dim cases share
                 # this one call.
                 result = NetCDF.from_array(
-                             var_arr,
-                             geo_ref=GeoReference(
+                    var_arr,
+                    geo_ref=GeoReference(
                         geo=var_result.geotransform,
                         epsg=crs_spec(var_result.epsg, var_result.crs),
                     ),
-                             no_data_value=var_ndv_scalar,
-                             variable_name=var_name,
-                             dims=ExtraDimensions(dims=extra_dims),
-                         )
+                    no_data_value=var_ndv_scalar,
+                    variable_name=var_name,
+                    dims=ExtraDimensions(dims=extra_dims),
+                )
             else:
                 # Subsequent variables: drop into the existing container.
                 ds = Dataset.from_array(
-                         var_arr,
-                         no_data_value=var_ndv_scalar,
-                         geo_ref=GeoReference(geo=var_result.geotransform, epsg=crs_spec(var_result.epsg, var_result.crs)),
-                     )
+                    var_arr,
+                    no_data_value=var_ndv_scalar,
+                    geo_ref=GeoReference(
+                        geo=var_result.geotransform,
+                        epsg=crs_spec(var_result.epsg, var_result.crs),
+                    ),
+                )
                 NetCDF._copy_band_dim_metadata(ds, var)
                 # `result` is a private container built by this fan-out; nothing else
                 # references its raster yet, so mutate it in place (copy=False) to avoid
@@ -3485,12 +3488,12 @@ class NetCDF(Dataset):
         )
         if result is None:
             result = NetCDF.from_array(
-                         arr,
-                         geo_ref=GeoReference(geo=geo, epsg=epsg),
-                         no_data_value=ndv,
-                         variable_name=var_name,
-                         dims=ExtraDimensions(dims=extra),
-                     )
+                arr,
+                geo_ref=GeoReference(geo=geo, epsg=epsg),
+                no_data_value=ndv,
+                variable_name=var_name,
+                dims=ExtraDimensions(dims=extra),
+            )
         else:
             # A Dataset stores at most one (flattened) band axis, so collapse the
             # trailing band dimensions to a single (prod(sizes), rows, cols) store.
@@ -3501,10 +3504,10 @@ class NetCDF(Dataset):
                 else arr
             )
             ds = Dataset.from_array(
-                     flat,
-                     no_data_value=ndv,
-                     geo_ref=GeoReference(geo=geo, epsg=epsg),
-                 )
+                flat,
+                no_data_value=ndv,
+                geo_ref=GeoReference(geo=geo, epsg=epsg),
+            )
             ds._band_dim_names = tuple(band_names)
             ds._band_dim_values_map = {
                 name: values_map.get(name) for name in band_names

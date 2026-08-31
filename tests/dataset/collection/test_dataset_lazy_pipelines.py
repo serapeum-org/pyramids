@@ -30,8 +30,8 @@ from osgeo import gdal, osr
 
 from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.base._utils import import_dask, import_zarr
-from pyramids.dataset import Dataset
 from pyramids.base.georeference import GeoReference
+from pyramids.dataset import Dataset
 
 pytestmark = pytest.mark.lazy
 
@@ -100,9 +100,13 @@ class TestDatasetLazyPipelines:
         )
         scratch_path = str(tmp_path / "scratch.tif")
         scratch = Dataset.from_array(
-                      lazy.compute(),
-                      geo_ref=GeoReference(top_left_corner=src.top_left_corner, cell_size=src.cell_size, epsg=src.epsg),
-                  )
+            lazy.compute(),
+            geo_ref=GeoReference(
+                top_left_corner=src.top_left_corner,
+                cell_size=src.cell_size,
+                epsg=src.epsg,
+            ),
+        )
         scratch.to_file(scratch_path)
 
         out_path = str(tmp_path / "doubled.tif")
@@ -132,9 +136,13 @@ class TestDatasetLazyPipelines:
             band=0,
         ).compute()
         scratch = Dataset.from_array(
-                      doubled_arr,
-                      geo_ref=GeoReference(top_left_corner=src.top_left_corner, cell_size=src.cell_size, epsg=src.epsg),
-                  )
+            doubled_arr,
+            geo_ref=GeoReference(
+                top_left_corner=src.top_left_corner,
+                cell_size=src.cell_size,
+                epsg=src.epsg,
+            ),
+        )
         # Save to disk so to_zarr's lazy reader has a path.
         tif_path = str(tmp_path / "scratch.tif")
         scratch.to_file(tif_path)

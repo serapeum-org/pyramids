@@ -29,11 +29,11 @@ def _make_time_nc(arr: np.ndarray, time_values: list) -> NetCDF:
         NetCDF: A MEM container with a single variable named `v`.
     """
     return NetCDF.from_array(
-               arr,
-               geo_ref=GeoReference(geo=_GEO, epsg=4326),
-               variable_name="v",
-               dims=ExtraDimensions(name="time", values=time_values),
-           )
+        arr,
+        geo_ref=GeoReference(geo=_GEO, epsg=4326),
+        variable_name="v",
+        dims=ExtraDimensions(name="time", values=time_values),
+    )
 
 
 class TestReduceCollapse:
@@ -160,12 +160,12 @@ class TestReduceSkipna:
             [[[10.0, 10.0]], [[-9999.0, 30.0]]], dtype="float32"
         )  # (time=2, y=1, x=2)
         nc = NetCDF.from_array(
-                 arr,
-                 geo_ref=GeoReference(geo=_GEO, epsg=4326),
-                 no_data_value=-9999.0,
-                 variable_name="v",
-                 dims=ExtraDimensions(name="time", values=[0, 1]),
-             )
+            arr,
+            geo_ref=GeoReference(geo=_GEO, epsg=4326),
+            no_data_value=-9999.0,
+            variable_name="v",
+            dims=ExtraDimensions(name="time", values=[0, 1]),
+        )
         skip = nc.reduce("time", "mean", skipna=True).get_variable("v").read_array()
         assert skip[0, 0] == pytest.approx(10.0), (
             "all-but-nodata cell should keep the valid value"
@@ -180,12 +180,12 @@ class TestReduceSkipna:
         """
         arr = np.array([[[10.0]], [[-9999.0]]], dtype="float32")
         nc = NetCDF.from_array(
-                 arr,
-                 geo_ref=GeoReference(geo=_GEO, epsg=4326),
-                 no_data_value=-9999.0,
-                 variable_name="v",
-                 dims=ExtraDimensions(name="time", values=[0, 1]),
-             )
+            arr,
+            geo_ref=GeoReference(geo=_GEO, epsg=4326),
+            no_data_value=-9999.0,
+            variable_name="v",
+            dims=ExtraDimensions(name="time", values=[0, 1]),
+        )
         out = nc.reduce("time", "sum", skipna=False).get_variable("v").read_array()
         assert out[0, 0] == pytest.approx(-9989.0), "raw sum should include sentinel"
 
@@ -205,12 +205,12 @@ class TestReduceSkipna:
             [[[1.0, -9999.0]], [[2.0, -9999.0]]], dtype="float32"
         )  # (time=2, y=1, x=2); column 1 is all-NoData
         nc = NetCDF.from_array(
-                 arr,
-                 geo_ref=GeoReference(geo=_GEO, epsg=4326),
-                 no_data_value=-9999.0,
-                 variable_name="v",
-                 dims=ExtraDimensions(name="time", values=[0, 1]),
-             )
+            arr,
+            geo_ref=GeoReference(geo=_GEO, epsg=4326),
+            no_data_value=-9999.0,
+            variable_name="v",
+            dims=ExtraDimensions(name="time", values=[0, 1]),
+        )
         out = nc.reduce("time", how, skipna=True).get_variable("v").read_array()
         assert out[0, 1] == -9999.0, (
             f"{how}: all-nodata cell should stay nodata, got {out[0, 1]}"
@@ -231,7 +231,9 @@ class TestReducePassthrough:
         dyn = np.arange(4 * 3 * 5, dtype="float32").reshape(4, 3, 5)
         nc = _make_time_nc(dyn, [0, 1, 2, 3])
         static_arr = np.full((3, 5), 7.0, dtype="float32")
-        static_ds = Dataset.from_array(static_arr, geo_ref=GeoReference(geo=_GEO, epsg=4326))
+        static_ds = Dataset.from_array(
+            static_arr, geo_ref=GeoReference(geo=_GEO, epsg=4326)
+        )
         nc.set_variable("static", static_ds)
 
         result = nc.reduce("time", "mean")
@@ -369,19 +371,19 @@ class TestReduceMultiBandDim:
         a2 = a1 + 1000.0
         extra = [("d0", [0, 1]), ("d1", [0, 1]), ("d2", [0, 1])]
         nc = NetCDF.from_array(
-                 a1,
-                 geo_ref=GeoReference(geo=_GEO, epsg=4326),
-                 no_data_value=-9999.0,
-                 variable_name="v1",
-                 dims=ExtraDimensions(dims=extra),
-             )
+            a1,
+            geo_ref=GeoReference(geo=_GEO, epsg=4326),
+            no_data_value=-9999.0,
+            variable_name="v1",
+            dims=ExtraDimensions(dims=extra),
+        )
         v2 = NetCDF.from_array(
-                 a2,
-                 geo_ref=GeoReference(geo=_GEO, epsg=4326),
-                 no_data_value=-9999.0,
-                 variable_name="v2",
-                 dims=ExtraDimensions(dims=extra),
-             )
+            a2,
+            geo_ref=GeoReference(geo=_GEO, epsg=4326),
+            no_data_value=-9999.0,
+            variable_name="v2",
+            dims=ExtraDimensions(dims=extra),
+        )
         nc.set_variable("v2", v2.get_variable("v2"))
         return nc, a1, a2
 

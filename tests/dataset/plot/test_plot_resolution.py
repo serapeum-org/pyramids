@@ -41,12 +41,12 @@ def _make_nc_subset(n_bands: int) -> NetCDF:
     rng = np.random.default_rng(42)
     arr = rng.random((n_bands, 5, 6)).astype("float32")
     nc = NetCDF.from_array(
-             arr=arr,
-             geo_ref=GeoReference(geo=(30.0, 0.5, 0, 35.0, 0, -0.5)),
-             variable_name="t2m",
-             path=None,
-             dims=ExtraDimensions(name="time", values=list(range(n_bands))),
-         )
+        arr=arr,
+        geo_ref=GeoReference(geo=(30.0, 0.5, 0, 35.0, 0, -0.5)),
+        variable_name="t2m",
+        path=None,
+        dims=ExtraDimensions(name="time", values=list(range(n_bands))),
+    )
     return nc.get_variable("t2m")
 
 
@@ -75,9 +75,9 @@ class TestResolvePlotBandPolicy:
         rng = np.random.default_rng(1337)
         arr = rng.random((4, 6, 6)).astype("float32")
         dataset = Dataset.from_array(
-                      arr,
-                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
-                  )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+        )
 
         resolved_band, resolved_rgb = dataset._resolve_plot_band(band=3, rgb=None)
         assert resolved_band == 3, f"Expected band 3, got {resolved_band}"
@@ -94,9 +94,9 @@ class TestResolvePlotBandPolicy:
         rng = np.random.default_rng(1337)
         arr = rng.random((3, 6, 6)).astype("float32")
         dataset = Dataset.from_array(
-                      arr,
-                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
-                  )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+        )
 
         resolved_band, resolved_rgb = dataset._resolve_plot_band(band=5, rgb=[0, 1, 2])
         assert resolved_band == 5
@@ -117,9 +117,9 @@ class TestResolvePlotBandPolicy:
         rng = np.random.default_rng(1337)
         arr = rng.random((n_bands, 6, 6)).astype("float32")
         dataset = Dataset.from_array(
-                      arr,
-                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
-                  )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+        )
 
         resolved_band, resolved_rgb = dataset._resolve_plot_band(band=None, rgb=None)
         assert resolved_band == 0, (
@@ -144,9 +144,9 @@ class TestResolvePlotBandPolicy:
         rng = np.random.default_rng(1337)
         arr = rng.random((n_bands, 6, 6)).astype("float32")
         dataset = Dataset.from_array(
-                      arr,
-                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
-                  )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+        )
 
         resolved_band, resolved_rgb = dataset._resolve_plot_band(band=None, rgb=None)
         assert resolved_band == 0, (
@@ -174,9 +174,9 @@ class TestResolvePlotBandPolicy:
         rng = np.random.default_rng(910)
         arr = rng.random((3, 6, 6)).astype("float32")
         dataset = Dataset.from_array(
-                      arr,
-                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
-                  )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+        )
         dataset.band_color = {palette_band: "palette_index"}
 
         with warnings.catch_warnings(record=True) as caught:
@@ -215,9 +215,9 @@ class TestResolvePlotBandPolicy:
         rng = np.random.default_rng(911)
         arr = rng.random((3, 6, 6)).astype("float32")
         dataset = Dataset.from_array(
-                      arr,
-                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
-                  )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+        )
         dataset.band_color = {0: interp}
 
         with warnings.catch_warnings(record=True) as caught:
@@ -246,9 +246,9 @@ class TestResolvePlotBandPolicy:
         rng = np.random.default_rng(912)
         arr = rng.random((4, 6, 6)).astype("float32")
         dataset = Dataset.from_array(
-                      arr,
-                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
-                  )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+        )
         dataset.band_color = {0: "red", 1: "green", 2: "blue", 3: "palette_index"}
 
         with warnings.catch_warnings(record=True) as caught:
@@ -279,9 +279,9 @@ class TestResolvePlotBandPolicy:
         rng = np.random.default_rng(913)
         arr = rng.random((3, 6, 6)).astype("float32")
         dataset = Dataset.from_array(
-                      arr,
-                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
-                  )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+        )
         dataset.band_color = {0: "gray_index"}
 
         resolved_band, resolved_rgb = dataset._resolve_plot_band(
@@ -305,9 +305,9 @@ class TestResolvePlotBandPolicy:
         rng = np.random.default_rng(914)
         arr = rng.random((3, 6, 6)).astype("float32")
         dataset = Dataset.from_array(
-                      arr,
-                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
-                  )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+        )
         dataset.band_color = {0: "red", 1: "green", 2: "palette_index"}
 
         with pytest.warns(DeprecationWarning, match=r"Sentinel-2"):
@@ -340,9 +340,9 @@ class TestResolvePlotBandPolicy:
         rng = np.random.default_rng(1337)
         arr = rng.random((3, 6, 6)).astype("float32")
         dataset = Dataset.from_array(
-                      arr,
-                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
-                  )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+        )
         dataset.band_color = {0: "red", 1: "green", 2: "blue"}
 
         resolved_band, resolved_rgb = dataset._resolve_plot_band(band=None, rgb=None)
@@ -364,9 +364,9 @@ class TestResolvePlotBandPolicy:
         rng = np.random.default_rng(1337)
         arr = rng.random((3, 6, 6)).astype("float32")
         dataset = Dataset.from_array(
-                      arr,
-                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
-                  )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+        )
         dataset.band_color = {0: "blue", 1: "red", 2: "green"}
 
         resolved_band, resolved_rgb = dataset._resolve_plot_band(band=None, rgb=None)
@@ -388,9 +388,9 @@ class TestResolvePlotBandPolicy:
         rng = np.random.default_rng(1337)
         arr = rng.random((3, 6, 6)).astype("float32")
         dataset = Dataset.from_array(
-                      arr,
-                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
-                  )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+        )
         dataset.band_color = {0: "red", 1: "green", 2: "blue"}
 
         resolved_band, resolved_rgb = dataset._resolve_plot_band(
@@ -411,9 +411,9 @@ class TestResolvePlotBandPolicy:
         rng = np.random.default_rng(1337)
         arr = rng.random((3, 6, 6)).astype("float32")
         dataset = Dataset.from_array(
-                      arr,
-                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
-                  )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+        )
         dataset.band_color = {0: "red", 1: "green"}
 
         resolved_band, resolved_rgb = dataset._resolve_plot_band(band=None, rgb=None)
@@ -437,9 +437,9 @@ class TestResolvePlotBandPolicy:
         rng = np.random.default_rng(1337)
         arr = rng.random((3, 6, 6)).astype("float32")
         dataset = Dataset.from_array(
-                      arr,
-                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
-                  )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+        )
         dataset.band_color = {0: "red", 1: "green", 2: "blue"}
 
         resolved_band, resolved_rgb = dataset._resolve_plot_band(band=0, rgb=None)
@@ -458,9 +458,9 @@ class TestResolvePlotBandPolicy:
         rng = np.random.default_rng(1337)
         arr = rng.random((4, 6, 6)).astype("float32")
         dataset = Dataset.from_array(
-                      arr,
-                      geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
-                  )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+        )
 
         with patch.object(type(dataset.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "stub"
@@ -534,12 +534,12 @@ class TestNetCDFPlotPolicy:
         rng = np.random.default_rng(1337)
         arr = rng.random((3, 5, 6)).astype("float32")
         nc_root = NetCDF.from_array(
-                      arr=arr,
-                      geo_ref=GeoReference(geo=(30.0, 0.5, 0, 35.0, 0, -0.5)),
-                      variable_name="t2m",
-                      path=None,
-                      dims=ExtraDimensions(name="time", values=[0, 1, 2]),
-                  )
+            arr=arr,
+            geo_ref=GeoReference(geo=(30.0, 0.5, 0, 35.0, 0, -0.5)),
+            variable_name="t2m",
+            path=None,
+            dims=ExtraDimensions(name="time", values=[0, 1, 2]),
+        )
         assert nc_root._is_md_array is True
         assert nc_root._is_subset is False
         assert nc_root.band_count == 0

@@ -11,8 +11,8 @@ import pytest
 from osgeo import gdal
 
 from pyramids.base._errors import OutOfBoundsError, ReadOnlyError
-from pyramids.dataset import Dataset, Window
 from pyramids.base.georeference import GeoReference
+from pyramids.dataset import Dataset, Window
 
 pytestmark = pytest.mark.core
 
@@ -21,20 +21,20 @@ pytestmark = pytest.mark.core
 def nodata_dataset() -> Dataset:
     """A 4x4 float32 raster carrying a no-data value."""
     return Dataset.from_array(
-               np.array([[1, 2, -9999, 4]] * 4, dtype="float32"),
-               no_data_value=-9999.0,
-               geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0),
-           )
+        np.array([[1, 2, -9999, 4]] * 4, dtype="float32"),
+        no_data_value=-9999.0,
+        geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0),
+    )
 
 
 @pytest.fixture
 def all_valid_dataset() -> Dataset:
     """A 4x4 float32 raster with no no-data value (fully valid)."""
     return Dataset.from_array(
-               np.ones((4, 4), dtype="float32"),
-               no_data_value=None,
-               geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0),
-           )
+        np.ones((4, 4), dtype="float32"),
+        no_data_value=None,
+        geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0),
+    )
 
 
 @pytest.fixture

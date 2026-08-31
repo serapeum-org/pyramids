@@ -13,9 +13,9 @@ import os
 import numpy as np
 import pytest
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.feature import FeatureCollection
-from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -38,7 +38,9 @@ def _write_raster(directory, name, values, *, epsg=4326):
     Dataset.from_array(
         np.asarray(values, dtype="int16"),
         path=path,
-        geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=CELL_SIZE, epsg=epsg),
+        geo_ref=GeoReference(
+            top_left_corner=(0.0, 0.0), cell_size=CELL_SIZE, epsg=epsg
+        ),
     ).close()
     return path
 
@@ -113,7 +115,9 @@ class TestBboxClipPersistE2E:
         Dataset.from_array(
             arr,
             path=src_path,
-            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=10000.0, epsg=3857),
+            geo_ref=GeoReference(
+                top_left_corner=(0.0, 0.0), cell_size=10000.0, epsg=3857
+            ),
         ).close()
         src = Dataset.read_file(src_path)
 

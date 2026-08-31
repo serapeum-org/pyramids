@@ -58,10 +58,10 @@ def _make_flat_nc():
     """Create an in-memory NetCDF with no sub-groups."""
     arr = np.ones((5, 8), dtype=np.float64)
     return NetCDF.from_array(
-               arr=arr,
-               geo_ref=GeoReference(geo=(0, 1, 0, 5, 0, -1)),
-               variable_name="v",
-           )
+        arr=arr,
+        geo_ref=GeoReference(geo=(0, 1, 0, 5, 0, -1)),
+        variable_name="v",
+    )
 
 
 class TestGroupNames:

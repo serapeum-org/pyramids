@@ -86,7 +86,9 @@ class TestReadVariableConsistency:
         """
         arr = np.arange(50, dtype=np.float64).reshape(10, 5)
         geo = (0.0, 1.0, 0, 10.0, 0, -1.0)
-        nc = NetCDF.from_array(arr=arr, geo_ref=GeoReference(geo=geo), variable_name="test")
+        nc = NetCDF.from_array(
+            arr=arr, geo_ref=GeoReference(geo=geo), variable_name="test"
+        )
         from_read = nc._read_variable("test")
         var = nc.get_variable("test")
         from_get = var.read_array(band=0)
@@ -105,11 +107,11 @@ class TestReadVariableConsistency:
         arr = np.arange(150, dtype=np.float64).reshape(3, 10, 5)
         geo = (0.0, 1.0, 0, 10.0, 0, -1.0)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(geo=geo),
-                 variable_name="test3d",
-                 dims=ExtraDimensions(name="time"),
-             )
+            arr=arr,
+            geo_ref=GeoReference(geo=geo),
+            variable_name="test3d",
+            dims=ExtraDimensions(name="time"),
+        )
         from_read = nc._read_variable("test3d")
         var = nc.get_variable("test3d")
         from_get = var.read_array()
@@ -131,7 +133,9 @@ class TestPyramidsCreatedNotFlipped:
         """
         arr = np.arange(50, dtype=np.float64).reshape(10, 5)
         geo = (0.0, 1.0, 0, 10.0, 0, -1.0)
-        nc = NetCDF.from_array(arr=arr, geo_ref=GeoReference(geo=geo), variable_name="seq")
+        nc = NetCDF.from_array(
+            arr=arr, geo_ref=GeoReference(geo=geo), variable_name="seq"
+        )
         var = nc.get_variable("seq")
         read_back = var.read_array(band=0)
         assert_allclose(
@@ -149,7 +153,9 @@ class TestPyramidsCreatedNotFlipped:
         """
         arr = np.ones((5, 5), dtype=np.float64)
         geo = (0.0, 1.0, 0, 5.0, 0, -1.0)
-        nc = NetCDF.from_array(arr=arr, geo_ref=GeoReference(geo=geo), variable_name="v")
+        nc = NetCDF.from_array(
+            arr=arr, geo_ref=GeoReference(geo=geo), variable_name="v"
+        )
         var = nc.get_variable("v")
         gt = var.geotransform
         assert gt[5] < 0, f"Y pixel size should be negative, got {gt[5]}"
@@ -166,7 +172,9 @@ class TestOneDimNotFlipped:
         """
         arr = np.ones((5, 8), dtype=np.float64)
         geo = (10.0, 0.5, 0, 15.0, 0, -0.5)
-        nc = NetCDF.from_array(arr=arr, geo_ref=GeoReference(geo=geo), variable_name="v")
+        nc = NetCDF.from_array(
+            arr=arr, geo_ref=GeoReference(geo=geo), variable_name="v"
+        )
         x_vals = nc._read_variable("x")
         assert x_vals is not None, "x coordinate should be readable"
         assert x_vals.ndim == 1, f"Expected 1D, got {x_vals.ndim}D"

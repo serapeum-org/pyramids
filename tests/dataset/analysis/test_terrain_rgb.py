@@ -11,8 +11,8 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
-from pyramids.dataset import Dataset
 from pyramids.base.georeference import GeoReference
+from pyramids.dataset import Dataset
 from pyramids.dataset.engines.io import (
     IO,
     _encode_terrain_rgb,
@@ -30,10 +30,10 @@ def _dem_3857(no_data_value=None):
     """A small DEM already in EPSG:3857 (so no reprojection on encode)."""
     arr = np.array([[0.0, 100.0], [2000.0, 8848.0]], dtype="float32")
     return Dataset.from_array(
-               arr=arr,
-               no_data_value=no_data_value,
-               geo_ref=GeoReference(geo=_GEO_3857, epsg=3857),
-           )
+        arr=arr,
+        no_data_value=no_data_value,
+        geo_ref=GeoReference(geo=_GEO_3857, epsg=3857),
+    )
 
 
 def _decode_mapbox(r, g, b, base_val=-10000.0, interval=0.1):
@@ -89,10 +89,10 @@ class TestToTerrainRgbNoData:
         """A nodata cell becomes alpha 0; valid cells alpha 255 (RGBA output)."""
         arr = np.array([[0.0, -9999.0], [2000.0, 8848.0]], dtype="float32")
         dem = Dataset.from_array(
-                  arr=arr,
-                  no_data_value=-9999.0,
-                  geo_ref=GeoReference(geo=_GEO_3857, epsg=3857),
-              )
+            arr=arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(geo=_GEO_3857, epsg=3857),
+        )
         out = dem.to_terrain_rgb(tmp_path / "n.png", tiles=False)
         count, bands = _read_bands(out)
         assert count == 4, f"nodata source must yield 4-band RGBA, got {count}"
@@ -112,10 +112,10 @@ class TestToTerrainRgbNoData:
         """A 4326 source with nodata stays transparent after the warp to 3857."""
         arr = np.array([[100.0, -9999.0], [2000.0, 3000.0]], dtype="float32")
         dem = Dataset.from_array(
-                  arr=arr,
-                  no_data_value=-9999.0,
-                  geo_ref=GeoReference(geo=(10.0, 0.01, 0.0, 47.0, 0.0, -0.01), epsg=4326),
-              )
+            arr=arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(geo=(10.0, 0.01, 0.0, 47.0, 0.0, -0.01), epsg=4326),
+        )
         out = dem.to_terrain_rgb(tmp_path / "rn.png", tiles=False)
         count, bands = _read_bands(out)
         assert count == 4, f"reprojected nodata source must be RGBA, got {count}"
@@ -136,10 +136,10 @@ class TestToTerrainRgbOutputs:
         """A non-3857 source is reprojected, not rejected."""
         arr = np.ones((4, 4), dtype="float32") * 500.0
         dem = Dataset.from_array(
-                  arr=arr,
-                  no_data_value=None,
-                  geo_ref=GeoReference(geo=(10.0, 0.01, 0.0, 47.0, 0.0, -0.01), epsg=4326),
-              )
+            arr=arr,
+            no_data_value=None,
+            geo_ref=GeoReference(geo=(10.0, 0.01, 0.0, 47.0, 0.0, -0.01), epsg=4326),
+        )
         out = dem.to_terrain_rgb(tmp_path / "w.tif", tiles=False)
         assert "3857" in gdal.Open(str(out)).GetProjection(), "must reproject to 3857"
 
@@ -328,10 +328,10 @@ class TestToTerrainRgbClamping:
         """An elevation above the encodable range writes the max RGB, not garbage."""
         arr = np.array([[1e9, 0.0]], dtype="float64").astype("float32")
         dem = Dataset.from_array(
-                  arr=arr,
-                  no_data_value=None,
-                  geo_ref=GeoReference(geo=_GEO_3857, epsg=3857),
-              )
+            arr=arr,
+            no_data_value=None,
+            geo_ref=GeoReference(geo=_GEO_3857, epsg=3857),
+        )
         out = dem.to_terrain_rgb(tmp_path / "c.png", tiles=False)
         _, (r, g, b) = _read_bands(out)
         assert (r[0, 0], g[0, 0], b[0, 0]) == (
@@ -381,9 +381,9 @@ class TestTilingSourcePreparation:
         """
         seen = self._capture_source(monkeypatch)
         dem = Dataset.from_array(
-                  arr=np.linspace(0.0, 8848.0, 600 * 600, dtype="float32").reshape(600, 600),
-                  geo_ref=GeoReference(top_left_corner=(0.0, 6.0), cell_size=0.01, epsg=4326),
-              )
+            arr=np.linspace(0.0, 8848.0, 600 * 600, dtype="float32").reshape(600, 600),
+            geo_ref=GeoReference(top_left_corner=(0.0, 6.0), cell_size=0.01, epsg=4326),
+        )
         dem.to_terrain_rgb(tmp_path / "tiles", tiles=True, min_zoom=3, max_zoom=5)
         assert len(seen) == 1, f"expected one tiling call, got {len(seen)}"
         assert seen[0][0] > 0, "the staged tiling source must carry overviews"
@@ -399,9 +399,9 @@ class TestTilingSourcePreparation:
         """
         seen = self._capture_source(monkeypatch)
         dem = Dataset.from_array(
-                  arr=np.linspace(0.0, 8848.0, 600 * 600, dtype="float32").reshape(600, 600),
-                  geo_ref=GeoReference(geo=_GEO_3857, epsg=3857),
-              )
+            arr=np.linspace(0.0, 8848.0, 600 * 600, dtype="float32").reshape(600, 600),
+            geo_ref=GeoReference(geo=_GEO_3857, epsg=3857),
+        )
         dem.to_terrain_rgb(tmp_path / "tiles", tiles=True, min_zoom=3, max_zoom=5)
         assert len(seen) == 1, f"expected one tiling call, got {len(seen)}"
         assert seen[0][1] is not dem.raster, (
@@ -496,9 +496,9 @@ class TestTilingScratchCleanup:
     def dem(self) -> Dataset:
         """A 600x600 EPSG:3857 DEM, big enough to warrant a pyramid."""
         return Dataset.from_array(
-                   arr=np.linspace(0.0, 8848.0, 600 * 600, dtype="float32").reshape(600, 600),
-                   geo_ref=GeoReference(geo=_GEO_3857, epsg=3857),
-               )
+            arr=np.linspace(0.0, 8848.0, 600 * 600, dtype="float32").reshape(600, 600),
+            geo_ref=GeoReference(geo=_GEO_3857, epsg=3857),
+        )
 
     def test_the_staged_source_is_removed_after_a_successful_run(self, dem, tmp_path):
         """Tiling leaves no temp directory behind.

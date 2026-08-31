@@ -29,9 +29,9 @@ from pyramids.base._utils import (
     is_integer_gdal_dtype,
     resolve_cog_predictor,
 )
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset, cog
 from pyramids.dataset.cog import write_cog
-from pyramids.base.georeference import GeoReference
 from tests.dataset.cog.conftest import COG_GEOTRANSFORM
 
 pytestmark = pytest.mark.core
@@ -46,7 +46,9 @@ def float_dataset() -> Dataset:
     """
     rng = np.random.default_rng(seed=1337)
     arr = (rng.random((64, 64)) * 100.0).astype("float32")
-    return Dataset.from_array(arr, geo_ref=GeoReference(geo=COG_GEOTRANSFORM, epsg=4326))
+    return Dataset.from_array(
+        arr, geo_ref=GeoReference(geo=COG_GEOTRANSFORM, epsg=4326)
+    )
 
 
 @pytest.fixture
@@ -58,7 +60,9 @@ def int_dataset() -> Dataset:
     """
     rng = np.random.default_rng(seed=7)
     arr = rng.integers(0, 50, size=(48, 48)).astype("int16")
-    return Dataset.from_array(arr, geo_ref=GeoReference(geo=COG_GEOTRANSFORM, epsg=4326))
+    return Dataset.from_array(
+        arr, geo_ref=GeoReference(geo=COG_GEOTRANSFORM, epsg=4326)
+    )
 
 
 def _read_predictor(path: str | Path) -> str:
@@ -302,7 +306,9 @@ class TestToCogResamplingGuardrail:
         """
         rng = np.random.default_rng(seed=99)
         arr = (rng.random((600, 600)) * 100.0).astype("float32")
-        ds = Dataset.from_array(arr, geo_ref=GeoReference(geo=COG_GEOTRANSFORM, epsg=4326))
+        ds = Dataset.from_array(
+            arr, geo_ref=GeoReference(geo=COG_GEOTRANSFORM, epsg=4326)
+        )
         out = ds.to_cog(tmp_path / "big.tif")
         assert _first_overview_decimation(out) >= 2, "large float COG needs overviews"
 

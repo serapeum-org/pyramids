@@ -16,9 +16,9 @@ import numpy as np
 import pytest
 from shapely.geometry import box
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.dataset.merge import stack_bands
-from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 

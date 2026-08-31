@@ -8,8 +8,8 @@ import pytest
 from osgeo import gdal
 
 from pyramids.base._errors import NoDataValueError, ReadOnlyError
-from pyramids.dataset import Dataset
 from pyramids.base.georeference import GeoReference
+from pyramids.dataset import Dataset
 
 pytestmark = pytest.mark.core
 
@@ -109,10 +109,10 @@ class TestNoDataValue:
         numpy error to the caller.
         """
         dataset = Dataset.from_array(
-                      np.arange(9, dtype="int32").reshape(3, 3),
-                      no_data_value=0,
-                      geo_ref=GeoReference(geo=(0, 1, 0, 3, 0, -1), epsg=4326),
-                  )
+            np.arange(9, dtype="int32").reshape(3, 3),
+            no_data_value=0,
+            geo_ref=GeoReference(geo=(0, 1, 0, 3, 0, -1), epsg=4326),
+        )
         with pytest.raises(NoDataValueError):
             dataset.change_no_data_value(np.nan, 0)
 
@@ -146,9 +146,9 @@ class TestNoDataValue:
         arr = np.full((4, 4), 5, dtype=dtype)
         with pytest.warns(UserWarning, match="out of range"):
             dataset = Dataset.from_array(
-                          arr,
-                          geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
-                      )
+                arr,
+                geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+            )
         assert dataset.no_data_value[0] == expected, (
             f"{dtype}: expected fallback no-data {expected}, "
             f"got {dataset.no_data_value[0]}"
@@ -169,9 +169,9 @@ class TestNoDataValue:
         with warnings.catch_warnings():
             warnings.simplefilter("error")
             dataset = Dataset.from_array(
-                          arr,
-                          geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
-                      )
+                arr,
+                geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+            )
         assert dataset.no_data_value[0] == -9999, (
             f"{dtype}: expected default no-data -9999, got {dataset.no_data_value[0]}"
         )

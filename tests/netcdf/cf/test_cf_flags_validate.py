@@ -143,7 +143,9 @@ class TestCFAttributePreservation:
             RT-7), crop it, set it back, verify attrs are preserved.
         """
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
-        nc = NetCDF.from_array(arr=arr, geo_ref=GeoReference(geo=GEO), variable_name="temp")
+        nc = NetCDF.from_array(
+            arr=arr, geo_ref=GeoReference(geo=GEO), variable_name="temp"
+        )
         var = nc.get_variable("temp")
         # RT-7: get_variable surfaces the variable's real CF attributes — the
         # grid-mapping link from_array writes — not just an empty/missing
@@ -159,7 +161,9 @@ class TestCFAttributePreservation:
             Create, copy, check Conventions on copy.
         """
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
-        nc = NetCDF.from_array(arr=arr, geo_ref=GeoReference(geo=GEO), variable_name="temp")
+        nc = NetCDF.from_array(
+            arr=arr, geo_ref=GeoReference(geo=GEO), variable_name="temp"
+        )
         nc2 = nc.copy()
         ga = nc2.global_attributes
         assert ga.get("Conventions") == "CF-1.8", (

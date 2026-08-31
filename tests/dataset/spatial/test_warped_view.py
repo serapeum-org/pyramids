@@ -14,10 +14,10 @@ import numpy as np
 import pytest
 from osgeo import osr
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.errors import CRSError
 from pyramids.netcdf import NetCDF
-from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -31,9 +31,9 @@ def src_dataset() -> Dataset:
     """
     arr = np.arange(64, dtype="float32").reshape(8, 8)
     return Dataset.from_array(
-               arr,
-               geo_ref=GeoReference(top_left_corner=(0, 8), cell_size=0.01, epsg=4326),
-           )
+        arr,
+        geo_ref=GeoReference(top_left_corner=(0, 8), cell_size=0.01, epsg=4326),
+    )
 
 
 class TestWarpedView:

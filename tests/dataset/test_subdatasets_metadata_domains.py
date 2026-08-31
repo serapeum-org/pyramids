@@ -17,12 +17,12 @@ import numpy as np
 import pytest
 
 from pyramids.base._errors import ContainerRasterWarning, ReadOnlyError
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.dataset._subdataset import SubDataset
 from pyramids.dataset.abstract_dataset import _reconstruct_dataset
 from pyramids.netcdf import NetCDF
 from pyramids.netcdf.netcdf import _reconstruct_netcdf
-from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -40,9 +40,9 @@ GEOTIFF_PLAIN = (
 def plain() -> Dataset:
     """A 2x3 in-memory raster with no subdatasets."""
     return Dataset.from_array(
-               np.zeros((2, 3), dtype="float32"),
-               geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
-           )
+        np.zeros((2, 3), dtype="float32"),
+        geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+    )
 
 
 @pytest.fixture

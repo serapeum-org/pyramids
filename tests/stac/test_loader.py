@@ -7,6 +7,7 @@ import pytest
 from osgeo import gdal, osr
 
 from pyramids.base._errors import StacAssetError, UnsupportedAssetError
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.netcdf import NetCDF
 from pyramids.stac import _loader
@@ -18,7 +19,6 @@ from pyramids.stac._loader import (
     which_engine,
 )
 from pyramids.stac.signers import AWSRequesterPaysSigner
-from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -474,9 +474,9 @@ class TestLoadZarrAsset:
 
     def _raster_zarr(self, tmp_path):
         ds = Dataset.from_array(
-                 np.arange(12, dtype=np.float32).reshape(3, 4),
-                 geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
-             )
+            np.arange(12, dtype=np.float32).reshape(3, 4),
+            geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
+        )
         tif = str(tmp_path / "r.tif")
         ds.to_file(tif)
         store = str(tmp_path / "r.zarr")
@@ -491,7 +491,9 @@ class TestLoadZarrAsset:
             p = str(tmp_path / f"t{i}.tif")
             Dataset.from_array(
                 np.full((3, 4), float(i), dtype=np.float32),
-                geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
+                geo_ref=GeoReference(
+                    top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326
+                ),
             ).to_file(p)
             paths.append(p)
         store = str(tmp_path / "c.zarr")

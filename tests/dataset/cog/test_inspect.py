@@ -12,9 +12,9 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.dataset.cog import COGInfo, OverviewLevel, cog_info
-from pyramids.base.georeference import GeoReference
 from tests.dataset.cog.conftest import COG_GEOTRANSFORM
 
 pytestmark = pytest.mark.core
@@ -224,6 +224,8 @@ class TestCogInfoFacade:
             An in-memory Dataset has no on-disk file to inspect.
         """
         arr = np.ones((8, 8), dtype="float32")
-        ds = Dataset.from_array(arr, geo_ref=GeoReference(geo=COG_GEOTRANSFORM, epsg=4326))
+        ds = Dataset.from_array(
+            arr, geo_ref=GeoReference(geo=COG_GEOTRANSFORM, epsg=4326)
+        )
         with pytest.raises(FileNotFoundError):
             ds.cog_info()

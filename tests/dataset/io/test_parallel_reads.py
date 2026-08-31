@@ -9,8 +9,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from pyramids.dataset import Dataset, Window
 from pyramids.base.georeference import GeoReference
+from pyramids.dataset import Dataset, Window
 
 pytestmark = pytest.mark.core
 
@@ -81,8 +81,8 @@ class TestReadWindows:
             read_windows on a MEM dataset raises a clear ValueError.
         """
         mem = Dataset.from_array(
-                  np.ones((8, 8), "float32"),
-                  geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0),
-              )
+            np.ones((8, 8), "float32"),
+            geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0),
+        )
         with pytest.raises(ValueError, match="path-backed"):
             mem.read_windows(quad_windows)

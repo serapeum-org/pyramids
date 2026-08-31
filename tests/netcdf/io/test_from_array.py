@@ -32,11 +32,11 @@ class TestCreateFromArray2D:
         """
         arr = np.random.default_rng(SEED).random((10, 20)).astype(np.float64)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(geo=GEO),
-                 variable_name="elevation",
-                 path=None,
-             )
+            arr=arr,
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="elevation",
+            path=None,
+        )
         assert "elevation" in nc.variable_names, (
             f"Expected 'elevation' in {nc.variable_names}"
         )
@@ -49,11 +49,11 @@ class TestCreateFromArray2D:
         """
         arr = np.random.default_rng(SEED).random((8, 12)).astype(np.float64)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(geo=GEO),
-                 variable_name="dem",
-                 path=None,
-             )
+            arr=arr,
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="dem",
+            path=None,
+        )
         dims = nc.dimension_names
         assert "x" in dims, f"Expected 'x' in dims, got {dims}"
         assert "y" in dims, f"Expected 'y' in dims, got {dims}"
@@ -67,11 +67,11 @@ class TestCreateFromArray2D:
         """
         arr = np.random.default_rng(SEED).random((10, 20)).astype(np.float64)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(geo=GEO),
-                 variable_name="sst",
-                 path=None,
-             )
+            arr=arr,
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="sst",
+            path=None,
+        )
         var = nc.get_variable("sst")
         assert var.shape == (1, 10, 20), f"Expected (1, 10, 20), got {var.shape}"
 
@@ -83,11 +83,11 @@ class TestCreateFromArray2D:
         """
         arr = np.random.default_rng(SEED).random((6, 8)).astype(np.float64)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(geo=GEO),
-                 variable_name="precip",
-                 path=None,
-             )
+            arr=arr,
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="precip",
+            path=None,
+        )
         var = nc.get_variable("precip")
         read_back = var.read_array(band=0)
         assert_allclose(
@@ -106,12 +106,12 @@ class TestCreateFromArray2D:
         """
         arr = np.random.default_rng(SEED).random((5, 5)).astype(np.float64)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(geo=GEO),
-                 no_data_value=-999.0,
-                 variable_name="ndv_test",
-                 path=None,
-             )
+            arr=arr,
+            geo_ref=GeoReference(geo=GEO),
+            no_data_value=-999.0,
+            variable_name="ndv_test",
+            path=None,
+        )
         var = nc.get_variable("ndv_test")
         assert_allclose(
             var.no_data_value[0],
@@ -128,11 +128,11 @@ class TestCreateFromArray2D:
         """
         arr = np.random.default_rng(SEED).random((5, 5)).astype(np.float64)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(geo=GEO, epsg=32637),
-                 variable_name="utm_var",
-                 path=None,
-             )
+            arr=arr,
+            geo_ref=GeoReference(geo=GEO, epsg=32637),
+            variable_name="utm_var",
+            path=None,
+        )
         var = nc.get_variable("utm_var")
         assert var.epsg == 32637, f"Expected EPSG 32637, got {var.epsg}"
 
@@ -148,12 +148,12 @@ class TestCreateFromArray3D:
         """
         arr = np.random.default_rng(SEED).random((5, 10, 20)).astype(np.float64)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(geo=GEO),
-                 variable_name="temp",
-                 dims=ExtraDimensions(name="time"),
-                 path=None,
-             )
+            arr=arr,
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="temp",
+            dims=ExtraDimensions(name="time"),
+            path=None,
+        )
         dims = nc.dimension_names
         assert "time" in dims, f"Expected 'time' in dims, got {dims}"
         assert len(dims) == 3, f"Expected 3 dimensions, got {len(dims)}"
@@ -166,12 +166,12 @@ class TestCreateFromArray3D:
         """
         arr = np.random.default_rng(SEED).random((4, 6, 8)).astype(np.float64)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(geo=GEO),
-                 variable_name="salinity",
-                 dims=ExtraDimensions(name="depth"),
-                 path=None,
-             )
+            arr=arr,
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="salinity",
+            dims=ExtraDimensions(name="depth"),
+            path=None,
+        )
         assert "depth" in nc.dimension_names, (
             f"Expected 'depth' in {nc.dimension_names}"
         )
@@ -185,12 +185,12 @@ class TestCreateFromArray3D:
         """
         arr = np.random.default_rng(SEED).random((3, 5, 5)).astype(np.float64)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(geo=GEO),
-                 variable_name="pressure",
-                 dims=ExtraDimensions(name="level", values=[100, 200, 300]),
-                 path=None,
-             )
+            arr=arr,
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="pressure",
+            dims=ExtraDimensions(name="level", values=[100, 200, 300]),
+            path=None,
+        )
         rg = nc._raster.GetRootGroup()
         level_arr = rg.OpenMDArray("level")
         stored = level_arr.ReadAsArray().tolist()
@@ -209,12 +209,12 @@ class TestCreateFromArray3D:
         """
         arr = np.random.default_rng(SEED).random((4, 5, 5)).astype(np.float64)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(geo=GEO),
-                 variable_name="wind",
-                 dims=ExtraDimensions(name="time"),
-                 path=None,
-             )
+            arr=arr,
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="wind",
+            dims=ExtraDimensions(name="time"),
+            path=None,
+        )
         rg = nc._raster.GetRootGroup()
         time_arr = rg.OpenMDArray("time")
         stored = time_arr.ReadAsArray().tolist()
@@ -228,11 +228,11 @@ class TestCreateFromArray3D:
         """
         arr = np.random.default_rng(SEED).random((5, 10, 20)).astype(np.float64)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(geo=GEO),
-                 variable_name="temp",
-                 path=None,
-             )
+            arr=arr,
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="temp",
+            path=None,
+        )
         var = nc.get_variable("temp")
         assert var.band_count == 5, f"Expected 5 bands, got {var.band_count}"
 
@@ -244,11 +244,11 @@ class TestCreateFromArray3D:
         """
         arr = np.random.default_rng(SEED).random((3, 8, 10)).astype(np.float64)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(geo=GEO),
-                 variable_name="rain",
-                 path=None,
-             )
+            arr=arr,
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="rain",
+            path=None,
+        )
         var = nc.get_variable("rain")
         read_back = var.read_array()
         assert_allclose(
@@ -271,11 +271,11 @@ class TestCreateFromArrayGeoParams:
         """
         arr = np.random.default_rng(SEED).random((10, 20)).astype(np.float64)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(geo=GEO),
-                 variable_name="v",
-                 path=None,
-             )
+            arr=arr,
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="v",
+            path=None,
+        )
         var = nc.get_variable("v")
         gt = var.geotransform
         assert gt is not None, "Geotransform should not be None"
@@ -290,25 +290,40 @@ class TestCreateFromArrayGeoParams:
         """
         arr = np.random.default_rng(SEED).random((10, 20)).astype(np.float64)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(top_left_corner=(30.0, 35.0), cell_size=0.5),
-                 variable_name="v",
-                 path=None,
-             )
+            arr=arr,
+            geo_ref=GeoReference(top_left_corner=(30.0, 35.0), cell_size=0.5),
+            variable_name="v",
+            path=None,
+        )
         var = nc.get_variable("v")
         gt = var.geotransform
         assert gt is not None, "Geotransform should not be None"
         assert gt[1] == pytest.approx(0.5), f"Expected pixel size 0.5, got {gt[1]}"
 
-    def test_no_geo_raises(self):
-        """Omitting both ``geo`` and ``top_left_corner`` should raise.
+    def test_no_geo_ref_raises_at_the_call_site(self):
+        """Omitting ``geo_ref`` entirely is a call-site error, not a runtime one.
 
         Test scenario:
-            Call without any spatial reference -> ``ValueError``.
+            ``geo_ref`` is a required keyword-only argument, so leaving it out
+            raises ``TypeError`` before the function body runs — earlier and
+            more obviously than the old ``ValueError`` raised from inside
+            ``resolve_geotransform``.
+        """
+        arr = np.random.default_rng(SEED).random((5, 5)).astype(np.float64)
+        with pytest.raises(TypeError, match="geo_ref"):
+            NetCDF.from_array(arr=arr, variable_name="v", path=None)
+
+    def test_an_empty_geo_ref_still_raises(self):
+        """A ``GeoReference`` carrying no transform at all is still rejected.
+
+        Test scenario:
+            Supplying the argument but leaving it empty cannot be caught by the
+            signature, so ``resolve_geotransform`` raises — naming both accepted
+            forms.
         """
         arr = np.random.default_rng(SEED).random((5, 5)).astype(np.float64)
         with pytest.raises(ValueError, match="top_left_corner"):
-            NetCDF.from_array(arr=arr, variable_name="v", path=None)
+            NetCDF.from_array(arr=arr, geo_ref=GeoReference(), variable_name="v")
 
 
 class TestCreateFromArrayValidation:
@@ -324,7 +339,9 @@ class TestCreateFromArrayValidation:
         geo_ref = GeoReference(geo=GEO)
         dims = ExtraDimensions(name="time", values=[0, 6])
         with pytest.raises(ValueError, match="values length.*does not match size"):
-            NetCDF.from_array(arr=arr, geo_ref=geo_ref, variable_name="v", dims=dims, path=None)
+            NetCDF.from_array(
+                arr=arr, geo_ref=geo_ref, variable_name="v", dims=dims, path=None
+            )
 
     def test_empty_dim_name_raises(self):
         """An empty ``extra_dim_name`` should raise.
@@ -336,7 +353,9 @@ class TestCreateFromArrayValidation:
         geo_ref = GeoReference(geo=GEO)
         dims = ExtraDimensions(name="")
         with pytest.raises(ValueError, match="name cannot be empty"):
-            NetCDF.from_array(arr=arr, geo_ref=geo_ref, variable_name="v", dims=dims, path=None)
+            NetCDF.from_array(
+                arr=arr, geo_ref=geo_ref, variable_name="v", dims=dims, path=None
+            )
 
     def test_extra_dim_values_correct_length_passes(self):
         """Matching length should not raise.
@@ -346,12 +365,12 @@ class TestCreateFromArrayValidation:
         """
         arr = np.random.default_rng(SEED).random((3, 5, 5)).astype(np.float64)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(geo=GEO),
-                 variable_name="v",
-                 dims=ExtraDimensions(name="time", values=[0, 6, 12]),
-                 path=None,
-             )
+            arr=arr,
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="v",
+            dims=ExtraDimensions(name="time", values=[0, 6, 12]),
+            path=None,
+        )
         assert "v" in nc.variable_names, (
             f"Variable should exist, got {nc.variable_names}"
         )
@@ -378,11 +397,11 @@ class TestCreateFromArrayDefaults:
         """
         arr = np.random.default_rng(SEED).random((3, 5, 5)).astype(np.float64)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(geo=GEO),
-                 variable_name="v",
-                 path=None,
-             )
+            arr=arr,
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="v",
+            path=None,
+        )
         assert "time" in nc.dimension_names, f"Expected 'time' in {nc.dimension_names}"
 
     def test_default_epsg_is_4326(self):
@@ -393,11 +412,11 @@ class TestCreateFromArrayDefaults:
         """
         arr = np.random.default_rng(SEED).random((5, 5)).astype(np.float64)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(geo=GEO),
-                 variable_name="v",
-                 path=None,
-             )
+            arr=arr,
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="v",
+            path=None,
+        )
         var = nc.get_variable("v")
         assert var.epsg == 4326, f"Expected EPSG 4326, got {var.epsg}"
 
@@ -414,11 +433,11 @@ class TestCreateFromArrayDiskRoundTrip:
         """
         arr = np.random.default_rng(SEED).random((8, 12)).astype(np.float64)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(geo=GEO),
-                 variable_name="elev",
-                 path=None,
-             )
+            arr=arr,
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="elev",
+            path=None,
+        )
         out = str(tmp_path / "test_2d.nc")
         nc.to_file(out)
         reloaded = NetCDF.read_file(out, open_as_multi_dimensional=True)
@@ -442,12 +461,12 @@ class TestCreateFromArrayDiskRoundTrip:
         """
         arr = np.random.default_rng(SEED).random((4, 6, 10)).astype(np.float64)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(geo=GEO),
-                 variable_name="temperature",
-                 dims=ExtraDimensions(name="level", values=[1000, 850, 500, 200]),
-                 path=None,
-             )
+            arr=arr,
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="temperature",
+            dims=ExtraDimensions(name="level", values=[1000, 850, 500, 200]),
+            path=None,
+        )
         out = str(tmp_path / "test_3d.nc")
         nc.to_file(out)
         reloaded = NetCDF.read_file(out, open_as_multi_dimensional=True)
@@ -472,12 +491,12 @@ class TestCreateFromArrayDiskRoundTrip:
         """
         arr = np.random.default_rng(SEED).random((3, 5, 5)).astype(np.float64)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(geo=GEO),
-                 variable_name="p",
-                 dims=ExtraDimensions(name="level", values=[100, 200, 300]),
-                 path=None,
-             )
+            arr=arr,
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="p",
+            dims=ExtraDimensions(name="level", values=[100, 200, 300]),
+            path=None,
+        )
         out = str(tmp_path / "dim_values.nc")
         nc.to_file(out)
         reloaded = NetCDF.read_file(out, open_as_multi_dimensional=True)
@@ -516,11 +535,11 @@ class TestCreateFromArrayDtypes:
         """
         arr = np.ones((5, 8), dtype=dtype)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(geo=GEO),
-                 variable_name="typed",
-                 path=None,
-             )
+            arr=arr,
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="typed",
+            path=None,
+        )
         var = nc.get_variable("typed")
         read_back = var.read_array(band=0)
         assert read_back.dtype == dtype, (
@@ -540,19 +559,19 @@ class TestCreateFromArraySetVariableRoundTrip:
         """
         arr = np.random.default_rng(SEED).random((3, 6, 8)).astype(np.float64)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(geo=GEO),
-                 variable_name="original",
-                 dims=ExtraDimensions(name="time", values=[0, 6, 12]),
-                 path=None,
-             )
+            arr=arr,
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="original",
+            dims=ExtraDimensions(name="time", values=[0, 6, 12]),
+            path=None,
+        )
         var = nc.get_variable("original")
         modified = var.read_array() * 2.0
         ds = Dataset.from_array(
-                 modified,
-                 no_data_value=var.no_data_value,
-                 geo_ref=GeoReference(geo=var.geotransform, epsg=var.epsg),
-             )
+            modified,
+            no_data_value=var.no_data_value,
+            geo_ref=GeoReference(geo=var.geotransform, epsg=var.epsg),
+        )
         ds._band_dim_name = var._band_dim_name
         ds._band_dim_values = var._band_dim_values
         nc.set_variable("doubled", ds)
@@ -577,19 +596,19 @@ class TestCreateFromArraySetVariableRoundTrip:
         """
         arr = np.random.default_rng(SEED).random((2, 10, 15)).astype(np.float64)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(geo=GEO),
-                 variable_name="precip",
-                 dims=ExtraDimensions(name="time", values=[0, 12]),
-                 path=None,
-             )
+            arr=arr,
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="precip",
+            dims=ExtraDimensions(name="time", values=[0, 12]),
+            path=None,
+        )
         var = nc.get_variable("precip")
         scaled = var.read_array() + 100.0
         ds = Dataset.from_array(
-                 scaled,
-                 no_data_value=var.no_data_value,
-                 geo_ref=GeoReference(geo=var.geotransform, epsg=var.epsg),
-             )
+            scaled,
+            no_data_value=var.no_data_value,
+            geo_ref=GeoReference(geo=var.geotransform, epsg=var.epsg),
+        )
         nc.set_variable("precip_offset", ds)
         out = str(tmp_path / "workflow.nc")
         nc.to_file(out)

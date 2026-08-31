@@ -34,10 +34,10 @@ def mdim_dataset():
     """
     arr = np.arange(12, dtype=np.float32).reshape(3, 4)
     nc = NetCDF.from_array(
-             arr,
-             geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
-             variable_name="v",
-         )
+        arr,
+        geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+        variable_name="v",
+    )
     return nc._raster
 
 

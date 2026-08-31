@@ -88,10 +88,11 @@ class Georef(_Engine["Dataset"]):
             - Read back the points attached with :meth:`set_gcps`:
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> from pyramids.dataset._gcp import GroundControlPoint
                 >>> ds = Dataset.from_array(
-                ...     np.ones((4, 4), "float32"), top_left_corner=(0.0, 4.0), cell_size=1.0
+                ...     np.ones((4, 4), "float32"),
+                ...     geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0),
                 ... )
                 >>> ds.set_gcps([GroundControlPoint(row=0, col=0, x=10.0, y=50.0)], 4326)
                 >>> (ds.gcps[0].col, ds.gcps[0].x, ds.gcps[0].y)
@@ -145,9 +146,10 @@ class Georef(_Engine["Dataset"]):
             - A plain raster has no RPCs:
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> ds = Dataset.from_array(
-                ...     np.ones((4, 4), "float32"), top_left_corner=(0.0, 4.0), cell_size=1.0
+                ...     np.ones((4, 4), "float32"),
+                ...     geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0),
                 ... )
                 >>> ds.rpcs is None
                 True
@@ -187,7 +189,7 @@ class Georef(_Engine["Dataset"]):
             - Round-trip a coefficient set through the RPC domain:
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> rpc = {k: "0" for k in (
                 ...     "LINE_OFF", "SAMP_OFF", "LAT_OFF", "LONG_OFF", "HEIGHT_OFF",
                 ...     "LINE_SCALE", "SAMP_SCALE", "LAT_SCALE", "LONG_SCALE",
@@ -195,7 +197,8 @@ class Georef(_Engine["Dataset"]):
                 ...     "SAMP_NUM_COEFF", "SAMP_DEN_COEFF",
                 ... )}
                 >>> ds = Dataset.from_array(
-                ...     np.ones((4, 4), "float32"), top_left_corner=(0.0, 4.0), cell_size=1.0
+                ...     np.ones((4, 4), "float32"),
+                ...     geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0),
                 ... )
                 >>> ds.set_rpcs(rpc)
                 >>> ds.rpcs["HEIGHT_OFF"]
@@ -363,10 +366,11 @@ class Georef(_Engine["Dataset"]):
             - Attach four corner points in EPSG:4326 to an in-memory raster:
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> from pyramids.dataset._gcp import GroundControlPoint
                 >>> ds = Dataset.from_array(
-                ...     np.ones((8, 8), "float32"), top_left_corner=(0.0, 8.0), cell_size=1.0
+                ...     np.ones((8, 8), "float32"),
+                ...     geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0),
                 ... )
                 >>> pts = [
                 ...     GroundControlPoint(row=0, col=0, x=10.0, y=50.0),
@@ -436,10 +440,11 @@ class Georef(_Engine["Dataset"]):
             - Georeference an 8x8 image from four corner GCPs in EPSG:4326:
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> from pyramids.dataset._gcp import GroundControlPoint
                 >>> ds = Dataset.from_array(
-                ...     np.ones((8, 8), "float32"), top_left_corner=(0.0, 8.0), cell_size=1.0
+                ...     np.ones((8, 8), "float32"),
+                ...     geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0),
                 ... )
                 >>> ds.set_gcps([
                 ...     GroundControlPoint(row=0, col=0, x=10.0, y=50.0),
@@ -510,9 +515,10 @@ class Georef(_Engine["Dataset"]):
             - A plain raster carries no geolocation arrays:
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> ds = Dataset.from_array(
-                ...     np.zeros((2, 2)), top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+                ...     np.zeros((2, 2)),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
                 ... )
                 >>> ds.geolocation is None
                 True
@@ -538,9 +544,10 @@ class Georef(_Engine["Dataset"]):
             - A plain raster has no geolocation arrays:
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> ds = Dataset.from_array(
-                ...     np.zeros((2, 2)), top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+                ...     np.zeros((2, 2)),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
                 ... )
                 >>> ds.has_geolocation
                 False
@@ -595,9 +602,10 @@ class Georef(_Engine["Dataset"]):
             - Geolocate needs a ``GEOLOCATION`` domain (a plain raster has none):
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> ds = Dataset.from_array(
-                ...     np.zeros((2, 2)), top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+                ...     np.zeros((2, 2)),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
                 ... )
                 >>> ds.has_geolocation
                 False

@@ -11,9 +11,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.feature import FeatureCollection
-from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -27,9 +27,9 @@ def ramp() -> Dataset:
     """
     arr = np.tile(np.arange(10, dtype=np.float32), (10, 1))
     return Dataset.from_array(
-               arr,
-               geo_ref=GeoReference(top_left_corner=(0, 10), cell_size=1.0, epsg=4326),
-           )
+        arr,
+        geo_ref=GeoReference(top_left_corner=(0, 10), cell_size=1.0, epsg=4326),
+    )
 
 
 @pytest.fixture(scope="function")
@@ -41,9 +41,9 @@ def flat() -> Dataset:
     """
     arr = np.full((6, 6), 5.0, dtype=np.float32)
     return Dataset.from_array(
-               arr,
-               geo_ref=GeoReference(top_left_corner=(0, 6), cell_size=1.0, epsg=4326),
-           )
+        arr,
+        geo_ref=GeoReference(top_left_corner=(0, 6), cell_size=1.0, epsg=4326),
+    )
 
 
 class TestContour:
@@ -157,9 +157,9 @@ class TestContour:
         ramp_band = np.tile(np.arange(5, dtype=np.float32), (5, 1))
         arr = np.stack([flat_band, ramp_band])
         ds = Dataset.from_array(
-                 arr,
-                 geo_ref=GeoReference(top_left_corner=(0, 5), cell_size=1.0, epsg=4326),
-             )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 5), cell_size=1.0, epsg=4326),
+        )
         fc = ds.contour(interval=2.0, band=1)
         assert sorted(fc["elev"].tolist()) == [
             2.0,
@@ -176,10 +176,10 @@ class TestContour:
         arr = np.tile(np.arange(10, dtype=np.float32), (10, 1))
         arr[:, 0] = -9999.0
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0, 10), cell_size=1.0, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0, 10), cell_size=1.0, epsg=4326),
+        )
         fc = ds.contour(interval=2.0)
         assert len(fc) > 0, "Expected contours from the valid gradient, got none"
         assert min(fc["elev"].tolist()) >= 2.0, (
@@ -195,10 +195,10 @@ class TestContour:
         """
         arr = np.tile(np.arange(10, dtype=np.float32), (10, 1))
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=None,
-                 geo_ref=GeoReference(top_left_corner=(0, 10), cell_size=1.0, epsg=4326),
-             )
+            arr,
+            no_data_value=None,
+            geo_ref=GeoReference(top_left_corner=(0, 10), cell_size=1.0, epsg=4326),
+        )
         assert ds.raster.GetRasterBand(1).GetNoDataValue() is None, (
             "fixture should have no nodata"
         )

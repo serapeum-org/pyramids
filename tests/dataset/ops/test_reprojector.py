@@ -13,8 +13,8 @@ import pickle
 import numpy as np
 import pytest
 
-from pyramids.dataset import Dataset
 from pyramids.base.georeference import GeoReference
+from pyramids.dataset import Dataset
 from pyramids.dataset.ops.reproject import (
     Aligner,
     Reprojector,
@@ -37,9 +37,9 @@ def wgs84_dataset(tmp_path):
     # actually verifies warped values, not just shape agreement on an all-zero array.
     arr = np.arange(16, dtype=np.float32).reshape(4, 4)
     ds = Dataset.from_array(
-             arr,
-             geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326),
-         )
+        arr,
+        geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326),
+    )
     return ds
 
 
@@ -47,9 +47,9 @@ def wgs84_dataset(tmp_path):
 def wgs84_dataset_fine(tmp_path):
     arr = np.arange(64, dtype=np.float32).reshape(8, 8)
     ds = Dataset.from_array(
-             arr,
-             geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=0.5, epsg=4326),
-         )
+        arr,
+        geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=0.5, epsg=4326),
+    )
     return ds
 
 

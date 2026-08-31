@@ -10,9 +10,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.dataset.collection import _grouped_reduce
-from pyramids.base.georeference import GeoReference
 from tests._marks import requires_dask
 
 pytestmark = pytest.mark.lazy
@@ -40,9 +40,9 @@ def four_files(tmp_path):
     for i in range(4):
         arr = np.full((3, 4), float(i + 1), dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
-             )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
+        )
         p = str(tmp_path / f"f{i}.tif")
         ds.to_file(p)
         paths.append(p)
@@ -56,9 +56,9 @@ def files_with_nan_group(tmp_path):
     for i, value in enumerate([1.0, np.nan, 3.0, np.nan]):
         arr = np.full((3, 4), value, dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
-             )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
+        )
         p = str(tmp_path / f"n{i}.tif")
         ds.to_file(p)
         paths.append(p)
@@ -210,9 +210,9 @@ class TestGroupbyErrors:
     def test_groupby_without_files_chain_raises(self):
         arr = np.zeros((3, 4), dtype=np.float32)
         src = Dataset.from_array(
-                  arr,
-                  geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
-              )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
+        )
         collection = DatasetCollection(src, time_length=1)
         grouped = collection.groupby(["A"])
         with pytest.raises(RuntimeError, match="file-backed"):

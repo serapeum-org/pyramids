@@ -21,9 +21,9 @@ from osgeo import gdal
 
 from pyramids.base._errors import OutOfBoundsError
 from pyramids.base._file_manager import ThreadLocalFileManager, gdal_raster_open
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.dataset.window import Window
-from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -146,9 +146,9 @@ class TestThreadsafeEagerReads:
         path = "/vsimem/threadsafe_reads.tif"
         arr = np.arange(64, dtype="float32").reshape(8, 8)
         mem = Dataset.from_array(
-                  arr,
-                  geo_ref=GeoReference(top_left_corner=(0, 8), cell_size=1.0, epsg=4326),
-              )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 8), cell_size=1.0, epsg=4326),
+        )
         copy = gdal.GetDriverByName("GTiff").CreateCopy(path, mem.raster)
         copy.FlushCache()
         copy = None
@@ -170,9 +170,9 @@ class TestThreadsafeEagerReads:
             MEM datasets have no reopenable path for per-thread handles.
         """
         mem = Dataset.from_array(
-                  np.ones((4, 4)),
-                  geo_ref=GeoReference(top_left_corner=(0, 4), cell_size=1.0, epsg=4326),
-              )
+            np.ones((4, 4)),
+            geo_ref=GeoReference(top_left_corner=(0, 4), cell_size=1.0, epsg=4326),
+        )
         with pytest.raises(ValueError, match="reopenable path"):
             mem.read_array(threadsafe=True)
 
@@ -417,8 +417,8 @@ class TestThreadsafeLazyReads:
     def test_mem_dataset_rejected_on_lazy_path(self):
         """The lazy threadsafe path rejects MEM datasets too."""
         mem = Dataset.from_array(
-                  np.ones((8, 8)),
-                  geo_ref=GeoReference(top_left_corner=(0, 8), cell_size=1.0, epsg=4326),
-              )
+            np.ones((8, 8)),
+            geo_ref=GeoReference(top_left_corner=(0, 8), cell_size=1.0, epsg=4326),
+        )
         with pytest.raises(ValueError, match="reopenable path"):
             mem.read_array(chunks=4, lock=False, threadsafe=True)

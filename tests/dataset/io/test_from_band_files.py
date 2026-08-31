@@ -14,10 +14,10 @@ import pytest
 from osgeo import gdal
 
 from pyramids.base._errors import AlignmentError, CRSError
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.dataset.dataset import _derive_band_names, _same_grid
 from pyramids.dataset.merge import stack_bands
-from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 

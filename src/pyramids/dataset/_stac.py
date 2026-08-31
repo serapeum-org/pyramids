@@ -29,9 +29,9 @@ from pyproj import Transformer
 
 from pyramids.base._artifacts import artifact_dir
 from pyramids.base._errors import StacAssetError
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset.grid import Grid
 from pyramids.utm import utm_epsg
-from pyramids.base.georeference import GeoReference
 
 if TYPE_CHECKING:
     from pyramids.dataset.collection import DatasetCollection
@@ -427,9 +427,11 @@ def _resolve_target_grid(grid: Grid | None) -> Any:
             "like=<Dataset> to match an existing grid."
         )
     return Dataset.from_array(
-               np.zeros((rows, cols), dtype="float32"),
-               geo_ref=GeoReference(top_left_corner=(minx, maxy), cell_size=resolution, epsg=crs),
-           )
+        np.zeros((rows, cols), dtype="float32"),
+        geo_ref=GeoReference(
+            top_left_corner=(minx, maxy), cell_size=resolution, epsg=crs
+        ),
+    )
 
 
 def _item_datetime(item: Any) -> _datetime_cls:
@@ -974,10 +976,12 @@ def to_stac_item(
         - Round-trip a dataset to a STAC Item dict (via the Dataset method):
             ```python
             >>> import numpy as np  # doctest: +SKIP
-            >>> from pyramids.dataset import Dataset  # doctest: +SKIP
+            >>> from pyramids.dataset import Dataset, GeoReference  # doctest: +SKIP
             >>> ds = Dataset.from_array(  # doctest: +SKIP
-            ...     np.ones((4, 4), "float32"), top_left_corner=(0.0, 4.0),
-            ...     cell_size=1.0, epsg=4326,
+            ...     np.ones((4, 4), "float32"),
+            ...     geo_ref=GeoReference(
+            ...         top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326
+            ...     ),
             ... )
             >>> item = ds.to_stac_item("scene-1", asset_href="s3://b/scene.tif")  # doctest: +SKIP
             >>> item["properties"]["proj:code"]  # doctest: +SKIP

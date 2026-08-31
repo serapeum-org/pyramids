@@ -5,8 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from pyramids.dataset import Dataset
 from pyramids.base.georeference import GeoReference
+from pyramids.dataset import Dataset
 
 pytestmark = pytest.mark.core
 
@@ -14,9 +14,9 @@ pytestmark = pytest.mark.core
 def _make(array: np.ndarray, scale=None, offset=None, no_data=None) -> Dataset:
     """Build an in-memory Dataset, optionally with per-band scale/offset/no-data."""
     ds = Dataset.from_array(
-             array,
-             geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
-         )
+        array,
+        geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+    )
     if scale is not None:
         ds.scale = scale
     if offset is not None:

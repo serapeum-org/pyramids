@@ -542,10 +542,10 @@ class TestCurvilinearCoordsEdges:
         """
         rng = np.random.default_rng(42)
         nc = NetCDF.from_array(
-                 arr=rng.random((5, 6)).astype(np.float32),
-                 geo_ref=GeoReference(geo=(0.0, 1.0, 0, 5.0, 0, -1.0), epsg=4326),
-                 variable_name="CANWAT",
-             )
+            arr=rng.random((5, 6)).astype(np.float32),
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0, 5.0, 0, -1.0), epsg=4326),
+            variable_name="CANWAT",
+        )
         wrf_x = np.linspace(-110.0, -100.0, 6, dtype=np.float32)
         wrf_y = np.linspace(35.0, 45.0, 5, dtype=np.float32)
         wrf_x_2d, wrf_y_2d = np.meshgrid(wrf_x, wrf_y)
@@ -606,10 +606,10 @@ class TestCurvilinearCoordsEdges:
         """
         rng = np.random.default_rng(43)
         nc = NetCDF.from_array(
-                 arr=rng.random((5, 6)).astype(np.float32),
-                 geo_ref=GeoReference(geo=(0.0, 1.0, 0, 5.0, 0, -1.0), epsg=4326),
-                 variable_name="CANWAT",
-             )
+            arr=rng.random((5, 6)).astype(np.float32),
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0, 5.0, 0, -1.0), epsg=4326),
+            variable_name="CANWAT",
+        )
         bad_x = np.linspace(-1.0, 1.0, 99, dtype=np.float32)
         bad_y = np.linspace(0.0, 1.0, 99, dtype=np.float32)
         extra_vars = {"my_lon": bad_x, "my_lat": bad_y}

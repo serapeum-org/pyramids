@@ -6,9 +6,9 @@ import numpy as np
 import pytest
 
 from pyramids.base._errors import NoDataValueError, ReadOnlyError
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.dataset.abstract_dataset import DEFAULT_NO_DATA_VALUE
-from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -131,18 +131,18 @@ class TestFillGaps:
         # mask has valid cells everywhere
         mask_arr = np.ones((3, 3), dtype=np.float32) * 5.0
         mask_ds = Dataset.from_array(
-                      mask_arr,
-                      no_data_value=nd,
-                      geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-                  )
+            mask_arr,
+            no_data_value=nd,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         # src has one cell as nodata that the mask says is valid
         src_arr = np.ones((3, 3), dtype=np.float32) * 10.0
         src_arr[1, 1] = nd
         src_ds = Dataset.from_array(
-                     src_arr,
-                     no_data_value=nd,
-                     geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-                 )
+            src_arr,
+            no_data_value=nd,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         result = src_ds.fill_gaps(mask_ds, src_arr.copy())
         # The gap cell should now be filled (not nodata)
         assert not np.isclose(result[1, 1], nd, rtol=0.001), (
@@ -157,10 +157,10 @@ class TestCheckNoDataValue:
         """NaN no-data for float dtype should be preserved as NaN."""
         arr = np.ones((3, 3), dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=None,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=None,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         ndv = ds.no_data_value[0]
         # For float types, None maps to NaN (or stays None)
         assert ndv is None or np.isnan(ndv), (
@@ -171,10 +171,10 @@ class TestCheckNoDataValue:
         """No-data value that overflows the dtype should fall back to a valid sentinel."""
         arr = np.ones((3, 3), dtype=np.int32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-3.4028230607370965e38,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-3.4028230607370965e38,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         ndv = ds.no_data_value[0]
         assert ndv is not None, (
             "overflowing no_data_value should fall back, not stay None"
@@ -205,10 +205,10 @@ class TestSetNoDataValueEdge:
         """_set_no_data_value with a value needing float64 conversion."""
         arr = np.ones((3, 3), dtype=np.float64)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         ds.bands._set_no_data_value([-1234.0])
         assert ds.no_data_value[0] == -1234.0, "No data value should be updated"
 
@@ -241,10 +241,10 @@ class TestChangeNoDataValueNan:
             dtype=np.float32,
         )
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=np.nan,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=np.nan,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         new_ds = ds.change_no_data_value(-9999.0, old_value=None)
         result = new_ds.read_array()
         assert np.isclose(result[0, 0], -9999.0), "NaN cells should now be -9999"
@@ -254,10 +254,10 @@ class TestChangeNoDataValueNan:
         """change_no_data_value with new_value as list (branch 3016)."""
         arr = np.array([[-9999.0, 2.0], [3.0, -9999.0]], dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         new_ds = ds.change_no_data_value([-1.0], old_value=-9999.0)
         result = new_ds.read_array()
         assert np.isclose(result[0, 0], -1.0), (
@@ -268,10 +268,10 @@ class TestChangeNoDataValueNan:
         """change_no_data_value with old_value as list."""
         arr = np.array([[-9999.0, 2.0], [3.0, -9999.0]], dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         new_ds = ds.change_no_data_value(-1.0, old_value=[-9999.0])
         result = new_ds.read_array()
         assert np.isclose(result[0, 0], -1.0), (
@@ -293,10 +293,10 @@ class TestChangeNoDataValueNan:
             ]
         )
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         new_ds = ds.change_no_data_value(-1.0, old_value=[-9999.0, -8888.0])
         result = new_ds.read_array()
         assert np.allclose(result[0], [[-1.0, 2.0], [3.0, -1.0]]), (
@@ -326,10 +326,10 @@ class TestChangeNoDataValueNan:
             ]
         )
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         with pytest.raises(NoDataValueError, match=rf"{expected} must be .* length"):
             ds.change_no_data_value(**kwargs)
 
@@ -341,10 +341,10 @@ class TestFillNanNodata:
         """fill should work when no_data_value is None/NaN."""
         arr = np.array([[np.nan, 2.0], [3.0, np.nan]], dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=None,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=None,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         filled = ds.fill(42)
         result = filled.read_array()
         non_nan = result[~np.isnan(result)]
@@ -355,10 +355,10 @@ class TestFillNanNodata:
         nd = -9999.0
         arr = np.array([[nd, 2.0], [3.0, nd]], dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=nd,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=nd,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         filled = ds.fill(10)
         result = filled.read_array()
         assert np.isclose(result[0, 1], 10.0), "Valid cell should be set to 10"
@@ -371,10 +371,10 @@ class TestFillNoneNodata:
         """fill should handle no_data_value=None by treating NaN as nodata."""
         arr = np.array([[np.nan, 2.0], [3.0, np.nan]], dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         # Manually set the internal nodata to None to exercise the
         # fallback branch that infers the sentinel from NaN cells
         ds._no_data_value = [None]
@@ -393,10 +393,10 @@ class TestSetNoDataValueRecovery:
         """_set_no_data_value with value needing float64 conversion."""
         arr = np.ones((3, 3), dtype=np.int32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         import warnings
 
         with warnings.catch_warnings():
@@ -413,11 +413,9 @@ class TestCreateNoDataNone:
         ds = Dataset.create(
             rows=3,
             columns=3,
-            cell_size=0.05,
             dtype="float32",
             bands=1,
-            top_left_corner=(0.0, 0.0),
-            epsg=4326,
+            geo_ref=GeoReference(cell_size=0.05, top_left_corner=(0.0, 0.0), epsg=4326),
         )
         assert ds is not None, "Dataset should be created"
         assert ds.rows == 3, "Should have 3 rows"
@@ -430,10 +428,10 @@ class TestSetNoDataValueMocked:
         """_set_no_data_value translates a read-only fill RuntimeError into ReadOnlyError."""
         arr = np.ones((3, 3), dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         # GDAL 3.13 words every read-only refusal this way, prefixed with the
         # file, band and refusing call. The wording this test used to mock
         # ("Attempt to write to read only dataset in ...") is not emitted by
@@ -452,10 +450,10 @@ class TestSetNoDataValueMocked:
         """_set_no_data_value retries with float64 on type error."""
         arr = np.ones((3, 3), dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         err_msg = "in method 'Band_SetNoDataValue', argument 2 of type 'double'"
         call_count = [0]
         original = ds.bands._set_no_data_value_backend
@@ -479,10 +477,10 @@ class TestSetNoDataValueMocked:
         """_set_no_data_value falls back to DEFAULT_NO_DATA_VALUE."""
         arr = np.ones((3, 3), dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         call_count = [0]
         original = ds.bands._set_no_data_value_backend
 
@@ -513,10 +511,10 @@ class TestSetNoDataValueBackendMocked:
         """_set_no_data_value_backend retries with float64."""
         arr = np.ones((3, 3), dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         err_msg = " argument 2 of type 'double'"
         original_get_band = ds.raster.GetRasterBand
         call_count = [0]
@@ -547,10 +545,10 @@ class TestSetNoDataValueBackendMocked:
         """_set_no_data_value_backend raises ValueError on unknown error."""
         arr = np.ones((3, 3), dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         original_get_band = ds.raster.GetRasterBand
 
         def mock_get_band(band_num):
@@ -575,10 +573,10 @@ class TestChangeNoDataValueTypeError:
         """change_no_data_value catches TypeError and raises NoDataValueError."""
         arr = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         original_read = ds.read_array
 
         def mock_read(band=None, window=None, **kwargs):
@@ -613,10 +611,12 @@ class TestChangeNoDataValueStreaming:
         arr[290, 295] = -9999.0
         arr[130, 260] = -9999.0
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 300.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(
+                top_left_corner=(0.0, 300.0), cell_size=0.05, epsg=4326
+            ),
+        )
         result = ds.change_no_data_value(-1.0, old_value=-9999.0).read_array()
         expected = arr.copy()
         expected[expected == -9999.0] = -1.0
@@ -666,10 +666,10 @@ class TestChangeNoDataValueStreaming:
         """
         arr = np.array([[1.0, 2.0], [-9999.0, 4.0]], dtype="float32")
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326),
+        )
         out = tmp_path / "changed.tif"
         result = ds.change_no_data_value(-1.0, old_value=-9999.0, path=out)
         assert out.exists(), "path= must write a file to disk"
@@ -688,10 +688,10 @@ class TestChangeNoDataValueStreaming:
         band0 = np.array([[1.0, 2.0], [7.0, 4.0]], dtype="float32")
         band1 = np.array([[5.0, 8.0], [5.0, 5.0]], dtype="float32")
         ds = Dataset.from_array(
-                 np.stack([band0, band1]),
-                 no_data_value=[7.0, 8.0],
-                 geo_ref=GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326),
-             )
+            np.stack([band0, band1]),
+            no_data_value=[7.0, 8.0],
+            geo_ref=GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326),
+        )
         out = ds.change_no_data_value([-1.0, -2.0], old_value=[7.0, 8.0]).read_array()
         assert out[0][1, 0] == -1.0, "band 0's old no-data (7) must become -1"
         assert out[1][0, 1] == -2.0, "band 1's old no-data (8) must become -2"
@@ -707,10 +707,10 @@ class TestChangeNoDataValueStreaming:
         """
         arr = np.array([[1.0, 2.0], [3.0, 4.0]], dtype="float32")
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326),
+        )
         original_read = ds.read_array
 
         def mock_read(band=None, window=None, **kwargs):
@@ -764,10 +764,10 @@ class TestChangeNoDataValueStreaming:
         """
         arr = np.array([[1.0, 2.0], [-9999.0, 4.0]], dtype="float32")
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326),
+        )
         out = tmp_path / "inplace.tif"
         result = ds.change_no_data_value(
             -1.0, old_value=-9999.0, inplace=True, path=out
@@ -788,10 +788,10 @@ class TestChangeNoDataValueStreaming:
         """
         arr = np.array([[1.0, 2.0], [3.0, 4.0]], dtype="float32")
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326),
+        )
         original_read = ds.read_array
 
         def mock_read(band=None, window=None, **kwargs):
@@ -818,10 +818,10 @@ class TestChangeNoDataAttrConversion:
         """_change_no_data_value_attr converts to float64 on error."""
         arr = np.ones((3, 3), dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         call_count = [0]
         original_get_band = ds.raster.GetRasterBand
 
@@ -851,10 +851,10 @@ class TestChangeNoDataAttrConversion:
         """_change_no_data_value_attr raises ReadOnlyError on write fail."""
         arr = np.ones((3, 3), dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         original_get_band = ds.raster.GetRasterBand
         # GDAL 3.13 words every read-only refusal this way, prefixed with the
         # file, band and refusing call. The wording this test used to mock
@@ -884,18 +884,18 @@ class TestFillGapsLessNodata:
         nd = -9999.0
         mask_arr = np.ones((3, 3), dtype=np.float32) * 5.0
         mask_ds = Dataset.from_array(
-                      mask_arr,
-                      no_data_value=nd,
-                      geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-                  )
+            mask_arr,
+            no_data_value=nd,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         src_arr = np.ones((3, 3), dtype=np.float32) * 10.0
         src_arr[0, 0] = nd
         src_arr[1, 1] = nd
         src_ds = Dataset.from_array(
-                     src_arr,
-                     no_data_value=nd,
-                     geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-                 )
+            src_arr,
+            no_data_value=nd,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         result = src_ds.fill_gaps(mask_ds, src_arr.copy())
         # The mask has more valid cells than src, so both src gaps are filled
         # from their valid neighbours (all 10.0) and no nodata should remain.
@@ -909,17 +909,17 @@ class TestFillGapsLessNodata:
         mask_arr = np.ones((3, 3), dtype=np.float32) * 5.0
         mask_arr[1, 1] = nd
         mask_ds = Dataset.from_array(
-                      mask_arr,
-                      no_data_value=nd,
-                      geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-                  )
+            mask_arr,
+            no_data_value=nd,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         src_arr = np.ones((3, 3), dtype=np.float32) * 10.0
         src_arr[1, 1] = nd
         src_ds = Dataset.from_array(
-                     src_arr,
-                     no_data_value=nd,
-                     geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-                 )
+            src_arr,
+            no_data_value=nd,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         result = src_ds.fill_gaps(mask_ds, src_arr.copy())
         # Equal valid-cell counts, so no interpolation happens and the src gap
         # at (1, 1) is left untouched.

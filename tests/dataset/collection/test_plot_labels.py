@@ -23,8 +23,8 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.base.georeference import GeoReference
+from pyramids.dataset import Dataset, DatasetCollection
 
 pytestmark = pytest.mark.core
 
@@ -33,9 +33,9 @@ def _collection(count: int = 3, bands: int = 1) -> DatasetCollection:
     """Build a small in-memory collection of ``count`` identical timesteps."""
     arr = np.ones((bands, 4, 5), dtype="float32")
     src = Dataset.from_array(
-              arr,
-              geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
-          )
+        arr,
+        geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+    )
     return DatasetCollection.from_dataset(src, count)
 
 
@@ -249,9 +249,9 @@ class TestTimeAxis:
         """Constructing with a mis-sized ``time`` is rejected."""
         arr = np.ones((1, 4, 5), dtype="float32")
         src = Dataset.from_array(
-                  arr,
-                  geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
-              )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+        )
         with pytest.raises(ValueError, match="time has length"):
             DatasetCollection(src, 3, time=[2000, 2001])
 

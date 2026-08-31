@@ -664,9 +664,9 @@ class TestNetCDFPlotAnimateEdges:
         rng = np.random.default_rng(11)
         arr = rng.random((4, 4)).astype(np.float32)
         nc = NetCDF.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(geo=(0.0, 1.0, 0, 4.0, 0, -1.0), epsg=4326),
-                 variable_name="flat",
-             )
+            arr=arr,
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0, 4.0, 0, -1.0), epsg=4326),
+            variable_name="flat",
+        )
         with pytest.raises(ValueError, match=r"(?:no band|free band dim)"):
             nc.plot(variable="flat", animate=True)

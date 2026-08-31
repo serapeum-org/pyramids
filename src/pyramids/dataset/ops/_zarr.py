@@ -174,12 +174,13 @@ def write_dataset_to_zarr(
             >>> import tempfile  # doctest: +SKIP
             >>> from pathlib import Path  # doctest: +SKIP
             >>> import numpy as np  # doctest: +SKIP
-            >>> from pyramids.dataset import Dataset  # doctest: +SKIP
+            >>> from pyramids.dataset import Dataset, GeoReference  # doctest: +SKIP
             >>> from pyramids.dataset.ops._zarr import write_dataset_to_zarr  # doctest: +SKIP
             >>> arr = np.arange(16, dtype=np.float32).reshape(4, 4)  # doctest: +SKIP
             >>> ds = Dataset.from_array(
-            ...     arr, top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326,
-            ... )  # doctest: +SKIP
+            ...     arr,
+            ...     geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326)  # doctest: +SKIP
+            ... )
             >>> store = Path(tempfile.mkdtemp()) / "ds.zarr"  # doctest: +SKIP
             >>> write_dataset_to_zarr(ds, str(store)) is None  # doctest: +SKIP
             True
@@ -475,14 +476,15 @@ def read_dataset_from_zarr(
             >>> import tempfile  # doctest: +SKIP
             >>> from pathlib import Path  # doctest: +SKIP
             >>> import numpy as np  # doctest: +SKIP
-            >>> from pyramids.dataset import Dataset  # doctest: +SKIP
+            >>> from pyramids.dataset import Dataset, GeoReference  # doctest: +SKIP
             >>> from pyramids.dataset.ops._zarr import (
             ...     read_dataset_from_zarr, write_dataset_to_zarr,
             ... )  # doctest: +SKIP
             >>> arr = np.arange(16, dtype=np.float32).reshape(4, 4)  # doctest: +SKIP
             >>> src = Dataset.from_array(
-            ...     arr, top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326,
-            ... )  # doctest: +SKIP
+            ...     arr,
+            ...     geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326)  # doctest: +SKIP
+            ... )
             >>> store = Path(tempfile.mkdtemp()) / "ds.zarr"  # doctest: +SKIP
             >>> write_dataset_to_zarr(src, str(store))  # doctest: +SKIP
             >>> recovered = read_dataset_from_zarr(str(store))  # doctest: +SKIP
@@ -510,10 +512,14 @@ def read_dataset_from_zarr(
     # our on-disk layout is always 3-D so squeeze when band_count == 1.
     arr_for_create = arr[0] if (arr.ndim == 3 and arr.shape[0] == 1) else arr
     dataset = Dataset.from_array(
-                  arr_for_create,
-                  no_data_value=_normalize_no_data(attrs),
-                  geo_ref=GeoReference(top_left_corner=(geotransform[0], geotransform[3]), cell_size=float(geotransform[1]), epsg=geobox_crs(geobox)),
-              )
+        arr_for_create,
+        no_data_value=_normalize_no_data(attrs),
+        geo_ref=GeoReference(
+            top_left_corner=(geotransform[0], geotransform[3]),
+            cell_size=float(geotransform[1]),
+            epsg=geobox_crs(geobox),
+        ),
+    )
     # Prefer the stored WKT (handles CRSes without an EPSG authority code);
     # the epsg above is only a fallback when no WKT was written (Z-3).
     if geobox["crs_wkt"]:

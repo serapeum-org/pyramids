@@ -99,7 +99,9 @@ class TestUnpackWithoutScaleOffset:
         """
         arr = np.arange(20, dtype=np.float64).reshape(4, 5)
         geo = (0.0, 1.0, 0, 4.0, 0, -1.0)
-        nc = NetCDF.from_array(arr=arr, geo_ref=GeoReference(geo=geo), variable_name="plain")
+        nc = NetCDF.from_array(
+            arr=arr, geo_ref=GeoReference(geo=geo), variable_name="plain"
+        )
         var = nc.get_variable("plain")
         raw = var.read_array(band=0)
         unpacked = var.read_array(band=0, unpack=True)
@@ -117,7 +119,9 @@ class TestUnpackWithoutScaleOffset:
         """
         arr = np.ones((5, 5), dtype=np.float64)
         geo = (0.0, 1.0, 0, 5.0, 0, -1.0)
-        nc = NetCDF.from_array(arr=arr, geo_ref=GeoReference(geo=geo), variable_name="v")
+        nc = NetCDF.from_array(
+            arr=arr, geo_ref=GeoReference(geo=geo), variable_name="v"
+        )
         var = nc.get_variable("v")
         assert var._scale is None, f"Expected None, got {var._scale}"
         assert var._offset is None, f"Expected None, got {var._offset}"

@@ -21,8 +21,8 @@ import pickle
 import numpy as np
 import pytest
 
-from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.base.georeference import GeoReference
+from pyramids.dataset import Dataset, DatasetCollection
 from tests._marks import requires_dask
 
 pytestmark = pytest.mark.lazy
@@ -35,9 +35,9 @@ def four_ramp_files(tmp_path):
     for i in range(4):
         arr = np.full((3, 4), float(i + 1), dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
-             )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
+        )
         p = str(tmp_path / f"f{i}.tif")
         ds.to_file(p)
         paths.append(p)

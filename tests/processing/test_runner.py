@@ -16,11 +16,11 @@ import pytest
 from shapely.geometry import Point
 
 import pyramids.processing.registry as reg
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.feature import FeatureCollection
 from pyramids.processing import Pipeline, run
 from pyramids.processing.schema import Parameter, ToolMetadata
-from pyramids.base.georeference import GeoReference
 
 
 @pytest.fixture(scope="module")
@@ -46,7 +46,9 @@ def raster_ds():
         Dataset: a small in-memory float raster.
     """
     arr = np.arange(64, dtype="float32").reshape(1, 8, 8)
-    return Dataset.from_array(arr, geo_ref=GeoReference(geo=(0, 1, 0, 8, 0, -1), epsg=4326))
+    return Dataset.from_array(
+        arr, geo_ref=GeoReference(geo=(0, 1, 0, 8, 0, -1), epsg=4326)
+    )
 
 
 class TestRun:
@@ -198,8 +200,12 @@ class TestRun:
         """
         arr = np.arange(64, dtype="float32").reshape(1, 8, 8)
         members = [
-            Dataset.from_array(arr, geo_ref=GeoReference(geo=(0, 1, 0, 8, 0, -1), epsg=4326)),
-            Dataset.from_array(arr, geo_ref=GeoReference(geo=(0, 1, 0, 8, 0, -1), epsg=4326)),
+            Dataset.from_array(
+                arr, geo_ref=GeoReference(geo=(0, 1, 0, 8, 0, -1), epsg=4326)
+            ),
+            Dataset.from_array(
+                arr, geo_ref=GeoReference(geo=(0, 1, 0, 8, 0, -1), epsg=4326)
+            ),
         ]
 
         class _StubCollection:
@@ -303,7 +309,9 @@ class TestRun:
             Dataset advertising band 1's sentinel, not band 0's.
         """
         arr = np.arange(2 * 8 * 8, dtype="float32").reshape(2, 8, 8)
-        ds = Dataset.from_array(arr, geo_ref=GeoReference(geo=(0, 1, 0, 8, 0, -1), epsg=4326))
+        ds = Dataset.from_array(
+            arr, geo_ref=GeoReference(geo=(0, 1, 0, 8, 0, -1), epsg=4326)
+        )
         ds.no_data_value = [-1.0, -2.0]
         out = run(Pipeline([("slope", {"band": 1})]), ds, on_error="raise").outputs[0]
         assert out.no_data_value[0] == -2.0, out.no_data_value

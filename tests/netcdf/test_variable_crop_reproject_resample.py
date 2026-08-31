@@ -22,12 +22,12 @@ def _make_nc(rows=20, cols=30, bands=5):
     arr = np.random.default_rng(42).random((bands, rows, cols)).astype(np.float64)
     geo = (30.0, 0.5, 0, 35.0, 0, -0.5)
     nc = NetCDF.from_array(
-             arr=arr,
-             geo_ref=GeoReference(geo=geo, epsg=4326),
-             no_data_value=-9999.0,
-             variable_name="temperature",
-             dims=ExtraDimensions(name="time", values=[0, 6, 12, 18, 24]),
-         )
+        arr=arr,
+        geo_ref=GeoReference(geo=geo, epsg=4326),
+        no_data_value=-9999.0,
+        variable_name="temperature",
+        dims=ExtraDimensions(name="time", values=[0, 6, 12, 18, 24]),
+    )
     return nc
 
 
@@ -151,10 +151,10 @@ class TestWholeContainerCrop:
         nc = _make_nc()
         arr2 = np.random.default_rng(99).random((5, 20, 30)).astype(np.float64)
         ds2 = Dataset.from_array(
-                  arr2,
-                  no_data_value=-9999.0,
-                  geo_ref=GeoReference(geo=(30.0, 0.5, 0, 35.0, 0, -0.5), epsg=4326),
-              )
+            arr2,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(geo=(30.0, 0.5, 0, 35.0, 0, -0.5), epsg=4326),
+        )
         nc.set_variable("pressure", ds2)
         return nc
 
@@ -225,10 +225,10 @@ class TestWholeContainerResample:
         """
         nc = _make_nc()
         ds2 = Dataset.from_array(
-                  np.random.default_rng(99).random((5, 20, 30)),
-                  no_data_value=-9999.0,
-                  geo_ref=GeoReference(geo=(30.0, 0.5, 0, 35.0, 0, -0.5), epsg=4326),
-              )
+            np.random.default_rng(99).random((5, 20, 30)),
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(geo=(30.0, 0.5, 0, 35.0, 0, -0.5), epsg=4326),
+        )
         nc.set_variable("pressure", ds2)
         resampled = nc.resample(cell_size=1.0)
         assert "temperature" in resampled.variable_names, (

@@ -25,6 +25,7 @@ from pyproj import CRS, Transformer
 from shapely.geometry import LineString, box
 
 from pyramids.base.crs import crs_from_user_input, sr_from_epsg
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.dataset._plot_helpers import mesh_render as _mesh_render
 from pyramids.dataset._plot_helpers import nonnull_group_kwargs as _nonnull_group_kwargs
@@ -51,7 +52,6 @@ from pyramids.netcdf.ugrid.spatial import (
     subset_by_bounds,
 )
 from pyramids.netcdf.utils import _dtype_to_str, _read_attributes
-from pyramids.base.georeference import GeoReference
 
 
 class UgridDataset:
@@ -294,10 +294,15 @@ class UgridDataset:
 
         target_epsg = epsg or self.epsg or 4326
         result = Dataset.from_array(
-                     grid_array,
-                     no_data_value=nodata,
-                     geo_ref=GeoReference(geo=cast("tuple[float, float, float, float, float, float]", geotransform), epsg=target_epsg),
-                 )
+            grid_array,
+            no_data_value=nodata,
+            geo_ref=GeoReference(
+                geo=cast(
+                    "tuple[float, float, float, float, float, float]", geotransform
+                ),
+                epsg=target_epsg,
+            ),
+        )
         return result
 
     def crop(

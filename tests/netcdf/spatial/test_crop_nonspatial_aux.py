@@ -88,11 +88,11 @@ def _era5_like_cube(*, with_spatial=True, with_aux=True, with_second_spatial=Fal
     n_t, n_lat, n_lon = 4, 5, 5
     if with_spatial:
         nc = NetCDF.from_array(
-                 np.ones((n_t, n_lat, n_lon), "float32"),
-                 geo_ref=GeoReference(top_left_corner=(0.0, 5.0), cell_size=1.0, epsg=4326),
-                 dims=ExtraDimensions(dims=[("valid_time", list(range(n_t)))]),
-                 variable_name="t2m",
-             )
+            np.ones((n_t, n_lat, n_lon), "float32"),
+            geo_ref=GeoReference(top_left_corner=(0.0, 5.0), cell_size=1.0, epsg=4326),
+            dims=ExtraDimensions(dims=[("valid_time", list(range(n_t)))]),
+            variable_name="t2m",
+        )
     else:
         nc = Container(gdal.GetDriverByName("MEM").CreateMultiDimensional("netcdf"))
     if with_second_spatial:

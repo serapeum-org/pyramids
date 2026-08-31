@@ -48,6 +48,7 @@ from pyramids.base.crs import (
     reproject_coordinates,
     sr_from_epsg,
 )
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.feature import (
     FeatureCollection,
@@ -1144,14 +1145,14 @@ class TestToDatasetErrors:
     def test_mismatched_epsg_raises(self, simple_polygon_gdf: GeoDataFrame):
         fc = FeatureCollection(simple_polygon_gdf)
         ds = Dataset.create(
-            cell_size=1000.0,
             rows=3,
             columns=3,
             dtype="float32",
             bands=1,
-            top_left_corner=(500000.0, 3500000.0),
-            epsg=32636,
             no_data_value=-9999.0,
+            geo_ref=GeoReference(
+                cell_size=1000.0, top_left_corner=(500000.0, 3500000.0), epsg=32636
+            ),
         )
         with pytest.raises(ValueError, match="not the same EPSG"):
             Dataset.from_features(fc, template=ds)

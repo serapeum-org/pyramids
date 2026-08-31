@@ -11,8 +11,8 @@ import os
 
 import numpy as np
 
-from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.base.georeference import GeoReference
+from pyramids.dataset import Dataset, DatasetCollection
 
 
 def make_int16_collection(tmp_path, count: int = 2, no_data_value: int = -9999):

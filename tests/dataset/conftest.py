@@ -11,8 +11,8 @@ from osgeo.gdal import Dataset
 from pandas import DataFrame
 from shapely import wkt
 
-from pyramids.dataset import Dataset as PyramidsDataset
 from pyramids.base.georeference import GeoReference
+from pyramids.dataset import Dataset as PyramidsDataset
 
 
 @pytest.fixture(scope="module")
@@ -507,10 +507,10 @@ def single_band_dataset():
         dtype=np.float32,
     )
     ds = PyramidsDataset.from_array(
-             arr,
-             no_data_value=-9999.0,
-             geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-         )
+        arr,
+        no_data_value=-9999.0,
+        geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+    )
     return ds
 
 
@@ -529,10 +529,10 @@ def multi_band_dataset():
         dtype=np.float64,
     )
     ds = PyramidsDataset.from_array(
-             arr,
-             no_data_value=-9999.0,
-             geo_ref=GeoReference(top_left_corner=(10.0, 50.0), cell_size=1.0, epsg=4326),
-         )
+        arr,
+        no_data_value=-9999.0,
+        geo_ref=GeoReference(top_left_corner=(10.0, 50.0), cell_size=1.0, epsg=4326),
+    )
     return ds
 
 
@@ -552,8 +552,8 @@ def dataset_with_nodata():
         dtype=np.float32,
     )
     ds = PyramidsDataset.from_array(
-             arr,
-             no_data_value=nd,
-             geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-         )
+        arr,
+        no_data_value=nd,
+        geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+    )
     return ds

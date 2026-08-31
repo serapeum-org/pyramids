@@ -11,8 +11,8 @@ import numpy as np
 import pytest
 
 from pyramids.base._errors import OutOfBoundsError
-from pyramids.dataset import Dataset
 from pyramids.base.georeference import GeoReference
+from pyramids.dataset import Dataset
 from pyramids.dataset.engines._validate import (
     resolve_band_indices,
     validate_band_index,
@@ -192,9 +192,9 @@ class TestCallSitesUseTheSharedWording:
             Dataset: the test raster.
         """
         return Dataset.from_array(
-                   np.zeros((4, 4), "float32"),
-                   geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0),
-               )
+            np.zeros((4, 4), "float32"),
+            geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0),
+        )
 
     @pytest.mark.parametrize(
         "call",

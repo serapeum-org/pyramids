@@ -13,8 +13,8 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
-from pyramids.dataset import Dataset, cog
 from pyramids.base.georeference import GeoReference
+from pyramids.dataset import Dataset, cog
 from tests.dataset.cog.conftest import COG_GEOTRANSFORM
 
 pytestmark = pytest.mark.core
@@ -28,7 +28,9 @@ def float_dataset() -> Dataset:
         Dataset: An in-memory float32 dataset.
     """
     arr = (np.random.default_rng(seed=2).random((64, 64)) * 100).astype("float32")
-    return Dataset.from_array(arr, geo_ref=GeoReference(geo=COG_GEOTRANSFORM, epsg=4326))
+    return Dataset.from_array(
+        arr, geo_ref=GeoReference(geo=COG_GEOTRANSFORM, epsg=4326)
+    )
 
 
 def _predictor_token(path) -> str:

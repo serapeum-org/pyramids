@@ -16,9 +16,9 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset, NoDataSentinelWarning, Window
 from pyramids.dataset.dataset import OUT_OF_CORE_CREATION_OPTIONS
-from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 
@@ -36,9 +36,7 @@ class TestCreateEmpty:
             *metadata* only — see ``test_mem_unwritten_cells_read_as_zero`` for the
             distinct cell-contents behaviour of the MEM driver.)
         """
-        ds = Dataset.create_empty(
-            4, 5, dtype="float32", no_data_value=-9999.0, driver_type="MEM"
-        )
+        ds = Dataset.create_empty(4, 5, dtype="float32", no_data_value=-9999.0)
         assert (ds.rows, ds.columns, ds.band_count) == (
             4,
             5,
@@ -58,9 +56,7 @@ class TestCreateEmpty:
             ``test_unwritten_block_reads_as_nodata``. This pins the cross-driver
             guarantee that unwritten cells are no-data, not 0.
         """
-        ds = Dataset.create_empty(
-            4, 4, dtype="float32", no_data_value=-9999.0, driver_type="MEM"
-        )
+        ds = Dataset.create_empty(4, 4, dtype="float32", no_data_value=-9999.0)
         whole = ds.read_array()
         assert np.all(np.isclose(whole, -9999.0)), (
             f"unwritten MEM cells should read as nodata -9999, got {np.unique(whole)}"
@@ -73,7 +69,7 @@ class TestCreateEmpty:
             Allocate empty, ``write_array(block, window=Window(1, 1, 2, 2))``, then read the
             same window — the values round-trip exactly.
         """
-        ds = Dataset.create_empty(4, 4, dtype="float32", driver_type="MEM")
+        ds = Dataset.create_empty(4, 4, dtype="float32")
         block = np.arange(4, dtype="float32").reshape(2, 2)
         ds.write_array(block, window=Window(1, 1, 2, 2))
         back = ds.read_array(window=[1, 1, 2, 2])
@@ -88,7 +84,13 @@ class TestCreateEmpty:
             end-to-end.
         """
         path = tmp_path / "empty.tif"
-        ds = Dataset.create_empty(64, 64, dtype="float32", epsg=3857, path=path)
+        ds = Dataset.create_empty(
+            64,
+            64,
+            dtype="float32",
+            path=path,
+            geo_ref=GeoReference(epsg=3857),
+        )
         block = np.full((8, 8), 5.0, dtype="float32")
         ds.write_array(block, window=Window(0, 0, 8, 8))
         del ds
@@ -108,7 +110,12 @@ class TestCreateEmpty:
         path = tmp_path / "geo.tif"
         geo = (100.0, 0.25, 0.0, 200.0, 0.0, -0.25)
         ds = Dataset.create_empty(
-            32, 48, dtype="int16", geo=geo, epsg=32636, no_data_value=-1.0, path=path
+            32,
+            48,
+            dtype="int16",
+            no_data_value=-1.0,
+            path=path,
+            geo_ref=GeoReference(geo=geo, epsg=32636),
         )
         del ds
         reopened = Dataset.read_file(str(path))
@@ -155,7 +162,11 @@ class TestCreateEmpty:
         path = tmp_path / "sparse_no_nodata.tif"
         with pytest.warns(NoDataSentinelWarning, match="read back as 0"):
             ds = Dataset.create_empty(
-                1024, 1024, dtype="float32", no_data_value=None, path=path
+                1024,
+                1024,
+                dtype="float32",
+                no_data_value=None,
+                path=path,
             )
         ds.write_array(np.ones((4, 4), dtype="float32"), window=Window(0, 0, 4, 4))
         del ds
@@ -177,9 +188,7 @@ class TestCreateEmpty:
         """
         with warnings.catch_warnings():
             warnings.simplefilter("error", NoDataSentinelWarning)
-            ds = Dataset.create_empty(
-                4, 4, dtype="float32", no_data_value=None, driver_type="MEM"
-            )
+            ds = Dataset.create_empty(4, 4, dtype="float32", no_data_value=None)
         assert ds.no_data_value[0] is None, (
             f"expected no sentinel, got {ds.no_data_value[0]}"
         )
@@ -225,7 +234,7 @@ class TestCreateEmpty:
             ``(0, 1, 0, 0, 0, -1)`` so a caller that only cares about pixel coordinates
             gets a sane identity grid.
         """
-        ds = Dataset.create_empty(3, 3, driver_type="MEM")
+        ds = Dataset.create_empty(3, 3)
         assert ds.geotransform == (
             0.0,
             1.0,
@@ -248,7 +257,12 @@ class TestCreateEmpty:
         """
         path = tmp_path / "multiband.tif"
         ds = Dataset.create_empty(
-            8, 8, bands=3, dtype="float32", no_data_value=-9999.0, path=path
+            8,
+            8,
+            bands=3,
+            dtype="float32",
+            no_data_value=-9999.0,
+            path=path,
         )
         assert ds.band_count == 3, f"expected 3 bands, got {ds.band_count}"
         ds.write_array(
@@ -281,7 +295,7 @@ class TestCreateEmpty:
             raise rather than silently ignore the list.
         """
         with pytest.raises(ValueError, match="apply only to the disk/GTiff driver"):
-            Dataset.create_empty(4, 4, driver_type="MEM", options=["TILED=YES"])
+            Dataset.create_empty(4, 4, options=["TILED=YES"])
 
     def test_sparse_allocation_is_small_on_disk(self, tmp_path: Path):
         """A large empty sparse GTiff costs almost no disk before any write.
@@ -303,17 +317,20 @@ class TestCreateEmpty:
             f"{materialised / 1e6:.0f} MB — SPARSE_OK is not in effect"
         )
 
-    def test_gtiff_without_path_raises(self):
-        """``create_empty`` with the default GTiff driver but no path raises ValueError.
+    def test_no_path_allocates_in_memory(self):
+        """``create_empty(rows, cols)`` with no path allocates a MEM raster.
 
         Test scenario:
-            ``create_empty(rows, cols)`` defaults to ``driver_type="GTiff"`` but with no
-            ``path`` the underlying driver would silently fall back to MEM and drop the
-            tiled / sparse / BigTIFF options. The method must reject that combination
-            loudly rather than hand back a surprising in-memory raster.
+            There is no `driver_type` to contradict `path` any more, so the
+            combination the old guard rejected is unrepresentable: no path means
+            in-memory, full stop. The tiled / sparse / BigTIFF options that guard
+            protected are covered by `test_options_without_path_raises`, which
+            checks the invariant that actually matters — options need a path.
         """
-        with pytest.raises(ValueError, match="needs a path"):
-            Dataset.create_empty(4, 4)
+        ds = Dataset.create_empty(4, 4)
+        assert ds.raster.GetDriver().ShortName == "MEM", (
+            f"no path must allocate in memory, got {ds.raster.GetDriver().ShortName}"
+        )
 
     @pytest.mark.slow
     def test_bigtiff_past_4gb_ceiling(self, tmp_path: Path):
@@ -381,10 +398,10 @@ class TestEmptyLike:
             Dataset: 3 x 4 x 5 in-memory raster at EPSG:4326, nodata -9999.
         """
         return Dataset.from_array(
-                   np.ones((3, 4, 5), dtype="float32"),
-                   no_data_value=-9999.0,
-                   geo_ref=GeoReference(top_left_corner=(0.0, 10.0), cell_size=0.5, epsg=4326),
-               )
+            np.ones((3, 4, 5), dtype="float32"),
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 10.0), cell_size=0.5, epsg=4326),
+        )
 
     def test_copies_template_footprint(self, template: Dataset):
         """``empty_like`` reproduces the template's shape, geo, epsg, and nodata.
@@ -435,10 +452,10 @@ class TestEmptyLike:
         """
         arr = np.ones((3, 4, 5), dtype="float32")
         template = Dataset.from_array(
-                       arr,
-                       no_data_value=[-1.0, -2.0, -3.0],
-                       geo_ref=GeoReference(top_left_corner=(0.0, 10.0), cell_size=0.5, epsg=4326),
-                   )
+            arr,
+            no_data_value=[-1.0, -2.0, -3.0],
+            geo_ref=GeoReference(top_left_corner=(0.0, 10.0), cell_size=0.5, epsg=4326),
+        )
         out = Dataset.empty_like(template)
         assert list(out.no_data_value) == pytest.approx([-1.0, -2.0, -3.0]), (
             f"per-band no-data not preserved, got {out.no_data_value}"

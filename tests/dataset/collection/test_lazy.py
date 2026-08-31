@@ -16,8 +16,8 @@ from typing import Any
 import numpy as np
 import pytest
 
-from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.base.georeference import GeoReference
+from pyramids.dataset import Dataset, DatasetCollection
 from tests._marks import requires_dask
 
 pytestmark = pytest.mark.lazy
@@ -196,9 +196,9 @@ class TestTiledDataCube:
 
         arr = np.arange(80, dtype=np.float32).reshape(8, 10)
         ds = Dataset.from_array(
-                 arr,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0, epsg=4326),
-             )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0, epsg=4326),
+        )
         p = str(tmp_path / "big.tif")
         ds.to_file(p)
         collection = DatasetCollection.from_files([p])
@@ -234,9 +234,9 @@ class TestDuplicatePathSharedLock:
 
         arr = np.arange(20, dtype=np.float32).reshape(4, 5)
         ds = Dataset.from_array(
-                 arr,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326),
-             )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326),
+        )
         p = str(tmp_path / "dup.tif")
         ds.to_file(p)
 
@@ -278,9 +278,9 @@ class TestDuplicatePathSharedLock:
 
         arr = np.arange(20, dtype=np.float32).reshape(4, 5)
         ds = Dataset.from_array(
-                 arr,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326),
-             )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326),
+        )
         p = str(tmp_path / "shared.tif")
         ds.to_file(p)
 
@@ -308,9 +308,9 @@ class TestErrors:
     def test_no_files_raises(self):
         arr = np.zeros((4, 5), dtype=np.float32)
         src = Dataset.from_array(
-                  arr,
-                  geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326),
-              )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326),
+        )
         collection = DatasetCollection(src, time_length=1)
         with pytest.raises(RuntimeError, match="file-backed"):
             _ = collection.data

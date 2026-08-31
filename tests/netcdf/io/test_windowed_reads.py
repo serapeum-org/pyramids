@@ -54,11 +54,11 @@ def _make_2d_nc(rows=6, cols=8, variable_name="elevation"):
     arr = np.arange(rows * cols, dtype=np.float64).reshape(rows, cols)
     geo = (30.0, 1.0, 0, 40.0, 0, -1.0)
     nc = NetCDF.from_array(
-             arr=arr,
-             geo_ref=GeoReference(geo=geo, epsg=4326),
-             no_data_value=-9999.0,
-             variable_name=variable_name,
-         )
+        arr=arr,
+        geo_ref=GeoReference(geo=geo, epsg=4326),
+        no_data_value=-9999.0,
+        variable_name=variable_name,
+    )
     return nc
 
 

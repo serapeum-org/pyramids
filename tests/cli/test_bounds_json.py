@@ -11,9 +11,9 @@ import numpy as np
 import pytest
 
 from pyramids import cli
+from pyramids.base.georeference import GeoReference
 from pyramids.cli import main
 from pyramids.dataset import Dataset
-from pyramids.base.georeference import GeoReference
 
 pytestmark = pytest.mark.core
 

@@ -36,6 +36,7 @@ import pytest
 from osgeo import gdal, osr
 
 from pyramids.base.crs import sr_from_epsg
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.dataset.engines import (
     COG,
@@ -53,7 +54,6 @@ from pyramids.dataset.engines._base import (
 )
 from pyramids.dataset.engines.bands import _is_read_only_error
 from pyramids.dataset.engines.cog import _cached_transformer
-from pyramids.base.georeference import GeoReference
 
 
 @pytest.fixture
@@ -67,9 +67,9 @@ def in_memory_dataset() -> Dataset:
     """
     arr = np.arange(16, dtype=np.float32).reshape(4, 4)
     return Dataset.from_array(
-               arr=arr,
-               geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
-           )
+        arr=arr,
+        geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
+    )
 
 
 @pytest.fixture
@@ -157,9 +157,9 @@ class TestCollaboratorBase:
         """
         arr = np.zeros((4, 4), dtype=np.float32)
         ds = Dataset.from_array(
-                 arr=arr,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
-             )
+            arr=arr,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
+        )
         ref = weakref.ref(ds)
         collab = _Engine(ds)
         del ds

@@ -43,11 +43,11 @@ def _make_container() -> Container:
     """Build a small in-memory container via from_array."""
     arr = np.arange(2 * 4 * 5, dtype=np.float64).reshape(2, 4, 5)
     return NetCDF.from_array(
-               arr=arr,
-               geo_ref=GeoReference(geo=(0.0, 1.0, 0, 4.0, 0, -1.0), epsg=4326),
-               variable_name="t",
-               dims=ExtraDimensions(dims=[("time", [0, 1])]),
-           )
+        arr=arr,
+        geo_ref=GeoReference(geo=(0.0, 1.0, 0, 4.0, 0, -1.0), epsg=4326),
+        variable_name="t",
+        dims=ExtraDimensions(dims=[("time", [0, 1])]),
+    )
 
 
 class TestContainerRouting:

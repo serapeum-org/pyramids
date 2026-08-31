@@ -6,9 +6,15 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
-from pyramids.base._errors import FailedToSaveError, OutOfBoundsError, ReadOnlyError
-from pyramids.dataset import Dataset
+from pyramids.base._errors import (
+    DriverNotExistError,
+    FailedToSaveError,
+    FileFormatNotSupportedError,
+    OutOfBoundsError,
+    ReadOnlyError,
+)
 from pyramids.base.georeference import GeoReference
+from pyramids.dataset import Dataset
 
 pytestmark = pytest.mark.core
 
@@ -20,10 +26,10 @@ class TestTranslate:
         """translate(unscale=True) should apply scale and offset."""
         arr = np.array([[10.0, 20.0], [30.0, 40.0]], dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         ds.scale = [0.1]
         ds.offset = [100.0]
         unscaled = ds.translate(unscale=True)
@@ -44,10 +50,10 @@ class TestWriteArray:
         """write_array with default offset should overwrite from (0, 0)."""
         arr = np.ones((3, 3), dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         patch = np.array([[99.0, 99.0], [99.0, 99.0]], dtype=np.float32)
         ds.write_array(patch, top_left_corner=[0, 0])
         result = ds.read_array()
@@ -62,10 +68,10 @@ class TestWriteArray:
         """write_array with offset should write at the given position."""
         arr = np.zeros((4, 4), dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         patch = np.array([[7.0, 8.0], [9.0, 10.0]], dtype=np.float32)
         ds.write_array(patch, top_left_corner=[1, 1])
         result = ds.read_array()
@@ -84,9 +90,9 @@ class TestWriteArray:
         """
         base = np.zeros((2, 8, 8), dtype=np.float64)
         ds = Dataset.from_array(
-                 base,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            base,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         arr = np.array([[[1, 2], [3, 4]], [[5, 6], [7, 8]]])
         xoff = 5
         yoff = 3
@@ -102,10 +108,10 @@ class TestToXyz:
         """to_xyz with specific bands should only include those bands."""
         arr = np.ones((3, 4, 4), dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         df = ds.to_xyz(bands=[0])
         band_cols = [c for c in df.columns if c not in ("lon", "lat")]
         assert len(band_cols) == 1, f"Expected 1 band column, got {len(band_cols)}"
@@ -114,10 +120,10 @@ class TestToXyz:
         """to_xyz with an invalid bands type raises ValueError with a guiding message."""
         arr = np.ones((3, 3), dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         with pytest.raises(ValueError, match="integer or a list"):
             ds.to_xyz(bands="invalid")
 
@@ -135,9 +141,9 @@ class TestCreateFromArrayEdgeCases:
         """A 3D array should create a multi-band dataset."""
         arr = np.ones((4, 5, 6), dtype=np.float64)
         ds = Dataset.from_array(
-                 arr,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
-             )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
+        )
         assert ds.band_count == 4, (
             f"Expected 4 bands from 3D array, got {ds.band_count}"
         )
@@ -197,9 +203,9 @@ class TestToFile:
             dtype=np.float32,
         )
         ds = Dataset.from_array(
-                 arr,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         path = tmp_path / "output.tif"
         ds.to_file(path)
         assert path.exists(), "File should exist after to_file"
@@ -226,9 +232,9 @@ class TestToFile:
             dtype=np.float32,
         )
         ds = Dataset.from_array(
-                 arr,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         path = tmp_path / "output.nc"
         ds.to_file(path)
         assert path.exists(), "File should exist after to_file"
@@ -252,9 +258,9 @@ class TestToFile:
 
         arr = np.zeros((20, 20), dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         path = tmp_path / "compressed.tif"
         ds.to_file(path)
         info = gdal.Info(str(path))
@@ -279,9 +285,7 @@ class TestCreateDataset:
     def test_create_on_disk(self, tmp_path):
         """_create_dataset with a .tif path creates a file on disk."""
         path = tmp_path / "test_create.tif"
-        ds = Dataset._create_dataset(
-            4, 4, 1, gdal.GDT_Float32, driver="GTiff", path=path
-        )
+        ds = Dataset._create_dataset(4, 4, 1, gdal.GDT_Float32, path=path)
         assert ds is not None, "Disk dataset should not be None"
         ds.FlushCache()
         ds = None
@@ -290,15 +294,32 @@ class TestCreateDataset:
     def test_create_non_string_path_raises(self):
         """_create_dataset with a non-string path should raise TypeError."""
         with pytest.raises(TypeError, match="string"):
-            Dataset._create_dataset(4, 4, 1, gdal.GDT_Float32, driver="GTiff", path=123)
+            Dataset._create_dataset(4, 4, 1, gdal.GDT_Float32, path=123)
 
-    def test_create_wrong_extension_raises(self, tmp_path):
-        """_create_dataset with a non-.tif path for GTiff should raise."""
+    def test_create_unknown_extension_raises(self, tmp_path):
+        """An extension the driver catalog does not know raises DriverNotExistError.
+
+        Test scenario:
+            The driver now comes from the path extension rather than a
+            `driver` argument, so an unrecognised suffix fails at resolution
+            time -- distinct from a catalogued format that simply cannot
+            ``Create`` (which raises ``FileFormatNotSupportedError``).
+        """
         path = str(tmp_path / "wrong.xyz")
-        with pytest.raises(TypeError, match=".tif"):
-            Dataset._create_dataset(
-                4, 4, 1, gdal.GDT_Float32, driver="GTiff", path=path
-            )
+        with pytest.raises(DriverNotExistError, match="xyz"):
+            Dataset._create_dataset(4, 4, 1, gdal.GDT_Float32, path=path)
+
+    def test_create_copy_only_format_raises(self, tmp_path):
+        """A catalogued but write-by-copy format is refused before GDAL.
+
+        Test scenario:
+            ``from_array`` builds with ``Create()``; PNG and JP2 are
+            ``CreateCopy``-only, so they must fail up front with a message
+            naming the extension rather than deep inside the driver.
+        """
+        path = str(tmp_path / "out.png")
+        with pytest.raises(FileFormatNotSupportedError, match="png"):
+            Dataset._create_dataset(4, 4, 1, gdal.GDT_Float32, path=path)
 
 
 class TestReadBlockError:
@@ -540,10 +561,10 @@ class TestToXyzPath:
         """to_xyz with bands=None should include all bands."""
         arr = np.ones((2, 3, 3), dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         df = ds.to_xyz()
         band_cols = [c for c in df.columns if c not in ("lon", "lat")]
         assert len(band_cols) == 2, f"Expected 2 band columns, got {len(band_cols)}"
@@ -624,10 +645,10 @@ class TestGetTile:
         """get_tile should yield numpy arrays."""
         arr = np.arange(100, dtype=np.float32).reshape(10, 10)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         tiles = list(ds.get_tile(size=5))
         assert len(tiles) > 0, "Should yield at least 1 tile"
         for t in tiles:
@@ -641,9 +662,9 @@ class TestWriteArrayException:
         """write_array with incompatible shape raises an exception."""
         arr = np.ones((3, 3), dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         bad_arr = np.ones((10, 10), dtype=np.float32)
         with pytest.raises(OutOfBoundsError, match="falls outside"):
             ds.write_array(bad_arr, top_left_corner=[0, 0])
@@ -656,9 +677,9 @@ class TestReadBlockReRaise:
         """_read_block re-raises errors that are not out-of-bounds."""
         arr = np.ones((3, 3), dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         mock_band = MagicMock()
         mock_band.ReadAsArray.side_effect = RuntimeError("some read error")
         with patch.object(ds, "_iloc", return_value=mock_band):
@@ -673,10 +694,10 @@ class TestToFileBlockSize:
         """to_file should include block size options when set."""
         arr = np.ones((3, 3), dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 no_data_value=-9999.0,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
-             )
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
+        )
         ds._block_size = [(256, 256)]
         path = tmp_path / "block.tif"
         ds.to_file(path)
@@ -695,9 +716,9 @@ class TestMapBlocks:
         """
         arr = np.arange(1, 37, dtype=np.float32).reshape(6, 6)
         ds = Dataset.from_array(
-                 arr,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
-             )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
+        )
         result = ds.map_blocks(lambda tile: tile * 2, tile_size=3)
         expected = arr * 2
         np.testing.assert_array_almost_equal(
@@ -729,9 +750,9 @@ class TestMapBlocks:
         """
         arr = np.random.default_rng(42).random((10, 10)).astype(np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
-             )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
+        )
         result = ds.map_blocks(lambda tile: tile, tile_size=4)
         np.testing.assert_array_equal(
             result.read_array(),
@@ -750,9 +771,9 @@ class TestMapBlocks:
         arr[0, :, :] = 10
         arr[1, :, :] = 20
         ds = Dataset.from_array(
-                 arr,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
-             )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
+        )
         result = ds.map_blocks(lambda tile: tile + 5, tile_size=2, band=1)
         assert result.band_count == 1, f"Expected 1 band, got {result.band_count}"
         result_arr = result.read_array()
@@ -769,9 +790,9 @@ class TestMapBlocks:
         """
         arr = np.ones((7, 5), dtype=np.float32) * 3.0
         ds = Dataset.from_array(
-                 arr,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
-             )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
+        )
         result = ds.map_blocks(lambda tile: tile + 1, tile_size=3)
         assert np.allclose(result.read_array(), 4.0), (
             "All cells should be 4.0 (3+1), including edge tiles"
@@ -786,9 +807,9 @@ class TestMapBlocks:
         """
         arr = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
         ds = Dataset.from_array(
-                 arr,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
-             )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
+        )
         result = ds.map_blocks(lambda tile: tile**2, tile_size=1000)
         expected = np.array([[1.0, 4.0], [9.0, 16.0]], dtype=np.float32)
         np.testing.assert_array_almost_equal(
@@ -809,9 +830,9 @@ class TestMapBlocks:
         arr[1] = 2
         arr[2] = 3
         ds = Dataset.from_array(
-                 arr,
-                 geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
-             )
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
+        )
         result = ds.map_blocks(lambda tile: tile * 10, tile_size=2)
         assert result.band_count == 3, f"Expected 3 bands, got {result.band_count}"
         assert np.allclose(result.read_array(band=0), 10.0), "Band 0 should be 10"

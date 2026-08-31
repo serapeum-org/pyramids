@@ -13,8 +13,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from pyramids.dataset import Dataset
 from pyramids.base.georeference import GeoReference
+from pyramids.dataset import Dataset
 
 pytestmark = pytest.mark.core
 
@@ -30,10 +30,10 @@ def test_multiband_to_file_roundtrips_through_second_handle(tmp_path):
     """
     a = np.arange(2 * 32 * 48, dtype=np.float32).reshape(2, 32, 48)
     ds = Dataset.from_array(
-             a,
-             no_data_value=-9999.0,
-             geo_ref=GeoReference(top_left_corner=(0.0, 32.0), cell_size=1.0, epsg=4326),
-         )
+        a,
+        no_data_value=-9999.0,
+        geo_ref=GeoReference(top_left_corner=(0.0, 32.0), cell_size=1.0, epsg=4326),
+    )
     out = str(tmp_path / "mb.tif")
     ds.to_file(out)
     reread = np.asarray(Dataset.read_file(out).read_array())

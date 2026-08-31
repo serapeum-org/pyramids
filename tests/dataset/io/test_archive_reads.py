@@ -22,8 +22,8 @@ import pytest
 
 from pyramids import _io
 from pyramids.base._errors import FileFormatNotSupportedError
-from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.base.georeference import GeoReference
+from pyramids.dataset import Dataset, DatasetCollection
 
 pytestmark = pytest.mark.core
 

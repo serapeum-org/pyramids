@@ -13,8 +13,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.base.georeference import GeoReference
+from pyramids.dataset import Dataset, DatasetCollection
 from tests._marks import requires_dask
 
 pytestmark = pytest.mark.lazy
@@ -24,9 +24,9 @@ pytestmark = pytest.mark.lazy
 def align_ref() -> Dataset:
     """A 2x3 EPSG:4326 template used as the alignment reference (differs in size)."""
     return Dataset.from_array(
-               np.zeros((2, 3), dtype=np.float32),
-               geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=2.0, epsg=4326),
-           )
+        np.zeros((2, 3), dtype=np.float32),
+        geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=2.0, epsg=4326),
+    )
 
 
 class TestToCrsCompute:

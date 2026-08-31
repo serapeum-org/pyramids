@@ -22,9 +22,9 @@ import pytest
 from osgeo import gdal
 
 from pyramids.base._errors import AlignmentError
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.netcdf import NetCDF
-from pyramids.base.georeference import GeoReference
 from tests.dataset.collection._helpers import (
     make_int16_collection as _make_int16_collection,
 )
@@ -964,9 +964,9 @@ class TestToNetcdfStreaming:
             writes no file.
         """
         base = Dataset.from_array(
-                   np.zeros((4, 5), dtype="int16"),
-                   geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
-               )
+            np.zeros((4, 5), dtype="int16"),
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+        )
         col = DatasetCollection.from_dataset(base, 0)
         out = tmp_path / "empty.nc"
         with pytest.raises(ValueError, match="empty collection"):
@@ -1202,7 +1202,9 @@ class TestToNetcdfCfCoordinates:
                 arr,
                 no_data_value=-9999,
                 path=p,
-                geo_ref=GeoReference(top_left_corner=(400000.0, 5800000.0), cell_size=5000.0, epsg=32632),
+                geo_ref=GeoReference(
+                    top_left_corner=(400000.0, 5800000.0), cell_size=5000.0, epsg=32632
+                ),
             ).close()
             paths.append(p)
         out = tmp_path / "proj.nc"

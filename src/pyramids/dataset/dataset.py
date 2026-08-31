@@ -11,6 +11,7 @@ import logging
 import warnings
 import weakref
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from numbers import Number
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Unpack, cast
@@ -36,6 +37,7 @@ from pyramids.base.crs import (
     sr_from_user_input,
     within_lonlat_range,
 )
+from pyramids.base.georeference import GeoReference
 from pyramids.base.remote import cloud_config_from_env, redact_credentials
 from pyramids.dataset._driver import resolve_output_driver
 from pyramids.dataset._ogc_coverages import from_ogc_coverages as _from_ogc_coverages
@@ -74,7 +76,6 @@ from pyramids.dataset.ops.interpolate import grid_points
 from pyramids.dataset.ops.units import convert_array
 from pyramids.dataset.ops.vectorize import rasterize_features
 from pyramids.feature import FeatureCollection, create_polygon
-from pyramids.base.georeference import GeoReference
 
 # tuple of collaborator attribute names. Used by
 # `Dataset.__init__` to wire the eight collaborators and by
@@ -201,7 +202,7 @@ def register_dataset_accessor(name: str) -> Callable[[type], type]:
         - Register a custom accessor and use it on any Dataset:
             ```python
             >>> import numpy as np
-            >>> from pyramids.dataset import Dataset, register_dataset_accessor
+            >>> from pyramids.dataset import Dataset, GeoReference, register_dataset_accessor
             >>> @register_dataset_accessor("summary")
             ... class Summary:
             ...     def __init__(self, ds):
@@ -209,7 +210,8 @@ def register_dataset_accessor(name: str) -> Callable[[type], type]:
             ...     def describe(self):
             ...         return f"{self._ds.band_count}-band EPSG:{self._ds.epsg}"
             >>> ds = Dataset.from_array(
-            ...     np.zeros((2, 3)), top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+            ...     np.zeros((2, 3)),
+            ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
             ... )
             >>> ds.summary.describe()
             '1-band EPSG:4326'
@@ -865,10 +867,11 @@ class Dataset(RasterBase):
 
               ```python
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> arr = np.random.rand(4, 8, 8).astype(np.float32)
               >>> ds = Dataset.from_array(
-              ...     arr, top_left_corner=(0, 0), cell_size=0.1, epsg=4326,
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.1, epsg=4326),
               ... )
               >>> ds._resolve_plot_band(band=2, rgb=None)
               (2, None)
@@ -880,7 +883,8 @@ class Dataset(RasterBase):
               ```python
               >>> single = np.random.rand(6, 6).astype(np.float32)
               >>> ds_1band = Dataset.from_array(
-              ...     single, top_left_corner=(0, 0), cell_size=0.1, epsg=4326,
+              ...     single,
+              ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.1, epsg=4326),
               ... )
               >>> ds_1band._resolve_plot_band(band=None, rgb=None)
               (0, None)
@@ -916,7 +920,8 @@ class Dataset(RasterBase):
               ```python
               >>> paletted = np.random.rand(3, 8, 8).astype(np.float32)
               >>> ds_pal = Dataset.from_array(
-              ...     paletted, top_left_corner=(0, 0), cell_size=0.1, epsg=4326,
+              ...     paletted,
+              ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.1, epsg=4326),
               ... )
               >>> ds_pal.band_color = {0: 'palette_index'}
               >>> ds_pal._resolve_plot_band(band=None, rgb=None)
@@ -1122,10 +1127,11 @@ class Dataset(RasterBase):
 
               ```python
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> arr = np.random.rand(8, 8).astype(np.float32)
               >>> ds = Dataset.from_array(
-              ...     arr, top_left_corner=(0, 0), cell_size=0.1, epsg=4326,
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.1, epsg=4326),
               ... )
               >>> cleo = ds.plot()  # doctest: +SKIP
               >>> cleo.fig          # doctest: +SKIP
@@ -1147,7 +1153,8 @@ class Dataset(RasterBase):
               ```python
               >>> arr3 = np.random.rand(3, 8, 8).astype(np.float32)
               >>> rgb_ds = Dataset.from_array(
-              ...     arr3, top_left_corner=(0, 0), cell_size=0.1, epsg=4326,
+              ...     arr3,
+              ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.1, epsg=4326),
               ... )
               >>> cleo = rgb_ds.plot(  # doctest: +SKIP
               ...     rgb_options={"rgb": [0, 1, 2], "surface_reflectance": 255},
@@ -2122,10 +2129,10 @@ class Dataset(RasterBase):
             - Convert a Kelvin raster to Celsius and read the new values:
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> ds = Dataset.from_array(
                 ...     np.array([[273.15, 283.15], [293.15, 303.15]]),
-                ...     top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
                 ... )
                 >>> ds.band_units = ["K"]
                 >>> converted = ds.convert_units("celsius")
@@ -2140,7 +2147,8 @@ class Dataset(RasterBase):
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
                 >>> ds = Dataset.from_array(
-                ...     np.array([[273.15]]), top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+                ...     np.array([[273.15]]),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
                 ... )
                 >>> ds.band_units = ["K"]
                 >>> try:
@@ -2188,10 +2196,12 @@ class Dataset(RasterBase):
 
         result_array = out[0] if single_band else out
         result = self.from_array(
-                     result_array,
-                     no_data_value=list(no_data),
-                     geo_ref=GeoReference(geo=self.geotransform, epsg=crs_spec(self.epsg, self.crs)),
-                 )
+            result_array,
+            no_data_value=list(no_data),
+            geo_ref=GeoReference(
+                geo=self.geotransform, epsg=crs_spec(self.epsg, self.crs)
+            ),
+        )
         result.band_units = new_units
         return result
 
@@ -2574,9 +2584,10 @@ class Dataset(RasterBase):
             - Read the column-centre longitudes of a small raster:
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> ds = Dataset.from_array(
-                ...     np.zeros((2, 3)), top_left_corner=(0.0, 0.0), cell_size=0.5, epsg=4326,
+                ...     np.zeros((2, 3)),
+                ...     geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.5, epsg=4326),
                 ... )
                 >>> ds.lon.tolist()
                 [0.25, 0.75, 1.25]
@@ -2608,9 +2619,10 @@ class Dataset(RasterBase):
             - Row-centre latitudes decrease from north to south:
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> ds = Dataset.from_array(
-                ...     np.zeros((2, 3)), top_left_corner=(0.0, 0.0), cell_size=0.5, epsg=4326,
+                ...     np.zeros((2, 3)),
+                ...     geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.5, epsg=4326),
                 ... )
                 >>> ds.lat.tolist()
                 [-0.25, -0.75]
@@ -2622,7 +2634,8 @@ class Dataset(RasterBase):
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
                 >>> ds = Dataset.from_array(
-                ...     np.zeros((2, 3)), geo=(10.0, 2.0, 0.0, 50.0, 0.0, -1.0), epsg=4326,
+                ...     np.zeros((2, 3)),
+                ...     geo_ref=GeoReference(geo=(10.0, 2.0, 0.0, 50.0, 0.0, -1.0), epsg=4326),
                 ... )
                 >>> ds.lat.tolist()
                 [49.5, 48.5]
@@ -2648,9 +2661,10 @@ class Dataset(RasterBase):
             - x mirrors lon for the same raster:
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> ds = Dataset.from_array(
-                ...     np.zeros((2, 3)), top_left_corner=(0.0, 0.0), cell_size=0.5, epsg=4326,
+                ...     np.zeros((2, 3)),
+                ...     geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.5, epsg=4326),
                 ... )
                 >>> ds.x.tolist()
                 [0.25, 0.75, 1.25]
@@ -2671,9 +2685,10 @@ class Dataset(RasterBase):
             - y mirrors lat for the same raster:
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> ds = Dataset.from_array(
-                ...     np.zeros((2, 3)), top_left_corner=(0.0, 0.0), cell_size=0.5, epsg=4326,
+                ...     np.zeros((2, 3)),
+                ...     geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.5, epsg=4326),
                 ... )
                 >>> ds.y.tolist()
                 [-0.25, -0.75]
@@ -3720,7 +3735,7 @@ class Dataset(RasterBase):
         windows into it with
         ``write_array(array, window=Window(col_off, row_off, cols, rows))``
         (see :class:`~pyramids.dataset.window.Window`).
-        For the default ``driver_type="GTiff"`` the file is **tiled, sparse,
+        With a ``path`` the file is **tiled, sparse,
         and BigTIFF** (see :data:`OUT_OF_CORE_CREATION_OPTIONS`), so a
         50 000 x 50 000 float32 raster is created in O(1) RAM, never-written
         blocks cost no disk, and writes past the 4 GB classic-TIFF ceiling
@@ -3775,8 +3790,7 @@ class Dataset(RasterBase):
         Raises:
             ValueError: ``options`` is given without a ``path`` (creation
                 options apply only to the disk/GTiff driver); or
-                ``driver_type="GTiff"`` (the default) is requested
-                without a `path`. Pass a `path`, or use ``driver_type="MEM"``
+                `options` are given without a `path`.
                 for an in-memory raster.
 
         Examples:
@@ -3785,7 +3799,7 @@ class Dataset(RasterBase):
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
                 >>> ds = Dataset.create_empty(
-                ...     4, 5, dtype="float32", no_data_value=-9999.0, driver_type="MEM"
+                ...     4, 5, dtype="float32", no_data_value=-9999.0
                 ... )
                 >>> (ds.rows, ds.columns, ds.band_count)
                 (4, 5, 1)
@@ -3798,7 +3812,7 @@ class Dataset(RasterBase):
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
                 >>> from pyramids.dataset import Window
-                >>> ds = Dataset.create_empty(4, 4, dtype="float32", driver_type="MEM")
+                >>> ds = Dataset.create_empty(4, 4, dtype="float32")
                 >>> block = np.arange(4, dtype="float32").reshape(2, 2)
                 >>> ds.write_array(block, window=Window(1, 1, 2, 2))
                 >>> ds.read_array(window=[1, 1, 2, 2]).tolist()
@@ -3840,12 +3854,24 @@ class Dataset(RasterBase):
                 stacklevel=2,
             )
         gdal_dtype = numpy_to_gdal_dtype(dtype)
-        geo_ref = geo_ref if geo_ref is not None else GeoReference(geo=_IDENTITY_GEO)
+        # `create_empty` allocates a header; where it sits in space is often
+        # irrelevant to the caller. A geo_ref that carries no transform at all
+        # (e.g. `GeoReference(epsg=3857)`) therefore keeps the identity one
+        # rather than raising, which is what the flat `epsg=`-only form did.
+        geo_ref = geo_ref if geo_ref is not None else GeoReference()
+        if geo_ref.geo is None and (
+            geo_ref.top_left_corner is None or geo_ref.cell_size is None
+        ):
+            geo_ref = replace(geo_ref, geo=_IDENTITY_GEO)
         crs_wkt = _crs_wkt_from_epsg(geo_ref.epsg)
         geo = geo_ref.resolve_geotransform()
         # The tiled / sparse / BigTIFF defaults are GTiff-specific, so apply them
         # only when the path actually resolves to GTiff.
-        if options is None and path is not None and resolve_output_driver(path) == "GTiff":
+        if (
+            options is None
+            and path is not None
+            and resolve_output_driver(path) == "GTiff"
+        ):
             options = list(OUT_OF_CORE_CREATION_OPTIONS)
         return cls._build_dataset(
             cols,
@@ -3918,11 +3944,11 @@ class Dataset(RasterBase):
               different dtype:
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> template = Dataset.from_array(
                 ...     np.ones((3, 4, 5), dtype="float32"),
-                ...     top_left_corner=(0.0, 10.0), cell_size=0.5, epsg=4326,
                 ...     no_data_value=-9999.0,
+                ...     geo_ref=GeoReference(top_left_corner=(0.0, 10.0), cell_size=0.5, epsg=4326),
                 ... )
                 >>> out = Dataset.empty_like(template, dtype="int16")
                 >>> (out.rows, out.columns, out.band_count, out.epsg)
@@ -3938,8 +3964,8 @@ class Dataset(RasterBase):
                 >>> from pyramids.dataset import Dataset
                 >>> template = Dataset.from_array(
                 ...     np.ones((3, 4, 4), dtype="float32"),
-                ...     top_left_corner=(0.0, 10.0), cell_size=1.0, epsg=4326,
                 ...     no_data_value=-9999.0,
+                ...     geo_ref=GeoReference(top_left_corner=(0.0, 10.0), cell_size=1.0, epsg=4326),
                 ... )
                 >>> out = Dataset.empty_like(template, bands=1)
                 >>> out.band_count
@@ -4080,7 +4106,7 @@ class Dataset(RasterBase):
               ```python
               >>> import geopandas as gpd
               >>> from shapely.geometry import box
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> from pyramids.feature import FeatureCollection
               >>> gdf = gpd.GeoDataFrame(
               ...     {"class_id": [7]},
@@ -4104,9 +4130,7 @@ class Dataset(RasterBase):
               >>> import numpy as np
               >>> template = Dataset.from_array(
               ...     np.zeros((5, 5), dtype="int32"),
-              ...     top_left_corner=(0.0, 5.0),
-              ...     cell_size=1.0,
-              ...     epsg=4326,
+              ...     geo_ref=GeoReference(top_left_corner=(0.0, 5.0), cell_size=1.0, epsg=4326),
               ... )
               >>> inside = FeatureCollection(
               ...     gpd.GeoDataFrame(
@@ -4427,14 +4451,18 @@ class Dataset(RasterBase):
                 ```python
                 >>> import numpy as np
                 >>> import tempfile, os
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> d = tempfile.mkdtemp()
                 >>> paths = []
-                >>> for name, val in [("scene.B2.tif", 2), ("scene.B3.tif", 3), ("scene.B4.tif", 4)]:
+                >>> triples = [("scene.B2.tif", 2), ("scene.B3.tif", 3), ("scene.B4.tif", 4)]
+                >>> for name, val in triples:
                 ...     p = os.path.join(d, name)
                 ...     _ = Dataset.from_array(
                 ...         np.full((4, 5), val, dtype="int16"),
-                ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326, path=p,
+                ...         geo_ref=GeoReference(
+                ...             top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+                ...         ),
+                ...         path=p,
                 ...     ).close()
                 ...     paths.append(p)
                 >>> ds = Dataset.from_band_files(paths)
@@ -4458,7 +4486,10 @@ class Dataset(RasterBase):
                 >>> odd = os.path.join(d, "odd.tif")
                 >>> _ = Dataset.from_array(
                 ...     np.zeros((8, 9), dtype="int16"),
-                ...     top_left_corner=(0, 0), cell_size=0.5, epsg=4326, path=odd,
+                ...     geo_ref=GeoReference(
+                ...         top_left_corner=(0, 0), cell_size=0.5, epsg=4326
+                ...     ),
+                ...     path=odd,
                 ... ).close()
                 >>> try:
                 ...     Dataset.from_band_files([paths[0], odd])
@@ -4694,14 +4725,18 @@ class Dataset(RasterBase):
                 ```python
                 >>> import os, tempfile, zipfile
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> d = tempfile.mkdtemp()
                 >>> members = []
-                >>> for name, val in [("scene.B2.tif", 2), ("scene.B3.tif", 3)]:
+                >>> pairs = [("scene.B2.tif", 2), ("scene.B3.tif", 3)]
+                >>> for name, val in pairs:
                 ...     p = os.path.join(d, name)
                 ...     _ = Dataset.from_array(
                 ...         np.full((4, 5), val, dtype="int16"),
-                ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326, path=p,
+                ...         geo_ref=GeoReference(
+                ...             top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+                ...         ),
+                ...         path=p,
                 ...     ).close()
                 ...     members.append(p)
                 >>> zip_path = os.path.join(d, "download.zip")

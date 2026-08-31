@@ -13,8 +13,8 @@ import warnings
 import numpy as np
 import pytest
 
-from pyramids.dataset import Dataset, Window
 from pyramids.base.georeference import GeoReference
+from pyramids.dataset import Dataset, Window
 
 pytestmark = pytest.mark.core
 
@@ -30,9 +30,9 @@ def ramp_dataset() -> Dataset:
     """
     arr = np.arange(36, dtype="float32").reshape(6, 6)
     return Dataset.from_array(
-               arr,
-               geo_ref=GeoReference(top_left_corner=(0, 6), cell_size=1.0, epsg=4326),
-           )
+        arr,
+        geo_ref=GeoReference(top_left_corner=(0, 6), cell_size=1.0, epsg=4326),
+    )
 
 
 class TestWindow:
@@ -342,9 +342,9 @@ class TestBlockIteration:
         """
         path = str(tmp_path / "copy.tif")
         empty = Dataset.from_array(
-                    np.zeros((6, 6), dtype="float32"),
-                    geo_ref=GeoReference(top_left_corner=(0, 6), cell_size=1.0, epsg=4326),
-                )
+            np.zeros((6, 6), dtype="float32"),
+            geo_ref=GeoReference(top_left_corner=(0, 6), cell_size=1.0, epsg=4326),
+        )
         for w, block in ramp_dataset.iter_blocks():
             empty.write_array(block, window=w)
         np.testing.assert_array_equal(
@@ -362,9 +362,9 @@ class TestBlockIteration:
         """
         path = str(tmp_path / "tiled.tif")
         big = Dataset.from_array(
-                  np.zeros((512, 512), dtype="float32"),
-                  geo_ref=GeoReference(top_left_corner=(0, 512), cell_size=1.0, epsg=4326),
-              )
+            np.zeros((512, 512), dtype="float32"),
+            geo_ref=GeoReference(top_left_corner=(0, 512), cell_size=1.0, epsg=4326),
+        )
         big.to_file(
             path, creation_options=["TILED=YES", "BLOCKXSIZE=256", "BLOCKYSIZE=256"]
         )

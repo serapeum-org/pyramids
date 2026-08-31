@@ -13,8 +13,8 @@ import numpy as np
 import pytest
 
 from pyramids.base._errors import OutOfBoundsError, ReadOnlyError
-from pyramids.dataset import Dataset, Window
 from pyramids.base.georeference import GeoReference
+from pyramids.dataset import Dataset, Window
 
 pytestmark = pytest.mark.core
 
@@ -27,9 +27,9 @@ def blank() -> Dataset:
         Dataset: in-memory zero raster.
     """
     return Dataset.from_array(
-               np.zeros((5, 5), dtype="float32"),
-               geo_ref=GeoReference(top_left_corner=(0, 5), cell_size=1.0, epsg=4326),
-           )
+        np.zeros((5, 5), dtype="float32"),
+        geo_ref=GeoReference(top_left_corner=(0, 5), cell_size=1.0, epsg=4326),
+    )
 
 
 @pytest.fixture(scope="function")
@@ -40,9 +40,9 @@ def blank_multiband() -> Dataset:
         Dataset: in-memory 2-band zero raster.
     """
     return Dataset.from_array(
-               np.zeros((2, 5, 5), dtype="float32"),
-               geo_ref=GeoReference(top_left_corner=(0, 5), cell_size=1.0, epsg=4326),
-           )
+        np.zeros((2, 5, 5), dtype="float32"),
+        geo_ref=GeoReference(top_left_corner=(0, 5), cell_size=1.0, epsg=4326),
+    )
 
 
 class TestWriteArrayWindow:

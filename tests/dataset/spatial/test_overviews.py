@@ -329,9 +329,9 @@ class TestCreateOverviewsPathlessGuard:
         """
         monkeypatch.chdir(tmp_path)
         dataset = Dataset.from_array(
-                      np.arange(4096, dtype="float32").reshape(64, 64),
-                      geo_ref=GeoReference(top_left_corner=(0.0, 64.0), cell_size=1.0, epsg=4326),
-                  )
+            np.arange(4096, dtype="float32").reshape(64, 64),
+            geo_ref=GeoReference(top_left_corner=(0.0, 64.0), cell_size=1.0, epsg=4326),
+        )
         try:
             dataset.create_overviews(overview_levels=[2])
             assert dataset.overview_count == [1], (
@@ -385,11 +385,11 @@ class TestCreateOverviewsPathlessGuard:
         monkeypatch.chdir(tmp_path)
         source = tmp_path / "guard_var.nc"
         container = NetCDF.from_array(
-                        arr=np.random.default_rng(11).random((16, 16)).astype(np.float64),
-                        geo_ref=GeoReference(geo=(30.0, 1.0, 0, 40.0, 0, -1.0), epsg=4326),
-                        no_data_value=-9999.0,
-                        variable_name="elevation",
-                    )
+            arr=np.random.default_rng(11).random((16, 16)).astype(np.float64),
+            geo_ref=GeoReference(geo=(30.0, 1.0, 0, 40.0, 0, -1.0), epsg=4326),
+            no_data_value=-9999.0,
+            variable_name="elevation",
+        )
         container.to_file(str(source))
         container.close()
         backed = NetCDF.read_file(str(source))
@@ -1371,9 +1371,9 @@ class TestCreateOverviewsPathlessGuard:
         """
         monkeypatch.chdir(tmp_path)
         dataset = Dataset.from_array(
-                      np.arange(4096, dtype="float32").reshape(64, 64),
-                      geo_ref=GeoReference(top_left_corner=(0.0, 64.0), cell_size=1.0, epsg=4326),
-                  )
+            np.arange(4096, dtype="float32").reshape(64, 64),
+            geo_ref=GeoReference(top_left_corner=(0.0, 64.0), cell_size=1.0, epsg=4326),
+        )
         view = None
         try:
             view = dataset.warped_view(3857)
@@ -1995,9 +1995,9 @@ class TestRecreateOverviewsContract:
             the empty count the same way and is never blocked by an access-mode error.
         """
         dataset = Dataset.from_array(
-                      np.ones((16, 16), dtype=np.float32),
-                      geo_ref=GeoReference(top_left_corner=(0.0, 16.0), cell_size=1.0, epsg=4326),
-                  )
+            np.ones((16, 16), dtype=np.float32),
+            geo_ref=GeoReference(top_left_corner=(0.0, 16.0), cell_size=1.0, epsg=4326),
+        )
         try:
             with pytest.warns(UserWarning, match=r"call create_overviews\(\) first"):
                 dataset.recreate_overviews()
@@ -2720,10 +2720,10 @@ class TestGetOverviewDataset:
             `nan` sentinel that masking and statistics would then honour.
         """
         dataset = Dataset.from_array(
-                      np.stack([np.zeros((32, 32), dtype="float32")] * 2),
-                      no_data_value=None,
-                      geo_ref=GeoReference(top_left_corner=(0.0, 32.0), cell_size=1.0, epsg=4326),
-                  )
+            np.stack([np.zeros((32, 32), dtype="float32")] * 2),
+            no_data_value=None,
+            geo_ref=GeoReference(top_left_corner=(0.0, 32.0), cell_size=1.0, epsg=4326),
+        )
         overview = None
         try:
             dataset.create_overviews(overview_levels=[2])
@@ -2833,14 +2833,14 @@ class TestGetOverviewDataset:
             leaves the level's dictionary empty instead of gaining keys of its own.
         """
         described = Dataset.from_array(
-                        np.zeros((32, 32), dtype="float32"),
-                        geo_ref=GeoReference(top_left_corner=(0.0, 32.0), cell_size=1.0, epsg=4326),
-                    )
+            np.zeros((32, 32), dtype="float32"),
+            geo_ref=GeoReference(top_left_corner=(0.0, 32.0), cell_size=1.0, epsg=4326),
+        )
         described.meta_data = {"units": "K", "source": "reanalysis"}
         bare = Dataset.from_array(
-                   np.zeros((32, 32), dtype="float32"),
-                   geo_ref=GeoReference(top_left_corner=(0.0, 32.0), cell_size=1.0, epsg=4326),
-               )
+            np.zeros((32, 32), dtype="float32"),
+            geo_ref=GeoReference(top_left_corner=(0.0, 32.0), cell_size=1.0, epsg=4326),
+        )
         described_level = bare_level = None
         try:
             described.create_overviews(overview_levels=[2])
@@ -2873,9 +2873,11 @@ class TestGetOverviewDataset:
             "+proj=geos +h=35785831 +lon_0=0 +sweep=y +ellps=GRS80 +units=m +no_defs"
         )
         dataset = Dataset.from_array(
-                      np.zeros((32, 32), dtype="float32"),
-                      geo_ref=GeoReference(top_left_corner=(0.0, 32.0), cell_size=1000.0, epsg=geostationary),
-                  )
+            np.zeros((32, 32), dtype="float32"),
+            geo_ref=GeoReference(
+                top_left_corner=(0.0, 32.0), cell_size=1000.0, epsg=geostationary
+            ),
+        )
         overview = None
         try:
             dataset.create_overviews(overview_levels=[2])
@@ -2959,9 +2961,11 @@ class TestGetOverviewDataset:
             [np.full((64, 64), float(index + 1), dtype="float32") for index in range(3)]
         )
         dataset = Dataset.from_array(
-                      arr,
-                      geo_ref=GeoReference(top_left_corner=(10.0, 80.0), cell_size=0.5, epsg=4326),
-                  )
+            arr,
+            geo_ref=GeoReference(
+                top_left_corner=(10.0, 80.0), cell_size=0.5, epsg=4326
+            ),
+        )
         overview = None
         try:
             dataset.create_overviews(overview_levels=[2, 4])
@@ -3012,9 +3016,9 @@ class TestGetOverviewDataset:
             `ValueError` its `gdal.Band` sibling raises, not an empty Dataset.
         """
         dataset = Dataset.from_array(
-                      np.zeros((8, 8), dtype="float32"),
-                      geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0, epsg=4326),
-                  )
+            np.zeros((8, 8), dtype="float32"),
+            geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0, epsg=4326),
+        )
         try:
             with pytest.raises(ValueError, match="no overviews"):
                 dataset.get_overview_dataset()
