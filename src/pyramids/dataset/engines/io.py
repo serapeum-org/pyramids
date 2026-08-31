@@ -1644,8 +1644,8 @@ class IO(_Engine["Dataset"]):
                 >>> path = os.path.join(tempfile.mkdtemp(), "r.tif")
                 >>> Dataset.from_array(
                 ...     np.arange(64, dtype="float32").reshape(8, 8),
-                ...     geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0)).to_file(path,
-                ... )
+                ...     geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0),
+                ... ).to_file(path)
                 >>> ds = Dataset.read_file(path)
                 >>> wins = [Window(0, 0, 4, 4), Window(4, 4, 4, 4)]
                 >>> blocks = ds.read_windows(wins)

@@ -720,7 +720,7 @@ class Bands(_Engine["Dataset"]):
             - Create `Dataset` consisting of 1 band, 10 rows, 10 columns, at lon/lat (0, 0):
 
               ```python
-              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import GeoReference
               >>> import numpy as np
               >>> import pandas as pd
               >>> arr = np.random.randint(1, 3, size=(10, 10))

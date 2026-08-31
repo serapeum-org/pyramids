@@ -1472,8 +1472,8 @@ class Analysis(_Engine["Dataset"]):
                 >>> path = os.path.join(tempfile.mkdtemp(), "m.tif")
                 >>> Dataset.from_array(
                 ...     np.ones((4, 4), "float32"),
-                ...     geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0)).to_file(path,
-                ... )
+                ...     geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0),
+                ... ).to_file(path)
                 >>> ds = Dataset.read_file(path, read_only=False)
                 >>> ds.create_mask_band()
                 >>> ds.mask_flags().per_dataset

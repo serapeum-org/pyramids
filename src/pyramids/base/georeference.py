@@ -54,7 +54,7 @@ class GeoReference:
         - A corner and a cell size, from which a north-up transform is built:
             ```python
             >>> GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0).resolve_geotransform()
-            (0.0, 1.0, 0, 3.0, 0, -1.0)
+            (0.0, 1.0, 0.0, 3.0, 0.0, -1.0)
 
             ```
     """
@@ -77,13 +77,17 @@ class GeoReference:
         if self.geo is not None:
             geo = self.geo
         elif self.top_left_corner is not None and self.cell_size is not None:
+            # Every element is built as a float, including the two rotation
+            # terms. Literal `0` ints satisfied the old untyped return but not
+            # the `GeoTransformTuple` annotation this type acquired when it
+            # moved to `base`, and they leaked into reprs as `(0.0, 1.0, 0, ...)`.
             geo = (
-                self.top_left_corner[0],
-                self.cell_size,
-                0,
-                self.top_left_corner[1],
-                0,
-                -self.cell_size,
+                float(self.top_left_corner[0]),
+                float(self.cell_size),
+                0.0,
+                float(self.top_left_corner[1]),
+                0.0,
+                -float(self.cell_size),
             )
         else:
             raise ValueError(

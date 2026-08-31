@@ -179,8 +179,10 @@ def write_dataset_to_zarr(
             >>> arr = np.arange(16, dtype=np.float32).reshape(4, 4)  # doctest: +SKIP
             >>> ds = Dataset.from_array(
             ...     arr,
-            ...     geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326)  # doctest: +SKIP
-            ... )
+            ...     geo_ref=GeoReference(
+            ...         top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326
+            ...     ),
+            ... )  # doctest: +SKIP
             >>> store = Path(tempfile.mkdtemp()) / "ds.zarr"  # doctest: +SKIP
             >>> write_dataset_to_zarr(ds, str(store)) is None  # doctest: +SKIP
             True
@@ -483,8 +485,10 @@ def read_dataset_from_zarr(
             >>> arr = np.arange(16, dtype=np.float32).reshape(4, 4)  # doctest: +SKIP
             >>> src = Dataset.from_array(
             ...     arr,
-            ...     geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326)  # doctest: +SKIP
-            ... )
+            ...     geo_ref=GeoReference(
+            ...         top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326
+            ...     ),
+            ... )  # doctest: +SKIP
             >>> store = Path(tempfile.mkdtemp()) / "ds.zarr"  # doctest: +SKIP
             >>> write_dataset_to_zarr(src, str(store))  # doctest: +SKIP
             >>> recovered = read_dataset_from_zarr(str(store))  # doctest: +SKIP

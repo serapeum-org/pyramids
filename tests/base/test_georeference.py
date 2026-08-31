@@ -122,7 +122,10 @@ class TestResolveGeotransform:
         built = GeoReference(
             top_left_corner=(10.0, 50.0), cell_size=0.25
         ).resolve_geotransform()
-        assert built == (10.0, 0.25, 0, 50.0, 0, -0.25), f"got {built}"
+        assert built == (10.0, 0.25, 0.0, 50.0, 0.0, -0.25), f"got {built}"
+        assert all(isinstance(term, float) for term in built), (
+            f"every term must be a float to satisfy GeoTransformTuple: {built}"
+        )
 
     def test_geo_takes_precedence_over_corner_and_cell_size(self):
         """When both forms are given, `geo` wins.
