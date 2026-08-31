@@ -464,6 +464,24 @@ _AXIS_VARIABLE_NAMES = frozenset(
 _IDENTITY_GEO = (0.0, 1.0, 0.0, 0.0, 0.0, -1.0)
 
 
+def _resolves_to_gtiff(path: str | Path | None) -> bool:
+    """Whether a destination path selects the GTiff driver.
+
+    The sparse / tiled / BigTIFF creation options and the unwritten-block
+    no-data guarantee are GTiff-specific. Now that the driver comes from the
+    extension rather than an explicit argument, "a path was given" no longer
+    implies GTiff — a `.nc` destination really is netCDF — so the two have to
+    be asked separately.
+
+    Args:
+        path: The destination, or `None` for an in-memory raster.
+
+    Returns:
+        bool: `True` only for a path whose extension resolves to GTiff.
+    """
+    return path is not None and resolve_output_driver(path) == "GTiff"
+
+
 def _crs_wkt_from_epsg(epsg: str | int | None) -> str:
     """WKT for an EPSG code, or an empty string when the CRS is deliberately unset.
 
@@ -3584,18 +3602,25 @@ class Dataset(RasterBase):
             )
         driver = resolve_output_driver(path)
         if path is None:
-            return gdal.GetDriverByName(driver).Create("", cols, rows, bands, dtype)
-        # LZW is a lossless compression method achieve the highest compression but with a lot
-        # of computations. Callers that need tiled / sparse / BigTIFF
-        # output (e.g. create_empty) pass their own options.
-        creation_options = (
-            (["COMPRESS=LZW"] if driver == "GTiff" else [])
-            if options is None
-            else options
-        )
-        return gdal.GetDriverByName(driver).Create(
-            str(path), cols, rows, bands, dtype, creation_options
-        )
+            dataset = gdal.GetDriverByName(driver).Create(
+                "", cols, rows, bands, dtype
+            )
+        else:
+            if options is not None:
+                # Callers that need tiled / sparse / BigTIFF output (e.g.
+                # create_empty) pass their own options.
+                creation_options = options
+            elif driver == "GTiff":
+                # LZW is lossless and compresses well, at the cost of more
+                # computation. GTiff-specific, so other drivers get nothing
+                # rather than an option they would reject.
+                creation_options = ["COMPRESS=LZW"]
+            else:
+                creation_options = []
+            dataset = gdal.GetDriverByName(driver).Create(
+                str(path), cols, rows, bands, dtype, creation_options
+            )
+        return dataset
 
     @classmethod
     def _build_dataset(
@@ -3695,8 +3720,8 @@ class Dataset(RasterBase):
                 Number of columns.
             dtype (str):
                 Data type.
-            bands (int|None):
-                Number of bands to create in the output raster.
+            bands (int):
+                Number of bands to create in the output raster. Required.
             geo_ref (GeoReference):
                 How the array maps to space — an affine ``geo`` transform, or a
                 ``top_left_corner`` + ``cell_size``, plus the ``epsg``. Required;
@@ -3895,22 +3920,23 @@ class Dataset(RasterBase):
         """
         # The old "GTiff without a path" guard is gone: that combination is now
         # unrepresentable, because the driver comes from the path.
-        # Creation options apply only to the disk/GTiff driver (path given); the
-        # MEM driver takes none. Reject explicit options that would be dropped
+        # Creation options apply only to a disk driver (path given); the MEM
+        # driver takes none. Reject explicit options that would be dropped
         # rather than silently ignoring them.
         if options is not None and path is None:
             raise ValueError(
                 "create_empty received `options` but no `path`: GDAL creation "
-                "options apply only to the disk/GTiff driver. Pass a `path`, or drop "
+                "options apply only to a disk driver. Pass a `path`, or drop "
                 "`options` for the in-memory MEM raster."
             )
-        # Only the disk/GTiff path is sparse, where a missing sentinel makes
-        # never-written blocks read back as 0 instead of no-data. The MEM driver
-        # (path is None) is a dense in-RAM buffer where a sentinel-free raster is
-        # an ordinary, unsurprising choice — don't warn there.
-        if no_data_value is None and path is not None:
+        # Only a sparse GTiff can read back 0 instead of no-data for a block
+        # that was never written, so the warning is specific to that target.
+        # The MEM driver (path is None) is a dense in-RAM buffer, and the other
+        # disk drivers are not sparse either — warning about unwritten sparse
+        # blocks on a netCDF would state a reason that does not apply to it.
+        if no_data_value is None and _resolves_to_gtiff(path):
             warnings.warn(
-                "create_empty(no_data_value=None) on a disk/GTiff target stamps no "
+                "create_empty(no_data_value=None) on a GTiff target stamps no "
                 "no-data sentinel, so unwritten sparse blocks read back as 0, not "
                 "no-data. Pass a no_data_value to keep the 'unwritten == no-data' "
                 "guarantee.",
@@ -3940,11 +3966,7 @@ class Dataset(RasterBase):
         geo = geo_ref.resolve_geotransform()
         # The tiled / sparse / BigTIFF defaults are GTiff-specific, so apply them
         # only when the path actually resolves to GTiff.
-        if (
-            options is None
-            and path is not None
-            and resolve_output_driver(path) == "GTiff"
-        ):
+        if options is None and _resolves_to_gtiff(path):
             options = list(OUT_OF_CORE_CREATION_OPTIONS)
         return cls._build_dataset(
             cols,
@@ -4011,7 +4033,7 @@ class Dataset(RasterBase):
 
         Raises:
             ValueError: ``options`` is given without a ``path`` (creation
-                options apply only to the disk/GTiff driver).
+                options apply only to a disk driver).
 
         Examples:
             - Allocate an empty raster shaped like an existing one, with a
@@ -4059,7 +4081,7 @@ class Dataset(RasterBase):
         if options is not None and path is None:
             raise ValueError(
                 "empty_like received `options` but no `path`: GDAL creation options "
-                "apply only to the disk/GTiff driver. Pass a `path`, or drop "
+                "apply only to a disk driver. Pass a `path`, or drop "
                 "`options` for the in-memory MEM raster."
             )
         gdal_dtype = (
@@ -4077,12 +4099,13 @@ class Dataset(RasterBase):
                 nodata = list(template_nd)
             else:
                 nodata = template_nd[0]
-        # Warn only for the disk/GTiff target (path given), where a missing
-        # sentinel makes unwritten sparse blocks read back as 0. An in-RAM MEM
-        # result (no path) is dense and a sentinel-free raster is unsurprising.
-        if nodata is None and path is not None:
+        # Warn only for a GTiff target, the only one whose unwritten sparse
+        # blocks read back as 0 when no sentinel is stamped. An in-RAM MEM
+        # result (no path) is dense, and the other disk drivers are not sparse,
+        # so the stated reason would not apply to them.
+        if nodata is None and _resolves_to_gtiff(path):
             warnings.warn(
-                "empty_like produced a disk/GTiff raster with no no-data sentinel "
+                "empty_like produced a GTiff raster with no no-data sentinel "
                 "(no_data_value resolved to None, explicitly or inherited from a "
                 "template with no no-data), so unwritten sparse blocks read back as "
                 "0, not no-data. Pass no_data_value to keep the 'unwritten == "
@@ -4095,11 +4118,7 @@ class Dataset(RasterBase):
         # Hardcoding "GTiff for any path" was harmless while the driver was
         # passed down explicitly; now that it comes from the extension, a `.nc`
         # destination really is netCDF and must not be handed GTiff options.
-        if (
-            options is None
-            and path is not None
-            and resolve_output_driver(path) == "GTiff"
-        ):
+        if options is None and _resolves_to_gtiff(path):
             options = list(OUT_OF_CORE_CREATION_OPTIONS)
         return cls._build_dataset(
             template.columns,
@@ -4457,22 +4476,12 @@ class Dataset(RasterBase):
             rows = int(arr.shape[1])
             cols = int(arr.shape[2])
 
-        # Kept as the shared `_crs_wkt_from_epsg` helper; see its docstring.
-        # Keep the exact `sr_from_epsg` path for an EPSG int/numeric string; carry
-        # a no-EPSG CRS (e.g. geostationary) through as a WKT string so rebuilds
-        # preserve it instead of crashing on `int(None)` (#706).
-        if not epsg:
-            # No CRS at all (`None`/""), e.g. rebuilding from a source that is
-            # itself ungeoreferenced. Propagate that rather than stamping a
-            # default: an unprojected result must not claim a projection
-            # (ARC-26). `_build_dataset` calls SetProjection(""), which GDAL
-            # treats as clearing the projection.
-            crs_wkt = ""
-        else:
-            try:
-                crs_wkt = sr_from_epsg(int(epsg)).ExportToWkt()
-            except (TypeError, ValueError):
-                crs_wkt = sr_from_user_input(epsg).ExportToWkt()
+        # The shared helper owns the CRS rules — the `sr_from_epsg` path for an
+        # EPSG int/numeric string, the `sr_from_user_input` fallback that carries
+        # a no-EPSG CRS such as geostationary through as WKT (#706), and the
+        # empty-string result that leaves a deliberately ungeoreferenced raster
+        # unprojected rather than stamping a default (ARC-26).
+        crs_wkt = _crs_wkt_from_epsg(epsg)
 
         return cls._build_dataset(
             cols,
@@ -4703,9 +4712,12 @@ class Dataset(RasterBase):
             resolved_nd = no_data_value
 
         if path is not None and not str(path).lower().endswith(".tif"):
-            # TypeError to match ``_create_dataset`` (used by every other
-            # factory: ``from_array``, ``dataset_like`` etc.) — keeping
-            # one convention across the public surface.
+            # A deliberate `from_band_files`-only restriction, not a shared
+            # convention: `_create_dataset` no longer raises this TypeError, so
+            # the other factories now accept any catalogued, creatable extension
+            # (`from_array(path="out.nc")` writes a netCDF). Band stacking is
+            # only exercised against GTiff, so it keeps the narrower contract
+            # rather than silently widening to formats it has never been run on.
             raise TypeError("the path to save the stacked raster should end with .tif")
 
         if not align:

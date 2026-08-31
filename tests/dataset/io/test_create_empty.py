@@ -30,11 +30,12 @@ class TestCreateEmpty:
         """An unwritten MEM raster has the configured shape and no-data metadata.
 
         Test scenario:
-            ``create_empty(4, 5, driver_type="MEM")`` allocates a 1-band 4x5 raster
-            whose cells are untouched. Shape and band count match the request and the
-            no-data sentinel is stamped on the band metadata. (This asserts the
-            *metadata* only — see ``test_mem_unwritten_cells_read_as_zero`` for the
-            distinct cell-contents behaviour of the MEM driver.)
+            ``create_empty(4, 5)`` with no ``path`` allocates a 1-band 4x5 MEM
+            raster whose cells are untouched. Shape and band count match the
+            request and the no-data sentinel is stamped on the band metadata.
+            (This asserts the *metadata* only — see
+            ``test_mem_unwritten_cells_read_as_zero`` for the distinct
+            cell-contents behaviour of the MEM driver.)
         """
         ds = Dataset.create_empty(4, 5, dtype="float32", no_data_value=-9999.0)
         assert (ds.rows, ds.columns, ds.band_count) == (
@@ -290,12 +291,58 @@ class TestCreateEmpty:
         """Passing `options` with no `path` (MEM target) raises instead of dropping them.
 
         Test scenario:
-            GDAL creation options apply only to the disk/GTiff driver; the MEM driver
-            takes none. Supplying `options` with `driver_type="MEM"` (no path) must
-            raise rather than silently ignore the list.
+            GDAL creation options apply only to a disk driver; the MEM driver takes
+            none. Omitting `path` is what selects MEM, so supplying `options`
+            alongside must raise rather than silently ignore the list.
         """
-        with pytest.raises(ValueError, match="apply only to the disk/GTiff driver"):
+        with pytest.raises(ValueError, match="apply only to a disk driver"):
             Dataset.create_empty(4, 4, options=["TILED=YES"])
+
+    def test_a_non_gtiff_disk_target_gets_no_gtiff_creation_options(self, tmp_path):
+        """A `.nc` destination is built without the GTiff-only defaults.
+
+        Args:
+            tmp_path: Temporary directory fixture.
+
+        Test scenario:
+            The tiled / sparse / BigTIFF defaults are GTiff creation options.
+            While the driver was passed down explicitly, "a path was given"
+            implied GTiff and gating on it was harmless; now the extension
+            decides, so a `.nc` path really is netCDF and handing it TILED /
+            SPARSE_OK / BIGTIFF would be wrong. Nothing pinned this.
+        """
+        out = tmp_path / "empty.nc"
+        ds = Dataset.create_empty(4, 4, dtype="float32", path=out)
+        assert ds.raster.GetDriver().ShortName == "netCDF", (
+            f"expected netCDF, got {ds.raster.GetDriver().ShortName}"
+        )
+        ds.close()
+        assert out.exists() and out.stat().st_size > 0, "the file must be written"
+
+    def test_a_non_gtiff_disk_target_does_not_warn_about_sparse_blocks(
+        self, tmp_path, recwarn
+    ):
+        """`no_data_value=None` on a `.nc` target does not cite sparse GTiff blocks.
+
+        Args:
+            tmp_path: Temporary directory fixture.
+            recwarn: Pytest's warning recorder.
+
+        Test scenario:
+            The warning explains that unwritten *sparse* blocks read back as 0,
+            which is true only of a sparse GTiff. Firing it for netCDF stated a
+            reason that does not apply to the file being written.
+        """
+        Dataset.create_empty(
+            4, 4, dtype="float32", no_data_value=None, path=tmp_path / "e.nc"
+        )
+        sentinel_warnings = [
+            w for w in recwarn if issubclass(w.category, NoDataSentinelWarning)
+        ]
+        assert not sentinel_warnings, (
+            f"a netCDF target must not warn about sparse blocks: "
+            f"{[str(w.message) for w in sentinel_warnings]}"
+        )
 
     def test_sparse_allocation_is_small_on_disk(self, tmp_path: Path):
         """A large empty sparse GTiff costs almost no disk before any write.
