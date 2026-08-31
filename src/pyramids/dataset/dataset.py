@@ -4401,7 +4401,11 @@ class Dataset(RasterBase):
             path (str, optional):
                 Destination. `None` (default) builds the raster in memory;
                 otherwise the extension selects the driver (``.tif`` -> GTiff,
-                ``.nc`` -> netCDF, …).
+                ``.nc`` -> netCDF, …). A ``.nc`` destination here writes a
+                *classic* single-variable netCDF through the plain GDAL raster
+                API; for a multi-variable, CF-attributed store use
+                :meth:`pyramids.netcdf.NetCDF.from_array`, which goes through
+                the multidimensional path.
 
         Returns:
             Dataset:

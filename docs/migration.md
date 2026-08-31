@@ -205,12 +205,44 @@ raises `TypeError` — and because `NetCDF.from_array` now declares its real par
 **`driver_type` removed from `create_from_array` and `create_empty`.** `path` alone decides memory-vs-disk, and
 the extension names the format, so the parameter could only agree with `path` or contradict it. `path=None`
 gives an in-memory raster; `path="out.tif"` a GTiff; `path="out.nc"` a netCDF — the last of which used to be
-rejected outright. Creation `options` still require a `path`, which is the invariant the old
-`driver_type="GTiff"` guard was really enforcing.
+rejected on the *default* `driver_type="MEM"` path (promoted to GTiff, then refused by the `.tif` suffix check);
+`create_from_array(arr, driver_type="netcdf", path="out.nc")` did work. Creation `options` still require a
+`path`, which is the invariant the old `driver_type="GTiff"` guard was really enforcing.
 
 Formats that GDAL can only write by copy (`.png`, `.jp2`) now raise `FileFormatNotSupportedError` naming the
 extension and the driver, instead of failing inside GDAL. An extension the driver catalog does not know still
 raises `DriverNotExistError`.
+
+**You can no longer name a driver whose extension the catalog does not list.** This is the one capability the
+`driver_type` removal costs. On `main`, `driver_type="EHdr", path="out.bil"` worked; now `.bil` raises
+`DriverNotExistError` and there is no escape hatch. If you need a format the catalog does not carry, write a
+GTiff (or build in memory) and convert, or open an issue asking for the extension to be added. Sibling spellings
+of a catalogued format do resolve: `.tiff` as well as `.tif`, `.jpg` as well as `.jpeg`, `.j2k` as well as
+`.jp2`.
+
+**`Dataset.create`'s positional order changed, and its CRS handling widened.** `cell_size` is gone from slot 0,
+so `rows` and `columns` shift up two — but `geo_ref` is required and keyword-only, so a ported positional call
+fails loudly with `TypeError` rather than silently misreading its arguments. Separately, `create` used to take
+`epsg: int` straight through `sr_from_epsg`; it now shares the helper the other constructors use, so
+`GeoReference(epsg=None)` yields a raster with no CRS, and non-EPSG CRS strings are accepted.
+
+**`create_empty` is the only constructor where `geo_ref` is optional.** A header-only allocation often does not
+care where it sits, so omitting `geo_ref` — or passing one that carries no transform at all, such as
+`GeoReference(epsg=3857)` — keeps the identity transform. A *partially* specified reference is not covered by
+that convenience: a `top_left_corner` without a `cell_size` (or the reverse) raises, exactly as it does in
+`from_array` and `create`, rather than silently discarding the half you supplied.
+
+**`RasterLike` and `RasterBase` changed shape.** `create_from_array` is `from_array` on the
+`pyramids.base.protocols.RasterLike` protocol and on the `RasterBase` ABC; `bands_values` is gone, and
+`variable_name` moved down to `NetCDF`, where it actually applies. If you subclass `RasterBase`, rename your
+override and adopt the new signature. If you annotate against `RasterLike`, note that this one is **silent** —
+structural typing simply stops matching, so a stale implementation fails a type check rather than raising.
+
+**`pyramids.netcdf.array_options.GeoTransform` is gone**, with no re-export. It was a local alias for the plain
+6-tuple, and `pyramids.dataset.GeoTransform` is a richer `NamedTuple` of the same shape but a different type, so
+re-exporting that under the old name would have silently changed what the name meant. If you imported the alias
+for annotation, use `pyramids.base.georeference.GeoTransformTuple` (the structural 6-tuple) or the
+`pyramids.dataset.GeoTransform` NamedTuple — whichever you actually meant.
 
 **`NetCDF.from_array` returns a `Container`.** It always did; the annotation said `NetCDF`. `Container` adds no
 public API over `NetCDF`, so nothing changes at runtime — the type is just honest now.
