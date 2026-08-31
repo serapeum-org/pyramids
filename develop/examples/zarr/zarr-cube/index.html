@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -7031,13 +7031,13 @@ grid, one per timestep, that we'll then write, extend, and reduce.</p>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [1]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-1">
@@ -7055,7 +7055,7 @@ grid, one per timestep, that we'll then write, extend, and reduce.</p>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span><span class="p">,</span> <span class="n">GeoReference</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset.collection</span><span class="w"> </span><span class="kn">import</span> <span class="n">DatasetCollection</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.plot</span><span class="w"> </span><span class="kn">import</span> <span class="n">ColorBar</span>
 
@@ -7085,7 +7085,7 @@ from pathlib import Path
 
 import numpy as np
 
-from pyramids.dataset import Dataset
+from pyramids.dataset import Dataset, GeoReference
 from pyramids.dataset.collection import DatasetCollection
 from pyramids.plot import ColorBar
 
@@ -7113,6 +7113,20 @@ print("step files:", [p.name for p in (jan + feb + mar)])</div>
 </div>
 </div>
 </div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>workspace: /tmp/pyramids-zarr-cube-06gawu_q
+step files: ['jan.tif', 'feb.tif', 'mar.tif']
+</pre>
+</div>
+</div>
+</div>
+</div>
 </div>
 </div>
 <div class="jp-Cell jp-MarkdownCell jp-Notebook-cell">
@@ -7125,13 +7139,13 @@ print("step files:", [p.name for p in (jan + feb + mar)])</div>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [2]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-2">
@@ -7167,6 +7181,21 @@ print("epsg      :", col.base.epsg)</div>
 </div>
 </div>
 </div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>timesteps : 1
+data shape: (1, 1, 24, 24) Array
+epsg      : 4326
+</pre>
+</div>
+</div>
+</div>
+</div>
 </div>
 </div>
 <div class="jp-Cell jp-MarkdownCell jp-Notebook-cell">
@@ -7180,13 +7209,13 @@ dimension. The store is resized in place; existing chunks are untouched.</p>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [3]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-3">
@@ -7240,6 +7269,21 @@ print("per-step mean:", per_step_mean.tolist())</div>
 </div>
 </div>
 </div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>timesteps : 3
+data shape: (3, 1, 24, 24)
+per-step mean: [10.0, 20.0, 30.0]
+</pre>
+</div>
+</div>
+</div>
+</div>
 </div>
 </div>
 <div class="jp-Cell jp-MarkdownCell jp-Notebook-cell">
@@ -7254,13 +7298,13 @@ the other timesteps.</p>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [4]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-4">
@@ -7302,6 +7346,19 @@ assert col.time_length == 3, "region writes must NOT resize the cube"</div>
 </div>
 </div>
 </div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>per-step mean after fix: [10.0, 20.0, 35.0]
+</pre>
+</div>
+</div>
+</div>
+</div>
 </div>
 </div>
 <div class="jp-Cell jp-MarkdownCell jp-Notebook-cell">
@@ -7315,13 +7372,13 @@ they need:</p>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [5]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-5">
@@ -7349,14 +7406,28 @@ print("time-max  shape:", time_max.shape, "value:", float(time_max.max()))</div>
 </div>
 </div>
 </div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>time-mean shape: (1, 24, 24) value: 21.666667938232422
+time-max  shape: (1, 24, 24) value: 35.0
+</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [6]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-6">
@@ -7396,6 +7467,24 @@ col.plot(
     colorbar=ColorBar(label="mm"),
     cmap="Blues",
 )</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child jp-OutputArea-executeResult">
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[6]:</div>
+<div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
+<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7fef844d3cb0&gt;</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedImage jp-OutputArea-output" tabindex="0">
+<img alt="No description has been provided for this image" class="" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAa4AAAGGCAYAAAAjCmXBAAAAOnRFWHRTb2Z0d2FyZQBNYXRwbG90bGliIHZlcnNpb24zLjExLjEsIGh0dHBzOi8vbWF0cGxvdGxpYi5vcmcvctoD+AAAAAlwSFlzAAAPYQAAD2EBqD+naQAAF1dJREFUeJzt3XuMXGX5B/BnFvZC03YLrbiWFqSkVlqKQAhCCwhtSlCkQATkYgCxYGMFJDGREAqKIVCiEEkgFEQrl4gQFUFCEBSJJhJELmoD5daGlm2xQNutlrKse35/1N0fS7t0puzs7LPz+TTnn5kz7zwz7O6X57zvOadUFEURAJBEQ60LAIBKCC4AUhFcAKQiuABIRXABkIrgAiAVwQVAKoILgFQEFwCpCK468+ijj0apVIpzzjmn7Nc8++yzUSqV4sQTT6xaXdVSjdp/+tOfxvTp06O5ubni77Kc2j5qzd/85jejubk5Vq5cuUOvr4U///nPUSqV4oYbbqh1KSQguKAC9913X5x77rnxz3/+Mzo7O2tdzlZefPHFWLx4ccybNy8mTpxY63LKdvjhh8esWbPiyiuvjA0bNtS6HIY4wTXMPPHEE1EqleLkk0+udSlDwgEHHBBFUcR99903IOPddtttERFx9dVXx3/+858oiiKWLFkyIGMPhIULF0Z3d3d85zvfqXUpFbv00kvjrbfeih/+8Ie1LoUhTnBBBZYtWxYREfPnz48RI0bUuJq+Vq9eHb/61a/iqKOOij333LPW5VTs6KOPjgkTJsStt94a7733Xq3LYQgTXFCBd955JyIiRo4cWeNKtvaTn/wkurq64swzz6x1KTukoaEhTjvttFizZk088MADtS6HIUxw9eP9ixja29vj7LPPjra2thgxYkQcfPDBfX6xfvzjH8eBBx4YI0aMiN133z3mz58f//73v7c57s9//vM4+uijY9ddd43m5uaYNGlSLFiwIFatWvWhNbz55psxf/78GD9+fDQ3N8fkyZPjqquuiv/+97+9+8+bNy8OO+ywiIj45S9/GaVSqXf71re+tdX45YzZn3vvvTdKpVKcdtpp/e7zjW98I0qlUixevHi7473/s65evTrOO++8mDBhQuy8887xgx/8oHe/v/71r7FgwYLYf//9Y9SoUTFy5Mg48MAD45prrtnmnFN/Cx0q/W5PPPHEKJVKvf+dGhsbe7/bFStW7FBtA+3BBx+MiC2dywcN9M9ztX4/emr/7W9/+5G/D4axgm165JFHiogoPv/5zxcTJkwoIqLP1tDQUDzyyCPFBRdcsNVzEVGccsopW415/vnnb3PfiCjGjRtXPPfcc9us4Qtf+EKx9957b/N1F154Ye/+X/va1/od/6KLLtqhMYuiKJ555pkiIooTTjih97Gurq5izz33LBobG4v29vatPmtHR0cxatSoYuzYscWmTZvK/r6PPfbYYo899uhTz6JFi4qiKIp169b1+/kiopg1a1bR1dW13dp35Hs44YQT+n3f5cuXD2ht/T3+YTZt2lQ0NTUV48aN+9Dvd6B+nqvx+1EURbF27doiIopJkyaV/dmpP4KrHz2/mBFRHHTQQcVjjz1WdHR0FK+99lpx+umnFxFRtLW1FS0tLcW1115bvPbaa0VHR0dxzz33FLvssktRKpWKpUuX9o53zz33FBFR7LzzzsUVV1xRvPLKK8WGDRuK3//+98V+++1XREQxbdq0oru7e5s1TJ8+vXj44YeLdevWFW+88UZx9dVXFxFRNDY2Fm+99Vbva/7yl78UEVF86Utf2u7nKnfM/v6QLlq0qIiI4nvf+95W73PjjTcWEVFceumlFX/fn/rUp4oHH3ywTw1FURTr168vZs6cWdx1113FsmXLinfeeadYu3Ztcf/99xef/vSni4go7rzzzj6v2V5wVfI9FEXRG6rvvfde1WrbkeD629/+VkREcfjhh2/z+YH+eR7o8d5v7NixRUQUHR0dZX9+6ovg6kfPL+aYMWOKN954o89zGzduLJqbm4uIKK699tqtXrtgwYIiIorbb7+997HZs2cXEVEsXLhwq/3XrFlTtLa2FhFRPP7441vV0NraWqxevXqr182aNauIiOJ3v/td72PlBlclY/b3h/Ttt98uRowYUYwfP36rP+TTpk0rGhsbi9dff32bdfRXV3Nzc/Hyyy+X9Zr3e/LJJ4uIKE4//fQ+j28vuCr5Hoqi/+AayNp2JLgeeuihIiKKuXPnbvP5gf55Hujx3m/y5MlFRBSvvPLKdj839ckc13bMmDEjdt999z6PjRw5snfV1rZOEp06dWpERJ8TQJ966qmI2DIP9UEf//jH46STToqILfMkHzRz5sxoa2vb6vH9998/IrbMVVVqIMbcdddd46yzzor29vY+y80ff/zxWLp0aXz5y1+O8ePHV1TXZz/72dhnn336fX7ZsmVx/vnnx5QpU2LEiBG980yHHHJIRES89tprFb3fQH63A11bJXrOfRo1atSH7jdQP8/VGi8iYvTo0RERsX79+v4/CHVt51oXMNR97GMf2+bjTU1N/T7f89z7J+Q7OjqiVCrFHnvssc3xek4W3dYva381NDc3R0SUtZiiWmNeeOGFsXjx4rjxxht7zx276aabIiLi4osvrriuvfbaq9/nnnjiiZg9e3Zs2rSp3302b95c0fsN1PdQjdoqMWbMmIjY8nP2YQbq57la40X8fwj3fCb4IB3XIBk9enQURRGvv/76Np/v+b/PbL+s++67b8yZMyf++Mc/xtKlS2PNmjXx61//Oo488sg46KCDKh6voaH/H8nLL788Nm3aFGeffXY8/fTTsX79+ujq6oqiKOLFF1/8KB/jI6t1bT1dz9tvv13196q2devWRUT/oQiCa5AcfPDBEbFlafAH/etf/+o91Naz345qbGyMiOr+3/0H9Sy1v+mmm+KWW26J9957b4e6re154YUXIiLixhtvjAMPPDBaW1tjp512iogYsCtj7Kha17bvvvtGU1NT7wnSWa1duzbeeuutmDRp0nYPe1K/BNcgOf/88yNiy6WCrrzyylixYkVs3LgxHnvssZgzZ06sX78+pk6dGkccccRHep+e+Zonn3wynn/++ejq6vrItW/PscceG1OmTIk77rgjFi9eHJMmTYq5c+cO+Pv0fLaFCxfGqlWr4t13342XX345Lr/88rj00ksH/P0y1dbS0hKHHHJIvPnmm/Hqq69W/f2q5cknn4yIiM997nM1roShTHANklNPPTXOPffc6OrqiiuuuCL23nvvGD16dMyaNSv+/ve/x2677RZ33XXXhx4qK8cee+wRBx10UKxduzamTp3ae6Lstk5AHiilUikuuOCC2LhxY7S3t8dFF130kT/HtvR8huuvvz4mTpwYLS0tMXny5Pj+97+/zUUvg2ko1PbFL34xIiIee+yxQXm/auipveezwLYIrkF02223xZ133hlHHnlktLa2RmNjY+y1114xf/78eOaZZ+KAAw4YkPe5995746STTopx48ZVJUC25eyzz47GxsZobW2Nr371q1V5jzPOOCMeeOCBmDFjRrS2tsbIkSPj0EMPjTvvvDOuuOKKqrxnptrOOeecaGxsjLvuumtQ3m+gdXd3x9133x1tbW1x/PHH17ochrBSURRFrYsgv0ceeSSOOeaYuPjii+O6666rdTl164wzzohf/OIXsXz58nQX2n300Udjzpw5sXDhwrjyyitrXQ5DmODiIymKIpYuXRpz586NFStWxPPPPx9TpkypdVl166WXXopp06bFvHnzek9LyGL27Nnx3HPPxSuvvBKtra21LochzKFCdthll10WDQ0NMX369Fi+fHmceeaZQqvGJk+eHF//+tfjtttuS3cH5D/84Q9x+eWXCy22S8fFDrvsssviqquuit122y3mzp0bN9xwgyXMQNUJLgBScagQgFQEFwCplHWR3e7u7mhvb49Ro0ZFqVSqdk0Adacoiti4cWOMHz9+0M6/zKqs4Gpvb++9ejkA1bNy5cqYMGFCrcsY0soKrp6VYmfd8vto2mVkVQsCqEed7/w7bj9/tpW5ZSgruHoODzbtMjKaRggugGoxHbN9DqQCkIrgAiAVwQVAKoILgFQEFwCpCC4AUhFcAKQiuABIRXABkIrgAiAVwQVAKoILgFQEFwCpCC4AUhFcAKQiuABIRXABkIrgAiAVwQVAKoILgFQEFwCpCC4AUhFcAKQiuABIRXABkIrgAiAVwQVAKoILgFQEFwCpCC4AUhFcAKQiuABIRXABkIrgAiAVwQVAKoILgFQEFwCpCC4AUhFcAKQiuABIZedaFwBA5TZv3hydnZ0VvaapqSlaWlqqVNHgEVwAyWzevDl2GTU2omtTRa9ra2uL5cuXpw8vwQWQTGdnZ0TXpmie9tWInZrKe9F/O2PN0p9GZ2en4AKgRnZuitJOzWXtWpSqXMsgElwAWZUatmzl7jtMCC6ArEqlLVu5+w4TggsgKx0XAKnouADIpYKOaxhdb0JwAWSl4wIgFXNcAKSi4wIgFR0XAKnouABIRccFQCqlUgXBpeMCoNYaSlu2cvcdJgQXQFYOFQKQisUZAKSi4wIgFR0XAKnouABIRccFQCo6LgBS0XEBkIsbSQKQiY4LgFRcqxCAVCzOACAVhwoBSEXHBUAqOi4AUtFxAZCKjguATEqlUpQEFwBZCC4Acin9byt332FCcAEkpeMCIBXBBUAqgguAVAQXALlYnAFAJjouAFLZcuGMcoOrurUMJsEFkFQpKui4hlFyCS6ApBwqBCAXizMASKWCjqvQcQFQa5UcKix/LmzoE1wASQkuAHIxxwVAJjouAFIRXACkIrgASEVwAZCLxRkAZKLjAiAVwQVAKoILgFzMcQGQiY4LgFQEFwCpVHIH5NIwOlYouACS0nEBkIvFGQBkouMCIBXBBUAqpdKWrdx9hwvBBZDUluAqt+OqcjGDSHABZFVBx2VxBgA1Z44LgFTMcQGQSkNDKRoaykukosz9MhBcAEnpuABIxRwXAKnouABIpV47roZaFwAAldBxASRVrx2X4AJIyhwXAKm4AzIAqei4AEjFHBcAqei4AEhFxwVAKjouAFLRcQGQizsgA5CJjguAVMxxAZCKjguAVHRcAKSi4wIgFcEFQCoOFQKQio4LgFR0XACkouMCIJVSVNBxVbWSwSW4AJJqKJWioczkKne/DAQXQFLmuABIxRwXAKk0lLZs5e47XAgugKxKFXRSgguAWjPHBUAqpf/9K3ff4UJwASRljguAVKwqBCAVc1wApOLKGQCkouMCIBVzXACkouMCIBVzXACkUoryr+Q0fGJLcAGkNdTnuLq7u+P222+PJUuWxPLly2PDhg19nm9paYk1a9ZUPK7gAkhqqF8549vf/nZcf/31cfDBB8cRRxwRI0eO7PN8Y2PjDo0ruACSGuod1y233BJ33HFHfOUrXxnQcQUXQGJDdc1FURTR3d0dp5566oCP3TDgIwIwKHo6rnK3wa5tzpw58dRTTw342IILIKmeOa5yt8F28803xzXXXBMPPvhgdHZ2Dti4DhUCJDXU57g+8YlPxJlnnhmnnHJKbN68OXbdddc+dbS0tMSqVasqHldwASQ11M/jWrRoUVxyySVxwAEHxJQpU6wqBKh3Q/3KGYsWLYqf/exncdZZZw3ouIILIKmhfK3Coihi06ZNcdpppw342IILIKlqz3G9+uqrcc8998SGDRtixowZcfzxx1dU2zHHHBNPP/10HHrooRW/94exqhAgqZ6Oq9ytEn/6059iv/32i2effTYiIubNmxfnnXdeRWPceuut8aMf/Sgefvjh6OrqqqyAD6HjAkiqmnNcCxYsiFNPPTWWLFkSERHHHXdcHHHEEXHuuefGYYcdtt3Xv/vuu/GZz3wmuru74+67746ddtopxo4du9WqwhUrVlRUV4TgAkirWnNcy5cvj3/84x9x3XXX9T52+OGHx6RJk+K+++4rK7gaGhri2GOP/dB9rCoEqDM7MsfV0dHR5/Hm5uZobm7u89iLL74YERH77LNPn8cnTZoUL730Ulnv19jY2NutDTRzXABJNVS4RURMnDgxWltbe7err756q3E3bdoUERGjRo3q8/jo0aN7n6slHRdAUjvSca1cuTJGjx7d+/gHu62I/w+s9evXx7hx43ofX7duXYwdO/ajlDwgdFwASZUquE5hT76NHj26z7at4Jo6dWpERLzwwgu9jxVFEcuWLet9rhzd3d2xZMmSOOqoo2KvvfaKMWPG9Nna2tp26HPruACSqtaNJMePHx8zZ86MxYsXx3HHHRelUil+85vfxOrVq+Pkk08uexw3kgSgj2qegHzzzTfH7NmzY+bMmfHJT34y7r///vjud78b06dPL3sMN5IEoI9qdVwREfvtt18sW7YsHnrooejo6IhLLrkk9t9//7JfX80bSQougKSqfa3CMWPGxOmnn175C6PvjSRnzJixQ2P0x+IMgKR6rpxR7jbY3EgSgD7ef35WOfsONjeSBKCPoXxbkwg3kgTgAxqigovs1uAeyG4kCUAfQ7njquaNJC3OAEiq3KtmVLJsfqC8/0aSA01wASS15ZJP5a0orMUclxtJAtDHUD5U6EaSAGylmlfO+KjcSBKArZT+96/cfQdTNW8kKbgAkhrKHVc1CS6ApAQXAKlU87YmQ5ngAkhKxwVAKkN5OXw1CS6ApCq5XUktbmtSLYILICmHCgHIpYJDhTW4OHzVCC6ApBqiVPbtSmpxW5NqEVwASdXr4gxXhwcgFR0XQFIWZwCQiuXwAKRSr3NcggsgqYaooOOyqhCAWtNxAZBKQ5S/NHw4LSEXXABJua0JAKmUovwrOQ2f2BJcAGlZDg9AOsMnjsonuACSsqoQgFQszgAgFcvhAUhFxwVAKpbDA5CKjguAVMxxAZCKjguAVMxxAZCKE5ABSKUhSmXfINKNJAGoOR0XAKmU/vev3H2HC8EFkJSOC4BUShXMcem4AKg5HRcAqQguAFKxOAOAVBpKW7Zy9x0uBBdAUjouAFIxxwVAKlsusltuxzV8CC6ApMxxAZCKOS4AUjHHBUAqbiQJQCoNUYqGMlsp9+MCoOZ0XADkUqfJJbgAkrKqEIBcKlhVOIxyS3ABZFWnRwoFF0BadZpcggsgKXNcAKTiyhkApFKnRwoFF0BadZpcggsgKXNcAKRijguAVOr0SKHgAkirTpNLcAEkZY4LgFTMcQGQSp0eKRRcAGnVaXIJLoCkzHEBkIo5LgBSqdMjhYILIK06TS7BBZCUOS4AUjHHBUAqdXqkUHABpFWnySW4AJIyxwVALhXMcQ2j3BJcAFnV6ZFCwQWQVp0ml+ACSMocFwCpOI8LgFTq9Eih4AJIq06TS3ABJGWOC4BUSlHBHFdVKxlcggsgqTo9Uii4ALKyqhCAZOqz5xJcAEnpuABIpT77LcEFkFa9dlwNtS4AACqh4wJIygnIAORSp5NcggsgqTrNLcEFkFW9Ls4QXABJmeMCIJc6PVYouACSqtPcElwAWZnjAiCZ8ue4hlPPJbgAkqrXjsslnwBIRccFkFS9dlyCCyAp53EBkIqOC4BUnMcFQC51mlyCCyApc1wApGKOC4BU6vRIoeACSKtOk0twASRljguAVDZu7Ch77mrjxo7qFjOIBBdAMk1NTdHW1haT955Y0eva2tqiqampSlUNHsEFkExLS0ssX748Ojs7K3pdU1NTtLS0VKmqwSO4ABJqaWkZFiG0I9zWBIBUBBcAqQguAFIRXACkIrgASEVwAZCK4AIgFcEFQCqCC4BUBBcAqQguAFIRXACkIrgASEVwAZCK4AIgFcEFQCqCC4BUBBcAqQguAFIRXACkIrgASEVwAZCK4AIgFcEFQCqCC4BUBBcAqQguAFIRXACkIrgASEVwAZCK4AIgFcEFQCqCC4BUBBcAqQguAFIRXACkIrgASEVwAZCK4AIglZ3L2akoioiI6Hzn31UtBqBe9fx97fl7S/9KRRnf0qpVq2LixImDUQ9AXVu5cmVMmDCh1mUMaWUFV3d3d7S3t8eoUaOiVCoNRl0AdaUoiti4cWOMHz8+GhrM4nyYsoILAIYKsQ5AKoILgFQEFwCpCC4AUhFcAKQiuABIRXABkMr/ASxCUXr20OidAAAAAElFTkSuQmCC"/>
 </div>
 </div>
 </div>
