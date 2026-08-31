@@ -39,7 +39,7 @@ from pyramids.base.crs import (
 )
 from pyramids.base.georeference import GeoReference
 from pyramids.base.remote import cloud_config_from_env, redact_credentials
-from pyramids.dataset._driver import resolve_output_driver
+from pyramids.dataset._driver import MEMORY_DRIVER, resolve_output_driver
 from pyramids.dataset._ogc_coverages import from_ogc_coverages as _from_ogc_coverages
 from pyramids.dataset._plot_helpers import nonnull_group_kwargs
 from pyramids.dataset._wcs import from_wcs as _from_wcs
@@ -4599,8 +4599,10 @@ class Dataset(RasterBase):
                 wins; if no source declares one, the output has none). Pass
                 an explicit value (including ``None`` for "no no-data
                 sentinel") to override.
-            path: Output ``.tif`` path. When ``None`` (default) the result
-                is an in-memory dataset.
+            path: Output path, whose extension selects the driver as it does
+                for every other factory (``.tif`` -> GTiff, ``.nc`` ->
+                netCDF, …). When ``None`` (default) the result is an
+                in-memory dataset.
 
         Returns:
             Dataset: A multi-band dataset with ``band_count == len(files)``
@@ -4608,11 +4610,14 @@ class Dataset(RasterBase):
 
         Raises:
             ValueError: ``files`` is empty, ``band_names`` length does not
-                match ``files``, an input has more than one band, or ``path``
-                does not end in ``.tif``.
+                match ``files``, or an input has more than one band.
             AlignmentError: ``align=False`` and the inputs do not share a
                 grid/CRS.
             CRSError: An input raster has no CRS.
+            DriverNotExistError: ``path`` has no extension, or one the driver
+                catalog does not know.
+            FileFormatNotSupportedError: ``path``'s extension maps to a
+                write-by-copy-only format.
 
         Examples:
             - Stack three per-band GeoTIFFs into one 3-band dataset; band
@@ -4732,15 +4737,6 @@ class Dataset(RasterBase):
         else:
             resolved_nd = no_data_value
 
-        if path is not None and not str(path).lower().endswith(".tif"):
-            # A deliberate `from_band_files`-only restriction, not a shared
-            # convention: `_create_dataset` no longer raises this TypeError, so
-            # the other factories now accept any catalogued, creatable extension
-            # (`from_array(path="out.nc")` writes a netCDF). Band stacking is
-            # only exercised against GTiff, so it keeps the narrower contract
-            # rather than silently widening to formats it has never been run on.
-            raise TypeError("the path to save the stacked raster should end with .tif")
-
         if not align:
             for p, ds in zip(resolved_paths[1:], datasets[1:]):
                 if not _same_grid(template, ds):
@@ -4815,11 +4811,18 @@ class Dataset(RasterBase):
                     f"gdal.BuildVRT could not stack {resolved_paths!r}"
                 )
             if path is not None:
-                dst = gdal.GetDriverByName("GTiff").CreateCopy(
-                    str(path), vrt, strict=1, options=["COMPRESS=LZW"]
+                # Resolve the driver from the extension like every other
+                # factory. Hardcoding GTiff here is what forced the `.tif`-only
+                # guard above: without it a `.nc` destination produced a GTiff
+                # carrying a netCDF name, a file whose extension lies about its
+                # contents. LZW is GTiff-specific, so it is applied only there.
+                driver = resolve_output_driver(path)
+                options = ["COMPRESS=LZW"] if driver == "GTiff" else []
+                dst = gdal.GetDriverByName(driver).CreateCopy(
+                    str(path), vrt, strict=1, options=options
                 )
             else:
-                dst = gdal.GetDriverByName("MEM").CreateCopy("", vrt, strict=1)
+                dst = gdal.GetDriverByName(MEMORY_DRIVER).CreateCopy("", vrt, strict=1)
             vrt = None
             # BuildVRT(separate=True) carries each source band's no-data through;
             # honour an explicit override (including ``None`` = drop it).

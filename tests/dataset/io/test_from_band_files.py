@@ -13,7 +13,12 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
-from pyramids.base._errors import AlignmentError, CRSError
+from pyramids.base._errors import (
+    AlignmentError,
+    CRSError,
+    DriverNotExistError,
+    FileFormatNotSupportedError,
+)
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.dataset.dataset import _derive_band_names, _same_grid
@@ -461,18 +466,67 @@ class TestFromBandFiles:
             4,
         ], "values changed on round-trip"
 
-    def test_path_without_tif_extension_raises(self, band_files):
-        """A non ``.tif`` output path is rejected with the same ``TypeError`` as ``_create_dataset``.
+    @pytest.mark.parametrize(
+        "filename, error",
+        [
+            ("out.png", FileFormatNotSupportedError),
+            ("out.zzz", DriverNotExistError),
+            ("out", DriverNotExistError),
+        ],
+        ids=["copy-only", "unknown-extension", "no-extension"],
+    )
+    def test_an_unwritable_path_raises_the_same_error_as_every_factory(
+        self, band_files, filename, error
+    ):
+        """`path` is resolved through the shared driver catalog.
 
         Args:
             band_files: The three source bands.
+            filename: The destination under test.
+            error: The expected exception type.
 
         Test scenario:
-            ``from_band_files(..., path="out.png")`` — expected: ``TypeError``
-            mentioning ``.tif`` (matches ``from_array`` / ``dataset_like``).
+            This used to be a `.tif`-only guard raising `TypeError`, justified
+            as matching `_create_dataset` -- which had itself stopped raising
+            that. The three cases now give the same errors any other factory
+            gives: a copy-only format, an extension the catalog does not know,
+            and no extension at all.
         """
-        with pytest.raises(TypeError, match=r"\.tif"):
-            Dataset.from_band_files(band_files, path="out.png")
+        with pytest.raises(error):
+            Dataset.from_band_files(band_files, path=filename)
+
+    @pytest.mark.parametrize(
+        "extension, driver",
+        [("tif", "GTiff"), ("nc", "netCDF"), ("img", "HFA")],
+    )
+    @pytest.mark.parametrize("align", [False, True], ids=["vrt-path", "aligned-path"])
+    def test_the_written_file_matches_the_extension(
+        self, band_files, tmp_path, extension, driver, align
+    ):
+        """The stacked raster is written in the format its extension names.
+
+        Args:
+            band_files: The three source bands.
+            tmp_path: Temporary directory fixture.
+            extension: The destination extension.
+            driver: The GDAL driver it must resolve to.
+            align: Selects which of the two internal write paths runs.
+
+        Test scenario:
+            The `BuildVRT` branch -- the one taken for same-grid, same-dtype
+            inputs -- hardcoded `GetDriverByName("GTiff").CreateCopy`, so any
+            non-`.tif` path would have produced a GTiff carrying a foreign
+            name: a file whose extension lies about its contents. That
+            hardcoding is what the old `.tif`-only guard was really protecting
+            against. Both write paths are exercised because only one had it.
+        """
+        out = tmp_path / f"stack.{extension}"
+        Dataset.from_band_files(band_files, path=str(out), align=align).close()
+        written = gdal.Open(str(out))
+        assert written is not None, f"{out} was not written"
+        assert written.GetDriver().ShortName == driver, (
+            f"{out.name} should be {driver}, got {written.GetDriver().ShortName}"
+        )
 
     def test_align_with_mixed_dtypes(self, tmp_path, band_files):
         """``align=True`` and heterogeneous dtypes compose: resample then promote.
