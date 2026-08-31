@@ -126,6 +126,7 @@ class TestCRSError:
                 cell_size=1000.0,
                 epsg=32636,  # different from 4326
             ),
+            no_data_value=-9999.0,
         )
         with pytest.raises(CRSError, match="not the same EPSG"):
             Dataset.from_features(fc, template=template)
