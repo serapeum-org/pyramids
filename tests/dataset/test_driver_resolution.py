@@ -236,8 +236,7 @@ class TestSiblingExtensionsAgree:
             return result
 
         assert outcome(canonical) == outcome(alias), (
-            f"{canonical} gives {outcome(canonical)} but {alias} gives "
-            f"{outcome(alias)}"
+            f"{canonical} gives {outcome(canonical)} but {alias} gives {outcome(alias)}"
         )
 
     def test_the_memory_row_is_not_reachable_by_extension(self):

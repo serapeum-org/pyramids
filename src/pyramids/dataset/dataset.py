@@ -3602,9 +3602,7 @@ class Dataset(RasterBase):
             )
         driver = resolve_output_driver(path)
         if path is None:
-            dataset = gdal.GetDriverByName(driver).Create(
-                "", cols, rows, bands, dtype
-            )
+            dataset = gdal.GetDriverByName(driver).Create("", cols, rows, bands, dtype)
         else:
             if options is not None:
                 # Callers that need tiled / sparse / BigTIFF output (e.g.
