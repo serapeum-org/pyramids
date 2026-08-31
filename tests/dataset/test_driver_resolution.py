@@ -51,11 +51,12 @@ class TestResolveOutputDriverFromExtension:
         "filename, expected",
         [
             ("out.tif", "GTiff"),
+            ("out.tiff", "GTiff"),
             ("out.nc", "netCDF"),
             ("out.vrt", "VRT"),
             ("out.img", "HFA"),
         ],
-        ids=["geotiff", "netcdf", "vrt", "erdas-imagine"],
+        ids=["geotiff", "geotiff-tiff-alias", "netcdf", "vrt", "erdas-imagine"],
     )
     def test_a_creatable_extension_resolves_to_its_gdal_driver(
         self, filename, expected
@@ -132,8 +133,14 @@ class TestResolveOutputDriverFailures:
 
     @pytest.mark.parametrize(
         "filename, driver",
-        [("out.png", "PNG"), ("out.jp2", "JP2OpenJPEG")],
-        ids=["png", "jp2"],
+        [
+            ("out.png", "PNG"),
+            ("out.jp2", "JP2OpenJPEG"),
+            ("out.j2k", "JP2OpenJPEG"),
+            ("out.jpeg", "JPEG"),
+            ("out.jpg", "JPEG"),
+        ],
+        ids=["png", "jp2", "jp2-j2k-alias", "jpeg", "jpeg-jpg-alias"],
     )
     def test_a_copy_only_format_raises_before_gdal(self, filename, driver):
         """A catalogued but `CreateCopy`-only format fails up front.
@@ -185,10 +192,71 @@ class TestResolveOutputDriverFailures:
 
         Test scenario:
             With `driver_type` gone the extension is the only signal, so a bare
-            name has to fail rather than silently defaulting to GTiff.
+            name has to fail rather than silently defaulting to GTiff. The
+            message must name the path rather than reporting an empty
+            extension, which is what the generic catalog lookup would say.
         """
-        with pytest.raises(DriverNotExistError):
+        with pytest.raises(DriverNotExistError) as excinfo:
             resolve_output_driver("out")
+        message = str(excinfo.value)
+        assert "no file extension" in message, f"unhelpful message: {message}"
+        assert "out" in message, f"the message must name the path: {message}"
+
+
+class TestSiblingExtensionsAgree:
+    """Two spellings of one format must resolve alike."""
+
+    @pytest.mark.parametrize(
+        "canonical, alias",
+        [("out.tif", "out.tiff"), ("out.jp2", "out.j2k"), ("out.jpeg", "out.jpg")],
+        ids=["tif-tiff", "jp2-j2k", "jpeg-jpg"],
+    )
+    def test_an_alias_behaves_exactly_like_its_canonical_spelling(
+        self, canonical, alias
+    ):
+        """An alias resolves to the same driver, or fails the same way.
+
+        Args:
+            canonical: The catalogued spelling.
+            alias: Another spelling GDAL reports for the same driver.
+
+        Test scenario:
+            `.tif` resolved while `.tiff` raised `DriverNotExistError`, and
+            `.jpeg` reported "cannot create" while `.jpg` reported "unknown
+            format" -- the same file format giving two different answers. The
+            premise of deriving the driver from the path is that the extension
+            names the format, and for these it did not.
+        """
+
+        def outcome(name):
+            try:
+                result = ("driver", resolve_output_driver(name))
+            except Exception as exc:
+                result = ("error", type(exc).__name__)
+            return result
+
+        assert outcome(canonical) == outcome(alias), (
+            f"{canonical} gives {outcome(canonical)} but {alias} gives "
+            f"{outcome(alias)}"
+        )
+
+    def test_the_memory_row_is_not_reachable_by_extension(self):
+        """The in-memory driver has a real YAML null, not the string "None".
+
+        Test scenario:
+            Unquoted `None` in YAML parses as the string `"None"`, which made
+            the MEM row reachable by extension lookup. It was harmless only
+            because the resolver lowercases the suffix, so `path="x.None"`
+            would have resolved to MEM -- a disk path building a raster that
+            writes nothing -- had that `.lower()` ever been dropped.
+        """
+        catalog = Catalog(raster_driver=True)
+        assert catalog.get_driver("memory")["extension"] is None, (
+            "the memory row's extension must be a real null"
+        )
+        for spelling in ("None", "none", "NONE"):
+            with pytest.raises(DriverNotExistError):
+                resolve_output_driver(f"out.{spelling}")
 
 
 class TestCatalogAgreesWithGdal:
@@ -201,7 +269,9 @@ class TestCatalogAgreesWithGdal:
             ("nc", True),
             ("vrt", True),
             ("img", True),
+            ("asc", False),
             ("png", False),
+            ("jpeg", False),
             ("jp2", False),
         ],
     )
@@ -218,12 +288,19 @@ class TestCatalogAgreesWithGdal:
             The flag decides whether a path is accepted or refused, so a wrong
             one either rejects a writable format or lets an unwritable one
             through to an opaque GDAL failure. Two entries (`hdf4`, `adrg`)
-            were wrong before #1075 for exactly this reason.
+            were wrong before #1075 for exactly this reason. Every catalogued,
+            resolver-reachable extension is covered, so the same drift cannot
+            recur unnoticed in the ones left out.
         """
         catalog = Catalog(raster_driver=True)
         entry = catalog.get_driver(catalog.get_driver_name_by_extension(extension))
         driver = gdal.GetDriverByName(entry["GDAL Name"])
-        assert driver is not None, f"{entry['GDAL Name']} missing from this GDAL build"
+        if driver is None:
+            # HFA and JP2OpenJPEG are optional GDAL components, absent from some
+            # builds (the win_arm64 vcpkg closure, source builds). The resolver
+            # never calls GetDriverByName -- the catalog answers first -- so
+            # failing here would fail for a reason the code does not depend on.
+            pytest.skip(f"{entry['GDAL Name']} is not in this GDAL build")
         real = driver.GetMetadata().get("DCAP_CREATE") == "YES"
         assert real == creatable, (
             f".{extension} -> {entry['GDAL Name']}: GDAL says Create={real}, "
@@ -231,4 +308,25 @@ class TestCatalogAgreesWithGdal:
         )
         assert bool(entry["Creation"]) == real, (
             f".{extension}: catalog says Creation={entry['Creation']}, GDAL says {real}"
+        )
+
+    def test_every_resolver_reachable_extension_is_covered_above(self):
+        """The parametrisation above lists every extension the resolver can reach.
+
+        Test scenario:
+            The agreement test is only as good as its list. This derives the
+            list from the catalog itself, so adding a driver row without a
+            matching case fails here rather than silently going unchecked --
+            which is how `asc` and `jpeg` came to be omitted.
+        """
+        catalog = Catalog(raster_driver=True)
+        reachable = {
+            value["extension"]
+            for value in catalog.drivers.values()
+            if value.get("extension") is not None
+        }
+        covered = {"tif", "nc", "vrt", "img", "asc", "png", "jpeg", "jp2"}
+        assert reachable == covered, (
+            f"catalog extensions {sorted(reachable)} != covered {sorted(covered)}; "
+            "add the new one to test_the_creation_flag_matches_the_real_driver_capability"
         )

@@ -5,7 +5,11 @@ memory:
   Copy: yes
   Geo-referencing: yes
   Build requirements: Built-in by default
-  extension: None
+  # A real YAML null. Unquoted `None` parses as the *string* "None", which would
+  # make this in-memory row reachable by extension lookup - `path="x.None"`
+  # resolving to MEM, i.e. a disk path silently building a raster that writes
+  # nothing. It was safe only because the resolver lowercases the suffix.
+  extension: null
 
 geotiff:
   GDAL Name: GTiff
@@ -14,7 +18,12 @@ geotiff:
   Copy: yes
   Geo-referencing: yes
   Build requirements: Built-in by default
+  # `extension` is the canonical spelling - what `get_extension` returns when
+  # building a filename. `aliases` are further spellings that resolve to the
+  # same driver; GDAL reports `tif tiff` for GTiff.
   extension: tif
+  aliases:
+    - tiff
 
 
 netcdf:
@@ -82,6 +91,8 @@ jpeg:
   Geo-referencing: yes
   Build requirements: internal libjpeg provided
   extension: jpeg
+  aliases:
+    - jpg
 
 pc raster:
   GDAL Name: PCRaster
@@ -183,6 +194,8 @@ jpeg2000:
   Geo-referencing: yes
   Build requirements: libopenjp2
   extension: jp2
+  aliases:
+    - j2k
 
 png:
   GDAL Name: PNG

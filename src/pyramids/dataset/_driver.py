@@ -21,10 +21,20 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pyramids.base._errors import FileFormatNotSupportedError
+from pyramids.base._errors import DriverNotExistError, FileFormatNotSupportedError
 from pyramids.base._utils import Catalog
 
 MEMORY_DRIVER = "MEM"
+
+# Built once at import. `Catalog.__init__` opens and parses the driver YAML, which
+# costs ~13 ms — and this module sits on the write path of every disk-backed
+# raster, so constructing one per call added that to each `to_file`-style
+# operation (twice for `create_empty` / `empty_like`, which resolve the driver
+# again to decide on the GTiff-only creation options). The catalog is read-only
+# after construction — it exposes lookups and no mutators — so a module-level
+# instance is safe, and it is the pattern the package already uses in
+# `abstract_dataset.CATALOG` and `feature._write._CATALOG`.
+_CATALOG = Catalog(raster_driver=True)
 
 
 def resolve_output_driver(path: str | Path | None) -> str:
@@ -41,7 +51,8 @@ def resolve_output_driver(path: str | Path | None) -> str:
 
     Raises:
         TypeError: `path` is neither a `str` nor a `Path`.
-        DriverNotExistError: The extension is not in the catalog.
+        DriverNotExistError: `path` has no extension at all, or one the
+            catalog does not know.
         FileFormatNotSupportedError: The format is write-by-copy only, so it
             cannot be built with `Create`.
 
@@ -81,11 +92,19 @@ raster in memory or as GTiff, then convert.
                 f"The path input should be string or Path type, given: {type(path)}"
             )
         extension = Path(path).suffix.lstrip(".").lower()
-        catalog = Catalog(raster_driver=True)
+        if not extension:
+            # Without a suffix there is nothing to resolve, and the generic
+            # "the given extension:  is not associated with any driver"
+            # message names an empty string. Say what is actually wrong.
+            raise DriverNotExistError(
+                f"'{path}' has no file extension, so the output format cannot "
+                "be determined. Give the path a suffix naming the format "
+                "(e.g. '.tif'), or pass path=None for an in-memory raster."
+            )
         # Raises DriverNotExistError when the extension is unknown, which is the
         # right error for "pyramids has never heard of this format".
-        key = catalog.get_driver_name_by_extension(extension)
-        entry = catalog.get_driver(key)
+        key = _CATALOG.get_driver_name_by_extension(extension)
+        entry = _CATALOG.get_driver(key)
         driver = str(entry["GDAL Name"])
         if not entry.get("Creation"):
             raise FileFormatNotSupportedError(

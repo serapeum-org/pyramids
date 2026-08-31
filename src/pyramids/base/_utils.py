@@ -616,18 +616,31 @@ class Catalog:
     def get_driver_name_by_extension(self, extension: str):
         """Get driver by extension.
 
+        Matches the driver's canonical `extension` or any of its `aliases` —
+        further spellings of the same format (`tiff` for GTiff, `jpg` for
+        JPEG). Without them, sibling spellings of one format resolved
+        differently: `.tif` worked while `.tiff` raised `DriverNotExistError`,
+        and `.jpeg` reported "cannot create" while `.jpg` reported "unknown
+        format".
+
         Args:
             extension (str): Extension of the file.
 
         Returns:
             str: Driver name.
+
+        Raises:
+            DriverNotExistError: No driver claims the extension.
         """
         try:
             key = next(
                 key
                 for key, value in self.drivers.items()
                 if value.get("extension") is not None
-                and value.get("extension") == extension
+                and (
+                    value.get("extension") == extension
+                    or extension in (value.get("aliases") or ())
+                )
             )
         except StopIteration:
             raise DriverNotExistError(
