@@ -57,10 +57,13 @@ Minimal example:
 
 ```python
 import numpy as np
-from pyramids.dataset import Dataset
+from pyramids.dataset import Dataset, GeoReference
 
 arr = np.random.rand(1, 512, 512).astype("float32")
-ds = Dataset.from_array(arr, geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.001, epsg=4326))
+ds = Dataset.from_array(
+    arr,
+    geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.001, epsg=4326),
+)
 ds.to_cog("scene.tif")
 ```
 

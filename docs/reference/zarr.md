@@ -14,10 +14,13 @@ tolerant: it opens GeoZarr stores written by other tools too.
 
 ```python
 import numpy as np
-from pyramids.dataset import Dataset
+from pyramids.dataset import Dataset, GeoReference
 
 arr = np.arange(2 * 8 * 8, dtype=np.float32).reshape(2, 8, 8)
-ds = Dataset.from_array(arr, geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0, epsg=4326))
+ds = Dataset.from_array(
+    arr,
+    geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0, epsg=4326),
+)
 ds.band_names = ["red", "nir"]
 ds.to_file("source.tif")
 
