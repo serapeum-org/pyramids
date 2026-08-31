@@ -292,8 +292,9 @@ class TestSiblingExtensionsAgree:
             so `None == None` would resolve a lookup for nothing to the
             in-memory driver, writing a file that writes nothing.
         """
+        catalog = Catalog(raster_driver=True)
         with pytest.raises(DriverNotExistError):
-            Catalog(raster_driver=True).get_driver_name_by_extension(empty)
+            catalog.get_driver_name_by_extension(empty)
 
     def test_a_row_with_only_aliases_is_still_reachable(self):
         """An entry carrying aliases but no canonical extension resolves.
