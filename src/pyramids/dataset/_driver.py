@@ -22,19 +22,18 @@ from __future__ import annotations
 from pathlib import Path
 
 from pyramids.base._errors import DriverNotExistError, FileFormatNotSupportedError
-from pyramids.base._utils import Catalog
+from pyramids.base._utils import get_catalog
 
 MEMORY_DRIVER = "MEM"
 
-# Built once at import. `Catalog.__init__` opens and parses the driver YAML, which
-# costs ~13 ms — and this module sits on the write path of every disk-backed
+# The shared catalog. `Catalog.__init__` opens and parses the driver YAML, which
+# costs ~17 ms — and this module sits on the write path of every disk-backed
 # raster, so constructing one per call added that to each `to_file`-style
 # operation (twice for `create_empty` / `empty_like`, which resolve the driver
-# again to decide on the GTiff-only creation options). The catalog is read-only
-# after construction — it exposes lookups and no mutators — so a module-level
-# instance is safe, and it is the pattern the package already uses in
-# `abstract_dataset.CATALOG` and `feature._write._CATALOG`.
-_CATALOG = Catalog(raster_driver=True)
+# again to decide on the GTiff-only creation options). `get_catalog` is cached,
+# so this instance is the same object `abstract_dataset.CATALOG` holds rather
+# than a third parse of a file already in memory.
+_CATALOG = get_catalog()
 
 
 def resolve_output_driver(path: str | Path | None, *, for_copy: bool = False) -> str:

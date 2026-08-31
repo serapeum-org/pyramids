@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Sequence
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, cast
 
@@ -583,6 +584,30 @@ def gdal_to_ogr_dtype(src: Dataset, band: int = 1):
             f"{DTYPE_CONVERSION_DF['gdal'].unique().tolist()}"
         )
     return int(matched)
+
+
+@lru_cache(maxsize=2)
+def get_catalog(raster_driver: bool = True) -> Catalog:
+    """Return the process-wide driver catalog, building it on first use.
+
+    `Catalog.__init__` opens and parses a YAML file, which costs ~17 ms. Three
+    modules need one, and building three meant parsing the raster table twice.
+    Cached rather than assigned at import so nothing pays the cost until a
+    driver is actually looked up.
+
+    The result is shared, and `Catalog` exposes no mutators -- but it holds the
+    plain dict `yaml.safe_load` returned, so a caller that reaches into
+    `.drivers` and edits it changes what every other consumer sees. Treat it as
+    read-only.
+
+    Args:
+        raster_driver: `True` (default) for the GDAL raster catalog, `False`
+            for the OGR vector one.
+
+    Returns:
+        Catalog: The shared instance for that driver family.
+    """
+    return Catalog(raster_driver=raster_driver)
 
 
 class Catalog:

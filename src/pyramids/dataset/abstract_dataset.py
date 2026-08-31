@@ -31,7 +31,7 @@ from osgeo import gdal
 from pyramids.base._errors import ReadOnlyError
 from pyramids.base._utils import (
     DEFAULT_RESAMPLING,
-    Catalog,
+    get_catalog,
 )
 from pyramids.base.crs import epsg_of_crs, sr_from_epsg
 from pyramids.base.georeference import GeoReference
@@ -47,7 +47,7 @@ if TYPE_CHECKING:
 from pyramids.feature import FeatureCollection
 
 DEFAULT_NO_DATA_VALUE = -9999
-CATALOG = Catalog()
+CATALOG = get_catalog()
 OVERVIEW_LEVELS = [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048]
 # Overview-build resampling names (gdal.Dataset.BuildOverviews family). This is a
 # different GDAL name-space from the warp algorithms in
