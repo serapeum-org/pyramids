@@ -149,12 +149,21 @@ def _array_to_dataset(
             "Writing a COG from a NumPy array requires both `crs` and "
             "`transform` (a 6-tuple GDAL geotransform)."
         )
-    kwargs: dict[str, Any] = {
-        "geo_ref": GeoReference(geo=tuple(transform), epsg=_coerce_epsg(crs))
-    }
-    if nodata is not None:
-        kwargs["no_data_value"] = nodata
-    return Dataset.from_array(arr, **kwargs)
+    # `transform` arrives as an arbitrary-length sequence, so unpack it into the
+    # fixed 6-tuple `GeoReference.geo` declares. `tuple(transform)` is
+    # `tuple[float, ...]` and does not satisfy that — a mismatch the old
+    # `dict[str, Any]` splat hid from mypy, which is the same blindness this
+    # branch removed from the `*args, **kwargs` constructor overrides.
+    origin_x, pixel_w, row_skew, origin_y, col_skew, pixel_h = transform
+    geo_ref = GeoReference(
+        geo=(origin_x, pixel_w, row_skew, origin_y, col_skew, pixel_h),
+        epsg=_coerce_epsg(crs),
+    )
+    if nodata is None:
+        dataset = Dataset.from_array(arr, geo_ref=geo_ref)
+    else:
+        dataset = Dataset.from_array(arr, geo_ref=geo_ref, no_data_value=nodata)
+    return dataset
 
 
 def _dataarray_to_dataset(

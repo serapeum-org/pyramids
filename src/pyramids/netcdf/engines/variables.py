@@ -46,7 +46,7 @@ from pyramids.netcdf.cf import (
 from pyramids.netcdf.dimensions import ClassicDimensionInfo
 
 if TYPE_CHECKING:
-    from pyramids.netcdf.netcdf import NetCDF
+    from pyramids.netcdf.netcdf import Container, NetCDF
 
 
 class Variables(_Engine["NetCDF"]):
@@ -436,7 +436,7 @@ def from_array(
     dims: ExtraDimensions | None = None,
     encoding: Encoding | None = None,
     attrs: CFAttributes | None = None,
-) -> NetCDF:
+) -> Container:
     """Create a NetCDF dataset from a NumPy array and geotransform.
 
     For 3-D arrays the first axis is treated as a non-spatial
@@ -502,7 +502,10 @@ def from_array(
             an empty `CFAttributes()`.
 
     Returns:
-        NetCDF: The newly created NetCDF dataset.
+        Container: The newly created store. Always a `Container`, never a bare
+            `NetCDF`, regardless of the subtype the facade was invoked on --
+            the annotation says so rather than leaving the caller's declared
+            `-> Container` resting on an engine that claims otherwise.
     """
     # Local import breaks the netcdf.py <-> engines.variables import cycle
     # (netcdf.py imports this module at top level for wiring). from_array
