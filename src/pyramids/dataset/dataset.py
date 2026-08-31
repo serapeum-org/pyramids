@@ -3810,10 +3810,15 @@ class Dataset(RasterBase):
                 transform, or a ``top_left_corner`` + ``cell_size``, plus the
                 ``epsg``. Unlike the other constructors this one is optional:
                 a header-only allocation often does not care where it sits, so
-                `None` (default) — or a reference carrying only an ``epsg`` —
-                keeps the identity transform
-                ``(0.0, 1.0, 0.0, 0.0, 0.0, -1.0)``, a unit-pixel grid with
-                the origin at ``(0, 0)``.
+                `None` (default) — or a reference carrying *no* transform at
+                all, such as ``GeoReference(epsg=3857)`` — keeps the identity
+                transform ``(0.0, 1.0, 0.0, 0.0, 0.0, -1.0)``, a unit-pixel
+                grid with the origin at ``(0, 0)``. A **partially** specified
+                reference is not covered by that convenience: a
+                ``top_left_corner`` without a ``cell_size`` (or the reverse)
+                raises, exactly as it does in :meth:`from_array` and
+                :meth:`create`, rather than silently discarding the half that
+                was supplied.
             no_data_value: No-data sentinel stamped on every band at
                 creation. Default :data:`DEFAULT_NO_DATA_VALUE`. Keep it set
                 so sparse unwritten blocks read back as no-data rather than 0.
@@ -3843,8 +3848,10 @@ class Dataset(RasterBase):
 
         Raises:
             ValueError: ``options`` is given without a ``path`` — creation
-                options apply only to the disk/GTiff driver, so accepting
-                them for an in-memory raster would silently drop them.
+                options apply only to a disk driver, so accepting them for an
+                in-memory raster would silently drop them; or `geo_ref` is
+                partially specified (one half of the
+                ``top_left_corner`` / ``cell_size`` pair).
             DriverNotExistError: ``path`` has an extension the driver catalog
                 does not know.
             FileFormatNotSupportedError: ``path``'s extension maps to a
@@ -3916,8 +3923,17 @@ class Dataset(RasterBase):
         # (e.g. `GeoReference(epsg=3857)`) therefore keeps the identity one
         # rather than raising, which is what the flat `epsg=`-only form did.
         geo_ref = geo_ref if geo_ref is not None else GeoReference()
-        if geo_ref.geo is None and (
-            geo_ref.top_left_corner is None or geo_ref.cell_size is None
+        # Substitute the identity transform only when the reference carries no
+        # georeferencing at all. A *half*-filled pair (a corner with no cell
+        # size, or the reverse) is a mistake, not a request for the origin:
+        # falling back here would silently discard the half the caller did
+        # supply, and place the raster at (0, 0) with 1-unit pixels. Leaving it
+        # to `resolve_geotransform()` makes it raise, which is what the same
+        # value object already does in `from_array` and `create`.
+        if (
+            geo_ref.geo is None
+            and geo_ref.top_left_corner is None
+            and geo_ref.cell_size is None
         ):
             geo_ref = replace(geo_ref, geo=_IDENTITY_GEO)
         crs_wkt = _crs_wkt_from_epsg(geo_ref.epsg)

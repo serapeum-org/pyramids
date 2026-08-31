@@ -233,3 +233,147 @@ class TestGeoRefIsHonoured:
         """
         ds = Dataset.from_array(array_2d, geo_ref=GeoReference(geo=GEO, epsg=None))
         assert not ds.crs, f"expected no CRS, got {ds.crs!r}"
+
+
+def _build(constructor, geo_ref, array_2d):
+    """Call one of the three raster constructors with a georeference.
+
+    Args:
+        constructor: The name of the constructor under test.
+        geo_ref: The reference to pass.
+        array_2d: The 2-D fixture, used only by `from_array`.
+
+    Returns:
+        Dataset: The constructed raster.
+    """
+    if constructor == "from_array":
+        built = Dataset.from_array(array_2d, geo_ref=geo_ref)
+    elif constructor == "create":
+        built = Dataset.create(3, 4, "float32", 1, geo_ref=geo_ref)
+    else:
+        built = Dataset.create_empty(3, 4, geo_ref=geo_ref)
+    return built
+
+
+CONSTRUCTOR_NAMES = ("from_array", "create", "create_empty")
+
+
+class TestTheThreeConstructorsAgreeOnGeoRef:
+    """One `GeoReference` must mean the same thing to all three constructors.
+
+    Converging them on a single georeferencing input is the point of #1075,
+    so a value object accepted by one and reinterpreted by another would
+    defeat it. `create_empty` is the one that can differ, because it alone
+    treats `geo_ref` as optional.
+    """
+
+    @pytest.mark.parametrize("constructor", CONSTRUCTOR_NAMES)
+    def test_an_explicit_transform_reaches_every_constructor(
+        self, constructor, array_2d
+    ):
+        """A complete `geo` lands verbatim whichever constructor is used.
+
+        Args:
+            constructor: The constructor under test.
+            array_2d: The 2-D fixture.
+        """
+        ds = _build(constructor, GeoReference(geo=GEO, epsg=4326), array_2d)
+        assert tuple(ds.geotransform) == GEO, f"{constructor}: got {ds.geotransform}"
+        assert ds.epsg == 4326, f"{constructor}: got epsg {ds.epsg}"
+
+    @pytest.mark.parametrize("constructor", CONSTRUCTOR_NAMES)
+    @pytest.mark.parametrize(
+        "partial",
+        [
+            GeoReference(top_left_corner=(10.0, 50.0), epsg=4326),
+            GeoReference(cell_size=0.5, epsg=4326),
+        ],
+        ids=["corner-without-size", "size-without-corner"],
+    )
+    def test_a_partial_reference_raises_in_every_constructor(
+        self, constructor, partial, array_2d
+    ):
+        """Half a corner/cell-size pair is an error, not a request for the origin.
+
+        Args:
+            constructor: The constructor under test.
+            partial: A reference with one half of the pair missing.
+            array_2d: The 2-D fixture.
+
+        Test scenario:
+            `create_empty` used to substitute the identity transform whenever
+            it could not resolve one, which silently discarded the half the
+            caller *did* supply and placed the raster at (0, 0) with 1-unit
+            pixels -- while `from_array` and `create` raised for the very same
+            value. A silent wrong georeference propagates through every
+            downstream crop / align / to_crs / to_file, so it has to be loud.
+        """
+        with pytest.raises(ValueError, match="top_left_corner"):
+            _build(constructor, partial, array_2d)
+
+    def test_only_create_empty_accepts_a_reference_with_no_transform(self, array_2d):
+        """`create_empty` alone defaults an absent transform to the identity.
+
+        Test scenario:
+            This is the deliberate asymmetry, and it is narrow: a header-only
+            allocation often does not care where it sits. It applies only when
+            *no* transform is given at all -- which is what keeps it from
+            swallowing the partial references above.
+        """
+        ds = Dataset.create_empty(3, 4, geo_ref=GeoReference(epsg=3857))
+        assert tuple(ds.geotransform) == (0.0, 1.0, 0.0, 0.0, 0.0, -1.0), (
+            f"expected the identity transform, got {ds.geotransform}"
+        )
+        assert ds.epsg == 3857, f"the epsg must survive, got {ds.epsg}"
+        for constructor in ("from_array", "create"):
+            with pytest.raises(ValueError, match="top_left_corner"):
+                _build(constructor, GeoReference(epsg=3857), array_2d)
+
+    @pytest.mark.parametrize("constructor", ["create", "create_empty"])
+    @pytest.mark.parametrize(
+        "removed", ["geo", "epsg", "top_left_corner", "cell_size", "driver_type"]
+    )
+    def test_a_removed_keyword_is_rejected_by_create_and_create_empty(
+        self, constructor, removed, array_2d
+    ):
+        """The five dropped keywords are gone from these two as well.
+
+        Args:
+            constructor: The constructor under test.
+            removed: The keyword removed in #1075.
+            array_2d: The 2-D fixture, unused here but required by `_build`.
+
+        Test scenario:
+            `from_array`'s rejection is pinned above; these two dropped the
+            same five keywords and were not covered.
+        """
+        call = Dataset.create if constructor == "create" else Dataset.create_empty
+        args = (3, 4, "float32", 1) if constructor == "create" else (3, 4)
+        with pytest.raises(TypeError, match=removed):
+            call(*args, geo_ref=GeoReference(geo=GEO), **{removed: 4326})
+
+    def test_create_requires_geo_ref_keyword_only(self):
+        """`create` takes `geo_ref` required and keyword-only, like `from_array`.
+
+        Test scenario:
+            `create_empty` is deliberately the exception; `create` must not
+            drift into being one too.
+        """
+        param = inspect.signature(Dataset.create).parameters["geo_ref"]
+        assert param.default is inspect.Parameter.empty, "create should require geo_ref"
+        assert param.kind is inspect.Parameter.KEYWORD_ONLY, (
+            "create should take geo_ref keyword-only"
+        )
+
+    def test_a_none_epsg_leaves_create_without_a_crs(self):
+        """`create(geo_ref=GeoReference(epsg=None))` yields a CRS-less raster.
+
+        Test scenario:
+            `create` used to take a required `epsg: int` straight through
+            `sr_from_epsg`; routing it through the shared helper made
+            `epsg=None` newly expressible, and nothing pinned the result.
+        """
+        ds = Dataset.create(
+            3, 4, "float32", 1, geo_ref=GeoReference(geo=GEO, epsg=None)
+        )
+        assert not ds.crs, f"expected no CRS, got {ds.crs!r}"
