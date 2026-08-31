@@ -18,7 +18,11 @@ import pandas as pd
 from pyproj import CRS
 
 from pyramids import _io
-from pyramids.base._errors import AlignmentError, OptionalPackageDoesNotExist
+from pyramids.base._errors import (
+    AlignmentError,
+    DriverNotExistError,
+    OptionalPackageDoesNotExist,
+)
 from pyramids.base._file_manager import CachingFileManager, gdal_raster_open
 from pyramids.base._locks import default_lock
 from pyramids.base._raster_meta import RasterMeta
@@ -2987,7 +2991,27 @@ class DatasetCollection:
             DatasetCollection.to_cog_stack: Write each timestep as a Cloud
             Optimized GeoTIFF.
         """
+        # Accept a GDAL short name ("GTiff") as well as a catalog key
+        # ("geotiff"), which is what `Dataset.to_file` already does -- this
+        # sibling crashed with an unhandled AttributeError on the former,
+        # because `get_driver` returned None and was then dereferenced. A key
+        # with no extension (e.g. "cog") is refused rather than building
+        # filenames literally named "0.None".
+        if not CATALOG.exists(driver):
+            catalog_key = CATALOG.get_driver_name(driver)
+            if catalog_key is None:
+                raise DriverNotExistError(
+                    f"The driver: {driver!r} is not in the driver catalog. Known "
+                    f"driver names: {sorted(CATALOG.drivers)}"
+                )
+            driver = catalog_key
         ext = CATALOG.get_extension(driver)
+        if ext is None:
+            raise DriverNotExistError(
+                f"The driver {driver!r} has no file extension in the catalog, so "
+                "per-timestep file names cannot be built. Pass an explicit list of "
+                "paths instead, or use a driver with a known extension."
+            )
 
         if isinstance(path, (str, Path)):
             path = Path(path)
