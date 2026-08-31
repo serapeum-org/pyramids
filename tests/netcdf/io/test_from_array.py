@@ -322,8 +322,9 @@ class TestCreateFromArrayGeoParams:
             forms.
         """
         arr = np.random.default_rng(SEED).random((5, 5)).astype(np.float64)
+        empty = GeoReference()
         with pytest.raises(ValueError, match="top_left_corner"):
-            NetCDF.from_array(arr=arr, geo_ref=GeoReference(), variable_name="v")
+            NetCDF.from_array(arr=arr, geo_ref=empty, variable_name="v")
 
 
 class TestCreateFromArrayValidation:

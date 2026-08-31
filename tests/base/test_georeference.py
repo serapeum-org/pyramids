@@ -98,9 +98,8 @@ class TestGeoReferenceConstruction:
         original = GeoReference(epsg=3857)
         updated = dataclasses.replace(original, geo=GEO)
         assert original.geo is None, "the original must not be mutated"
-        assert updated.geo == GEO and updated.epsg == 3857, (
-            f"replace must keep the other fields, got {updated}"
-        )
+        assert updated.geo == GEO, f"replace must set geo, got {updated.geo}"
+        assert updated.epsg == 3857, f"replace must keep epsg, got {updated.epsg}"
 
 
 class TestResolveGeotransform:
@@ -184,7 +183,8 @@ class TestResolveGeotransform:
         built = GeoReference(
             top_left_corner=(0.0, 0.0), cell_size=-2.0
         ).resolve_geotransform()
-        assert built[1] == -2.0 and built[5] == 2.0, f"got {built}"
+        assert built[1] == -2.0, f"x pixel size should be -2.0, got {built[1]}"
+        assert built[5] == 2.0, f"y pixel size should be 2.0, got {built[5]}"
 
 
 class TestEpsgHandling:

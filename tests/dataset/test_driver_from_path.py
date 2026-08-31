@@ -28,7 +28,7 @@ pytestmark = pytest.mark.core
 GEO_REF = GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326)
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def float_raster() -> Dataset:
     """A small in-memory float32 raster.
 
@@ -40,7 +40,7 @@ def float_raster() -> Dataset:
     )
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def byte_raster() -> Dataset:
     """A small in-memory uint8 raster, writable to PNG and JPEG.
 
@@ -122,7 +122,7 @@ class TestTranslateHonoursTheExtension:
 class TestMergeRastersHonoursTheExtension:
     """One `dst` must not mean two formats depending on `method`."""
 
-    @pytest.fixture(scope="function")
+    @pytest.fixture
     def two_tiles(self, tmp_path):
         """Two adjacent single-band rasters on one grid.
 
@@ -364,7 +364,7 @@ class TestToFileMatchesTheConstructors:
 class TestCollectionToFileNormalisesTheDriver:
     """The collection sibling accepts what `Dataset.to_file` accepts."""
 
-    @pytest.fixture(scope="function")
+    @pytest.fixture
     def collection(self, float_raster):
         """A two-timestep in-memory collection.
 

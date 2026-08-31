@@ -24,7 +24,7 @@ GEO = (0.0, 1.0, 0.0, 3.0, 0.0, -1.0)
 CONSTRUCTORS = (Dataset, NetCDF)
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def array_2d() -> np.ndarray:
     """A small 2-D float array.
 
@@ -34,7 +34,7 @@ def array_2d() -> np.ndarray:
     return np.arange(12, dtype="float32").reshape(3, 4)
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def array_3d() -> np.ndarray:
     """A single-band 3-D array, the shape NetCDF expects.
 
@@ -145,8 +145,10 @@ class TestRemovedParametersAreGone:
             georeferencing would be dropped without warning.
         """
         arr = array_2d if cls is Dataset else array_3d
+        geo_ref = GeoReference(geo=GEO)
+        kwargs = {removed: 4326}
         with pytest.raises(TypeError, match=removed):
-            cls.from_array(arr, geo_ref=GeoReference(geo=GEO), **{removed: 4326})
+            cls.from_array(arr, geo_ref=geo_ref, **kwargs)
 
     def test_the_old_method_name_is_gone(self):
         """`create_from_array` no longer exists on either class.
@@ -178,7 +180,8 @@ class TestDriverComesFromPath:
         assert ds.raster.GetDriver().ShortName == "GTiff", (
             f"expected GTiff, got {ds.raster.GetDriver().ShortName}"
         )
-        assert out.exists() and out.stat().st_size > 0, "the file must be written"
+        assert out.exists(), f"{out} was not created"
+        assert out.stat().st_size > 0, f"{out} is empty"
 
     def test_the_array_round_trips_through_a_written_file(self, array_2d, tmp_path):
         """Values survive the write, so the driver change did not corrupt output.
@@ -221,8 +224,9 @@ class TestGeoRefIsHonoured:
             The signature can require the argument but cannot check its
             contents, so this failure necessarily stays at resolution time.
         """
+        empty = GeoReference()
         with pytest.raises(ValueError, match="top_left_corner"):
-            Dataset.from_array(array_2d, geo_ref=GeoReference())
+            Dataset.from_array(array_2d, geo_ref=empty)
 
     def test_a_none_epsg_leaves_the_raster_without_a_crs(self, array_2d):
         """`epsg=None` means deliberately ungeoreferenced, not "default to WGS 84".
@@ -325,9 +329,10 @@ class TestTheThreeConstructorsAgreeOnGeoRef:
             f"expected the identity transform, got {ds.geotransform}"
         )
         assert ds.epsg == 3857, f"the epsg must survive, got {ds.epsg}"
+        epsg_only = GeoReference(epsg=3857)
         for constructor in ("from_array", "create"):
             with pytest.raises(ValueError, match="top_left_corner"):
-                _build(constructor, GeoReference(epsg=3857), array_2d)
+                _build(constructor, epsg_only, array_2d)
 
     @pytest.mark.parametrize("constructor", ["create", "create_empty"])
     @pytest.mark.parametrize(
@@ -349,8 +354,10 @@ class TestTheThreeConstructorsAgreeOnGeoRef:
         """
         call = Dataset.create if constructor == "create" else Dataset.create_empty
         args = (3, 4, "float32", 1) if constructor == "create" else (3, 4)
+        geo_ref = GeoReference(geo=GEO)
+        kwargs = {removed: 4326}
         with pytest.raises(TypeError, match=removed):
-            call(*args, geo_ref=GeoReference(geo=GEO), **{removed: 4326})
+            call(*args, geo_ref=geo_ref, **kwargs)
 
     def test_create_requires_geo_ref_keyword_only(self):
         """`create` takes `geo_ref` required and keyword-only, like `from_array`.

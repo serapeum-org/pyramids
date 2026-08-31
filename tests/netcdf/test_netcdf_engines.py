@@ -251,8 +251,9 @@ class TestVariablesEngine:
             signature, so ``resolve_geotransform`` raises and names both forms.
         """
         arr = np.zeros((2, 3))
+        empty = GeoReference()
         with pytest.raises(ValueError, match="geo.*top_left_corner|top_left_corner"):
-            NetCDF.from_array(arr, geo_ref=GeoReference())
+            NetCDF.from_array(arr, geo_ref=empty)
 
     def test_add_variable_copies_all_from_netcdf_source(self):
         """``add_variable`` with no name copies every variable from a NetCDF source.

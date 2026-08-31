@@ -134,8 +134,9 @@ class TestCreateFromArrayEdgeCases:
     def test_missing_geo_and_top_left_raises(self):
         """from_array without geo or top_left_corner should raise."""
         arr = np.ones((3, 3), dtype=np.float32)
+        epsg_only = GeoReference(epsg=4326)
         with pytest.raises(ValueError, match="top_left_corner"):
-            Dataset.from_array(arr, geo_ref=GeoReference(epsg=4326))
+            Dataset.from_array(arr, geo_ref=epsg_only)
 
     def test_3d_array_creates_multi_band(self):
         """A 3D array should create a multi-band dataset."""

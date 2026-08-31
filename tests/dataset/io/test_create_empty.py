@@ -318,7 +318,8 @@ class TestCreateEmpty:
             f"expected netCDF, got {ds.raster.GetDriver().ShortName}"
         )
         ds.close()
-        assert out.exists() and out.stat().st_size > 0, "the file must be written"
+        assert out.exists(), f"{out} was not created"
+        assert out.stat().st_size > 0, f"{out} is empty"
 
     def test_a_non_gtiff_disk_target_does_not_warn_about_sparse_blocks(
         self, tmp_path, recwarn

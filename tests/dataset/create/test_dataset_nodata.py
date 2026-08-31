@@ -144,11 +144,9 @@ class TestNoDataValue:
             out-of-range value, and stores ``expected`` as the no-data value.
         """
         arr = np.full((4, 4), 5, dtype=dtype)
+        geo_ref = GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326)
         with pytest.warns(UserWarning, match="out of range"):
-            dataset = Dataset.from_array(
-                arr,
-                geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
-            )
+            dataset = Dataset.from_array(arr, geo_ref=geo_ref)
         assert dataset.no_data_value[0] == expected, (
             f"{dtype}: expected fallback no-data {expected}, "
             f"got {dataset.no_data_value[0]}"
