@@ -4652,17 +4652,14 @@ class Dataset(RasterBase):
                 netCDF, …). When ``None`` (default) the result is an
                 in-memory dataset.
 
-                Which extensions are accepted depends on the branch the
-                inputs take, because the two write with different GDAL
-                calls. Aligned, same-dtype inputs are stacked through a VRT
-                and written with `CreateCopy`, which also accepts a
-                write-by-copy-only format (`.png`, `.jp2`). When
-                `align=True` or the inputs have mixed dtypes the output is
-                allocated with `Create` and filled band by band, so only
-                formats that support `Create` are accepted and a `.png`
-                destination raises :class:`FileFormatNotSupportedError`. Use
-                `.tif` (or another `Create`-capable format) when the
-                branch is not known in advance.
+                Write-by-copy-only formats (`.png`, `.jp2`) are refused. One
+                of the two internal write paths could produce them --
+                aligned, same-dtype inputs go through a VRT and
+                `CreateCopy` -- but which path runs depends on `align` and
+                on whether the sources share a dtype, neither of which says
+                anything about the destination format. Accepting `.png` only
+                sometimes would make the destination's legality depend on an
+                unrelated argument, so both paths answer alike.
 
         Returns:
             Dataset: A multi-band dataset with ``band_count == len(files)``
@@ -4677,8 +4674,8 @@ class Dataset(RasterBase):
             DriverNotExistError: ``path`` has no extension, or one the driver
                 catalog does not know.
             FileFormatNotSupportedError: ``path``'s extension maps to a
-                write-by-copy-only format *and* the inputs take the
-                `Create` branch (`align=True`, or mixed input dtypes).
+                write-by-copy-only format, whichever write path the inputs
+                take.
 
         Examples:
             - Stack three per-band GeoTIFFs into one 3-band dataset; band

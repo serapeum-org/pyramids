@@ -1869,11 +1869,14 @@ class Bands(_Engine["Dataset"]):
                 in RAM — genuinely out-of-core for a block-based format such as GTiff.
                 `None` (default) keeps the result in memory.
 
-                The driver must be one whose `CreateCopy` hands back a *writable*
-                dataset, since the swap is written into the clone. PNG and JPEG do not
-                — they return a read-only handle — so those extensions reach GDAL and
-                then fail with :class:`ReadOnlyError`; use `.tif`, `.nc`, or another
-                updatable format.
+                The driver must be one the raster can be *built* with, not merely
+                copied to: the swap is written into the clone afterwards, and a
+                write-by-copy-only driver hands back a read-only handle. PNG and
+                JPEG are therefore refused up front with
+                :class:`FileFormatNotSupportedError`, naming the extension and the
+                driver — rather than reaching GDAL and failing with a
+                :class:`ReadOnlyError` that says nothing about the format. Use
+                `.tif`, `.nc`, or another updatable format.
 
         Returns:
             Dataset | None:
@@ -1889,9 +1892,10 @@ class Bands(_Engine["Dataset"]):
                 match `band_count`.
             DriverNotExistError:
                 `path` has no extension, or one the driver catalog does not know.
-            ReadOnlyError:
-                `path`'s driver returns a read-only dataset from `CreateCopy` (PNG,
-                JPEG), so the swapped values cannot be written back into the clone.
+            FileFormatNotSupportedError:
+                `path`'s extension maps to a write-by-copy-only driver (PNG, JPEG).
+                Such a driver returns a read-only dataset from `CreateCopy`, so the
+                swapped values could not be written back into the clone.
 
         Warning:
             With `path=None` the method clones the raster in memory to change the

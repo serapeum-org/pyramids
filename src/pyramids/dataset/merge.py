@@ -409,9 +409,11 @@ def merge_rasters(
             `dst` yields the same format for every `method`. `COMPRESS=LZW`
             is a GTiff creation option and is applied only when the extension
             resolves to GTiff; other formats are written with their driver
-            defaults. The z-order methods write by copy (`gdal.Translate`) and
-            so also accept a write-by-copy-only format such as PNG, whereas the
-            reduction methods build the output with `Create` and reject one.
+            defaults. A write-by-copy-only format such as PNG is refused for
+            every `method`: the z-order path could produce one (it writes via
+            `gdal.Translate`) and the reduction path could not, and letting
+            `method` decide what `dst` may be is the same defect as letting it
+            decide the format.
         no_data_value (float | int | str):
             Stamped on the output bands as the nodata marker. For the reduction
             methods it also fills pixels with no source coverage.
@@ -530,9 +532,8 @@ def merge_rasters(
             source mosaic.
         DriverNotExistError: `dst` has no extension, or one the driver catalog
             does not know.
-        FileFormatNotSupportedError: `method` is a reduction
-            (`"min"`/`"max"`/`"sum"`) and `dst`'s extension maps to a
-            write-by-copy-only format, which cannot be built with `Create`.
+        FileFormatNotSupportedError: `dst`'s extension maps to a
+            write-by-copy-only format, for any `method`.
 
     Examples:
         - Mosaic two tiles, keeping the larger value wherever they overlap:
@@ -1090,9 +1091,9 @@ def stack_bands(
         path: Output path, whose extension selects the driver (``.tif`` ->
             GTiff, ``.nc`` -> netCDF, …); ``None`` keeps the result in memory.
             `COMPRESS=LZW` is applied only when the extension resolves to
-            GTiff. A write-by-copy-only format such as PNG is accepted only on
-            the VRT/`CreateCopy` branch (aligned, same-dtype inputs) — see
-            :meth:`pyramids.dataset.Dataset.from_band_files` for the split.
+            GTiff. A write-by-copy-only format such as PNG is refused — see
+            :meth:`pyramids.dataset.Dataset.from_band_files` for why both of
+            its write paths answer alike.
         signer: Optional signer exposing ``sign_href(str) -> str`` and
             ``gdal_env() -> dict[str, str]`` (e.g. a
             :class:`pyramids.stac.signers.Signer`). When given, **both** hooks
@@ -1111,8 +1112,7 @@ def stack_bands(
         DriverNotExistError: `path` has no extension, or one the driver
             catalog does not know.
         FileFormatNotSupportedError: `path`'s extension maps to a
-            write-by-copy-only format and the inputs take the `Create`
-            branch (`align=True`, or mixed input dtypes).
+            write-by-copy-only format, whichever write path the inputs take.
     """
     if signer is not None:
         files = [signer.sign_href(str(f)) for f in files]

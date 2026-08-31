@@ -492,3 +492,76 @@ class TestTheDtypeCheckIsQuietWhenItCannotAnswer:
             warnings.simplefilter("always")
             io_ops._warn_if_driver_narrows_dtype(float_raster, "Whatever", "x.tif")
         assert not caught, f"a driver with no advertised types must not warn: {caught}"
+
+
+class TestForCopyIsNarrowerThanItLooks:
+    """`for_copy=True` is only safe on a single-path, write-once method."""
+
+    def test_a_method_that_writes_after_copying_refuses_a_copy_only_format(
+        self, byte_raster, tmp_path
+    ):
+        """`change_no_data_value` refuses `.png` even though it uses CreateCopy.
+
+        Args:
+            byte_raster: An 8-bit source PNG could otherwise carry.
+            tmp_path: Temporary directory fixture.
+
+        Test scenario:
+            It copies and *then* streams the no-data swap into the clone, and a
+            copy-only driver hands back a read-only handle -- so `.png` passed
+            the relaxed gate and died with `ReadOnlyError: The Dataset is open
+            with a read only`, an error naming nothing about the format. The
+            strict gate refuses it up front with one that does.
+        """
+        with pytest.raises(FileFormatNotSupportedError):
+            byte_raster.change_no_data_value(2, 1, path=str(tmp_path / "n.png"))
+
+    @pytest.mark.parametrize("method", ["last", "min"])
+    def test_merge_refuses_a_copy_only_format_for_every_method(self, tmp_path, method):
+        """`merge_rasters` answers alike whichever internal path `method` picks.
+
+        Args:
+            tmp_path: Temporary directory fixture.
+            method: The merge method under test.
+
+        Test scenario:
+            The z-order path writes with `gdal.Translate` and could produce a
+            PNG; the reduction path builds with `Create` and could not. Letting
+            `method` decide what `dst` may be is the same defect as letting it
+            decide the format, which is what H2 was filed for.
+        """
+        from pyramids.dataset.merge import merge_rasters
+
+        sources = []
+        for i, x in enumerate((0.0, 4.0)):
+            path = tmp_path / f"src{i}.tif"
+            Dataset.from_array(
+                np.full((4, 4), i + 1, dtype="uint8"),
+                geo_ref=GeoReference(
+                    top_left_corner=(x, 4.0), cell_size=1.0, epsg=4326
+                ),
+                path=path,
+            ).close()
+            sources.append(str(path))
+        with pytest.raises(FileFormatNotSupportedError):
+            merge_rasters(sources, str(tmp_path / f"m.{method}.png"), method=method)
+
+    @pytest.mark.parametrize("extension", ["png", "jpg"])
+    def test_a_single_path_write_once_method_still_accepts_them(
+        self, byte_raster, tmp_path, extension
+    ):
+        """`copy` and `translate` keep the relaxed gate, and should.
+
+        Args:
+            byte_raster: An 8-bit source.
+            tmp_path: Temporary directory fixture.
+            extension: A copy-only format.
+
+        Test scenario:
+            Each has exactly one write path and never writes after copying, so
+            the refusal would be a capability they actually have -- and for
+            `translate` it is the documented feature.
+        """
+        out = tmp_path / f"c.{extension}"
+        byte_raster.copy(path=str(out))
+        assert out.exists(), f"{out} was not written"
