@@ -37,12 +37,17 @@ MEMORY_DRIVER = "MEM"
 _CATALOG = Catalog(raster_driver=True)
 
 
-def resolve_output_driver(path: str | Path | None) -> str:
+def resolve_output_driver(path: str | Path | None, *, for_copy: bool = False) -> str:
     """Return the GDAL driver name for a destination path.
 
     Args:
         path: Where the raster will be written, or `None` for an in-memory
             raster.
+        for_copy: Whether the caller writes with `CreateCopy` rather than
+            `Create`. The `Creation` flag records whether a driver supports
+            `Create`, so a copy-based writer must not inherit that refusal:
+            `PNG` and `JP2OpenJPEG` cannot be built band-by-band but copy
+            perfectly well. Defaults to `False`, the stricter check.
 
     Returns:
         str: The GDAL driver short name — `"MEM"` when `path` is `None`,
@@ -54,7 +59,8 @@ def resolve_output_driver(path: str | Path | None) -> str:
         DriverNotExistError: `path` has no extension at all, or one the
             catalog does not know.
         FileFormatNotSupportedError: The format is write-by-copy only, so it
-            cannot be built with `Create`.
+            cannot be built with `Create`. Never raised when `for_copy` is
+            `True`.
 
     Examples:
         - No path means an in-memory raster:
@@ -126,7 +132,7 @@ raster in memory or as GTiff, then convert.
         key = _CATALOG.get_driver_name_by_extension(extension)
         entry = _CATALOG.get_driver(key)
         driver = str(entry["GDAL Name"])
-        if not entry.get("Creation"):
+        if not for_copy and not entry.get("Creation"):
             raise FileFormatNotSupportedError(
                 f"'.{extension}' maps to the {driver} driver, which cannot create a "
                 "raster directly (write-by-copy only). Build the raster in memory or "

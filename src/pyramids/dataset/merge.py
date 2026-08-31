@@ -19,6 +19,7 @@ from pyproj.exceptions import ProjError
 
 from pyramids.base._utils import DEFAULT_RESAMPLING, resolve_resampling
 from pyramids.base.remote import signer_cloud_config
+from pyramids.dataset._driver import resolve_output_driver
 from pyramids.dataset.dataset import _INHERIT_NO_DATA, Dataset
 from pyramids.feature.bbox import normalise_longitude
 from pyramids.feature.bbox import transform as bbox_transform
@@ -642,8 +643,16 @@ def merge_rasters(
         # `projWin` is what stops the read at the window: without it GDAL has no
         # reason to restrict what it pulls through /vsicurl and materialises the
         # whole mosaic extent.
+        # gdal.Translate infers the driver from the extension, but LZW is a
+        # GTiff creation option: handing it to whatever that inference picks
+        # made netCDF emit "'LZW' is an unexpected value for COMPRESS". Gate it
+        # the way `_create_dataset` and the reduction path above now do.
         translate_opts = gdal.TranslateOptions(
-            creationOptions=["COMPRESS=LZW"],
+            creationOptions=(
+                ["COMPRESS=LZW"]
+                if resolve_output_driver(dst, for_copy=True) == "GTiff"
+                else []
+            ),
             noData=str(no_data_value),
             projWin=proj_win,
         )
@@ -995,8 +1004,15 @@ def _merge_reduce(
     # Extent of every source, computed once, to skip sources a strip cannot touch.
     src_bounds = [_source_bounds(path) for path in src_paths]
 
-    out_ds = gdal.GetDriverByName("GTiff").Create(
-        dst, x_size, y_size, band_count, gdal.GDT_Float64, options=["COMPRESS=LZW"]
+    # Resolve from the extension so that one `dst` does not yield two different
+    # formats depending on an unrelated argument: this reduction path hardcoded
+    # GTiff while the z-order path below lets gdal.Translate infer, so `.nc`
+    # produced a netCDF for method="last" and a GTiff for method="min". LZW is
+    # GTiff-specific and is applied only there.
+    out_driver = resolve_output_driver(dst)
+    out_options = ["COMPRESS=LZW"] if out_driver == "GTiff" else []
+    out_ds = gdal.GetDriverByName(out_driver).Create(
+        dst, x_size, y_size, band_count, gdal.GDT_Float64, options=out_options
     )
     if out_ds is None:
         raise RuntimeError(
@@ -1060,7 +1076,8 @@ def stack_bands(
             grid instead of raising :class:`~pyramids.base._errors.AlignmentError`.
         no_data_value: No-data value for the output bands; omitted means
             "inherit from the source rasters".
-        path: Output ``.tif`` path; ``None`` keeps the result in memory.
+        path: Output path, whose extension selects the driver (``.tif`` ->
+            GTiff, ``.nc`` -> netCDF, …); ``None`` keeps the result in memory.
         signer: Optional signer exposing ``sign_href(str) -> str`` and
             ``gdal_env() -> dict[str, str]`` (e.g. a
             :class:`pyramids.stac.signers.Signer`). When given, **both** hooks

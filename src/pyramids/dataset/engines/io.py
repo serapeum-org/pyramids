@@ -65,6 +65,7 @@ if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
 
 from pyramids.base.georeference import GeoReference
+from pyramids.dataset._driver import resolve_output_driver
 from pyramids.dataset.engines._base import _Engine
 from pyramids.dataset.engines._read_request import ReadRequest
 from pyramids.dataset.engines._read_strategies import READ_STRATEGIES
@@ -3012,7 +3013,10 @@ class IO(_Engine["Dataset"]):
         mem = self._terrain_byte_dataset(
             stack, source.geotransform, source.raster.GetProjection()
         )
-        driver = "PNG" if path.suffix.lower() == ".png" else "GTiff"
+        # From the extension for every format, not just PNG: `.jpg` fell into
+        # the GTiff branch and wrote a GTiff named .jpg. `for_copy` because
+        # this writes with CreateCopy, which PNG and JPEG support.
+        driver = resolve_output_driver(path, for_copy=True)
         out = gdal.GetDriverByName(driver).CreateCopy(str(path), mem)
         if out is None:
             raise FailedToSaveError(

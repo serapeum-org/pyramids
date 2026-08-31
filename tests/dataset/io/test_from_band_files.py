@@ -467,33 +467,54 @@ class TestFromBandFiles:
         ], "values changed on round-trip"
 
     @pytest.mark.parametrize(
-        "filename, error",
-        [
-            ("out.png", FileFormatNotSupportedError),
-            ("out.zzz", DriverNotExistError),
-            ("out", DriverNotExistError),
-        ],
-        ids=["copy-only", "unknown-extension", "no-extension"],
+        "filename",
+        ["out.zzz", "out"],
+        ids=["unknown-extension", "no-extension"],
     )
-    def test_an_unwritable_path_raises_the_same_error_as_every_factory(
-        self, band_files, filename, error
-    ):
+    def test_an_unresolvable_path_raises_driver_not_exist(self, band_files, filename):
         """`path` is resolved through the shared driver catalog.
 
         Args:
             band_files: The three source bands.
             filename: The destination under test.
-            error: The expected exception type.
 
         Test scenario:
             This used to be a `.tif`-only guard raising `TypeError`, justified
             as matching `_create_dataset` -- which had itself stopped raising
-            that. The three cases now give the same errors any other factory
-            gives: a copy-only format, an extension the catalog does not know,
-            and no extension at all.
+            that. An extension the catalog does not know, and no extension at
+            all, now give the same error every other factory gives.
         """
-        with pytest.raises(error):
+        with pytest.raises(DriverNotExistError):
             Dataset.from_band_files(band_files, path=filename)
+
+    def test_a_copy_only_format_is_accepted_because_this_path_copies(self, tmp_path):
+        """A `CreateCopy`-only format is written, not refused.
+
+        Args:
+            tmp_path: Temporary directory fixture.
+
+        Test scenario:
+            The `Creation` catalog flag records whether a driver supports
+            `Create`, and the constructors are right to refuse `.png` on that
+            basis. This method writes with `CreateCopy`, which PNG supports, so
+            inheriting that refusal would reject a file it can produce -- which
+            it briefly did, and an earlier version of this test pinned the
+            wrong behaviour. Byte data, because PNG genuinely cannot carry
+            float32.
+        """
+        src = tmp_path / "byte.tif"
+        Dataset.from_array(
+            np.arange(16, dtype="uint8").reshape(4, 4),
+            geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326),
+            path=src,
+        ).close()
+        out = tmp_path / "stack.png"
+        Dataset.from_band_files([str(src)], path=str(out)).close()
+        written = gdal.Open(str(out))
+        assert written is not None, f"{out} was not written"
+        assert written.GetDriver().ShortName == "PNG", (
+            f"expected PNG, got {written.GetDriver().ShortName}"
+        )
 
     @pytest.mark.parametrize(
         "extension, driver",
@@ -520,6 +541,11 @@ class TestFromBandFiles:
             hardcoding is what the old `.tif`-only guard was really protecting
             against. Both write paths are exercised because only one had it.
         """
+        if gdal.GetDriverByName(driver) is None:
+            # HFA is an optional GDAL component. The catalog answers before
+            # GetDriverByName is reached, so a build without it would fail here
+            # for a reason this behaviour does not depend on.
+            pytest.skip(f"{driver} is not in this GDAL build")
         out = tmp_path / f"stack.{extension}"
         Dataset.from_band_files(band_files, path=str(out), align=align).close()
         written = gdal.Open(str(out))

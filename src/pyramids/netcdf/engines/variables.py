@@ -27,10 +27,12 @@ from typing import TYPE_CHECKING, Any, cast
 import numpy as np
 from osgeo import gdal, osr
 
+from pyramids.base._errors import FileFormatNotSupportedError
 from pyramids.base._utils import numpy_to_gdal_dtype
 from pyramids.base.crs import sr_from_epsg, sr_from_user_input
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
+from pyramids.dataset._driver import MEMORY_DRIVER, resolve_output_driver
 from pyramids.dataset.engines._base import _Engine
 from pyramids.netcdf._mdim import scalar_no_data, unflatten_band_axes
 from pyramids.netcdf.array_options import (
@@ -920,9 +922,21 @@ def _create_netcdf_from_array(
     y_dim_values = NetCDF.get_y_lat_dimension_array(geo[3], abs(geo[5]), rows)
 
     if path is not None:
+        # This builds a multidimensional store, which only the netCDF driver
+        # can carry here, so the driver is fixed rather than resolved. What the
+        # extension does decide is whether the caller asked for something else:
+        # `path="lies.tif"` used to write a netCDF under a GeoTIFF name without
+        # a word. Refuse instead, naming what was actually produced.
+        resolved = resolve_output_driver(path)
+        if resolved != "netCDF":
+            raise FileFormatNotSupportedError(
+                f"NetCDF.from_array writes a multidimensional netCDF store, but "
+                f"{str(path)!r} names the {resolved} driver. Use a '.nc' path, or "
+                f"build the raster with Dataset.from_array to write {resolved}."
+            )
         driver_type = "netCDF"
     else:
-        driver_type = "MEM"
+        driver_type = MEMORY_DRIVER
         path = "netcdf"
 
     src = gdal.GetDriverByName(driver_type).CreateMultiDimensional(str(path))

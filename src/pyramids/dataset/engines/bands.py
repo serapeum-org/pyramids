@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
 
 from pyramids.base.crs import crs_spec
+from pyramids.dataset._driver import MEMORY_DRIVER, resolve_output_driver
 from pyramids.dataset.engines._base import _Engine
 from pyramids.dataset.engines._validate import validate_band_index
 
@@ -1926,7 +1927,9 @@ class Bands(_Engine["Dataset"]):
         # below the whole raster is never held in RAM (out-of-core); `None` keeps
         # it in memory. The old<->new no-data swap is then streamed one tile at a
         # time, so a full band is never materialised as a NumPy array (#969).
-        driver = "GTiff" if path is not None else "MEM"
+        # From the extension, not hardcoded: a `.nc` path silently produced a
+        # mislabelled GTiff. `for_copy` because this writes with CreateCopy.
+        driver = resolve_output_driver(path, for_copy=True) if path else MEMORY_DRIVER
         target = str(path) if path is not None else ""
         dst = gdal.GetDriverByName(driver).CreateCopy(target, self._ds.raster, 0)
         new_dataset = self._ds.__class__(dst, "write")

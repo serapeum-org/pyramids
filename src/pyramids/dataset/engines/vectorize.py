@@ -29,6 +29,7 @@ from pyramids.feature import _ogr as _feature_ogr
 if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
 
+from pyramids.dataset._driver import MEMORY_DRIVER, resolve_output_driver
 from pyramids.dataset.engines._base import _Engine, logger
 from pyramids.dataset.engines._validate import validate_band_index
 
@@ -750,10 +751,17 @@ class Vectorize(_Engine["Dataset"]):
 
         """
         if path is None:
-            driver = "MEM"
+            driver = MEMORY_DRIVER
             path = ""
         else:
-            driver = "GTiff"
+            # Resolve from the extension. Forcing "GTiff" is precisely what
+            # disables GDAL's own inference, so the format conversion this
+            # method's docstring advertises ("from GeoTIFF to JPEG") was
+            # unreachable: every destination produced a GTiff, `.nc` and `.png`
+            # included, with nothing to say the extension had been ignored.
+            # `gdal.Translate` writes by copy, so a copy-only format is fine
+            # here even though the `Create`-based constructors refuse it.
+            driver = resolve_output_driver(path, for_copy=True)
 
         options = gdal.TranslateOptions(format=driver, **kwargs)
         dst = gdal.Translate(str(path), self._ds.raster, options=options)

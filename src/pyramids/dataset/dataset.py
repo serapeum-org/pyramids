@@ -3529,10 +3529,13 @@ class Dataset(RasterBase):
         """
         if path is None:
             path = ""
-            driver = "MEM"
+            driver = MEMORY_DRIVER
             new_access = self._access
         else:
-            driver = "GTiff"
+            # From the extension, not hardcoded: `copy(path="x.nc")` produced a
+            # GTiff carrying a netCDF name. `for_copy` because this writes
+            # with CreateCopy, which copy-only formats support.
+            driver = resolve_output_driver(path, for_copy=True)
             new_access = "write"
 
         src = gdal.GetDriverByName(driver).CreateCopy(str(path), self._raster)
@@ -3747,8 +3750,8 @@ class Dataset(RasterBase):
         Raises:
             ValueError: `geo_ref` carries neither a ``geo`` nor a complete
                 ``top_left_corner`` + ``cell_size`` pair.
-            DriverNotExistError: `path` has an extension the driver catalog does
-                not know.
+            DriverNotExistError: `path` has no extension, or one the driver
+                catalog does not know.
             FileFormatNotSupportedError: `path`'s extension maps to a
                 write-by-copy-only format such as PNG, which cannot be built
                 with ``Create``.
@@ -3823,7 +3826,7 @@ class Dataset(RasterBase):
         windows into it with
         ``write_array(array, window=Window(col_off, row_off, cols, rows))``
         (see :class:`~pyramids.dataset.window.Window`).
-        With a ``path`` the file is **tiled, sparse,
+        With a ``.tif`` path the file is **tiled, sparse,
         and BigTIFF** (see :data:`OUT_OF_CORE_CREATION_OPTIONS`), so a
         50 000 x 50 000 float32 raster is created in O(1) RAM, never-written
         blocks cost no disk, and writes past the 4 GB classic-TIFF ceiling
@@ -3857,9 +3860,10 @@ class Dataset(RasterBase):
                 so sparse unwritten blocks read back as no-data rather than 0.
                 Passing ``None`` skips the band fill and stamps no sentinel,
                 which opts out of that guarantee — a sparse GTiff's unwritten
-                blocks then read back as **0**, not no-data. On the disk/GTiff
-                path this emits a :class:`NoDataSentinelWarning`; the in-RAM
-                ``"MEM"`` driver is dense and does not warn.
+                blocks then read back as **0**, not no-data. A path that
+                resolves to GTiff emits a :class:`NoDataSentinelWarning`;
+                the in-RAM ``"MEM"`` driver is dense, and the other disk
+                drivers are not sparse, so neither warns.
             path: Destination, which alone decides the driver. `None`
                 (default) builds an in-memory ``"MEM"`` raster; otherwise the
                 extension selects the format (``.tif`` -> GTiff). The sparse /
@@ -3868,7 +3872,8 @@ class Dataset(RasterBase):
             options: GDAL creation options. `None` (default) uses
                 :data:`OUT_OF_CORE_CREATION_OPTIONS` for GTiff. Override to
                 align ``BLOCKXSIZE`` / ``BLOCKYSIZE`` to your tile size or to
-                change compression. Applies only to the disk/GTiff driver;
+                change compression. Forwarded to whichever disk driver the
+                extension selects — only the *default* set is GTiff-specific;
                 passing `options` without a `path` raises rather than silently
                 dropping them.
 
@@ -4026,9 +4031,9 @@ class Dataset(RasterBase):
                 resolves to ``None`` (passed explicitly, or inherited from a
                 template with no no-data set), no sentinel is stamped and a
                 sparse GTiff's unwritten blocks read back as **0**, not no-data;
-                on the disk/GTiff path (``path`` given) this emits a
-                :class:`NoDataSentinelWarning` (the in-RAM MEM result does not
-                warn).
+                a path that resolves to GTiff emits a
+                :class:`NoDataSentinelWarning` (the in-RAM MEM result and the
+                other, non-sparse disk drivers do not warn).
             path: Destination, which alone decides the driver. `None`
                 (default) keeps the raster in memory (MEM); otherwise the
                 extension selects the format (`.tif` -> GTiff, `.nc` ->
@@ -4431,8 +4436,8 @@ class Dataset(RasterBase):
         Raises:
             ValueError: `geo_ref` carries neither a ``geo`` nor a complete
                 ``top_left_corner`` + ``cell_size`` pair.
-            DriverNotExistError: `path` has an extension the driver catalog does
-                not know.
+            DriverNotExistError: `path` has no extension, or one the driver
+                catalog does not know.
             FileFormatNotSupportedError: `path`'s extension maps to a
                 write-by-copy-only format such as PNG, which cannot be built
                 with ``Create``.
@@ -4816,7 +4821,10 @@ class Dataset(RasterBase):
                 # guard above: without it a `.nc` destination produced a GTiff
                 # carrying a netCDF name, a file whose extension lies about its
                 # contents. LZW is GTiff-specific, so it is applied only there.
-                driver = resolve_output_driver(path)
+                # `for_copy` because this branch writes with `CreateCopy`, which
+                # copy-only formats support — the default gate encodes `Create`
+                # capability and would refuse a `.png` this path can produce.
+                driver = resolve_output_driver(path, for_copy=True)
                 options = ["COMPRESS=LZW"] if driver == "GTiff" else []
                 dst = gdal.GetDriverByName(driver).CreateCopy(
                     str(path), vrt, strict=1, options=options
