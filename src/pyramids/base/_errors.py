@@ -358,13 +358,20 @@ class ContainerRasterWarning(UserWarning):
 class DtypeNarrowingWarning(UserWarning):
     """Pyramids-emitted warning that a write will not preserve the band dtype.
 
-    Emitted by :meth:`pyramids.dataset.Dataset.to_file` when the driver the
-    destination extension selects cannot store the source dtype. GDAL's
-    ``CreateCopy`` substitutes the nearest type it does support rather than
-    refusing — a float32 DEM written to ``.png`` becomes 8-bit ``Byte``, so
-    values are clipped and every fractional part is lost — and reports it only
-    as a GDAL ``RuntimeWarning``, which a caller filtering on their own warning
-    categories never sees.
+    Emitted by :meth:`pyramids.dataset.Dataset.to_file` when the driver it
+    resolves for the destination — from the path extension, or from an explicit
+    `driver=` — cannot store the source dtype. GDAL's `CreateCopy`
+    substitutes the nearest type it does support rather than refusing — a
+    float32 DEM written to `.png` becomes 8-bit `Byte`, so values are
+    clipped and every fractional part is lost — and reports it only as a GDAL
+    `RuntimeWarning`, which a caller filtering on their own warning categories
+    never sees.
+
+    The check is advisory, not a proof of losslessness: band 1's dtype is
+    compared against the driver's advertised `DMD_CREATIONDATATYPES` list, so
+    a driver that advertises none (`MEM`, `VRT`) never warns, a mixed-dtype
+    dataset is judged by its first band, and `driver="COG"` delegates to
+    :meth:`pyramids.dataset.Dataset.to_cog` before the check runs.
 
     Writing an 8-bit image to PNG or JPEG is a legitimate thing to do, so this
     warns rather than raising. Silence it once the conversion is deliberate::

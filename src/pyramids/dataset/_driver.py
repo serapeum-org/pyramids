@@ -13,8 +13,16 @@ kept distinct, because they need different answers from the caller:
 * the catalog has never heard of the extension -> :class:`DriverNotExistError`
 * the driver exists but cannot ``Create`` -> :class:`FileFormatNotSupportedError`
 
-The second case is real: `PNG` and `JP2OpenJPEG` are write-by-copy only, and
-the constructors here build with ``Create``.
+The second case is real: `PNG` and `JP2OpenJPEG` are write-by-copy only, so a
+constructor that builds with `Create` — `Dataset.from_array`,
+`Dataset.create_empty` — cannot produce them. That is the *default* gate, not
+the whole story: the package has as many write paths that go through
+`CreateCopy` or `gdal.Translate` (`Dataset.copy`, `Dataset.to_file`,
+`Vectorize.translate`, `Bands.change_no_data_value`, `IO.to_terrain_rgb`), and
+those copy a copy-only format perfectly well. They pass `for_copy=True` to
+skip the `Create` check while keeping the extension lookup and its
+unknown-format error identical, so one resolver serves both kinds of writer and
+a given path names the same format whichever one is used.
 """
 
 from __future__ import annotations
@@ -106,6 +114,27 @@ or pass path=None for an in-memory raster.
             pyramids.base._errors.FileFormatNotSupportedError: '.png' maps to the \
 PNG driver, which cannot create a raster directly (write-by-copy only). Build the \
 raster in memory or as GTiff, then convert.
+
+            ```
+
+        - A caller that writes with `CreateCopy` asks for the same lookup
+          without the `Create` gate, so the same path resolves instead of
+          raising:
+            ```python
+            >>> resolve_output_driver("out.png", for_copy=True)
+            'PNG'
+
+            ```
+
+        - `for_copy` relaxes only that gate; an unknown extension is still an
+          error either way:
+            ```python
+            >>> from pyramids.errors import DriverNotExistError
+            >>> try:
+            ...     resolve_output_driver("out.zzz", for_copy=True)
+            ... except DriverNotExistError as error:
+            ...     print(str(error).split(" is not")[0])
+            The given extension: zzz
 
             ```
     """

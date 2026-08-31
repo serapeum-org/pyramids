@@ -453,9 +453,14 @@ def from_array(
     layout. `extra_dims` and the legacy single-dim params
     (`extra_dim_name` / `extra_dim_values`) are mutually exclusive.
 
-    The driver is inferred from `path`: if `path` is `None`
-    the dataset is created in memory (MEM driver); if a path is
-    provided the netCDF driver writes to disk.
+    `path` decides only *where* the store goes, not what format it is: `None`
+    creates it in memory (MEM driver), and any path is written by the netCDF
+    driver, because this builds a multidimensional store no other driver here
+    can carry. The extension is therefore checked rather than obeyed — a path
+    naming a different format (`"lies.tif"`) raises
+    :class:`~pyramids.base._errors.FileFormatNotSupportedError` instead of
+    silently writing netCDF bytes under a GeoTIFF name. Use
+    :meth:`pyramids.dataset.Dataset.from_array` to write those formats.
 
     `arr` may be a `dask.array.Array` instead of a NumPy array. It is
     then written to disk one block at a time (memory-bounded streaming),
@@ -487,8 +492,8 @@ def from_array(
             keyword-only, with no default: it must resolve to a geotransform,
             so an empty `GeoReference()` raises rather than placing the array
             somewhere arbitrary.
-        path: Output file path. If `None`, the dataset is
-            created in memory. Defaults to None.
+        path: Output file path, which must name netCDF (`.nc`, or its `.nc4`
+            alias). If `None` (default), the store is created in memory.
         variable_name: Name of the data variable in the NetCDF
             file. Defaults to `"data"`.
         no_data_value: Sentinel value for cells outside the
@@ -516,6 +521,12 @@ def from_array(
             a `geo` nor a complete `top_left_corner` + `cell_size` pair — or
             the requested extra dimensions do not match `arr`'s non-spatial
             axes.
+        DriverNotExistError: `path` has no extension, or one the driver catalog
+            does not know.
+        FileFormatNotSupportedError: `path`'s extension names a driver other
+            than netCDF. The store written here is multidimensional, so the
+            format cannot be honoured; build the raster with
+            :meth:`pyramids.dataset.Dataset.from_array` instead.
 
     See Also:
         - :meth:`pyramids.netcdf.NetCDF.from_array`: The classmethod facade

@@ -524,7 +524,12 @@ class Vectorize(_Engine["Dataset"]):
 
         Args:
             path (str | Path | None):
-                Path to save the output. If None (default), the output is kept in memory.
+                Destination for the output. `None` (default) keeps the result in memory (the `MEM`
+                driver). Otherwise the extension alone selects the output driver (`.tif` -> GTiff,
+                `.png` -> PNG, `.jpg` -> JPEG, `.nc` -> netCDF, …), which is what makes the format
+                conversion listed above reachable. `gdal.Translate` writes by copy, so a
+                write-by-copy-only format such as PNG or JPEG is accepted here even though the
+                `Create`-based constructors (`Dataset.from_array`, `Dataset.create_empty`) refuse it.
             **kwargs:
                 Options forwarded to :func:`gdal.TranslateOptions`:
                 unscale:
@@ -571,6 +576,9 @@ class Vectorize(_Engine["Dataset"]):
         Returns:
             Dataset:
                 The translated dataset (in memory when ``path`` is None).
+
+        Raises:
+            DriverNotExistError: `path` has no extension, or one the driver catalog does not know.
 
         Examples:
         Scale & offset:

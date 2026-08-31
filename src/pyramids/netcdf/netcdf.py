@@ -6462,8 +6462,14 @@ class NetCDF(Dataset):
                 :meth:`pyramids.dataset.Dataset.from_array`; that shared core
                 is what lets one caller build either class.
             no_data_value: Sentinel marking cells outside the domain.
-            path: Destination, which alone decides the driver. `None` (default)
-                builds in memory; a path writes netCDF.
+            path: Destination. Unlike
+                :meth:`pyramids.dataset.Dataset.from_array`, the extension does
+                not choose the format here: this builds a multidimensional
+                store, which only the netCDF driver can carry, so `None`
+                (default) builds it in memory and any path writes netCDF. The
+                extension is validated rather than obeyed — it must name netCDF
+                (`.nc`, or its `.nc4` alias), and one naming another format
+                raises instead of writing netCDF bytes under a misleading name.
             variable_name: Name for the created variable. Defaults to
                 ``"data"``.
             dims: Non-spatial (time / level / …) dimensions of a 3-D+ array.
@@ -6478,6 +6484,12 @@ class NetCDF(Dataset):
         Raises:
             ValueError: `geo_ref` carries neither a ``geo`` nor a complete
                 ``top_left_corner`` + ``cell_size`` pair.
+            DriverNotExistError: `path` has no extension, or one the driver
+                catalog does not know.
+            FileFormatNotSupportedError: `path`'s extension names a driver
+                other than netCDF (e.g. `"out.tif"`). Build the raster with
+                :meth:`pyramids.dataset.Dataset.from_array` to write that
+                format.
 
         Examples:
             - Wrap a 2-D array and read the variable back off the container:
@@ -6509,6 +6521,23 @@ class NetCDF(Dataset):
                 ...     for cls in (Dataset, NetCDF)
                 ... ]
                 ['Dataset', 'Container']
+
+                ```
+            - A path naming another format is refused, not written under a
+              misleading name:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.errors import FileFormatNotSupportedError
+                >>> from pyramids.netcdf import NetCDF, GeoReference
+                >>> try:
+                ...     NetCDF.from_array(
+                ...         np.zeros((2, 2), dtype="float32"),
+                ...         geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0)),
+                ...         path="lies.tif",
+                ...     )
+                ... except FileFormatNotSupportedError as error:
+                ...     print(str(error).split(", but ")[0])
+                NetCDF.from_array writes a multidimensional netCDF store
 
                 ```
         """

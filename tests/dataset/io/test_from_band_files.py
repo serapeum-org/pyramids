@@ -487,34 +487,24 @@ class TestFromBandFiles:
         with pytest.raises(DriverNotExistError):
             Dataset.from_band_files(band_files, path=filename)
 
-    def test_a_copy_only_format_is_accepted_because_this_path_copies(self, tmp_path):
-        """A `CreateCopy`-only format is written, not refused.
+    def test_a_copy_only_format_is_refused_on_both_write_paths(self, band_files):
+        """`.png` is refused regardless of which internal branch would run.
 
         Args:
-            tmp_path: Temporary directory fixture.
+            band_files: The three source bands.
 
         Test scenario:
-            The `Creation` catalog flag records whether a driver supports
-            `Create`, and the constructors are right to refuse `.png` on that
-            basis. This method writes with `CreateCopy`, which PNG supports, so
-            inheriting that refusal would reject a file it can produce -- which
-            it briefly did, and an earlier version of this test pinned the
-            wrong behaviour. Byte data, because PNG genuinely cannot carry
-            float32.
+            This method has two write paths -- a `BuildVRT` + `CreateCopy` one
+            and an align/`Create` one -- chosen by `align` and by whether the
+            sources share a dtype. `CreateCopy` can produce a PNG and `Create`
+            cannot, so gating each branch on its own capability made the
+            destination's legality depend on arguments that say nothing about
+            the format: `path="out.png"` was accepted with `align=False` and
+            rejected with `align=True`. One gate answers for both.
         """
-        src = tmp_path / "byte.tif"
-        Dataset.from_array(
-            np.arange(16, dtype="uint8").reshape(4, 4),
-            geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326),
-            path=src,
-        ).close()
-        out = tmp_path / "stack.png"
-        Dataset.from_band_files([str(src)], path=str(out)).close()
-        written = gdal.Open(str(out))
-        assert written is not None, f"{out} was not written"
-        assert written.GetDriver().ShortName == "PNG", (
-            f"expected PNG, got {written.GetDriver().ShortName}"
-        )
+        for align in (False, True):
+            with pytest.raises(FileFormatNotSupportedError):
+                Dataset.from_band_files(band_files, path="out.png", align=align)
 
     @pytest.mark.parametrize(
         "extension, driver",

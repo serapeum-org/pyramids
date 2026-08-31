@@ -1943,7 +1943,16 @@ class IO(_Engine["Dataset"]):
 
         Args:
             path (str):
-                A path including the name of the dataset.
+                A path including the name of the dataset. Unless `driver` is
+                given, the extension alone selects the output format, matched
+                case-insensitively against the driver catalog (`.tif`/`.TIF` ->
+                GTiff, `.nc` and `.nc4` -> netCDF, `.asc` -> ASCII grid,
+                `.png` -> PNG, …). The write goes through `CreateCopy`, so a
+                write-by-copy-only format is accepted here even though the
+                `Create`-based constructors (`Dataset.from_array`,
+                `Dataset.create_empty`) refuse it — but such a format cannot be
+                reopened for update, so with `reopen=True` this dataset is
+                repointed at a read-only handle.
             band (int):
                 Band index, needed only in case of ascii drivers. Default is 0.
             tile_length (int, optional):
@@ -2000,6 +2009,31 @@ class IO(_Engine["Dataset"]):
                 flag. Ignored for the ASCII and ``driver="COG"`` paths, which
                 never reopen (both write without swapping the source regardless
                 of this flag).
+
+        Returns:
+            Any: `None` when `compute=True` (default) — the file is already on
+            disk. When `compute=False`, a :class:`dask.delayed.Delayed` that
+            performs the write when `.compute()` is called on it.
+
+        Raises:
+            TypeError: `path` is neither a `str` nor a `Path`.
+            DriverNotExistError: `driver` is `None` and `path` has no extension,
+                or one the driver catalog does not know; or an explicit `driver`
+                is neither a catalog key nor a GDAL short name.
+            FailedToSaveError: The resolved driver refused the write.
+            pickle.PicklingError: `compute=False` on a dataset that is not on
+                disk (a `MEM` or `/vsimem/` source), which cannot be pickled
+                into a dask graph.
+
+        Warns:
+            DtypeNarrowingWarning: The resolved driver cannot store the band
+                dtype, so `CreateCopy` will convert it — a float32 raster
+                written to `.png` becomes 8-bit `Byte`, clipping out-of-range
+                values and dropping every fractional part. Writing 8-bit
+                imagery to PNG or JPEG is legitimate, so this warns rather than
+                raising; silence it with
+                `warnings.filterwarnings("ignore", category=DtypeNarrowingWarning)`
+                once the conversion is deliberate.
 
         Examples:
             - Create a Dataset with 4 bands, 5 rows, 5 columns, at the point lon/lat (0, 0):
@@ -2822,9 +2856,14 @@ class IO(_Engine["Dataset"]):
         encodable range are clamped, not wrapped.
 
         Args:
-            path: Destination. With ``tiles=False`` a single file (``.png`` ->
-                PNG, otherwise GeoTIFF); with ``tiles=True`` the root directory
-                of the ``{z}/{x}/{y}.png`` pyramid (created if missing).
+            path: Destination. With `tiles=False` a single file whose
+                extension alone selects the driver (`.png` -> PNG, `.jpg`
+                -> JPEG, `.tif` -> GTiff, …); the encoded bands are 8-bit, so
+                any 8-bit-capable format works, and the write is a
+                `CreateCopy`, so write-by-copy-only formats are accepted.
+                With `tiles=True` it is instead the root directory of the
+                `{z}/{x}/{y}.png` pyramid (created if missing) and no driver
+                is resolved from it.
             encoding: ``"mapbox"`` (default) or ``"terrarium"``,
                 case-insensitive.
             tiles: ``True`` (default) writes an XYZ PNG pyramid;
@@ -2862,6 +2901,9 @@ class IO(_Engine["Dataset"]):
             ValueError: ``encoding`` is not ``"mapbox"``/``"terrarium"``,
                 ``resampling`` is unknown, ``interval <= 0`` (mapbox),
                 ``min_zoom < 0``, or ``max_zoom < min_zoom``.
+            DriverNotExistError: `tiles=False` and `path` has no extension,
+                or one the driver catalog does not know.
+            FailedToSaveError: The resolved driver refused the write.
 
         Examples:
             - Encode a small DEM to a single terrain-RGB PNG (the write is

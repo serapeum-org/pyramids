@@ -403,7 +403,15 @@ def merge_rasters(
         src (Sequence[str | Path]):
             Paths to all input rasters.
         dst (str | Path):
-            Path to the output raster.
+            Path to the output raster. Its extension alone selects the output
+            driver (`.tif` -> GTiff, `.nc` -> netCDF, …) — the same
+            resolution every other write path in the package uses — so one
+            `dst` yields the same format for every `method`. `COMPRESS=LZW`
+            is a GTiff creation option and is applied only when the extension
+            resolves to GTiff; other formats are written with their driver
+            defaults. The z-order methods write by copy (`gdal.Translate`) and
+            so also accept a write-by-copy-only format such as PNG, whereas the
+            reduction methods build the output with `Create` and reject one.
         no_data_value (float | int | str):
             Stamped on the output bands as the nodata marker. For the reduction
             methods it also fills pixels with no source coverage.
@@ -520,6 +528,11 @@ def merge_rasters(
             cannot be projected into its CRS.
         RuntimeError: GDAL failed to open a source, reproject it, or build the
             source mosaic.
+        DriverNotExistError: `dst` has no extension, or one the driver catalog
+            does not know.
+        FileFormatNotSupportedError: `method` is a reduction
+            (`"min"`/`"max"`/`"sum"`) and `dst`'s extension maps to a
+            write-by-copy-only format, which cannot be built with `Create`.
 
     Examples:
         - Mosaic two tiles, keeping the larger value wherever they overlap:
@@ -649,9 +662,7 @@ def merge_rasters(
         # the way `_create_dataset` and the reduction path above now do.
         translate_opts = gdal.TranslateOptions(
             creationOptions=(
-                ["COMPRESS=LZW"]
-                if resolve_output_driver(dst, for_copy=True) == "GTiff"
-                else []
+                ["COMPRESS=LZW"] if resolve_output_driver(dst) == "GTiff" else []
             ),
             noData=str(no_data_value),
             projWin=proj_win,
@@ -1078,6 +1089,10 @@ def stack_bands(
             "inherit from the source rasters".
         path: Output path, whose extension selects the driver (``.tif`` ->
             GTiff, ``.nc`` -> netCDF, …); ``None`` keeps the result in memory.
+            `COMPRESS=LZW` is applied only when the extension resolves to
+            GTiff. A write-by-copy-only format such as PNG is accepted only on
+            the VRT/`CreateCopy` branch (aligned, same-dtype inputs) — see
+            :meth:`pyramids.dataset.Dataset.from_band_files` for the split.
         signer: Optional signer exposing ``sign_href(str) -> str`` and
             ``gdal_env() -> dict[str, str]`` (e.g. a
             :class:`pyramids.stac.signers.Signer`). When given, **both** hooks
@@ -1091,6 +1106,13 @@ def stack_bands(
 
     Returns:
         Dataset: A multi-band dataset, one band per input file.
+
+    Raises:
+        DriverNotExistError: `path` has no extension, or one the driver
+            catalog does not know.
+        FileFormatNotSupportedError: `path`'s extension maps to a
+            write-by-copy-only format and the inputs take the `Create`
+            branch (`align=True`, or mixed input dtypes).
     """
     if signer is not None:
         files = [signer.sign_href(str(f)) for f in files]

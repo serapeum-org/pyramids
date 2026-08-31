@@ -3511,8 +3511,14 @@ class Dataset(RasterBase):
 
         Args:
             path (str, optional):
-                Destination path to save the copied dataset. If None
-                is passed, the copied dataset is created in memory.
+                Destination for the copy. `None` (default) copies into memory
+                with the `MEM` driver. Otherwise the extension alone selects
+                the output format (`.tif` -> GTiff, `.nc` -> netCDF,
+                `.png` -> PNG, …), so `copy` doubles as a format conversion
+                and is not GeoTIFF-only. The copy is made with `CreateCopy`,
+                so a write-by-copy-only format such as PNG or JPEG is accepted
+                here even though the `Create`-based constructors
+                (`from_array`, `create_empty`) refuse it.
 
         Returns:
             Dataset: An independent copy. Access mode of the returned
@@ -3526,6 +3532,43 @@ class Dataset(RasterBase):
             * `path is not None` (on-disk copy) → `"write"`,
               because the caller has just created a new file they
               presumably want to populate.
+
+        Raises:
+            DriverNotExistError: `path` has no extension, or one the driver
+                catalog does not know.
+
+        Examples:
+            - Copy into memory and edit the copy without touching the source:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> src = Dataset.from_array(
+                ...     np.zeros((3, 4), dtype="int16"),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+                ... )
+                >>> clone = src.copy()
+                >>> clone.write_array(np.full((3, 4), 7, dtype="int16"))
+                >>> int(clone.read_array().max()), int(src.read_array().max())
+                (7, 0)
+
+                ```
+            - The destination extension picks the format, so a copy can convert:
+                ```python
+                >>> import os, tempfile
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> src = Dataset.from_array(
+                ...     np.arange(12, dtype="uint8").reshape(3, 4),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+                ...     no_data_value=None,
+                ... )
+                >>> out = os.path.join(tempfile.mkdtemp(), "converted.png")
+                >>> png = src.copy(out)
+                >>> png.raster.GetDriver().ShortName
+                'PNG'
+                >>> png.close()
+
+                ```
         """
         if path is None:
             path = ""
@@ -4609,6 +4652,18 @@ class Dataset(RasterBase):
                 netCDF, …). When ``None`` (default) the result is an
                 in-memory dataset.
 
+                Which extensions are accepted depends on the branch the
+                inputs take, because the two write with different GDAL
+                calls. Aligned, same-dtype inputs are stacked through a VRT
+                and written with `CreateCopy`, which also accepts a
+                write-by-copy-only format (`.png`, `.jp2`). When
+                `align=True` or the inputs have mixed dtypes the output is
+                allocated with `Create` and filled band by band, so only
+                formats that support `Create` are accepted and a `.png`
+                destination raises :class:`FileFormatNotSupportedError`. Use
+                `.tif` (or another `Create`-capable format) when the
+                branch is not known in advance.
+
         Returns:
             Dataset: A multi-band dataset with ``band_count == len(files)``
             and ``band_names`` set.
@@ -4622,7 +4677,8 @@ class Dataset(RasterBase):
             DriverNotExistError: ``path`` has no extension, or one the driver
                 catalog does not know.
             FileFormatNotSupportedError: ``path``'s extension maps to a
-                write-by-copy-only format.
+                write-by-copy-only format *and* the inputs take the
+                `Create` branch (`align=True`, or mixed input dtypes).
 
         Examples:
             - Stack three per-band GeoTIFFs into one 3-band dataset; band
@@ -4821,10 +4877,14 @@ class Dataset(RasterBase):
                 # guard above: without it a `.nc` destination produced a GTiff
                 # carrying a netCDF name, a file whose extension lies about its
                 # contents. LZW is GTiff-specific, so it is applied only there.
-                # `for_copy` because this branch writes with `CreateCopy`, which
-                # copy-only formats support — the default gate encodes `Create`
-                # capability and would refuse a `.png` this path can produce.
-                driver = resolve_output_driver(path, for_copy=True)
+                # Deliberately NOT `for_copy`, though this branch does use
+                # `CreateCopy`. Which branch runs depends on `align` and on
+                # whether the sources share a dtype -- things the caller cannot
+                # easily predict -- so accepting `.png` here and refusing it on
+                # the `Create` branch would make the destination's legality
+                # depend on an unrelated argument. That is the same defect this
+                # branch removed from `merge_rasters`; one gate for both paths.
+                driver = resolve_output_driver(path)
                 options = ["COMPRESS=LZW"] if driver == "GTiff" else []
                 dst = gdal.GetDriverByName(driver).CreateCopy(
                     str(path), vrt, strict=1, options=options

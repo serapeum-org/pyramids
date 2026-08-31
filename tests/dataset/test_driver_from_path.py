@@ -14,6 +14,7 @@ by the next reviewer.
 from __future__ import annotations
 
 import warnings
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -413,6 +414,26 @@ class TestCollectionToFileNormalisesTheDriver:
         with pytest.raises(DriverNotExistError, match="not in the driver catalog"):
             collection.to_file(str(tmp_path / "bad"), driver="NotADriver")
 
+    def test_an_explicit_path_list_needs_no_driver_extension(
+        self, collection, tmp_path
+    ):
+        """A driver with no catalogued extension is fine when paths are given.
+
+        Args:
+            collection: The collection under test.
+            tmp_path: Temporary directory fixture.
+
+        Test scenario:
+            Only the directory branch derives file names from the driver, so
+            only it needs an extension. Checking earlier refused `cog` even
+            here -- while advising the caller to "pass an explicit list of
+            paths", which is exactly what they had done.
+        """
+        paths = [str(tmp_path / f"g{i}.tif") for i in range(collection.time_length)]
+        collection.to_file(paths, driver="cog")
+        for path in paths:
+            assert Path(path).exists(), f"{path} was not written"
+
     def test_a_driver_with_no_extension_is_refused(self, collection, tmp_path):
         """A key with no catalogued extension raises instead of writing "0.None".
 
@@ -425,7 +446,7 @@ class TestCollectionToFileNormalisesTheDriver:
             construction produced files literally named `0.None`.
         """
         with pytest.raises(DriverNotExistError, match="no file extension"):
-            collection.to_file(str(tmp_path / "cog"), driver="cog")
+            collection.to_file(str(tmp_path / "cogdir"), driver="cog")
 
 
 class TestTheDtypeCheckIsQuietWhenItCannotAnswer:

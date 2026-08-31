@@ -600,12 +600,50 @@ def get_catalog(raster_driver: bool = True) -> Catalog:
     `.drivers` and edits it changes what every other consumer sees. Treat it as
     read-only.
 
+    The two families are cached separately (`maxsize=2`), so a raster lookup
+    never forces a re-parse of the vector table or the reverse.
+
     Args:
         raster_driver: `True` (default) for the GDAL raster catalog, `False`
             for the OGR vector one.
 
     Returns:
         Catalog: The shared instance for that driver family.
+
+    Examples:
+        - Look a raster extension up through the shared catalog:
+            ```python
+            >>> from pyramids.base._utils import get_catalog
+            >>> catalog = get_catalog()
+            >>> catalog.get_driver_name_by_extension("tif")
+            'geotiff'
+            >>> catalog.get_gdal_name("geotiff")
+            'GTiff'
+
+            ```
+        - Every caller gets the same object, so the YAML is parsed once:
+            ```python
+            >>> from pyramids.base._utils import get_catalog
+            >>> get_catalog() is get_catalog()
+            True
+
+            ```
+        - The vector family is a separate catalog with its own entries:
+            ```python
+            >>> from pyramids.base._utils import get_catalog
+            >>> vector = get_catalog(raster_driver=False)
+            >>> vector.get_driver_name_by_extension("geojson")
+            'geojson'
+            >>> vector.get_gdal_name("esri shapefile")
+            'ESRI Shapefile'
+            >>> vector is get_catalog()
+            False
+
+            ```
+
+    See Also:
+        - :class:`Catalog`: The catalog itself; construct one directly only when
+          an unshared, mutable copy is genuinely needed.
     """
     return Catalog(raster_driver=raster_driver)
 
@@ -648,17 +686,23 @@ class Catalog:
         and `.jpeg` reported "cannot create" while `.jpg` reported "unknown
         format".
 
+        An entry is matched on its `aliases` even when it declares no canonical
+        `extension`, so an alias-only row is reachable.
+
         Args:
             extension (str): Extension of the file, without the leading dot and already
                 lower-cased (`"tif"`, not `".TIF"`). Matched against each entry's canonical
-                `extension` first, then against its `aliases` list.
+                `extension` first, then against its `aliases` list. Must be a non-empty
+                string: an empty value (or `None`) is rejected rather than matched, because
+                the catalog holds rows whose `extension` is null and a falsy argument would
+                otherwise resolve to whichever of them comes first.
 
         Returns:
             str: The catalog key for the driver (e.g. `"geotiff"`), not the GDAL short name —
                 pass it to :meth:`get_driver` or :meth:`get_gdal_name` to go further.
 
         Raises:
-            DriverNotExistError: No driver claims the extension.
+            DriverNotExistError: `extension` is empty or `None`, or no driver claims it.
 
         Examples:
             - The canonical extension resolves to its catalog key:
@@ -693,6 +737,18 @@ class Catalog:
                 The given extension: xyzzy
 
                 ```
+            - An empty extension is refused instead of matching a null-extension entry:
+                ```python
+                >>> from pyramids.base._errors import DriverNotExistError
+                >>> from pyramids.base._utils import Catalog
+                >>> catalog = Catalog(raster_driver=True)
+                >>> try:
+                ...     catalog.get_driver_name_by_extension("")
+                ... except DriverNotExistError as error:
+                ...     print(str(error).split(";")[0])
+                An empty extension is not associated with any driver
+
+                ```
 
         See Also:
             - :meth:`get_driver_by_extension`: The same lookup, returning the driver entry.
@@ -722,7 +778,7 @@ class Catalog:
             raise DriverNotExistError(
                 f"The given extension: {extension} is not associated with any driver in the "
                 "driver catalog, if this driver is supported by gdal please open and issue to "
-                "asking for youe extension to be added to the catalog"
+                "asking for your extension to be added to the catalog: "
                 "https://github.com/serapeum-org/pyramids/issues/new?assignees=&labels=&template=feature_request.md&title=add%20extension"
             )
 

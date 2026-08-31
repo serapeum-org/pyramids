@@ -2938,8 +2938,21 @@ class DatasetCollection:
                 ``<N-1>.<ext>`` and the directory is created if missing — or an
                 explicit list of one path per timestep.
             driver (str):
-                Output driver as a catalog key (e.g. ``"geotiff"`` (default) or
-                ``"ascii"``); sets the extension when ``path`` is a directory.
+                Output driver, given either as a catalog key (`"geotiff"`
+                (default), `"ascii"`) or as the GDAL short name for the same
+                entry (`"GTiff"`, `"AAIGrid"`) — the two spellings are
+                accepted interchangeably, as :meth:`Dataset.to_file` already
+                does. It must be a driver the catalog associates with a file
+                extension, since that extension is what names the per-timestep
+                files; a key with none (e.g. `"cog"`) is refused rather than
+                producing files literally called `0.None`.
+
+                Its only effect is that extension, so it applies when `path`
+                is a directory. With an explicit list of paths each file's own
+                extension decides its format (a list of `.asc` paths writes
+                ASCII even at the default `driver="geotiff"`), but the
+                argument is still validated, so an extension-less driver is
+                rejected there too.
             band (int):
                 Band index to write; used only by single-band drivers such as
                 ``"ascii"`` and ignored by GeoTIFF (which writes every band).
@@ -2948,6 +2961,9 @@ class DatasetCollection:
         Raises:
             ValueError: ``path`` is a list whose length differs from
                 :attr:`time_length`.
+            DriverNotExistError: `driver` is neither a catalog key nor a GDAL
+                short name in the catalog, or it is a known driver the catalog
+                lists no extension for.
 
         Examples:
             - Save to a directory — one file per timestep:
@@ -2986,6 +3002,23 @@ class DatasetCollection:
               7.0
 
               ```
+            - The GDAL short name is accepted wherever the catalog key is:
+
+              ```python
+              >>> import os, tempfile
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, DatasetCollection, GeoReference
+              >>> src = Dataset.from_array(
+              ...     np.ones((3, 3), dtype="float32"),
+              ...     geo_ref=GeoReference(top_left_corner=(0, 3), cell_size=1.0, epsg=4326),
+              ... )
+              >>> collection = DatasetCollection.from_dataset(src, 2)
+              >>> out_dir = tempfile.mkdtemp()
+              >>> collection.to_file(out_dir, driver="GTiff")
+              >>> sorted(os.listdir(out_dir))
+              ['0.tif', '1.tif']
+
+              ```
 
         See Also:
             DatasetCollection.to_cog_stack: Write each timestep as a Cloud
@@ -3005,15 +3038,21 @@ class DatasetCollection:
                     f"driver names: {sorted(CATALOG.drivers)}"
                 )
             driver = catalog_key
-        ext = CATALOG.get_extension(driver)
-        if ext is None:
-            raise DriverNotExistError(
-                f"The driver {driver!r} has no file extension in the catalog, so "
-                "per-timestep file names cannot be built. Pass an explicit list of "
-                "paths instead, or use a driver with a known extension."
-            )
 
         if isinstance(path, (str, Path)):
+            # Only this branch derives file names from the driver, so only this
+            # branch needs an extension. Checking it earlier refused a driver
+            # like "cog" even when the caller had supplied explicit paths --
+            # while advising them to "pass an explicit list of paths", which is
+            # exactly what they had done.
+            ext = CATALOG.get_extension(driver)
+            if ext is None:
+                raise DriverNotExistError(
+                    f"The driver {driver!r} has no file extension in the catalog, so "
+                    "per-timestep file names cannot be built from a directory. Pass "
+                    "an explicit list of paths instead, or use a driver with a known "
+                    "extension."
+                )
             path = Path(path)
             if not path.exists():
                 path.mkdir(parents=True, exist_ok=True)

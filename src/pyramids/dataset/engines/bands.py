@@ -1862,10 +1862,18 @@ class Bands(_Engine["Dataset"]):
                 If True, the original dataset will be modified. If False, a new dataset will be created.
                 Default is False.
             path (str | Path | None):
-                Output `.tif` path for a disk-backed result. When given, the raster
-                is cloned to that GeoTIFF and the no-data swap is streamed tile by
-                tile, so the whole raster is never held in RAM (genuinely
-                out-of-core). `None` (default) keeps the result in memory.
+                Destination for a disk-backed result. Its extension alone selects the
+                driver (`.tif` -> GTiff, `.nc` -> netCDF, …), so this is no longer
+                GeoTIFF-only. When given, the raster is cloned to that file and the
+                no-data swap is streamed tile by tile, so the whole raster is never held
+                in RAM — genuinely out-of-core for a block-based format such as GTiff.
+                `None` (default) keeps the result in memory.
+
+                The driver must be one whose `CreateCopy` hands back a *writable*
+                dataset, since the swap is written into the clone. PNG and JPEG do not
+                — they return a read-only handle — so those extensions reach GDAL and
+                then fail with :class:`ReadOnlyError`; use `.tif`, `.nc`, or another
+                updatable format.
 
         Returns:
             Dataset | None:
@@ -1879,6 +1887,11 @@ class Bands(_Engine["Dataset"]):
                 leaking a raw numpy `TypeError`/`ValueError`. Also raised when
                 `new_value` or `old_value` is given as a list whose length does not
                 match `band_count`.
+            DriverNotExistError:
+                `path` has no extension, or one the driver catalog does not know.
+            ReadOnlyError:
+                `path`'s driver returns a read-only dataset from `CreateCopy` (PNG,
+                JPEG), so the swapped values cannot be written back into the clone.
 
         Warning:
             With `path=None` the method clones the raster in memory to change the
@@ -1928,8 +1941,12 @@ class Bands(_Engine["Dataset"]):
         # it in memory. The old<->new no-data swap is then streamed one tile at a
         # time, so a full band is never materialised as a NumPy array (#969).
         # From the extension, not hardcoded: a `.nc` path silently produced a
-        # mislabelled GTiff. `for_copy` because this writes with CreateCopy.
-        driver = resolve_output_driver(path, for_copy=True) if path else MEMORY_DRIVER
+        # mislabelled GTiff. NOT `for_copy`, despite the CreateCopy below: this
+        # method streams the no-data swap into the clone afterwards, and a
+        # copy-only driver hands back a read-only handle -- `.png` passed the
+        # resolver and then died with a ReadOnlyError naming nothing about the
+        # format. The strict gate refuses it up front, with a message that does.
+        driver = resolve_output_driver(path) if path else MEMORY_DRIVER
         target = str(path) if path is not None else ""
         dst = gdal.GetDriverByName(driver).CreateCopy(target, self._ds.raster, 0)
         new_dataset = self._ds.__class__(dst, "write")

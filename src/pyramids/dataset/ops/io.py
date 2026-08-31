@@ -262,10 +262,21 @@ def _warn_if_driver_narrows_dtype(ds: Dataset, driver_name: str, path: Path) -> 
     on their own warning categories will not see. This raises the same fact to a
     `pyramids` warning that names both dtypes and the driver.
 
+    The check is advisory and deliberately cheap: it compares band 1's dtype
+    against the driver's advertised `DMD_CREATIONDATATYPES` list. A driver that
+    advertises no list (`MEM`, `VRT`) and one GDAL does not know are both
+    treated as "nothing to say", and a mixed-dtype dataset is judged by its
+    first band alone, so this warns about the common case rather than proving
+    the write is lossless.
+
     Args:
         ds: The dataset being written.
         driver_name: The resolved GDAL driver short name.
         path: The destination, named in the message.
+
+    Warns:
+        DtypeNarrowingWarning: Band 1's dtype is not in the driver's list of
+            creatable types, so the write will convert it.
     """
     driver = gdal.GetDriverByName(driver_name)
     if driver is None:
