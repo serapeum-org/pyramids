@@ -132,14 +132,24 @@ def _array_to_dataset(
     Args:
         arr: 2-D ``(rows, cols)`` or 3-D ``(bands, rows, cols)`` array.
         crs: Required CRS (anything :func:`_coerce_epsg` accepts).
-        transform: Required 6-tuple GDAL geotransform.
-        nodata: Optional NoData scalar.
+        transform: Required GDAL geotransform. Annotated as a variable-length
+            tuple because callers pass whatever sequence they hold, but it is
+            unpacked into the fixed six terms
+            `(origin_x, pixel_w, row_skew, origin_y, col_skew, pixel_h)` that
+            :class:`~pyramids.base.georeference.GeoReference` declares, so any
+            other length is rejected.
+        nodata: NoData scalar for every band, or `None` to leave
+            :meth:`~pyramids.dataset.Dataset.from_array`'s own default
+            sentinel in place.
 
     Returns:
-        A new in-memory :class:`Dataset`.
+        A new in-memory :class:`Dataset` carrying `arr`, the geotransform, and
+        the CRS resolved to an EPSG code.
 
     Raises:
-        ValueError: When ``crs`` or ``transform`` is missing.
+        ValueError: ``crs`` or ``transform`` is missing; ``transform`` does not
+            hold exactly six terms; or ``crs`` cannot be resolved to an EPSG
+            code (raised by :func:`_coerce_epsg`).
     """
     # Function-scope import: avoids the dataset <-> engines.cog <-> cog cycle.
     from pyramids.dataset.dataset import Dataset

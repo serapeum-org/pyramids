@@ -465,11 +465,13 @@ def from_array(
     one block at a time but the in-memory result holds the full array.
 
     The write options are organised into grouped, validated dataclasses
-    (:class:`~pyramids.netcdf.array_options.GeoReference`,
+    (:class:`~pyramids.base.georeference.GeoReference`,
     :class:`~pyramids.netcdf.array_options.ExtraDimensions`,
     :class:`~pyramids.netcdf.array_options.Encoding`,
     :class:`~pyramids.netcdf.array_options.CFAttributes`) — see each class for
-    its fields. They are importable from the subpackage, e.g.
+    its fields. `GeoReference` is shared vocabulary and lives in
+    :mod:`pyramids.base.georeference`; the other three are netCDF-specific. All
+    four are importable from the subpackage, e.g.
     ``from pyramids.netcdf import GeoReference``.
 
     Args:
@@ -503,9 +505,21 @@ def from_array(
 
     Returns:
         Container: The newly created store. Always a `Container`, never a bare
-            `NetCDF`, regardless of the subtype the facade was invoked on --
+            `NetCDF`, regardless of the subtype the facade was invoked on —
             the annotation says so rather than leaving the caller's declared
             `-> Container` resting on an engine that claims otherwise.
+
+    Raises:
+        ValueError: `geo_ref` resolves to no geotransform — it carries neither
+            a `geo` nor a complete `top_left_corner` + `cell_size` pair — or
+            the requested extra dimensions do not match `arr`'s non-spatial
+            axes.
+
+    See Also:
+        - :meth:`pyramids.netcdf.NetCDF.from_array`: The classmethod facade
+          this function backs.
+        - :class:`~pyramids.base.georeference.GeoReference`: The georeferencing
+          value object `geo_ref` takes.
     """
     # Local import breaks the netcdf.py <-> engines.variables import cycle
     # (netcdf.py imports this module at top level for wiring). from_array

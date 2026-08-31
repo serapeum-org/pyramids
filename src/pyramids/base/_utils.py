@@ -624,13 +624,54 @@ class Catalog:
         format".
 
         Args:
-            extension (str): Extension of the file.
+            extension (str): Extension of the file, without the leading dot and already
+                lower-cased (`"tif"`, not `".TIF"`). Matched against each entry's canonical
+                `extension` first, then against its `aliases` list.
 
         Returns:
-            str: Driver name.
+            str: The catalog key for the driver (e.g. `"geotiff"`), not the GDAL short name —
+                pass it to :meth:`get_driver` or :meth:`get_gdal_name` to go further.
 
         Raises:
             DriverNotExistError: No driver claims the extension.
+
+        Examples:
+            - The canonical extension resolves to its catalog key:
+                ```python
+                >>> from pyramids.base._utils import Catalog
+                >>> catalog = Catalog(raster_driver=True)
+                >>> catalog.get_driver_name_by_extension("tif")
+                'geotiff'
+                >>> catalog.get_gdal_name(catalog.get_driver_name_by_extension("tif"))
+                'GTiff'
+
+                ```
+            - An alias resolves to the same driver as the canonical spelling:
+                ```python
+                >>> from pyramids.base._utils import Catalog
+                >>> catalog = Catalog(raster_driver=True)
+                >>> catalog.get_driver_name_by_extension("tiff")
+                'geotiff'
+                >>> catalog.get_driver_name_by_extension("jpg") == catalog.get_driver_name_by_extension("jpeg")
+                True
+
+                ```
+            - An extension no entry claims is refused:
+                ```python
+                >>> from pyramids.base._errors import DriverNotExistError
+                >>> from pyramids.base._utils import Catalog
+                >>> catalog = Catalog(raster_driver=True)
+                >>> try:
+                ...     catalog.get_driver_name_by_extension("xyzzy")
+                ... except DriverNotExistError as error:
+                ...     print(str(error).split(" is not")[0])
+                The given extension: xyzzy
+
+                ```
+
+        See Also:
+            - :meth:`get_driver_by_extension`: The same lookup, returning the driver entry.
+            - :meth:`get_extension`: The inverse — the canonical extension for a catalog key.
         """
         try:
             key = next(
@@ -669,12 +710,93 @@ class Catalog:
         return driver in self.drivers.keys()
 
     def get_extension(self, driver: str):
-        """Get driver extension."""
+        """Get the driver's canonical file extension.
+
+        Only the canonical spelling is returned — the one to build a filename with. The
+        further spellings a driver also answers to live in its `aliases` list and are
+        reachable through :meth:`get_driver_name_by_extension`, not here: `"geotiff"` returns
+        `"tif"` even though `"tiff"` resolves back to it.
+
+        Args:
+            driver (str): Catalog key for the driver (e.g. `"geotiff"`), as returned by
+                :meth:`get_driver_name_by_extension` or :meth:`get_driver_name`.
+
+        Returns:
+            str | None: The extension without a leading dot, or `None` for an entry that has
+                no file extension at all — the in-memory `"memory"` driver, or a driver whose
+                row simply omits the key.
+
+        Raises:
+            AttributeError: `driver` is not a key in the catalog, so there is no entry to read.
+
+        Examples:
+            - The canonical spelling, not the alias:
+                ```python
+                >>> from pyramids.base._utils import Catalog
+                >>> catalog = Catalog(raster_driver=True)
+                >>> catalog.get_extension("geotiff")
+                'tif'
+                >>> f"out.{catalog.get_extension('netcdf')}"
+                'out.nc'
+
+                ```
+            - The in-memory driver writes nothing, so it has no extension:
+                ```python
+                >>> from pyramids.base._utils import Catalog
+                >>> catalog = Catalog(raster_driver=True)
+                >>> print(catalog.get_extension("memory"))
+                None
+
+                ```
+
+        See Also:
+            - :meth:`get_driver_name_by_extension`: The inverse lookup, which also matches
+              aliases.
+        """
         driver_data = self.get_driver(driver)
         return driver_data.get("extension")
 
     def get_driver_name(self, gdal_name) -> str | None:
-        """Get driver name."""
+        """Get the catalog key for a GDAL short name.
+
+        The inverse of :meth:`get_gdal_name`: it walks the catalog looking for the entry whose
+        `GDAL Name` matches, and answers with that entry's key. The key is what the rest of the
+        catalog API takes, so this is the bridge from a name GDAL handed back (e.g. from
+        `dataset.GetDriver().ShortName`) into the catalog's own vocabulary.
+
+        Args:
+            gdal_name: GDAL driver short name to look up, matched exactly and
+                case-sensitively (`"GTiff"`, not `"gtiff"`).
+
+        Returns:
+            str | None: The catalog key (e.g. `"geotiff"`), or `None` when no entry carries
+                that GDAL name.
+
+        Examples:
+            - Round-trip a GDAL name through the catalog:
+                ```python
+                >>> from pyramids.base._utils import Catalog
+                >>> catalog = Catalog(raster_driver=True)
+                >>> catalog.get_driver_name("GTiff")
+                'geotiff'
+                >>> catalog.get_gdal_name(catalog.get_driver_name("GTiff"))
+                'GTiff'
+
+                ```
+            - An unknown or mis-cased name yields `None` rather than raising:
+                ```python
+                >>> from pyramids.base._utils import Catalog
+                >>> catalog = Catalog(raster_driver=True)
+                >>> print(catalog.get_driver_name("NotADriver"))
+                None
+                >>> print(catalog.get_driver_name("gtiff"))
+                None
+
+                ```
+
+        See Also:
+            - :meth:`get_gdal_name`: The forward direction, key -> GDAL short name.
+        """
         result_key = None
         for key, value in self.drivers.items():
             name = value.get("GDAL Name")

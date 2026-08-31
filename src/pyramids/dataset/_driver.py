@@ -74,6 +74,26 @@ def resolve_output_driver(path: str | Path | None) -> str:
 
             ```
 
+        - Sibling spellings of one format agree, because the catalog matches
+          aliases as well as the canonical extension:
+            ```python
+            >>> resolve_output_driver("out.tiff")
+            'GTiff'
+            >>> resolve_output_driver("OUT.TIF")
+            'GTiff'
+
+            ```
+
+        - A path with no suffix names nothing to resolve, and says so:
+            ```python
+            >>> resolve_output_driver("out")
+            Traceback (most recent call last):
+            pyramids.base._errors.DriverNotExistError: 'out' has no file extension, so the \
+output format cannot be determined. Give the path a suffix naming the format (e.g. '.tif'), \
+or pass path=None for an in-memory raster.
+
+            ```
+
         - A copy-only format is refused up front rather than inside GDAL:
             ```python
             >>> resolve_output_driver("out.png")

@@ -3588,11 +3588,21 @@ class Dataset(RasterBase):
                 GDAL creation options for the disk driver (e.g.
                 ``["TILED=YES", "SPARSE_OK=TRUE", "BIGTIFF=YES"]``). When
                 `None` (default), GTiff falls back to ``["COMPRESS=LZW"]`` —
-                the historical behaviour. Ignored for the MEM driver, which
-                takes no creation options.
+                the historical behaviour — and every other disk driver gets an
+                empty list. Must not be given without a `path`: the MEM driver
+                takes no creation options, so they would be silently dropped.
 
         Returns:
-            gdal driver
+            gdal.Dataset: The freshly allocated GDAL dataset — in memory when
+            `path` is `None`, otherwise created on disk by the driver the
+            extension selected.
+
+        Raises:
+            ValueError: `options` is given without a `path`.
+            DriverNotExistError: `path` has no extension, or one the driver
+                catalog does not know.
+            FileFormatNotSupportedError: `path`'s extension maps to a
+                write-by-copy-only format, which has no working `Create`.
         """
         if path is None and options is not None:
             raise ValueError(
@@ -4019,19 +4029,28 @@ class Dataset(RasterBase):
                 on the disk/GTiff path (``path`` given) this emits a
                 :class:`NoDataSentinelWarning` (the in-RAM MEM result does not
                 warn).
-            path: Output path (``.tif``) for a disk-backed raster. `None`
-                (default) keeps the raster in memory (MEM driver).
-            options: GDAL creation options for the GTiff driver. `None`
-                (default) uses :data:`OUT_OF_CORE_CREATION_OPTIONS`. Applies
-                only to the disk/GTiff driver; passing `options` without a
-                `path` raises rather than silently dropping them.
+            path: Destination, which alone decides the driver. `None`
+                (default) keeps the raster in memory (MEM); otherwise the
+                extension selects the format (`.tif` -> GTiff, `.nc` ->
+                netCDF, ...).
+            options: GDAL creation options forwarded to the disk driver.
+                `None` (default) uses :data:`OUT_OF_CORE_CREATION_OPTIONS`,
+                but only when the path resolves to GTiff — those options are
+                GTiff-specific, so any other disk driver gets none. Passing
+                `options` without a `path` raises rather than silently
+                dropping them.
 
         Returns:
             Dataset: An empty raster matching the template's footprint.
 
         Raises:
-            ValueError: ``options`` is given without a ``path`` (creation
+            ValueError: `options` is given without a `path` (creation
                 options apply only to a disk driver).
+            DriverNotExistError: `path` has no extension, or one the driver
+                catalog does not know.
+            FileFormatNotSupportedError: `path`'s extension maps to a
+                write-by-copy-only format, which cannot be allocated with
+                `Create`.
 
         Examples:
             - Allocate an empty raster shaped like an existing one, with a
@@ -4055,7 +4074,7 @@ class Dataset(RasterBase):
               then confirm the empty output reads back as no-data:
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> template = Dataset.from_array(
                 ...     np.ones((3, 4, 4), dtype="float32"),
                 ...     no_data_value=-9999.0,

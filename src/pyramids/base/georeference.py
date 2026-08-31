@@ -33,7 +33,8 @@ class GeoReference:
     `cell_size` from which a north-up `geo` is built. `epsg` is the coordinate reference system.
 
     Attributes:
-        geo: Affine geotransform `(x_min, pixel_size, rotation, y_max, rotation, pixel_size)`.
+        geo: Affine geotransform `(x_min, pixel_width, row_rotation, y_max, column_rotation,
+            pixel_height)`, where `pixel_height` is negative for the usual north-up raster.
             Takes precedence over `top_left_corner` / `cell_size` when given.
         epsg: EPSG code for the spatial reference. Defaults to 4326. `None` leaves the CRS
             unset (e.g. when carrying through a source variable that has no CRS).
@@ -48,13 +49,28 @@ class GeoReference:
             >>> ref = GeoReference(geo=(0.0, 1.0, 0.0, 3.0, 0.0, -1.0), epsg=4326)
             >>> ref.resolve_geotransform()
             (0.0, 1.0, 0.0, 3.0, 0.0, -1.0)
+            >>> ref.epsg
+            4326
 
             ```
 
         - A corner and a cell size, from which a north-up transform is built:
             ```python
+            >>> from pyramids.base.georeference import GeoReference
             >>> GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0).resolve_geotransform()
             (0.0, 1.0, 0.0, 3.0, 0.0, -1.0)
+
+            ```
+
+        - The value object is frozen, so a variant is made with `dataclasses.replace`:
+            ```python
+            >>> from dataclasses import replace
+            >>> from pyramids.base.georeference import GeoReference
+            >>> ref = GeoReference(geo=(0.0, 1.0, 0.0, 3.0, 0.0, -1.0))
+            >>> replace(ref, epsg=3857).epsg
+            3857
+            >>> ref.epsg
+            4326
 
             ```
     """
@@ -69,10 +85,46 @@ class GeoReference:
 
         Returns:
             The 6-tuple geotransform — `geo` verbatim when provided, otherwise a north-up
-            transform derived from `top_left_corner` and `cell_size`.
+            transform derived from `top_left_corner` and `cell_size`. Every term of a derived
+            transform is a `float`, including the two zero rotation terms, so the result always
+            matches the `GeoTransformTuple` shape rather than mixing `int` and `float`.
 
         Raises:
-            ValueError: If neither `geo` nor both `top_left_corner` and `cell_size` are given.
+            ValueError: If neither `geo` nor both `top_left_corner` and `cell_size` are given —
+                including a half-filled pair, where only one of `top_left_corner` / `cell_size`
+                is supplied.
+
+        Examples:
+            - An explicit `geo` is returned unchanged:
+                ```python
+                >>> from pyramids.base.georeference import GeoReference
+                >>> GeoReference(geo=(10.0, 0.5, 0.0, 50.0, 0.0, -0.5)).resolve_geotransform()
+                (10.0, 0.5, 0.0, 50.0, 0.0, -0.5)
+
+                ```
+
+            - A corner plus an integer cell size still yields six floats:
+                ```python
+                >>> from pyramids.base.georeference import GeoReference
+                >>> geo = GeoReference(top_left_corner=(0, 3), cell_size=1).resolve_geotransform()
+                >>> geo
+                (0.0, 1.0, 0.0, 3.0, 0.0, -1.0)
+                >>> [type(term).__name__ for term in geo]
+                ['float', 'float', 'float', 'float', 'float', 'float']
+
+                ```
+
+            - Half a pair is a mistake, not a request for the origin:
+                ```python
+                >>> from pyramids.base.georeference import GeoReference
+                >>> GeoReference(top_left_corner=(10.0, 50.0)).resolve_geotransform()
+                Traceback (most recent call last):
+                ValueError: Either 'geo' or both 'top_left_corner' and 'cell_size' must be provided.
+
+                ```
+
+        See Also:
+            - :class:`GeoReference`: The value object this method resolves.
         """
         if self.geo is not None:
             geo = self.geo
