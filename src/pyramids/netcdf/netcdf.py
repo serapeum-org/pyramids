@@ -6453,17 +6453,64 @@ class NetCDF(Dataset):
         annotation now says so instead of implying ``cls`` is honoured.
 
         Args:
-            arr: The array to wrap.
-            geo_ref: How the array maps to space. Required.
+            arr: The array to wrap. 2-D is `(rows, cols)`; the leading axes of
+                a 3-D+ array are the non-spatial dimensions described by
+                `dims`.
+            geo_ref: How the array maps to space — an affine ``geo`` transform,
+                or a ``top_left_corner`` + ``cell_size``, plus the ``epsg``.
+                Required and keyword-only, exactly as on
+                :meth:`pyramids.dataset.Dataset.from_array`; that shared core
+                is what lets one caller build either class.
             no_data_value: Sentinel marking cells outside the domain.
-            path: Destination; `None` builds in memory.
-            variable_name: Name for the created variable.
+            path: Destination, which alone decides the driver. `None` (default)
+                builds in memory; a path writes netCDF.
+            variable_name: Name for the created variable. Defaults to
+                ``"data"``.
             dims: Non-spatial (time / level / …) dimensions of a 3-D+ array.
-            encoding: On-disk write options; effective only with a `path`.
+                Ignored for 2-D arrays.
+            encoding: On-disk write options (chunking, compression); effective
+                only with a `path`.
             attrs: CF global attributes.
 
         Returns:
             Container: The newly created store.
+
+        Raises:
+            ValueError: `geo_ref` carries neither a ``geo`` nor a complete
+                ``top_left_corner`` + ``cell_size`` pair.
+
+        Examples:
+            - Wrap a 2-D array and read the variable back off the container:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf import NetCDF, GeoReference
+                >>> container = NetCDF.from_array(
+                ...     np.arange(6, dtype="float32").reshape(2, 3),
+                ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0)),
+                ...     variable_name="temperature",
+                ... )
+                >>> container.variable_names
+                ['temperature']
+                >>> container.get_variable("temperature").read_array().tolist()
+                [[0.0, 1.0, 2.0], [3.0, 4.0, 5.0]]
+
+                ```
+            - The same call shape works for
+              :meth:`pyramids.dataset.Dataset.from_array`, which is the point
+              of the shared core:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.netcdf import NetCDF, GeoReference
+                >>> ref = GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0))
+                >>> arr = np.ones((2, 3), dtype="float32")
+                >>> [
+                ...     type(cls.from_array(arr, geo_ref=ref)).__name__
+                ...     for cls in (Dataset, NetCDF)
+                ... ]
+                ['Dataset', 'Container']
+
+                ```
         """
         return _variables.from_array(
             arr,

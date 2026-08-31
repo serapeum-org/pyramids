@@ -75,9 +75,9 @@ class GeoReference:
             ValueError: If neither `geo` nor both `top_left_corner` and `cell_size` are given.
         """
         if self.geo is not None:
-            return self.geo
-        if self.top_left_corner is not None and self.cell_size is not None:
-            return (
+            geo = self.geo
+        elif self.top_left_corner is not None and self.cell_size is not None:
+            geo = (
                 self.top_left_corner[0],
                 self.cell_size,
                 0,
@@ -85,9 +85,12 @@ class GeoReference:
                 0,
                 -self.cell_size,
             )
-        raise ValueError(
-            "Either 'geo' or both 'top_left_corner' and 'cell_size' must be provided."
-        )
+        else:
+            raise ValueError(
+                "Either 'geo' or both 'top_left_corner' and 'cell_size' must be "
+                "provided."
+            )
+        return geo
 
 
 __all__ = ["GeoReference", "GeoTransformTuple"]

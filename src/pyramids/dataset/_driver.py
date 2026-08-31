@@ -74,25 +74,26 @@ raster in memory or as GTiff, then convert.
             ```
     """
     if path is None:
-        return MEMORY_DRIVER
-    if not isinstance(path, (str, Path)):
-        raise TypeError(
-            f"The path input should be string or Path type, given: {type(path)}"
-        )
-    extension = Path(path).suffix.lstrip(".").lower()
-    catalog = Catalog(raster_driver=True)
-    # Raises DriverNotExistError when the extension is unknown, which is the
-    # right error for "pyramids has never heard of this format".
-    key = catalog.get_driver_name_by_extension(extension)
-    entry = catalog.get_driver(key)
-    gdal_name = entry["GDAL Name"]
-    if not entry.get("Creation"):
-        raise FileFormatNotSupportedError(
-            f"'.{extension}' maps to the {gdal_name} driver, which cannot create a "
-            "raster directly (write-by-copy only). Build the raster in memory or as "
-            "GTiff, then convert."
-        )
-    return gdal_name
+        driver = MEMORY_DRIVER
+    else:
+        if not isinstance(path, (str, Path)):
+            raise TypeError(
+                f"The path input should be string or Path type, given: {type(path)}"
+            )
+        extension = Path(path).suffix.lstrip(".").lower()
+        catalog = Catalog(raster_driver=True)
+        # Raises DriverNotExistError when the extension is unknown, which is the
+        # right error for "pyramids has never heard of this format".
+        key = catalog.get_driver_name_by_extension(extension)
+        entry = catalog.get_driver(key)
+        driver = str(entry["GDAL Name"])
+        if not entry.get("Creation"):
+            raise FileFormatNotSupportedError(
+                f"'.{extension}' maps to the {driver} driver, which cannot create a "
+                "raster directly (write-by-copy only). Build the raster in memory or "
+                "as GTiff, then convert."
+            )
+    return driver
 
 
 __all__ = ["MEMORY_DRIVER", "resolve_output_driver"]

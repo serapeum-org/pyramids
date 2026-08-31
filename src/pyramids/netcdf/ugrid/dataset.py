@@ -775,6 +775,13 @@ class UgridDataset:
     ) -> UgridDataset:
         """Create a UgridDataset programmatically from arrays.
 
+        Plural because an unstructured mesh is not one array: the topology
+        needs node coordinates *and* a face-node connectivity table before any
+        data can be attached. It therefore takes a flat `epsg` rather than the
+        :class:`~pyramids.base.georeference.GeoReference` the gridded
+        constructors take — a mesh carries its own coordinates, so there is no
+        affine transform to describe.
+
         Args:
             node_x: Node x-coordinates.
             node_y: Node y-coordinates.
@@ -788,6 +795,42 @@ class UgridDataset:
 
         Returns:
             UgridDataset instance.
+
+        Examples:
+            - Build the smallest possible mesh — two triangles — and inspect
+              its topology:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf.ugrid import UgridDataset
+                >>> mesh = UgridDataset.from_arrays(
+                ...     node_x=np.array([0.0, 1.0, 1.0, 0.0]),
+                ...     node_y=np.array([0.0, 0.0, 1.0, 1.0]),
+                ...     face_node_connectivity=np.array([[0, 1, 2], [0, 2, 3]]),
+                ... )
+                >>> (mesh.n_node, mesh.n_face)
+                (4, 2)
+                >>> mesh.bounds
+                (0.0, 0.0, 1.0, 1.0)
+
+                ```
+            - Attach a per-face variable and read it back:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf.ugrid import UgridDataset
+                >>> mesh = UgridDataset.from_arrays(
+                ...     node_x=np.array([0.0, 1.0, 1.0, 0.0]),
+                ...     node_y=np.array([0.0, 0.0, 1.0, 1.0]),
+                ...     face_node_connectivity=np.array([[0, 1, 2], [0, 2, 3]]),
+                ...     data={"depth": np.array([1.5, 2.5])},
+                ... )
+                >>> mesh.data_variable_names
+                ['depth']
+                >>> mesh["depth"].location
+                'face'
+                >>> mesh["depth"].data.tolist()
+                [1.5, 2.5]
+
+                ```
         """
         fnc = Connectivity(
             data=np.asarray(face_node_connectivity, dtype=np.intp),

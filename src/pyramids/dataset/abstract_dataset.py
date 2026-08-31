@@ -1308,31 +1308,39 @@ class RasterBase(ABC):
         no_data_value: Any | list = DEFAULT_NO_DATA_VALUE,
         path: str | Path | None = None,
     ):
-        """Create dataset from array.
+        """Create a dataset from an array.
 
-            - Create_from_array method creates a `Dataset` from a given array and geotransform data.
+        These four parameters are the contract every concrete raster class
+        honours, so a caller holding the declared base type can build either a
+        :class:`~pyramids.dataset.Dataset` or a
+        :class:`~pyramids.netcdf.NetCDF` with the same call. A subclass may add
+        keyword-only parameters of its own (``NetCDF`` adds ``variable_name``,
+        ``dims``, ``encoding`` and ``attrs``), but it must keep accepting these
+        and must declare them — overriding with a bare ``*args, **kwargs`` hides
+        an incompatible signature from static checkers, which is how the two
+        constructors previously came to accept different keyword sets.
 
         Args:
             arr (np.ndarray):
-                Numpy array.
-            geo (Tuple[float, float, float, float, float, float]):
-                Geotransform tuple [minimum lon/x, pixel-size, rotation, maximum lat/y, rotation, pixel-size].
-            bands_values (List, optional):
-                Name of the bands to be used in the netcdf file. Default is None.
-            epsg (int | str, optional):
-                Integer reference number to the new projection (https://epsg.io/) (default 3857 the reference no of WGS84 web mercator). Default is 4326.
+                The array to wrap. A 2-D array is a single band; the leading
+                axis of a 3-D array indexes bands.
+            geo_ref (GeoReference):
+                How the array maps to space — an affine ``geo`` transform, or a
+                ``top_left_corner`` + ``cell_size``, plus the ``epsg``. Required
+                and keyword-only; a raster has to be placed somewhere.
             no_data_value (Any, optional):
-                No data value to mask the cells out of the domain. The default is -9999.
-            driver_type (str, optional):
-                Driver type ["GTiff", "MEM", "netcdf"]. Default is "MEM".
-            path (str, optional):
-                Path to save the driver.
-            variable_name (str, optional):
-                Name of the variable in the netcdf file. Default is None.
+                No data value to mask the cells out of the domain. The default
+                is -9999.
+            path (str | Path, optional):
+                Destination, which alone decides the driver. `None` (default)
+                builds the raster in memory; otherwise the extension selects the
+                format (``.tif`` -> GTiff, ``.nc`` -> netCDF, …).
 
         Returns:
-            RasterBase:
-                Dataset object.
+            AbstractDataset:
+                The newly created dataset. Concrete classes narrow this — see
+                :meth:`pyramids.dataset.Dataset.from_array` and
+                :meth:`pyramids.netcdf.NetCDF.from_array`.
         """
         pass
 

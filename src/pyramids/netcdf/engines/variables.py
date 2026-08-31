@@ -478,10 +478,11 @@ def from_array(
             array (written eagerly) or a `dask.array.Array` (streamed
             block-by-block, see above).
         geo_ref: How the array maps to space — a
-            :class:`~pyramids.netcdf.array_options.GeoReference` holding either
-            `geo` / `epsg` or `top_left_corner` + `cell_size`. Required: it
-            must resolve to a geotransform. Defaults to an empty
-            `GeoReference()`, which raises unless a geotransform can be built.
+            :class:`~pyramids.base.georeference.GeoReference` holding either
+            `geo` / `epsg` or `top_left_corner` + `cell_size`. Required and
+            keyword-only, with no default: it must resolve to a geotransform,
+            so an empty `GeoReference()` raises rather than placing the array
+            somewhere arbitrary.
         path: Output file path. If `None`, the dataset is
             created in memory. Defaults to None.
         variable_name: Name of the data variable in the NetCDF

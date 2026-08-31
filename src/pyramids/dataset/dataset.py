@@ -477,11 +477,17 @@ def _crs_wkt_from_epsg(epsg: str | int | None) -> str:
     if not epsg:
         # A source can be genuinely ungeoreferenced. Propagate that rather than
         # stamping WGS 84 on it (ARC-26); SetProjection("") leaves it unset.
-        return ""
-    try:
-        return sr_from_epsg(int(epsg)).ExportToWkt()
-    except (TypeError, ValueError):
-        return sr_from_user_input(epsg).ExportToWkt()
+        wkt = ""
+    else:
+        try:
+            # Keep the exact `sr_from_epsg` path for an EPSG int/numeric string;
+            # anything else (e.g. a geostationary WKT with no EPSG) goes through
+            # `sr_from_user_input` so it survives a rebuild instead of dying on
+            # `int(None)` (#706).
+            wkt = str(sr_from_epsg(int(epsg)).ExportToWkt())
+        except (TypeError, ValueError):
+            wkt = str(sr_from_user_input(epsg).ExportToWkt())
+    return wkt
 
 
 class Dataset(RasterBase):
@@ -3556,10 +3562,10 @@ class Dataset(RasterBase):
                 Number of bands.
             dtype:
                 GDAL data type.
-            driver (str):
-                Driver type ["GTiff", "MEM"].
             path (str):
-                Path to save the GTiff driver.
+                Destination, which alone selects the driver: `None` builds in
+                memory (MEM), otherwise the extension decides via
+                :func:`~pyramids.dataset._driver.resolve_output_driver`.
             options (list[str] | None):
                 GDAL creation options for the disk driver (e.g.
                 ``["TILED=YES", "SPARSE_OK=TRUE", "BIGTIFF=YES"]``). When
@@ -3628,9 +3634,9 @@ class Dataset(RasterBase):
                 `_set_no_data_value` call so bands have no no-data
                 sentinel — the same behaviour the public `create`
                 factory exposes.
-            driver: GDAL driver type. Default `"MEM"`.
-            path: Path for disk-based drivers. `None` keeps the
-                dataset in memory.
+            path: Destination, which alone selects the driver. `None`
+                (default) keeps the dataset in memory (MEM); otherwise the
+                extension decides.
             access: Access mode for the Dataset wrapper. Default `"write"`.
                 Note: MEM driver datasets can be written to regardless
                 of access mode since the access flag is enforced at the
@@ -3693,14 +3699,63 @@ class Dataset(RasterBase):
                 Number of bands to create in the output raster.
             geo_ref (GeoReference):
                 How the array maps to space — an affine ``geo`` transform, or a
-                ``top_left_corner`` + ``cell_size``, plus the ``epsg``. Required.
+                ``top_left_corner`` + ``cell_size``, plus the ``epsg``. Required;
+                a raster has to be placed somewhere.
             no_data_value (float|None):
                 No data value.
             path (str, optional):
-                Path on disk; if None, the dataset is created in memory. Default is None.
+                Destination, which alone decides the driver. `None` (default)
+                builds the raster in memory; otherwise the extension selects the
+                format (``.tif`` -> GTiff, ``.nc`` -> netCDF, …).
 
         Returns:
             Dataset: A new dataset
+
+        Raises:
+            ValueError: `geo_ref` carries neither a ``geo`` nor a complete
+                ``top_left_corner`` + ``cell_size`` pair.
+            DriverNotExistError: `path` has an extension the driver catalog does
+                not know.
+            FileFormatNotSupportedError: `path`'s extension maps to a
+                write-by-copy-only format such as PNG, which cannot be built
+                with ``Create``.
+
+        Examples:
+            - Create a filled in-memory raster and read a cell back:
+                ```python
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> ds = Dataset.create(
+                ...     3, 4, "float32", 1,
+                ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 3.0, 0.0, -1.0)),
+                ...     no_data_value=-9999.0,
+                ... )
+                >>> (ds.rows, ds.columns, ds.band_count)
+                (3, 4, 1)
+                >>> float(ds.read_array()[0, 0])
+                -9999.0
+
+                ```
+            - Place it with a corner and a cell size instead of a transform:
+                ```python
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> ds = Dataset.create(
+                ...     2, 2, "int16", 1,
+                ...     geo_ref=GeoReference(
+                ...         top_left_corner=(10.0, 50.0), cell_size=0.5, epsg=4326
+                ...     ),
+                ... )
+                >>> tuple(ds.geotransform)
+                (10.0, 0.5, 0.0, 50.0, 0.0, -0.5)
+                >>> ds.epsg
+                4326
+
+                ```
+
+        See Also:
+            - :meth:`create_empty`: Allocate the header only, without filling
+              every cell — the out-of-core sibling of this method.
+            - :meth:`from_array`: Build a raster around an array you already
+              have.
         """
         gdal_dtype = numpy_to_gdal_dtype(dtype)
         crs_wkt = _crs_wkt_from_epsg(geo_ref.epsg)
@@ -3751,11 +3806,14 @@ class Dataset(RasterBase):
             bands: Number of bands. Default 1.
             dtype: NumPy dtype name for the bands (e.g. ``"float32"``,
                 ``"int16"``). Default ``"float32"``.
-            geo: Geotransform
-                ``(top_left_x, pixel_w, row_skew, top_left_y, col_skew,
-                pixel_h)``. Default ``(0.0, 1.0, 0.0, 0.0, 0.0, -1.0)`` — a
-                unit-pixel grid with the origin at ``(0, 0)``.
-            epsg: EPSG code for the projection. Default 4326.
+            geo_ref: How the raster maps to space — an affine ``geo``
+                transform, or a ``top_left_corner`` + ``cell_size``, plus the
+                ``epsg``. Unlike the other constructors this one is optional:
+                a header-only allocation often does not care where it sits, so
+                `None` (default) — or a reference carrying only an ``epsg`` —
+                keeps the identity transform
+                ``(0.0, 1.0, 0.0, 0.0, 0.0, -1.0)``, a unit-pixel grid with
+                the origin at ``(0, 0)``.
             no_data_value: No-data sentinel stamped on every band at
                 creation. Default :data:`DEFAULT_NO_DATA_VALUE`. Keep it set
                 so sparse unwritten blocks read back as no-data rather than 0.
@@ -3764,15 +3822,11 @@ class Dataset(RasterBase):
                 blocks then read back as **0**, not no-data. On the disk/GTiff
                 path this emits a :class:`NoDataSentinelWarning`; the in-RAM
                 ``"MEM"`` driver is dense and does not warn.
-            driver_type: GDAL driver. ``"GTiff"`` (default) writes a
-                disk-backed file and requires `path`; ``"MEM"`` keeps the
-                raster in RAM and requires `path` to be `None`. Note that any
-                non-`None` `path` produces a GTiff regardless of `driver_type`
-                — the underlying allocator promotes ``"MEM"`` + `path` to
-                GTiff.
-            path: Output path (``.tif``) for a disk-backed raster. Pass a path
-                for the GTiff driver; leave as `None` for an in-memory
-                ``"MEM"`` raster.
+            path: Destination, which alone decides the driver. `None`
+                (default) builds an in-memory ``"MEM"`` raster; otherwise the
+                extension selects the format (``.tif`` -> GTiff). The sparse /
+                tiled / BigTIFF defaults below apply only when the path
+                resolves to GTiff.
             options: GDAL creation options. `None` (default) uses
                 :data:`OUT_OF_CORE_CREATION_OPTIONS` for GTiff. Override to
                 align ``BLOCKXSIZE`` / ``BLOCKYSIZE`` to your tile size or to
@@ -3788,10 +3842,14 @@ class Dataset(RasterBase):
             at allocation, so unwritten MEM cells read back as no-data too.
 
         Raises:
-            ValueError: ``options`` is given without a ``path`` (creation
-                options apply only to the disk/GTiff driver); or
-                `options` are given without a `path`.
-                for an in-memory raster.
+            ValueError: ``options`` is given without a ``path`` — creation
+                options apply only to the disk/GTiff driver, so accepting
+                them for an in-memory raster would silently drop them.
+            DriverNotExistError: ``path`` has an extension the driver catalog
+                does not know.
+            FileFormatNotSupportedError: ``path``'s extension maps to a
+                write-by-copy-only format, which cannot be allocated with
+                ``Create``.
 
         Examples:
             - Allocate an in-memory empty raster and read its no-data metadata:
@@ -3842,8 +3900,7 @@ class Dataset(RasterBase):
         # Only the disk/GTiff path is sparse, where a missing sentinel makes
         # never-written blocks read back as 0 instead of no-data. The MEM driver
         # (path is None) is a dense in-RAM buffer where a sentinel-free raster is
-        # an ordinary, unsurprising choice — don't warn there. (A non-None path
-        # always yields a GTiff, including the MEM+path promotion.)
+        # an ordinary, unsurprising choice — don't warn there.
         if no_data_value is None and path is not None:
             warnings.warn(
                 "create_empty(no_data_value=None) on a disk/GTiff target stamps no "
@@ -3902,9 +3959,10 @@ class Dataset(RasterBase):
         The header-only sibling of :meth:`dataset_like` — same spatial
         footprint as `template` (geotransform, CRS, rows, columns, no-data),
         but **no array is written**, so it can allocate an out-of-core output
-        the size of an input DEM without materialising it. Backed by GTiff
-        when `path` is given (tiled / sparse / BigTIFF via
-        :data:`OUT_OF_CORE_CREATION_OPTIONS`), otherwise MEM.
+        the size of an input DEM without materialising it. The driver comes
+        from `path`: MEM when it is `None`, otherwise whatever the extension
+        selects. A `.tif` destination additionally gets the tiled / sparse /
+        BigTIFF defaults in :data:`OUT_OF_CORE_CREATION_OPTIONS`.
 
         Args:
             template: Source raster whose geotransform, CRS, shape, and
@@ -4016,8 +4074,16 @@ class Dataset(RasterBase):
                 NoDataSentinelWarning,
                 stacklevel=2,
             )
-        driver_type = "GTiff" if path is not None else "MEM"
-        if options is None and driver_type == "GTiff":
+        # The tiled / sparse / BigTIFF defaults are GTiff-specific, so apply them
+        # only when the path actually resolves to GTiff — matching `create_empty`.
+        # Hardcoding "GTiff for any path" was harmless while the driver was
+        # passed down explicitly; now that it comes from the extension, a `.nc`
+        # destination really is netCDF and must not be handed GTiff options.
+        if (
+            options is None
+            and path is not None
+            and resolve_output_driver(path) == "GTiff"
+        ):
             options = list(OUT_OF_CORE_CREATION_OPTIONS)
         return cls._build_dataset(
             template.columns,
@@ -4305,6 +4371,63 @@ class Dataset(RasterBase):
         Returns:
             Dataset:
                 Dataset object will be returned.
+
+        Raises:
+            ValueError: `geo_ref` carries neither a ``geo`` nor a complete
+                ``top_left_corner`` + ``cell_size`` pair.
+            DriverNotExistError: `path` has an extension the driver catalog does
+                not know.
+            FileFormatNotSupportedError: `path`'s extension maps to a
+                write-by-copy-only format such as PNG, which cannot be built
+                with ``Create``.
+
+        Examples:
+            - Wrap a 2-D array, then read it back:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> arr = np.arange(6, dtype="float32").reshape(2, 3)
+                >>> ds = Dataset.from_array(
+                ...     arr, geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0))
+                ... )
+                >>> ds.read_array().tolist()
+                [[0.0, 1.0, 2.0], [3.0, 4.0, 5.0]]
+                >>> (ds.rows, ds.columns, ds.band_count)
+                (2, 3, 1)
+
+                ```
+            - A leading axis becomes bands:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> stack = np.ones((3, 2, 2), dtype="int16")
+                >>> ds = Dataset.from_array(
+                ...     stack,
+                ...     geo_ref=GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0),
+                ... )
+                >>> ds.band_count
+                3
+
+                ```
+            - `epsg=None` builds an ungeoreferenced raster rather than
+              silently claiming WGS 84:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> ds = Dataset.from_array(
+                ...     np.zeros((2, 2), dtype="float32"),
+                ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=None),
+                ... )
+                >>> ds.crs
+                ''
+
+                ```
+
+        See Also:
+            - :meth:`dataset_like`: Reuse another dataset's georeferencing
+              instead of stating it.
+            - :meth:`create`: Allocate a raster filled with the no-data value
+              when there is no array yet.
         """
         geo = geo_ref.resolve_geotransform()
         epsg = geo_ref.epsg
