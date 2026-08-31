@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6835,11 +6835,38 @@ raises <code>TypeError</code> — and because <code>NetCDF.from_array</code> now
 <p><strong><code>driver_type</code> removed from <code>create_from_array</code> and <code>create_empty</code>.</strong> <code>path</code> alone decides memory-vs-disk, and
 the extension names the format, so the parameter could only agree with <code>path</code> or contradict it. <code>path=None</code>
 gives an in-memory raster; <code>path="out.tif"</code> a GTiff; <code>path="out.nc"</code> a netCDF — the last of which used to be
-rejected outright. Creation <code>options</code> still require a <code>path</code>, which is the invariant the old
-<code>driver_type="GTiff"</code> guard was really enforcing.</p>
+rejected on the <em>default</em> <code>driver_type="MEM"</code> path (promoted to GTiff, then refused by the <code>.tif</code> suffix check);
+<code>create_from_array(arr, driver_type="netcdf", path="out.nc")</code> did work. Creation <code>options</code> still require a
+<code>path</code>, which is the invariant the old <code>driver_type="GTiff"</code> guard was really enforcing.</p>
 <p>Formats that GDAL can only write by copy (<code>.png</code>, <code>.jp2</code>) now raise <code>FileFormatNotSupportedError</code> naming the
 extension and the driver, instead of failing inside GDAL. An extension the driver catalog does not know still
 raises <code>DriverNotExistError</code>.</p>
+<p><strong>You can no longer name a driver whose extension the catalog does not list.</strong> This is the one capability the
+<code>driver_type</code> removal costs. On <code>main</code>, <code>driver_type="EHdr", path="out.bil"</code> worked; now <code>.bil</code> raises
+<code>DriverNotExistError</code> and there is no escape hatch. If you need a format the catalog does not carry, write a
+GTiff (or build in memory) and convert, or open an issue asking for the extension to be added. Sibling spellings
+of a catalogued format do resolve: <code>.tiff</code> as well as <code>.tif</code>, <code>.jpg</code> as well as <code>.jpeg</code>, <code>.j2k</code> as well as
+<code>.jp2</code>.</p>
+<p><strong><code>Dataset.create</code>'s positional order changed, and its CRS handling widened.</strong> <code>cell_size</code> is gone from slot 0,
+so <code>rows</code> and <code>columns</code> shift up two — but <code>geo_ref</code> is required and keyword-only, so a ported positional call
+fails loudly with <code>TypeError</code> rather than silently misreading its arguments. Separately, <code>create</code> used to take
+<code>epsg: int</code> straight through <code>sr_from_epsg</code>; it now shares the helper the other constructors use, so
+<code>GeoReference(epsg=None)</code> yields a raster with no CRS, and non-EPSG CRS strings are accepted.</p>
+<p><strong><code>create_empty</code> is the only constructor where <code>geo_ref</code> is optional.</strong> A header-only allocation often does not
+care where it sits, so omitting <code>geo_ref</code> — or passing one that carries no transform at all, such as
+<code>GeoReference(epsg=3857)</code> — keeps the identity transform. A <em>partially</em> specified reference is not covered by
+that convenience: a <code>top_left_corner</code> without a <code>cell_size</code> (or the reverse) raises, exactly as it does in
+<code>from_array</code> and <code>create</code>, rather than silently discarding the half you supplied.</p>
+<p><strong><code>RasterLike</code> and <code>RasterBase</code> changed shape.</strong> <code>create_from_array</code> is <code>from_array</code> on the
+<code>pyramids.base.protocols.RasterLike</code> protocol and on the <code>RasterBase</code> ABC; <code>bands_values</code> is gone, and
+<code>variable_name</code> moved down to <code>NetCDF</code>, where it actually applies. If you subclass <code>RasterBase</code>, rename your
+override and adopt the new signature. If you annotate against <code>RasterLike</code>, note that this one is <strong>silent</strong> —
+structural typing simply stops matching, so a stale implementation fails a type check rather than raising.</p>
+<p><strong><code>pyramids.netcdf.array_options.GeoTransform</code> is gone</strong>, with no re-export. It was a local alias for the plain
+6-tuple, and <code>pyramids.dataset.GeoTransform</code> is a richer <code>NamedTuple</code> of the same shape but a different type, so
+re-exporting that under the old name would have silently changed what the name meant. If you imported the alias
+for annotation, use <code>pyramids.base.georeference.GeoTransformTuple</code> (the structural 6-tuple) or the
+<code>pyramids.dataset.GeoTransform</code> NamedTuple — whichever you actually meant.</p>
 <p><strong><code>NetCDF.from_array</code> returns a <code>Container</code>.</strong> It always did; the annotation said <code>NetCDF</code>. <code>Container</code> adds no
 public API over <code>NetCDF</code>, so nothing changes at runtime — the type is just honest now.</p>
 <p><strong><code>create_overviews</code> now refuses a plain VRT whose description is not a path.</strong> It raises <code>OverviewTargetError</code>
