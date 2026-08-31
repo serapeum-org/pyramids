@@ -81,15 +81,15 @@ pixels; the cost is one file descriptor + a metadata read per timestep.
 Pixel data flows block-by-block through GDAL when methods invoke
 `read_array` / `crop` / `to_crs` etc.
 
-| Method                                         | Behavior                                                              |
-|------------------------------------------------|-----------------------------------------------------------------------|
-| `iloc(i)`, `__getitem__`, `__setitem__`        | Direct indexed access — returns a `Dataset` (`iloc`) or its array.    |
-| `head` / `tail` / `first` / `last`             | Subset views — returns a 3D slice (`head`/`tail`) or 2D array.        |
-| `values` getter                                | Derived per-call: `np.stack([ds.read_array() for ds in datasets])`.   |
-| `values =` setter                              | Rebuilds the list via `Dataset.from_array(...)` per slice.            |
-| `crop`, `to_crs`, `align`, `apply`, `overlay`  | Loop the handles; produce a new collection wrapping the results.      |
-| `to_file`, `to_cog_stack`                      | Loop the handles; write each timestep to disk.                        |
-| `plot`                                         | Materialises the cube on demand for `cleopatra.array_glyph`.          |
+| Method                                       | Behavior                                                              |
+|----------------------------------------------|-----------------------------------------------------------------------|
+| `iloc(i)`, `__getitem__`, `__setitem__`      | Direct indexed access — returns a `Dataset` (`iloc`) or its array.    |
+| `head` / `tail` / `first` / `last`           | Subset views — returns a 3D slice (`head`/`tail`) or 2D array.        |
+| `values` getter                              | Derived per-call: `np.stack([ds.read_array() for ds in datasets])`.   |
+| `values =` setter                            | Rebuilds the list via `Dataset.from_array(...)` per slice.            |
+| `crop`, `to_crs`, `align`, `apply`, `overlay`| Loop the handles; produce a new collection wrapping the results.      |
+| `to_file`, `to_cog_stack`                    | Loop the handles; write each timestep to disk.                        |
+| `plot`                                       | Materialises the cube on demand for `cleopatra.array_glyph`.          |
 
 Path A works for both **file-backed** and **in-memory** collections.
 After a mutating op (in-place `crop`, `apply`, `__setitem__`,

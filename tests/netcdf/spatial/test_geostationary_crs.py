@@ -269,7 +269,8 @@ class TestGeostationaryContainerOps:
     """Container operations preserve the geostationary CRS via WKT (#706).
 
     A geostationary variable has ``.epsg is None``; the container fan-out that
-    rebuilds each variable through ``from_array(epsg=...)`` must carry the
+    rebuilds each variable through ``from_array(geo_ref=GeoReference(epsg=...))``
+    must carry the
     CRS through the WKT instead of crashing on the missing EPSG code.
     """
 

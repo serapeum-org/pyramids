@@ -1337,7 +1337,7 @@ class RasterBase(ABC):
                 format (``.tif`` -> GTiff, ``.nc`` -> netCDF, …).
 
         Returns:
-            AbstractDataset:
+            RasterBase:
                 The newly created dataset. Concrete classes narrow this — see
                 :meth:`pyramids.dataset.Dataset.from_array` and
                 :meth:`pyramids.netcdf.NetCDF.from_array`.

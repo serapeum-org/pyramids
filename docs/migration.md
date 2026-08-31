@@ -187,12 +187,15 @@ from pyramids.dataset import Dataset, GeoReference
 
 Dataset.from_array(arr, geo_ref=GeoReference(geo=GEO, epsg=4326))
 Dataset.from_array(arr, geo_ref=GeoReference(top_left_corner=(0, 10), cell_size=0.05))
-Dataset.from_array(arr, path="out.tif")                     # driver from the extension
+Dataset.from_array(arr, geo_ref=GeoReference(geo=GEO), path="out.tif")  # driver from the extension
 Dataset.create(rows=r, columns=c, dtype="float32", bands=1,
                geo_ref=GeoReference(top_left_corner=(0, 10), cell_size=0.05, epsg=4326))
 Dataset.create_empty(rows, cols, geo_ref=GeoReference(geo=GEO, epsg=4326))
 UgridDataset.from_arrays(node_x, node_y, faces)
 ```
+
+The module-level `pyramids.netcdf.engines.variables.create_from_array` is renamed `from_array` too. It carries
+no underscore but is an engine internal — reach it through `NetCDF.from_array`, its public facade.
 
 `GeoReference` is importable from `pyramids.dataset`, `pyramids.netcdf` and
 `pyramids.netcdf.array_options` — all three resolve to the same class.
@@ -204,24 +207,46 @@ raises `TypeError` — and because `NetCDF.from_array` now declares its real par
 
 **`driver_type` removed from `create_from_array` and `create_empty`.** `path` alone decides memory-vs-disk, and
 the extension names the format, so the parameter could only agree with `path` or contradict it. `path=None`
-gives an in-memory raster; `path="out.tif"` a GTiff; `path="out.nc"` a netCDF — the last of which used to be
-rejected on the *default* `driver_type="MEM"` path (promoted to GTiff, then refused by the `.tif` suffix check);
-`create_from_array(arr, driver_type="netcdf", path="out.nc")` did work. Creation `options` still require a
-`path`, which is the invariant the old `driver_type="GTiff"` guard was really enforcing.
+gives an in-memory raster; `path="out.tif"` a GTiff; `path="out.nc"` a netCDF — the last of which was rejected
+on *both* routes before: the default `driver_type="MEM"` by the `.tif` suffix check, and an explicit
+`driver_type="netcdf"` by the unconditional `COMPRESS=LZW` the netCDF driver refuses. Removing the parameter
+*and* gating that option is what makes it work. Creation `options` still require a `path`, which is the
+invariant the old `driver_type="GTiff"` guard was really enforcing.
 
 Formats that GDAL can only write by copy (`.png`, `.jp2`) now raise `FileFormatNotSupportedError` naming the
 extension and the driver, instead of failing inside GDAL. An extension the driver catalog does not know still
 raises `DriverNotExistError`.
 
+**`Dataset.to_file` now accepts more extensions, and one of them can lose data.** This method is untouched by
+the rename, but it reads the same driver catalog, so correcting the catalog's extension rows widened what it
+accepts. `.tiff`, `.png`, `.jpg`, `.jpeg` and `.img` previously raised `DriverNotExistError` and now write a
+file. The sharp case is dtype: PNG and JPEG store 8-bit data, so a float32 raster written to `.png` is
+converted to `Byte` — values clipped, fractional parts gone. GDAL reports that only as a `RuntimeWarning`, so
+pyramids now raises it to a `DtypeNarrowingWarning` naming both dtypes and the driver:
+
+```python
+import warnings
+from pyramids.errors import DtypeNarrowingWarning
+
+warnings.simplefilter("error", DtypeNarrowingWarning)   # make the conversion fail loudly
+```
+
+Note the deliberate asymmetry with the constructors: `to_file("x.png")` writes (PNG supports `CreateCopy`)
+while `from_array(path="x.png")` raises `FileFormatNotSupportedError` (PNG does not support `Create`). Whether
+a format is reachable depends on how the call writes, not only on the extension.
+
 **You can no longer name a driver whose extension the catalog does not list.** This is the one capability the
 `driver_type` removal costs. On `main`, `driver_type="EHdr", path="out.bil"` worked; now `.bil` raises
 `DriverNotExistError` and there is no escape hatch. If you need a format the catalog does not carry, write a
 GTiff (or build in memory) and convert, or open an issue asking for the extension to be added. Sibling spellings
-of a catalogued format do resolve: `.tiff` as well as `.tif`, `.jpg` as well as `.jpeg`, `.j2k` as well as
-`.jp2`.
+of a catalogued format now resolve alike: `.tiff` as well as `.tif`, `.nc4` as well as `.nc`, `.jpg` as well as
+`.jpeg`, and `.j2k` as well as `.jp2`. Resolving is not the same as being writable by these constructors: all
+four JPEG/JPEG2000 spellings resolve and are then refused with `FileFormatNotSupportedError`, because they are
+write-by-copy-only formats. (`.jpeg` did not resolve on `main` at all — the catalog carried it with a leading
+dot, so the lookup never matched.)
 
 **`Dataset.create`'s positional order changed, and its CRS handling widened.** `cell_size` is gone from slot 0,
-so `rows` and `columns` shift up two — but `geo_ref` is required and keyword-only, so a ported positional call
+so `rows` and `columns` each shift up one — but `geo_ref` is required and keyword-only, so a ported positional call
 fails loudly with `TypeError` rather than silently misreading its arguments. Separately, `create` used to take
 `epsg: int` straight through `sr_from_epsg`; it now shares the helper the other constructors use, so
 `GeoReference(epsg=None)` yields a raster with no CRS, and non-EPSG CRS strings are accepted.
@@ -235,8 +260,9 @@ that convenience: a `top_left_corner` without a `cell_size` (or the reverse) rai
 **`RasterLike` and `RasterBase` changed shape.** `create_from_array` is `from_array` on the
 `pyramids.base.protocols.RasterLike` protocol and on the `RasterBase` ABC; `bands_values` is gone, and
 `variable_name` moved down to `NetCDF`, where it actually applies. If you subclass `RasterBase`, rename your
-override and adopt the new signature. If you annotate against `RasterLike`, note that this one is **silent** —
-structural typing simply stops matching, so a stale implementation fails a type check rather than raising.
+override and adopt the new signature. `RasterLike` is `@runtime_checkable`, so this one bites at runtime too: an
+`isinstance(obj, RasterLike)` guard on a stale duck type carrying `create_from_array` flips from `True` to
+`False` and silently takes the else-branch, rather than raising anywhere you can see it.
 
 **`pyramids.netcdf.array_options.GeoTransform` is gone**, with no re-export. It was a local alias for the plain
 6-tuple, and `pyramids.dataset.GeoTransform` is a richer `NamedTuple` of the same shape but a different type, so

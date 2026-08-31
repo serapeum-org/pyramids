@@ -2296,7 +2296,7 @@ class Analysis(_Engine["Dataset"]):
             - Plot a certain band:
               ```python
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> arr = np.random.rand(4, 10, 10)
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05

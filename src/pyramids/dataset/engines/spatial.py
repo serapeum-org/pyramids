@@ -1674,10 +1674,11 @@ class Spatial(_Engine["Dataset"]):
 
         # Hand the trim the *base* Dataset, not the subclass. `_crop_aligned` builds its result as
         # `self._ds.__class__(...)`, so on a NetCDF receiver it is a NetCDF — and
-        # `_correct_wrap_cutline_error` calls `from_array(..., geo=...)`, whose NetCDF
-        # override takes `geo_ref=` and no `geo` at all, so the whole raster-mask crop died with
-        # `TypeError: from_array() got an unexpected keyword argument 'geo'` (#1073). The
-        # polygon path already avoids this the same way; only this one was missed.
+        # Historically (#1073) this died with `TypeError: got an unexpected keyword
+        # argument 'geo'`, because the NetCDF override took a different keyword set
+        # from the base. #1075 converged the signatures, so that specific divergence
+        # is gone -- but a subclass may still override a constructor, so intermediate
+        # GDAL results are still built through the base class rather than `type(self)`.
         dst_obj = Spatial._correct_wrap_cutline_error(Spatial._as_base_dataset(dst_obj))
         return dst_obj
 
@@ -1686,9 +1687,10 @@ class Spatial(_Engine["Dataset"]):
         """The plain `Dataset` class sitting directly above `RasterBase` in `source`'s MRO.
 
         Intermediate GDAL results must not be built through a subclass: a subclass may override the
-        constructors shared raster code calls — `NetCDF.from_array` takes `geo_ref=` where
-        the base takes `geo=` — so a helper that is correct for a `Dataset` raises `TypeError` on a
-        `NetCDF`.
+        constructors shared raster code calls. `NetCDF.from_array` and the base now agree on a
+        keyword-only `geo_ref` core (#1075), so that particular mismatch no longer bites; the
+        guard remains because an override may still narrow behaviour — `NetCDF.from_array`
+        returns a `Container` and adds `variable_name` / `dims` / `encoding` / `attrs`.
 
         Args:
             source: The class to walk, normally `type(some_dataset)`.
