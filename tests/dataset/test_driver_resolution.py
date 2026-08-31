@@ -278,6 +278,37 @@ class TestSiblingExtensionsAgree:
             f"{canonical} gives {outcome(canonical)} but {alias} gives {outcome(alias)}"
         )
 
+    @pytest.mark.parametrize("empty", ["", None])
+    def test_an_empty_extension_is_refused_by_the_catalog(self, empty):
+        """The lookup guards its argument, not just the catalog rows.
+
+        Args:
+            empty: An argument naming no extension.
+
+        Test scenario:
+            The per-row `extension is not None` guard had to go so a row
+            carrying only `aliases` could be found. That leaves the argument
+            itself unguarded, and the `memory` row holds a null extension --
+            so `None == None` would resolve a lookup for nothing to the
+            in-memory driver, writing a file that writes nothing.
+        """
+        with pytest.raises(DriverNotExistError):
+            Catalog(raster_driver=True).get_driver_name_by_extension(empty)
+
+    def test_a_row_with_only_aliases_is_still_reachable(self):
+        """An entry carrying aliases but no canonical extension resolves.
+
+        Test scenario:
+            This is what removing the per-row guard buys. No shipped row is
+            shaped this way yet, so it is constructed here -- the guard's
+            absence is a property of the lookup, and a future YAML edit should
+            not have to rediscover it.
+        """
+        catalog = Catalog(raster_driver=True)
+        catalog.drivers = dict(catalog.drivers)
+        catalog.drivers["synthetic"] = {"GDAL Name": "GTiff", "aliases": ["synthext"]}
+        assert catalog.get_driver_name_by_extension("synthext") == "synthetic"
+
     def test_the_memory_row_is_not_reachable_by_extension(self):
         """The in-memory driver has a real YAML null, not the string "None".
 

@@ -286,6 +286,37 @@ class TestToFileMatchesTheConstructors:
         float_raster.to_file(str(out))
         assert driver_of(out) == "GTiff", f"expected GTiff, got {driver_of(out)}"
 
+    @pytest.mark.parametrize("driver", ["geotiff", "GTiff"])
+    def test_an_explicit_driver_takes_a_key_or_a_gdal_name(
+        self, float_raster, tmp_path, driver
+    ):
+        """`to_file(driver=...)` accepts both spellings, like the collection.
+
+        Args:
+            float_raster: The source raster.
+            tmp_path: Temporary directory fixture.
+            driver: The driver spelling under test.
+
+        Test scenario:
+            The counterpart of the collection fix: `Dataset.to_file` already
+            normalised a GDAL short name to its catalog key, but nothing
+            exercised that branch, which is how the collection sibling drifted
+            into crashing on the same argument.
+        """
+        out = tmp_path / f"{driver}.tif"
+        float_raster.to_file(str(out), driver=driver)
+        assert driver_of(out) == "GTiff", f"expected GTiff, got {driver_of(out)}"
+
+    def test_an_unknown_explicit_driver_raises(self, float_raster, tmp_path):
+        """A name that is neither a catalog key nor a GDAL driver is refused.
+
+        Args:
+            float_raster: The source raster.
+            tmp_path: Temporary directory fixture.
+        """
+        with pytest.raises(DriverNotExistError, match="not in the driver catalog"):
+            float_raster.to_file(str(tmp_path / "x.tif"), driver="NotADriver")
+
     def test_a_narrowing_dtype_warns(self, float_raster, tmp_path):
         """Writing float32 to PNG warns that the values will not survive.
 
@@ -363,8 +394,24 @@ class TestCollectionToFileNormalisesTheDriver:
             dereferenced.
         """
         out = tmp_path / driver
-        collection.to_file(str(out))
-        assert sorted(p.name for p in out.iterdir()) == ["0.tif", "1.tif"]
+        collection.to_file(str(out), driver=driver)
+        assert sorted(p.name for p in out.iterdir()) == ["0.tif", "1.tif"], (
+            f"driver={driver!r} did not write the expected files"
+        )
+
+    def test_an_unknown_driver_is_refused(self, collection, tmp_path):
+        """A name that is neither a catalog key nor a GDAL driver raises.
+
+        Args:
+            collection: The collection under test.
+            tmp_path: Temporary directory fixture.
+
+        Test scenario:
+            The normalisation must not turn an outright typo into a confusing
+            `AttributeError` further down.
+        """
+        with pytest.raises(DriverNotExistError, match="not in the driver catalog"):
+            collection.to_file(str(tmp_path / "bad"), driver="NotADriver")
 
     def test_a_driver_with_no_extension_is_refused(self, collection, tmp_path):
         """A key with no catalogued extension raises instead of writing "0.None".
@@ -379,3 +426,48 @@ class TestCollectionToFileNormalisesTheDriver:
         """
         with pytest.raises(DriverNotExistError, match="no file extension"):
             collection.to_file(str(tmp_path / "cog"), driver="cog")
+
+
+class TestTheDtypeCheckIsQuietWhenItCannotAnswer:
+    """The narrowing check declines rather than guessing."""
+
+    def test_an_unresolvable_driver_name_is_ignored(self, float_raster):
+        """A driver GDAL does not know is skipped, not crashed on.
+
+        Args:
+            float_raster: Any source raster.
+
+        Test scenario:
+            The check runs before the write and must never be the thing that
+            fails it. A name GDAL cannot resolve is somebody else's error to
+            report, with a better message than this helper could give.
+        """
+        from pyramids.dataset.ops.io import _warn_if_driver_narrows_dtype
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _warn_if_driver_narrows_dtype(float_raster, "NoSuchDriver", "x.zzz")
+        assert not caught, f"an unknown driver must not warn: {caught}"
+
+    def test_a_driver_advertising_no_type_list_is_ignored(self, float_raster, mocker):
+        """A driver with no `DMD_CREATIONDATATYPES` is left alone.
+
+        Args:
+            float_raster: A float32 source.
+            mocker: pytest-mock fixture.
+
+        Test scenario:
+            Every driver in this GDAL build happens to advertise a type list,
+            so the empty case is forced. With nothing to compare against,
+            warning would be a guess about a conversion the check cannot
+            actually predict.
+        """
+        from pyramids.dataset.ops import io as io_ops
+
+        driver = mocker.Mock()
+        driver.GetMetadataItem.return_value = None
+        mocker.patch.object(io_ops.gdal, "GetDriverByName", return_value=driver)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            io_ops._warn_if_driver_narrows_dtype(float_raster, "Whatever", "x.tif")
+        assert not caught, f"a driver with no advertised types must not warn: {caught}"
