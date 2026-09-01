@@ -73,7 +73,7 @@ classDiagram
         +read_file(path, read_only)
         +read_array(band, window)
         +_read_block(band, window)
-        +plot(band, exclude_value, rgb, surface_reflectance, cutoff, overview, overview_index, percentile, basemap, **kwargs)
+        +plot(band, exclude_value, overview, overview_index, rgb_options, *, fig, ax, **kwargs)
     }
 
     %% concrete raster class
@@ -116,7 +116,7 @@ classDiagram
         +read_array(band, window)
         +_read_block(band, window)
         +_resolve_plot_band(band, rgb)
-        +plot(band, exclude_value, rgb, surface_reflectance, cutoff, overview, overview_index, percentile, basemap, rgb_options, **kwargs)
+        +plot(band, exclude_value, overview, overview_index, rgb_options, *, fig, ax, **kwargs)
         +to_file(path, driver, band)
         +to_crs(to_epsg, method, maintain_alignment)
         +resample(cell_size, method)
