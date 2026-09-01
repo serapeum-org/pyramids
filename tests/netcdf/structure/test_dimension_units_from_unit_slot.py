@@ -10,9 +10,10 @@ publishes and the HDF5 driver does not. So the time axis decoded locally and cam
 over `/vsicurl` on Windows, where GDAL serves NetCDF-4 through the HDF5 driver.
 
 The fix folds the unit slot back in at the source, so it no longer depends on which driver — or
-on the classic top-up — supplied it. The driver cannot be swapped inside a test process
-(`GDAL_SKIP` is read when drivers register), so the HDF5 situation is reproduced by emptying the
-classic top-up, which is precisely what that driver leaves behind.
+on the classic top-up — supplied it.
+
+The HDF5 driver is exercised directly, via `gdal.OpenEx(..., allowed_drivers=["HDF5"])`, which
+selects it in-process without `GDAL_SKIP` and without a subprocess.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from osgeo import gdal
 
 from pyramids.netcdf import NetCDF
 from pyramids.netcdf.metadata import MetadataBuilder
+from pyramids.netcdf.models import DimensionInfo
 from pyramids.netcdf.utils import _merge_unit, _read_attributes
 
 pytestmark = pytest.mark.core
@@ -66,6 +68,9 @@ def cf_time_path(tmp_path) -> str:
         "lat", [d_lat], gdal.ExtendedDataType.Create(gdal.GDT_Float64)
     )
     lat.Write(np.array([51.0, 51.25]))
+    for key, value in (("units", "degrees_north"), ("standard_name", "latitude")):
+        attr = lat.CreateAttribute(key, [], gdal.ExtendedDataType.CreateString())
+        attr.Write(value)
     lon = rg.CreateMDArray(
         "lon", [d_lon], gdal.ExtendedDataType.Create(gdal.GDT_Float64)
     )
@@ -132,18 +137,47 @@ class TestUnitSlotIsFoldedIn:
         finally:
             nc.close()
 
+    def test_units_survive_the_hdf5_driver(self, cf_time_path):
+        """The real HDF5 driver yields a dimension carrying the CF units.
+
+        Args:
+            cf_time_path: The written cube fixture.
+
+        Test scenario:
+            This is the driver the bug is about — the one GDAL selects for a `/vsi` NetCDF-4 read
+            on Windows — reached in-process via `allowed_drivers`. On `main` this dimension comes
+            back without `units`, because the classic top-up the netCDF path relies on publishes
+            no `<dim>#<attr>` keys under HDF5.
+        """
+        ds = gdal.OpenEx(
+            cf_time_path, gdal.OF_MULTIDIM_RASTER, allowed_drivers=["HDF5"]
+        )
+        try:
+            assert ds.GetDriver().ShortName == "HDF5", (
+                f"expected the HDF5 driver, got {ds.GetDriver().ShortName}"
+            )
+            time_dim = next(
+                d for d in ds.GetRootGroup().GetDimensions() if d.GetName() == "time"
+            )
+            attrs = DimensionInfo.from_gdal_dim(time_dim, "/").attrs
+            assert attrs.get("units") == TIME_UNITS, (
+                f"the HDF5 driver must still yield the CF units, got {dict(attrs)}"
+            )
+        finally:
+            ds = None
+
     def test_time_decodes_without_the_classic_topup(self, cf_time_path, monkeypatch):
-        """The time axis decodes when classic metadata supplies nothing.
+        """The time axis decodes end to end when classic metadata supplies nothing.
 
         Args:
             cf_time_path: The written cube fixture.
             monkeypatch: Used to empty the classic top-up.
 
         Test scenario:
-            An empty classic top-up is exactly what the HDF5 driver leaves behind — it publishes
-            no `<dim>#<attr>` keys — and that is the state in which `get_time_variable()` returned
-            `None` (#1078). The driver itself cannot be swapped in-process, since `GDAL_SKIP` is
-            read when drivers register.
+            Covers the user-facing symptom — `get_time_variable()` returning `None` — which
+            `NetCDF.read_file` cannot reach through the HDF5 driver directly, since it does not
+            expose `allowed_drivers`. An empty classic top-up is the state that driver leaves
+            behind, so this reproduces the same condition one layer up.
         """
         monkeypatch.setattr(
             MetadataBuilder, "_read_classic_metadata_for_topup", lambda self: {}
@@ -156,6 +190,36 @@ class TestUnitSlotIsFoldedIn:
             )
             assert nc.get_time_variable() == EXPECTED_DATES, (
                 f"expected decoded dates, got {nc.get_time_variable()}"
+            )
+        finally:
+            nc.close()
+
+
+class TestNonTemporalDimension:
+    """Giving every dimension its units must not turn a wrong query into an exception."""
+
+    def test_spatial_dimension_returns_none(self, cf_time_path):
+        """`get_time_variable("lat")` returns None rather than raising.
+
+        Args:
+            cf_time_path: The written cube fixture.
+
+        Test scenario:
+            The documented contract is `None` when the dimension has no usable `units`. Before
+            #1078 a spatial dimension had no `units` at all under the HDF5 driver, so it returned
+            `None` by accident. Now it carries `degrees_north`, which reaches the CF time parse —
+            so the parse must be guarded, or a wrong-dimension query becomes
+            `ValueError: Unrecognized time units`.
+        """
+        nc = NetCDF.read_file(cf_time_path)
+        try:
+            assert nc.meta_data.get_dimension("lat").attrs.get("units") == (
+                "degrees_north"
+            ), (
+                "the fixture's lat must carry non-temporal units for this to mean anything"
+            )
+            assert nc.get_time_variable("lat") is None, (
+                "a non-temporal dimension must return None, not raise"
             )
         finally:
             nc.close()
