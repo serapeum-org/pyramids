@@ -891,6 +891,37 @@ def _read_attribute_value(attr: gdal.Attribute) -> AttributeValue:
     return _normalize_attr_value(val)
 
 
+def _merge_unit(attrs: dict[str, Any], gdal_obj: Any) -> dict[str, Any]:
+    """Fold GDAL's ``GetUnit()`` back into ``attrs`` as a CF ``units`` entry.
+
+    GDAL normalises a CF ``units`` attribute onto the MDArray / indexing-variable
+    **unit slot** and drops it from the attribute list. That is not driver-specific —
+    the netCDF and HDF5 drivers both do it — so anything reading CF attributes off a
+    multidim object sees ``calendar`` and ``standard_name`` but no ``units`` unless the
+    unit slot is merged back in (#1078).
+
+    Existing ``units`` in ``attrs`` win, so a file that really does carry the attribute
+    keeps its own value. The dict is mutated in place and returned for chaining.
+
+    Args:
+        attrs: Attributes already read from ``gdal_obj``; mutated in place.
+        gdal_obj: Any GDAL object exposing ``GetUnit()`` (MDArray, indexing variable).
+
+    Returns:
+        dict[str, Any]: ``attrs``, with ``units`` added when the unit slot held one.
+    """
+    try:
+        unit = gdal_obj.GetUnit()
+    except (RuntimeError, AttributeError):
+        unit = None
+    # Require a real non-empty string: GetUnit's contract is `str`, every other value in
+    # a CF attrs dict is one, and an object that merely *has* the attribute (a stand-in
+    # in a test, a partially-built handle) must not put a non-CF value into metadata.
+    if isinstance(unit, str) and unit and "units" not in attrs:
+        attrs["units"] = unit
+    return attrs
+
+
 def _read_attributes(obj: Any) -> dict[str, AttributeValue]:
     """Read all attributes from a GDAL object into a dictionary.
 

@@ -34,7 +34,7 @@ from pyramids.netcdf.cf import (
     write_attributes_to_md_array,
     write_global_attributes,
 )
-from pyramids.netcdf.utils import _read_attributes
+from pyramids.netcdf.utils import _merge_unit, _read_attributes
 
 if TYPE_CHECKING:
     from pyramids.netcdf.netcdf import NetCDF
@@ -127,20 +127,6 @@ class Interop(_Engine["NetCDF"]):
             coords=_coords_from_dimensions(rg, ds),
             attrs=ds.global_attributes,
         )
-
-
-def _merge_unit(attrs: dict[str, Any], gdal_obj: Any) -> dict[str, Any]:
-    """Fold GDAL's ``GetUnit()`` back into ``attrs`` as a CF ``units`` entry.
-
-    GDAL's netCDF driver normalises the CF ``units`` attribute onto the
-    MDArray/indexing-variable unit slot rather than a regular attribute. Merge
-    it back so the value round-trips through ``xr.Dataset``. Existing ``units``
-    in ``attrs`` win; the dict is mutated in place and returned for chaining.
-    """
-    unit = gdal_obj.GetUnit()
-    if unit and "units" not in attrs:
-        attrs["units"] = unit
-    return attrs
 
 
 def _coords_from_dimensions(rg: Any, ds: NetCDF) -> dict[str, Any]:

@@ -15,6 +15,7 @@ from pyramids.netcdf.utils import (
     _get_block_size,
     _get_coord_variable_names,
     _get_group_name,
+    _merge_unit,
     _read_attributes,
     _read_dim_names,
     resolve_full_name,
@@ -277,9 +278,15 @@ class DimensionInfo:
             iv = None
             ivname = None
 
-        # Read attributes from the indexing variable (e.g., "units", "calendar")
+        # Read attributes from the indexing variable (e.g., "units", "calendar"), then
+        # fold the unit slot back in: GDAL moves a CF `units` attribute onto the object's
+        # own unit and drops it from the attribute list, under the netCDF and the HDF5
+        # driver alike. Without this, `units` reaches dimension metadata only through the
+        # classic-metadata top-up in `MetadataBuilder`, which yields nothing when the file
+        # was opened by the HDF5 driver — as any /vsi NetCDF-4 read on Windows is — so the
+        # time axis came back undecodable there (#1078).
         try:
-            iv_attrs = _read_attributes(iv) if iv is not None else {}
+            iv_attrs = _merge_unit(_read_attributes(iv), iv) if iv is not None else {}
         except Exception:
             iv_attrs = {}
 
