@@ -72,9 +72,9 @@ if TYPE_CHECKING:
     from cleopatra.styling.colorbar import ColorBar
     from cleopatra.styling.params import CellValues, Contour, DataStyle
     from cleopatra.styling.scaling import ColorScaling
+    from dask.delayed import Delayed
     from matplotlib.axes import Axes
     from matplotlib.figure import Figure
-    from dask.delayed import Delayed
 
 
 _DEFAULT_GLOB = "*.tif"
