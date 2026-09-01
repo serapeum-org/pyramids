@@ -230,6 +230,12 @@ class DimensionInfo:
         variable when one exists (e.g. `units` and
         `calendar` on a time coordinate).
 
+        `units` is recovered from the indexing variable's
+        **unit slot** as well as from its attribute list:
+        GDAL normalises a CF `units` onto that slot and
+        drops it from the attributes, so reading attributes
+        alone yields `calendar` but never `units` (#1078).
+
         Args:
             d: The GDAL multidimensional `Dimension` object.
             group_full_name: Full name of the parent group
