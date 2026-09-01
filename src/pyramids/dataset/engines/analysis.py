@@ -1885,7 +1885,11 @@ class Analysis(_Engine["Dataset"]):
                 An extra value to drop from the samples, in addition to the
                 band's no-data value and ``NaN``. Default is ``None``.
             ax (matplotlib.axes.Axes, optional):
-                Axes to draw on. A new figure/axes is created when ``None``.
+                Draw the histogram into these axes instead of creating them, so it can
+                sit in a caller-owned layout. An axes already carries its figure, so
+                ``ax`` on its own is sufficient and there is no separate ``fig``
+                parameter here. A new figure/axes is created when left unset. Default is
+                ``None``.
             max_samples (int, optional):
                 Opt-in cap on how many pixels are read. When set and the band
                 has more than ``max_samples`` cells, GDAL reads a
@@ -2068,7 +2072,11 @@ class Analysis(_Engine["Dataset"]):
                 Render kind: ``"quiver"`` (default), ``"barbs"``, or
                 ``"streamplot"``.
             ax (matplotlib.axes.Axes, optional):
-                Axes to draw on. A new figure/axes is created when ``None``.
+                Draw the vector field into these axes instead of creating them, which is
+                what lets it be composed onto a shared map (pair it with
+                ``add_colorbar=False``). An axes already carries its figure, so ``ax`` on
+                its own is sufficient and there is no separate ``fig`` parameter here. A
+                new figure/axes is created when left unset. Default is ``None``.
             **kwargs:
                 Style options forwarded to the ``VectorGlyph`` constructor,
                 filtered via :meth:`VectorGlyph.filter_kwargs` (e.g.

@@ -1260,7 +1260,7 @@ class RasterBase(ABC):
             ax (matplotlib.axes.Axes, optional):
                 Draw into these axes instead of creating them, which is what lets several
                 rasters share one figure. An axes already carries its figure, so ``ax`` on
-                its own is enough. Default is ``None``.
+                its own is sufficient. Default is ``None``.
             **kwargs: Additional plotting options.
                 points (array | PointOverlay):
                     Point overlay. A 3 column array with the first column as the value you want to display for
