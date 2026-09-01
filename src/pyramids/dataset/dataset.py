@@ -3539,13 +3539,23 @@ class Dataset(RasterBase):
               stays read-only at the pyramids level (the underlying
               MEM driver is always writable; pyramids enforces the
               flag itself).
-            * `path is not None` (on-disk copy) → `"write"`,
-              because the caller has just created a new file they
-              presumably want to populate.
+            * `path is not None` and the format supports `Create`
+              (GTiff, netCDF, HFA, …) → `"write"`, because the caller
+              has just made a new file they presumably want to
+              populate.
+            * `path is not None` and the format is write-by-copy only
+              (`.png`, `.jpg` / `.jpeg`, `.jp2` / `.j2k`, `.asc`) →
+              `"read_only"`. `CreateCopy` hands back a read-only
+              dataset for those, so claiming otherwise would let a
+              write fail inside GDAL instead of raising
+              :class:`~pyramids.errors.ReadOnlyError` here.
 
         Raises:
             DriverNotExistError: `path` has no extension, or one the driver
                 catalog does not know.
+            FileFormatNotSupportedError: `path` names a format that writes a
+                reference rather than a self-contained raster (`.vrt`), which
+                would produce a file GDAL cannot reopen.
 
         Examples:
             - Copy into memory and edit the copy without touching the source:
@@ -4844,7 +4854,10 @@ class Dataset(RasterBase):
                 # dtype. Dataset.align adopts the alignment source's dtype, so cast
                 # the template first to avoid truncating wider inputs (e.g. a float
                 # band onto an int template).
-                grid_template = cls.from_array(
+                # `Dataset.from_array`, not `cls.from_array`: same reason as
+                # `convert_units`. On a NetCDF subclass the override returns a
+                # bandless Container, and this template is then read band-wise.
+                grid_template = Dataset.from_array(
                     template.read_array(band=0).astype(target_np_dtype, copy=False),
                     # epsg is None only for a no-EPSG CRS reported as such (a NetCDF
                     # geostationary grid); from_array raises CRSError on None, so

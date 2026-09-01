@@ -64,6 +64,10 @@ def copy_yields_writable(driver_name: str) -> bool:
     """
     key = _CATALOG.get_driver_name(driver_name)
     if key is None:
+        # Unreachable from `resolve_output_driver`, whose return value always
+        # names a catalogued driver. Kept for a caller that passes a GDAL name
+        # from elsewhere: assuming writable preserves the behaviour every
+        # caller had before this helper existed.
         return True
     entry = _CATALOG.get_driver(key) or {}
     return bool(entry.get("Creation"))
@@ -189,6 +193,12 @@ raster in memory or as GTiff, then convert.
         # Skipping the check entirely let `.vrt` through every copy-based
         # writer, which then emitted a file GDAL could not reopen.
         if for_copy:
+            # Unreachable through an extension today: the only `Copy: No` rows
+            # (`hdf5`, `eedi`) carry no extension or alias, so the lookup above
+            # can never return them. Kept because it is the question this
+            # branch must ask -- if either row is ever given its real extension
+            # (`.h5`), the refusal is already correct, and HDF5 is read-only in
+            # GDAL so the message is too.
             if not entry.get("Copy"):
                 raise FileFormatNotSupportedError(
                     f"'.{extension}' maps to the {driver} driver, which cannot be "

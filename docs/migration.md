@@ -228,9 +228,11 @@ before through its z-order (`method="first"` / `"last"`) path. Write a GTiff and
 the rename, but it reads the same driver catalog, so correcting the catalog's extension rows widened what it
 accepts. `.tiff`, `.png`, `.jpg`, `.jpeg`, `.img`, `.jp2` and `.j2k` previously raised
 `DriverNotExistError` and now write a
-file. The sharp case is dtype: PNG and JPEG store 8-bit data, so a float32 raster written to `.png` is
+file. The sharp case is dtype. PNG and JPEG store 8-bit data, so a float32 raster written to `.png` is
 converted to `Byte` — values clipped, fractional parts gone. GDAL reports that only as a `RuntimeWarning`, so
-pyramids now raises it to a `DtypeNarrowingWarning` naming both dtypes and the driver:
+pyramids now raises it to a `DtypeNarrowingWarning` naming both dtypes and the driver. JPEG2000 is stricter
+still: `.jp2` / `.j2k` accept only their own dtypes and **raise** rather than converting, so a float32 raster
+there warns and then fails with `FailedToSaveError` — write those from a `uint8` / `int16` source.
 
 ```python
 import warnings

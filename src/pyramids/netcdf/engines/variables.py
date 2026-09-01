@@ -942,12 +942,21 @@ def _create_netcdf_from_array(
         # rather than raising the Create-gate error inside the resolver, whose
         # advice ("build it as GTiff, then convert") is wrong for a caller who
         # asked a netCDF container to write a PNG.
-        resolved = resolve_output_driver(path, for_copy=True)
+        try:
+            resolved = resolve_output_driver(path, for_copy=True)
+        except FileFormatNotSupportedError:
+            # The resolver refused it outright (a reference-only format such as
+            # `.vrt`). Its advice -- "write a format that owns its pixels, e.g.
+            # '.tif'" -- is advice this method would also refuse, so answer in
+            # the terms of the method the caller actually reached for.
+            resolved = None
         if resolved != "netCDF":
             raise FileFormatNotSupportedError(
-                f"NetCDF.from_array writes a multidimensional netCDF store, but "
-                f"{str(path)!r} names the {resolved} driver. Use a '.nc' path, or "
-                f"build the raster with Dataset.from_array to write {resolved}."
+                "NetCDF.from_array writes a multidimensional netCDF store, but "
+                f"{str(path)!r} does not name the netCDF driver"
+                + (f" -- it names {resolved}" if resolved else "")
+                + ". Use a '.nc' or '.nc4' path, or build the raster with "
+                "Dataset.from_array."
             )
         driver_type = "netCDF"
     else:

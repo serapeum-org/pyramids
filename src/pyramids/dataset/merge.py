@@ -586,6 +586,10 @@ def merge_rasters(
     # only after every source had been opened and possibly reprojected, which
     # for /vsicurl/ inputs is network work spent to reach a typo. It also
     # reported at two different points depending on `method`.
+    # Resolved here so a destination the catalog cannot answer for fails
+    # before any source is opened, and so both write paths below agree. They
+    # call it again where they need the name; it is a cached catalog lookup, so
+    # the repeat is free and keeps each path readable on its own.
     resolve_output_driver(dst)
 
     # SMELL: `init` and `n` default to the string `"nan"`, which

@@ -382,6 +382,16 @@ def _driver_preserves_dtype(driver_name: str, gdal_dtype: int) -> bool | None:
                     # netCDF round-trip into "RuntimeError: unknown error
                     # occurred".
                     pass
+    if result is None:
+        # The probe could not answer -- the driver refused a 1x1 image, which
+        # JP2OpenJPEG does. Fall back to what it advertises. The list is not
+        # exhaustive (that is why the probe leads), but a type *absent* from it
+        # and *rejected* by the probe is a confident "will not store it": that
+        # combination is what makes `.jp2`/`.j2k` fail with a bare
+        # FailedToSaveError today and no word about dtype.
+        advertised = driver.GetMetadataItem("DMD_CREATIONDATATYPES")
+        if advertised:
+            result = gdal.GetDataTypeName(gdal_dtype) in advertised.split()
     return result
 
 

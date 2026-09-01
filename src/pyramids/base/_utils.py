@@ -689,7 +689,19 @@ class Catalog:
         return gdal_catalog
 
     def get_driver(self, driver: str):
-        """Get Driver data from the catalog."""
+        """Get Driver data from the catalog.
+
+        Args:
+            driver (str): The catalog key (e.g. `"geotiff"`).
+
+        Returns:
+            dict | None: The driver's entry, or `None` when the key is unknown.
+
+        Warning:
+            The returned dict is the catalog's own, and the catalog is shared
+            process-wide by :func:`get_catalog`. Mutating it changes what every
+            other consumer sees. Treat it as read-only.
+        """
         return self.drivers.get(driver)
 
     def get_gdal_name(self, driver: str):
