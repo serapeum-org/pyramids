@@ -975,7 +975,9 @@ class Dataset(RasterBase):
             resolved_rgb = [int(v) for v in cast("list[int]", candidate)]
         return resolved_rgb
 
-    def plot(  # type: ignore[override]  # narrows **kwargs to cleopatra's typed PlotKwargs
+    # The override is deliberate: it narrows the base's open **kwargs to cleopatra's
+    # typed PlotKwargs. The fig/ax pair itself matches the RasterBase contract.
+    def plot(  # type: ignore[override]
         self,
         band: int | None = None,
         exclude_value: Any | None = None,

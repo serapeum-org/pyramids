@@ -41,6 +41,9 @@ from pyramids.dataset.transform import GeoTransform
 from pyramids.dataset.window import Window
 
 if TYPE_CHECKING:
+    from matplotlib.axes import Axes
+    from matplotlib.figure import Figure
+
     from pyramids.base._file_manager import ThreadLocalFileManager
 
 from pyramids.feature import FeatureCollection
@@ -1228,6 +1231,9 @@ class RasterBase(ABC):
         overview: bool = False,
         overview_index: int = 0,
         rgb_options: dict | None = None,
+        *,
+        fig: Figure | None = None,
+        ax: Axes | None = None,
         **kwargs,
     ):
         """Plot.
@@ -1247,6 +1253,14 @@ class RasterBase(ABC):
                 Grouped Sentinel-imagery options for a true-colour composite. Accepted
                 keys: ``"rgb"`` (band indices), ``"surface_reflectance"``, ``"cutoff"``,
                 ``"percentile"``. Default is ``None``.
+            fig (matplotlib.figure.Figure, optional):
+                Draw into this figure instead of creating one. Pass it alongside ``ax``;
+                supplying ``fig`` on its own currently raises inside cleopatra
+                (serapeum-org/cleopatra#326). Default is ``None``.
+            ax (matplotlib.axes.Axes, optional):
+                Draw into these axes instead of creating them, which is what lets several
+                rasters share one figure. An axes already carries its figure, so ``ax`` on
+                its own is enough. Default is ``None``.
             **kwargs: Additional plotting options.
                 points (array | PointOverlay):
                     Point overlay. A 3 column array with the first column as the value you want to display for
