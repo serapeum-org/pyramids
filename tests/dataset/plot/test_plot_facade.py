@@ -6,6 +6,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.dataset.engines import Analysis
 
@@ -47,8 +48,9 @@ class TestDatasetPlotFacade:
         """
         rng = np.random.default_rng(1337)
         arr = rng.random((6, 6)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        dataset = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
         )
 
         result = dataset.plot()
@@ -68,8 +70,9 @@ class TestDatasetPlotFacade:
         """
         rng = np.random.default_rng(1337)
         arr = rng.random((6, 6)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        dataset = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
         )
 
         first = dataset.plot()
@@ -95,8 +98,9 @@ class TestDatasetPlotFacade:
         """
         rng = np.random.default_rng(7)
         arr = rng.random((5, 5)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        dataset = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
         )
 
         with pytest.raises(ValueError, match="color_scale"):
@@ -114,8 +118,9 @@ class TestDatasetPlotFacade:
         """
         rng = np.random.default_rng(1337)
         arr = rng.random((6, 6)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        dataset = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
         )
 
         with patch.object(type(dataset.analysis), "plot", autospec=True) as mock_plot:
@@ -144,8 +149,9 @@ class TestDatasetPlotRgbOptions:
         """`rgb_options={"rgb": [...]}` works identically to the loose form."""
         rng = np.random.default_rng(11)
         arr = rng.random((3, 6, 6)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        dataset = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
         )
         with patch.object(type(dataset.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "stub"
@@ -158,8 +164,9 @@ class TestDatasetPlotRgbOptions:
         """All four Sentinel kwargs flow through the `rgb_options=` group."""
         rng = np.random.default_rng(12)
         arr = rng.random((3, 6, 6)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        dataset = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
         )
         opts = {
             "rgb": [0, 1, 2],
@@ -181,8 +188,9 @@ class TestDatasetPlotRgbOptions:
         """Unknown keys in `rgb_options` are rejected with a clear error."""
         rng = np.random.default_rng(15)
         arr = rng.random((3, 6, 6)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        dataset = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
         )
         with pytest.raises(ValueError, match=r"Unknown keys"):
             dataset.plot(rgb_options={"bogus": True})
@@ -205,8 +213,9 @@ class TestDatasetPlotRgbOptionsEdges:
         """
         rng = np.random.default_rng(2025)
         arr = rng.random((3, 6, 6)).astype("float32")
-        return Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        return Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
         )
 
     @pytest.mark.plot

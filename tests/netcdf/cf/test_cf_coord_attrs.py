@@ -102,12 +102,14 @@ class TestCreateDimensionCFAttrs:
         """X dimension with geographic CRS has longitude attributes.
 
         Test scenario:
-            create_from_array with EPSG:4326 should produce x coordinate
+            from_array with EPSG:4326 should produce x coordinate
             with axis=X, standard_name=longitude, units=degrees_east.
         """
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
-        nc = NetCDF.create_from_array(
-            arr=arr, geo_ref=GeoReference(geo=GEO, epsg=4326), variable_name="temp"
+        nc = NetCDF.from_array(
+            arr=arr,
+            geo_ref=GeoReference(geo=GEO, epsg=4326),
+            variable_name="temp",
         )
         attrs = self._read_coord_attrs(nc, "x")
         assert attrs.get("axis") == "X", f"Expected axis=X, got {attrs.get('axis')}"
@@ -122,12 +124,14 @@ class TestCreateDimensionCFAttrs:
         """Y dimension with geographic CRS has latitude attributes.
 
         Test scenario:
-            create_from_array with EPSG:4326 should produce y coordinate
+            from_array with EPSG:4326 should produce y coordinate
             with axis=Y, standard_name=latitude, units=degrees_north.
         """
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
-        nc = NetCDF.create_from_array(
-            arr=arr, geo_ref=GeoReference(geo=GEO, epsg=4326), variable_name="temp"
+        nc = NetCDF.from_array(
+            arr=arr,
+            geo_ref=GeoReference(geo=GEO, epsg=4326),
+            variable_name="temp",
         )
         attrs = self._read_coord_attrs(nc, "y")
         assert attrs.get("axis") == "Y", f"Expected axis=Y, got {attrs.get('axis')}"
@@ -142,12 +146,12 @@ class TestCreateDimensionCFAttrs:
         """X dimension with projected CRS has projection_x_coordinate.
 
         Test scenario:
-            create_from_array with EPSG:32637 (UTM) should produce
+            from_array with EPSG:32637 (UTM) should produce
             x coordinate with units=m and standard_name=projection_x_coordinate.
         """
         geo_utm = (500000.0, 100.0, 0, 3000000.0, 0, -100.0)
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
-        nc = NetCDF.create_from_array(
+        nc = NetCDF.from_array(
             arr=arr,
             geo_ref=GeoReference(geo=geo_utm, epsg=32637),
             variable_name="temp",
@@ -167,7 +171,7 @@ class TestCreateDimensionCFAttrs:
             a time coordinate with axis=T.
         """
         arr = np.random.default_rng(SEED).random((3, 5, 10)).astype(np.float64)
-        nc = NetCDF.create_from_array(
+        nc = NetCDF.from_array(
             arr=arr,
             geo_ref=GeoReference(geo=GEO),
             variable_name="precip",
@@ -187,7 +191,7 @@ class TestCreateDimensionCFAttrs:
             attributes are preserved.
         """
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
-        nc = NetCDF.create_from_array(
+        nc = NetCDF.from_array(
             arr=arr, geo_ref=GeoReference(geo=GEO), variable_name="temp"
         )
         out_path = str(tmp_path / "coord_attrs.nc")

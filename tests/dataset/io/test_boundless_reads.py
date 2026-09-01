@@ -15,6 +15,7 @@ from osgeo import gdal
 from shapely.geometry import box
 
 from pyramids.base._errors import OutOfBoundsError
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset, Window
 
 pytestmark = pytest.mark.core
@@ -28,8 +29,10 @@ def ramp_dataset() -> Dataset:
         Dataset: Single-band in-memory dataset, value == row*6 + col.
     """
     arr = np.arange(36, dtype="float32").reshape(6, 6)
-    return Dataset.create_from_array(
-        arr, top_left_corner=(0, 6), cell_size=1.0, epsg=4326, no_data_value=-9999.0
+    return Dataset.from_array(
+        arr,
+        no_data_value=-9999.0,
+        geo_ref=GeoReference(top_left_corner=(0, 6), cell_size=1.0, epsg=4326),
     )
 
 
@@ -83,12 +86,10 @@ class TestBoundlessReads:
     def test_multi_band_boundless(self):
         """An all-bands boundless read stacks filled planes per band."""
         base = np.arange(36, dtype="float32").reshape(6, 6)
-        ds = Dataset.create_from_array(
+        ds = Dataset.from_array(
             np.stack([base, base + 100.0]),
-            top_left_corner=(0, 6),
-            cell_size=1.0,
-            epsg=4326,
             no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0, 6), cell_size=1.0, epsg=4326),
         )
         result = ds.read_array(window=Window(-1, -1, 3, 3), boundless=True)
         assert result.shape == (2, 3, 3), f"3-D shape wrong: {result.shape}"
@@ -143,8 +144,10 @@ class TestBoundlessReads:
     def test_dtype_zero_fallback_without_nodata(self):
         """No fill_value and no band nodata falls back to the dtype's zero."""
         arr = np.arange(36, dtype="uint8").reshape(6, 6)
-        ds = Dataset.create_from_array(
-            arr, top_left_corner=(0, 6), cell_size=1.0, epsg=4326, no_data_value=None
+        ds = Dataset.from_array(
+            arr,
+            no_data_value=None,
+            geo_ref=GeoReference(top_left_corner=(0, 6), cell_size=1.0, epsg=4326),
         )
         result = ds.read_array(band=0, window=Window(-1, -1, 3, 3), boundless=True)
         assert result.dtype == np.uint8, f"band dtype must be kept, got {result.dtype}"
@@ -184,8 +187,10 @@ class TestBoundlessReads:
     def test_unrepresentable_fill_value_rejected(self):
         """A fill the integer band dtype cannot hold raises instead of wrapping."""
         arr = np.arange(36, dtype="uint8").reshape(6, 6)
-        ds = Dataset.create_from_array(
-            arr, top_left_corner=(0, 6), cell_size=1.0, epsg=4326, no_data_value=None
+        ds = Dataset.from_array(
+            arr,
+            no_data_value=None,
+            geo_ref=GeoReference(top_left_corner=(0, 6), cell_size=1.0, epsg=4326),
         )
         window = Window(-1, -1, 3, 3)
         for bad_fill in (-9999.0, -9999, 0.5, float("nan")):
@@ -200,8 +205,10 @@ class TestBoundlessReads:
     def test_nan_fill_on_integer_band_has_clear_message(self):
         """A NaN fill on an integer band names the real fix: use a float band (L3)."""
         arr = np.arange(36, dtype="uint8").reshape(6, 6)
-        ds = Dataset.create_from_array(
-            arr, top_left_corner=(0, 6), cell_size=1.0, epsg=4326, no_data_value=None
+        ds = Dataset.from_array(
+            arr,
+            no_data_value=None,
+            geo_ref=GeoReference(top_left_corner=(0, 6), cell_size=1.0, epsg=4326),
         )
         window = Window(-1, -1, 3, 3)
         nan_fill = float("nan")

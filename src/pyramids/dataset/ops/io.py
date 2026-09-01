@@ -3,8 +3,14 @@
 from __future__ import annotations
 
 import logging
+import pathlib
+import sys
+import threading
+import warnings
+from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from uuid import uuid4
 
 import numpy as np
 from osgeo import gdal
@@ -12,10 +18,12 @@ from osgeo import gdal
 from pyramids import _io
 from pyramids.base._errors import (
     DriverNotExistError,
+    DtypeNarrowingWarning,
     FailedToSaveError,
 )
 from pyramids.base._file_manager import CachingFileManager
 from pyramids.base.remote import cloud_config_from_env
+from pyramids.dataset._driver import copy_yields_writable, resolve_output_driver
 from pyramids.dataset.abstract_dataset import (
     CATALOG,
 )
@@ -24,6 +32,45 @@ from pyramids.dataset.cog import Layout
 if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
 
+
+# The pyramids source tree, used to find the first frame outside it.
+_PYRAMIDS_SRC = str(pathlib.Path(__file__).resolve().parents[2])
+
+
+def _caller_stacklevel(default: int = 2) -> int:
+    """Frames to skip so a warning is attributed to the caller, not to pyramids.
+
+    A fixed `stacklevel` cannot work here: `to_file` is reachable at four
+    different depths -- `Dataset.to_file`, `IO.to_file` directly, the
+    `dask.delayed` write, and `DatasetCollection.to_file`, which adds a frame
+    of its own. A constant measured for one of them blamed `collection.py` for
+    the third, which is precisely the failure a `stacklevel` exists to avoid,
+    and it also breaks warning de-duplication: `__warningregistry__` keys on
+    the attributed module, so every timestep of a collection write dedups
+    against the library rather than the user's line.
+
+    Args:
+        default: Returned when every frame is inside pyramids -- a doctest or
+            an internal caller, where there is no user frame to blame.
+
+    Returns:
+        int: The `stacklevel` that attributes the warning to the first frame
+        outside the pyramids package.
+    """
+    depth = 1
+    frame = sys._getframe(1)
+    while frame is not None:
+        if not frame.f_code.co_filename.startswith(_PYRAMIDS_SRC):
+            return depth
+        frame = frame.f_back
+        depth += 1
+    return default
+
+
+# Serialises the dtype probe. `functools.cache` memoises the *result* but
+# does not serialise the call, so without this concurrent first-time probes
+# race inside GDAL.
+_PROBE_LOCK = threading.Lock()
 
 _LAZY_IMPORT_ERROR = (
     "Lazy reads require the optional 'dask' dependency. Install with one of:\n"
@@ -209,6 +256,11 @@ def _write_to_file_sync(
         xmin, ymin, _, _ = ds.bbox
         _io.to_ascii(arr, ds.cell_size, xmin, ymin, no_data_value, path)
     else:
+        # Only this branch hands the bands to a GDAL driver. The ascii
+        # branch above writes the numbers with Python's `str()` through
+        # `_io.to_ascii`, at full precision, so warning there described a
+        # conversion that provably does not happen.
+        _warn_if_driver_narrows_dtype(ds, driver_name, path)
         # CreateCopy does tiled reads of the source; a NetCDF multidim view can't be
         # window-read by GDAL >= 3.13, so materialise it first (no-op for an ordinary
         # raster or a MEM dataset). Matches the guard to_bytes / the COG writer already
@@ -250,6 +302,145 @@ def _write_cog(
     ds.to_cog(path, **cog_kwargs)
 
 
+@cache
+def _driver_preserves_dtype(driver_name: str, gdal_dtype: int) -> bool | None:
+    """Whether `driver_name` stores `gdal_dtype` without converting it.
+
+    Answered by probing GDAL rather than by reading `DMD_CREATIONDATATYPES`,
+    because that list is **not exhaustive**: this build's GTiff omits `Int64`
+    yet stores it faithfully, and `int64` is what NumPy produces by default --
+    so trusting the metadata warned about the single most common write in the
+    library, wrongly. The probe copies a 1x1 band of the type into `/vsimem`
+    and reads back what the driver actually produced.
+
+    Cached, so a given (driver, dtype) pair costs one tiny in-memory write per
+    process.
+
+    Args:
+        driver_name: GDAL driver short name.
+        gdal_dtype: The `gdal.GDT_*` code of the source band.
+
+    Returns:
+        bool | None: `True` when the driver round-trips the type unchanged,
+        `False` when it converts it, and `None` when the question cannot be
+        answered (driver missing, or it refuses the probe for an unrelated
+        reason) -- in which case the caller says nothing.
+    """
+    driver = gdal.GetDriverByName(driver_name)
+    if driver is None:
+        return None
+    # Unique per call, and serialised. `functools.cache` does not hold a lock
+    # across the wrapped call, so on a cold cache every concurrent caller for
+    # one key runs this body -- and a path derived only from the key meant they
+    # all wrote, read and Unlinked the *same* /vsimem file. One thread's
+    # cleanup ran while another was mid-CreateCopy, and `lru_cache` then stored
+    # whichever call finished last: a transient race permanently memoised
+    # "cannot answer" for that driver/dtype. For a driver whose true answer is
+    # False that silently disables the one guard against a lossy write, and
+    # this package supports threaded and dask-delayed writes.
+    probe_path = f"/vsimem/_pyramids_dtype_probe_{uuid4().hex}"
+    with _PROBE_LOCK:
+        source = gdal.GetDriverByName("MEM").Create("", 1, 1, 1, gdal_dtype)
+        result: bool | None = None
+        try:
+            # `strict=0`: the question is what the driver *does* with the
+            # type, and a strict copy would refuse rather than answer. GDAL
+            # chatter from a refused probe is not the caller's business.
+            handler = gdal.PushErrorHandler("CPLQuietErrorHandler")
+            try:
+                written = driver.CreateCopy(probe_path, source, 0)
+                if written is not None:
+                    result = written.GetRasterBand(1).DataType == gdal_dtype
+                    written = None
+            finally:
+                gdal.PopErrorHandler()
+                del handler
+        except RuntimeError:
+            # The driver rejected the probe outright (needs options, a minimum
+            # size, georeferencing...). That is not evidence about the dtype.
+            result = None
+        finally:
+            source = None
+            # Remove the probe and any sidecar the driver wrote beside it
+            # (.aux.xml, .hdr, ...), which would otherwise accumulate in
+            # /vsimem for the life of the process.
+            for leftover in [probe_path, *(gdal.ReadDir("/vsimem") or [])]:
+                name = (
+                    leftover
+                    if leftover.startswith("/vsimem")
+                    else f"/vsimem/{leftover}"
+                )
+                if not name.startswith(probe_path):
+                    continue
+                try:
+                    gdal.Unlink(name)
+                except RuntimeError:
+                    # Nothing to remove: the driver never created the file
+                    # (netCDF writes on close, and refuses a 1x1 probe). Cleanup
+                    # of scratch state must never be the thing that fails the
+                    # caller's write -- this ran inside `to_file` and turned a
+                    # netCDF round-trip into "RuntimeError: unknown error
+                    # occurred".
+                    pass
+    if result is None:
+        # The probe could not answer -- the driver refused a 1x1 image, which
+        # JP2OpenJPEG does. Fall back to what it advertises. The list is not
+        # exhaustive (that is why the probe leads), but a type *absent* from it
+        # and *rejected* by the probe is a confident "will not store it": that
+        # combination is what makes `.jp2`/`.j2k` fail with a bare
+        # FailedToSaveError today and no word about dtype.
+        advertised = driver.GetMetadataItem("DMD_CREATIONDATATYPES")
+        if advertised:
+            result = gdal.GetDataTypeName(gdal_dtype) in advertised.split()
+    return result
+
+
+def _warn_if_driver_narrows_dtype(ds: Dataset, driver_name: str, path: Path) -> None:
+    """Warn when the target driver will not store the dataset's band dtypes.
+
+    `CreateCopy` silently substitutes the nearest type a driver does support --
+    a float32 DEM written to `.png` becomes 8-bit `Byte`, destroying the values
+    -- and reports it only as a GDAL `RuntimeWarning`, which a caller filtering
+    on their own warning categories will not see. This raises the same fact to a
+    `pyramids` warning naming both dtypes and the driver.
+
+    Every band is checked, not just the first, so a mixed-dtype dataset whose
+    narrowing band is not band 1 is still reported. Capability comes from
+    :func:`_driver_preserves_dtype`, which probes the driver rather than
+    trusting its advertised type list.
+
+    Args:
+        ds: The dataset being written.
+        driver_name: The resolved GDAL driver short name.
+        path: The destination, named in the message.
+
+    Warns:
+        DtypeNarrowingWarning: At least one band's dtype is one the driver
+            converts on write.
+    """
+    raster = ds.raster
+    if raster is None or raster.RasterCount == 0:
+        # Nothing to compare -- a container or an empty handle.
+        return
+    narrowing: dict[str, None] = {}
+    for index in range(1, raster.RasterCount + 1):
+        dtype = raster.GetRasterBand(index).DataType
+        if _driver_preserves_dtype(driver_name, dtype) is False:
+            narrowing.setdefault(gdal.GetDataTypeName(dtype), None)
+    if not narrowing:
+        return
+    names = ", ".join(sorted(narrowing))
+    warnings.warn(
+        f"the {driver_name} driver does not store {names} data, so writing "
+        f"{str(path)!r} converts those bands -- values outside the target range "
+        "are clipped and fractional values are lost. Convert deliberately (e.g. "
+        "scale to Byte) if that is intended, or choose a format that carries the "
+        "dtype.",
+        DtypeNarrowingWarning,
+        stacklevel=_caller_stacklevel(),
+    )
+
+
 def _resolve_output_driver(driver: str | None, path: Path) -> tuple[str, str]:
     """Resolve the catalog driver key and GDAL driver name for an output path.
 
@@ -262,8 +453,20 @@ def _resolve_output_driver(driver: str | None, path: Path) -> tuple[str, str]:
             GDAL driver name.
     """
     if driver is None:
-        extension = path.suffix[1:]
-        driver = CATALOG.get_driver_name_by_extension(extension)
+        # Delegate rather than re-implement. Keeping a second, ungated lookup
+        # here is what let `to_file(".vrt")` write an unopenable file while
+        # `copy(".vrt")` refused it -- the format gates, the case folding and
+        # the no-extension message all live in `resolve_output_driver`, and a
+        # copy of any of them drifts. `for_copy=True` because this writer uses
+        # `CreateCopy`, so a copy-only format (PNG, JPEG) is legitimate here
+        # even though the `Create`-based constructors refuse it.
+        gdal_name = resolve_output_driver(path, for_copy=True)
+        driver = CATALOG.get_driver_name(gdal_name)
+        if driver is None:
+            raise DriverNotExistError(
+                f"The driver: {gdal_name!r} is not in the driver catalog. Known "
+                f"driver names: {sorted(CATALOG.drivers)}"
+            )
     elif not CATALOG.exists(driver):
         catalog_key = CATALOG.get_driver_name(driver)
         if catalog_key is None:
@@ -348,13 +551,39 @@ def _create_copy_and_reopen(
         dst = None
         if not reopen:
             return
-        reopened = gdal.OpenEx(str(path), gdal.OF_RASTER | gdal.OF_UPDATE)
-        access = "write"
+        # The update-mode open is tried in its own try/except. pyramids
+        # enables GDAL exceptions at import, so for a write-once driver (PNG,
+        # JPEG) OpenEx *raises* rather than returning None -- and the broad
+        # handler below swallowed it, leaving `ds` silently pointing at its old
+        # in-memory handle with `file_name == ''`. Catching it here is what
+        # makes the read-only fallback reachable at all.
+        try:
+            reopened = gdal.OpenEx(str(path), gdal.OF_RASTER | gdal.OF_UPDATE)
+            access = "write"
+        except RuntimeError:
+            # A write-once driver refuses OF_UPDATE outright; fall through to
+            # the read-only open below, which sets the access mode.
+            reopened = None
         if reopened is None:
-            reopened = gdal.OpenEx(str(path), gdal.OF_RASTER)
+            # H2: this fallback was bare. When it raises -- and it can, for a
+            # format GDAL will not reopen at all -- the exception landed in the
+            # outer `except RuntimeError: if not path.exists(): raise` and was
+            # discarded, because CreateCopy *did* leave a file. `to_file` then
+            # returned normally with the dataset still pointing at its old
+            # handle: the exact state the guard above was added to prevent.
+            try:
+                reopened = gdal.OpenEx(str(path), gdal.OF_RASTER)
+            except RuntimeError as exc:
+                raise FailedToSaveError(save_error) from exc
             access = "read_only"
         if reopened is None:
             raise FailedToSaveError(save_error)
+        # Derived, not asserted. A driver whose copy is not writable hands back
+        # a read-only handle, and labelling it "write" is what let a raw GDAL
+        # error escape past the package's own ReadOnlyError guard -- the same
+        # defect `copy` and `translate` were fixed for.
+        if access == "write" and not copy_yields_writable(driver_name):
+            access = "read_only"
         ds._update_inplace(reopened, access)
     except RuntimeError:
         if not path.exists():

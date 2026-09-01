@@ -3,7 +3,7 @@
 ``NetCDF`` is now the (deprecated) base of two concrete public types:
 
 * :class:`pyramids.netcdf.Container` — returned by the file-open / build entry
-  points (``read_file`` / ``from_bytes`` / ``create_from_array`` / ``get_group``).
+  points (``read_file`` / ``from_bytes`` / ``from_array`` / ``get_group``).
 * :class:`pyramids.netcdf.Variable` — returned by ``get_variable`` and the
   variable-level operations (``subset`` / ``sel`` / ``crop`` / ``to_crs`` / ``resample``).
 
@@ -40,9 +40,9 @@ def variable(container) -> Variable:
 
 
 def _make_container() -> Container:
-    """Build a small in-memory container via create_from_array."""
+    """Build a small in-memory container via from_array."""
     arr = np.arange(2 * 4 * 5, dtype=np.float64).reshape(2, 4, 5)
-    return NetCDF.create_from_array(
+    return NetCDF.from_array(
         arr=arr,
         geo_ref=GeoReference(geo=(0.0, 1.0, 0, 4.0, 0, -1.0), epsg=4326),
         variable_name="t",
@@ -89,8 +89,8 @@ class TestContainerRouting:
         nc = NetCDF.from_bytes(Path(noah_nc_path).read_bytes())
         assert type(nc) is Container, f"got {type(nc)}"
 
-    def test_create_from_array_returns_container(self):
-        """``create_from_array`` returns a Container.
+    def test_from_array_returns_container(self):
+        """``from_array`` returns a Container.
 
         Test scenario:
             Building a store from arrays produces a container holding the variable(s).

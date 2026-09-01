@@ -16,6 +16,7 @@ from typing import Any
 
 import numpy as np
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.feature import FeatureCollection
 from pyramids.processing.pipeline import Pipeline, Step
@@ -170,11 +171,10 @@ def _materialize_array(array: np.ndarray, source: Dataset, band: int = 0) -> Dat
         # or None when the source declares no no-data at all (avoids an IndexError).
         no_data_value = nodata[0] if nodata else None
     data = array if array.ndim == 3 else array[np.newaxis, :, :]
-    return Dataset.create_from_array(
+    return Dataset.from_array(
         data,
-        geo=source.geotransform,
-        epsg=source.epsg or source.crs,
         no_data_value=no_data_value,
+        geo_ref=GeoReference(geo=source.geotransform, epsg=source.epsg or source.crs),
     )
 
 

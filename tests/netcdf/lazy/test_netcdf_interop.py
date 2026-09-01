@@ -128,7 +128,7 @@ def _make_2d_nc(rows=4, cols=6, variable_name="elevation"):
     """
     arr = np.arange(rows * cols, dtype=np.float64).reshape(rows, cols)
     geo = (10.0, 1.0, 0, 44.0, 0, -1.0)
-    nc = NetCDF.create_from_array(
+    nc = NetCDF.from_array(
         arr=arr,
         geo_ref=GeoReference(geo=geo, epsg=4326),
         no_data_value=-9999.0,
@@ -145,11 +145,10 @@ def _make_multi_var_nc():
     """
     nc = _make_3d_nc(variable_name="temperature")
     arr2 = np.arange(72, dtype=np.float64).reshape(3, 4, 6) + 1000
-    ds2 = Dataset.create_from_array(
+    ds2 = Dataset.from_array(
         arr2,
-        geo=(10.0, 1.0, 0, 44.0, 0, -1.0),
-        epsg=4326,
         no_data_value=-9999.0,
+        geo_ref=GeoReference(geo=(10.0, 1.0, 0, 44.0, 0, -1.0), epsg=4326),
     )
     ds2._band_dim_name = "time"
     ds2._band_dim_values = [0, 6, 12]
@@ -867,7 +866,7 @@ class TestToXarrayLazy:
         """An in-memory container has no file to reopen, so chunks= falls back to eager.
 
         Test scenario:
-            A ``create_from_array`` container's data is already resident; the
+            A ``from_array`` container's data is already resident; the
             chunked interop export returns eager numpy arrays rather than raising
             or attempting a lazy reopen.
         """

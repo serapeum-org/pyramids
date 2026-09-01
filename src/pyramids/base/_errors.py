@@ -353,3 +353,36 @@ class ContainerRasterWarning(UserWarning):
         from pyramids.errors import ContainerRasterWarning
         warnings.filterwarnings("ignore", category=ContainerRasterWarning)
     """
+
+
+class DtypeNarrowingWarning(UserWarning):
+    """Pyramids-emitted warning that a write will not preserve the band dtype.
+
+    Emitted by :meth:`pyramids.dataset.Dataset.to_file` when the driver it
+    resolves for the destination — from the path extension, or from an explicit
+    `driver=` — cannot store the source dtype. GDAL's `CreateCopy`
+    substitutes the nearest type it does support rather than refusing — a
+    float32 DEM written to `.png` becomes 8-bit `Byte`, so values are
+    clipped and every fractional part is lost — and reports it only as a GDAL
+    `RuntimeWarning`, which a caller filtering on their own warning categories
+    never sees.
+
+    Capability is measured, not read off the driver's advertised
+    `DMD_CREATIONDATATYPES`: that list is not exhaustive -- this build's GTiff
+    omits `Int64` and stores it faithfully -- and trusting it warned about
+    `int64` written to `.tif`, the commonest write in the library and a
+    lossless one. Every band is checked, so a mixed-dtype dataset whose
+    narrowing band is not the first is still reported.
+
+    Two paths sit outside the check by construction: an `.asc` destination
+    never reaches a GDAL driver (the ascii writer emits full precision through
+    `str()`), and `driver="COG"` delegates to
+    :meth:`pyramids.dataset.Dataset.to_cog` before the check runs.
+
+    Writing an 8-bit image to PNG or JPEG is a legitimate thing to do, so this
+    warns rather than raising. Silence it once the conversion is deliberate::
+
+        import warnings
+        from pyramids.errors import DtypeNarrowingWarning
+        warnings.filterwarnings("ignore", category=DtypeNarrowingWarning)
+    """

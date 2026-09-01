@@ -7,6 +7,7 @@ import pytest
 from osgeo import gdal, osr
 
 from pyramids.base._errors import StacAssetError, UnsupportedAssetError
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.netcdf import NetCDF
 from pyramids.stac import _loader
@@ -472,11 +473,9 @@ class TestLoadZarrAsset:
     """STAC Zarr assets load via pyramids' GeoZarr reader (FR-9)."""
 
     def _raster_zarr(self, tmp_path):
-        ds = Dataset.create_from_array(
+        ds = Dataset.from_array(
             np.arange(12, dtype=np.float32).reshape(3, 4),
-            top_left_corner=(0.0, 3.0),
-            cell_size=1.0,
-            epsg=4326,
+            geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
         )
         tif = str(tmp_path / "r.tif")
         ds.to_file(tif)
@@ -490,11 +489,11 @@ class TestLoadZarrAsset:
         paths = []
         for i in range(2):
             p = str(tmp_path / f"t{i}.tif")
-            Dataset.create_from_array(
+            Dataset.from_array(
                 np.full((3, 4), float(i), dtype=np.float32),
-                top_left_corner=(0.0, 3.0),
-                cell_size=1.0,
-                epsg=4326,
+                geo_ref=GeoReference(
+                    top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326
+                ),
             ).to_file(p)
             paths.append(p)
         store = str(tmp_path / "c.zarr")

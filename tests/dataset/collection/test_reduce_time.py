@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset, DatasetCollection
 from tests._marks import requires_dask
 
@@ -33,12 +34,10 @@ def daily_files(tmp_path):
     """
     paths = []
     for i in range(4):
-        ds = Dataset.create_from_array(
+        ds = Dataset.from_array(
             np.full((3, 3), float(i), dtype="float32"),
-            top_left_corner=(0.0, 3.0),
-            cell_size=1.0,
-            epsg=4326,
             no_data_value=_NODATA,
+            geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
         )
         p = str(tmp_path / f"d{i}.tif")
         ds.to_file(p)

@@ -18,7 +18,11 @@ import pandas as pd
 from pyproj import CRS
 
 from pyramids import _io
-from pyramids.base._errors import AlignmentError, OptionalPackageDoesNotExist
+from pyramids.base._errors import (
+    AlignmentError,
+    DriverNotExistError,
+    OptionalPackageDoesNotExist,
+)
 from pyramids.base._file_manager import CachingFileManager, gdal_raster_open
 from pyramids.base._locks import default_lock
 from pyramids.base._raster_meta import RasterMeta
@@ -30,6 +34,7 @@ from pyramids.base._utils import (
     resolve_resampling,
 )
 from pyramids.base.crs import crs_spec, epsg_from_user_input
+from pyramids.base.georeference import GeoReference
 from pyramids.base.remote import cloud_config_from_env
 from pyramids.dataset._plot_helpers import (
     ModeSpec,
@@ -548,7 +553,7 @@ class DatasetCollection:
           ``head``, ``tail``, ``first``, ``last``,
           ``values`` (read-side: derived per-call cube),
           ``values=`` (write-side: rebuilds the list with
-          ``Dataset.create_from_array(...)`` per slice).
+          ``Dataset.from_array(...)`` per slice).
         * Per-timestep ops: ``crop``, ``to_crs``, ``align``,
           ``apply``, ``overlay``, ``to_file``, ``to_cog_stack``.
           Each loops the handles via ``_apply_per_timestep`` and
@@ -1155,13 +1160,14 @@ class DatasetCollection:
         """
         src = self._base if source is None else source
         # epsg is None only for a no-EPSG CRS reported as such (a NetCDF geostationary
-        # grid); create_from_array raises CRSError on None, so fall back to the WKT.
+        # grid); from_array raises CRSError on None, so fall back to the WKT.
         # No-op for a plain Dataset (reports 4326) (#706).
-        return Dataset.create_from_array(
+        return Dataset.from_array(
             arr,
-            geo=src.geotransform,
-            epsg=crs_spec(src.epsg, src.crs),
             no_data_value=src.no_data_value[0],
+            geo_ref=GeoReference(
+                geo=src.geotransform, epsg=crs_spec(src.epsg, src.crs)
+            ),
         )
 
     def _require_files(self, method: str) -> list[str]:
@@ -1577,16 +1583,20 @@ class DatasetCollection:
                 ```python
                 >>> import os, tempfile
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset, DatasetCollection
+                >>> from pyramids.dataset import Dataset, DatasetCollection, GeoReference
                 >>> from pyramids.netcdf import NetCDF
                 >>> d = tempfile.mkdtemp()
                 >>> paths = []
                 >>> for i in range(2):
                 ...     arr = (np.arange(20, dtype="int16").reshape(4, 5) + 100 * i)
                 ...     p = os.path.join(d, f"t{i}.tif")
-                ...     _ = Dataset.create_from_array(
-                ...         arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326,
-                ...         no_data_value=-9999, path=p,
+                ...     _ = Dataset.from_array(
+                ...         arr,
+                ...         geo_ref=GeoReference(
+                ...             top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+                ...         ),
+                ...         no_data_value=-9999,
+                ...         path=p,
                 ...     ).close()
                 ...     paths.append(p)
                 >>> col = DatasetCollection.from_files(paths)
@@ -2167,11 +2177,10 @@ class DatasetCollection:
             "tuple[float, float, float, float, float, float]",
             tuple(float(v) for v in geobox["geotransform"]),
         )
-        template = Dataset.create_from_array(
+        template = Dataset.from_array(
             template_arr if bands > 1 else template_arr[0],
-            geo=geo_6,
-            epsg=geobox_crs(geobox),
             no_data_value=no_data_value,
+            geo_ref=GeoReference(geo=geo_6, epsg=geobox_crs(geobox)),
         )
         if geobox["crs_wkt"]:
             template.crs = geobox["crs_wkt"]
@@ -2929,8 +2938,21 @@ class DatasetCollection:
                 ``<N-1>.<ext>`` and the directory is created if missing — or an
                 explicit list of one path per timestep.
             driver (str):
-                Output driver as a catalog key (e.g. ``"geotiff"`` (default) or
-                ``"ascii"``); sets the extension when ``path`` is a directory.
+                Output driver, given either as a catalog key (`"geotiff"`
+                (default), `"ascii"`) or as the GDAL short name for the same
+                entry (`"GTiff"`, `"AAIGrid"`) — the two spellings are
+                accepted interchangeably, as :meth:`Dataset.to_file` already
+                does. It must be a driver the catalog associates with a file
+                extension, since that extension is what names the per-timestep
+                files; a key with none (e.g. `"cog"`) is refused rather than
+                producing files literally called `0.None`.
+
+                Its only effect is that extension, so it applies when `path`
+                is a directory. With an explicit list of paths each file's own
+                extension decides its format (a list of `.asc` paths writes
+                ASCII even at the default `driver="geotiff"`), and a driver the
+                catalog lists no extension for is accepted there, where it has
+                nothing to name.
             band (int):
                 Band index to write; used only by single-band drivers such as
                 ``"ascii"`` and ignored by GeoTIFF (which writes every band).
@@ -2939,6 +2961,10 @@ class DatasetCollection:
         Raises:
             ValueError: ``path`` is a list whose length differs from
                 :attr:`time_length`.
+            DriverNotExistError: `driver` is neither a catalog key nor a GDAL
+                short name in the catalog; or `path` is a directory and
+                `driver` is a known driver the catalog lists no extension for,
+                leaving nothing to build file names from.
 
         Examples:
             - Save to a directory — one file per timestep:
@@ -2946,9 +2972,10 @@ class DatasetCollection:
               ```python
               >>> import os, tempfile
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset, DatasetCollection
-              >>> src = Dataset.create_from_array(
-              ...     np.ones((5, 5), dtype="float32"), top_left_corner=(0, 5), cell_size=1.0, epsg=4326,
+              >>> from pyramids.dataset import Dataset, DatasetCollection, GeoReference
+              >>> src = Dataset.from_array(
+              ...     np.ones((5, 5), dtype="float32"),
+              ...     geo_ref=GeoReference(top_left_corner=(0, 5), cell_size=1.0, epsg=4326),
               ... )
               >>> collection = DatasetCollection.from_dataset(src, 3)
               >>> out_dir = tempfile.mkdtemp()
@@ -2963,8 +2990,9 @@ class DatasetCollection:
               >>> import os, tempfile
               >>> import numpy as np
               >>> from pyramids.dataset import Dataset, DatasetCollection
-              >>> src = Dataset.create_from_array(
-              ...     np.full((4, 4), 7.0, dtype="float32"), top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
+              >>> src = Dataset.from_array(
+              ...     np.full((4, 4), 7.0, dtype="float32"),
+              ...     geo_ref=GeoReference(top_left_corner=(0, 4), cell_size=1.0, epsg=4326),
               ... )
               >>> collection = DatasetCollection.from_dataset(src, 2)
               >>> out_dir = tempfile.mkdtemp()
@@ -2975,14 +3003,57 @@ class DatasetCollection:
               7.0
 
               ```
+            - The GDAL short name is accepted wherever the catalog key is:
+
+              ```python
+              >>> import os, tempfile
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, DatasetCollection, GeoReference
+              >>> src = Dataset.from_array(
+              ...     np.ones((3, 3), dtype="float32"),
+              ...     geo_ref=GeoReference(top_left_corner=(0, 3), cell_size=1.0, epsg=4326),
+              ... )
+              >>> collection = DatasetCollection.from_dataset(src, 2)
+              >>> out_dir = tempfile.mkdtemp()
+              >>> collection.to_file(out_dir, driver="GTiff")
+              >>> sorted(os.listdir(out_dir))
+              ['0.tif', '1.tif']
+
+              ```
 
         See Also:
             DatasetCollection.to_cog_stack: Write each timestep as a Cloud
             Optimized GeoTIFF.
         """
-        ext = CATALOG.get_extension(driver)
+        # Accept a GDAL short name ("GTiff") as well as a catalog key
+        # ("geotiff"), which is what `Dataset.to_file` already does -- this
+        # sibling crashed with an unhandled AttributeError on the former,
+        # because `get_driver` returned None and was then dereferenced. A key
+        # with no extension (e.g. "cog") is refused rather than building
+        # filenames literally named "0.None".
+        if not CATALOG.exists(driver):
+            catalog_key = CATALOG.get_driver_name(driver)
+            if catalog_key is None:
+                raise DriverNotExistError(
+                    f"The driver: {driver!r} is not in the driver catalog. Known "
+                    f"driver names: {sorted(CATALOG.drivers)}"
+                )
+            driver = catalog_key
 
         if isinstance(path, (str, Path)):
+            # Only this branch derives file names from the driver, so only this
+            # branch needs an extension. Checking it earlier refused a driver
+            # like "cog" even when the caller had supplied explicit paths --
+            # while advising them to "pass an explicit list of paths", which is
+            # exactly what they had done.
+            ext = CATALOG.get_extension(driver)
+            if ext is None:
+                raise DriverNotExistError(
+                    f"The driver {driver!r} has no file extension in the catalog, so "
+                    "per-timestep file names cannot be built from a directory. Pass "
+                    "an explicit list of paths instead, or use a driver with a known "
+                    "extension."
+                )
             path = Path(path)
             if not path.exists():
                 path.mkdir(parents=True, exist_ok=True)
@@ -3004,7 +3075,7 @@ class DatasetCollection:
             # copied once instead of thrice. reopen=False keeps the borrowed handle from
             # iloc(i) unmutated. This also drops the old
             # read_array() + _mem_dataset_from_array() round-trip, which — besides the two
-            # extra full copies — flattened the output through create_from_array (band-0
+            # extra full copies — flattened the output through from_array (band-0
             # nodata only, no color table / per-band nodata / RAT); CreateCopy preserves
             # them. Mirrors the sibling to_cog_stack.
             #
@@ -3266,9 +3337,10 @@ class DatasetCollection:
 
               ```python
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset, DatasetCollection
-              >>> mask = Dataset.create_from_array(
-              ...     np.ones((10, 10), dtype="int16"), top_left_corner=(0, 0), cell_size=0.05, epsg=4326,
+              >>> from pyramids.dataset import Dataset, DatasetCollection, GeoReference
+              >>> mask = Dataset.from_array(
+              ...     np.ones((10, 10), dtype="int16"),
+              ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
               ... )
               >>> collection = DatasetCollection.from_dataset(mask, 3)
               >>> cropped = collection.crop(mask=mask)
@@ -3288,9 +3360,12 @@ class DatasetCollection:
               >>> paths = []
               >>> for t in range(2):
               ...     p = os.path.join(d, f"t{t}.tif")
-              ...     _ = Dataset.create_from_array(
+              ...     _ = Dataset.from_array(
               ...         (np.arange(100, dtype="int16").reshape(10, 10) * (t + 1)),
-              ...         top_left_corner=(0, 0), cell_size=0.05, epsg=4326, path=p,
+              ...         geo_ref=GeoReference(
+              ...             top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+              ...         ),
+              ...         path=p,
               ...     ).close()
               ...     paths.append(p)
               >>> col = DatasetCollection.from_files(paths)

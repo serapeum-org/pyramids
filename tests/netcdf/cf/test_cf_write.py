@@ -1,14 +1,14 @@
 """Tests for CF convention write support (CF-1).
 
 Tests the new ``cf.py`` module functions and the CF global attribute
-parameters added to ``NetCDF.create_from_array`` and its engine helper
+parameters added to ``NetCDF.from_array`` and its engine helper
 ``_create_netcdf_from_array`` (in ``pyramids.netcdf.engines.variables``).
 
 Covers:
     - ``write_attributes_to_md_array``: str/int/float/list attributes
     - ``write_global_attributes``: group-level attribute writing
-    - ``create_from_array`` default Conventions attribute
-    - ``create_from_array`` with title/institution/source/history
+    - ``from_array`` default Conventions attribute
+    - ``from_array`` with title/institution/source/history
     - Round-trip: create -> to_file -> read_file -> check global_attributes
 """
 
@@ -211,17 +211,17 @@ class TestWriteGlobalAttributes:
 
 
 class TestCreateFromArrayCFGlobalAttributes:
-    """Tests for CF global attributes in NetCDF.create_from_array."""
+    """Tests for CF global attributes in NetCDF.from_array."""
 
     def test_default_conventions_attribute(self):
-        """create_from_array with no CF params sets Conventions=CF-1.8.
+        """from_array with no CF params sets Conventions=CF-1.8.
 
         Test scenario:
             The default behavior should always include the Conventions
             attribute on the root group.
         """
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
-        nc = NetCDF.create_from_array(
+        nc = NetCDF.from_array(
             arr=arr, geo_ref=GeoReference(geo=GEO), variable_name="temp"
         )
         ga = nc.global_attributes
@@ -233,13 +233,13 @@ class TestCreateFromArrayCFGlobalAttributes:
         )
 
     def test_title_attribute(self):
-        """create_from_array with title param stores it in global attrs.
+        """from_array with title param stores it in global attrs.
 
         Test scenario:
             Passing title should add it to the global attributes.
         """
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
-        nc = NetCDF.create_from_array(
+        nc = NetCDF.from_array(
             arr=arr,
             geo_ref=GeoReference(geo=GEO),
             variable_name="temp",
@@ -251,13 +251,13 @@ class TestCreateFromArrayCFGlobalAttributes:
         )
 
     def test_institution_attribute(self):
-        """create_from_array with institution param stores it.
+        """from_array with institution param stores it.
 
         Test scenario:
             Passing institution should add it to global attributes.
         """
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
-        nc = NetCDF.create_from_array(
+        nc = NetCDF.from_array(
             arr=arr,
             geo_ref=GeoReference(geo=GEO),
             variable_name="temp",
@@ -269,13 +269,13 @@ class TestCreateFromArrayCFGlobalAttributes:
         )
 
     def test_source_attribute(self):
-        """create_from_array with source param stores it.
+        """from_array with source param stores it.
 
         Test scenario:
             Passing source should add it to global attributes.
         """
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
-        nc = NetCDF.create_from_array(
+        nc = NetCDF.from_array(
             arr=arr,
             geo_ref=GeoReference(geo=GEO),
             variable_name="temp",
@@ -287,13 +287,13 @@ class TestCreateFromArrayCFGlobalAttributes:
         )
 
     def test_history_attribute(self):
-        """create_from_array with history param stores it.
+        """from_array with history param stores it.
 
         Test scenario:
             Passing history should add it to global attributes.
         """
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
-        nc = NetCDF.create_from_array(
+        nc = NetCDF.from_array(
             arr=arr,
             geo_ref=GeoReference(geo=GEO),
             variable_name="temp",
@@ -305,14 +305,14 @@ class TestCreateFromArrayCFGlobalAttributes:
         )
 
     def test_all_cf_global_attributes(self):
-        """create_from_array with all CF params stores them all.
+        """from_array with all CF params stores them all.
 
         Test scenario:
             Passing all four optional params should produce all
             four attributes plus Conventions.
         """
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
-        nc = NetCDF.create_from_array(
+        nc = NetCDF.from_array(
             arr=arr,
             geo_ref=GeoReference(geo=GEO),
             variable_name="temp",
@@ -341,14 +341,14 @@ class TestCreateFromArrayCFGlobalAttributes:
         )
 
     def test_none_params_excluded(self):
-        """create_from_array with None CF params omits them.
+        """from_array with None CF params omits them.
 
         Test scenario:
             When title/institution/source/history are None (default),
             only Conventions should be present.
         """
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
-        nc = NetCDF.create_from_array(
+        nc = NetCDF.from_array(
             arr=arr, geo_ref=GeoReference(geo=GEO), variable_name="temp"
         )
         ga = nc.global_attributes
@@ -367,14 +367,14 @@ class TestCreateFromArrayCFGlobalAttributes:
         )
 
     def test_3d_array_has_conventions(self):
-        """create_from_array with 3D array also gets Conventions.
+        """from_array with 3D array also gets Conventions.
 
         Test scenario:
             3D arrays (with extra dimension) should also get CF
             global attributes.
         """
         arr = np.random.default_rng(SEED).random((3, 5, 10)).astype(np.float64)
-        nc = NetCDF.create_from_array(
+        nc = NetCDF.from_array(
             arr=arr,
             geo_ref=GeoReference(geo=GEO),
             variable_name="precip",
@@ -391,15 +391,13 @@ class TestCreateFromArrayCFGlobalAttributes:
         """Existing calls without CF params should still work.
 
         Test scenario:
-            Calling create_from_array with only the original
+            Calling from_array with only the original
             parameters should produce a valid NetCDF with data
             preserved.
         """
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
-        nc = NetCDF.create_from_array(
-            arr=arr,
-            geo_ref=GeoReference(geo=GEO),
-            variable_name="data",
+        nc = NetCDF.from_array(
+            arr=arr, geo_ref=GeoReference(geo=GEO), variable_name="data"
         )
         var = nc.get_variable("data")
         result = var.read_array()
@@ -422,10 +420,8 @@ class TestCFGlobalAttributesRoundTrip:
             Conventions is still CF-1.8.
         """
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
-        nc = NetCDF.create_from_array(
-            arr=arr,
-            geo_ref=GeoReference(geo=GEO),
-            variable_name="temp",
+        nc = NetCDF.from_array(
+            arr=arr, geo_ref=GeoReference(geo=GEO), variable_name="temp"
         )
         out_path = str(tmp_path / "test_conventions.nc")
         nc.to_file(out_path)
@@ -446,7 +442,7 @@ class TestCFGlobalAttributesRoundTrip:
             read back, verify all are preserved.
         """
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
-        nc = NetCDF.create_from_array(
+        nc = NetCDF.from_array(
             arr=arr,
             geo_ref=GeoReference(geo=GEO),
             variable_name="temp",
@@ -475,7 +471,7 @@ class TestCFGlobalAttributesRoundTrip:
         )
 
     def test_round_trip_with_disk_path(self, tmp_path):
-        """create_from_array with path= writes CF attrs; reopening the file confirms it.
+        """from_array with path= writes CF attrs; reopening the file confirms it.
 
         Test scenario:
             Create directly to disk (path= parameter), close the handle,
@@ -484,7 +480,7 @@ class TestCFGlobalAttributesRoundTrip:
         """
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         out_path = str(tmp_path / "direct_write.nc")
-        nc = NetCDF.create_from_array(
+        nc = NetCDF.from_array(
             arr=arr,
             geo_ref=GeoReference(geo=GEO),
             variable_name="temp",

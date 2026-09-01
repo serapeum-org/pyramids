@@ -26,7 +26,7 @@ def unit_square_dataset():
     """
     from pyramids.netcdf.ugrid.dataset import UgridDataset
 
-    return UgridDataset.create_from_arrays(
+    return UgridDataset.from_arrays(
         node_x=np.array([0.0, 1.0, 2.0, 0.0, 1.0, 2.0, 0.0, 1.0, 2.0]),
         node_y=np.array([0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0]),
         face_node_connectivity=np.array(
@@ -159,12 +159,12 @@ class TestEdgeVariableClip:
         """A 2x2-cell unit-square dataset with an *edge*-located variable but no edge topology.
 
         Returns:
-            UgridDataset: ``create_from_arrays`` builds only face_node_connectivity, so the
+            UgridDataset: ``from_arrays`` builds only face_node_connectivity, so the
             mesh has no ``edge_node_connectivity`` — the H1 trigger condition.
         """
         from pyramids.netcdf.ugrid.dataset import UgridDataset
 
-        return UgridDataset.create_from_arrays(
+        return UgridDataset.from_arrays(
             node_x=np.array([0.0, 1.0, 2.0, 0.0, 1.0, 2.0, 0.0, 1.0, 2.0]),
             node_y=np.array([0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0]),
             face_node_connectivity=np.array(
@@ -178,7 +178,7 @@ class TestEdgeVariableClip:
         """Clipping drops an edge variable when the mesh has no edge_node_connectivity (H1).
 
         Test scenario:
-            The mesh built by ``create_from_arrays`` has no ``edge_node_connectivity``, so the
+            The mesh built by ``from_arrays`` has no ``edge_node_connectivity``, so the
             edges that survive a clip are undeterminable. The edge-located ``edge_flux`` must be
             dropped (with a warning) rather than carried at full length onto the clipped mesh,
             which would leave the dataset internally inconsistent (edge var length != edge count).

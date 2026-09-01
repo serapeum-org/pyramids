@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset, cog
 from pyramids.dataset.cog import PROFILES, profile_options, validate_profile
 from tests.dataset.cog.conftest import COG_GEOTRANSFORM
@@ -27,7 +28,9 @@ def float_dataset() -> Dataset:
     """
     rng = np.random.default_rng(seed=5)
     arr = (rng.random((64, 64)) * 100).astype("float32")
-    return Dataset.create_from_array(arr, geo=COG_GEOTRANSFORM, epsg=4326)
+    return Dataset.from_array(
+        arr, geo_ref=GeoReference(geo=COG_GEOTRANSFORM, epsg=4326)
+    )
 
 
 @pytest.fixture
@@ -38,7 +41,9 @@ def byte_dataset() -> Dataset:
         Dataset: An in-memory uint8 dataset.
     """
     arr = (np.arange(64 * 64) % 200).astype("uint8").reshape(64, 64)
-    return Dataset.create_from_array(arr, geo=COG_GEOTRANSFORM, epsg=4326)
+    return Dataset.from_array(
+        arr, geo_ref=GeoReference(geo=COG_GEOTRANSFORM, epsg=4326)
+    )
 
 
 def _compression(path) -> str:

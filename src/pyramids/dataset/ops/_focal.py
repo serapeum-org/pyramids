@@ -214,11 +214,12 @@ def focal_mean(
           average:
             ```python
             >>> import numpy as np
-            >>> from pyramids.dataset import Dataset
+            >>> from pyramids.dataset import Dataset, GeoReference
             >>> from pyramids.dataset.ops._focal import focal_mean
             >>> arr = np.arange(9, dtype=np.float32).reshape(3, 3)
-            >>> ds = Dataset.create_from_array(
-            ...     arr, top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326,
+            >>> ds = Dataset.from_array(
+            ...     arr,
+            ...     geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
             ... )
             >>> smoothed = focal_mean(ds, radius=1)
             >>> float(round(float(smoothed[1, 1]), 4))
@@ -271,11 +272,12 @@ def focal_std(
         - A constant raster has zero local variance:
             ```python
             >>> import numpy as np
-            >>> from pyramids.dataset import Dataset
+            >>> from pyramids.dataset import Dataset, GeoReference
             >>> from pyramids.dataset.ops._focal import focal_std
             >>> arr = np.full((4, 4), 7.0, dtype=np.float32)
-            >>> ds = Dataset.create_from_array(
-            ...     arr, top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326,
+            >>> ds = Dataset.from_array(
+            ...     arr,
+            ...     geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326),
             ... )
             >>> std = focal_std(ds, radius=1)
             >>> float(round(float(std.max()), 6))
@@ -347,11 +349,12 @@ def focal_apply(
         - Custom max-over-window kernel:
             ```python
             >>> import numpy as np
-            >>> from pyramids.dataset import Dataset
+            >>> from pyramids.dataset import Dataset, GeoReference
             >>> from pyramids.dataset.ops._focal import focal_apply
             >>> arr = np.arange(9, dtype=np.float32).reshape(3, 3)
-            >>> ds = Dataset.create_from_array(
-            ...     arr, top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326,
+            >>> ds = Dataset.from_array(
+            ...     arr,
+            ...     geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
             ... )
             >>> out = focal_apply(ds, np.max, radius=1)
             >>> float(out[1, 1])
@@ -365,9 +368,10 @@ def focal_apply(
             ```python
             >>> arr = np.arange(9, dtype=np.float32).reshape(3, 3)
             >>> arr[0, 0] = -9999.0
-            >>> ds = Dataset.create_from_array(
-            ...     arr, top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326,
+            >>> ds = Dataset.from_array(
+            ...     arr,
             ...     no_data_value=-9999.0,
+            ...     geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
             ... )
             >>> float(focal_apply(ds, np.max, radius=1)[1, 1])
             -9999.0
@@ -422,11 +426,12 @@ def slope(
         - Flat DEM has zero slope everywhere:
             ```python
             >>> import numpy as np
-            >>> from pyramids.dataset import Dataset
+            >>> from pyramids.dataset import Dataset, GeoReference
             >>> from pyramids.dataset.ops._focal import slope
             >>> flat = np.full((4, 4), 100.0, dtype=np.float32)
-            >>> ds = Dataset.create_from_array(
-            ...     flat, top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=32636,
+            >>> ds = Dataset.from_array(
+            ...     flat,
+            ...     geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=32636),
             ... )
             >>> float(round(float(slope(ds).max()), 6))
             0.0
@@ -471,11 +476,12 @@ def aspect(
           faces *west* = 270°):
             ```python
             >>> import numpy as np
-            >>> from pyramids.dataset import Dataset
+            >>> from pyramids.dataset import Dataset, GeoReference
             >>> from pyramids.dataset.ops._focal import aspect
             >>> arr = np.tile(np.arange(4, dtype=np.float32), (4, 1))
-            >>> ds = Dataset.create_from_array(
-            ...     arr, top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=32636,
+            >>> ds = Dataset.from_array(
+            ...     arr,
+            ...     geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=32636),
             ... )
             >>> a = aspect(ds)
             >>> float(round(float(a[1, 1]), 1))
@@ -524,11 +530,12 @@ def hillshade(
           (no gradient → pure sin(altitude)·255):
             ```python
             >>> import numpy as np
-            >>> from pyramids.dataset import Dataset
+            >>> from pyramids.dataset import Dataset, GeoReference
             >>> from pyramids.dataset.ops._focal import hillshade
             >>> flat = np.full((4, 4), 100.0, dtype=np.float32)
-            >>> ds = Dataset.create_from_array(
-            ...     flat, top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=32636,
+            >>> ds = Dataset.from_array(
+            ...     flat,
+            ...     geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=32636),
             ... )
             >>> shade = hillshade(ds, azimuth=315, altitude=45)
             >>> float(round(float(shade[1, 1]), 1))

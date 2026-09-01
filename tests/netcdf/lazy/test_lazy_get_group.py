@@ -223,7 +223,7 @@ class TestFileBackedMutation:
         path = _write_grouped_disk(tmp_path / "grouped.nc")
         nc = NetCDF.read_file(path)
         view = nc.get_group("forecast")
-        source = NetCDF.create_from_array(
+        source = NetCDF.from_array(
             arr=np.full((5, 8), 7.0),
             geo_ref=GeoReference(geo=GEO),
             variable_name="precip",
@@ -256,7 +256,7 @@ class TestInMemoryViewMutation:
         view = nc.get_group("forecast")
         assert view._raster is nc._raster, "precondition: view shares the parent raster"
         parent_raster = nc._raster
-        source = NetCDF.create_from_array(
+        source = NetCDF.from_array(
             arr=np.full((5, 8), 7.0),
             geo_ref=GeoReference(geo=GEO),
             variable_name="precip",
@@ -285,7 +285,7 @@ class TestInMemoryViewMutation:
         view = nc.get_group("forecast")
         assert view._raster is nc._raster, "precondition: view shares the parent raster"
         parent_raster = nc._raster
-        source = NetCDF.create_from_array(
+        source = NetCDF.from_array(
             arr=np.full((5, 8), 7.0),
             geo_ref=GeoReference(geo=GEO),
             variable_name="precip",

@@ -71,11 +71,12 @@ class Reprojector:
         - Reproject a dataset via the operator:
             ```python
             >>> import numpy as np
-            >>> from pyramids.dataset import Dataset
+            >>> from pyramids.dataset import Dataset, GeoReference
             >>> from pyramids.dataset.ops.reproject import Reprojector
             >>> arr = np.zeros((2, 2), dtype=np.float32)
-            >>> src = Dataset.create_from_array(
-            ...     arr, top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326,
+            >>> src = Dataset.from_array(
+            ...     arr,
+            ...     geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
             ... )
             >>> op = Reprojector(target_epsg=3857)
             >>> out = op(src)
@@ -134,15 +135,15 @@ class Aligner(Reprojector):
         - Align a source to a reference geobox:
             ```python
             >>> import numpy as np
-            >>> from pyramids.dataset import Dataset
+            >>> from pyramids.dataset import Dataset, GeoReference
             >>> from pyramids.dataset.ops.reproject import Aligner
-            >>> ref = Dataset.create_from_array(
+            >>> ref = Dataset.from_array(
             ...     np.zeros((4, 4), dtype=np.float32),
-            ...     top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326,
+            ...     geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
             ... )
-            >>> src = Dataset.create_from_array(
+            >>> src = Dataset.from_array(
             ...     np.zeros((8, 8), dtype=np.float32),
-            ...     top_left_corner=(0.0, 0.0), cell_size=0.5, epsg=4326,
+            ...     geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.5, epsg=4326),
             ... )
             >>> aligner = Aligner(ref)
             >>> out = aligner(src)

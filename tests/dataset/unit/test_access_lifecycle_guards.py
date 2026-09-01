@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from pyramids.base._errors import ReadOnlyError
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 
 
@@ -14,12 +15,10 @@ from pyramids.dataset import Dataset
 def ro_dataset(tmp_path):
     """A single-band GeoTIFF reopened read-only."""
     path = tmp_path / "ro.tif"
-    Dataset.create_from_array(
+    Dataset.from_array(
         np.ones((3, 3), dtype="float32"),
-        top_left_corner=(0.0, 3.0),
-        cell_size=1.0,
-        epsg=4326,
         path=str(path),
+        geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
     )
     return Dataset.read_file(str(path), read_only=True), path
 
@@ -79,11 +78,9 @@ class TestReadOnlyMetadataSetters:
 
     def test_vsimem_setter_allowed(self):
         """A /vsimem raster (in-memory, access=='read_only') is not blocked."""
-        src = Dataset.create_from_array(
+        src = Dataset.from_array(
             np.ones((3, 3), dtype="float32"),
-            top_left_corner=(0.0, 3.0),
-            cell_size=1.0,
-            epsg=4326,
+            geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
         )
         ds = Dataset.from_bytes(src.to_bytes())
         assert ds.file_name.startswith("/vsimem/"), "expected a /vsimem-backed raster"

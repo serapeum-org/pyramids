@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
 
 from pyramids.base.crs import crs_spec
+from pyramids.dataset._driver import MEMORY_DRIVER, resolve_output_driver
 from pyramids.dataset.engines._base import _Engine
 from pyramids.dataset.engines._validate import validate_band_index
 
@@ -124,11 +125,15 @@ class Bands(_Engine["Dataset"]):
             - Read a dataset and fetch its attribute table:
 
               ```python
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> import pandas as pd
               >>> dataset = Dataset.create(
-              ...     cell_size=0.05, rows=5, columns=5, dtype="float32", bands=1,
-              ...     top_left_corner=(0, 0), epsg=4326, no_data_value=-9999,
+              ...     rows=5,
+              ...     columns=5,
+              ...     dtype="float32",
+              ...     bands=1,
+              ...     no_data_value=-9999,
+              ...     geo_ref=GeoReference(cell_size=0.05, top_left_corner=(0, 0), epsg=4326),
               ... )
               >>> dataset.set_attribute_table(
               ...     pd.DataFrame({"Category": ["Low", "High"], "Description": ["dry", "wet"]})
@@ -174,11 +179,15 @@ class Bands(_Engine["Dataset"]):
             - First create a dataset:
 
               ```python
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> import pandas as pd
               >>> dataset = Dataset.create(
-              ... cell_size=0.05, rows=10, columns=10, dtype="float32", bands=1,
-              ... top_left_corner=(0, 0), epsg=4326, no_data_value=-9999
+              ...     rows=10,
+              ...     columns=10,
+              ...     dtype="float32",
+              ...     bands=1,
+              ...     no_data_value=-9999,
+              ...     geo_ref=GeoReference(cell_size=0.05, top_left_corner=(0, 0), epsg=4326),
               ... )
 
               ```
@@ -376,10 +385,14 @@ class Bands(_Engine["Dataset"]):
             - First create a dataset:
 
               ```python
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> dataset = Dataset.create(
-              ... cell_size=0.05, rows=10, columns=10, dtype="float32", bands=1,
-              ... top_left_corner=(0, 0), epsg=4326, no_data_value=-9999
+              ...     rows=10,
+              ...     columns=10,
+              ...     dtype="float32",
+              ...     bands=1,
+              ...     no_data_value=-9999,
+              ...     geo_ref=GeoReference(cell_size=0.05, top_left_corner=(0, 0), epsg=4326),
               ... )
               >>> print(dataset)  # doctest: +NORMALIZE_WHITESPACE
               <BLANKLINE>
@@ -446,7 +459,7 @@ class Bands(_Engine["Dataset"]):
               ```
 
         See Also:
-            Dataset.create_from_array: create a new dataset from an array.
+            Dataset.from_array: create a new dataset from an array.
             Dataset.create: create a new dataset with an empty band.
             Dataset.dataset_like: create a new dataset from another dataset.
             Dataset.get_attribute_table: get the attribute table for a specific band.
@@ -608,10 +621,11 @@ class Bands(_Engine["Dataset"]):
             - Select and reorder two bands of a three-band raster:
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> arr = np.arange(3 * 4).reshape(3, 2, 2).astype("float32")
-                >>> ds = Dataset.create_from_array(
-                ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+                >>> ds = Dataset.from_array(
+                ...     arr,
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
                 ... )
                 >>> subset = ds.bands.select([3, 1])
                 >>> subset.band_count
@@ -707,13 +721,15 @@ class Bands(_Engine["Dataset"]):
             - Create `Dataset` consisting of 1 band, 10 rows, 10 columns, at lon/lat (0, 0):
 
               ```python
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> import numpy as np
               >>> import pandas as pd
               >>> arr = np.random.randint(1, 3, size=(10, 10))
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
-              >>> dataset = Dataset.create_from_array(
-              ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326
+              >>> dataset = Dataset.from_array(
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
               ... )
 
               ```
@@ -733,8 +749,9 @@ class Bands(_Engine["Dataset"]):
               >>> arr = np.random.randint(1, 3, size=(3, 10, 10))
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
-              >>> dataset = Dataset.create_from_array(
-              ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326
+              >>> dataset = Dataset.from_array(
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
               ... )
               >>> dataset.band_color = {0: 'red', 1: 'green', 2: 'blue'}
 
@@ -771,10 +788,11 @@ class Bands(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> arr = np.zeros((2, 4, 4), dtype="int16")
-              >>> dataset = Dataset.create_from_array(
-              ...     arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+              >>> dataset = Dataset.from_array(
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
               ... )
               >>> dataset.band_meta_data = [{"WAVELENGTH": "443"}, {"WAVELENGTH": "490"}]
               >>> dataset.bands.metadata[0]["WAVELENGTH"]
@@ -790,8 +808,9 @@ class Bands(_Engine["Dataset"]):
               >>> import numpy as np
               >>> from pyramids.dataset import Dataset
               >>> arr = np.zeros((1, 4, 4), dtype="int16")
-              >>> dataset = Dataset.create_from_array(
-              ...     arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+              >>> dataset = Dataset.from_array(
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
               ... )
               >>> dataset.bands.metadata
               [{}]
@@ -861,10 +880,10 @@ class Bands(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset
-              >>> dataset = Dataset.create_from_array(
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> dataset = Dataset.from_array(
               ...     np.zeros((4, 4), dtype="int16"),
-              ...     top_left_corner=(0, 0), cell_size=0.05, epsg=4326,
+              ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
               ... )
               >>> dataset.bands.get_metadata(band=0, domain="IMAGE_STRUCTURE")
               {}
@@ -1025,12 +1044,13 @@ class Bands(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> arr = np.random.randint(1, 3, size=(3, 10, 10))
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
-              >>> dataset = Dataset.create_from_array(
-              ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326
+              >>> dataset = Dataset.from_array(
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
               ... )
               >>> dataset.band_color = {0: 'red', 1: 'green', 2: 'blue'}
 
@@ -1067,12 +1087,13 @@ class Bands(_Engine["Dataset"]):
               ```python
               >>> import numpy as np
               >>> import pandas as pd
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> arr = np.random.randint(1, 3, size=(2, 10, 10))
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
-              >>> dataset = Dataset.create_from_array(
-              ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326
+              >>> dataset = Dataset.from_array(
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
               ... )
 
               ```
@@ -1152,12 +1173,13 @@ class Bands(_Engine["Dataset"]):
               ```python
               >>> import numpy as np
               >>> import pandas as pd
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> arr = np.random.randint(1, 3, size=(2, 10, 10))
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
-              >>> dataset = Dataset.create_from_array(
-              ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326
+              >>> dataset = Dataset.from_array(
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
               ... )
 
               ```
@@ -1286,10 +1308,11 @@ class Bands(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> arr = np.random.randint(1, 6, size=(10, 10))
-              >>> ds = Dataset.create_from_array(
-              ...     arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+              >>> ds = Dataset.from_array(
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
               ... )
               >>> ds.set_color_ramp(
               ...     band=1, start_value=1, end_value=5,
@@ -1313,8 +1336,9 @@ class Bands(_Engine["Dataset"]):
               >>> import numpy as np
               >>> from pyramids.dataset import Dataset
               >>> arr = np.random.randint(1, 6, size=(10, 10))
-              >>> ds = Dataset.create_from_array(
-              ...     arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+              >>> ds = Dataset.from_array(
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
               ... )
               >>> ds.set_color_ramp(band=1, start_value=1, end_value=5, colormap="viridis")
               >>> row = ds.color_table.set_index("values").loc[1, ["red", "green", "blue"]]
@@ -1838,10 +1862,21 @@ class Bands(_Engine["Dataset"]):
                 If True, the original dataset will be modified. If False, a new dataset will be created.
                 Default is False.
             path (str | Path | None):
-                Output `.tif` path for a disk-backed result. When given, the raster
-                is cloned to that GeoTIFF and the no-data swap is streamed tile by
-                tile, so the whole raster is never held in RAM (genuinely
-                out-of-core). `None` (default) keeps the result in memory.
+                Destination for a disk-backed result. Its extension alone selects the
+                driver (`.tif` -> GTiff, `.nc` -> netCDF, …), so this is no longer
+                GeoTIFF-only. When given, the raster is cloned to that file and the
+                no-data swap is streamed tile by tile, so the whole raster is never held
+                in RAM — genuinely out-of-core for a block-based format such as GTiff.
+                `None` (default) keeps the result in memory.
+
+                The driver must be one the raster can be *built* with, not merely
+                copied to: the swap is written into the clone afterwards, and a
+                write-by-copy-only driver hands back a read-only handle. PNG and
+                JPEG are therefore refused up front with
+                :class:`FileFormatNotSupportedError`, naming the extension and the
+                driver — rather than reaching GDAL and failing with a
+                :class:`ReadOnlyError` that says nothing about the format. Use
+                `.tif`, `.nc`, or another updatable format.
 
         Returns:
             Dataset | None:
@@ -1855,6 +1890,12 @@ class Bands(_Engine["Dataset"]):
                 leaking a raw numpy `TypeError`/`ValueError`. Also raised when
                 `new_value` or `old_value` is given as a list whose length does not
                 match `band_count`.
+            DriverNotExistError:
+                `path` has no extension, or one the driver catalog does not know.
+            FileFormatNotSupportedError:
+                `path`'s extension maps to a write-by-copy-only driver (PNG, JPEG).
+                Such a driver returns a read-only dataset from `CreateCopy`, so the
+                swapped values could not be written back into the clone.
 
         Warning:
             With `path=None` the method clones the raster in memory to change the
@@ -1862,10 +1903,14 @@ class Bands(_Engine["Dataset"]):
         Examples:
             - Create a Dataset (4 bands, 10 rows, 10 columns) at lon/lat (0, 0):
               ```python
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> dataset = Dataset.create(
-              ...     cell_size=0.05, rows=3, columns=3, bands=1, top_left_corner=(0, 0),dtype="float32",
-              ...     epsg=4326, no_data_value=-9
+              ...     rows=3,
+              ...     columns=3,
+              ...     bands=1,
+              ...     dtype="float32",
+              ...     no_data_value=-9,
+              ...     geo_ref=GeoReference(cell_size=0.05, top_left_corner=(0, 0), epsg=4326),
               ... )
               >>> arr = dataset.read_array()
               >>> print(arr)
@@ -1899,7 +1944,13 @@ class Bands(_Engine["Dataset"]):
         # below the whole raster is never held in RAM (out-of-core); `None` keeps
         # it in memory. The old<->new no-data swap is then streamed one tile at a
         # time, so a full band is never materialised as a NumPy array (#969).
-        driver = "GTiff" if path is not None else "MEM"
+        # From the extension, not hardcoded: a `.nc` path silently produced a
+        # mislabelled GTiff. NOT `for_copy`, despite the CreateCopy below: this
+        # method streams the no-data swap into the clone afterwards, and a
+        # copy-only driver hands back a read-only handle -- `.png` passed the
+        # resolver and then died with a ReadOnlyError naming nothing about the
+        # format. The strict gate refuses it up front, with a message that does.
+        driver = resolve_output_driver(path) if path else MEMORY_DRIVER
         target = str(path) if path is not None else ""
         dst = gdal.GetDriverByName(driver).CreateCopy(target, self._ds.raster, 0)
         new_dataset = self._ds.__class__(dst, "write")

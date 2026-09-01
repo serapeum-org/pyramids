@@ -40,7 +40,7 @@ def _make_nc_subset(n_bands: int) -> NetCDF:
     """
     rng = np.random.default_rng(42)
     arr = rng.random((n_bands, 5, 6)).astype("float32")
-    nc = NetCDF.create_from_array(
+    nc = NetCDF.from_array(
         arr=arr,
         geo_ref=GeoReference(geo=(30.0, 0.5, 0, 35.0, 0, -0.5)),
         variable_name="t2m",
@@ -74,8 +74,9 @@ class TestResolvePlotBandPolicy:
         """
         rng = np.random.default_rng(1337)
         arr = rng.random((4, 6, 6)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        dataset = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
         )
 
         resolved_band, resolved_rgb = dataset._resolve_plot_band(band=3, rgb=None)
@@ -92,8 +93,9 @@ class TestResolvePlotBandPolicy:
         """
         rng = np.random.default_rng(1337)
         arr = rng.random((3, 6, 6)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        dataset = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
         )
 
         resolved_band, resolved_rgb = dataset._resolve_plot_band(band=5, rgb=[0, 1, 2])
@@ -114,8 +116,9 @@ class TestResolvePlotBandPolicy:
         """
         rng = np.random.default_rng(1337)
         arr = rng.random((n_bands, 6, 6)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        dataset = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
         )
 
         resolved_band, resolved_rgb = dataset._resolve_plot_band(band=None, rgb=None)
@@ -132,7 +135,7 @@ class TestResolvePlotBandPolicy:
             n_bands: 3, 4, or 12 — all should default to band 0.
 
         Test scenario:
-            ``Dataset.create_from_array`` leaves every band's
+            ``Dataset.from_array`` leaves every band's
             ``ColorInterpretation`` as ``GCI_Undefined``. PR-1's D-1
             fix says: *no colour tag means no RGB heuristic*. Verify
             for the threshold (3), Sentinel/RGBA (4), and a large stack
@@ -140,8 +143,9 @@ class TestResolvePlotBandPolicy:
         """
         rng = np.random.default_rng(1337)
         arr = rng.random((n_bands, 6, 6)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        dataset = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
         )
 
         resolved_band, resolved_rgb = dataset._resolve_plot_band(band=None, rgb=None)
@@ -169,8 +173,9 @@ class TestResolvePlotBandPolicy:
         """
         rng = np.random.default_rng(910)
         arr = rng.random((3, 6, 6)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        dataset = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
         )
         dataset.band_color = {palette_band: "palette_index"}
 
@@ -209,8 +214,9 @@ class TestResolvePlotBandPolicy:
         """
         rng = np.random.default_rng(911)
         arr = rng.random((3, 6, 6)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        dataset = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
         )
         dataset.band_color = {0: interp}
 
@@ -239,8 +245,9 @@ class TestResolvePlotBandPolicy:
         """
         rng = np.random.default_rng(912)
         arr = rng.random((4, 6, 6)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        dataset = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
         )
         dataset.band_color = {0: "red", 1: "green", 2: "blue", 3: "palette_index"}
 
@@ -271,8 +278,9 @@ class TestResolvePlotBandPolicy:
         """
         rng = np.random.default_rng(913)
         arr = rng.random((3, 6, 6)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        dataset = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
         )
         dataset.band_color = {0: "gray_index"}
 
@@ -296,8 +304,9 @@ class TestResolvePlotBandPolicy:
         """
         rng = np.random.default_rng(914)
         arr = rng.random((3, 6, 6)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        dataset = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
         )
         dataset.band_color = {0: "red", 1: "green", 2: "palette_index"}
 
@@ -330,8 +339,9 @@ class TestResolvePlotBandPolicy:
         """
         rng = np.random.default_rng(1337)
         arr = rng.random((3, 6, 6)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        dataset = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
         )
         dataset.band_color = {0: "red", 1: "green", 2: "blue"}
 
@@ -353,8 +363,9 @@ class TestResolvePlotBandPolicy:
         """
         rng = np.random.default_rng(1337)
         arr = rng.random((3, 6, 6)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        dataset = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
         )
         dataset.band_color = {0: "blue", 1: "red", 2: "green"}
 
@@ -376,8 +387,9 @@ class TestResolvePlotBandPolicy:
         """
         rng = np.random.default_rng(1337)
         arr = rng.random((3, 6, 6)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        dataset = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
         )
         dataset.band_color = {0: "red", 1: "green", 2: "blue"}
 
@@ -398,8 +410,9 @@ class TestResolvePlotBandPolicy:
         """
         rng = np.random.default_rng(1337)
         arr = rng.random((3, 6, 6)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        dataset = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
         )
         dataset.band_color = {0: "red", 1: "green"}
 
@@ -423,8 +436,9 @@ class TestResolvePlotBandPolicy:
         """
         rng = np.random.default_rng(1337)
         arr = rng.random((3, 6, 6)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        dataset = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
         )
         dataset.band_color = {0: "red", 1: "green", 2: "blue"}
 
@@ -443,8 +457,9 @@ class TestResolvePlotBandPolicy:
         """
         rng = np.random.default_rng(1337)
         arr = rng.random((4, 6, 6)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        dataset = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
         )
 
         with patch.object(type(dataset.analysis), "plot", autospec=True) as mock_plot:
@@ -518,7 +533,7 @@ class TestNetCDFPlotPolicy:
         """
         rng = np.random.default_rng(1337)
         arr = rng.random((3, 5, 6)).astype("float32")
-        nc_root = NetCDF.create_from_array(
+        nc_root = NetCDF.from_array(
             arr=arr,
             geo_ref=GeoReference(geo=(30.0, 0.5, 0, 35.0, 0, -0.5)),
             variable_name="t2m",

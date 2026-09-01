@@ -29,6 +29,7 @@ import numpy as np
 from pyramids.base._errors import OverviewTargetError
 from pyramids.base._utils import import_dask, import_zarr, lazy_extra_hint
 from pyramids.base.crs import sr_from_epsg
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset.ops._geobox_zarr import (
     ZARR_SCHEMA_VERSION,
     detect_data_var,
@@ -173,11 +174,14 @@ def write_dataset_to_zarr(
             >>> import tempfile  # doctest: +SKIP
             >>> from pathlib import Path  # doctest: +SKIP
             >>> import numpy as np  # doctest: +SKIP
-            >>> from pyramids.dataset import Dataset  # doctest: +SKIP
+            >>> from pyramids.dataset import Dataset, GeoReference  # doctest: +SKIP
             >>> from pyramids.dataset.ops._zarr import write_dataset_to_zarr  # doctest: +SKIP
             >>> arr = np.arange(16, dtype=np.float32).reshape(4, 4)  # doctest: +SKIP
-            >>> ds = Dataset.create_from_array(
-            ...     arr, top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326,
+            >>> ds = Dataset.from_array(
+            ...     arr,
+            ...     geo_ref=GeoReference(
+            ...         top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326
+            ...     ),
             ... )  # doctest: +SKIP
             >>> store = Path(tempfile.mkdtemp()) / "ds.zarr"  # doctest: +SKIP
             >>> write_dataset_to_zarr(ds, str(store)) is None  # doctest: +SKIP
@@ -474,13 +478,16 @@ def read_dataset_from_zarr(
             >>> import tempfile  # doctest: +SKIP
             >>> from pathlib import Path  # doctest: +SKIP
             >>> import numpy as np  # doctest: +SKIP
-            >>> from pyramids.dataset import Dataset  # doctest: +SKIP
+            >>> from pyramids.dataset import Dataset, GeoReference  # doctest: +SKIP
             >>> from pyramids.dataset.ops._zarr import (
             ...     read_dataset_from_zarr, write_dataset_to_zarr,
             ... )  # doctest: +SKIP
             >>> arr = np.arange(16, dtype=np.float32).reshape(4, 4)  # doctest: +SKIP
-            >>> src = Dataset.create_from_array(
-            ...     arr, top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326,
+            >>> src = Dataset.from_array(
+            ...     arr,
+            ...     geo_ref=GeoReference(
+            ...         top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326
+            ...     ),
             ... )  # doctest: +SKIP
             >>> store = Path(tempfile.mkdtemp()) / "ds.zarr"  # doctest: +SKIP
             >>> write_dataset_to_zarr(src, str(store))  # doctest: +SKIP
@@ -505,15 +512,17 @@ def read_dataset_from_zarr(
     # legacy flat attrs (with a warning). Cell size scales by the pyramid level.
     geobox = read_geobox(root, data_name="data" if "data" in root else data_name)
     geotransform = _scale_geotransform(geobox["geotransform"], level)
-    # Dataset.create_from_array expects 2-D for single-band, 3-D for multi-band;
+    # Dataset.from_array expects 2-D for single-band, 3-D for multi-band;
     # our on-disk layout is always 3-D so squeeze when band_count == 1.
     arr_for_create = arr[0] if (arr.ndim == 3 and arr.shape[0] == 1) else arr
-    dataset = Dataset.create_from_array(
+    dataset = Dataset.from_array(
         arr_for_create,
-        top_left_corner=(geotransform[0], geotransform[3]),
-        cell_size=float(geotransform[1]),
-        epsg=geobox_crs(geobox),
         no_data_value=_normalize_no_data(attrs),
+        geo_ref=GeoReference(
+            top_left_corner=(geotransform[0], geotransform[3]),
+            cell_size=float(geotransform[1]),
+            epsg=geobox_crs(geobox),
+        ),
     )
     # Prefer the stored WKT (handles CRSes without an EPSG authority code);
     # the epsg above is only a fallback when no WKT was written (Z-3).

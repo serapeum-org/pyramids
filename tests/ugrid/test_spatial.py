@@ -473,7 +473,7 @@ class TestSpatialEdgeCases:
             Clip a mesh with node data and verify node count matches data length.
         """
 
-        ds = UgridDataset.create_from_arrays(
+        ds = UgridDataset.from_arrays(
             node_x=np.array([0.0, 1.0, 2.0, 0.0, 1.0, 2.0, 0.0, 1.0, 2.0]),
             node_y=np.array([0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0]),
             face_node_connectivity=np.array(

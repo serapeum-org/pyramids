@@ -13,6 +13,7 @@ import warnings
 import numpy as np
 import pytest
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset, Window
 
 pytestmark = pytest.mark.core
@@ -28,8 +29,9 @@ def ramp_dataset() -> Dataset:
         Dataset: Single-band in-memory dataset, value == row*6 + col.
     """
     arr = np.arange(36, dtype="float32").reshape(6, 6)
-    return Dataset.create_from_array(
-        arr, top_left_corner=(0, 6), cell_size=1.0, epsg=4326
+    return Dataset.from_array(
+        arr,
+        geo_ref=GeoReference(top_left_corner=(0, 6), cell_size=1.0, epsg=4326),
     )
 
 
@@ -339,11 +341,9 @@ class TestBlockIteration:
             into an empty copy with write_array(window=w), arrays equal.
         """
         path = str(tmp_path / "copy.tif")
-        empty = Dataset.create_from_array(
+        empty = Dataset.from_array(
             np.zeros((6, 6), dtype="float32"),
-            top_left_corner=(0, 6),
-            cell_size=1.0,
-            epsg=4326,
+            geo_ref=GeoReference(top_left_corner=(0, 6), cell_size=1.0, epsg=4326),
         )
         for w, block in ramp_dataset.iter_blocks():
             empty.write_array(block, window=w)
@@ -361,11 +361,9 @@ class TestBlockIteration:
             A 512x512 raster with 256x256 tiles yields 4 block windows.
         """
         path = str(tmp_path / "tiled.tif")
-        big = Dataset.create_from_array(
+        big = Dataset.from_array(
             np.zeros((512, 512), dtype="float32"),
-            top_left_corner=(0, 512),
-            cell_size=1.0,
-            epsg=4326,
+            geo_ref=GeoReference(top_left_corner=(0, 512), cell_size=1.0, epsg=4326),
         )
         big.to_file(
             path, creation_options=["TILED=YES", "BLOCKXSIZE=256", "BLOCKYSIZE=256"]
@@ -386,11 +384,9 @@ class TestBlockIteration:
             intersect the ROI, rather than every tile of the raster.
         """
         path = str(tmp_path / "tiled.tif")
-        Dataset.create_from_array(
+        Dataset.from_array(
             np.zeros((512, 512), dtype="float32"),
-            top_left_corner=(0, 512),
-            cell_size=1.0,
-            epsg=4326,
+            geo_ref=GeoReference(top_left_corner=(0, 512), cell_size=1.0, epsg=4326),
         ).to_file(
             path, creation_options=["TILED=YES", "BLOCKXSIZE=256", "BLOCKYSIZE=256"]
         )

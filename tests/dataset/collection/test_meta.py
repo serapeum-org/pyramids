@@ -18,6 +18,7 @@ import numpy as np
 import pytest
 
 from pyramids.base._raster_meta import RasterMeta
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset, DatasetCollection
 
 pytestmark = pytest.mark.core
@@ -26,11 +27,9 @@ pytestmark = pytest.mark.core
 @pytest.fixture
 def template_file(tmp_path):
     arr = np.arange(20, dtype=np.float32).reshape(4, 5)
-    ds = Dataset.create_from_array(
+    ds = Dataset.from_array(
         arr,
-        top_left_corner=(0.0, 4.0),
-        cell_size=1.0,
-        epsg=4326,
+        geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326),
     )
     path = str(tmp_path / "tpl.tif")
     ds.to_file(path)

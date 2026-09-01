@@ -165,6 +165,130 @@ that leaked out of an empty table lookup. Only affects code catching the old typ
 
 ### unreleased
 
+**`create_from_array` is now `from_array`, and takes a `GeoReference`.** Hard change, no deprecation alias — the
+old name and the old flat keywords are gone. The same rename applies to `UgridDataset.create_from_arrays` ->
+`from_arrays` (still plural: it takes three arrays, not one).
+
+The four flat georeferencing keywords are replaced by one `geo_ref` argument, and `driver_type` is gone
+entirely — the driver is now derived from the path extension:
+
+```python
+# Before
+Dataset.create_from_array(arr, geo=GEO, epsg=4326)
+Dataset.create_from_array(arr, top_left_corner=(0, 10), cell_size=0.05)
+Dataset.create_from_array(arr, driver_type="GTiff", path="out.tif")
+Dataset.create(cell_size=0.05, rows=r, columns=c, dtype="float32", bands=1,
+               top_left_corner=(0, 10), epsg=4326)
+Dataset.create_empty(rows, cols, geo=GEO, epsg=4326, driver_type="MEM")
+UgridDataset.create_from_arrays(node_x, node_y, faces)
+
+# After
+from pyramids.dataset import Dataset, GeoReference
+
+Dataset.from_array(arr, geo_ref=GeoReference(geo=GEO, epsg=4326))
+Dataset.from_array(arr, geo_ref=GeoReference(top_left_corner=(0, 10), cell_size=0.05))
+Dataset.from_array(arr, geo_ref=GeoReference(geo=GEO), path="out.tif")  # driver from the extension
+Dataset.create(rows=r, columns=c, dtype="float32", bands=1,
+               geo_ref=GeoReference(top_left_corner=(0, 10), cell_size=0.05, epsg=4326))
+Dataset.create_empty(rows, cols, geo_ref=GeoReference(geo=GEO, epsg=4326))
+UgridDataset.from_arrays(node_x, node_y, faces)
+```
+
+The module-level `pyramids.netcdf.engines.variables.create_from_array` is renamed `from_array` too. It carries
+no underscore but is an engine internal — reach it through `NetCDF.from_array`, its public facade.
+
+`GeoReference` is importable from `pyramids.dataset`, `pyramids.netcdf` and
+`pyramids.netcdf.array_options` — all three resolve to the same class.
+
+**Why there is no alias.** The signature and the name were both changing; keeping the old spelling working would
+have meant migrating twice. Both failure modes are loud — the old name raises `AttributeError`, a flat keyword
+raises `TypeError` — and because `NetCDF.from_array` now declares its real parameters instead of
+`*args, **kwargs`, **mypy catches both statically**, which the old facade prevented.
+
+**`driver_type` removed from `create_from_array` and `create_empty`.** `path` alone decides memory-vs-disk, and
+the extension names the format, so the parameter could only agree with `path` or contradict it. `path=None`
+gives an in-memory raster; `path="out.tif"` a GTiff; `path="out.nc"` a netCDF — the last of which was rejected
+on *both* routes before: the default `driver_type="MEM"` by the `.tif` suffix check, and an explicit
+`driver_type="netcdf"` by the unconditional `COMPRESS=LZW` the netCDF driver refuses. Removing the parameter
+*and* gating that option is what makes it work. Creation `options` still require a `path`, which is the
+invariant the old `driver_type="GTiff"` guard was really enforcing.
+
+Formats that GDAL can only write by copy (`.png`, `.jp2`) now raise `FileFormatNotSupportedError` naming the
+extension and the driver, instead of failing inside GDAL. An extension the driver catalog does not know still
+raises `DriverNotExistError`.
+
+**`merge_rasters` and `stack_bands` now refuse write-by-copy-only destinations.** Both have two internal
+write paths and only one of them can produce such a format, so accepting it would make the destination's
+legality depend on `method` (or on whether the inputs share a dtype) — the same defect as letting an
+unrelated argument pick the format. Both take the stricter answer, which refuses `.png`, `.jpg` / `.jpeg`,
+`.jp2` / `.j2k`, `.asc` and `.vrt`. The one this costs is **`.asc`**, which `merge_rasters` could write
+before through its z-order (`method="first"` / `"last"`) path. Write a GTiff and convert it.
+
+**`Dataset.to_file` now accepts more extensions, and one of them can lose data.** This method is untouched by
+the rename, but it reads the same driver catalog, so correcting the catalog's extension rows widened what it
+accepts. `.tiff`, `.png`, `.jpg`, `.jpeg`, `.img`, `.jp2` and `.j2k` previously raised
+`DriverNotExistError` and now write a
+file. The sharp case is dtype. PNG and JPEG store 8-bit data, so a float32 raster written to `.png` is
+converted to `Byte` — values clipped, fractional parts gone. GDAL reports that only as a `RuntimeWarning`, so
+pyramids now raises it to a `DtypeNarrowingWarning` naming both dtypes and the driver. JPEG2000 is stricter
+still: `.jp2` / `.j2k` accept only their own dtypes and **raise** rather than converting, so a float32 raster
+there warns and then fails with `FailedToSaveError` — write those from a `uint8` / `int16` source.
+
+```python
+import warnings
+from pyramids.errors import DtypeNarrowingWarning
+
+warnings.simplefilter("error", DtypeNarrowingWarning)   # make the conversion fail loudly
+```
+
+Note the deliberate asymmetry with the constructors: `to_file("x.png")` writes (PNG supports `CreateCopy`)
+while `from_array(path="x.png")` raises `FileFormatNotSupportedError` (PNG does not support `Create`). Whether
+a format is reachable depends on how the call writes, not only on the extension.
+
+**You can no longer name a driver whose extension the catalog does not list.** This is the one capability the
+`driver_type` removal costs. On `main`, `driver_type="EHdr", path="out.bil"` worked; now `.bil` raises
+`DriverNotExistError` and there is no escape hatch. If you need a format the catalog does not carry, write a
+GTiff (or build in memory) and convert, or open an issue asking for the extension to be added. Sibling spellings
+of a catalogued format now resolve alike: `.tiff` as well as `.tif`, `.nc4` as well as `.nc`, `.jpg` as well as
+`.jpeg`, and `.j2k` as well as `.jp2`. Resolving is not the same as being writable by these constructors: all
+four JPEG/JPEG2000 spellings resolve and are then refused with `FileFormatNotSupportedError`, because they are
+write-by-copy-only formats. (`.jpeg` did not resolve on `main` at all — the catalog carried it with a leading
+dot, so the lookup never matched.)
+
+**`Dataset.create` no longer requires a CRS.** `epsg` was a required positional; omitting it raised
+`TypeError`. It is now a field of `geo_ref` defaulting to `4326`, so a call that says nothing about the
+CRS silently stamps WGS 84 instead of refusing. `from_array` and `create_empty` always behaved this way —
+only `create` changes, and it changes from "state the CRS" to "we assume WGS 84". Pass `epsg` explicitly,
+or `GeoReference(..., epsg=None)` for a deliberately CRS-less raster.
+
+**`Dataset.create`'s positional order changed, and its CRS handling widened.** `cell_size` is gone from slot 0,
+so `rows` and `columns` each shift up one — but `geo_ref` is required and keyword-only, so a ported positional call
+fails loudly with `TypeError` rather than silently misreading its arguments. Separately, `create` used to take
+`epsg: int` straight through `sr_from_epsg`; it now shares the helper the other constructors use, so
+`GeoReference(epsg=None)` yields a raster with no CRS, and non-EPSG CRS strings are accepted.
+
+**`create_empty` is the only constructor where `geo_ref` is optional.** A header-only allocation often does not
+care where it sits, so omitting `geo_ref` — or passing one that carries no transform at all, such as
+`GeoReference(epsg=3857)` — keeps the identity transform. A *partially* specified reference is not covered by
+that convenience: a `top_left_corner` without a `cell_size` (or the reverse) raises, exactly as it does in
+`from_array` and `create`, rather than silently discarding the half you supplied.
+
+**`RasterLike` and `RasterBase` changed shape.** `create_from_array` is `from_array` on the
+`pyramids.base.protocols.RasterLike` protocol and on the `RasterBase` ABC; `bands_values` is gone, and
+`variable_name` moved down to `NetCDF`, where it actually applies. If you subclass `RasterBase`, rename your
+override and adopt the new signature. `RasterLike` is `@runtime_checkable`, so this one bites at runtime too: an
+`isinstance(obj, RasterLike)` guard on a stale duck type carrying `create_from_array` flips from `True` to
+`False` and silently takes the else-branch, rather than raising anywhere you can see it.
+
+**`pyramids.netcdf.array_options.GeoTransform` is gone**, with no re-export. It was a local alias for the plain
+6-tuple, and `pyramids.dataset.GeoTransform` is a richer `NamedTuple` of the same shape but a different type, so
+re-exporting that under the old name would have silently changed what the name meant. If you imported the alias
+for annotation, use `pyramids.base.georeference.GeoTransformTuple` (the structural 6-tuple) or the
+`pyramids.dataset.GeoTransform` NamedTuple — whichever you actually meant.
+
+**`NetCDF.from_array` returns a `Container`.** It always did; the annotation said `NetCDF`. `Container` adds no
+public API over `NetCDF`, so nothing changes at runtime — the type is just honest now.
+
 **`create_overviews` now refuses a plain VRT whose description is not a path.** It raises `OverviewTargetError`
 instead of returning normally. That is a new exception, importable as
 `from pyramids.errors import OverviewTargetError`, which subclasses `ValueError`,
@@ -186,7 +310,7 @@ practice an inline VRT XML document passed to `Dataset.read_file(...)`, which pr
 These calls hand back such a handle, and so start raising:
 
 - `Dataset.get_overview_dataset(...)` — **only** its lazily described form, taken when the parent can be reopened
-  by name. When the parent cannot be (a `create_from_array` raster, for instance), the method materialises a
+  by name. When the parent cannot be (a `from_array` raster, for instance), the method materialises a
   `MEM` level instead, and that still builds.
 - anything wrapping a `gdal.Translate(..., format="VRT")` or `gdal.BuildVRT("", ...)` result kept in memory.
 - `NetCDF.get_variable(...)` when the classic view comes back in **index space** — an irregularly spaced

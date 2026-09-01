@@ -19,9 +19,9 @@ from typing import Any
 
 import geopandas as gpd
 
-from pyramids.base._utils import Catalog, import_pyarrow
+from pyramids.base._utils import get_catalog, import_pyarrow
 
-_CATALOG = Catalog(raster_driver=False)
+_CATALOG = get_catalog(raster_driver=False)
 
 
 def to_file(

@@ -5,6 +5,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.dataset.engines import Analysis
 from pyramids.netcdf.netcdf import NetCDF
@@ -53,8 +54,9 @@ class TestPlotPhase3CrossCutting:
         """
         rng = np.random.default_rng(7777)
         arr = rng.random((6, 6)).astype("float32")
-        return Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        return Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
         )
 
     @pytest.mark.plot

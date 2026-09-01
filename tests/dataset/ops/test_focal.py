@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 from osgeo import gdal, osr
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 
 pytestmark = pytest.mark.core
@@ -15,11 +16,9 @@ pytestmark = pytest.mark.core
 def constant_raster(tmp_path):
     """5×5 raster of constant value — focal_mean must equal that value."""
     arr = np.full((5, 5), 7.0, dtype=np.float32)
-    ds = Dataset.create_from_array(
+    ds = Dataset.from_array(
         arr,
-        top_left_corner=(0.0, 5.0),
-        cell_size=1.0,
-        epsg=4326,
+        geo_ref=GeoReference(top_left_corner=(0.0, 5.0), cell_size=1.0, epsg=4326),
     )
     path = str(tmp_path / "const.tif")
     ds.to_file(path)
@@ -30,11 +29,9 @@ def constant_raster(tmp_path):
 def ramp_raster(tmp_path):
     """5×5 ramp along the x-axis so slope is non-zero."""
     arr = np.tile(np.arange(5, dtype=np.float32), (5, 1))
-    ds = Dataset.create_from_array(
+    ds = Dataset.from_array(
         arr,
-        top_left_corner=(0.0, 5.0),
-        cell_size=1.0,
-        epsg=4326,
+        geo_ref=GeoReference(top_left_corner=(0.0, 5.0), cell_size=1.0, epsg=4326),
     )
     path = str(tmp_path / "ramp.tif")
     ds.to_file(path)
@@ -286,12 +283,12 @@ class TestFocalApplyNoData:
         Returns:
             Dataset: the raster read back from disk.
         """
-        Dataset.create_from_array(
+        Dataset.from_array(
             array.astype("float32"),
-            top_left_corner=(0.0, float(array.shape[0])),
-            cell_size=1.0,
-            epsg=32636,
             no_data_value=-9999.0,
+            geo_ref=GeoReference(
+                top_left_corner=(0.0, float(array.shape[0])), cell_size=1.0, epsg=32636
+            ),
         ).to_file(str(path))
         return Dataset.read_file(str(path))
 
@@ -338,11 +335,11 @@ class TestFocalApplyNoData:
         """
         array = np.arange(256, dtype="float64").reshape(16, 16)
         path = tmp_path / "plain.tif"
-        Dataset.create_from_array(
+        Dataset.from_array(
             array.astype("float32"),
-            top_left_corner=(0.0, 16.0),
-            cell_size=1.0,
-            epsg=32636,
+            geo_ref=GeoReference(
+                top_left_corner=(0.0, 16.0), cell_size=1.0, epsg=32636
+            ),
         ).to_file(str(path))
         out = np.asarray(Dataset.read_file(str(path)).focal_apply(np.max, radius=1))
         assert np.isfinite(out).all(), f"no sentinel means no blanking, got {out}"
@@ -362,12 +359,10 @@ class TestSentinelMatchingIsExact:
         """
         array = np.full((8, 8), -9995.0, dtype="float32")
         path = tmp_path / "near.tif"
-        Dataset.create_from_array(
+        Dataset.from_array(
             array,
-            top_left_corner=(0.0, 8.0),
-            cell_size=1.0,
-            epsg=32636,
             no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0, epsg=32636),
         ).to_file(str(path))
         out = np.asarray(Dataset.read_file(str(path)).focal_mean(radius=1))
         assert (out == -9999.0).sum() == 0, (
@@ -383,12 +378,10 @@ class TestSentinelMatchingIsExact:
         array = np.arange(64, dtype="float64").reshape(8, 8)
         array[4, 4] = -9999.0
         path = tmp_path / "exact.tif"
-        Dataset.create_from_array(
+        Dataset.from_array(
             array.astype("float32"),
-            top_left_corner=(0.0, 8.0),
-            cell_size=1.0,
-            epsg=32636,
             no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0, epsg=32636),
         ).to_file(str(path))
         out = np.asarray(Dataset.read_file(str(path)).focal_mean(radius=1))
         assert out[4, 4] == -9999.0, (
@@ -415,12 +408,12 @@ class TestEagerAndLazyAgree:
         array = np.random.default_rng(3).random((16, 16)) * 100.0
         array[8, 8] = -9999.0
         path = tmp_path / "dem.tif"
-        Dataset.create_from_array(
+        Dataset.from_array(
             array.astype("float32"),
-            top_left_corner=(0.0, 16.0),
-            cell_size=1.0,
-            epsg=32636,
             no_data_value=-9999.0,
+            geo_ref=GeoReference(
+                top_left_corner=(0.0, 16.0), cell_size=1.0, epsg=32636
+            ),
         ).to_file(str(path))
         return Dataset.read_file(str(path))
 

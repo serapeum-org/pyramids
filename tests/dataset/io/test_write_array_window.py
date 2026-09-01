@@ -4,7 +4,7 @@ Covers the rasterio-``write(window=…)`` parity added to ``Dataset.write_array`
 the ``window`` and ``top_left_corner`` placements, single-band targeting,
 multi-band writes, the default whole-array write, and the read-only /
 out-of-bounds / shape / band guards. Fixtures are in-memory
-``create_from_array`` rasters; the read-only case uses a ``tmp_path`` file.
+``from_array`` rasters; the read-only case uses a ``tmp_path`` file.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 
 from pyramids.base._errors import OutOfBoundsError, ReadOnlyError
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset, Window
 
 pytestmark = pytest.mark.core
@@ -25,11 +26,9 @@ def blank() -> Dataset:
     Returns:
         Dataset: in-memory zero raster.
     """
-    return Dataset.create_from_array(
+    return Dataset.from_array(
         np.zeros((5, 5), dtype="float32"),
-        top_left_corner=(0, 5),
-        cell_size=1.0,
-        epsg=4326,
+        geo_ref=GeoReference(top_left_corner=(0, 5), cell_size=1.0, epsg=4326),
     )
 
 
@@ -40,11 +39,9 @@ def blank_multiband() -> Dataset:
     Returns:
         Dataset: in-memory 2-band zero raster.
     """
-    return Dataset.create_from_array(
+    return Dataset.from_array(
         np.zeros((2, 5, 5), dtype="float32"),
-        top_left_corner=(0, 5),
-        cell_size=1.0,
-        epsg=4326,
+        geo_ref=GeoReference(top_left_corner=(0, 5), cell_size=1.0, epsg=4326),
     )
 
 
@@ -229,12 +226,10 @@ class TestWriteArrayWindow:
             A file reopened with read_only=True rejects write_array.
         """
         path = tmp_path / "ro.tif"
-        Dataset.create_from_array(
+        Dataset.from_array(
             np.zeros((3, 3), dtype="float32"),
-            top_left_corner=(0, 3),
-            cell_size=1.0,
-            epsg=4326,
             path=str(path),
+            geo_ref=GeoReference(top_left_corner=(0, 3), cell_size=1.0, epsg=4326),
         )
         read_only = Dataset.read_file(str(path), read_only=True)
         arr = np.ones((2, 2))

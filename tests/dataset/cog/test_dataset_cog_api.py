@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset, cog
 from pyramids.dataset.cog.validate import ValidationReport
 from pyramids.dataset.engines import cog as cog_engine
@@ -25,8 +26,9 @@ pytestmark = pytest.mark.core
 def small_float_dataset() -> Dataset:
     """A 64x64 Float32 Dataset on EPSG:4326."""
     arr = np.arange(64 * 64, dtype=np.float32).reshape(64, 64)
-    return Dataset.create_from_array(
-        arr, top_left_corner=(0.0, 0.0), cell_size=0.001, epsg=4326
+    return Dataset.from_array(
+        arr,
+        geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.001, epsg=4326),
     )
 
 
@@ -34,12 +36,10 @@ def small_float_dataset() -> Dataset:
 def small_byte_dataset() -> Dataset:
     """A 64x64 Byte (categorical) Dataset on EPSG:4326."""
     arr = (np.arange(64 * 64, dtype=np.uint8) % 10).reshape(64, 64)
-    return Dataset.create_from_array(
+    return Dataset.from_array(
         arr,
-        top_left_corner=(0.0, 0.0),
-        cell_size=0.001,
-        epsg=4326,
         no_data_value=255,
+        geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.001, epsg=4326),
     )
 
 
@@ -306,7 +306,7 @@ class TestIsCog:
         reopened.close()
 
     def test_false_for_mem_dataset(self, small_float_dataset):
-        # fresh create_from_array Datasets have no backing file
+        # fresh from_array Datasets have no backing file
         assert small_float_dataset.is_cog is False
 
 

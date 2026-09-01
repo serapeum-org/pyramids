@@ -33,6 +33,7 @@ import pytest
 from shapely.geometry import Point, Polygon, box
 
 from pyramids.base.crs import reproject_coordinates
+from pyramids.base.georeference import GeoReference
 from pyramids.base.protocols import SpatialObject
 from pyramids.dataset import Dataset
 from pyramids.feature import FeatureCollection, create_polygon, get_coords
@@ -166,14 +167,12 @@ class TestProtocolPolymorphism:
     def test_cross_type_function(self, polygon_fc: FeatureCollection, tmp_path: Path):
         # A fresh raster aligned with the FC's CRS.
         raster = Dataset.create(
-            cell_size=1.0,
             rows=5,
             columns=5,
             dtype="float32",
             bands=1,
-            top_left_corner=(0.0, 5.0),
-            epsg=32636,
             no_data_value=-9999.0,
+            geo_ref=GeoReference(cell_size=1.0, top_left_corner=(0.0, 5.0), epsg=32636),
         )
 
         def spatial_epsg(obj: SpatialObject) -> int | None:

@@ -7,6 +7,7 @@ from osgeo import gdal, osr
 
 from pyramids.base._errors import ReadOnlyError
 from pyramids.base.crs import crs_from_user_input, crs_spec, sr_from_epsg
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.dataset.abstract_dataset import RasterBase
 
@@ -102,11 +103,9 @@ class TestCoordinateProperties:
             A 2x3 raster at top-left (0, 0) with cell_size 0.5 has column centres at
             0.25/0.75/1.25 and row centres at -0.25/-0.75.
         """
-        ds = Dataset.create_from_array(
+        ds = Dataset.from_array(
             np.arange(6.0).reshape(2, 3),
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.5,
-            epsg=4326,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.5, epsg=4326),
         )
         np.testing.assert_allclose(ds.x, [0.25, 0.75, 1.25], err_msg="x centres wrong")
         np.testing.assert_allclose(ds.y, [-0.25, -0.75], err_msg="y centres wrong")
@@ -120,10 +119,9 @@ class TestCoordinateProperties:
             This guards the regression where lat/y previously reused cell_size (the
             pixel width) for the y axis.
         """
-        ds = Dataset.create_from_array(
+        ds = Dataset.from_array(
             np.arange(6.0).reshape(2, 3),
-            geo=(10.0, 2.0, 0.0, 50.0, 0.0, -1.0),
-            epsg=4326,
+            geo_ref=GeoReference(geo=(10.0, 2.0, 0.0, 50.0, 0.0, -1.0), epsg=4326),
         )
         np.testing.assert_allclose(ds.x, [11.0, 13.0, 15.0], err_msg="x spacing wrong")
         np.testing.assert_allclose(
@@ -185,11 +183,9 @@ class TestUpdateInplace:
     def test_update_inplace_updates_state(self, single_band_dataset):
         """After _update_inplace the dimensions should reflect the new source."""
         new_arr = np.ones((5, 7), dtype=np.float32)
-        new_ds = Dataset.create_from_array(
+        new_ds = Dataset.from_array(
             new_arr,
-            top_left_corner=(1.0, 2.0),
-            cell_size=0.1,
-            epsg=4326,
+            geo_ref=GeoReference(top_left_corner=(1.0, 2.0), cell_size=0.1, epsg=4326),
         )
         old_rows = single_band_dataset.rows
         single_band_dataset._update_inplace(new_ds.raster)
@@ -354,11 +350,9 @@ class TestBandMetaData:
     def test_read_only_on_disk_raises(self, tmp_path):
         """Setting band metadata on a read-only on-disk file raises ReadOnlyError."""
         path = tmp_path / "bandmeta.tif"
-        Dataset.create_from_array(
+        Dataset.from_array(
             np.zeros((2, 4, 4), dtype="int16"),
-            top_left_corner=(0, 0),
-            cell_size=0.05,
-            epsg=4326,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
         ).to_file(str(path))
         ds = Dataset.read_file(str(path), read_only=True)
         assert ds.access == "read_only", "fixture must be read-only for this test"
@@ -403,11 +397,9 @@ class TestBandMetaData:
     def test_set_metadata_read_only_raises(self, tmp_path):
         """The domain-aware setter is guarded on a read-only on-disk file too."""
         path = tmp_path / "bm.tif"
-        Dataset.create_from_array(
+        Dataset.from_array(
             np.zeros((4, 4), dtype="int16"),
-            top_left_corner=(0, 0),
-            cell_size=0.05,
-            epsg=4326,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
         ).to_file(str(path))
         ds = Dataset.read_file(str(path), read_only=True)
         with pytest.raises(ReadOnlyError, match="read-only"):
@@ -481,12 +473,10 @@ class TestConvertUnits:
             keeps that cell at -9999.0 while converting the valid cells.
         """
         arr = np.array([[273.15, -9999.0], [293.15, 303.15]], dtype=np.float64)
-        ds = Dataset.create_from_array(
+        ds = Dataset.from_array(
             arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=1.0,
-            epsg=4326,
             no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
         )
         ds.band_units = ["K"]
         result = ds.convert_units("celsius")
@@ -582,8 +572,9 @@ class TestClose:
             the reference is dropped.
         """
         arr = np.ones((3, 3), dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr, top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326
+        ds = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
         )
         raster_before = ds._raster
         assert raster_before is not None, "Raster should exist before close"
@@ -602,8 +593,9 @@ class TestContextManager:
             same Dataset instance.
         """
         arr = np.ones((3, 3), dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr, top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326
+        ds = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
         )
         with ds as ctx:
             assert ctx is ds, "Context manager should return the same Dataset instance"
@@ -619,8 +611,9 @@ class TestContextManager:
             None after the block ends.
         """
         arr = np.ones((3, 3), dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr, top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326
+        ds = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
         )
         with ds:
             assert ds._raster is not None, "Raster should exist inside with block"
@@ -634,8 +627,9 @@ class TestContextManager:
             be cleaned up after the exception propagates.
         """
         arr = np.ones((3, 3), dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr, top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326
+        ds = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
         )
         with pytest.raises(ValueError, match="test error"):
             with ds:
@@ -652,8 +646,9 @@ class TestContextManager:
             the dataset is fully functional.
         """
         arr = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr, top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326
+        ds = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
         )
         with ds:
             result = ds.read_array()
@@ -661,16 +656,17 @@ class TestContextManager:
             assert ds.epsg == 4326, f"Expected EPSG 4326, got {ds.epsg}"
             assert ds.rows == 2, f"Expected 2 rows, got {ds.rows}"
 
-    def test_context_manager_with_create_from_array(self):
-        """Context manager should work with the create_from_array factory.
+    def test_context_manager_with_from_array(self):
+        """Context manager should work with the from_array factory.
 
         Test scenario:
             Create a dataset inline in the `with` statement and verify
             it works and gets cleaned up.
         """
         arr = np.array([[5.0, 6.0], [7.0, 8.0]], dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr, top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326
+        ds = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
         )
         with ds as ctx:
             val = ctx.read_array()[0, 0]
@@ -685,8 +681,9 @@ class TestContextManager:
             afterwards should not raise.
         """
         arr = np.ones((2, 2), dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr, top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326
+        ds = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
         )
         with ds:
             # entering then exiting the context manager is the behaviour under test
@@ -702,8 +699,9 @@ class TestContextManager:
             to the caller, not be silently swallowed.
         """
         arr = np.ones((2, 2), dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr, top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326
+        ds = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
         )
         with pytest.raises(RuntimeError, match="propagate"):
             with ds:
@@ -814,8 +812,9 @@ class TestCellGeometryMethods:
             present.
         """
         arr = np.arange(100, dtype="float32").reshape(10, 10)
-        ds = Dataset.create_from_array(
-            arr, geo=(10.0, 0.1, 0.0, 50.0, 0.0, -0.1), epsg=4326
+        ds = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(geo=(10.0, 0.1, 0.0, 50.0, 0.0, -0.1), epsg=4326),
         )
         return ds.to_crs(cls._ORTHO_PROJ4)
 
@@ -858,8 +857,9 @@ class TestCellGeometryMethods:
             than raising on `crs_from_user_input(None)`.
         """
         arr = np.arange(9, dtype="float32").reshape(3, 3)
-        ds = Dataset.create_from_array(
-            arr, geo=(0.0, 1.0, 0.0, 3.0, 0.0, -1.0), epsg=None
+        ds = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 3.0, 0.0, -1.0), epsg=None),
         )
         gdf = ds.get_cell_polygons()
         assert gdf.crs is None, "a CRS-less raster must yield an unprojected frame"
@@ -873,8 +873,9 @@ class TestCellGeometryMethods:
             than raising on `crs_from_user_input(None)`, mirroring the polygon path.
         """
         arr = np.arange(9, dtype="float32").reshape(3, 3)
-        ds = Dataset.create_from_array(
-            arr, geo=(0.0, 1.0, 0.0, 3.0, 0.0, -1.0), epsg=None
+        ds = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 3.0, 0.0, -1.0), epsg=None),
         )
         gdf = ds.get_cell_points()
         assert gdf.crs is None, "a CRS-less raster must yield an unprojected frame"
@@ -904,8 +905,9 @@ class TestCellGeometryMethods:
             crs_spec's WKT fallback labels these methods correctly rather than crashing.
         """
         arr = np.arange(9, dtype="float32").reshape(3, 3)
-        ds = Dataset.create_from_array(
-            arr, geo=(0.0, 1.0, 0.0, 3.0, 0.0, -1.0), epsg=10857
+        ds = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 3.0, 0.0, -1.0), epsg=10857),
         )
         if not isinstance(crs_spec(ds.epsg, ds.crs), str):
             pytest.skip(
@@ -941,8 +943,9 @@ class TestCellGeometryMethods:
             crs_from_user_input heals the code to, mirroring the polygon GDAL-only check.
         """
         arr = np.arange(9, dtype="float32").reshape(3, 3)
-        ds = Dataset.create_from_array(
-            arr, geo=(0.0, 1.0, 0.0, 3.0, 0.0, -1.0), epsg=10857
+        ds = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 3.0, 0.0, -1.0), epsg=10857),
         )
         if not isinstance(crs_spec(ds.epsg, ds.crs), str):
             pytest.skip(
@@ -962,11 +965,9 @@ class TestGetBandByColor:
     def test_band_by_color_rgb(self):
         """After assigning RGB colors, get_band_by_color returns correct index."""
         arr = np.ones((3, 4, 4), dtype=np.float32)
-        ds = Dataset.create_from_array(
+        ds = Dataset.from_array(
             arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
         )
         ds.band_color = {0: "red", 1: "green", 2: "blue"}
         assert ds.get_band_by_color("red") == 0, "Red should be band 0"
@@ -983,9 +984,9 @@ class TestDatasetProperties:
     """Tests for Dataset basic properties."""
 
     def test_access_property(self, single_band_dataset):
-        """In-memory datasets created via create_from_array have write access."""
+        """In-memory datasets created via from_array have write access."""
         assert single_band_dataset.access == "write", (
-            "create_from_array datasets should have 'write' access"
+            "from_array datasets should have 'write' access"
         )
 
     def test_cell_size_property(self, single_band_dataset):
@@ -1091,11 +1092,9 @@ class TestBandNames:
     def test_band_names_with_metadata(self):
         """Band names should use metadata if present."""
         arr = np.ones((2, 3, 3), dtype=np.float32)
-        ds = Dataset.create_from_array(
+        ds = Dataset.from_array(
             arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
         )
         ds.raster.SetMetadataItem("Band_1", "temperature")
         ds.raster.SetMetadataItem("Band_2", "humidity")
@@ -1119,12 +1118,10 @@ class TestColorTable:
     def test_get_color_table(self):
         """color_table property should return DataFrame after setting."""
         arr = np.array([[0, 1], [2, 3]], dtype=np.int32)
-        ds = Dataset.create_from_array(
+        ds = Dataset.from_array(
             arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
             no_data_value=-9999,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
         )
         ct = gdal.ColorTable()
         ct.SetColorEntry(0, (0, 0, 0, 255))
@@ -1142,12 +1139,10 @@ class TestColorTable:
     def test_color_table_setter_invalid_type_raises(self):
         """color_table setter with non-DataFrame should raise TypeError."""
         arr = np.array([[0, 1], [2, 3]], dtype=np.int32)
-        ds = Dataset.create_from_array(
+        ds = Dataset.from_array(
             arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
             no_data_value=-9999,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
         )
         with pytest.raises(TypeError, match="DataFrame"):
             ds.color_table = "not_a_dataframe"
@@ -1155,12 +1150,10 @@ class TestColorTable:
     def test_color_table_setter_missing_columns_raises(self):
         """color_table setter without required columns should raise ValueError."""
         arr = np.array([[0, 1], [2, 3]], dtype=np.int32)
-        ds = Dataset.create_from_array(
+        ds = Dataset.from_array(
             arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
             no_data_value=-9999,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
         )
         bad_df = pd.DataFrame({"x": [1, 2], "y": [3, 4]})
         with pytest.raises(ValueError, match="columns"):
@@ -1174,12 +1167,10 @@ class TestColorTableSetterValid:
     def test_color_table_setter_valid_raises_no_cleopatra(self):
         """color_table setter with valid data raises if cleopatra missing."""
         arr = np.array([[0, 1], [2, 3]], dtype=np.int32)
-        ds = Dataset.create_from_array(
+        ds = Dataset.from_array(
             arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
             no_data_value=-9999,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
         )
         df = pd.DataFrame(
             {
@@ -1212,8 +1203,9 @@ class TestInplaceConsistency:
         """align() should always return a new Dataset."""
         original_rows = single_band_dataset.rows
         ref_arr = np.ones((5, 5), dtype=np.float32)
-        ref = Dataset.create_from_array(
-            ref_arr, top_left_corner=(0.0, 0.0), cell_size=0.02, epsg=4326
+        ref = Dataset.from_array(
+            ref_arr,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.02, epsg=4326),
         )
         result = single_band_dataset.align(ref)
         assert result is not None, "align should return a Dataset"
@@ -1248,12 +1240,10 @@ class TestInplaceConsistency:
     def test_change_no_data_value_inplace_returns_self(self):
         """change_no_data_value(inplace=True) should return self and modify the dataset in place."""
         arr = np.full((3, 3), -9999.0, dtype=np.float32)
-        ds = Dataset.create_from_array(
+        ds = Dataset.from_array(
             arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
             no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
         )
         result = ds.change_no_data_value(-1.0, old_value=-9999.0, inplace=True)
         assert result is ds, "inplace change_no_data_value should return self"
@@ -1264,12 +1254,10 @@ class TestInplaceConsistency:
     def test_change_no_data_value_not_inplace_returns_new_dataset(self):
         """change_no_data_value(inplace=False) should return a new Dataset."""
         arr = np.full((3, 3), -9999.0, dtype=np.float32)
-        ds = Dataset.create_from_array(
+        ds = Dataset.from_array(
             arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
             no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
         )
         result = ds.change_no_data_value(-1.0, old_value=-9999.0, inplace=False)
         assert result is not None, (
@@ -1331,8 +1319,9 @@ class TestPDEP8InplacePattern:
             should raise TypeError.
         """
         arr = np.ones((2, 720), dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr, top_left_corner=(0.0, 90.0), cell_size=0.5, epsg=4326
+        ds = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0.0, 90.0), cell_size=0.5, epsg=4326),
         )
         with pytest.raises(TypeError):
             ds.wrap_longitude(inplace=True)
@@ -1394,12 +1383,10 @@ class TestPDEP8InplacePattern:
             result is the same object with both transformations applied.
         """
         arr = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
-        ds = Dataset.create_from_array(
+        ds = Dataset.from_array(
             arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
             no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
         )
         result = ds.fill(10, inplace=True).apply(lambda x: x + 5, inplace=True)
         assert result is ds, "Chained inplace calls should return the same object"
@@ -1416,12 +1403,10 @@ class TestPDEP8InplacePattern:
             all in one expression.
         """
         arr = np.full((2, 2), -9999.0, dtype=np.float32)
-        ds = Dataset.create_from_array(
+        ds = Dataset.from_array(
             arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
             no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
         )
         result = ds.change_no_data_value(-1.0, old_value=-9999.0, inplace=True)
         assert result is ds, "change_no_data_value(inplace=True) should return self"

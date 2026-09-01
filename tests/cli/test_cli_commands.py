@@ -16,6 +16,7 @@ import pytest
 from osgeo import gdal
 
 from pyramids.base.crs import reproject_coordinates
+from pyramids.base.georeference import GeoReference
 from pyramids.cli import main
 from pyramids.dataset import Dataset
 from pyramids.feature import FeatureCollection
@@ -46,12 +47,10 @@ def src_raster(tmp_path) -> str:
         str: Path to the written raster.
     """
     path = str(tmp_path / "src.tif")
-    Dataset.create_from_array(
+    Dataset.from_array(
         np.arange(64, dtype="float32").reshape(8, 8),
-        top_left_corner=(0, 8),
-        cell_size=1.0,
-        epsg=4326,
         no_data_value=-9999.0,
+        geo_ref=GeoReference(top_left_corner=(0, 8), cell_size=1.0, epsg=4326),
     ).to_file(path)
     return path
 
@@ -254,12 +253,10 @@ class TestMergeCommand:
     def test_merge_two_tiles(self, src_raster, tmp_path, capsys):
         """Two overlapping tiles mosaic into one readable output."""
         second = str(tmp_path / "b.tif")
-        Dataset.create_from_array(
+        Dataset.from_array(
             np.ones((8, 8), dtype="float32"),
-            top_left_corner=(4, 8),
-            cell_size=1.0,
-            epsg=4326,
             no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(4, 8), cell_size=1.0, epsg=4326),
         ).to_file(second)
         out_path = str(tmp_path / "merged.tif")
         assert main(["merge", src_raster, second, out_path]) == 0
@@ -285,12 +282,10 @@ class TestMergeCommand:
             a typo in the `nargs`/`type` wiring would surface only at runtime.
         """
         second = str(tmp_path / "b.tif")
-        Dataset.create_from_array(
+        Dataset.from_array(
             np.ones((8, 8), dtype="float32"),
-            top_left_corner=(4, 8),
-            cell_size=1.0,
-            epsg=4326,
             no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(4, 8), cell_size=1.0, epsg=4326),
         ).to_file(second)
         out_path = str(tmp_path / "windowed.tif")
         rc = main(["merge", src_raster, second, out_path, "--bbox", "1", "1", "5", "5"])
@@ -307,12 +302,10 @@ class TestMergeCommand:
             the mosaic's CRS, silently selecting the wrong area rather than failing.
         """
         second = str(tmp_path / "b.tif")
-        Dataset.create_from_array(
+        Dataset.from_array(
             np.ones((8, 8), dtype="float32"),
-            top_left_corner=(4, 8),
-            cell_size=1.0,
-            epsg=4326,
             no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(4, 8), cell_size=1.0, epsg=4326),
         ).to_file(second)
         xs, ys = reproject_coordinates(
             [1.0, 5.0], [1.0, 5.0], from_crs=4326, to_crs=3857, precision=None
@@ -345,12 +338,10 @@ class TestMergeCommand:
             The window is opt-in; adding the flags must not alter the default.
         """
         second = str(tmp_path / "b.tif")
-        Dataset.create_from_array(
+        Dataset.from_array(
             np.ones((8, 8), dtype="float32"),
-            top_left_corner=(4, 8),
-            cell_size=1.0,
-            epsg=4326,
             no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(4, 8), cell_size=1.0, epsg=4326),
         ).to_file(second)
         out_path = str(tmp_path / "full.tif")
         assert main(["merge", src_raster, second, out_path]) == 0
@@ -365,12 +356,10 @@ class TestMergeCommand:
             merge — the classic silently-ignored-flag trap.
         """
         second = str(tmp_path / "b.tif")
-        Dataset.create_from_array(
+        Dataset.from_array(
             np.ones((8, 8), dtype="float32"),
-            top_left_corner=(4, 8),
-            cell_size=1.0,
-            epsg=4326,
             no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(4, 8), cell_size=1.0, epsg=4326),
         ).to_file(second)
         rc = main(
             ["merge", src_raster, second, str(tmp_path / "x.tif"), "--bbox-crs", "3857"]
@@ -386,12 +375,10 @@ class TestMergeCommand:
             turn that into a clean one-line error like every other subcommand.
         """
         second = str(tmp_path / "b.tif")
-        Dataset.create_from_array(
+        Dataset.from_array(
             np.ones((8, 8), dtype="float32"),
-            top_left_corner=(4, 8),
-            cell_size=1.0,
-            epsg=4326,
             no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(4, 8), cell_size=1.0, epsg=4326),
         ).to_file(second)
         rc = main(
             [
@@ -497,12 +484,10 @@ class TestSampleCommand:
             bare `NaN` (invalid JSON) — the CLI must map it to null.
         """
         path = str(tmp_path / "no_nodata.tif")
-        Dataset.create_from_array(
+        Dataset.from_array(
             np.arange(64, dtype="float32").reshape(8, 8),
-            top_left_corner=(0, 8),
-            cell_size=1.0,
-            epsg=4326,
             no_data_value=None,
+            geo_ref=GeoReference(top_left_corner=(0, 8), cell_size=1.0, epsg=4326),
         ).to_file(path)
         assert main(["sample", path, "--points", "100,100", "--json"]) == 0
         values = json.loads(capsys.readouterr().out)["values"]
@@ -658,8 +643,9 @@ class TestGeoreferenceCLI:
             georeference onto an existing path returns 1 and writes nothing new.
         """
         out = str(tmp_path / "exists.tif")
-        Dataset.create_from_array(
-            np.ones((2, 2), "float32"), top_left_corner=(0, 2), cell_size=1.0
+        Dataset.from_array(
+            np.ones((2, 2), "float32"),
+            geo_ref=GeoReference(top_left_corner=(0, 2), cell_size=1.0),
         ).to_file(out)
         rc = main(
             [
@@ -732,8 +718,9 @@ class TestCalc:
     def _band(self, tmp_path, name, value):
         """Write a 2x2 constant-value GeoTIFF and return its path."""
         path = str(tmp_path / name)
-        Dataset.create_from_array(
-            np.full((2, 2), value, "float32"), top_left_corner=(0, 2), cell_size=1.0
+        Dataset.from_array(
+            np.full((2, 2), value, "float32"),
+            geo_ref=GeoReference(top_left_corner=(0, 2), cell_size=1.0),
         ).to_file(path)
         return path
 

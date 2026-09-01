@@ -51,8 +51,10 @@ def _dated_projected_nc(
         arr = np.full((5, 4), nodata, dtype=dtype)
         arr[1:4, 1:3] = interior(i)
         path = str(tmp_path / f"d{i}.tif")
-        Dataset.create_from_array(
-            arr, geo=(ox, cell, 0.0, oy, 0.0, -cell), epsg=4647, no_data_value=nodata
+        Dataset.from_array(
+            arr,
+            no_data_value=nodata,
+            geo_ref=GeoReference(geo=(ox, cell, 0.0, oy, 0.0, -cell), epsg=4647),
         ).to_file(path)
         paths.append(path)
     out = tmp_path / "anim.nc"
@@ -661,7 +663,7 @@ class TestNetCDFPlotAnimateEdges:
         """
         rng = np.random.default_rng(11)
         arr = rng.random((4, 4)).astype(np.float32)
-        nc = NetCDF.create_from_array(
+        nc = NetCDF.from_array(
             arr=arr,
             geo_ref=GeoReference(geo=(0.0, 1.0, 0, 4.0, 0, -1.0), epsg=4326),
             variable_name="flat",

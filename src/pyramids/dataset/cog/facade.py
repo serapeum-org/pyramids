@@ -32,6 +32,7 @@ from osgeo import gdal
 from pyramids.base._errors import CRSError, ReadOnlyError
 from pyramids.base._utils import resolve_cog_predictor
 from pyramids.base.crs import epsg_from_user_input
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset.cog.options import CreationOptions
 from pyramids.dataset.cog.validate import ValidationReport
 from pyramids.dataset.cog.validate import validate as _validate_file
@@ -131,14 +132,24 @@ def _array_to_dataset(
     Args:
         arr: 2-D ``(rows, cols)`` or 3-D ``(bands, rows, cols)`` array.
         crs: Required CRS (anything :func:`_coerce_epsg` accepts).
-        transform: Required 6-tuple GDAL geotransform.
-        nodata: Optional NoData scalar.
+        transform: Required GDAL geotransform. Annotated as a variable-length
+            tuple because callers pass whatever sequence they hold, but it is
+            unpacked into the fixed six terms
+            `(origin_x, pixel_w, row_skew, origin_y, col_skew, pixel_h)` that
+            :class:`~pyramids.base.georeference.GeoReference` declares, so any
+            other length is rejected.
+        nodata: NoData scalar for every band, or `None` to leave
+            :meth:`~pyramids.dataset.Dataset.from_array`'s own default
+            sentinel in place.
 
     Returns:
-        A new in-memory :class:`Dataset`.
+        A new in-memory :class:`Dataset` carrying `arr`, the geotransform, and
+        the CRS resolved to an EPSG code.
 
     Raises:
-        ValueError: When ``crs`` or ``transform`` is missing.
+        ValueError: ``crs`` or ``transform`` is missing; ``transform`` does not
+            hold exactly six terms; or ``crs`` cannot be resolved to an EPSG
+            code (raised by :func:`_coerce_epsg`).
     """
     # Function-scope import: avoids the dataset <-> engines.cog <-> cog cycle.
     from pyramids.dataset.dataset import Dataset
@@ -148,10 +159,21 @@ def _array_to_dataset(
             "Writing a COG from a NumPy array requires both `crs` and "
             "`transform` (a 6-tuple GDAL geotransform)."
         )
-    kwargs: dict[str, Any] = {"geo": tuple(transform), "epsg": _coerce_epsg(crs)}
-    if nodata is not None:
-        kwargs["no_data_value"] = nodata
-    return Dataset.create_from_array(arr, **kwargs)
+    # `transform` arrives as an arbitrary-length sequence, so unpack it into the
+    # fixed 6-tuple `GeoReference.geo` declares. `tuple(transform)` is
+    # `tuple[float, ...]` and does not satisfy that — a mismatch the old
+    # `dict[str, Any]` splat hid from mypy, which is the same blindness this
+    # branch removed from the `*args, **kwargs` constructor overrides.
+    origin_x, pixel_w, row_skew, origin_y, col_skew, pixel_h = transform
+    geo_ref = GeoReference(
+        geo=(origin_x, pixel_w, row_skew, origin_y, col_skew, pixel_h),
+        epsg=_coerce_epsg(crs),
+    )
+    if nodata is None:
+        dataset = Dataset.from_array(arr, geo_ref=geo_ref)
+    else:
+        dataset = Dataset.from_array(arr, geo_ref=geo_ref, no_data_value=nodata)
+    return dataset
 
 
 def _dataarray_to_dataset(

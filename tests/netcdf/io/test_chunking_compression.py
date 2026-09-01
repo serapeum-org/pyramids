@@ -1,4 +1,4 @@
-"""Tests for chunking and compression in NetCDF.create_from_array.
+"""Tests for chunking and compression in NetCDF.from_array.
 
 Covers the chunk_sizes, compression, and compression_level parameters
 added in NEW-2, including the _create_dimension helper and the
@@ -38,7 +38,7 @@ class TestCompressionOnDisk:
         compressed = str(tmp_path / "compressed.nc")
         uncompressed = str(tmp_path / "uncompressed.nc")
 
-        NetCDF.create_from_array(
+        NetCDF.from_array(
             arr=arr,
             geo_ref=GeoReference(geo=GEO),
             variable_name="v",
@@ -46,7 +46,7 @@ class TestCompressionOnDisk:
             path=compressed,
             encoding=Encoding(compression="DEFLATE", compression_level=4),
         )
-        NetCDF.create_from_array(
+        NetCDF.from_array(
             arr=arr,
             geo_ref=GeoReference(geo=GEO),
             variable_name="v",
@@ -70,7 +70,7 @@ class TestCompressionOnDisk:
         low = str(tmp_path / "level1.nc")
         high = str(tmp_path / "level9.nc")
 
-        NetCDF.create_from_array(
+        NetCDF.from_array(
             arr=arr,
             geo_ref=GeoReference(geo=GEO),
             variable_name="v",
@@ -78,7 +78,7 @@ class TestCompressionOnDisk:
             path=low,
             encoding=Encoding(compression="DEFLATE", compression_level=1),
         )
-        NetCDF.create_from_array(
+        NetCDF.from_array(
             arr=arr,
             geo_ref=GeoReference(geo=GEO),
             variable_name="v",
@@ -104,7 +104,7 @@ class TestChunkingOnDisk:
         """
         arr = np.random.default_rng(SEED).random((5, 50, 50)).astype(np.float64)
         path = str(tmp_path / "chunked.nc")
-        NetCDF.create_from_array(
+        NetCDF.from_array(
             arr=arr,
             geo_ref=GeoReference(geo=GEO),
             variable_name="temp",
@@ -128,7 +128,7 @@ class TestChunkingOnDisk:
         """
         arr = np.random.default_rng(SEED).random((5, 50, 50)).astype(np.float64)
         path = str(tmp_path / "chunk_compress.nc")
-        NetCDF.create_from_array(
+        NetCDF.from_array(
             arr=arr,
             geo_ref=GeoReference(geo=GEO),
             variable_name="v",
@@ -160,7 +160,7 @@ class TestRoundTripDataIntegrity:
         """
         arr = np.random.default_rng(SEED).random((50, 50)).astype(np.float64)
         path = str(tmp_path / "rt_2d.nc")
-        NetCDF.create_from_array(
+        NetCDF.from_array(
             arr=arr,
             geo_ref=GeoReference(geo=GEO),
             variable_name="elev",
@@ -184,7 +184,7 @@ class TestRoundTripDataIntegrity:
         """
         arr = np.random.default_rng(SEED).random((5, 30, 40)).astype(np.float64)
         path = str(tmp_path / "rt_3d.nc")
-        NetCDF.create_from_array(
+        NetCDF.from_array(
             arr=arr,
             geo_ref=GeoReference(geo=GEO),
             variable_name="temp",
@@ -211,7 +211,7 @@ class TestRoundTripDataIntegrity:
         """
         arr = np.random.default_rng(SEED).random((10, 10)).astype(np.float64)
         path = str(tmp_path / "rt_ndv.nc")
-        NetCDF.create_from_array(
+        NetCDF.from_array(
             arr=arr,
             geo_ref=GeoReference(geo=GEO),
             variable_name="v",
@@ -239,7 +239,7 @@ class TestInMemoryIgnoresOptions:
             In-memory creation ignores chunking options silently.
         """
         arr = np.random.default_rng(SEED).random((3, 10, 10)).astype(np.float64)
-        nc = NetCDF.create_from_array(
+        nc = NetCDF.from_array(
             arr=arr,
             geo_ref=GeoReference(geo=GEO),
             variable_name="v",
@@ -256,7 +256,7 @@ class TestInMemoryIgnoresOptions:
             In-memory creation ignores compression silently.
         """
         arr = np.ones((5, 5), dtype=np.float64)
-        nc = NetCDF.create_from_array(
+        nc = NetCDF.from_array(
             arr=arr,
             geo_ref=GeoReference(geo=GEO),
             variable_name="v",
@@ -281,7 +281,7 @@ class TestBoundaryChunkSizes:
         """
         arr = np.random.default_rng(SEED).random((5, 50, 50)).astype(np.float64)
         path = str(tmp_path / "single_chunk.nc")
-        NetCDF.create_from_array(
+        NetCDF.from_array(
             arr=arr,
             geo_ref=GeoReference(geo=GEO),
             variable_name="v",
@@ -303,7 +303,7 @@ class TestBoundaryChunkSizes:
         """
         arr = np.random.default_rng(SEED).random((50, 50)).astype(np.float64)
         path = str(tmp_path / "chunk_2d.nc")
-        NetCDF.create_from_array(
+        NetCDF.from_array(
             arr=arr,
             geo_ref=GeoReference(geo=GEO),
             variable_name="v",
@@ -331,7 +331,7 @@ class TestChunkingViaMetadataAPI:
 
         arr = np.random.default_rng(SEED).random((5, 60, 80)).astype(np.float64)
         path = str(tmp_path / "chunked_meta.nc")
-        NetCDF.create_from_array(
+        NetCDF.from_array(
             arr=arr,
             geo_ref=GeoReference(geo=GEO),
             variable_name="precip",
@@ -361,7 +361,7 @@ class TestChunkingViaMetadataAPI:
 
         arr = np.random.default_rng(SEED).random((40, 60)).astype(np.float64)
         path = str(tmp_path / "2d_chunked_meta.nc")
-        NetCDF.create_from_array(
+        NetCDF.from_array(
             arr=arr,
             geo_ref=GeoReference(geo=GEO),
             variable_name="elev",
@@ -386,7 +386,7 @@ class TestChunkingViaMetadataAPI:
 
         arr = np.random.default_rng(SEED).random((3, 25, 25)).astype(np.float64)
         path = str(tmp_path / "no_chunk_meta.nc")
-        NetCDF.create_from_array(
+        NetCDF.from_array(
             arr=arr,
             geo_ref=GeoReference(geo=GEO),
             variable_name="temp",
@@ -412,7 +412,7 @@ class TestChunkingViaMetadataAPI:
 
         arr = np.random.default_rng(SEED).random((4, 80, 100)).astype(np.float64)
         path = str(tmp_path / "chunk_compress_meta.nc")
-        NetCDF.create_from_array(
+        NetCDF.from_array(
             arr=arr,
             geo_ref=GeoReference(geo=GEO),
             variable_name="var",
@@ -444,7 +444,7 @@ class TestChunkingViaMetadataAPI:
 
         arr = np.random.default_rng(SEED).random((3, 45, 55)).astype(np.float64)
         path = str(tmp_path / "read_chunk.nc")
-        NetCDF.create_from_array(
+        NetCDF.from_array(
             arr=arr,
             geo_ref=GeoReference(geo=GEO),
             variable_name="data",
@@ -540,7 +540,7 @@ class TestNodataBeforeWrite:
         """
         arr = np.full((10, 10), -9999.0, dtype=np.float64)
         path = str(tmp_path / "ndv_order.nc")
-        NetCDF.create_from_array(
+        NetCDF.from_array(
             arr=arr,
             geo_ref=GeoReference(geo=GEO),
             variable_name="v",
@@ -572,7 +572,7 @@ class TestCompressionOnly:
         """
         arr = np.random.default_rng(SEED).random((20, 30)).astype(np.float64)
         path = str(tmp_path / "compress_no_chunk.nc")
-        NetCDF.create_from_array(
+        NetCDF.from_array(
             arr=arr,
             geo_ref=GeoReference(geo=GEO),
             variable_name="v",

@@ -13,6 +13,7 @@ import pickle
 import numpy as np
 import pytest
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.dataset.ops.reproject import (
     Aligner,
@@ -35,11 +36,9 @@ def wgs84_dataset(tmp_path):
     # A deterministic gradient (not zeros) so the lazy==eager pixel comparison
     # actually verifies warped values, not just shape agreement on an all-zero array.
     arr = np.arange(16, dtype=np.float32).reshape(4, 4)
-    ds = Dataset.create_from_array(
+    ds = Dataset.from_array(
         arr,
-        top_left_corner=(0.0, 4.0),
-        cell_size=1.0,
-        epsg=4326,
+        geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326),
     )
     return ds
 
@@ -47,11 +46,9 @@ def wgs84_dataset(tmp_path):
 @pytest.fixture
 def wgs84_dataset_fine(tmp_path):
     arr = np.arange(64, dtype=np.float32).reshape(8, 8)
-    ds = Dataset.create_from_array(
+    ds = Dataset.from_array(
         arr,
-        top_left_corner=(0.0, 4.0),
-        cell_size=0.5,
-        epsg=4326,
+        geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=0.5, epsg=4326),
     )
     return ds
 

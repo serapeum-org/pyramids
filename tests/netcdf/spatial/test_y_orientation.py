@@ -5,7 +5,7 @@ south-to-north (row 0 = southernmost). GDAL's raster convention is
 row 0 = northernmost (negative Y pixel size). Both ``get_variable()``
 and ``_read_variable()`` must flip such data so row 0 = north.
 
-Files created by pyramids ``create_from_array`` already follow GDAL
+Files created by pyramids ``from_array`` already follow GDAL
 convention and should NOT be flipped.
 
 Style: Google-style docstrings, <=120 char lines, no inline imports,
@@ -82,14 +82,12 @@ class TestReadVariableConsistency:
         """Files created by pyramids should also be consistent.
 
         Test scenario:
-            create_from_array → both read paths should agree.
+            from_array → both read paths should agree.
         """
         arr = np.arange(50, dtype=np.float64).reshape(10, 5)
         geo = (0.0, 1.0, 0, 10.0, 0, -1.0)
-        nc = NetCDF.create_from_array(
-            arr=arr,
-            geo_ref=GeoReference(geo=geo),
-            variable_name="test",
+        nc = NetCDF.from_array(
+            arr=arr, geo_ref=GeoReference(geo=geo), variable_name="test"
         )
         from_read = nc._read_variable("test")
         var = nc.get_variable("test")
@@ -104,11 +102,11 @@ class TestReadVariableConsistency:
         """3D files created by pyramids should also be consistent.
 
         Test scenario:
-            create_from_array with 3D → both read paths should agree.
+            from_array with 3D → both read paths should agree.
         """
         arr = np.arange(150, dtype=np.float64).reshape(3, 10, 5)
         geo = (0.0, 1.0, 0, 10.0, 0, -1.0)
-        nc = NetCDF.create_from_array(
+        nc = NetCDF.from_array(
             arr=arr,
             geo_ref=GeoReference(geo=geo),
             variable_name="test3d",
@@ -125,42 +123,38 @@ class TestReadVariableConsistency:
 
 
 class TestPyramidsCreatedNotFlipped:
-    """Files created by create_from_array are already in GDAL order."""
+    """Files created by from_array are already in GDAL order."""
 
     def test_2d_data_preserved_as_is(self):
-        """create_from_array data should round-trip without flipping.
+        """from_array data should round-trip without flipping.
 
         Test scenario:
             Create with known values, read back, verify unchanged.
         """
         arr = np.arange(50, dtype=np.float64).reshape(10, 5)
         geo = (0.0, 1.0, 0, 10.0, 0, -1.0)
-        nc = NetCDF.create_from_array(
-            arr=arr,
-            geo_ref=GeoReference(geo=geo),
-            variable_name="seq",
+        nc = NetCDF.from_array(
+            arr=arr, geo_ref=GeoReference(geo=geo), variable_name="seq"
         )
         var = nc.get_variable("seq")
         read_back = var.read_array(band=0)
         assert_allclose(
             read_back,
             arr,
-            err_msg="create_from_array data should not be altered",
+            err_msg="from_array data should not be altered",
         )
 
     def test_negative_y_pixel_size(self):
         """Pyramids-created files should have negative Y pixel size.
 
         Test scenario:
-            The geotransform from create_from_array should already be
+            The geotransform from from_array should already be
             in GDAL convention.
         """
         arr = np.ones((5, 5), dtype=np.float64)
         geo = (0.0, 1.0, 0, 5.0, 0, -1.0)
-        nc = NetCDF.create_from_array(
-            arr=arr,
-            geo_ref=GeoReference(geo=geo),
-            variable_name="v",
+        nc = NetCDF.from_array(
+            arr=arr, geo_ref=GeoReference(geo=geo), variable_name="v"
         )
         var = nc.get_variable("v")
         gt = var.geotransform
@@ -178,10 +172,8 @@ class TestOneDimNotFlipped:
         """
         arr = np.ones((5, 8), dtype=np.float64)
         geo = (10.0, 0.5, 0, 15.0, 0, -0.5)
-        nc = NetCDF.create_from_array(
-            arr=arr,
-            geo_ref=GeoReference(geo=geo),
-            variable_name="v",
+        nc = NetCDF.from_array(
+            arr=arr, geo_ref=GeoReference(geo=geo), variable_name="v"
         )
         x_vals = nc._read_variable("x")
         assert x_vals is not None, "x coordinate should be readable"

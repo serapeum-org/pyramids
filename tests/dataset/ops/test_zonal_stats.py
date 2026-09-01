@@ -12,6 +12,7 @@ import pandas as pd
 import pytest
 from shapely.geometry import box
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.feature import FeatureCollection
 
@@ -22,11 +23,9 @@ pytestmark = pytest.mark.core
 def raster(tmp_path):
     """10x10 raster, value = row * 10 + col (0..99)."""
     arr = np.arange(100, dtype=np.float32).reshape(10, 10)
-    ds = Dataset.create_from_array(
+    ds = Dataset.from_array(
         arr,
-        top_left_corner=(0.0, 10.0),
-        cell_size=1.0,
-        epsg=4326,
+        geo_ref=GeoReference(top_left_corner=(0.0, 10.0), cell_size=1.0, epsg=4326),
     )
     path = str(tmp_path / "grid.tif")
     ds.to_file(path)
@@ -128,12 +127,10 @@ class TestMultipleStats:
             return NaN rather than raising.
         """
         arr = np.full((10, 10), -9999.0, dtype=np.float32)
-        ds = Dataset.create_from_array(
+        ds = Dataset.from_array(
             arr,
-            top_left_corner=(0.0, 10.0),
-            cell_size=1.0,
-            epsg=4326,
             no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 10.0), cell_size=1.0, epsg=4326),
         )
         path = str(tmp_path / "all_nodata.tif")
         ds.to_file(path)

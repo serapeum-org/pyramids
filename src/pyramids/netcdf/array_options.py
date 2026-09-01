@@ -1,11 +1,11 @@
-"""Grouped, validated option dataclasses for :func:`NetCDF.create_from_array`.
+"""Grouped, validated option dataclasses for :func:`NetCDF.from_array`.
 
-`create_from_array` used to take eighteen flat parameters. They are organised here into four
+`from_array` used to take eighteen flat parameters. They are organised here into four
 cohesive, frozen dataclasses so the call site reads as a handful of named groups instead of a long
 positional list:
 
-- :class:`GeoReference` — how the array maps to space (`geo` / `epsg`, or `top_left_corner` +
-  `cell_size`).
+- :class:`~pyramids.base.georeference.GeoReference` — how the array maps to space. Defined in
+  ``base`` (shared with the raster constructors) and re-exported here.
 - :class:`ExtraDimensions` — the non-spatial (time / level / …) dimensions of a 3-D+ array.
 - :class:`Encoding` — on-disk write options (chunking, compression); only effective when a `path`
   is given.
@@ -19,55 +19,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-GeoTransform = tuple[float, float, float, float, float, float]
-
-
-@dataclass(frozen=True)
-class GeoReference:
-    """How the array is georeferenced in space.
-
-    Provide either an affine `geo` transform directly, or a `top_left_corner` together with a
-    `cell_size` from which a north-up `geo` is built. `epsg` is the coordinate reference system.
-
-    Attributes:
-        geo: Affine geotransform `(x_min, pixel_size, rotation, y_max, rotation, pixel_size)`.
-            Takes precedence over `top_left_corner` / `cell_size` when given.
-        epsg: EPSG code for the spatial reference. Defaults to 4326. `None` leaves the CRS
-            unset (e.g. when carrying through a source variable that has no CRS).
-        top_left_corner: `(x, y)` of the top-left corner, used with `cell_size` to build `geo`
-            when `geo` is not supplied.
-        cell_size: Pixel size, used with `top_left_corner` to build `geo`.
-    """
-
-    geo: GeoTransform | None = None
-    epsg: str | int | None = 4326
-    top_left_corner: tuple[float, float] | None = None
-    cell_size: int | float | None = None
-
-    def resolve_geotransform(self) -> GeoTransform:
-        """Return the affine geotransform, building it from corner + cell size when needed.
-
-        Returns:
-            The 6-tuple geotransform — `geo` verbatim when provided, otherwise a north-up
-            transform derived from `top_left_corner` and `cell_size`.
-
-        Raises:
-            ValueError: If neither `geo` nor both `top_left_corner` and `cell_size` are given.
-        """
-        if self.geo is not None:
-            return self.geo
-        if self.top_left_corner is not None and self.cell_size is not None:
-            return (
-                self.top_left_corner[0],
-                self.cell_size,
-                0,
-                self.top_left_corner[1],
-                0,
-                -self.cell_size,
-            )
-        raise ValueError(
-            "Either 'geo' or both 'top_left_corner' and 'cell_size' must be provided."
-        )
+# `GeoReference` moved to `base` — it is shared vocabulary between the raster and
+# netCDF constructors, not a netCDF-only writer option. Re-exported here so every
+# historical `from pyramids.netcdf.array_options import GeoReference` keeps working.
+from pyramids.base.georeference import (  # noqa: F401
+    GeoReference,
+)
 
 
 @dataclass(frozen=True)
@@ -96,7 +53,7 @@ class ExtraDimensions:
 
 @dataclass(frozen=True)
 class Encoding:
-    """On-disk write options. Only effective when `create_from_array` is given a `path`.
+    """On-disk write options. Only effective when `from_array` is given a `path`.
 
     Attributes:
         chunk_sizes: Chunk sizes for the data variable, matching the array dimensions (e.g.

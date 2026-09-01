@@ -25,6 +25,7 @@ import pytest
 from osgeo import gdal
 
 from pyramids.base._errors import AlignmentError, OptionalPackageDoesNotExist
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.dataset.collection import _target_epsg
 from tests.dataset.collection._helpers import make_int16_collection
@@ -41,14 +42,14 @@ def _make_mem_dataset(
 ) -> Dataset:
     """Create a minimal in-memory Dataset filled with ``fill_value``."""
     src = Dataset.create(
-        cell_size=1.0,
         rows=rows,
         columns=cols,
         dtype="float32",
         bands=1,
-        top_left_corner=(0.0, float(rows)),
-        epsg=epsg,
         no_data_value=no_data,
+        geo_ref=GeoReference(
+            cell_size=1.0, top_left_corner=(0.0, float(rows)), epsg=epsg
+        ),
     )
     arr = np.full((rows, cols), fill_value, dtype=np.float32)
     src.raster.GetRasterBand(1).WriteArray(arr)
@@ -775,20 +776,18 @@ class TestToFile:
         """A palette (color table) on a slice survives the streaming write.
 
         The old ``read_array()`` + ``_mem_dataset_from_array()`` round-trip
-        flattened output through ``create_from_array``, dropping color tables;
+        flattened output through ``from_array``, dropping color tables;
         the ``CreateCopy`` stream preserves them. Guards that fidelity benefit
         against a regression back to a flattening write path (this test fails on
         the pre-rewrite path).
         """
         src = Dataset.create(
-            cell_size=1.0,
             rows=3,
             columns=3,
             dtype="uint8",
             bands=1,
-            top_left_corner=(0.0, 3.0),
-            epsg=4326,
             no_data_value=0,
+            geo_ref=GeoReference(cell_size=1.0, top_left_corner=(0.0, 3.0), epsg=4326),
         )
         band = src.raster.GetRasterBand(1)
         ct = gdal.ColorTable()
@@ -961,13 +960,11 @@ def _write_geotiff(
     no_data: float = -9999.0,
 ) -> str:
     """Write ``arr`` to a GeoTIFF at ``path`` and return the path as a string."""
-    Dataset.create_from_array(
+    Dataset.from_array(
         arr,
-        top_left_corner=top_left,
-        cell_size=cell_size,
-        epsg=epsg,
         no_data_value=no_data,
         path=str(path),
+        geo_ref=GeoReference(top_left_corner=top_left, cell_size=cell_size, epsg=epsg),
     ).close()
     return str(path)
 
@@ -978,12 +975,10 @@ class TestMemDatasetFromArray:
     @pytest.fixture()
     def collection(self) -> DatasetCollection:
         """A single-timestep in-memory collection whose base is float32."""
-        base = Dataset.create_from_array(
+        base = Dataset.from_array(
             np.ones((3, 4), dtype="float32"),
-            top_left_corner=(0.0, 3.0),
-            cell_size=1.0,
-            epsg=4326,
             no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
         )
         return DatasetCollection(base, time_length=1)
 
@@ -1034,12 +1029,12 @@ class TestMemDatasetFromArray:
             Wrap an array with an explicit ``source`` on a different grid —
             expected: geotransform matches the source, not the collection base.
         """
-        other = Dataset.create_from_array(
+        other = Dataset.from_array(
             np.ones((3, 4), dtype="float32"),
-            top_left_corner=(100.0, 50.0),
-            cell_size=2.0,
-            epsg=4326,
             no_data_value=-1.0,
+            geo_ref=GeoReference(
+                top_left_corner=(100.0, 50.0), cell_size=2.0, epsg=4326
+            ),
         )
         arr = np.zeros((3, 4), dtype="float32")
         result = collection._mem_dataset_from_array(arr, source=other)

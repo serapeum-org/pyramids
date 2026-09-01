@@ -22,7 +22,7 @@ def _temporal_dataset() -> tuple[UgridDataset, np.ndarray]:
     node_y = np.array([0.0, 0.0, 1.0, 1.0])
     fnc = np.array([[0, 1, 2], [0, 2, 3]])
     temporal = np.arange(3 * 2, dtype=np.float64).reshape(3, 2)  # (time=3, n_face=2)
-    ds = UgridDataset.create_from_arrays(
+    ds = UgridDataset.from_arrays(
         node_x,
         node_y,
         fnc,

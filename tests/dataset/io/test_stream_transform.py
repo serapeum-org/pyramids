@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 from hpc.indexing import get_pixels2
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.dataset.engines.io import IO
 from tests._helpers import traced_peak
@@ -17,8 +18,9 @@ def _raster(bands: int = 1, rows: int = 7, cols: int = 5) -> Dataset:
     """A small EPSG:4326 raster with sequential int16 values."""
     shape = (rows, cols) if bands == 1 else (bands, rows, cols)
     arr = np.arange(int(np.prod(shape)), dtype="int16").reshape(shape)
-    return Dataset.create_from_array(
-        arr, top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326
+    return Dataset.from_array(
+        arr,
+        geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
     )
 
 
@@ -190,12 +192,10 @@ class TestStreamTransform:
             "int16"
         )  # one source for the fixture and the byte-size ceiling
         src_path = tmp_path / "big.tif"
-        Dataset.create_from_array(
+        Dataset.from_array(
             np.arange(rows * cols, dtype=dtype).reshape(rows, cols),
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.01,
-            epsg=4326,
             path=str(src_path),
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.01, epsg=4326),
         ).close()
 
         def add_one(block):
@@ -324,12 +324,12 @@ class TestStreamReduce:
         def reduce_peak(rows):
             arr = np.arange(rows * cols, dtype=dtype).reshape(rows, cols)
             src_path = tmp_path / f"strip_{rows}.tif"
-            Dataset.create_from_array(
+            Dataset.from_array(
                 arr,
-                top_left_corner=(0.0, 0.0),
-                cell_size=0.01,
-                epsg=4326,
                 path=str(src_path),
+                geo_ref=GeoReference(
+                    top_left_corner=(0.0, 0.0), cell_size=0.01, epsg=4326
+                ),
             ).close()
             # `arr` is allocated before tracing starts, so it never enters the peak below.
             expected = int(arr.sum(dtype="int64"))
@@ -384,16 +384,15 @@ class TestStreamedConsumers:
             each class's value list — order included — must still equal the reference
             built from the whole arrays in row-major order.
         """
-        base = Dataset.create_from_array(
+        base = Dataset.from_array(
             np.arange(35, dtype="float32").reshape(7, 5),
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
             no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
         )
         class_arr = np.tile(np.array([1, 2, 3, 1, 2], dtype="int32"), (7, 1))
-        classes = Dataset.create_from_array(
-            class_arr, top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326
+        classes = Dataset.from_array(
+            class_arr,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
         )
         result = base.overlay(classes)
         reference: dict[int, list[float]] = {}
@@ -435,12 +434,10 @@ class TestStreamedConsumers:
         band0[2, 3] = -9999.0
         band0[5, 1] = -9999.0
         band1 = np.arange(35, dtype="float32").reshape(7, 5) + 100.0
-        ds = Dataset.create_from_array(
+        ds = Dataset.from_array(
             np.stack([band0, band1]),
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
             no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326),
         )
         got = ds.extract()
         reference = get_pixels2(ds.read_array(), [ds.no_data_value[0]])
@@ -501,13 +498,11 @@ class TestStreamedConsumers:
         arr = np.ones((rows, cols), dtype=dtype)
         arr[:2000, :250] = -9999.0  # a no-data quadrant -> 500000 no-data cells
         src_path = tmp_path / "domain.tif"
-        Dataset.create_from_array(
+        Dataset.from_array(
             arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.01,
-            epsg=4326,
             no_data_value=-9999.0,
             path=str(src_path),
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.01, epsg=4326),
         ).close()
 
         # Warm the build's one-time GDAL read buffer with a small strip read OUTSIDE the

@@ -2,7 +2,7 @@
 
 The engine bodies (the interop export / import → ``Interop``;
 ``set_variable`` / ``add_variable`` / ``remove_variable`` /
-``rename_variable`` / ``create_from_array`` → ``Variables``;
+``rename_variable`` / ``from_array`` → ``Variables``;
 ``crop`` / ``sel`` / ``subset`` / ``reduce`` → ``Selection``) are exercised
 end-to-end through the public ``NetCDF`` façades by the topic-specific
 suites (``test_netcdf_interop.py``, ``test_set_variable.py``, ``test_crop*.py``,
@@ -104,7 +104,7 @@ class TestEngineWiring:
             checked through the proxy by comparing engine types and a delegated
             attribute rather than ``is`` (``_ds`` is a ``weakref.proxy``).
         """
-        nc = NetCDF.create_from_array(
+        nc = NetCDF.from_array(
             np.arange(24.0).reshape(2, 3, 4),
             geo_ref=GeoReference(geo=(0.0, 1.0, 0, 2.0, 0, -1.0), epsg=4326),
             variable_name="data",
@@ -201,8 +201,9 @@ class TestVariablesEngine:
         """
         from pyramids.dataset import Dataset
 
-        donor = Dataset.create_from_array(
-            np.ones((4, 5), dtype=np.float32), geo=(0, 1, 0, 4, 0, -1), epsg=4326
+        donor = Dataset.from_array(
+            np.ones((4, 5), dtype=np.float32),
+            geo_ref=GeoReference(geo=(0, 1, 0, 4, 0, -1), epsg=4326),
         )
         with pytest.raises(ValueError, match="multidimensional container"):
             classic_container.set_variable("new", donor)
@@ -230,16 +231,29 @@ class TestVariablesEngine:
         with pytest.raises(ValueError, match="already exists"):
             mdim_container.rename_variable(names[0], names[1])
 
-    def test_create_from_array_requires_geo(self):
-        """``create_from_array`` raises ValueError without ``geo`` or corner+size.
+    def test_from_array_requires_geo_ref(self):
+        """``from_array`` rejects a missing ``geo_ref`` at the call site.
 
         Test scenario:
-            Neither a geotransform nor a ``(top_left_corner, cell_size)`` pair is
-            supplied, so the geobox is undefined and a ValueError is raised.
+            ``geo_ref`` is a required keyword-only argument, so omitting it is a
+            ``TypeError`` raised before the body runs -- earlier and clearer
+            than the old ``ValueError`` from inside ``resolve_geotransform``.
         """
         arr = np.zeros((2, 3))
+        with pytest.raises(TypeError, match="geo_ref"):
+            NetCDF.from_array(arr)
+
+    def test_from_array_rejects_an_empty_geo_ref(self):
+        """A ``GeoReference`` carrying no transform is still a ValueError.
+
+        Test scenario:
+            Supplying the argument but leaving it empty cannot be caught by the
+            signature, so ``resolve_geotransform`` raises and names both forms.
+        """
+        arr = np.zeros((2, 3))
+        empty = GeoReference()
         with pytest.raises(ValueError, match="geo.*top_left_corner|top_left_corner"):
-            NetCDF.create_from_array(arr)
+            NetCDF.from_array(arr, geo_ref=empty)
 
     def test_add_variable_copies_all_from_netcdf_source(self):
         """``add_variable`` with no name copies every variable from a NetCDF source.
@@ -250,12 +264,12 @@ class TestVariablesEngine:
             own variable.
         """
         geo = (0.0, 1.0, 0, 4.0, 0, -1.0)
-        src = NetCDF.create_from_array(
+        src = NetCDF.from_array(
             np.ones((4, 5), dtype=np.float32),
             geo_ref=GeoReference(geo=geo),
             variable_name="a",
         )
-        dst = NetCDF.create_from_array(
+        dst = NetCDF.from_array(
             np.zeros((4, 5), dtype=np.float32),
             geo_ref=GeoReference(geo=geo),
             variable_name="b",
@@ -266,7 +280,7 @@ class TestVariablesEngine:
             "b",
         ], f"copy-all did not merge variables: {dst.variable_names}"
 
-    def test_create_from_array_4d_uses_anonymous_extra_dims(self):
+    def test_from_array_4d_uses_anonymous_extra_dims(self):
         """A 4-D array with no ``extra_dims`` materialises anonymous dimensions.
 
         Test scenario:
@@ -275,7 +289,7 @@ class TestVariablesEngine:
             ``dim_1`` and flatten onto the band axis (2 × 3 = 6 bands).
         """
         geo = (0.0, 1.0, 0, 4.0, 0, -1.0)
-        nc = NetCDF.create_from_array(
+        nc = NetCDF.from_array(
             np.zeros((2, 3, 4, 5), dtype=np.float32),
             geo_ref=GeoReference(geo=geo),
             variable_name="v",
@@ -287,7 +301,7 @@ class TestVariablesEngine:
         ), f"anonymous dim names not assigned: {var._band_dim_names}"
         assert var.band_count == 6, f"expected 6 flattened bands, got {var.band_count}"
 
-    def test_create_from_array_extra_dims_none_values_fill_indices(self):
+    def test_from_array_extra_dims_none_values_fill_indices(self):
         """An ``extra_dims`` entry with ``None`` values is filled with integer indices.
 
         Test scenario:
@@ -296,7 +310,7 @@ class TestVariablesEngine:
             so the variable is created without an explicit coordinate list.
         """
         geo = (0.0, 1.0, 0, 4.0, 0, -1.0)
-        nc = NetCDF.create_from_array(
+        nc = NetCDF.from_array(
             np.zeros((3, 4, 5), dtype=np.float32),
             geo_ref=GeoReference(geo=geo),
             variable_name="w",
@@ -306,14 +320,14 @@ class TestVariablesEngine:
             "variable not created with None-filled dim values"
         )
 
-    def test_create_from_array_corner_and_cell_size(self):
-        """``create_from_array`` builds ``geo`` from ``top_left_corner`` + ``cell_size``.
+    def test_from_array_corner_and_cell_size(self):
+        """``from_array`` builds ``geo`` from ``top_left_corner`` + ``cell_size``.
 
         Test scenario:
             With no explicit ``geo`` but both corner and cell size given, the
             geotransform is synthesised and a Container is returned.
         """
-        nc = NetCDF.create_from_array(
+        nc = NetCDF.from_array(
             np.arange(12.0).reshape(3, 4),
             geo_ref=GeoReference(top_left_corner=(0.0, 10.0), cell_size=1.0),
         )

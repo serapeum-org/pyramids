@@ -8,6 +8,7 @@ proves the param reached the glyph rather than being dropped.
 import numpy as np
 import pytest
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 
 from ._render_helpers import render_array
@@ -41,8 +42,9 @@ class TestNewRenderParams:
     def _dataset():
         """A small single-band dataset to render."""
         arr = np.random.default_rng(0).random((1, 8, 8)).astype("float32")
-        return Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.1, epsg=4326
+        return Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.1, epsg=4326),
         )
 
     def test_colorbar_spec_reaches_cleopatra(self):

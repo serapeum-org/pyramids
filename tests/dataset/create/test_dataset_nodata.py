@@ -8,6 +8,7 @@ import pytest
 from osgeo import gdal
 
 from pyramids.base._errors import NoDataValueError, ReadOnlyError
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 
 pytestmark = pytest.mark.core
@@ -107,11 +108,10 @@ class TestNoDataValue:
         still surface it as the package-level ``NoDataValueError`` and not leak a raw
         numpy error to the caller.
         """
-        dataset = Dataset.create_from_array(
+        dataset = Dataset.from_array(
             np.arange(9, dtype="int32").reshape(3, 3),
-            geo=(0, 1, 0, 3, 0, -1),
-            epsg=4326,
             no_data_value=0,
+            geo_ref=GeoReference(geo=(0, 1, 0, 3, 0, -1), epsg=4326),
         )
         with pytest.raises(NoDataValueError):
             dataset.change_no_data_value(np.nan, 0)
@@ -125,8 +125,8 @@ class TestNoDataValue:
             ("int8", -128),
         ],
     )
-    def test_create_from_array_default_nodata_fits_small_dtype(self, dtype, expected):
-        """``create_from_array`` with the default no-data falls back when -9999 overflows.
+    def test_from_array_default_nodata_fits_small_dtype(self, dtype, expected):
+        """``from_array`` with the default no-data falls back when -9999 overflows.
 
         Regression: the default ``no_data_value`` (-9999) does not fit unsigned
         integer bands (or ``int8``); the conversion raised ``OverflowError`` and
@@ -144,17 +144,16 @@ class TestNoDataValue:
             out-of-range value, and stores ``expected`` as the no-data value.
         """
         arr = np.full((4, 4), 5, dtype=dtype)
+        geo_ref = GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326)
         with pytest.warns(UserWarning, match="out of range"):
-            dataset = Dataset.create_from_array(
-                arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
-            )
+            dataset = Dataset.from_array(arr, geo_ref=geo_ref)
         assert dataset.no_data_value[0] == expected, (
             f"{dtype}: expected fallback no-data {expected}, "
             f"got {dataset.no_data_value[0]}"
         )
 
     @pytest.mark.parametrize("dtype", ["int16", "int32", "float32", "float64"])
-    def test_create_from_array_default_nodata_fits_large_dtype(self, dtype):
+    def test_from_array_default_nodata_fits_large_dtype(self, dtype):
         """Dtypes that can hold -9999 keep the default no-data and do not warn.
 
         Args:
@@ -167,8 +166,9 @@ class TestNoDataValue:
         arr = np.full((4, 4), 5, dtype=dtype)
         with warnings.catch_warnings():
             warnings.simplefilter("error")
-            dataset = Dataset.create_from_array(
-                arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+            dataset = Dataset.from_array(
+                arr,
+                geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
             )
         assert dataset.no_data_value[0] == -9999, (
             f"{dtype}: expected default no-data -9999, got {dataset.no_data_value[0]}"

@@ -22,7 +22,7 @@ def _make_nc():
     """
     arr = np.arange(60, dtype=np.float64).reshape(5, 3, 4)
     geo = (0.0, 1.0, 0, 3.0, 0, -1.0)
-    nc = NetCDF.create_from_array(
+    nc = NetCDF.from_array(
         arr=arr,
         geo_ref=GeoReference(geo=geo),
         variable_name="temp",
@@ -96,7 +96,7 @@ class TestSelNoData:
 
         Test scenario:
             Before ARC-29 the `isinstance(ndv, list)` test never fired for the tuple, so the whole
-            per-band tuple leaked into create_from_array; the selected 1-band result must carry the
+            per-band tuple leaked into from_array; the selected 1-band result must carry the
             scalar -9999.0.
         """
         var = _make_nc().get_variable("temp")
@@ -339,10 +339,8 @@ class TestSelErrors:
         """
         arr = np.ones((5, 8), dtype=np.float64)
         geo = (0.0, 1.0, 0, 5.0, 0, -1.0)
-        nc = NetCDF.create_from_array(
-            arr=arr,
-            geo_ref=GeoReference(geo=geo),
-            variable_name="flat",
+        nc = NetCDF.from_array(
+            arr=arr, geo_ref=GeoReference(geo=geo), variable_name="flat"
         )
         var = nc.get_variable("flat")
         with pytest.raises(ValueError, match="no band dimension"):
@@ -425,7 +423,7 @@ class TestSelBoundary:
         """
         arr = np.arange(36, dtype=np.float64).reshape(3, 3, 4)
         geo = (0.0, 1.0, 0, 3.0, 0, -1.0)
-        nc = NetCDF.create_from_array(
+        nc = NetCDF.from_array(
             arr=arr,
             geo_ref=GeoReference(geo=geo),
             variable_name="v",
