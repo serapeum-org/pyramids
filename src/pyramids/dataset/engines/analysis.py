@@ -2152,6 +2152,7 @@ class Analysis(_Engine["Dataset"]):
         overview_index: int | None = 0,
         percentile: int | None = None,
         basemap: bool | str | dict[str, Any] | Basemap | None = None,
+        *,
         fig: Figure | None = None,
         ax: Axes | None = None,
         **kwargs: Any,

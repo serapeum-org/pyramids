@@ -991,6 +991,7 @@ class Dataset(RasterBase):
         cells: CellValues | None = None,
         data_style: DataStyle | None = None,
         rgb_options: dict | None = None,
+        *,
         fig: Figure | None = None,
         ax: Axes | None = None,
         **kwargs: Unpack[PlotKwargs],
