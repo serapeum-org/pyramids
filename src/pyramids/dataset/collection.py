@@ -2950,9 +2950,9 @@ class DatasetCollection:
                 Its only effect is that extension, so it applies when `path`
                 is a directory. With an explicit list of paths each file's own
                 extension decides its format (a list of `.asc` paths writes
-                ASCII even at the default `driver="geotiff"`), but the
-                argument is still validated, so an extension-less driver is
-                rejected there too.
+                ASCII even at the default `driver="geotiff"`), and a driver the
+                catalog lists no extension for is accepted there, where it has
+                nothing to name.
             band (int):
                 Band index to write; used only by single-band drivers such as
                 ``"ascii"`` and ignored by GeoTIFF (which writes every band).
@@ -2962,8 +2962,9 @@ class DatasetCollection:
             ValueError: ``path`` is a list whose length differs from
                 :attr:`time_length`.
             DriverNotExistError: `driver` is neither a catalog key nor a GDAL
-                short name in the catalog, or it is a known driver the catalog
-                lists no extension for.
+                short name in the catalog; or `path` is a directory and
+                `driver` is a known driver the catalog lists no extension for,
+                leaving nothing to build file names from.
 
         Examples:
             - Save to a directory — one file per timestep:

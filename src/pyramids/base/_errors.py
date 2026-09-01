@@ -367,10 +367,16 @@ class DtypeNarrowingWarning(UserWarning):
     `RuntimeWarning`, which a caller filtering on their own warning categories
     never sees.
 
-    The check is advisory, not a proof of losslessness: band 1's dtype is
-    compared against the driver's advertised `DMD_CREATIONDATATYPES` list, so
-    a driver that advertises none (`MEM`, `VRT`) never warns, a mixed-dtype
-    dataset is judged by its first band, and `driver="COG"` delegates to
+    Capability is measured, not read off the driver's advertised
+    `DMD_CREATIONDATATYPES`: that list is not exhaustive -- this build's GTiff
+    omits `Int64` and stores it faithfully -- and trusting it warned about
+    `int64` written to `.tif`, the commonest write in the library and a
+    lossless one. Every band is checked, so a mixed-dtype dataset whose
+    narrowing band is not the first is still reported.
+
+    Two paths sit outside the check by construction: an `.asc` destination
+    never reaches a GDAL driver (the ascii writer emits full precision through
+    `str()`), and `driver="COG"` delegates to
     :meth:`pyramids.dataset.Dataset.to_cog` before the check runs.
 
     Writing an 8-bit image to PNG or JPEG is a legitimate thing to do, so this

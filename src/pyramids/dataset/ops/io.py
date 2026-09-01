@@ -384,6 +384,16 @@ def _resolve_output_driver(driver: str | None, path: Path) -> tuple[str, str]:
         # could be built as `x.TIF` and then not written to `x.TIF`: this side
         # looked up "TIF" while the catalog holds "tif".
         extension = path.suffix[1:].lower()
+        if not extension:
+            # Same mistake, same exception type, so the same answer as the
+            # constructors give: name the path and the remedy. Slicing the
+            # suffix here and handing "" to the catalog produced a message that
+            # named neither.
+            raise DriverNotExistError(
+                f"'{path}' has no file extension, so the output format cannot "
+                "be determined. Give the path a suffix naming the format "
+                "(e.g. '.tif')."
+            )
         driver = CATALOG.get_driver_name_by_extension(extension)
     elif not CATALOG.exists(driver):
         catalog_key = CATALOG.get_driver_name(driver)

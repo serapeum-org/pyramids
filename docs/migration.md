@@ -217,6 +217,13 @@ Formats that GDAL can only write by copy (`.png`, `.jp2`) now raise `FileFormatN
 extension and the driver, instead of failing inside GDAL. An extension the driver catalog does not know still
 raises `DriverNotExistError`.
 
+**`merge_rasters` and `stack_bands` now refuse write-by-copy-only destinations.** Both have two internal
+write paths and only one of them can produce such a format, so accepting it would make the destination's
+legality depend on `method` (or on whether the inputs share a dtype) — the same defect as letting an
+unrelated argument pick the format. Both take the stricter answer, which refuses `.png`, `.jpg` / `.jpeg`,
+`.jp2` / `.j2k`, `.asc` and `.vrt`. The one this costs is **`.asc`**, which `merge_rasters` could write
+before through its z-order (`method="first"` / `"last"`) path. Write a GTiff and convert it.
+
 **`Dataset.to_file` now accepts more extensions, and one of them can lose data.** This method is untouched by
 the rename, but it reads the same driver catalog, so correcting the catalog's extension rows widened what it
 accepts. `.tiff`, `.png`, `.jpg`, `.jpeg` and `.img` previously raised `DriverNotExistError` and now write a
@@ -244,6 +251,12 @@ of a catalogued format now resolve alike: `.tiff` as well as `.tif`, `.nc4` as w
 four JPEG/JPEG2000 spellings resolve and are then refused with `FileFormatNotSupportedError`, because they are
 write-by-copy-only formats. (`.jpeg` did not resolve on `main` at all — the catalog carried it with a leading
 dot, so the lookup never matched.)
+
+**`Dataset.create` no longer requires a CRS.** `epsg` was a required positional; omitting it raised
+`TypeError`. It is now a field of `geo_ref` defaulting to `4326`, so a call that says nothing about the
+CRS silently stamps WGS 84 instead of refusing. `from_array` and `create_empty` always behaved this way —
+only `create` changes, and it changes from "state the CRS" to "we assume WGS 84". Pass `epsg` explicitly,
+or `GeoReference(..., epsg=None)` for a deliberately CRS-less raster.
 
 **`Dataset.create`'s positional order changed, and its CRS handling widened.** `cell_size` is gone from slot 0,
 so `rows` and `columns` each shift up one — but `geo_ref` is required and keyword-only, so a ported positional call

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Sequence
-from functools import lru_cache
+from functools import cache
 from pathlib import Path
 from typing import Any, cast
 
@@ -586,7 +586,22 @@ def gdal_to_ogr_dtype(src: Dataset, band: int = 1):
     return int(matched)
 
 
-@lru_cache(maxsize=2)
+@cache
+def _build_catalog(raster_driver: bool) -> Catalog:
+    """Build (once) the catalog for one driver family.
+
+    Positional-only in practice: `get_catalog` always calls it the same way, so
+    the cache cannot be split by call spelling.
+
+    Args:
+        raster_driver: `True` for the GDAL raster catalog, `False` for OGR.
+
+    Returns:
+        Catalog: The single instance for that family.
+    """
+    return Catalog(raster_driver=raster_driver)
+
+
 def get_catalog(raster_driver: bool = True) -> Catalog:
     """Return the process-wide driver catalog, building it on first use.
 
@@ -645,7 +660,13 @@ def get_catalog(raster_driver: bool = True) -> Catalog:
         - :class:`Catalog`: The catalog itself; construct one directly only when
           an unshared, mutable copy is genuinely needed.
     """
-    return Catalog(raster_driver=raster_driver)
+    # Delegated rather than cached here: `lru_cache` keys on the *call form*,
+    # so `get_catalog()`, `get_catalog(True)` and `get_catalog(raster_driver=True)`
+    # were three separate entries for one catalog -- and with the old maxsize=2
+    # a third spelling evicted the first, silently re-parsing the YAML and
+    # returning a different object. The "process-wide, shared" guarantee the
+    # docstring makes only holds if the key is normalised.
+    return _build_catalog(bool(raster_driver))
 
 
 class Catalog:

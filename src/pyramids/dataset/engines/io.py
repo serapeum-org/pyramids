@@ -3043,7 +3043,7 @@ class IO(_Engine["Dataset"]):
         base_val: float,
         interval: float,
     ) -> Path:
-        """Write one RGB(A) terrain raster (PNG by ``.png`` suffix, else GeoTIFF)."""
+        """Write one RGB(A) terrain raster in the format its extension names."""
         elevation = np.asarray(source.read_array(band=band), dtype=float)
         stack = _terrain_rgba_stack(
             elevation,

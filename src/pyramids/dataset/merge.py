@@ -409,11 +409,15 @@ def merge_rasters(
             `dst` yields the same format for every `method`. `COMPRESS=LZW`
             is a GTiff creation option and is applied only when the extension
             resolves to GTiff; other formats are written with their driver
-            defaults. A write-by-copy-only format such as PNG is refused for
-            every `method`: the z-order path could produce one (it writes via
-            `gdal.Translate`) and the reduction path could not, and letting
-            `method` decide what `dst` may be is the same defect as letting it
-            decide the format.
+            defaults. A write-by-copy-only format is refused for every
+            `method` -- that is `.png`, `.jpg` / `.jpeg`, `.jp2` / `.j2k` and
+            `.asc`, and `.vrt` on top (a VRT writes a reference, not a
+            raster). The z-order path could produce several of them, since it
+            writes via `gdal.Translate`, and the reduction path could not;
+            letting `method` decide what `dst` may be is the same defect as
+            letting it decide the format, so both take the stricter answer.
+            `.asc` is the one this costs: it was writable before, through the
+            z-order path only. Write a GTiff and convert.
         no_data_value (float | int | str):
             Stamped on the output bands as the nodata marker. For the reduction
             methods it also fills pixels with no source coverage.
@@ -576,6 +580,13 @@ def merge_rasters(
         raise ValueError(
             f"method must be one of {list(_MERGE_METHODS)}, got {method!r}."
         )
+    # Resolve `dst` here, before anything is opened. Both write paths resolve it
+    # again where they need the driver name, but a destination the catalog
+    # cannot answer for is a pure argument error -- and it used to be reported
+    # only after every source had been opened and possibly reprojected, which
+    # for /vsicurl/ inputs is network work spent to reach a typo. It also
+    # reported at two different points depending on `method`.
+    resolve_output_driver(dst)
 
     # SMELL: `init` and `n` default to the string `"nan"`, which
     # round-trips through GDAL as float NaN. For integer-typed

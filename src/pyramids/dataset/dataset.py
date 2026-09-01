@@ -3792,7 +3792,12 @@ class Dataset(RasterBase):
             geo_ref (GeoReference):
                 How the array maps to space — an affine ``geo`` transform, or a
                 ``top_left_corner`` + ``cell_size``, plus the ``epsg``. Required;
-                a raster has to be placed somewhere.
+                a raster has to be placed somewhere. Note the CRS is not:
+                ``epsg`` defaults to 4326, so a reference that omits it stamps
+                WGS 84 rather than refusing. This method previously took a
+                **required** ``epsg`` and raised ``TypeError`` when it was
+                missing — pass ``epsg`` explicitly, or ``epsg=None`` for a
+                deliberately CRS-less raster.
             no_data_value (float|None):
                 No data value.
             path (str, optional):
