@@ -675,7 +675,7 @@ class Selection(_Engine["NetCDF"]):
         lat_win = lat2d[r0:r1, c0:c1]
 
         var_name = getattr(nc, "_source_var_name", None) or "data"
-        container = nc.create_from_array(
+        container = nc.from_array(
             data_win,
             geo_ref=GeoReference(
                 geo=nc._bbox_geotransform(lon_win, lat_win),
@@ -684,7 +684,7 @@ class Selection(_Engine["NetCDF"]):
             no_data_value=nd,
             variable_name=var_name,
         )
-        # create_from_array returns a root container; hand back the variable subset, carrying the
+        # from_array returns a root container; hand back the variable subset, carrying the
         # windowed 2-D coordinates so the result stays curvilinear (plots on its real geometry).
         result = container.get_variable(var_name)
         result._curvilinear_coords = (lon_win, lat_win)
@@ -840,11 +840,10 @@ class Selection(_Engine["NetCDF"]):
         # no_data_value is a TUPLE; the old `isinstance(ndv, list)` test never fired (ARC-29). Route
         # through the shared helper (handles list AND tuple) like the reduce path below.
         ndv_scalar = nc._scalar_no_data_value(ndv)
-        ds_result = Dataset.create_from_array(
+        ds_result = Dataset.from_array(
             selected,
-            geo=nc.geotransform,
-            epsg=crs_spec(nc.epsg, nc.crs),
             no_data_value=ndv_scalar,
+            geo_ref=GeoReference(geo=nc.geotransform, epsg=crs_spec(nc.epsg, nc.crs)),
         )
         result = nc._preserve_netcdf_metadata(ds_result)
         new_sizes = tuple(
@@ -1046,11 +1045,10 @@ class Selection(_Engine["NetCDF"]):
 
         no_data = nc._md_array_no_data(md_arr)
         band_first = arr[0] if arr.shape[0] == 1 else arr
-        ds = Dataset.create_from_array(
+        ds = Dataset.from_array(
             band_first,
-            geo=geo,
-            epsg=4326,
             no_data_value=no_data if no_data is not None else DEFAULT_NO_DATA_VALUE,
+            geo_ref=GeoReference(geo=geo, epsg=4326),
         )
         # API-2: return a NetCDF (consistent with crop / to_crs / resample / sel) rather
         # than a bare Dataset. Wrap the just-built classic raster as a classic-backed

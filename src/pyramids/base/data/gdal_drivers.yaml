@@ -5,7 +5,11 @@ memory:
   Copy: yes
   Geo-referencing: yes
   Build requirements: Built-in by default
-  extension: None
+  # A real YAML null. Unquoted `None` parses as the *string* "None", which would
+  # make this in-memory row reachable by extension lookup - `path="x.None"`
+  # resolving to MEM, i.e. a disk path silently building a raster that writes
+  # nothing. It was safe only because the resolver lowercases the suffix.
+  extension: null
 
 geotiff:
   GDAL Name: GTiff
@@ -14,7 +18,12 @@ geotiff:
   Copy: yes
   Geo-referencing: yes
   Build requirements: Built-in by default
+  # `extension` is the canonical spelling - what `get_extension` returns when
+  # building a filename. `aliases` are further spellings that resolve to the
+  # same driver; GDAL reports `tif tiff` for GTiff.
   extension: tif
+  aliases:
+    - tiff
 
 
 netcdf:
@@ -25,6 +34,8 @@ netcdf:
   Geo-referencing: yes
   Build requirements: libnetcdf
   extension: nc
+  aliases:
+    - nc4
 
 cog:
   GDAL Name: COG
@@ -61,7 +72,7 @@ gpkg:
 hdf4:
   GDAL Name: HDF4
   Long name: Hierarchical Data Format Release 4 (HDF4)
-  Creation: yes
+  Creation: No
   Copy: yes
   Geo-referencing: yes
   Build requirements: libdf
@@ -81,7 +92,9 @@ jpeg:
   Copy: yes
   Geo-referencing: yes
   Build requirements: internal libjpeg provided
-  extension: .jpeg
+  extension: jpeg
+  aliases:
+    - jpg
 
 pc raster:
   GDAL Name: PCRaster
@@ -102,7 +115,19 @@ post gis raster:
 vrt:
   GDAL Name: VRT
   Long name: GDAL Virtual Format
-  Creation: yes
+  # GDAL reports DCAP_CREATE=YES for VRT, but a VRT owns no pixel storage:
+  # Create() succeeds and the WriteArray that follows dies with "Writing
+  # through VRTSourcedRasterBand is not supported". This flag means "the
+  # pyramids constructors can build it", which is the question the resolver
+  # actually asks, so it is No despite the GDAL capability bit.
+  Creation: No
+  # CreateCopy *does* succeed, which is why `Copy` stays yes -- but what it
+  # writes is a pointer, not a file. From an in-memory source the
+  # <SourceFilename> comes out empty and GDAL cannot reopen the result at
+  # all; from a file-backed one it references the original, so the "copy"
+  # breaks when that moves. Neither is a self-contained raster, so the
+  # copy-based writers must refuse it too.
+  Self-contained: No
   Copy: yes
   Geo-referencing: yes
   Build requirements: Built-in by default
@@ -120,7 +145,7 @@ ascii:
 adrg:
   GDAL Name: ADRG
   Long name: ADRG/ARC Digitized Dataset Graphics (.gen/.thf)
-  Creation: yes
+  Creation: No
   Copy: yes
   Geo-referencing: yes
   Build requirements: Built-in by default
@@ -166,6 +191,26 @@ nasa pds:
   Geo-referencing: yes
   Build requirements: Built-in by default
 
+erdas imagine:
+  GDAL Name: HFA
+  Long name: Erdas Imagine .img
+  Creation: yes
+  Copy: yes
+  Geo-referencing: yes
+  Build requirements: Built-in by default
+  extension: img
+
+jpeg2000:
+  GDAL Name: JP2OpenJPEG
+  Long name: JPEG2000 driver based on OpenJPEG library
+  Creation: No
+  Copy: yes
+  Geo-referencing: yes
+  Build requirements: libopenjp2
+  extension: jp2
+  aliases:
+    - j2k
+
 png:
   GDAL Name: PNG
   Long name: Portable Network Graphics
@@ -173,6 +218,7 @@ png:
   Copy: yes
   Geo-referencing: yes
   Build requirements: Built-in by default
+  extension: png
 
 r object:
   GDAL Name: R
@@ -190,6 +236,12 @@ raster lite:
   Geo-referencing: yes
   Build requirements: libsqlite3
 
+# NOTE: this entry describes the RasterLite2 raster driver (see Build requirements),
+# but `GDAL Name` says SQLite, which resolves to GDAL's *vector* SQLite driver. That
+# vector driver reports Create=YES, so an automated Creation-flag audit will flag this
+# row as a mismatch. It is not one: `Creation: No` is correct for the raster intent.
+# Changing `GDAL Name` to RasterLite2 would be more accurate but makes the entry
+# unresolvable in builds without librasterlite2.
 sqLite:
   GDAL Name: SQLite
   Long name: Rasters in SQLite DB

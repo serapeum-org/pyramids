@@ -143,14 +143,12 @@ class TestCFAttributePreservation:
             RT-7), crop it, set it back, verify attrs are preserved.
         """
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
-        nc = NetCDF.create_from_array(
-            arr=arr,
-            geo_ref=GeoReference(geo=GEO),
-            variable_name="temp",
+        nc = NetCDF.from_array(
+            arr=arr, geo_ref=GeoReference(geo=GEO), variable_name="temp"
         )
         var = nc.get_variable("temp")
         # RT-7: get_variable surfaces the variable's real CF attributes — the
-        # grid-mapping link create_from_array writes — not just an empty/missing
+        # grid-mapping link from_array writes — not just an empty/missing
         # dict. A regression that drops or mangles the tracked attrs fails here.
         assert var._variable_attrs == {"grid_mapping": "spatial_ref"}, (
             var._variable_attrs
@@ -163,7 +161,7 @@ class TestCFAttributePreservation:
             Create, copy, check Conventions on copy.
         """
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
-        nc = NetCDF.create_from_array(
+        nc = NetCDF.from_array(
             arr=arr, geo_ref=GeoReference(geo=GEO), variable_name="temp"
         )
         nc2 = nc.copy()

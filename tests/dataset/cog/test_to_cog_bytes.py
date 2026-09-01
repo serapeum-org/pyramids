@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset, cog
 from tests.dataset.cog.conftest import COG_GEOTRANSFORM
 
@@ -26,7 +27,9 @@ def float_dataset() -> Dataset:
     """
     rng = np.random.default_rng(seed=3)
     arr = (rng.random((600, 600)) * 100.0).astype("float32")
-    return Dataset.create_from_array(arr, geo=COG_GEOTRANSFORM, epsg=4326)
+    return Dataset.from_array(
+        arr, geo_ref=GeoReference(geo=COG_GEOTRANSFORM, epsg=4326)
+    )
 
 
 def _vsimem_entries() -> list[str]:

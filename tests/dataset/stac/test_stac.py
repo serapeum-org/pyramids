@@ -22,6 +22,7 @@ from pyramids.base._errors import (
     AlignmentError,
     StacAssetError,
 )
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.dataset._stac import (
     _horizontal_bounds,
@@ -42,11 +43,9 @@ def three_tifs(tmp_path):
     paths = []
     for i in range(3):
         arr = np.full((3, 4), float(i + 1), dtype=np.float32)
-        ds = Dataset.create_from_array(
+        ds = Dataset.from_array(
             arr,
-            top_left_corner=(0.0, 3.0),
-            cell_size=1.0,
-            epsg=4326,
+            geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
         )
         p = str(tmp_path / f"tile_{i}.tif")
         ds.to_file(p)
@@ -564,11 +563,11 @@ def multi_asset_items(tmp_path):
     for scene in range(2):
         assets = {}
         for name, val in values.items():
-            ds = Dataset.create_from_array(
+            ds = Dataset.from_array(
                 np.full((3, 4), val, dtype=np.float32),
-                top_left_corner=(0.0, 3.0),
-                cell_size=1.0,
-                epsg=4326,
+                geo_ref=GeoReference(
+                    top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326
+                ),
             )
             p = str(tmp_path / f"scene{scene}_{name}.tif")
             ds.to_file(p)
@@ -689,17 +688,13 @@ class TestFromStacMultiAsset:
             A 10 m red asset and a 20 m green asset stack into one 2-band raster
             on red's grid without raising.
         """
-        red = Dataset.create_from_array(
+        red = Dataset.from_array(
             np.full((4, 4), 1.0, dtype=np.float32),
-            top_left_corner=(0.0, 4.0),
-            cell_size=1.0,
-            epsg=4326,
+            geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326),
         )
-        green = Dataset.create_from_array(
+        green = Dataset.from_array(
             np.full((2, 2), 2.0, dtype=np.float32),
-            top_left_corner=(0.0, 4.0),
-            cell_size=2.0,
-            epsg=4326,
+            geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=2.0, epsg=4326),
         )
         rp, gp = str(tmp_path / "r.tif"), str(tmp_path / "g.tif")
         red.to_file(rp)
@@ -719,17 +714,13 @@ class TestFromStacMultiAsset:
         Test scenario:
             The 10 m / 20 m pair cannot stack without resampling.
         """
-        red = Dataset.create_from_array(
+        red = Dataset.from_array(
             np.full((4, 4), 1.0, dtype=np.float32),
-            top_left_corner=(0.0, 4.0),
-            cell_size=1.0,
-            epsg=4326,
+            geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326),
         )
-        green = Dataset.create_from_array(
+        green = Dataset.from_array(
             np.full((2, 2), 2.0, dtype=np.float32),
-            top_left_corner=(0.0, 4.0),
-            cell_size=2.0,
-            epsg=4326,
+            geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=2.0, epsg=4326),
         )
         rp, gp = str(tmp_path / "r.tif"), str(tmp_path / "g.tif")
         red.to_file(rp)
@@ -753,12 +744,10 @@ def solar_day_items(tmp_path):
     ]
     items = []
     for i, (when, val) in enumerate(grids):
-        ds = Dataset.create_from_array(
+        ds = Dataset.from_array(
             np.full((4, 4), val, dtype="float32"),
-            top_left_corner=(0.0, 4.0),
-            cell_size=1.0,
-            epsg=4326,
             no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326),
         )
         p = str(tmp_path / f"t{i}.tif")
         ds.to_file(p)
@@ -945,19 +934,19 @@ class TestFromStacMultiAssetUint16:
             10 m and 20 m on one item build a 2-band uint16 cube without the
             -9999 template OverflowError.
         """
-        b10 = Dataset.create_from_array(
+        b10 = Dataset.from_array(
             np.arange(16, dtype="uint16").reshape(4, 4),
-            top_left_corner=(0.0, 40.0),
-            cell_size=10.0,
-            epsg=32630,
             no_data_value=0,
+            geo_ref=GeoReference(
+                top_left_corner=(0.0, 40.0), cell_size=10.0, epsg=32630
+            ),
         )
-        b20 = Dataset.create_from_array(
+        b20 = Dataset.from_array(
             (np.arange(4, dtype="uint16") + 1).reshape(2, 2),
-            top_left_corner=(0.0, 40.0),
-            cell_size=20.0,
-            epsg=32630,
             no_data_value=0,
+            geo_ref=GeoReference(
+                top_left_corner=(0.0, 40.0), cell_size=20.0, epsg=32630
+            ),
         )
         p10, p20 = str(tmp_path / "B04.tif"), str(tmp_path / "B05.tif")
         b10.to_file(p10)

@@ -257,7 +257,7 @@ class TestMaterializeIntegrity:
     def test_in_memory_variable_materializes_correctly(self):
         """An in-memory variable (no on-disk path) materializes to the same pixels."""
         arr = np.arange(20.0).reshape(4, 5)
-        nc = NetCDF.create_from_array(
+        nc = NetCDF.from_array(
             arr=arr,
             geo_ref=GeoReference(geo=(0.0, 1.0, 0, 4.0, 0, -1.0)),
             variable_name="v",

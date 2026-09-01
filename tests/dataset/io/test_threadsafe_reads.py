@@ -21,6 +21,7 @@ from osgeo import gdal
 
 from pyramids.base._errors import OutOfBoundsError
 from pyramids.base._file_manager import ThreadLocalFileManager, gdal_raster_open
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.dataset.window import Window
 
@@ -36,8 +37,9 @@ def tiled_raster(tmp_path):
     """
     path = str(tmp_path / "tiled.tif")
     arr = np.arange(256 * 256, dtype="float32").reshape(256, 256)
-    Dataset.create_from_array(
-        arr, top_left_corner=(0, 256), cell_size=1.0, epsg=4326
+    Dataset.from_array(
+        arr,
+        geo_ref=GeoReference(top_left_corner=(0, 256), cell_size=1.0, epsg=4326),
     ).to_file(path, creation_options=["TILED=YES", "BLOCKXSIZE=64", "BLOCKYSIZE=64"])
     return Dataset.read_file(path), arr
 
@@ -143,8 +145,9 @@ class TestThreadsafeEagerReads:
         """
         path = "/vsimem/threadsafe_reads.tif"
         arr = np.arange(64, dtype="float32").reshape(8, 8)
-        mem = Dataset.create_from_array(
-            arr, top_left_corner=(0, 8), cell_size=1.0, epsg=4326
+        mem = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 8), cell_size=1.0, epsg=4326),
         )
         copy = gdal.GetDriverByName("GTiff").CreateCopy(path, mem.raster)
         copy.FlushCache()
@@ -166,8 +169,9 @@ class TestThreadsafeEagerReads:
         Test scenario:
             MEM datasets have no reopenable path for per-thread handles.
         """
-        mem = Dataset.create_from_array(
-            np.ones((4, 4)), top_left_corner=(0, 4), cell_size=1.0, epsg=4326
+        mem = Dataset.from_array(
+            np.ones((4, 4)),
+            geo_ref=GeoReference(top_left_corner=(0, 4), cell_size=1.0, epsg=4326),
         )
         with pytest.raises(ValueError, match="reopenable path"):
             mem.read_array(threadsafe=True)
@@ -176,8 +180,9 @@ class TestThreadsafeEagerReads:
         """threadsafe reads cover single-band, all-bands, and windowed forms."""
         path = str(tmp_path / "mb.tif")
         arr = np.stack([np.full((8, 8), i, dtype="float32") for i in range(3)])
-        Dataset.create_from_array(
-            arr, top_left_corner=(0, 8), cell_size=1.0, epsg=4326
+        Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 8), cell_size=1.0, epsg=4326),
         ).to_file(path)
         ds = Dataset.read_file(path)
         np.testing.assert_array_equal(
@@ -298,11 +303,9 @@ class TestThreadLocalManagerSemantics:
             os.remove fail with a sharing violation.
         """
         path = str(tmp_path / "closable.tif")
-        Dataset.create_from_array(
+        Dataset.from_array(
             np.ones((8, 8), dtype="float32"),
-            top_left_corner=(0, 8),
-            cell_size=1.0,
-            epsg=4326,
+            geo_ref=GeoReference(top_left_corner=(0, 8), cell_size=1.0, epsg=4326),
         ).to_file(path)
         ds = Dataset.read_file(path)
         ds.read_array(band=0, threadsafe=True)
@@ -324,11 +327,9 @@ class TestThreadLocalManagerSemantics:
             becomes deletable (on Windows a lingering read handle locks the file).
         """
         path = str(tmp_path / "worker.tif")
-        Dataset.create_from_array(
+        Dataset.from_array(
             np.arange(64, dtype="float32").reshape(8, 8),
-            top_left_corner=(0, 8),
-            cell_size=1.0,
-            epsg=4326,
+            geo_ref=GeoReference(top_left_corner=(0, 8), cell_size=1.0, epsg=4326),
         ).to_file(path)
         ds = Dataset.read_file(path)
 
@@ -357,11 +358,9 @@ class TestThreadLocalManagerSemantics:
             closed state under the lock and raises instead.
         """
         path = str(tmp_path / "closed.tif")
-        Dataset.create_from_array(
+        Dataset.from_array(
             np.ones((8, 8), dtype="float32"),
-            top_left_corner=(0, 8),
-            cell_size=1.0,
-            epsg=4326,
+            geo_ref=GeoReference(top_left_corner=(0, 8), cell_size=1.0, epsg=4326),
         ).to_file(path)
         ds = Dataset.read_file(path)
         ds.close()
@@ -417,8 +416,9 @@ class TestThreadsafeLazyReads:
 
     def test_mem_dataset_rejected_on_lazy_path(self):
         """The lazy threadsafe path rejects MEM datasets too."""
-        mem = Dataset.create_from_array(
-            np.ones((8, 8)), top_left_corner=(0, 8), cell_size=1.0, epsg=4326
+        mem = Dataset.from_array(
+            np.ones((8, 8)),
+            geo_ref=GeoReference(top_left_corner=(0, 8), cell_size=1.0, epsg=4326),
         )
         with pytest.raises(ValueError, match="reopenable path"):
             mem.read_array(chunks=4, lock=False, threadsafe=True)

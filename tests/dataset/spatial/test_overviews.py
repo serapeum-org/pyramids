@@ -324,15 +324,13 @@ class TestCreateOverviewsPathlessGuard:
         """A MEM raster is unaffected: it stores its overviews internally.
 
         Test scenario:
-            `create_from_array` also has an empty description, so guarding on that alone
+            `from_array` also has an empty description, so guarding on that alone
             would break it — expected: the build still succeeds.
         """
         monkeypatch.chdir(tmp_path)
-        dataset = Dataset.create_from_array(
+        dataset = Dataset.from_array(
             np.arange(4096, dtype="float32").reshape(64, 64),
-            top_left_corner=(0.0, 64.0),
-            cell_size=1.0,
-            epsg=4326,
+            geo_ref=GeoReference(top_left_corner=(0.0, 64.0), cell_size=1.0, epsg=4326),
         )
         try:
             dataset.create_overviews(overview_levels=[2])
@@ -386,7 +384,7 @@ class TestCreateOverviewsPathlessGuard:
         """
         monkeypatch.chdir(tmp_path)
         source = tmp_path / "guard_var.nc"
-        container = NetCDF.create_from_array(
+        container = NetCDF.from_array(
             arr=np.random.default_rng(11).random((16, 16)).astype(np.float64),
             geo_ref=GeoReference(geo=(30.0, 1.0, 0, 40.0, 0, -1.0), epsg=4326),
             no_data_value=-9999.0,
@@ -1372,11 +1370,9 @@ class TestCreateOverviewsPathlessGuard:
             since a warped view can act on that advice and build them in RAM.
         """
         monkeypatch.chdir(tmp_path)
-        dataset = Dataset.create_from_array(
+        dataset = Dataset.from_array(
             np.arange(4096, dtype="float32").reshape(64, 64),
-            top_left_corner=(0.0, 64.0),
-            cell_size=1.0,
-            epsg=4326,
+            geo_ref=GeoReference(top_left_corner=(0.0, 64.0), cell_size=1.0, epsg=4326),
         )
         view = None
         try:
@@ -1994,15 +1990,13 @@ class TestRecreateOverviewsContract:
         """An in-memory dataset gets the same no-overviews warning as an on-disk one.
 
         Test scenario:
-            A `create_from_array` raster with no path (MEM driver, `access == "write"`)
+            A `from_array` raster with no path (MEM driver, `access == "write"`)
             — expected: the no-overviews warning, so the edit-in-memory workflow reports
             the empty count the same way and is never blocked by an access-mode error.
         """
-        dataset = Dataset.create_from_array(
+        dataset = Dataset.from_array(
             np.ones((16, 16), dtype=np.float32),
-            top_left_corner=(0.0, 16.0),
-            cell_size=1.0,
-            epsg=4326,
+            geo_ref=GeoReference(top_left_corner=(0.0, 16.0), cell_size=1.0, epsg=4326),
         )
         try:
             with pytest.warns(UserWarning, match=r"call create_overviews\(\) first"):
@@ -2696,7 +2690,7 @@ class TestGetOverviewDataset:
         handle = None
 
         on_disk = Dataset.read_file(path)
-        in_memory = Dataset.create_from_array(arr, geo=geo, epsg=4326)
+        in_memory = Dataset.from_array(arr, geo_ref=GeoReference(geo=geo, epsg=4326))
         in_memory.create_overviews(overview_levels=[2])
         lazy_level = memory_level = None
         try:
@@ -2725,12 +2719,10 @@ class TestGetOverviewDataset:
             no-data stays `None`, rather than a list of `None`s being coerced into a
             `nan` sentinel that masking and statistics would then honour.
         """
-        dataset = Dataset.create_from_array(
+        dataset = Dataset.from_array(
             np.stack([np.zeros((32, 32), dtype="float32")] * 2),
-            top_left_corner=(0.0, 32.0),
-            cell_size=1.0,
-            epsg=4326,
             no_data_value=None,
+            geo_ref=GeoReference(top_left_corner=(0.0, 32.0), cell_size=1.0, epsg=4326),
         )
         overview = None
         try:
@@ -2786,7 +2778,7 @@ class TestGetOverviewDataset:
         Test scenario:
             The same paletted band on disk (described by a VRT) and in memory
             (materialised) — expected: both levels come back `palette_index` carrying
-            the parent's two entries. `create_from_array` sets neither, so a
+            the parent's two entries. `from_array` sets neither, so a
             materialised level rendered as a plain grey band and wrote out a raster
             whose class colours were gone.
         """
@@ -2835,23 +2827,19 @@ class TestGetOverviewDataset:
         """The parent's dataset metadata is copied over, and absence stays absence.
 
         Test scenario:
-            The materialised path builds the level with `create_from_array`, which
+            The materialised path builds the level with `from_array`, which
             starts with an empty metadata dictionary — expected: a parent describing
             itself with `units`/`source` passes both on, while a parent with no metadata
             leaves the level's dictionary empty instead of gaining keys of its own.
         """
-        described = Dataset.create_from_array(
+        described = Dataset.from_array(
             np.zeros((32, 32), dtype="float32"),
-            top_left_corner=(0.0, 32.0),
-            cell_size=1.0,
-            epsg=4326,
+            geo_ref=GeoReference(top_left_corner=(0.0, 32.0), cell_size=1.0, epsg=4326),
         )
         described.meta_data = {"units": "K", "source": "reanalysis"}
-        bare = Dataset.create_from_array(
+        bare = Dataset.from_array(
             np.zeros((32, 32), dtype="float32"),
-            top_left_corner=(0.0, 32.0),
-            cell_size=1.0,
-            epsg=4326,
+            geo_ref=GeoReference(top_left_corner=(0.0, 32.0), cell_size=1.0, epsg=4326),
         )
         described_level = bare_level = None
         try:
@@ -2879,16 +2867,16 @@ class TestGetOverviewDataset:
         Test scenario:
             A MEM parent in a geostationary projection, which has no EPSG code, so
             `epsg` alone is `None` — expected: the level still carries a projection,
-            rather than `create_from_array` clearing it.
+            rather than `from_array` clearing it.
         """
         geostationary = (
             "+proj=geos +h=35785831 +lon_0=0 +sweep=y +ellps=GRS80 +units=m +no_defs"
         )
-        dataset = Dataset.create_from_array(
+        dataset = Dataset.from_array(
             np.zeros((32, 32), dtype="float32"),
-            top_left_corner=(0.0, 32.0),
-            cell_size=1000.0,
-            epsg=geostationary,
+            geo_ref=GeoReference(
+                top_left_corner=(0.0, 32.0), cell_size=1000.0, epsg=geostationary
+            ),
         )
         overview = None
         try:
@@ -2965,15 +2953,18 @@ class TestGetOverviewDataset:
         """An in-memory raster has no path to reopen, so its level is materialised.
 
         Test scenario:
-            A `create_from_array` raster (MEM driver, empty `file_name`) — expected: the
+            A `from_array` raster (MEM driver, empty `file_name`) — expected: the
             level still comes back with the scaled cell size and the right values, via
             the array fallback rather than ``OVERVIEW_LEVEL``.
         """
         arr = np.stack(
             [np.full((64, 64), float(index + 1), dtype="float32") for index in range(3)]
         )
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(10.0, 80.0), cell_size=0.5, epsg=4326
+        dataset = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(
+                top_left_corner=(10.0, 80.0), cell_size=0.5, epsg=4326
+            ),
         )
         overview = None
         try:
@@ -3024,11 +3015,9 @@ class TestGetOverviewDataset:
             Call the accessor before `create_overviews` — expected: the same
             `ValueError` its `gdal.Band` sibling raises, not an empty Dataset.
         """
-        dataset = Dataset.create_from_array(
+        dataset = Dataset.from_array(
             np.zeros((8, 8), dtype="float32"),
-            top_left_corner=(0.0, 8.0),
-            cell_size=1.0,
-            epsg=4326,
+            geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0, epsg=4326),
         )
         try:
             with pytest.raises(ValueError, match="no overviews"):

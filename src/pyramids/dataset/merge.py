@@ -19,6 +19,7 @@ from pyproj.exceptions import ProjError
 
 from pyramids.base._utils import DEFAULT_RESAMPLING, resolve_resampling
 from pyramids.base.remote import signer_cloud_config
+from pyramids.dataset._driver import resolve_output_driver
 from pyramids.dataset.dataset import _INHERIT_NO_DATA, Dataset
 from pyramids.feature.bbox import normalise_longitude
 from pyramids.feature.bbox import transform as bbox_transform
@@ -402,7 +403,21 @@ def merge_rasters(
         src (Sequence[str | Path]):
             Paths to all input rasters.
         dst (str | Path):
-            Path to the output raster.
+            Path to the output raster. Its extension alone selects the output
+            driver (`.tif` -> GTiff, `.nc` -> netCDF, …) — the same
+            resolution every other write path in the package uses — so one
+            `dst` yields the same format for every `method`. `COMPRESS=LZW`
+            is a GTiff creation option and is applied only when the extension
+            resolves to GTiff; other formats are written with their driver
+            defaults. A write-by-copy-only format is refused for every
+            `method` -- that is `.png`, `.jpg` / `.jpeg`, `.jp2` / `.j2k` and
+            `.asc`, and `.vrt` on top (a VRT writes a reference, not a
+            raster). The z-order path could produce several of them, since it
+            writes via `gdal.Translate`, and the reduction path could not;
+            letting `method` decide what `dst` may be is the same defect as
+            letting it decide the format, so both take the stricter answer.
+            `.asc` is the one this costs: it was writable before, through the
+            z-order path only. Write a GTiff and convert.
         no_data_value (float | int | str):
             Stamped on the output bands as the nodata marker. For the reduction
             methods it also fills pixels with no source coverage.
@@ -519,6 +534,10 @@ def merge_rasters(
             cannot be projected into its CRS.
         RuntimeError: GDAL failed to open a source, reproject it, or build the
             source mosaic.
+        DriverNotExistError: `dst` has no extension, or one the driver catalog
+            does not know.
+        FileFormatNotSupportedError: `dst`'s extension maps to a
+            write-by-copy-only format, for any `method`.
 
     Examples:
         - Mosaic two tiles, keeping the larger value wherever they overlap:
@@ -561,6 +580,17 @@ def merge_rasters(
         raise ValueError(
             f"method must be one of {list(_MERGE_METHODS)}, got {method!r}."
         )
+    # Resolve `dst` here, before anything is opened. Both write paths resolve it
+    # again where they need the driver name, but a destination the catalog
+    # cannot answer for is a pure argument error -- and it used to be reported
+    # only after every source had been opened and possibly reprojected, which
+    # for /vsicurl/ inputs is network work spent to reach a typo. It also
+    # reported at two different points depending on `method`.
+    # Resolved here so a destination the catalog cannot answer for fails
+    # before any source is opened, and so both write paths below agree. They
+    # call it again where they need the name; it is a cached catalog lookup, so
+    # the repeat is free and keeps each path readable on its own.
+    resolve_output_driver(dst)
 
     # SMELL: `init` and `n` default to the string `"nan"`, which
     # round-trips through GDAL as float NaN. For integer-typed
@@ -642,8 +672,22 @@ def merge_rasters(
         # `projWin` is what stops the read at the window: without it GDAL has no
         # reason to restrict what it pulls through /vsicurl and materialises the
         # whole mosaic extent.
+        # Hand gdal.Translate the driver the catalog resolved rather than
+        # letting it re-infer from the extension. The two tables disagree: the
+        # catalog knows `.nc4` as a netCDF alias, GDAL's netCDF driver
+        # advertises only `nc`, so the same `dst` wrote a netCDF through the
+        # reduction path and died with "Could not identify an output driver"
+        # here -- the format depending on `method` again, which is exactly what
+        # resolving once was meant to stop.
+        # Strict gate, not `for_copy`: this method has two write paths and the
+        # other builds with `Create`. Relaxing only this one would make `.png`
+        # legal for method="last" and illegal for method="min" -- the very
+        # asymmetry the shared resolution above exists to remove.
+        out_driver = resolve_output_driver(dst)
+        # LZW is a GTiff creation option; other drivers reject it.
         translate_opts = gdal.TranslateOptions(
-            creationOptions=["COMPRESS=LZW"],
+            format=out_driver,
+            creationOptions=["COMPRESS=LZW"] if out_driver == "GTiff" else [],
             noData=str(no_data_value),
             projWin=proj_win,
         )
@@ -995,8 +1039,15 @@ def _merge_reduce(
     # Extent of every source, computed once, to skip sources a strip cannot touch.
     src_bounds = [_source_bounds(path) for path in src_paths]
 
-    out_ds = gdal.GetDriverByName("GTiff").Create(
-        dst, x_size, y_size, band_count, gdal.GDT_Float64, options=["COMPRESS=LZW"]
+    # Resolve from the extension so that one `dst` does not yield two different
+    # formats depending on an unrelated argument: this reduction path hardcoded
+    # GTiff while the z-order path below lets gdal.Translate infer, so `.nc`
+    # produced a netCDF for method="last" and a GTiff for method="min". LZW is
+    # GTiff-specific and is applied only there.
+    out_driver = resolve_output_driver(dst)
+    out_options = ["COMPRESS=LZW"] if out_driver == "GTiff" else []
+    out_ds = gdal.GetDriverByName(out_driver).Create(
+        dst, x_size, y_size, band_count, gdal.GDT_Float64, options=out_options
     )
     if out_ds is None:
         raise RuntimeError(
@@ -1060,7 +1111,12 @@ def stack_bands(
             grid instead of raising :class:`~pyramids.base._errors.AlignmentError`.
         no_data_value: No-data value for the output bands; omitted means
             "inherit from the source rasters".
-        path: Output ``.tif`` path; ``None`` keeps the result in memory.
+        path: Output path, whose extension selects the driver (``.tif`` ->
+            GTiff, ``.nc`` -> netCDF, …); ``None`` keeps the result in memory.
+            `COMPRESS=LZW` is applied only when the extension resolves to
+            GTiff. A write-by-copy-only format such as PNG is refused — see
+            :meth:`pyramids.dataset.Dataset.from_band_files` for why both of
+            its write paths answer alike.
         signer: Optional signer exposing ``sign_href(str) -> str`` and
             ``gdal_env() -> dict[str, str]`` (e.g. a
             :class:`pyramids.stac.signers.Signer`). When given, **both** hooks
@@ -1074,6 +1130,12 @@ def stack_bands(
 
     Returns:
         Dataset: A multi-band dataset, one band per input file.
+
+    Raises:
+        DriverNotExistError: `path` has no extension, or one the driver
+            catalog does not know.
+        FileFormatNotSupportedError: `path`'s extension maps to a
+            write-by-copy-only format, whichever write path the inputs take.
     """
     if signer is not None:
         files = [signer.sign_href(str(f)) for f in files]

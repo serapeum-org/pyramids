@@ -31,9 +31,10 @@ from osgeo import gdal
 from pyramids.base._errors import ReadOnlyError
 from pyramids.base._utils import (
     DEFAULT_RESAMPLING,
-    Catalog,
+    get_catalog,
 )
 from pyramids.base.crs import epsg_of_crs, sr_from_epsg
+from pyramids.base.georeference import GeoReference
 from pyramids.base.protocols import ArrayLike, FloatArray
 from pyramids.base.remote import cloud_config_from_env
 from pyramids.dataset._subdataset import SubDataset, subdatasets_of
@@ -49,7 +50,7 @@ if TYPE_CHECKING:
 from pyramids.feature import FeatureCollection
 
 DEFAULT_NO_DATA_VALUE = -9999
-CATALOG = Catalog()
+CATALOG = get_catalog()
 OVERVIEW_LEVELS = [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048]
 # Overview-build resampling names (gdal.Dataset.BuildOverviews family). This is a
 # different GDAL name-space from the warp algorithms in
@@ -456,7 +457,7 @@ class RasterBase(ABC):
         the SWIG binding exposes no handle-level `GetAccess`.)
 
         The condition is "read-only access **and** backed by a real on-disk file":
-        an in-memory dataset (`copy`, `create_from_array()` with no path, a `/vsimem/`
+        an in-memory dataset (`copy`, `from_array()` with no path, a `/vsimem/`
         raster, a `MEM`-driver container) reports `access == "read_only"` by
         constructor default yet is a genuinely writable in-RAM handle that cannot spill
         a sidecar, so it is *not* blocked — that is the established
@@ -568,9 +569,10 @@ class RasterBase(ABC):
             - Map the top-left pixel corner and invert back:
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
-                >>> ds = Dataset.create_from_array(
-                ...     np.ones((4, 4)), top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> ds = Dataset.from_array(
+                ...     np.ones((4, 4)),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 4), cell_size=1.0, epsg=4326),
                 ... )
                 >>> ds.transform * (0, 0)
                 (0.0, 4.0)
@@ -610,9 +612,10 @@ class RasterBase(ABC):
             - The centre of the top-left cell of a unit grid at (0, 4):
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
-                >>> ds = Dataset.create_from_array(
-                ...     np.ones((4, 4)), top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> ds = Dataset.from_array(
+                ...     np.ones((4, 4)),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 4), cell_size=1.0, epsg=4326),
                 ... )
                 >>> ds.xy(0, 0)
                 (0.5, 3.5)
@@ -624,8 +627,9 @@ class RasterBase(ABC):
                 ```python
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
-                >>> ds = Dataset.create_from_array(
-                ...     np.ones((4, 4)), top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
+                >>> ds = Dataset.from_array(
+                ...     np.ones((4, 4)),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 4), cell_size=1.0, epsg=4326),
                 ... )
                 >>> xs, ys = ds.xy([0, 1], [0, 1])
                 >>> xs
@@ -689,9 +693,10 @@ class RasterBase(ABC):
             - The cell containing a point on a unit grid at (0, 4):
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
-                >>> ds = Dataset.create_from_array(
-                ...     np.ones((4, 4)), top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> ds = Dataset.from_array(
+                ...     np.ones((4, 4)),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 4), cell_size=1.0, epsg=4326),
                 ... )
                 >>> ds.rowcol(0.5, 3.5)
                 (0, 0)
@@ -703,8 +708,9 @@ class RasterBase(ABC):
                 ```python
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
-                >>> ds = Dataset.create_from_array(
-                ...     np.ones((4, 4)), top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
+                >>> ds = Dataset.from_array(
+                ...     np.ones((4, 4)),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 4), cell_size=1.0, epsg=4326),
                 ... )
                 >>> ds.rowcol(*ds.xy(3, 1))
                 (3, 1)
@@ -813,9 +819,10 @@ class RasterBase(ABC):
             - A plain raster has no subdatasets:
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
-                >>> ds = Dataset.create_from_array(
-                ...     np.zeros((2, 2)), top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> ds = Dataset.from_array(
+                ...     np.zeros((2, 2)),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
                 ... )
                 >>> ds.subdatasets
                 []
@@ -862,9 +869,10 @@ class RasterBase(ABC):
             - The default domain matches :attr:`meta_data` on a base ``Dataset``:
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
-                >>> ds = Dataset.create_from_array(
-                ...     np.zeros((2, 2)), top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> ds = Dataset.from_array(
+                ...     np.zeros((2, 2)),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
                 ... )
                 >>> ds.get_meta_data() == ds.meta_data
                 True
@@ -1006,9 +1014,10 @@ class RasterBase(ABC):
               once (MEM rasters expose full-width strip blocks):
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
-                >>> ds = Dataset.create_from_array(
-                ...     np.ones((5, 5)), top_left_corner=(0, 5), cell_size=1.0, epsg=4326,
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> ds = Dataset.from_array(
+                ...     np.ones((5, 5)),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 5), cell_size=1.0, epsg=4326),
                 ... )
                 >>> windows = list(ds.block_windows())
                 >>> sum(w.cols * w.rows for w in windows) == ds.rows * ds.columns
@@ -1020,8 +1029,9 @@ class RasterBase(ABC):
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
                 >>> from pyramids.dataset.window import Window
-                >>> ds = Dataset.create_from_array(
-                ...     np.ones((6, 6)), top_left_corner=(0, 6), cell_size=1.0, epsg=4326,
+                >>> ds = Dataset.from_array(
+                ...     np.ones((6, 6)),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 6), cell_size=1.0, epsg=4326),
                 ... )
                 >>> roi = Window(col_off=1, row_off=1, cols=3, rows=3)
                 >>> all(w.intersection(roi) == w for w in ds.block_windows(window=roi))
@@ -1087,10 +1097,11 @@ class RasterBase(ABC):
             - Stream a raster and rebuild it block-by-block:
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> src_arr = np.arange(25, dtype="float32").reshape(5, 5)
-                >>> ds = Dataset.create_from_array(
-                ...     src_arr, top_left_corner=(0, 5), cell_size=1.0, epsg=4326,
+                >>> ds = Dataset.from_array(
+                ...     src_arr,
+                ...     geo_ref=GeoReference(top_left_corner=(0, 5), cell_size=1.0, epsg=4326),
                 ... )
                 >>> rebuilt = np.zeros_like(src_arr)
                 >>> for w, block in ds.iter_blocks():
@@ -1304,42 +1315,47 @@ class RasterBase(ABC):
 
     @classmethod
     @abstractmethod
-    def create_from_array(
+    def from_array(
         cls,
         arr: np.ndarray,
-        geo: tuple[float, float, float, float, float, float],
-        bands_values: list | None = None,
-        epsg: str | int | None = 4326,
+        *,
+        geo_ref: GeoReference,
         no_data_value: Any | list = DEFAULT_NO_DATA_VALUE,
-        driver_type: str = "MEM",
-        path: str | None = None,
-        variable_name: str | None = None,
+        path: str | Path | None = None,
     ):
-        """Create dataset from array.
+        """Create a dataset from an array.
 
-            - Create_from_array method creates a `Dataset` from a given array and geotransform data.
+        These four parameters are the contract every concrete raster class
+        honours, so a caller holding the declared base type can build either a
+        :class:`~pyramids.dataset.Dataset` or a
+        :class:`~pyramids.netcdf.NetCDF` with the same call. A subclass may add
+        keyword-only parameters of its own (``NetCDF`` adds ``variable_name``,
+        ``dims``, ``encoding`` and ``attrs``), but it must keep accepting these
+        and must declare them — overriding with a bare ``*args, **kwargs`` hides
+        an incompatible signature from static checkers, which is how the two
+        constructors previously came to accept different keyword sets.
 
         Args:
             arr (np.ndarray):
-                Numpy array.
-            geo (Tuple[float, float, float, float, float, float]):
-                Geotransform tuple [minimum lon/x, pixel-size, rotation, maximum lat/y, rotation, pixel-size].
-            bands_values (List, optional):
-                Name of the bands to be used in the netcdf file. Default is None.
-            epsg (int | str, optional):
-                Integer reference number to the new projection (https://epsg.io/) (default 3857 the reference no of WGS84 web mercator). Default is 4326.
+                The array to wrap. A 2-D array is a single band; the leading
+                axis of a 3-D array indexes bands.
+            geo_ref (GeoReference):
+                How the array maps to space — an affine ``geo`` transform, or a
+                ``top_left_corner`` + ``cell_size``, plus the ``epsg``. Required
+                and keyword-only; a raster has to be placed somewhere.
             no_data_value (Any, optional):
-                No data value to mask the cells out of the domain. The default is -9999.
-            driver_type (str, optional):
-                Driver type ["GTiff", "MEM", "netcdf"]. Default is "MEM".
-            path (str, optional):
-                Path to save the driver.
-            variable_name (str, optional):
-                Name of the variable in the netcdf file. Default is None.
+                No data value to mask the cells out of the domain. The default
+                is -9999.
+            path (str | Path, optional):
+                Destination, which alone decides the driver. `None` (default)
+                builds the raster in memory; otherwise the extension selects the
+                format (``.tif`` -> GTiff, ``.nc`` -> netCDF, …).
 
         Returns:
             RasterBase:
-                Dataset object.
+                The newly created dataset. Concrete classes narrow this — see
+                :meth:`pyramids.dataset.Dataset.from_array` and
+                :meth:`pyramids.netcdf.NetCDF.from_array`.
         """
         pass
 

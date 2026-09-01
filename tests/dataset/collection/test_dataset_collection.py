@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset, DatasetCollection
 
 pytestmark = pytest.mark.core
@@ -228,11 +229,9 @@ class TestAlign:
             `ValueError` immediately rather than returning a `Delayed` that only
             fails when computed.
         """
-        ref = Dataset.create_from_array(
+        ref = Dataset.from_array(
             np.zeros((2, 3), dtype=np.float32),
-            top_left_corner=(0.0, 4.0),
-            cell_size=2.0,
-            epsg=4326,
+            geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=2.0, epsg=4326),
         )
         collection = DatasetCollection.from_files(three_files)
         with pytest.raises(ValueError, match="does not exist"):
@@ -247,11 +246,9 @@ class TestAlign:
             to calling `Dataset.align` per timestep. The `method` must still be
             forwarded, and every timestep must land on the reference's CRS.
         """
-        ref_4326 = Dataset.create_from_array(
+        ref_4326 = Dataset.from_array(
             np.zeros((2, 3), dtype=np.float32),
-            top_left_corner=(0.0, 4.0),
-            cell_size=2.0,
-            epsg=4326,
+            geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=2.0, epsg=4326),
         )
         ref = ref_4326.to_crs(
             "+proj=ortho +lat_0=0 +lon_0=0 +datum=WGS84 +units=m +no_defs"
@@ -453,11 +450,9 @@ def test_merge_instance_method_in_memory_collection(tmp_path: Path):
     up the staging directory before returning.
     """
     arr = np.zeros((4, 5), dtype=np.float32)
-    ds = Dataset.create_from_array(
+    ds = Dataset.from_array(
         arr,
-        top_left_corner=(0.0, 4.0),
-        cell_size=1.0,
-        epsg=4326,
+        geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326),
     )
     cube = DatasetCollection(ds, time_length=1)
     out = tmp_path / "merged_in_memory.tif"

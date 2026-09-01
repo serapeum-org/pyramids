@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.dataset.engines.io import (
     IO,
@@ -28,11 +29,10 @@ _GEO_3857 = (0.0, 30.0, 0.0, 6000000.0, 0.0, -30.0)
 def _dem_3857(no_data_value=None):
     """A small DEM already in EPSG:3857 (so no reprojection on encode)."""
     arr = np.array([[0.0, 100.0], [2000.0, 8848.0]], dtype="float32")
-    return Dataset.create_from_array(
+    return Dataset.from_array(
         arr=arr,
-        geo=_GEO_3857,
-        epsg=3857,
         no_data_value=no_data_value,
+        geo_ref=GeoReference(geo=_GEO_3857, epsg=3857),
     )
 
 
@@ -88,11 +88,10 @@ class TestToTerrainRgbNoData:
     def test_nodata_becomes_transparent(self, tmp_path):
         """A nodata cell becomes alpha 0; valid cells alpha 255 (RGBA output)."""
         arr = np.array([[0.0, -9999.0], [2000.0, 8848.0]], dtype="float32")
-        dem = Dataset.create_from_array(
+        dem = Dataset.from_array(
             arr=arr,
-            geo=_GEO_3857,
-            epsg=3857,
             no_data_value=-9999.0,
+            geo_ref=GeoReference(geo=_GEO_3857, epsg=3857),
         )
         out = dem.to_terrain_rgb(tmp_path / "n.png", tiles=False)
         count, bands = _read_bands(out)
@@ -112,11 +111,10 @@ class TestToTerrainRgbNoData:
     def test_reproject_preserves_nodata_transparency(self, tmp_path):
         """A 4326 source with nodata stays transparent after the warp to 3857."""
         arr = np.array([[100.0, -9999.0], [2000.0, 3000.0]], dtype="float32")
-        dem = Dataset.create_from_array(
+        dem = Dataset.from_array(
             arr=arr,
-            geo=(10.0, 0.01, 0.0, 47.0, 0.0, -0.01),
-            epsg=4326,
             no_data_value=-9999.0,
+            geo_ref=GeoReference(geo=(10.0, 0.01, 0.0, 47.0, 0.0, -0.01), epsg=4326),
         )
         out = dem.to_terrain_rgb(tmp_path / "rn.png", tiles=False)
         count, bands = _read_bands(out)
@@ -137,11 +135,10 @@ class TestToTerrainRgbOutputs:
     def test_reprojects_4326_source(self, tmp_path):
         """A non-3857 source is reprojected, not rejected."""
         arr = np.ones((4, 4), dtype="float32") * 500.0
-        dem = Dataset.create_from_array(
+        dem = Dataset.from_array(
             arr=arr,
-            geo=(10.0, 0.01, 0.0, 47.0, 0.0, -0.01),
-            epsg=4326,
             no_data_value=None,
+            geo_ref=GeoReference(geo=(10.0, 0.01, 0.0, 47.0, 0.0, -0.01), epsg=4326),
         )
         out = dem.to_terrain_rgb(tmp_path / "w.tif", tiles=False)
         assert "3857" in gdal.Open(str(out)).GetProjection(), "must reproject to 3857"
@@ -330,11 +327,10 @@ class TestToTerrainRgbClamping:
     def test_extreme_elevation_clamps_to_max(self, tmp_path):
         """An elevation above the encodable range writes the max RGB, not garbage."""
         arr = np.array([[1e9, 0.0]], dtype="float64").astype("float32")
-        dem = Dataset.create_from_array(
+        dem = Dataset.from_array(
             arr=arr,
-            geo=_GEO_3857,
-            epsg=3857,
             no_data_value=None,
+            geo_ref=GeoReference(geo=_GEO_3857, epsg=3857),
         )
         out = dem.to_terrain_rgb(tmp_path / "c.png", tiles=False)
         _, (r, g, b) = _read_bands(out)
@@ -384,11 +380,9 @@ class TestTilingSourcePreparation:
             overviews the tiler needs.
         """
         seen = self._capture_source(monkeypatch)
-        dem = Dataset.create_from_array(
+        dem = Dataset.from_array(
             arr=np.linspace(0.0, 8848.0, 600 * 600, dtype="float32").reshape(600, 600),
-            top_left_corner=(0.0, 6.0),
-            cell_size=0.01,
-            epsg=4326,
+            geo_ref=GeoReference(top_left_corner=(0.0, 6.0), cell_size=0.01, epsg=4326),
         )
         dem.to_terrain_rgb(tmp_path / "tiles", tiles=True, min_zoom=3, max_zoom=5)
         assert len(seen) == 1, f"expected one tiling call, got {len(seen)}"
@@ -404,10 +398,9 @@ class TestTilingSourcePreparation:
             full-resolution reads per tile.
         """
         seen = self._capture_source(monkeypatch)
-        dem = Dataset.create_from_array(
+        dem = Dataset.from_array(
             arr=np.linspace(0.0, 8848.0, 600 * 600, dtype="float32").reshape(600, 600),
-            geo=_GEO_3857,
-            epsg=3857,
+            geo_ref=GeoReference(geo=_GEO_3857, epsg=3857),
         )
         dem.to_terrain_rgb(tmp_path / "tiles", tiles=True, min_zoom=3, max_zoom=5)
         assert len(seen) == 1, f"expected one tiling call, got {len(seen)}"
@@ -502,10 +495,9 @@ class TestTilingScratchCleanup:
     @pytest.fixture(scope="function")
     def dem(self) -> Dataset:
         """A 600x600 EPSG:3857 DEM, big enough to warrant a pyramid."""
-        return Dataset.create_from_array(
+        return Dataset.from_array(
             arr=np.linspace(0.0, 8848.0, 600 * 600, dtype="float32").reshape(600, 600),
-            geo=_GEO_3857,
-            epsg=3857,
+            geo_ref=GeoReference(geo=_GEO_3857, epsg=3857),
         )
 
     def test_the_staged_source_is_removed_after_a_successful_run(self, dem, tmp_path):

@@ -21,7 +21,7 @@ def _make_nc(rows=20, cols=30, bands=5):
     """Create an in-memory NetCDF with a regular geographic grid."""
     arr = np.random.default_rng(42).random((bands, rows, cols)).astype(np.float64)
     geo = (30.0, 0.5, 0, 35.0, 0, -0.5)
-    nc = NetCDF.create_from_array(
+    nc = NetCDF.from_array(
         arr=arr,
         geo_ref=GeoReference(geo=geo, epsg=4326),
         no_data_value=-9999.0,
@@ -150,11 +150,10 @@ class TestWholeContainerCrop:
         """Create a container with two variables."""
         nc = _make_nc()
         arr2 = np.random.default_rng(99).random((5, 20, 30)).astype(np.float64)
-        ds2 = Dataset.create_from_array(
+        ds2 = Dataset.from_array(
             arr2,
-            geo=(30.0, 0.5, 0, 35.0, 0, -0.5),
-            epsg=4326,
             no_data_value=-9999.0,
+            geo_ref=GeoReference(geo=(30.0, 0.5, 0, 35.0, 0, -0.5), epsg=4326),
         )
         nc.set_variable("pressure", ds2)
         return nc
@@ -225,11 +224,10 @@ class TestWholeContainerResample:
             both should have smaller spatial dimensions.
         """
         nc = _make_nc()
-        ds2 = Dataset.create_from_array(
+        ds2 = Dataset.from_array(
             np.random.default_rng(99).random((5, 20, 30)),
-            geo=(30.0, 0.5, 0, 35.0, 0, -0.5),
-            epsg=4326,
             no_data_value=-9999.0,
+            geo_ref=GeoReference(geo=(30.0, 0.5, 0, 35.0, 0, -0.5), epsg=4326),
         )
         nc.set_variable("pressure", ds2)
         resampled = nc.resample(cell_size=1.0)

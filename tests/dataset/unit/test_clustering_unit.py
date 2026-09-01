@@ -9,6 +9,7 @@ connections).
 import numpy as np
 import pytest
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset.dataset import Dataset
 from pyramids.dataset.engines import Vectorize
 
@@ -24,11 +25,9 @@ def make_dataset():
     """
 
     def _make(arr: np.ndarray) -> Dataset:
-        return Dataset.create_from_array(
+        return Dataset.from_array(
             arr,
-            top_left_corner=(0, 0),
-            cell_size=1.0,
-            epsg=4326,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
         )
 
     return _make

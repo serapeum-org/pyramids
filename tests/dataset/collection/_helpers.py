@@ -11,6 +11,7 @@ import os
 
 import numpy as np
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset, DatasetCollection
 
 
@@ -30,13 +31,11 @@ def make_int16_collection(tmp_path, count: int = 2, no_data_value: int = -9999):
     for i in range(count):
         arr = np.arange(20, dtype="int16").reshape(4, 5) + 100 * i
         p = os.path.join(str(tmp_path), f"t{i}.tif")
-        Dataset.create_from_array(
+        Dataset.from_array(
             arr,
-            top_left_corner=(0, 0),
-            cell_size=0.05,
-            epsg=4326,
             no_data_value=no_data_value,
             path=p,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
         ).close()
         paths.append(p)
     return DatasetCollection.from_files(paths), paths

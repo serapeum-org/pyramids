@@ -1,7 +1,7 @@
 """Unit tests for the shared MDIM helpers in :mod:`pyramids.netcdf._mdim`.
 
 The helpers are thin wrappers over the GDAL multidimensional API. Happy paths are
-exercised against real in-memory MDIM datasets built with ``NetCDF.create_from_array``;
+exercised against real in-memory MDIM datasets built with ``NetCDF.from_array``;
 the orientation-probe branches of ``needs_y_flip`` (which depend on the derived
 geotransform sign) are covered with lightweight mocks for determinism.
 """
@@ -33,7 +33,7 @@ def mdim_dataset():
         (plus its ``x``/``y`` coordinate arrays), built north-up.
     """
     arr = np.arange(12, dtype=np.float32).reshape(3, 4)
-    nc = NetCDF.create_from_array(
+    nc = NetCDF.from_array(
         arr,
         geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
         variable_name="v",
@@ -58,7 +58,7 @@ class TestRootGroup:
         """An MDIM dataset yields its root group exposing the stored arrays.
 
         Test scenario:
-            A dataset built by ``create_from_array`` returns a non-None group whose
+            A dataset built by ``from_array`` returns a non-None group whose
             array names include the ``v`` variable.
         """
         rg = root_group(mdim_dataset)
@@ -155,7 +155,7 @@ class TestNeedsYFlip:
         """A north-up 2-D variable reports no flip needed.
 
         Test scenario:
-            ``create_from_array`` writes a north-up grid (negative Y pixel size), so the
+            ``from_array`` writes a north-up grid (negative Y pixel size), so the
             probe returns False.
         """
         rg = root_group(mdim_dataset)

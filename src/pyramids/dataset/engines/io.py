@@ -64,6 +64,8 @@ from pyramids.feature import FeatureCollection
 if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
 
+from pyramids.base.georeference import GeoReference
+from pyramids.dataset._driver import resolve_output_driver
 from pyramids.dataset.engines._base import _Engine
 from pyramids.dataset.engines._read_request import ReadRequest
 from pyramids.dataset.engines._read_strategies import READ_STRATEGIES
@@ -658,12 +660,13 @@ class IO(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> arr = np.random.rand(4, 5, 5)
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
-              >>> dataset = Dataset.create_from_array(
-              ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326,
+              >>> dataset = Dataset.from_array(
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
               ... )
 
               ```
@@ -718,8 +721,9 @@ class IO(_Engine["Dataset"]):
               >>> import numpy as np
               >>> from pyramids.dataset import Dataset
               >>> arr_int = np.arange(100, dtype="int16").reshape(10, 10)
-              >>> dataset_bbox = Dataset.create_from_array(
-              ...     arr_int, top_left_corner=(0, 0), cell_size=0.05, epsg=4326,
+              >>> dataset_bbox = Dataset.from_array(
+              ...     arr_int,
+              ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
               ... )
               >>> block = dataset_bbox.read_array(bbox=(0.1, -0.2, 0.2, -0.1))
               >>> block.shape
@@ -733,9 +737,9 @@ class IO(_Engine["Dataset"]):
               >>> import numpy as np
               >>> from pyramids.dataset import Dataset
               >>> from pyramids.feature import FeatureCollection
-              >>> dataset_x = Dataset.create_from_array(
+              >>> dataset_x = Dataset.from_array(
               ...     np.zeros((4, 5), dtype="int16"),
-              ...     top_left_corner=(0, 0), cell_size=0.05, epsg=4326,
+              ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
               ... )
               >>> fc = FeatureCollection.from_bbox((0.0, -0.1, 0.1, 0.0), epsg=4326)
               >>> try:
@@ -754,9 +758,10 @@ class IO(_Engine["Dataset"]):
               >>> import numpy as np
               >>> from pyramids.dataset import Dataset, Window
               >>> arr_b = np.arange(9, dtype="float32").reshape(3, 3)
-              >>> dataset_b = Dataset.create_from_array(
-              ...     arr_b, top_left_corner=(0, 3), cell_size=1.0, epsg=4326,
+              >>> dataset_b = Dataset.from_array(
+              ...     arr_b,
               ...     no_data_value=-9.0,
+              ...     geo_ref=GeoReference(top_left_corner=(0, 3), cell_size=1.0, epsg=4326),
               ... )
               >>> dataset_b.read_array(
               ...     band=0, window=Window(-1, -1, 2, 2), boundless=True
@@ -1636,11 +1641,11 @@ class IO(_Engine["Dataset"]):
             - Parallel reads match the sequential reads, in order:
                 ```python
                 >>> import numpy as np, tempfile, os
-                >>> from pyramids.dataset import Dataset, Window
+                >>> from pyramids.dataset import Dataset, GeoReference, Window
                 >>> path = os.path.join(tempfile.mkdtemp(), "r.tif")
-                >>> Dataset.create_from_array(
+                >>> Dataset.from_array(
                 ...     np.arange(64, dtype="float32").reshape(8, 8),
-                ...     top_left_corner=(0.0, 8.0), cell_size=1.0,
+                ...     geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0),
                 ... ).to_file(path)
                 >>> ds = Dataset.read_file(path)
                 >>> wins = [Window(0, 0, 4, 4), Window(4, 4, 4, 4)]
@@ -1722,13 +1727,15 @@ class IO(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np, os, tempfile
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> arr = np.random.rand(5, 5)
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
               >>> path = os.path.join(tempfile.mkdtemp(), 'write_array.tif')
-              >>> dataset = Dataset.create_from_array(
-              ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326, path=path
+              >>> dataset = Dataset.from_array(
+              ...     arr,
+              ...     path=path,
+              ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
               ... )
               >>> dataset = None
 
@@ -1754,8 +1761,9 @@ class IO(_Engine["Dataset"]):
               ```python
               >>> import numpy as np
               >>> from pyramids.dataset import Dataset, Window
-              >>> dataset = Dataset.create_from_array(
-              ...     np.zeros((5, 5)), top_left_corner=(0, 5), cell_size=1.0, epsg=4326
+              >>> dataset = Dataset.from_array(
+              ...     np.zeros((5, 5)),
+              ...     geo_ref=GeoReference(top_left_corner=(0, 5), cell_size=1.0, epsg=4326),
               ... )
               >>> dataset.write_array(np.ones((2, 2)), window=Window(1, 1, 2, 2))
               >>> dataset.read_array()[1:3, 1:3].tolist()
@@ -1873,11 +1881,14 @@ class IO(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> arr = np.random.rand(13, 14)
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
-              >>> dataset = Dataset.create_from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)
+              >>> dataset = Dataset.from_array(
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
+              ... )
               >>> df = dataset.get_block_arrangement(x_block_size=5, y_block_size=5)
               >>> print(df)
                  x_offset  y_offset  window_xsize  window_ysize
@@ -1932,7 +1943,16 @@ class IO(_Engine["Dataset"]):
 
         Args:
             path (str):
-                A path including the name of the dataset.
+                A path including the name of the dataset. Unless `driver` is
+                given, the extension alone selects the output format, matched
+                case-insensitively against the driver catalog (`.tif`/`.TIF` ->
+                GTiff, `.nc` and `.nc4` -> netCDF, `.asc` -> ASCII grid,
+                `.png` -> PNG, …). The write goes through `CreateCopy`, so a
+                write-by-copy-only format is accepted here even though the
+                `Create`-based constructors (`Dataset.from_array`,
+                `Dataset.create_empty`) refuse it — but such a format cannot be
+                reopened for update, so with `reopen=True` this dataset is
+                repointed at a read-only handle.
             band (int):
                 Band index, needed only in case of ascii drivers. Default is 0.
             tile_length (int, optional):
@@ -1990,16 +2010,44 @@ class IO(_Engine["Dataset"]):
                 never reopen (both write without swapping the source regardless
                 of this flag).
 
+        Returns:
+            Any: `None` when `compute=True` (default) — the file is already on
+            disk. When `compute=False`, a :class:`dask.delayed.Delayed` that
+            performs the write when `.compute()` is called on it.
+
+        Raises:
+            TypeError: `path` is neither a `str` nor a `Path`.
+            DriverNotExistError: `driver` is `None` and `path` has no extension,
+                or one the driver catalog does not know; or an explicit `driver`
+                is neither a catalog key nor a GDAL short name.
+            FailedToSaveError: The resolved driver refused the write.
+            pickle.PicklingError: `compute=False` on a dataset that is not on
+                disk (a `MEM` or `/vsimem/` source), which cannot be pickled
+                into a dask graph.
+
+        Warns:
+            DtypeNarrowingWarning: The resolved driver cannot store the band
+                dtype, so `CreateCopy` will convert it — a float32 raster
+                written to `.png` becomes 8-bit `Byte`, clipping out-of-range
+                values and dropping every fractional part. Writing 8-bit
+                imagery to PNG or JPEG is legitimate, so this warns rather than
+                raising; silence it with
+                `warnings.filterwarnings("ignore", category=DtypeNarrowingWarning)`
+                once the conversion is deliberate.
+
         Examples:
             - Create a Dataset with 4 bands, 5 rows, 5 columns, at the point lon/lat (0, 0):
 
               ```python
               >>> import numpy as np, os, tempfile
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> arr = np.random.rand(4, 5, 5)
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
-              >>> dataset = Dataset.create_from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)
+              >>> dataset = Dataset.from_array(
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
+              ... )
               >>> print(dataset.file_name)
               <BLANKLINE>
 
@@ -2022,8 +2070,9 @@ class IO(_Engine["Dataset"]):
               >>> import os, tempfile
               >>> import numpy as np
               >>> from pyramids.dataset import Dataset
-              >>> mem = Dataset.create_from_array(
-              ...     np.ones((4, 4), dtype="float32"), top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
+              >>> mem = Dataset.from_array(
+              ...     np.ones((4, 4), dtype="float32"),
+              ...     geo_ref=GeoReference(top_left_corner=(0, 4), cell_size=1.0, epsg=4326),
               ... )
               >>> out = os.path.join(tempfile.mkdtemp(), "kept.tif")
               >>> mem.to_file(out, reopen=False)
@@ -2122,10 +2171,10 @@ class IO(_Engine["Dataset"]):
             - Round-trip a raster through GTiff bytes:
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
-                >>> ds = Dataset.create_from_array(
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> ds = Dataset.from_array(
                 ...     np.ones((4, 4), dtype="float32"),
-                ...     top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
+                ...     geo_ref=GeoReference(top_left_corner=(0, 4), cell_size=1.0, epsg=4326),
                 ... )
                 >>> payload = ds.to_bytes()
                 >>> restored = Dataset.from_bytes(payload)
@@ -2138,9 +2187,9 @@ class IO(_Engine["Dataset"]):
                 ```python
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
-                >>> ds = Dataset.create_from_array(
+                >>> ds = Dataset.from_array(
                 ...     np.zeros((64, 64), dtype="float32"),
-                ...     top_left_corner=(0, 64), cell_size=1.0, epsg=4326,
+                ...     geo_ref=GeoReference(top_left_corner=(0, 64), cell_size=1.0, epsg=4326),
                 ... )
                 >>> small = ds.to_bytes(creation_options={"COMPRESS": "DEFLATE"})
                 >>> len(small) < len(ds.to_bytes())
@@ -2151,8 +2200,9 @@ class IO(_Engine["Dataset"]):
                 ```python
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
-                >>> ds = Dataset.create_from_array(
-                ...     np.ones((2, 2)), top_left_corner=(0, 2), cell_size=1.0, epsg=4326,
+                >>> ds = Dataset.from_array(
+                ...     np.ones((2, 2)),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 2), cell_size=1.0, epsg=4326),
                 ... )
                 >>> try:
                 ...     ds.to_bytes(driver="not-a-driver")
@@ -2276,11 +2326,14 @@ class IO(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> arr = np.random.rand(3, 5)
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
-              >>> dataset = Dataset.create_from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)
+              >>> dataset = Dataset.from_array(
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
+              ... )
               >>> tile_dimensions = list(dataset.io._tile_offsets(2))
               >>> print(tile_dimensions)
               [(0, 0, 2, 2), (2, 0, 2, 2), (4, 0, 1, 2), (0, 2, 2, 1), (2, 2, 2, 1), (4, 2, 1, 1)]
@@ -2362,10 +2415,10 @@ class IO(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset
-              >>> ds = Dataset.create_from_array(
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> ds = Dataset.from_array(
               ...     np.arange(25, dtype="int16").reshape(5, 5),
-              ...     top_left_corner=(0, 0), cell_size=0.05, epsg=4326,
+              ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
               ... )
               >>> doubled = ds.io.stream_transform(lambda tile: tile * 2, tile_size=2)
               >>> bool(np.array_equal(doubled.read_array(), ds.read_array() * 2))
@@ -2432,10 +2485,10 @@ class IO(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset
-              >>> ds = Dataset.create_from_array(
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> ds = Dataset.from_array(
               ...     np.arange(25, dtype="int16").reshape(5, 5),
-              ...     top_left_corner=(0, 0), cell_size=0.05, epsg=4326,
+              ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
               ... )
               >>> ds.io.stream_reduce(
               ...     lambda acc, strip, _w: acc + int((strip > 10).sum()), 0, strip_rows=2
@@ -2470,11 +2523,14 @@ class IO(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> arr = np.random.rand(3, 5)
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
-              >>> dataset = Dataset.create_from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)
+              >>> dataset = Dataset.from_array(
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
+              ... )
               >>> print(dataset)  # doctest: +NORMALIZE_WHITESPACE
               Top Left Corner: (0.0, 0.0)
               Cell size: 0.05
@@ -2605,10 +2661,11 @@ class IO(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> arr = np.arange(1, 101, dtype=np.float32).reshape(10, 10)
-              >>> dataset = Dataset.create_from_array(
-              ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+              >>> dataset = Dataset.from_array(
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
               ... )
               >>> result = dataset.map_blocks(lambda tile: tile * 2, tile_size=5)
               >>> print(result.read_array()[0, 0])
@@ -2695,11 +2752,14 @@ class IO(_Engine["Dataset"]):
                 assign a scale of 0.1 to the dataset.
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Dataset, GeoReference
                 >>> arr = np.array([[[1, 2], [3, 4]], [[5, 6], [7, 8]]])
                 >>> top_left_corner = (0, 0)
                 >>> cell_size = 0.05
-                >>> dataset = Dataset.create_from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size,epsg=4326)
+                >>> dataset = Dataset.from_array(
+                ...     arr,
+                ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
+                ... )
                 >>> print(dataset)  # doctest: +NORMALIZE_WHITESPACE
                 Top Left Corner: (0.0, 0.0)
                 Cell size: 0.05
@@ -2796,9 +2856,14 @@ class IO(_Engine["Dataset"]):
         encodable range are clamped, not wrapped.
 
         Args:
-            path: Destination. With ``tiles=False`` a single file (``.png`` ->
-                PNG, otherwise GeoTIFF); with ``tiles=True`` the root directory
-                of the ``{z}/{x}/{y}.png`` pyramid (created if missing).
+            path: Destination. With `tiles=False` a single file whose
+                extension alone selects the driver (`.png` -> PNG, `.jpg`
+                -> JPEG, `.tif` -> GTiff, …); the encoded bands are 8-bit, so
+                any 8-bit-capable format works, and the write is a
+                `CreateCopy`, so write-by-copy-only formats are accepted.
+                With `tiles=True` it is instead the root directory of the
+                `{z}/{x}/{y}.png` pyramid (created if missing) and no driver
+                is resolved from it.
             encoding: ``"mapbox"`` (default) or ``"terrarium"``,
                 case-insensitive.
             tiles: ``True`` (default) writes an XYZ PNG pyramid;
@@ -2836,6 +2901,9 @@ class IO(_Engine["Dataset"]):
             ValueError: ``encoding`` is not ``"mapbox"``/``"terrarium"``,
                 ``resampling`` is unknown, ``interval <= 0`` (mapbox),
                 ``min_zoom < 0``, or ``max_zoom < min_zoom``.
+            DriverNotExistError: `tiles=False` and `path` has no extension,
+                or one the driver catalog does not know.
+            FailedToSaveError: The resolved driver refused the write.
 
         Examples:
             - Encode a small DEM to a single terrain-RGB PNG (the write is
@@ -2843,10 +2911,10 @@ class IO(_Engine["Dataset"]):
 
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.dataset import Dataset
-                >>> dem = Dataset.create_from_array(
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> dem = Dataset.from_array(
                 ...     np.array([[0.0, 100.0], [2000.0, 8848.0]], dtype="float32"),
-                ...     top_left_corner=(0, 0), cell_size=0.01, epsg=4326,
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.01, epsg=4326),
                 ... )
                 >>> out = dem.to_terrain_rgb("dem.png", tiles=False)  # doctest: +SKIP
                 >>> out.name  # doctest: +SKIP
@@ -2975,7 +3043,7 @@ class IO(_Engine["Dataset"]):
         base_val: float,
         interval: float,
     ) -> Path:
-        """Write one RGB(A) terrain raster (PNG by ``.png`` suffix, else GeoTIFF)."""
+        """Write one RGB(A) terrain raster in the format its extension names."""
         elevation = np.asarray(source.read_array(band=band), dtype=float)
         stack = _terrain_rgba_stack(
             elevation,
@@ -2987,7 +3055,10 @@ class IO(_Engine["Dataset"]):
         mem = self._terrain_byte_dataset(
             stack, source.geotransform, source.raster.GetProjection()
         )
-        driver = "PNG" if path.suffix.lower() == ".png" else "GTiff"
+        # From the extension for every format, not just PNG: `.jpg` fell into
+        # the GTiff branch and wrote a GTiff named .jpg. `for_copy` because
+        # this writes with CreateCopy, which PNG and JPEG support.
+        driver = resolve_output_driver(path, for_copy=True)
         out = gdal.GetDriverByName(driver).CreateCopy(str(path), mem)
         if out is None:
             raise FailedToSaveError(
@@ -3354,11 +3425,14 @@ class IO(_Engine["Dataset"]):
             - Create a Dataset with 4 bands, 10 rows, 10 columns, at the point lon/lat (0, 0):
               ```python
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> arr = np.random.rand(4, 10, 10)
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
-              >>> dataset = Dataset.create_from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)
+              >>> dataset = Dataset.from_array(
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
+              ... )
 
               ```
             - Now, create overviews using the default parameters:
@@ -3765,7 +3839,7 @@ class IO(_Engine["Dataset"]):
             - Create `Dataset` consisting of 4 bands, 10 rows, 10 columns, at lon/lat (0, 0):
               ```python
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> arr = np.random.randint(1, 10, size=(4, 10, 10))
               >>> print(arr[0, :, :]) # doctest: +SKIP
               array([[6, 3, 3, 7, 4, 8, 4, 3, 8, 7],
@@ -3780,7 +3854,10 @@ class IO(_Engine["Dataset"]):
                      [9, 7, 2, 1, 4, 6, 1, 2, 3, 3]], dtype=int32)
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
-              >>> dataset = Dataset.create_from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)
+              >>> dataset = Dataset.from_array(
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
+              ... )
 
               ```
             - Now, create overviews using the default parameters and inspect them:
@@ -3843,7 +3920,7 @@ class IO(_Engine["Dataset"]):
         `OVERVIEW_LEVEL` open option and wrapped in a VRT, so no pixels are read and
         GDAL derives the scaled geotransform itself. Everything else is materialised
         into an in-memory `Dataset`, with the geotransform scaled here: a handle GDAL
-        cannot reopen by name (a `create_from_array` raster with no path, a `NetCDF`
+        cannot reopen by name (a `from_array` raster with no path, a `NetCDF`
         variable view), a name that no longer reopens to this grid, and any level GDAL
         refuses to describe.
 
@@ -3998,7 +4075,7 @@ class IO(_Engine["Dataset"]):
         """Copy the parent's per-band properties and dataset metadata onto a level.
 
         Neither backing path carries the band metadata on its own: GDAL's overview
-        dataset does not propagate it and `create_from_array` never sets it. Without it
+        dataset does not propagate it and `from_array` never sets it. Without it
         a packed raster — a `scale`/`offset` pair, the norm for Sentinel, Landsat and CF
         NetCDF — silently stops decoding to physical units the moment the overview is
         written out, and every band loses its name and units.
@@ -4141,18 +4218,19 @@ class IO(_Engine["Dataset"]):
         # had one. Handing the builder a list containing Nones coerces each None into a
         # real sentinel (nan), which invents a no-data the parent never had -- and a
         # parent may well declare it on some bands and not others.
-        overview = _Dataset.create_from_array(
+        # `epsg` alone is None for a CRS with no authority code (a geostationary
+        # grid, say), which would clear the projection outright.
+        overview = _Dataset.from_array(
             arr,
-            geo=scaled_geo,
-            # `epsg` alone is None for a CRS with no authority code (a geostationary
-            # grid, say), which would clear the projection outright.
-            epsg=crs_spec(self._ds.epsg, self._ds.crs),
+            geo_ref=GeoReference(
+                geo=scaled_geo, epsg=crs_spec(self._ds.epsg, self._ds.crs)
+            ),
             no_data_value=None,
         )
         for position, value in enumerate(parent_no_data):
             if value is not None:
                 overview.bands._change_no_data_value_attr(position, value)
-        # create_from_array hands back a "write" handle; label it like the VRT branch so
+        # from_array hands back a "write" handle; label it like the VRT branch so
         # one public method does not report two different access modes.
         overview._access = "read_only"
         return overview
@@ -4174,7 +4252,7 @@ class IO(_Engine["Dataset"]):
             - Create `Dataset` consisting of 4 bands, 10 rows, 10 columns, at lon/lat (0, 0):
               ```python
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, GeoReference
               >>> arr = np.random.randint(1, 10, size=(4, 10, 10))
               >>> print(arr[0, :, :])     # doctest: +SKIP
               array([[6, 3, 3, 7, 4, 8, 4, 3, 8, 7],
@@ -4189,7 +4267,10 @@ class IO(_Engine["Dataset"]):
                      [9, 7, 2, 1, 4, 6, 1, 2, 3, 3]], dtype=int32)
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
-              >>> dataset = Dataset.create_from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)
+              >>> dataset = Dataset.from_array(
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
+              ... )
 
               ```
             - Create overviews using the default parameters and read overview arrays:

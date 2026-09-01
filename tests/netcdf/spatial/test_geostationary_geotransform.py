@@ -179,8 +179,10 @@ class TestNonGeostationaryUnaffected:
         cell = 10.0 / 31
         geo = (10.0, cell, 0.0, 50.0, 0.0, -10.0 / 23)
         arr = np.zeros((24, 32), "f4")
-        container = NetCDF.create_from_array(
-            arr, geo_ref=GeoReference(geo=geo, epsg=4326), variable_name="t2m"
+        container = NetCDF.from_array(
+            arr,
+            geo_ref=GeoReference(geo=geo, epsg=4326),
+            variable_name="t2m",
         )
         cube = container.get_variable("t2m")
         assert cube._is_geostationary() is False

@@ -269,7 +269,8 @@ class TestGeostationaryContainerOps:
     """Container operations preserve the geostationary CRS via WKT (#706).
 
     A geostationary variable has ``.epsg is None``; the container fan-out that
-    rebuilds each variable through ``create_from_array(epsg=...)`` must carry the
+    rebuilds each variable through ``from_array(geo_ref=GeoReference(epsg=...))``
+    must carry the
     CRS through the WKT instead of crashing on the missing EPSG code.
     """
 
@@ -351,7 +352,7 @@ class TestNonGeostationaryEpsgUnaffected:
     def test_latlon_epsg_stays_4326(self):
         """A plain lat/lon NetCDF still reports its EPSG code."""
         arr = np.zeros((5, 6), "f4")
-        nc = NetCDF.create_from_array(
+        nc = NetCDF.from_array(
             arr,
             geo_ref=GeoReference(geo=(0, 1, 0, 5, 0, -1), epsg=4326),
             variable_name="t",
@@ -361,7 +362,7 @@ class TestNonGeostationaryEpsgUnaffected:
     def test_latlon_container_resample_unchanged(self):
         """A plain lat/lon container still resamples and keeps its EPSG code."""
         arr = np.zeros((6, 7), "f4")
-        nc = NetCDF.create_from_array(
+        nc = NetCDF.from_array(
             arr,
             geo_ref=GeoReference(geo=(0, 1, 0, 6, 0, -1), epsg=4326),
             variable_name="t",

@@ -15,6 +15,7 @@ from shapely.geometry import box
 
 from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.base._utils import import_dask_geopandas
+from pyramids.base.georeference import GeoReference
 from pyramids.base.protocols import LazySpatialObject, SpatialObject
 from pyramids.dataset import Dataset
 from pyramids.feature import FeatureCollection
@@ -44,14 +45,14 @@ def fc() -> FeatureCollection:
 def ds() -> Dataset:
     """A small in-memory Dataset in EPSG:32636."""
     src = Dataset.create(
-        cell_size=1000.0,
         rows=10,
         columns=10,
         dtype="float32",
         bands=1,
-        top_left_corner=(500000.0, 3410000.0),
-        epsg=32636,
         no_data_value=-9999.0,
+        geo_ref=GeoReference(
+            cell_size=1000.0, top_left_corner=(500000.0, 3410000.0), epsg=32636
+        ),
     )
     src.raster.GetRasterBand(1).WriteArray(np.ones((10, 10), dtype=np.float32))
     return src

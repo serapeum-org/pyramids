@@ -16,8 +16,10 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
+from pyramids.base._errors import DriverNotExistError, FileFormatNotSupportedError
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset, NoDataSentinelWarning, Window
-from pyramids.dataset.dataset import OUT_OF_CORE_CREATION_OPTIONS
+from pyramids.dataset.dataset import OUT_OF_CORE_CREATION_OPTIONS, _resolves_to_gtiff
 
 pytestmark = pytest.mark.core
 
@@ -29,15 +31,14 @@ class TestCreateEmpty:
         """An unwritten MEM raster has the configured shape and no-data metadata.
 
         Test scenario:
-            ``create_empty(4, 5, driver_type="MEM")`` allocates a 1-band 4x5 raster
-            whose cells are untouched. Shape and band count match the request and the
-            no-data sentinel is stamped on the band metadata. (This asserts the
-            *metadata* only — see ``test_mem_unwritten_cells_read_as_zero`` for the
-            distinct cell-contents behaviour of the MEM driver.)
+            ``create_empty(4, 5)`` with no ``path`` allocates a 1-band 4x5 MEM
+            raster whose cells are untouched. Shape and band count match the
+            request and the no-data sentinel is stamped on the band metadata.
+            (This asserts the *metadata* only — see
+            ``test_mem_unwritten_cells_read_as_zero`` for the distinct
+            cell-contents behaviour of the MEM driver.)
         """
-        ds = Dataset.create_empty(
-            4, 5, dtype="float32", no_data_value=-9999.0, driver_type="MEM"
-        )
+        ds = Dataset.create_empty(4, 5, dtype="float32", no_data_value=-9999.0)
         assert (ds.rows, ds.columns, ds.band_count) == (
             4,
             5,
@@ -57,9 +58,7 @@ class TestCreateEmpty:
             ``test_unwritten_block_reads_as_nodata``. This pins the cross-driver
             guarantee that unwritten cells are no-data, not 0.
         """
-        ds = Dataset.create_empty(
-            4, 4, dtype="float32", no_data_value=-9999.0, driver_type="MEM"
-        )
+        ds = Dataset.create_empty(4, 4, dtype="float32", no_data_value=-9999.0)
         whole = ds.read_array()
         assert np.all(np.isclose(whole, -9999.0)), (
             f"unwritten MEM cells should read as nodata -9999, got {np.unique(whole)}"
@@ -72,7 +71,7 @@ class TestCreateEmpty:
             Allocate empty, ``write_array(block, window=Window(1, 1, 2, 2))``, then read the
             same window — the values round-trip exactly.
         """
-        ds = Dataset.create_empty(4, 4, dtype="float32", driver_type="MEM")
+        ds = Dataset.create_empty(4, 4, dtype="float32")
         block = np.arange(4, dtype="float32").reshape(2, 2)
         ds.write_array(block, window=Window(1, 1, 2, 2))
         back = ds.read_array(window=[1, 1, 2, 2])
@@ -87,7 +86,13 @@ class TestCreateEmpty:
             end-to-end.
         """
         path = tmp_path / "empty.tif"
-        ds = Dataset.create_empty(64, 64, dtype="float32", epsg=3857, path=path)
+        ds = Dataset.create_empty(
+            64,
+            64,
+            dtype="float32",
+            path=path,
+            geo_ref=GeoReference(epsg=3857),
+        )
         block = np.full((8, 8), 5.0, dtype="float32")
         ds.write_array(block, window=Window(0, 0, 8, 8))
         del ds
@@ -107,7 +112,12 @@ class TestCreateEmpty:
         path = tmp_path / "geo.tif"
         geo = (100.0, 0.25, 0.0, 200.0, 0.0, -0.25)
         ds = Dataset.create_empty(
-            32, 48, dtype="int16", geo=geo, epsg=32636, no_data_value=-1.0, path=path
+            32,
+            48,
+            dtype="int16",
+            no_data_value=-1.0,
+            path=path,
+            geo_ref=GeoReference(geo=geo, epsg=32636),
         )
         del ds
         reopened = Dataset.read_file(str(path))
@@ -154,7 +164,11 @@ class TestCreateEmpty:
         path = tmp_path / "sparse_no_nodata.tif"
         with pytest.warns(NoDataSentinelWarning, match="read back as 0"):
             ds = Dataset.create_empty(
-                1024, 1024, dtype="float32", no_data_value=None, path=path
+                1024,
+                1024,
+                dtype="float32",
+                no_data_value=None,
+                path=path,
             )
         ds.write_array(np.ones((4, 4), dtype="float32"), window=Window(0, 0, 4, 4))
         del ds
@@ -176,9 +190,7 @@ class TestCreateEmpty:
         """
         with warnings.catch_warnings():
             warnings.simplefilter("error", NoDataSentinelWarning)
-            ds = Dataset.create_empty(
-                4, 4, dtype="float32", no_data_value=None, driver_type="MEM"
-            )
+            ds = Dataset.create_empty(4, 4, dtype="float32", no_data_value=None)
         assert ds.no_data_value[0] is None, (
             f"expected no sentinel, got {ds.no_data_value[0]}"
         )
@@ -224,7 +236,7 @@ class TestCreateEmpty:
             ``(0, 1, 0, 0, 0, -1)`` so a caller that only cares about pixel coordinates
             gets a sane identity grid.
         """
-        ds = Dataset.create_empty(3, 3, driver_type="MEM")
+        ds = Dataset.create_empty(3, 3)
         assert ds.geotransform == (
             0.0,
             1.0,
@@ -247,7 +259,12 @@ class TestCreateEmpty:
         """
         path = tmp_path / "multiband.tif"
         ds = Dataset.create_empty(
-            8, 8, bands=3, dtype="float32", no_data_value=-9999.0, path=path
+            8,
+            8,
+            bands=3,
+            dtype="float32",
+            no_data_value=-9999.0,
+            path=path,
         )
         assert ds.band_count == 3, f"expected 3 bands, got {ds.band_count}"
         ds.write_array(
@@ -275,12 +292,59 @@ class TestCreateEmpty:
         """Passing `options` with no `path` (MEM target) raises instead of dropping them.
 
         Test scenario:
-            GDAL creation options apply only to the disk/GTiff driver; the MEM driver
-            takes none. Supplying `options` with `driver_type="MEM"` (no path) must
-            raise rather than silently ignore the list.
+            GDAL creation options apply only to a disk driver; the MEM driver takes
+            none. Omitting `path` is what selects MEM, so supplying `options`
+            alongside must raise rather than silently ignore the list.
         """
-        with pytest.raises(ValueError, match="apply only to the disk/GTiff driver"):
-            Dataset.create_empty(4, 4, driver_type="MEM", options=["TILED=YES"])
+        with pytest.raises(ValueError, match="apply only to a disk driver"):
+            Dataset.create_empty(4, 4, options=["TILED=YES"])
+
+    def test_a_non_gtiff_disk_target_gets_no_gtiff_creation_options(self, tmp_path):
+        """A `.nc` destination is built without the GTiff-only defaults.
+
+        Args:
+            tmp_path: Temporary directory fixture.
+
+        Test scenario:
+            The tiled / sparse / BigTIFF defaults are GTiff creation options.
+            While the driver was passed down explicitly, "a path was given"
+            implied GTiff and gating on it was harmless; now the extension
+            decides, so a `.nc` path really is netCDF and handing it TILED /
+            SPARSE_OK / BIGTIFF would be wrong. Nothing pinned this.
+        """
+        out = tmp_path / "empty.nc"
+        ds = Dataset.create_empty(4, 4, dtype="float32", path=out)
+        assert ds.raster.GetDriver().ShortName == "netCDF", (
+            f"expected netCDF, got {ds.raster.GetDriver().ShortName}"
+        )
+        ds.close()
+        assert out.exists(), f"{out} was not created"
+        assert out.stat().st_size > 0, f"{out} is empty"
+
+    def test_a_non_gtiff_disk_target_does_not_warn_about_sparse_blocks(
+        self, tmp_path, recwarn
+    ):
+        """`no_data_value=None` on a `.nc` target does not cite sparse GTiff blocks.
+
+        Args:
+            tmp_path: Temporary directory fixture.
+            recwarn: Pytest's warning recorder.
+
+        Test scenario:
+            The warning explains that unwritten *sparse* blocks read back as 0,
+            which is true only of a sparse GTiff. Firing it for netCDF stated a
+            reason that does not apply to the file being written.
+        """
+        Dataset.create_empty(
+            4, 4, dtype="float32", no_data_value=None, path=tmp_path / "e.nc"
+        )
+        sentinel_warnings = [
+            w for w in recwarn if issubclass(w.category, NoDataSentinelWarning)
+        ]
+        assert not sentinel_warnings, (
+            f"a netCDF target must not warn about sparse blocks: "
+            f"{[str(w.message) for w in sentinel_warnings]}"
+        )
 
     def test_sparse_allocation_is_small_on_disk(self, tmp_path: Path):
         """A large empty sparse GTiff costs almost no disk before any write.
@@ -302,17 +366,20 @@ class TestCreateEmpty:
             f"{materialised / 1e6:.0f} MB — SPARSE_OK is not in effect"
         )
 
-    def test_gtiff_without_path_raises(self):
-        """``create_empty`` with the default GTiff driver but no path raises ValueError.
+    def test_no_path_allocates_in_memory(self):
+        """``create_empty(rows, cols)`` with no path allocates a MEM raster.
 
         Test scenario:
-            ``create_empty(rows, cols)`` defaults to ``driver_type="GTiff"`` but with no
-            ``path`` the underlying driver would silently fall back to MEM and drop the
-            tiled / sparse / BigTIFF options. The method must reject that combination
-            loudly rather than hand back a surprising in-memory raster.
+            There is no `driver_type` to contradict `path` any more, so the
+            combination the old guard rejected is unrepresentable: no path means
+            in-memory, full stop. The tiled / sparse / BigTIFF options that guard
+            protected are covered by `test_options_without_path_raises`, which
+            checks the invariant that actually matters — options need a path.
         """
-        with pytest.raises(ValueError, match="needs a path"):
-            Dataset.create_empty(4, 4)
+        ds = Dataset.create_empty(4, 4)
+        assert ds.raster.GetDriver().ShortName == "MEM", (
+            f"no path must allocate in memory, got {ds.raster.GetDriver().ShortName}"
+        )
 
     @pytest.mark.slow
     def test_bigtiff_past_4gb_ceiling(self, tmp_path: Path):
@@ -379,12 +446,10 @@ class TestEmptyLike:
         Returns:
             Dataset: 3 x 4 x 5 in-memory raster at EPSG:4326, nodata -9999.
         """
-        return Dataset.create_from_array(
+        return Dataset.from_array(
             np.ones((3, 4, 5), dtype="float32"),
-            top_left_corner=(0.0, 10.0),
-            cell_size=0.5,
-            epsg=4326,
             no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 10.0), cell_size=0.5, epsg=4326),
         )
 
     def test_copies_template_footprint(self, template: Dataset):
@@ -435,12 +500,10 @@ class TestEmptyLike:
             bands, losing the per-band values.
         """
         arr = np.ones((3, 4, 5), dtype="float32")
-        template = Dataset.create_from_array(
+        template = Dataset.from_array(
             arr,
-            top_left_corner=(0.0, 10.0),
-            cell_size=0.5,
-            epsg=4326,
             no_data_value=[-1.0, -2.0, -3.0],
+            geo_ref=GeoReference(top_left_corner=(0.0, 10.0), cell_size=0.5, epsg=4326),
         )
         out = Dataset.empty_like(template)
         assert list(out.no_data_value) == pytest.approx([-1.0, -2.0, -3.0]), (
@@ -513,30 +576,140 @@ class TestEmptyLike:
             [7.0, 7.0],
         ], f"empty_like disk window did not round-trip: {back}"
 
+    def test_options_without_path_raises(self, template):
+        """`options` with no `path` raises instead of being silently dropped.
+
+        Args:
+            template: The template raster fixture.
+
+        Test scenario:
+            The MEM target takes no creation options, so accepting them would
+            drop the caller's list without a word. `create_empty` pins its own
+            copy of this guard; `empty_like`'s twin was unpinned, which is how
+            its message drifted out of step.
+        """
+        with pytest.raises(ValueError, match="apply only to a disk driver"):
+            Dataset.empty_like(template, options=["TILED=YES"])
+
+    def test_a_non_gtiff_target_does_not_warn_about_sparse_blocks(
+        self, template, tmp_path, recwarn
+    ):
+        """A `.nc` target with no no-data does not cite sparse blocks.
+
+        Args:
+            template: The template raster fixture.
+            tmp_path: Temporary directory fixture.
+            recwarn: Pytest's warning recorder.
+
+        Test scenario:
+            The warning explains that unwritten *sparse* blocks read back as 0,
+            which only a sparse GTiff does. `empty_like` gated it on "a path was
+            given", which meant a netCDF got a warning whose stated reason does
+            not apply to it.
+        """
+        Dataset.empty_like(
+            template, no_data_value=None, path=tmp_path / "like.nc"
+        ).close()
+        sentinel = [w for w in recwarn if issubclass(w.category, NoDataSentinelWarning)]
+        assert not sentinel, (
+            f"a netCDF target must not warn about sparse blocks: "
+            f"{[str(w.message) for w in sentinel]}"
+        )
+
+
+class TestCreateDatasetGuard:
+    """The low-level allocator's own options-without-path guard."""
+
+    def test_options_without_path_raises(self):
+        """`_create_dataset` refuses creation options for an in-memory raster.
+
+        Test scenario:
+            `create_empty` and `empty_like` each guard this before delegating,
+            so the allocator's own check is the backstop for any other caller
+            reaching it directly. It was the one branch of the reworked
+            creation-option selection that no test exercised.
+        """
+        with pytest.raises(ValueError, match="creation options need a path"):
+            Dataset._create_dataset(4, 4, 1, gdal.GDT_Float32, options=["TILED=YES"])
+
+
+class TestResolvesToGtiff:
+    """The shared "does this path select GTiff" predicate."""
+
+    @pytest.mark.parametrize(
+        "path, expected",
+        [
+            (None, False),
+            ("out.tif", True),
+            ("out.tiff", True),
+            ("out.TIF", True),
+            ("out.nc", False),
+            ("out.img", False),
+            (Path("out.tif"), True),
+        ],
+        ids=["none", "tif", "tiff", "upper", "nc", "img", "path-object"],
+    )
+    def test_only_a_gtiff_path_is_true(self, path, expected):
+        """Only a path whose extension resolves to GTiff is true.
+
+        Args:
+            path: The destination under test.
+            expected: Whether it selects GTiff.
+
+        Test scenario:
+            This predicate gates the sparse / tiled / BigTIFF creation options
+            and the unwritten-block no-data warning, both GTiff-specific. It
+            replaced a hardcoded `path is not None`, which conflated "written to
+            disk" with "written as GTiff" -- true only while the driver was
+            passed down explicitly.
+        """
+        assert _resolves_to_gtiff(path) is expected, (
+            f"_resolves_to_gtiff({path!r}) should be {expected}"
+        )
+
+    @pytest.mark.parametrize(
+        "path, error",
+        [("out.zzz", DriverNotExistError), ("out.vrt", FileFormatNotSupportedError)],
+        ids=["unknown-extension", "not-buildable"],
+    )
+    def test_an_unusable_extension_propagates_the_error(self, path, error):
+        """An unusable extension raises rather than answering False.
+
+        Args:
+            path: The destination under test.
+            error: The exception the resolver raises for it.
+
+        Test scenario:
+            Swallowing the error and returning False would silently skip the
+            GTiff option set for a path that is going to fail moments later in
+            the allocator anyway -- better to surface the real problem here.
+            `.vrt` is the second case: GDAL reports DCAP_CREATE for VRT, but a
+            VRT owns no pixel storage, so the catalog refuses it up front.
+        """
+        with pytest.raises(error):
+            _resolves_to_gtiff(path)
+
 
 class TestCreateOptionsBackCompat:
     """The new ``options`` threading must not change existing factory output."""
 
-    def test_create_from_array_unchanged_default_compression(self, tmp_path: Path):
-        """``create_from_array`` to disk still uses LZW (the historical default).
+    def test_from_array_unchanged_default_compression(self, tmp_path: Path):
+        """``from_array`` to disk still uses LZW (the historical default).
 
         Test scenario:
-            With no ``options`` passed anywhere, a disk-backed ``create_from_array``
+            With no ``options`` passed anywhere, a disk-backed ``from_array``
             keeps the historical ``COMPRESS=LZW`` creation option — the new ``options``
             parameter defaults to None and must not perturb existing callers.
         """
         path = tmp_path / "compat.tif"
-        Dataset.create_from_array(
+        Dataset.from_array(
             np.ones((4, 4), dtype="float32"),
-            top_left_corner=(0.0, 0.0),
-            cell_size=1.0,
-            epsg=4326,
-            driver_type="GTiff",
             path=str(path),
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
         )
         info = gdal.Info(str(path))
         assert "COMPRESSION=LZW" in info.upper(), (
-            f"existing create_from_array compression changed, gdalinfo:\n{info}"
+            f"existing from_array compression changed, gdalinfo:\n{info}"
         )
 
     def test_out_of_core_option_set_shape(self):

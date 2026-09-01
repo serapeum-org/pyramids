@@ -16,6 +16,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
+from pyramids.base.georeference import GeoReference
 from pyramids.base.remote import CloudConfig
 from pyramids.dataset import Dataset, cog
 from pyramids.dataset.cog.validate import _fallback_validate
@@ -31,8 +32,9 @@ def small_float_dataset() -> Dataset:
         Dataset: In-memory dataset with deterministic ramp values.
     """
     arr = np.arange(64 * 64, dtype=np.float32).reshape(64, 64)
-    return Dataset.create_from_array(
-        arr, top_left_corner=(0.0, 0.0), cell_size=0.001, epsg=4326
+    return Dataset.from_array(
+        arr,
+        geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.001, epsg=4326),
     )
 
 

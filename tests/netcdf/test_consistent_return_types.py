@@ -54,7 +54,7 @@ def _make_2d_nc(rows=10, cols=12, variable_name="elevation"):
     """
     arr = np.random.default_rng(99).random((rows, cols)).astype(np.float64)
     geo = (30.0, 1.0, 0, 40.0, 0, -1.0)
-    nc = NetCDF.create_from_array(
+    nc = NetCDF.from_array(
         arr=arr,
         geo_ref=GeoReference(geo=geo, epsg=4326),
         no_data_value=-9999.0,
@@ -71,11 +71,10 @@ def _make_multi_var_nc():
     """
     nc = _make_3d_nc(variable_name="temperature")
     arr2 = np.random.default_rng(7).random((4, 10, 12)).astype(np.float64)
-    ds2 = Dataset.create_from_array(
+    ds2 = Dataset.from_array(
         arr2,
-        geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
-        epsg=4326,
         no_data_value=-9999.0,
+        geo_ref=GeoReference(geo=(30.0, 1.0, 0, 40.0, 0, -1.0), epsg=4326),
     )
     ds2._band_dim_name = "time"
     ds2._band_dim_values = [0, 6, 12, 18]
@@ -123,15 +122,14 @@ class TestPreserveNetcdfMetadata:
         """_preserve_netcdf_metadata wraps a plain Dataset as NetCDF.
 
         Test scenario:
-            A Dataset created via create_from_array is wrapped into
+            A Dataset created via from_array is wrapped into
             a NetCDF with the source variable's metadata copied.
         """
         arr = np.random.default_rng(0).random((4, 5, 5))
-        ds = Dataset.create_from_array(
+        ds = Dataset.from_array(
             arr,
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
-            epsg=4326,
             no_data_value=-9999.0,
+            geo_ref=GeoReference(geo=(30.0, 1.0, 0, 40.0, 0, -1.0), epsg=4326),
         )
         wrapped = var_3d._preserve_netcdf_metadata(ds)
         assert isinstance(wrapped, NetCDF), (
@@ -158,10 +156,9 @@ class TestPreserveNetcdfMetadata:
             wrapped result must have the same value.
         """
         arr = np.random.default_rng(0).random((4, 5, 5))
-        ds = Dataset.create_from_array(
+        ds = Dataset.from_array(
             arr,
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
-            epsg=4326,
+            geo_ref=GeoReference(geo=(30.0, 1.0, 0, 40.0, 0, -1.0), epsg=4326),
         )
         wrapped = var_3d._preserve_netcdf_metadata(ds)
         assert wrapped._band_dim_name == var_3d._band_dim_name, (
@@ -177,10 +174,9 @@ class TestPreserveNetcdfMetadata:
             the wrapped result must carry the same list.
         """
         arr = np.random.default_rng(0).random((4, 5, 5))
-        ds = Dataset.create_from_array(
+        ds = Dataset.from_array(
             arr,
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
-            epsg=4326,
+            geo_ref=GeoReference(geo=(30.0, 1.0, 0, 40.0, 0, -1.0), epsg=4326),
         )
         wrapped = var_3d._preserve_netcdf_metadata(ds)
         assert wrapped._band_dim_values == var_3d._band_dim_values, (
@@ -195,10 +191,9 @@ class TestPreserveNetcdfMetadata:
             Variable attributes dict from the source is copied.
         """
         arr = np.random.default_rng(0).random((4, 5, 5))
-        ds = Dataset.create_from_array(
+        ds = Dataset.from_array(
             arr,
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
-            epsg=4326,
+            geo_ref=GeoReference(geo=(30.0, 1.0, 0, 40.0, 0, -1.0), epsg=4326),
         )
         wrapped = var_3d._preserve_netcdf_metadata(ds)
         assert wrapped._variable_attrs == var_3d._variable_attrs, (
@@ -215,10 +210,9 @@ class TestPreserveNetcdfMetadata:
         var_3d._scale = 0.01
         var_3d._offset = 273.15
         arr = np.random.default_rng(0).random((4, 5, 5))
-        ds = Dataset.create_from_array(
+        ds = Dataset.from_array(
             arr,
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
-            epsg=4326,
+            geo_ref=GeoReference(geo=(30.0, 1.0, 0, 40.0, 0, -1.0), epsg=4326),
         )
         wrapped = var_3d._preserve_netcdf_metadata(ds)
         assert wrapped._scale == pytest.approx(0.01), (
@@ -236,10 +230,9 @@ class TestPreserveNetcdfMetadata:
             as the source.
         """
         arr = np.random.default_rng(0).random((4, 5, 5))
-        ds = Dataset.create_from_array(
+        ds = Dataset.from_array(
             arr,
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
-            epsg=4326,
+            geo_ref=GeoReference(geo=(30.0, 1.0, 0, 40.0, 0, -1.0), epsg=4326),
         )
         wrapped = var_3d._preserve_netcdf_metadata(ds)
         assert wrapped._is_subset == var_3d._is_subset, (
@@ -254,10 +247,9 @@ class TestPreserveNetcdfMetadata:
             as the source.
         """
         arr = np.random.default_rng(0).random((4, 5, 5))
-        ds = Dataset.create_from_array(
+        ds = Dataset.from_array(
             arr,
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
-            epsg=4326,
+            geo_ref=GeoReference(geo=(30.0, 1.0, 0, 40.0, 0, -1.0), epsg=4326),
         )
         wrapped = var_3d._preserve_netcdf_metadata(ds)
         assert wrapped._is_md_array == var_3d._is_md_array, (
@@ -272,10 +264,9 @@ class TestPreserveNetcdfMetadata:
             so they must be cleared on the wrapped result.
         """
         arr = np.random.default_rng(0).random((4, 5, 5))
-        ds = Dataset.create_from_array(
+        ds = Dataset.from_array(
             arr,
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
-            epsg=4326,
+            geo_ref=GeoReference(geo=(30.0, 1.0, 0, 40.0, 0, -1.0), epsg=4326),
         )
         wrapped = var_3d._preserve_netcdf_metadata(ds)
         assert wrapped._gdal_md_arr_ref is None, (

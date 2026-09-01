@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset, cog
 from tests.dataset.cog.conftest import COG_GEOTRANSFORM
 
@@ -24,7 +25,9 @@ def byte_dataset() -> Dataset:
         Dataset: An in-memory uint8 dataset.
     """
     arr = (np.arange(32 * 32) % 5).astype("uint8").reshape(32, 32)
-    return Dataset.create_from_array(arr, geo=COG_GEOTRANSFORM, epsg=4326)
+    return Dataset.from_array(
+        arr, geo_ref=GeoReference(geo=COG_GEOTRANSFORM, epsg=4326)
+    )
 
 
 class TestMetadataForwarding:
@@ -121,7 +124,9 @@ class TestMetadataForwarding:
             a cryptic GDAL CreateCopy error.
         """
         arr = np.random.default_rng(1).random((32, 32)).astype("float32")
-        ds = Dataset.create_from_array(arr, geo=COG_GEOTRANSFORM, epsg=4326)
+        ds = Dataset.from_array(
+            arr, geo_ref=GeoReference(geo=COG_GEOTRANSFORM, epsg=4326)
+        )
         tags = cog.Tags(colormap={0: (1, 2, 3, 255)})
         with pytest.raises(
             ValueError, match="colormap is only supported on Byte/UInt16"
@@ -146,7 +151,9 @@ class TestMetadataForwarding:
             the colormap write succeeds and round-trips.
         """
         arr = (np.arange(32 * 32) % 4).astype("float32").reshape(32, 32)
-        ds = Dataset.create_from_array(arr, geo=COG_GEOTRANSFORM, epsg=4326)
+        ds = Dataset.from_array(
+            arr, geo_ref=GeoReference(geo=COG_GEOTRANSFORM, epsg=4326)
+        )
         out = ds.to_cog(
             tmp_path / "cast_cmap.tif",
             bands=cog.BandSelection(out_dtype="uint8"),

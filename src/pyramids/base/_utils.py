@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Sequence
+from functools import cache
 from pathlib import Path
 from typing import Any, cast
 
@@ -585,6 +586,89 @@ def gdal_to_ogr_dtype(src: Dataset, band: int = 1):
     return int(matched)
 
 
+@cache
+def _build_catalog(raster_driver: bool) -> Catalog:
+    """Build (once) the catalog for one driver family.
+
+    Positional-only in practice: `get_catalog` always calls it the same way, so
+    the cache cannot be split by call spelling.
+
+    Args:
+        raster_driver: `True` for the GDAL raster catalog, `False` for OGR.
+
+    Returns:
+        Catalog: The single instance for that family.
+    """
+    return Catalog(raster_driver=raster_driver)
+
+
+def get_catalog(raster_driver: bool = True) -> Catalog:
+    """Return the process-wide driver catalog, building it on first use.
+
+    `Catalog.__init__` opens and parses a YAML file, which costs ~17 ms. Three
+    modules need one, and building three meant parsing the raster table twice.
+    Cached rather than assigned at import so nothing pays the cost until a
+    driver is actually looked up.
+
+    The result is shared, and `Catalog` exposes no mutators -- but it holds the
+    plain dict `yaml.safe_load` returned, so a caller that reaches into
+    `.drivers` and edits it changes what every other consumer sees. Treat it as
+    read-only.
+
+    The two families are cached separately (`maxsize=2`), so a raster lookup
+    never forces a re-parse of the vector table or the reverse.
+
+    Args:
+        raster_driver: `True` (default) for the GDAL raster catalog, `False`
+            for the OGR vector one.
+
+    Returns:
+        Catalog: The shared instance for that driver family.
+
+    Examples:
+        - Look a raster extension up through the shared catalog:
+            ```python
+            >>> from pyramids.base._utils import get_catalog
+            >>> catalog = get_catalog()
+            >>> catalog.get_driver_name_by_extension("tif")
+            'geotiff'
+            >>> catalog.get_gdal_name("geotiff")
+            'GTiff'
+
+            ```
+        - Every caller gets the same object, so the YAML is parsed once:
+            ```python
+            >>> from pyramids.base._utils import get_catalog
+            >>> get_catalog() is get_catalog()
+            True
+
+            ```
+        - The vector family is a separate catalog with its own entries:
+            ```python
+            >>> from pyramids.base._utils import get_catalog
+            >>> vector = get_catalog(raster_driver=False)
+            >>> vector.get_driver_name_by_extension("geojson")
+            'geojson'
+            >>> vector.get_gdal_name("esri shapefile")
+            'ESRI Shapefile'
+            >>> vector is get_catalog()
+            False
+
+            ```
+
+    See Also:
+        - :class:`Catalog`: The catalog itself; construct one directly only when
+          an unshared, mutable copy is genuinely needed.
+    """
+    # Delegated rather than cached here: `lru_cache` keys on the *call form*,
+    # so `get_catalog()`, `get_catalog(True)` and `get_catalog(raster_driver=True)`
+    # were three separate entries for one catalog -- and with the old maxsize=2
+    # a third spelling evicted the first, silently re-parsing the YAML and
+    # returning a different object. The "process-wide, shared" guarantee the
+    # docstring makes only holds if the key is normalised.
+    return _build_catalog(bool(raster_driver))
+
+
 class Catalog:
     """Data Catalog."""
 
@@ -605,7 +689,19 @@ class Catalog:
         return gdal_catalog
 
     def get_driver(self, driver: str):
-        """Get Driver data from the catalog."""
+        """Get Driver data from the catalog.
+
+        Args:
+            driver (str): The catalog key (e.g. `"geotiff"`).
+
+        Returns:
+            dict | None: The driver's entry, or `None` when the key is unknown.
+
+        Warning:
+            The returned dict is the catalog's own, and the catalog is shared
+            process-wide by :func:`get_catalog`. Mutating it changes what every
+            other consumer sees. Treat it as read-only.
+        """
         return self.drivers.get(driver)
 
     def get_gdal_name(self, driver: str):
@@ -616,24 +712,106 @@ class Catalog:
     def get_driver_name_by_extension(self, extension: str):
         """Get driver by extension.
 
+        Matches the driver's canonical `extension` or any of its `aliases` —
+        further spellings of the same format (`tiff` for GTiff, `jpg` for
+        JPEG). Without them, sibling spellings of one format resolved
+        differently: `.tif` worked while `.tiff` raised `DriverNotExistError`,
+        and `.jpeg` reported "cannot create" while `.jpg` reported "unknown
+        format".
+
+        An entry is matched on its `aliases` even when it declares no canonical
+        `extension`, so an alias-only row is reachable.
+
         Args:
-            extension (str): Extension of the file.
+            extension (str): Extension of the file, without the leading dot and already
+                lower-cased (`"tif"`, not `".TIF"`). Matched against each entry's canonical
+                `extension` first, then against its `aliases` list. Must be a non-empty
+                string: an empty value (or `None`) is rejected rather than matched, because
+                the catalog holds rows whose `extension` is null and a falsy argument would
+                otherwise resolve to whichever of them comes first.
 
         Returns:
-            str: Driver name.
+            str: The catalog key for the driver (e.g. `"geotiff"`), not the GDAL short name —
+                pass it to :meth:`get_driver` or :meth:`get_gdal_name` to go further.
+
+        Raises:
+            DriverNotExistError: `extension` is empty or `None`, or no driver claims it.
+
+        Examples:
+            - The canonical extension resolves to its catalog key:
+                ```python
+                >>> from pyramids.base._utils import Catalog
+                >>> catalog = Catalog(raster_driver=True)
+                >>> catalog.get_driver_name_by_extension("tif")
+                'geotiff'
+                >>> catalog.get_gdal_name(catalog.get_driver_name_by_extension("tif"))
+                'GTiff'
+
+                ```
+            - An alias resolves to the same driver as the canonical spelling:
+                ```python
+                >>> from pyramids.base._utils import Catalog
+                >>> catalog = Catalog(raster_driver=True)
+                >>> catalog.get_driver_name_by_extension("tiff")
+                'geotiff'
+                >>> catalog.get_driver_name_by_extension("jpg") == catalog.get_driver_name_by_extension("jpeg")
+                True
+
+                ```
+            - An extension no entry claims is refused:
+                ```python
+                >>> from pyramids.base._errors import DriverNotExistError
+                >>> from pyramids.base._utils import Catalog
+                >>> catalog = Catalog(raster_driver=True)
+                >>> try:
+                ...     catalog.get_driver_name_by_extension("xyzzy")
+                ... except DriverNotExistError as error:
+                ...     print(str(error).split(" is not")[0])
+                The given extension: xyzzy
+
+                ```
+            - An empty extension is refused instead of matching a null-extension entry:
+                ```python
+                >>> from pyramids.base._errors import DriverNotExistError
+                >>> from pyramids.base._utils import Catalog
+                >>> catalog = Catalog(raster_driver=True)
+                >>> try:
+                ...     catalog.get_driver_name_by_extension("")
+                ... except DriverNotExistError as error:
+                ...     print(str(error).split(";")[0])
+                An empty extension is not associated with any driver
+
+                ```
+
+        See Also:
+            - :meth:`get_driver_by_extension`: The same lookup, returning the driver entry.
+            - :meth:`get_extension`: The inverse — the canonical extension for a catalog key.
         """
+        # Guard the *argument*, not the row. Dropping the old per-row
+        # `extension is not None` check is what lets a row carrying only
+        # `aliases` be found at all, but it would also let a `None` argument
+        # match the null-extension `memory` row by `None == None` -- a lookup
+        # for nothing resolving to the in-memory driver.
+        if not extension:
+            raise DriverNotExistError(
+                "An empty extension is not associated with any driver; pass the "
+                "file extension to look up."
+            )
         try:
             key = next(
                 key
                 for key, value in self.drivers.items()
-                if value.get("extension") is not None
-                and value.get("extension") == extension
+                # No `extension is not None` guard on the row: it skipped the
+                # entry before the alias test was reached, so a row carrying
+                # only `aliases` was unreachable by any of them.
+                if value.get("extension") == extension
+                or extension in (value.get("aliases") or ())
             )
         except StopIteration:
             raise DriverNotExistError(
                 f"The given extension: {extension} is not associated with any driver in the "
-                "driver catalog, if this driver is supported by gdal please open and issue to "
-                "asking for youe extension to be added to the catalog"
+                "driver catalog, if this driver is supported by gdal please open an issue "
+                "asking for your extension to be added to the catalog: "
                 "https://github.com/serapeum-org/pyramids/issues/new?assignees=&labels=&template=feature_request.md&title=add%20extension"
             )
 
@@ -656,12 +834,93 @@ class Catalog:
         return driver in self.drivers.keys()
 
     def get_extension(self, driver: str):
-        """Get driver extension."""
+        """Get the driver's canonical file extension.
+
+        Only the canonical spelling is returned — the one to build a filename with. The
+        further spellings a driver also answers to live in its `aliases` list and are
+        reachable through :meth:`get_driver_name_by_extension`, not here: `"geotiff"` returns
+        `"tif"` even though `"tiff"` resolves back to it.
+
+        Args:
+            driver (str): Catalog key for the driver (e.g. `"geotiff"`), as returned by
+                :meth:`get_driver_name_by_extension` or :meth:`get_driver_name`.
+
+        Returns:
+            str | None: The extension without a leading dot, or `None` for an entry that has
+                no file extension at all — the in-memory `"memory"` driver, or a driver whose
+                row simply omits the key.
+
+        Raises:
+            AttributeError: `driver` is not a key in the catalog, so there is no entry to read.
+
+        Examples:
+            - The canonical spelling, not the alias:
+                ```python
+                >>> from pyramids.base._utils import Catalog
+                >>> catalog = Catalog(raster_driver=True)
+                >>> catalog.get_extension("geotiff")
+                'tif'
+                >>> f"out.{catalog.get_extension('netcdf')}"
+                'out.nc'
+
+                ```
+            - The in-memory driver writes nothing, so it has no extension:
+                ```python
+                >>> from pyramids.base._utils import Catalog
+                >>> catalog = Catalog(raster_driver=True)
+                >>> print(catalog.get_extension("memory"))
+                None
+
+                ```
+
+        See Also:
+            - :meth:`get_driver_name_by_extension`: The inverse lookup, which also matches
+              aliases.
+        """
         driver_data = self.get_driver(driver)
         return driver_data.get("extension")
 
     def get_driver_name(self, gdal_name) -> str | None:
-        """Get driver name."""
+        """Get the catalog key for a GDAL short name.
+
+        The inverse of :meth:`get_gdal_name`: it walks the catalog looking for the entry whose
+        `GDAL Name` matches, and answers with that entry's key. The key is what the rest of the
+        catalog API takes, so this is the bridge from a name GDAL handed back (e.g. from
+        `dataset.GetDriver().ShortName`) into the catalog's own vocabulary.
+
+        Args:
+            gdal_name: GDAL driver short name to look up, matched exactly and
+                case-sensitively (`"GTiff"`, not `"gtiff"`).
+
+        Returns:
+            str | None: The catalog key (e.g. `"geotiff"`), or `None` when no entry carries
+                that GDAL name.
+
+        Examples:
+            - Round-trip a GDAL name through the catalog:
+                ```python
+                >>> from pyramids.base._utils import Catalog
+                >>> catalog = Catalog(raster_driver=True)
+                >>> catalog.get_driver_name("GTiff")
+                'geotiff'
+                >>> catalog.get_gdal_name(catalog.get_driver_name("GTiff"))
+                'GTiff'
+
+                ```
+            - An unknown or mis-cased name yields `None` rather than raising:
+                ```python
+                >>> from pyramids.base._utils import Catalog
+                >>> catalog = Catalog(raster_driver=True)
+                >>> print(catalog.get_driver_name("NotADriver"))
+                None
+                >>> print(catalog.get_driver_name("gtiff"))
+                None
+
+                ```
+
+        See Also:
+            - :meth:`get_gdal_name`: The forward direction, key -> GDAL short name.
+        """
         result_key = None
         for key, value in self.drivers.items():
             name = value.get("GDAL Name")

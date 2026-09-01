@@ -14,6 +14,7 @@ import pytest
 from osgeo import gdal
 
 from pyramids.base._errors import CRSError, ReadOnlyError
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.dataset._gcp import GroundControlPoint
 from pyramids.dataset.engines import georef as georef_module
@@ -72,8 +73,9 @@ def writable_dataset() -> Dataset:
     Returns:
         Dataset: MEM-backed (always writable), no GCPs yet.
     """
-    return Dataset.create_from_array(
-        np.ones((8, 8), dtype="float32"), top_left_corner=(0.0, 8.0), cell_size=1.0
+    return Dataset.from_array(
+        np.ones((8, 8), dtype="float32"),
+        geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0),
     )
 
 
@@ -218,8 +220,9 @@ class TestSetRPC:
             read_only=True raises ReadOnlyError.
         """
         path = tmp_path / "plain.tif"
-        Dataset.create_from_array(
-            np.ones((4, 4), dtype="float32"), top_left_corner=(0.0, 4.0), cell_size=1.0
+        Dataset.from_array(
+            np.ones((4, 4), dtype="float32"),
+            geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0),
         ).to_file(str(path))
         ds = Dataset.read_file(str(path), read_only=True)
         with pytest.raises(ReadOnlyError):
@@ -232,10 +235,9 @@ class TestOrthorectify:
     @pytest.fixture
     def rpc_dataset(self) -> Dataset:
         """An 8x8 raster carrying the near-identity RPC sensor model."""
-        ds = Dataset.create_from_array(
+        ds = Dataset.from_array(
             np.arange(64).reshape(8, 8).astype("float32"),
-            top_left_corner=(0.0, 8.0),
-            cell_size=1.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0),
         )
         ds.raster.SetMetadata(RPC_SAMPLE, "RPC")
         return ds
@@ -294,8 +296,9 @@ class TestOrthorectify:
             A Dataset read from disk yields a path ending in the file name.
         """
         dem_path = tmp_path / "dem.tif"
-        Dataset.create_from_array(
-            np.ones((4, 4), "float32"), top_left_corner=(0.0, 4.0), cell_size=1.0
+        Dataset.from_array(
+            np.ones((4, 4), "float32"),
+            geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0),
         ).to_file(str(dem_path))
         resolved = Georef._resolve_dem_path(Dataset.read_file(str(dem_path)))
         assert resolved.endswith("dem.tif")
@@ -306,8 +309,9 @@ class TestOrthorectify:
         Test scenario:
             A MEM-backed Dataset (no on-disk description) resolves to /vsimem/.
         """
-        dem = Dataset.create_from_array(
-            np.ones((4, 4), "float32"), top_left_corner=(0.0, 4.0), cell_size=1.0
+        dem = Dataset.from_array(
+            np.ones((4, 4), "float32"),
+            geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0),
         )
         assert Georef._resolve_dem_path(dem).startswith("/vsimem/")
 
@@ -422,8 +426,9 @@ class TestSetGCPs:
             A dataset opened read_only=True raises ReadOnlyError.
         """
         path = tmp_path / "plain.tif"
-        Dataset.create_from_array(
-            np.ones((8, 8), dtype="float32"), top_left_corner=(0.0, 8.0), cell_size=1.0
+        Dataset.from_array(
+            np.ones((8, 8), dtype="float32"),
+            geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0),
         ).to_file(str(path))
         ds = Dataset.read_file(str(path), read_only=True)
         with pytest.raises(ReadOnlyError):
@@ -456,10 +461,9 @@ class TestStagedDemLifetime:
     @pytest.fixture
     def rpc_dataset(self) -> Dataset:
         """An 8x8 raster carrying the near-identity RPC sensor model."""
-        ds = Dataset.create_from_array(
+        ds = Dataset.from_array(
             np.arange(64).reshape(8, 8).astype("float32"),
-            top_left_corner=(0.0, 8.0),
-            cell_size=1.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0),
         )
         ds.raster.SetMetadata(RPC_SAMPLE, "RPC")
         return ds
@@ -467,10 +471,9 @@ class TestStagedDemLifetime:
     @pytest.fixture
     def mem_dem(self) -> Dataset:
         """A MEM-backed DEM, which orthorectify has to stage to /vsimem."""
-        return Dataset.create_from_array(
+        return Dataset.from_array(
             np.full((8, 8), 100.0, "float32"),
-            top_left_corner=(0.0, 8.0),
-            cell_size=1.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0),
         )
 
     @staticmethod
@@ -499,8 +502,9 @@ class TestStagedDemLifetime:
         before = self._vsimem_dems()
         self._stub_warp(
             monkeypatch,
-            lambda: Dataset.create_from_array(
-                np.zeros((4, 4), "float32"), top_left_corner=(0.0, 4.0), cell_size=1.0
+            lambda: Dataset.from_array(
+                np.zeros((4, 4), "float32"),
+                geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0),
             ),
         )
         rpc_dataset.orthorectify(dem=mem_dem)
@@ -568,8 +572,9 @@ class TestStagedDemLifetime:
         before = self._vsimem_dems()
         self._stub_warp(
             monkeypatch,
-            lambda: Dataset.create_from_array(
-                np.zeros((4, 4), "float32"), top_left_corner=(0.0, 4.0), cell_size=1.0
+            lambda: Dataset.from_array(
+                np.zeros((4, 4), "float32"),
+                geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0),
             ),
         )
         view = rpc_dataset.orthorectify(dem=mem_dem, lazy=True)
@@ -630,10 +635,9 @@ class TestStagedDemLifetime:
             caller's own file must survive a failed orthorectify untouched.
         """
         dem_path = tmp_path / "caller_dem.tif"
-        Dataset.create_from_array(
+        Dataset.from_array(
             np.full((8, 8), 100.0, "float32"),
-            top_left_corner=(0.0, 8.0),
-            cell_size=1.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0),
         ).to_file(str(dem_path))
         dem_argument = str(dem_path)
         with pytest.raises(CRSError, match="could not interpret"):

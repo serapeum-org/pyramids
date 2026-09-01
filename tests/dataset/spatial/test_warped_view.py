@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 from osgeo import osr
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.errors import CRSError
 from pyramids.netcdf import NetCDF
@@ -29,8 +30,9 @@ def src_dataset() -> Dataset:
         Dataset: Single-band in-memory dataset.
     """
     arr = np.arange(64, dtype="float32").reshape(8, 8)
-    return Dataset.create_from_array(
-        arr, top_left_corner=(0, 8), cell_size=0.01, epsg=4326
+    return Dataset.from_array(
+        arr,
+        geo_ref=GeoReference(top_left_corner=(0, 8), cell_size=0.01, epsg=4326),
     )
 
 

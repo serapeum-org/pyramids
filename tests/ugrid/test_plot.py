@@ -127,7 +127,7 @@ class TestUgridDatasetPlotMethods:
 
     def test_dataset_plot_returns_mesh_glyph(self):
         """Test UgridDataset.plot() returns MeshGlyph."""
-        ds = UgridDataset.create_from_arrays(
+        ds = UgridDataset.from_arrays(
             node_x=np.array([0.0, 1.0, 0.5]),
             node_y=np.array([0.0, 0.0, 1.0]),
             face_node_connectivity=np.array([[0, 1, 2]]),
@@ -139,7 +139,7 @@ class TestUgridDatasetPlotMethods:
 
     def test_dataset_plot_outline_returns_mesh_glyph(self):
         """Test UgridDataset.plot_outline() returns MeshGlyph."""
-        ds = UgridDataset.create_from_arrays(
+        ds = UgridDataset.from_arrays(
             node_x=np.array([0.0, 1.0, 0.5]),
             node_y=np.array([0.0, 0.0, 1.0]),
             face_node_connectivity=np.array([[0, 1, 2]]),
@@ -160,7 +160,7 @@ class TestUgridDatasetPlotMethods:
         """
         from unittest.mock import patch
 
-        ds = UgridDataset.create_from_arrays(
+        ds = UgridDataset.from_arrays(
             node_x=np.array([0.0, 1.0, 0.5]),
             node_y=np.array([0.0, 0.0, 1.0]),
             face_node_connectivity=np.array([[0, 1, 2]]),
@@ -192,7 +192,7 @@ class TestUgridDatasetPlotMethods:
         """
         from unittest.mock import patch
 
-        ds = UgridDataset.create_from_arrays(
+        ds = UgridDataset.from_arrays(
             node_x=np.array([0.0, 1.0, 0.5]),
             node_y=np.array([0.0, 0.0, 1.0]),
             face_node_connectivity=np.array([[0, 1, 2]]),
@@ -229,7 +229,7 @@ class TestUgridDatasetPlotMethods:
         """
         from unittest.mock import patch
 
-        ds = UgridDataset.create_from_arrays(
+        ds = UgridDataset.from_arrays(
             node_x=np.array([0.0, 1.0, 0.5]),
             node_y=np.array([0.0, 0.0, 1.0]),
             face_node_connectivity=np.array([[0, 1, 2]]),
@@ -264,7 +264,7 @@ class TestMeshStyleHillshade:
     def _dataset(location="face"):
         """Build a single-face UgridDataset carrying a ``depth`` variable."""
         data = np.array([5.0]) if location == "face" else np.array([0.0, 1.0, 2.0])
-        return UgridDataset.create_from_arrays(
+        return UgridDataset.from_arrays(
             node_x=np.array([0.0, 1.0, 0.5]),
             node_y=np.array([0.0, 0.0, 1.0]),
             face_node_connectivity=np.array([[0, 1, 2]]),
@@ -387,7 +387,7 @@ class TestUgridPlotAlignment:
     def _dataset(location="face"):
         """Build a single-face UgridDataset carrying a ``depth`` variable."""
         data = np.array([5.0]) if location == "face" else np.array([0.0, 1.0, 2.0])
-        return UgridDataset.create_from_arrays(
+        return UgridDataset.from_arrays(
             node_x=np.array([0.0, 1.0, 0.5]),
             node_y=np.array([0.0, 0.0, 1.0]),
             face_node_connectivity=np.array([[0, 1, 2]]),
@@ -460,7 +460,7 @@ class TestUgridGroupParams:
     def _dataset(location="face"):
         """Build a single-face UgridDataset carrying a ``depth`` variable."""
         data = np.array([5.0]) if location == "face" else np.array([0.0, 1.0, 2.0])
-        return UgridDataset.create_from_arrays(
+        return UgridDataset.from_arrays(
             node_x=np.array([0.0, 1.0, 0.5]),
             node_y=np.array([0.0, 0.0, 1.0]),
             face_node_connectivity=np.array([[0, 1, 2]]),

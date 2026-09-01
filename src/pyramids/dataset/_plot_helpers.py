@@ -1101,11 +1101,17 @@ def mesh_render(
             ```python
             >>> import numpy as np
             >>> from pyramids.dataset._plot_helpers import mesh_render
+            >>> from pyramids.netcdf.ugrid.connectivity import Connectivity
             >>> from pyramids.netcdf.ugrid.mesh import Mesh2d
-            >>> mesh = Mesh2d.from_arrays(  # doctest: +SKIP
+            >>> mesh = Mesh2d(  # doctest: +SKIP
             ...     node_x=np.array([0.0, 1.0, 0.5]),
             ...     node_y=np.array([0.0, 0.0, 1.0]),
-            ...     face_node_connectivity=np.array([[0, 1, 2]]),
+            ...     face_node_connectivity=Connectivity(
+            ...         data=np.array([[0, 1, 2]]),
+            ...         fill_value=-1,
+            ...         cf_role="face_node_connectivity",
+            ...         original_start_index=0,
+            ...     ),
             ... )
             >>> glyph = mesh_render(  # doctest: +SKIP
             ...     mesh=mesh,

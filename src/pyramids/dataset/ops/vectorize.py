@@ -11,6 +11,7 @@ import numpy as np
 from osgeo import gdal
 
 from pyramids.base._errors import CRSError
+from pyramids.base.georeference import GeoReference
 from pyramids.feature import _ogr as _feature_ogr
 
 if TYPE_CHECKING:
@@ -126,14 +127,14 @@ def rasterize_features(
 
     bands_count = 1 if not isinstance(column_name, list) else len(column_name)
     dataset_n = dataset_cls.create(
-        float(cell_size),
         rows,
         columns,
         str(numpy_dtype),
         bands_count,
-        (xmin, ymax),
-        ds_epsg,
-        no_data_value,
+        geo_ref=GeoReference(
+            top_left_corner=(xmin, ymax), cell_size=float(cell_size), epsg=ds_epsg
+        ),
+        no_data_value=no_data_value,
     )
 
     # An empty FeatureCollection has no layer field to burn (gdal.Rasterize would raise

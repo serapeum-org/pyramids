@@ -100,7 +100,7 @@ flowchart TB
 ## Representative Public API
 
 - `Dataset`
-  - Constructors: `read_file(path, read_only=True)`, `create_from_array(arr, ...)`,
+  - Constructors: `read_file(path, read_only=True)`, `from_array(arr, ...)`,
     `dataset_like(template, ...)`.
   - I/O: `to_file(path, ...)`, `to_cog(path, ...)`, `is_cog`, `validate_cog()`.
   - Spatial: `crop(mask)`, `to_crs(to_epsg)`, `align(reference)`, `resample(...)`.

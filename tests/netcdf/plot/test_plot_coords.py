@@ -541,7 +541,7 @@ class TestCurvilinearCoordsEdges:
             from the WRF arrays because they are independent grids.
         """
         rng = np.random.default_rng(42)
-        nc = NetCDF.create_from_array(
+        nc = NetCDF.from_array(
             arr=rng.random((5, 6)).astype(np.float32),
             geo_ref=GeoReference(geo=(0.0, 1.0, 0, 5.0, 0, -1.0), epsg=4326),
             variable_name="CANWAT",
@@ -605,7 +605,7 @@ class TestCurvilinearCoordsEdges:
             extent is populated from the bbox.
         """
         rng = np.random.default_rng(43)
-        nc = NetCDF.create_from_array(
+        nc = NetCDF.from_array(
             arr=rng.random((5, 6)).astype(np.float32),
             geo_ref=GeoReference(geo=(0.0, 1.0, 0, 5.0, 0, -1.0), epsg=4326),
             variable_name="CANWAT",

@@ -26,7 +26,7 @@ class TestCrsHandling:
         Test scenario:
             EPSG 32631 should be recoverable from the dataset.
         """
-        ds = UgridDataset.create_from_arrays(
+        ds = UgridDataset.from_arrays(
             node_x=np.array([500000.0, 500100.0, 500050.0]),
             node_y=np.array([5600000.0, 5600000.0, 5600100.0]),
             face_node_connectivity=np.array([[0, 1, 2]]),
@@ -41,7 +41,7 @@ class TestCrsHandling:
             Reproject from EPSG:32631 (UTM 31N) to EPSG:4326 (WGS84).
             Coordinates should change to lon/lat range.
         """
-        ds = UgridDataset.create_from_arrays(
+        ds = UgridDataset.from_arrays(
             node_x=np.array([500000.0, 500100.0, 500050.0]),
             node_y=np.array([5600000.0, 5600000.0, 5600100.0]),
             face_node_connectivity=np.array([[0, 1, 2]]),
@@ -62,7 +62,7 @@ class TestCrsHandling:
         Test scenario:
             Data values should be identical after coordinate reprojection.
         """
-        ds = UgridDataset.create_from_arrays(
+        ds = UgridDataset.from_arrays(
             node_x=np.array([500000.0, 500100.0, 500050.0]),
             node_y=np.array([5600000.0, 5600000.0, 5600100.0]),
             face_node_connectivity=np.array([[0, 1, 2]]),
@@ -81,7 +81,7 @@ class TestCrsHandling:
         Test scenario:
             n_node, n_face should be unchanged after reprojection.
         """
-        ds = UgridDataset.create_from_arrays(
+        ds = UgridDataset.from_arrays(
             node_x=np.array([500000.0, 500100.0, 500050.0]),
             node_y=np.array([5600000.0, 5600000.0, 5600100.0]),
             face_node_connectivity=np.array([[0, 1, 2]]),
@@ -134,7 +134,7 @@ class TestTimeDimension:
                 [5.0, 6.0],
             ]
         )
-        return UgridDataset.create_from_arrays(
+        return UgridDataset.from_arrays(
             node_x=np.array([0.0, 1.0, 0.5, 1.5]),
             node_y=np.array([0.0, 0.0, 1.0, 1.0]),
             face_node_connectivity=np.array([[0, 1, 2], [1, 3, 2]]),
@@ -179,7 +179,7 @@ class TestTimeDimension:
         Test scenario:
             Dataset with only 1D data should have time_values=None.
         """
-        ds = UgridDataset.create_from_arrays(
+        ds = UgridDataset.from_arrays(
             node_x=np.array([0.0, 1.0, 0.5]),
             node_y=np.array([0.0, 0.0, 1.0]),
             face_node_connectivity=np.array([[0, 1, 2]]),
@@ -224,7 +224,7 @@ class TestEdgeNodeData:
         Test scenario:
             Node data on a 3-node mesh should produce 3 Point geometries.
         """
-        ds = UgridDataset.create_from_arrays(
+        ds = UgridDataset.from_arrays(
             node_x=np.array([0.0, 1.0, 0.5]),
             node_y=np.array([0.0, 0.0, 1.0]),
             face_node_connectivity=np.array([[0, 1, 2]]),
@@ -242,7 +242,7 @@ class TestEdgeNodeData:
         Test scenario:
             Should interpolate node data to a regular grid.
         """
-        ds = UgridDataset.create_from_arrays(
+        ds = UgridDataset.from_arrays(
             node_x=np.array([0.0, 1.0, 0.5]),
             node_y=np.array([0.0, 0.0, 1.0]),
             face_node_connectivity=np.array([[0, 1, 2]]),

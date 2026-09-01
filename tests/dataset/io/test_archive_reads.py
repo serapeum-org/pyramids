@@ -22,6 +22,7 @@ import pytest
 
 from pyramids import _io
 from pyramids.base._errors import FileFormatNotSupportedError
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset, DatasetCollection
 
 pytestmark = pytest.mark.core
@@ -41,13 +42,11 @@ def _make_band(
 ):
     """Write a constant single-band GeoTIFF and return its path."""
     path = os.path.join(str(directory), name)
-    Dataset.create_from_array(
+    Dataset.from_array(
         np.full(shape, value, dtype=dtype),
-        top_left_corner=top_left,
-        cell_size=cell_size,
-        epsg=epsg,
         no_data_value=no_data_value,
         path=path,
+        geo_ref=GeoReference(top_left_corner=top_left, cell_size=cell_size, epsg=epsg),
     ).close()
     return path
 

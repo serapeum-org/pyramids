@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.dataset.cog import COG_READ_DEFAULTS, cog_info, validate
 from pyramids.dataset.cog.validate import (
@@ -33,7 +34,7 @@ def float_cog(tmp_path) -> str:
         str: Path to the COG.
     """
     arr = (np.random.default_rng(seed=8).random((64, 64)) * 100).astype("float32")
-    ds = Dataset.create_from_array(arr, geo=COG_GEOTRANSFORM, epsg=4326)
+    ds = Dataset.from_array(arr, geo_ref=GeoReference(geo=COG_GEOTRANSFORM, epsg=4326))
     return str(ds.to_cog(tmp_path / "c.tif"))
 
 
@@ -102,7 +103,9 @@ class TestConfigApplication:
             Passing config={"GDAL_NUM_THREADS": "1"} still writes a valid COG.
         """
         arr = np.ones((64, 64), dtype="float32")
-        ds = Dataset.create_from_array(arr, geo=COG_GEOTRANSFORM, epsg=4326)
+        ds = Dataset.from_array(
+            arr, geo_ref=GeoReference(geo=COG_GEOTRANSFORM, epsg=4326)
+        )
         out = ds.to_cog(tmp_path / "cfg.tif", config={"GDAL_NUM_THREADS": "1"})
         assert Dataset.read_file(str(out)).validate_cog().is_valid, (
             "config write invalid"

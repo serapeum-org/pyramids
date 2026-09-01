@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from pyramids.base._errors import ReadOnlyError
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 
 pytestmark = pytest.mark.core
@@ -16,8 +17,9 @@ pytestmark = pytest.mark.core
 def _dataset(bands: int = 1) -> Dataset:
     """A writable in-memory raster with `bands` bands and values 1..5."""
     arr = np.random.default_rng(0).integers(1, 6, size=(bands, 10, 10))
-    return Dataset.create_from_array(
-        arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+    return Dataset.from_array(
+        arr,
+        geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
     )
 
 
@@ -142,12 +144,10 @@ class TestSetColorRampValidation:
     def test_read_only_on_disk_dataset_raises(self, tmp_path):
         """The facade guard rejects a read-only on-disk raster before spilling a sidecar."""
         path = tmp_path / "ro.tif"
-        Dataset.create_from_array(
+        Dataset.from_array(
             np.ones((3, 3), dtype="float32"),
-            top_left_corner=(0.0, 3.0),
-            cell_size=1.0,
-            epsg=4326,
             path=str(path),
+            geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
         )
         ro_ds = Dataset.read_file(str(path), read_only=True)
         with pytest.raises(ReadOnlyError, match="read-only"):

@@ -27,16 +27,18 @@ from typing import TYPE_CHECKING, Any, cast
 import numpy as np
 from osgeo import gdal, osr
 
+from pyramids.base._errors import FileFormatNotSupportedError
 from pyramids.base._utils import numpy_to_gdal_dtype
 from pyramids.base.crs import sr_from_epsg, sr_from_user_input
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
+from pyramids.dataset._driver import MEMORY_DRIVER, resolve_output_driver
 from pyramids.dataset.engines._base import _Engine
 from pyramids.netcdf._mdim import scalar_no_data, unflatten_band_axes
 from pyramids.netcdf.array_options import (
     CFAttributes,
     Encoding,
     ExtraDimensions,
-    GeoReference,
 )
 from pyramids.netcdf.cf import (
     srs_to_grid_mapping,
@@ -46,7 +48,7 @@ from pyramids.netcdf.cf import (
 from pyramids.netcdf.dimensions import ClassicDimensionInfo
 
 if TYPE_CHECKING:
-    from pyramids.netcdf.netcdf import NetCDF
+    from pyramids.netcdf.netcdf import Container, NetCDF
 
 
 class Variables(_Engine["NetCDF"]):
@@ -57,9 +59,9 @@ class Variables(_Engine["NetCDF"]):
     that name is the read-side property returning the lazy variable dict) and
     exposes thin façades, so ``nc.set_variable(...)`` and
     ``nc.varops.set_variable(...)`` are equivalent. The companion constructor
-    :func:`create_from_array` is a module-level function (it builds a new
+    :func:`from_array` is a module-level function (it builds a new
     container rather than mutating an existing one), reached through the
-    ``NetCDF.create_from_array`` classmethod façade.
+    ``NetCDF.from_array`` classmethod façade.
 
     Each method reaches the container's GDAL plumbing
     (``_writable_root_group`` / ``_replace_raster`` / ``_invalidate_caches`` /
@@ -426,17 +428,17 @@ def _build_variable_mdarray(
     return md_arr
 
 
-def create_from_array(
+def from_array(
     arr: np.ndarray,
     *,
-    geo_ref: GeoReference | None = None,
+    geo_ref: GeoReference,
     path: str | Path | None = None,
     variable_name: str | None = None,
     no_data_value: Any | list = DEFAULT_NO_DATA_VALUE,
     dims: ExtraDimensions | None = None,
     encoding: Encoding | None = None,
     attrs: CFAttributes | None = None,
-) -> NetCDF:
+) -> Container:
     """Create a NetCDF dataset from a NumPy array and geotransform.
 
     For 3-D arrays the first axis is treated as a non-spatial
@@ -451,9 +453,14 @@ def create_from_array(
     layout. `extra_dims` and the legacy single-dim params
     (`extra_dim_name` / `extra_dim_values`) are mutually exclusive.
 
-    The driver is inferred from `path`: if `path` is `None`
-    the dataset is created in memory (MEM driver); if a path is
-    provided the netCDF driver writes to disk.
+    `path` decides only *where* the store goes, not what format it is: `None`
+    creates it in memory (MEM driver), and any path is written by the netCDF
+    driver, because this builds a multidimensional store no other driver here
+    can carry. The extension is therefore checked rather than obeyed — a path
+    naming a different format (`"lies.tif"`) raises
+    :class:`~pyramids.base._errors.FileFormatNotSupportedError` instead of
+    silently writing netCDF bytes under a GeoTIFF name. Use
+    :meth:`pyramids.dataset.Dataset.from_array` to write those formats.
 
     `arr` may be a `dask.array.Array` instead of a NumPy array. It is
     then written to disk one block at a time (memory-bounded streaming),
@@ -465,11 +472,13 @@ def create_from_array(
     one block at a time but the in-memory result holds the full array.
 
     The write options are organised into grouped, validated dataclasses
-    (:class:`~pyramids.netcdf.array_options.GeoReference`,
+    (:class:`~pyramids.base.georeference.GeoReference`,
     :class:`~pyramids.netcdf.array_options.ExtraDimensions`,
     :class:`~pyramids.netcdf.array_options.Encoding`,
     :class:`~pyramids.netcdf.array_options.CFAttributes`) — see each class for
-    its fields. They are importable from the subpackage, e.g.
+    its fields. `GeoReference` is shared vocabulary and lives in
+    :mod:`pyramids.base.georeference`; the other three are netCDF-specific. All
+    four are importable from the subpackage, e.g.
     ``from pyramids.netcdf import GeoReference``.
 
     Args:
@@ -478,12 +487,13 @@ def create_from_array(
             array (written eagerly) or a `dask.array.Array` (streamed
             block-by-block, see above).
         geo_ref: How the array maps to space — a
-            :class:`~pyramids.netcdf.array_options.GeoReference` holding either
-            `geo` / `epsg` or `top_left_corner` + `cell_size`. Required: it
-            must resolve to a geotransform. Defaults to an empty
-            `GeoReference()`, which raises unless a geotransform can be built.
-        path: Output file path. If `None`, the dataset is
-            created in memory. Defaults to None.
+            :class:`~pyramids.base.georeference.GeoReference` holding either
+            `geo` / `epsg` or `top_left_corner` + `cell_size`. Required and
+            keyword-only, with no default: it must resolve to a geotransform,
+            so an empty `GeoReference()` raises rather than placing the array
+            somewhere arbitrary.
+        path: Output file path, which must name netCDF (`.nc`, or its `.nc4`
+            alias). If `None` (default), the store is created in memory.
         variable_name: Name of the data variable in the NetCDF
             file. Defaults to `"data"`.
         no_data_value: Sentinel value for cells outside the
@@ -501,15 +511,35 @@ def create_from_array(
             an empty `CFAttributes()`.
 
     Returns:
-        NetCDF: The newly created NetCDF dataset.
+        Container: The newly created store. Always a `Container`, never a bare
+            `NetCDF`, regardless of the subtype the facade was invoked on —
+            the annotation says so rather than leaving the caller's declared
+            `-> Container` resting on an engine that claims otherwise.
+
+    Raises:
+        ValueError: `geo_ref` resolves to no geotransform — it carries neither
+            a `geo` nor a complete `top_left_corner` + `cell_size` pair — or
+            the requested extra dimensions do not match `arr`'s non-spatial
+            axes.
+        DriverNotExistError: `path` has no extension, or one the driver catalog
+            does not know.
+        FileFormatNotSupportedError: `path`'s extension names a driver other
+            than netCDF. The store written here is multidimensional, so the
+            format cannot be honoured; build the raster with
+            :meth:`pyramids.dataset.Dataset.from_array` instead.
+
+    See Also:
+        - :meth:`pyramids.netcdf.NetCDF.from_array`: The classmethod facade
+          this function backs.
+        - :class:`~pyramids.base.georeference.GeoReference`: The georeferencing
+          value object `geo_ref` takes.
     """
     # Local import breaks the netcdf.py <-> engines.variables import cycle
-    # (netcdf.py imports this module at top level for wiring). create_from_array
+    # (netcdf.py imports this module at top level for wiring). from_array
     # always returns a Container regardless of which NetCDF subtype the façade
     # was invoked on, sidestepping the deprecated base-NetCDF construction path.
     from pyramids.netcdf.netcdf import Container
 
-    geo_ref = geo_ref or GeoReference()
     dims = dims or ExtraDimensions()
     encoding = encoding or Encoding()
     attrs = attrs or CFAttributes()
@@ -723,7 +753,7 @@ def _is_dask_array(obj: Any) -> bool:
     this module never imports — the caller supplies the live dask array.
 
     Args:
-        obj: Any candidate array passed as ``create_from_array``'s ``arr``.
+        obj: Any candidate array passed as ``from_array``'s ``arr``.
 
     Returns:
         bool: True only for a dask array.
@@ -828,6 +858,42 @@ def _resolve_write_crs(
     return srse, srse.IsGeographic() == 1
 
 
+def _require_netcdf_destination(path: str | Path) -> None:
+    """Refuse a destination that names a driver other than netCDF.
+
+    This builds a multidimensional store, which only the netCDF driver carries,
+    so the driver is fixed rather than resolved. What the extension decides is
+    whether the caller asked for something else: `path="lies.tif"` used to
+    write a netCDF under a GeoTIFF name without a word.
+
+    Args:
+        path: The destination the caller supplied.
+
+    Raises:
+        FileFormatNotSupportedError: `path` does not name the netCDF driver.
+    """
+    try:
+        # `for_copy=True` so a copy-only extension reaches the message below
+        # rather than raising the Create-gate error inside the resolver, whose
+        # advice ("build it as GTiff, then convert") is wrong for a caller who
+        # asked a netCDF container to write a PNG.
+        resolved: str | None = resolve_output_driver(path, for_copy=True)
+    except FileFormatNotSupportedError:
+        # Refused outright (a reference-only format such as `.vrt`). Its advice
+        # -- "write a format that owns its pixels, e.g. '.tif'" -- is advice
+        # this method would also refuse, so answer in the terms of the method
+        # the caller actually reached for.
+        resolved = None
+    if resolved == "netCDF":
+        return
+    names = f" -- it names {resolved}" if resolved else ""
+    raise FileFormatNotSupportedError(
+        "NetCDF.from_array writes a multidimensional netCDF store, but "
+        f"{str(path)!r} does not name the netCDF driver{names}. Use a '.nc' or "
+        "'.nc4' path, or build the raster with Dataset.from_array."
+    )
+
+
 def _create_netcdf_from_array(
     arr: np.ndarray,
     variable_name: str,
@@ -903,9 +969,10 @@ def _create_netcdf_from_array(
     y_dim_values = NetCDF.get_y_lat_dimension_array(geo[3], abs(geo[5]), rows)
 
     if path is not None:
+        _require_netcdf_destination(path)
         driver_type = "netCDF"
     else:
-        driver_type = "MEM"
+        driver_type = MEMORY_DRIVER
         path = "netcdf"
 
     src = gdal.GetDriverByName(driver_type).CreateMultiDimensional(str(path))

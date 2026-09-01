@@ -9,6 +9,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from tests.dataset.cog.conftest import COG_GEOTRANSFORM
 
@@ -23,7 +24,9 @@ def mem_dataset() -> Dataset:
         Dataset: A MEM-backed dataset.
     """
     arr = np.ones((16, 16), dtype="float32")
-    return Dataset.create_from_array(arr, geo=COG_GEOTRANSFORM, epsg=4326)
+    return Dataset.from_array(
+        arr, geo_ref=GeoReference(geo=COG_GEOTRANSFORM, epsg=4326)
+    )
 
 
 class TestOnDiskPath:

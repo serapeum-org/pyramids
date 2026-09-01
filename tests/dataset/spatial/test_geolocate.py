@@ -7,6 +7,7 @@ import pytest
 from osgeo import osr
 
 from pyramids.base._errors import GeolocationArrayError
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 
 pytestmark = pytest.mark.core
@@ -22,12 +23,14 @@ def _make_geoloc_dataset(tmp_path, *, drop_x=False) -> Dataset:
     lon_path = tmp_path / "lon.tif"
     lat_path = tmp_path / "lat.tif"
     for arr, path in [(lon, lon_path), (lat.astype("float64"), lat_path)]:
-        Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+        Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
         ).to_file(str(path))
     data = np.arange(rows * cols).reshape(rows, cols).astype("float32")
-    ds = Dataset.create_from_array(
-        data, top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+    ds = Dataset.from_array(
+        data,
+        geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
     )
     srs = osr.SpatialReference()
     srs.ImportFromEPSG(4326)
@@ -53,8 +56,9 @@ class TestGeolocationAccessor:
 
     def test_plain_raster_has_none(self):
         """A plain raster has no geolocation arrays."""
-        ds = Dataset.create_from_array(
-            np.zeros((2, 2)), top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+        ds = Dataset.from_array(
+            np.zeros((2, 2)),
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
         )
         assert ds.geolocation is None
         assert ds.has_geolocation is False
@@ -99,8 +103,9 @@ class TestGeolocate:
 
     def test_no_domain_raises(self):
         """geolocate on a plain raster raises GeolocationArrayError."""
-        ds = Dataset.create_from_array(
-            np.zeros((2, 2)), top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+        ds = Dataset.from_array(
+            np.zeros((2, 2)),
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
         )
         with pytest.raises(GeolocationArrayError, match="no geolocation arrays"):
             ds.geolocate()

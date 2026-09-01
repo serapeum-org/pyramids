@@ -13,7 +13,13 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
-from pyramids.base._errors import AlignmentError, CRSError
+from pyramids.base._errors import (
+    AlignmentError,
+    CRSError,
+    DriverNotExistError,
+    FileFormatNotSupportedError,
+)
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.dataset.dataset import _derive_band_names, _same_grid
 from pyramids.dataset.merge import stack_bands
@@ -50,13 +56,11 @@ def _make_band(
         str: Path to the written GeoTIFF.
     """
     path = os.path.join(str(tmp_path), name)
-    Dataset.create_from_array(
+    Dataset.from_array(
         np.full(shape, value, dtype=dtype),
-        top_left_corner=top_left,
-        cell_size=cell_size,
-        epsg=epsg,
         no_data_value=no_data_value,
         path=path,
+        geo_ref=GeoReference(top_left_corner=top_left, cell_size=cell_size, epsg=epsg),
     ).close()
     return path
 
@@ -254,12 +258,10 @@ class TestFromBandFiles:
             band per file``.
         """
         mb = os.path.join(str(tmp_path), "mb.tif")
-        Dataset.create_from_array(
+        Dataset.from_array(
             np.zeros((2, 4, 5), dtype="int16"),
-            top_left_corner=(0.0, 0.0),
-            cell_size=1.0,
-            epsg=4326,
             path=mb,
+            geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
         ).close()
         with pytest.raises(ValueError, match="one band per file"):
             Dataset.from_band_files([band_files[0], mb])
@@ -464,18 +466,90 @@ class TestFromBandFiles:
             4,
         ], "values changed on round-trip"
 
-    def test_path_without_tif_extension_raises(self, band_files):
-        """A non ``.tif`` output path is rejected with the same ``TypeError`` as ``_create_dataset``.
+    @pytest.mark.parametrize(
+        "filename",
+        ["out.zzz", "out"],
+        ids=["unknown-extension", "no-extension"],
+    )
+    def test_an_unresolvable_path_raises_driver_not_exist(self, band_files, filename):
+        """`path` is resolved through the shared driver catalog.
 
         Args:
             band_files: The three source bands.
+            filename: The destination under test.
 
         Test scenario:
-            ``from_band_files(..., path="out.png")`` — expected: ``TypeError``
-            mentioning ``.tif`` (matches ``create_from_array`` / ``dataset_like``).
+            This used to be a `.tif`-only guard raising `TypeError`, justified
+            as matching `_create_dataset` -- which had itself stopped raising
+            that. An extension the catalog does not know, and no extension at
+            all, now give the same error every other factory gives.
         """
-        with pytest.raises(TypeError, match=r"\.tif"):
-            Dataset.from_band_files(band_files, path="out.png")
+        with pytest.raises(DriverNotExistError):
+            Dataset.from_band_files(band_files, path=filename)
+
+    def test_a_copy_only_format_is_refused_on_both_write_paths(
+        self, band_files, tmp_path
+    ):
+        """`.png` is refused regardless of which internal branch would run.
+
+        Args:
+            band_files: The three source bands.
+            tmp_path: Temporary directory fixture -- the destination is only
+                ever rejected, but a bare relative name would drop `out.png`
+                into the working directory the moment that stops being true.
+
+        Test scenario:
+            This method has two write paths -- a `BuildVRT` + `CreateCopy` one
+            and an align/`Create` one -- chosen by `align` and by whether the
+            sources share a dtype. `CreateCopy` can produce a PNG and `Create`
+            cannot, so gating each branch on its own capability made the
+            destination's legality depend on arguments that say nothing about
+            the format: `path="out.png"` was accepted with `align=False` and
+            rejected with `align=True`. One gate answers for both.
+        """
+        for align in (False, True):
+            with pytest.raises(FileFormatNotSupportedError):
+                Dataset.from_band_files(
+                    band_files, path=str(tmp_path / "out.png"), align=align
+                )
+
+    @pytest.mark.parametrize(
+        "extension, driver",
+        [("tif", "GTiff"), ("nc", "netCDF"), ("img", "HFA")],
+    )
+    @pytest.mark.parametrize("align", [False, True], ids=["vrt-path", "aligned-path"])
+    def test_the_written_file_matches_the_extension(
+        self, band_files, tmp_path, extension, driver, align
+    ):
+        """The stacked raster is written in the format its extension names.
+
+        Args:
+            band_files: The three source bands.
+            tmp_path: Temporary directory fixture.
+            extension: The destination extension.
+            driver: The GDAL driver it must resolve to.
+            align: Selects which of the two internal write paths runs.
+
+        Test scenario:
+            The `BuildVRT` branch -- the one taken for same-grid, same-dtype
+            inputs -- hardcoded `GetDriverByName("GTiff").CreateCopy`, so any
+            non-`.tif` path would have produced a GTiff carrying a foreign
+            name: a file whose extension lies about its contents. That
+            hardcoding is what the old `.tif`-only guard was really protecting
+            against. Both write paths are exercised because only one had it.
+        """
+        if gdal.GetDriverByName(driver) is None:
+            # HFA is an optional GDAL component. The catalog answers before
+            # GetDriverByName is reached, so a build without it would fail here
+            # for a reason this behaviour does not depend on.
+            pytest.skip(f"{driver} is not in this GDAL build")
+        out = tmp_path / f"stack.{extension}"
+        Dataset.from_band_files(band_files, path=str(out), align=align).close()
+        written = gdal.Open(str(out))
+        assert written is not None, f"{out} was not written"
+        assert written.GetDriver().ShortName == driver, (
+            f"{out.name} should be {driver}, got {written.GetDriver().ShortName}"
+        )
 
     def test_align_with_mixed_dtypes(self, tmp_path, band_files):
         """``align=True`` and heterogeneous dtypes compose: resample then promote.

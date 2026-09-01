@@ -3,7 +3,7 @@
 Covers ``gdal.SieveFilter``-based speckle removal: small clumps dissolved into
 their neighbour, large clumps preserved, 4- vs 8-connectivity, no-data
 preservation, band selection, the optional mask band, geo/CRS round-trip, and
-the guard clauses. All fixtures are in-memory ``create_from_array`` rasters.
+the guard clauses. All fixtures are in-memory ``from_array`` rasters.
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 
 pytestmark = pytest.mark.core
@@ -28,8 +29,9 @@ def speckled() -> Dataset:
     arr = np.ones((6, 6), dtype="int32")
     arr[0:3, 0:3] = 2
     arr[5, 5] = 2
-    return Dataset.create_from_array(
-        arr, top_left_corner=(0, 6), cell_size=1.0, epsg=4326
+    return Dataset.from_array(
+        arr,
+        geo_ref=GeoReference(top_left_corner=(0, 6), cell_size=1.0, epsg=4326),
     )
 
 
@@ -43,8 +45,9 @@ def diagonal() -> Dataset:
     arr = np.ones((5, 5), dtype="int32")
     arr[1, 1] = 2
     arr[2, 2] = 2
-    return Dataset.create_from_array(
-        arr, top_left_corner=(0, 5), cell_size=1.0, epsg=4326
+    return Dataset.from_array(
+        arr,
+        geo_ref=GeoReference(top_left_corner=(0, 5), cell_size=1.0, epsg=4326),
     )
 
 
@@ -130,8 +133,10 @@ class TestSieve:
         """
         arr = np.ones((6, 6), dtype="int32")
         arr[5, 5] = 2
-        ds = Dataset.create_from_array(
-            arr, top_left_corner=(0, 6), cell_size=1.0, epsg=4326, no_data_value=-1
+        ds = Dataset.from_array(
+            arr,
+            no_data_value=-1,
+            geo_ref=GeoReference(top_left_corner=(0, 6), cell_size=1.0, epsg=4326),
         )
         result = ds.sieve(threshold=4)
         assert result.no_data_value[0] == -1, (
@@ -146,8 +151,10 @@ class TestSieve:
         """
         arr = np.ones((6, 6), dtype="int32")
         arr[5, 5] = 2
-        ds = Dataset.create_from_array(
-            arr, top_left_corner=(0, 6), cell_size=1.0, epsg=4326, no_data_value=None
+        ds = Dataset.from_array(
+            arr,
+            no_data_value=None,
+            geo_ref=GeoReference(top_left_corner=(0, 6), cell_size=1.0, epsg=4326),
         )
         result = ds.sieve(threshold=4)
         assert result.raster.GetRasterBand(1).GetNoDataValue() is None, (
@@ -165,8 +172,9 @@ class TestSieve:
         speck = np.ones((6, 6), dtype="int32")
         speck[5, 5] = 2
         arr = np.stack([clean, speck])
-        ds = Dataset.create_from_array(
-            arr, top_left_corner=(0, 6), cell_size=1.0, epsg=4326
+        ds = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 6), cell_size=1.0, epsg=4326),
         )
         result = ds.sieve(threshold=4, band=1).read_array()
         assert result[5, 5] == 1, f"Band-1 speckle not removed, got {result[5, 5]}"
@@ -179,8 +187,9 @@ class TestSieve:
             default path does.
         """
         mask_arr = np.ones((6, 6), dtype="int32")
-        mask = Dataset.create_from_array(
-            mask_arr, top_left_corner=(0, 6), cell_size=1.0, epsg=4326
+        mask = Dataset.from_array(
+            mask_arr,
+            geo_ref=GeoReference(top_left_corner=(0, 6), cell_size=1.0, epsg=4326),
         )
         result = speckled.sieve(threshold=4, mask=mask).read_array()
         assert result[5, 5] == 1, (

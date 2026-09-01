@@ -4,7 +4,7 @@
 
 ```mermaid
 flowchart LR
-    CR["<b>create / read</b><br/>read_file · create_from_array<br/>from_features · from_band_files<br/>from_zarr · from_bytes"] --> DS(("Dataset"))
+    CR["<b>create / read</b><br/>read_file · from_array<br/>from_features · from_band_files<br/>from_zarr · from_bytes"] --> DS(("Dataset"))
 
     DS --> PR["<b>properties</b><br/>rows · columns · band_count · band_names<br/>epsg · crs · cell_size · geotransform<br/>bbox · bounds · no_data_value · dtype"]
     DS --> AC["<b>access data</b><br/>read_array — window · bbox · chunks<br/>sample · extract · get_tile · read_part"]
@@ -112,7 +112,7 @@ classDiagram
         +offset()
         +offset(value)
         +read_file(path, read_only)
-        +create_from_array(arr, top_left_corner, cell_size, epsg)
+        +from_array(arr, geo_ref, no_data_value, path)
         +read_array(band, window)
         +_read_block(band, window)
         +_resolve_plot_band(band, rgb)
@@ -317,7 +317,7 @@ classDiagram
     class CreateObject {
         +from_gdal_dataset()
         +read_file()
-        +create_from_array()
+        +from_array()
         +dataset_like()
         +from_bytes()
         +from_band_files()
@@ -335,7 +335,7 @@ classDiagram
 | `from_bytes(data, suffix=".tif")` | The caller already holds the bytes (HTTP body, DB blob, S3 `get_object` payload). Backed by `/vsimem/`. |
 | `from_band_files(paths)` | Stack N single-band rasters (one file per band) into one multi-band Dataset — the natural target for the `<asset>.<band>.tif` layout of GEE / Landsat / Sentinel downloads. |
 | `from_archive(url_or_path, member_glob=…)` | Merge every matching member of a local or remote archive into one multi-band Dataset (composes `from_band_files` over `gdal.ReadDir`). For one-Dataset-per-member use `DatasetCollection.from_archive`. |
-| `create_from_array(arr, …)` | Build a Dataset from a numpy array + geobox. |
+| `from_array(arr, …)` | Build a Dataset from a numpy array + geobox. |
 | `dataset_like(template, arr)` | Stamp a new Dataset that inherits its grid / CRS from `template`. |
 
 See the [Recipes](../../how-to/recipes.md) page for runnable examples

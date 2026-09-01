@@ -99,10 +99,8 @@ class TestUnpackWithoutScaleOffset:
         """
         arr = np.arange(20, dtype=np.float64).reshape(4, 5)
         geo = (0.0, 1.0, 0, 4.0, 0, -1.0)
-        nc = NetCDF.create_from_array(
-            arr=arr,
-            geo_ref=GeoReference(geo=geo),
-            variable_name="plain",
+        nc = NetCDF.from_array(
+            arr=arr, geo_ref=GeoReference(geo=geo), variable_name="plain"
         )
         var = nc.get_variable("plain")
         raw = var.read_array(band=0)
@@ -117,14 +115,12 @@ class TestUnpackWithoutScaleOffset:
         """Variables created by pyramids should have _scale=None, _offset=None.
 
         Test scenario:
-            create_from_array doesn't set scale/offset.
+            from_array doesn't set scale/offset.
         """
         arr = np.ones((5, 5), dtype=np.float64)
         geo = (0.0, 1.0, 0, 5.0, 0, -1.0)
-        nc = NetCDF.create_from_array(
-            arr=arr,
-            geo_ref=GeoReference(geo=geo),
-            variable_name="v",
+        nc = NetCDF.from_array(
+            arr=arr, geo_ref=GeoReference(geo=geo), variable_name="v"
         )
         var = nc.get_variable("v")
         assert var._scale is None, f"Expected None, got {var._scale}"
