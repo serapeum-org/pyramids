@@ -2217,14 +2217,16 @@ class Analysis(_Engine["Dataset"]):
                 Requires the [viz] extra (mercantile, xyzservices, Pillow). A ``Basemap`` is not
                 supported on the faceted path.
             fig (matplotlib.figure.Figure, optional):
-                Draw into this figure instead of creating one. Default is ``None``.
+                Draw into this figure instead of creating one. Pass it alongside ``ax``;
+                supplying ``fig`` on its own currently raises inside cleopatra
+                (serapeum-org/cleopatra#326). Default is ``None``.
             ax (matplotlib.axes.Axes, optional):
-                Draw into these axes instead of creating them. Passing ``fig`` and ``ax`` is
-                what lets several rasters share one figure — e.g. a ``plt.subplots`` grid
-                where each panel is a different band or dataset — while each panel keeps the
-                georeferenced extent and nodata masking this method applies. The returned
-                glyph exposes the same objects back as ``cleo.fig`` / ``cleo.ax``. Default is
-                ``None``.
+                Draw into these axes instead of creating them. This is what lets several
+                rasters share one figure — e.g. a ``plt.subplots`` grid where each panel is
+                a different band or dataset — while every panel keeps the georeferenced
+                extent and nodata masking this method applies. An axes already carries its
+                figure, so ``ax`` on its own is sufficient. The returned glyph exposes both
+                objects back as ``cleo.fig`` / ``cleo.ax``. Default is ``None``.
         kwargs:
                 Colour-scale, contour, cell-value and data-style options moved onto typed
                 render groups (all re-exported from ``pyramids.plot``): pass

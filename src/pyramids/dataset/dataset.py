@@ -1066,15 +1066,18 @@ class Dataset(RasterBase):
                 Sentinel-2), ``"cutoff"`` (per-band clip values), ``"percentile"``
                 (percentile stretch). Default is ``None``.
             fig (matplotlib.figure.Figure, optional):
-                Draw into this figure instead of creating one. Default is ``None``.
+                Draw into this figure instead of creating one. Pass it alongside ``ax``;
+                supplying ``fig`` on its own currently raises inside cleopatra
+                (serapeum-org/cleopatra#326). Default is ``None``.
             ax (matplotlib.axes.Axes, optional):
-                Draw into these axes instead of creating them. Passing ``fig`` and ``ax``
-                is what lets several rasters share one figure — a ``plt.subplots`` grid of
-                side-by-side panels — while every panel keeps the georeferenced extent and
-                nodata masking that ``plot`` applies. A shared colour range across panels
-                is then applied through the returned glyph, whose colour bar tracks its
-                mappable (``glyph.cbar.mappable is glyph.im``), e.g.
-                ``glyph.im.set_clim(0, vmax)``. Default is ``None``.
+                Draw into these axes instead of creating them. This is what lets several
+                rasters share one figure — a ``plt.subplots`` grid of side-by-side panels —
+                while every panel keeps the georeferenced extent and nodata masking that
+                ``plot`` applies. An axes already carries its figure, so ``ax`` on its own
+                is sufficient. A shared colour range across panels is then applied through
+                the returned glyph, whose colour bar tracks its mappable
+                (``glyph.cbar.mappable is glyph.im``), e.g. ``glyph.im.set_clim(0, vmax)``.
+                Default is ``None``.
 
                 ```python
                 >>> import matplotlib.pyplot as plt  # doctest: +SKIP
