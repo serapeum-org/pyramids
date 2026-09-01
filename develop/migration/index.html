@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6844,6 +6844,12 @@ invariant the old <code>driver_type="GTiff"</code> guard was really enforcing.</
 <p>Formats that GDAL can only write by copy (<code>.png</code>, <code>.jp2</code>) now raise <code>FileFormatNotSupportedError</code> naming the
 extension and the driver, instead of failing inside GDAL. An extension the driver catalog does not know still
 raises <code>DriverNotExistError</code>.</p>
+<p><strong><code>merge_rasters</code> and <code>stack_bands</code> now refuse write-by-copy-only destinations.</strong> Both have two internal
+write paths and only one of them can produce such a format, so accepting it would make the destination's
+legality depend on <code>method</code> (or on whether the inputs share a dtype) — the same defect as letting an
+unrelated argument pick the format. Both take the stricter answer, which refuses <code>.png</code>, <code>.jpg</code> / <code>.jpeg</code>,
+<code>.jp2</code> / <code>.j2k</code>, <code>.asc</code> and <code>.vrt</code>. The one this costs is <strong><code>.asc</code></strong>, which <code>merge_rasters</code> could write
+before through its z-order (<code>method="first"</code> / <code>"last"</code>) path. Write a GTiff and convert it.</p>
 <p><strong><code>Dataset.to_file</code> now accepts more extensions, and one of them can lose data.</strong> This method is untouched by
 the rename, but it reads the same driver catalog, so correcting the catalog's extension rows widened what it
 accepts. <code>.tiff</code>, <code>.png</code>, <code>.jpg</code>, <code>.jpeg</code> and <code>.img</code> previously raised <code>DriverNotExistError</code> and now write a
@@ -6867,6 +6873,11 @@ of a catalogued format now resolve alike: <code>.tiff</code> as well as <code>.t
 four JPEG/JPEG2000 spellings resolve and are then refused with <code>FileFormatNotSupportedError</code>, because they are
 write-by-copy-only formats. (<code>.jpeg</code> did not resolve on <code>main</code> at all — the catalog carried it with a leading
 dot, so the lookup never matched.)</p>
+<p><strong><code>Dataset.create</code> no longer requires a CRS.</strong> <code>epsg</code> was a required positional; omitting it raised
+<code>TypeError</code>. It is now a field of <code>geo_ref</code> defaulting to <code>4326</code>, so a call that says nothing about the
+CRS silently stamps WGS 84 instead of refusing. <code>from_array</code> and <code>create_empty</code> always behaved this way —
+only <code>create</code> changes, and it changes from "state the CRS" to "we assume WGS 84". Pass <code>epsg</code> explicitly,
+or <code>GeoReference(..., epsg=None)</code> for a deliberately CRS-less raster.</p>
 <p><strong><code>Dataset.create</code>'s positional order changed, and its CRS handling widened.</strong> <code>cell_size</code> is gone from slot 0,
 so <code>rows</code> and <code>columns</code> each shift up one — but <code>geo_ref</code> is required and keyword-only, so a ported positional call
 fails loudly with <code>TypeError</code> rather than silently misreading its arguments. Separately, <code>create</code> used to take

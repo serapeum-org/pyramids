@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -13358,7 +13358,7 @@ round-trips to the source elevation within one <code>interval</code>.</p>
 <a id="__codelineno-0-3043" name="__codelineno-0-3043"></a>        <span class="n">base_val</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
 <a id="__codelineno-0-3044" name="__codelineno-0-3044"></a>        <span class="n">interval</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
 <a id="__codelineno-0-3045" name="__codelineno-0-3045"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
-<a id="__codelineno-0-3046" name="__codelineno-0-3046"></a><span class="w">        </span><span class="sd">"""Write one RGB(A) terrain raster (PNG by ``.png`` suffix, else GeoTIFF)."""</span>
+<a id="__codelineno-0-3046" name="__codelineno-0-3046"></a><span class="w">        </span><span class="sd">"""Write one RGB(A) terrain raster in the format its extension names."""</span>
 <a id="__codelineno-0-3047" name="__codelineno-0-3047"></a>        <span class="n">elevation</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">source</span><span class="o">.</span><span class="n">read_array</span><span class="p">(</span><span class="n">band</span><span class="o">=</span><span class="n">band</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span>
 <a id="__codelineno-0-3048" name="__codelineno-0-3048"></a>        <span class="n">stack</span> <span class="o">=</span> <span class="n">_terrain_rgba_stack</span><span class="p">(</span>
 <a id="__codelineno-0-3049" name="__codelineno-0-3049"></a>            <span class="n">elevation</span><span class="p">,</span>
