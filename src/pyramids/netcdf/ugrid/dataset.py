@@ -50,7 +50,11 @@ from pyramids.netcdf.ugrid.spatial import (
     clip_mesh,
     subset_by_bounds,
 )
-from pyramids.netcdf.utils import _dtype_to_str, _read_attributes
+from pyramids.netcdf.utils import (
+    _dtype_to_str,
+    _read_attributes,
+    read_cf_attributes,
+)
 
 
 class UgridDataset:
@@ -1054,7 +1058,7 @@ def _read_data_variables(
         md_arr = open_mdarray(rg, var_name)
         if md_arr is None:
             continue
-        attrs = _read_attributes(md_arr)
+        attrs = read_cf_attributes(md_arr)
         dims = md_arr.GetDimensions()
         shape = tuple(d.GetSize() for d in dims) if dims else ()
         dim_names = tuple(d.GetName() for d in dims) if dims else ()

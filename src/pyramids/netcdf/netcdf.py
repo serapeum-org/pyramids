@@ -74,7 +74,11 @@ from pyramids.netcdf.engines.variables import Variables
 from pyramids.netcdf.metadata import get_metadata
 from pyramids.netcdf.models import NetCDFMetadata
 from pyramids.netcdf.plot_options import CoordinateSpec, FacetSpec, Selectors
-from pyramids.netcdf.utils import _read_attributes, create_time_conversion_func
+from pyramids.netcdf.utils import (
+    _read_attributes,
+    create_time_conversion_func,
+    read_cf_attributes,
+)
 
 if TYPE_CHECKING:
     from cleopatra.basemap.geo import Basemap
@@ -6959,7 +6963,7 @@ class NetCDF(Dataset):
         # Attribute-only detection (empty ``name`` disables the name-pattern fallback): the
         # name-based stage lives in ``_named_spatial_axes`` and must stay separate so the
         # CF-attribute pass keeps precedence over it.
-        role = detect_axis("", _read_attributes(coord))
+        role = detect_axis("", read_cf_attributes(coord))
         return role if role in ("X", "Y") else None
 
     @staticmethod

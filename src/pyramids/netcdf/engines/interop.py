@@ -34,7 +34,7 @@ from pyramids.netcdf.cf import (
     write_attributes_to_md_array,
     write_global_attributes,
 )
-from pyramids.netcdf.utils import _merge_unit, _read_attributes
+from pyramids.netcdf.utils import read_cf_attributes
 
 if TYPE_CHECKING:
     from pyramids.netcdf.netcdf import NetCDF
@@ -141,7 +141,7 @@ def _coords_from_dimensions(rg: Any, ds: NetCDF) -> dict[str, Any]:
         if iv is None:
             continue
         dim_name = d.GetName()
-        coord_attrs = _merge_unit(_read_attributes(iv), iv)
+        coord_attrs = read_cf_attributes(iv)
         coords[dim_name] = ([dim_name], ds._md_array_to_numpy(iv), coord_attrs)
     return coords
 
@@ -162,7 +162,7 @@ def _data_vars_from_arrays(rg: Any, ds: NetCDF, chunks: Any = None) -> dict[str,
             arr_data = ds._md_array_to_numpy(md_arr)
         else:
             arr_data = _lazy_var_data(ds, var_name, chunks, md_arr)
-        var_attrs = _merge_unit(_read_attributes(md_arr), md_arr)
+        var_attrs = read_cf_attributes(md_arr)
         data_vars[var_name] = (arr_dim_names, arr_data, var_attrs)
     return data_vars
 

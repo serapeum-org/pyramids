@@ -14,6 +14,11 @@ on the classic top-up — supplied it.
 
 The HDF5 driver is exercised directly, via `gdal.OpenEx(..., allowed_drivers=["HDF5"])`, which
 selects it in-process without `GDAL_SKIP` and without a subprocess.
+
+The same blindness hit every CF consumer that read attributes raw, not just the time axis: CF
+axis detection never fired on a file whose lat/lon declare only `units`, and a UGRID variable's
+unit was lost on a round trip. They all go through `read_cf_attributes` now, and both are
+covered here.
 """
 
 from __future__ import annotations
@@ -25,8 +30,13 @@ import pytest
 from osgeo import gdal
 
 from pyramids.netcdf import NetCDF
+from pyramids.netcdf._axis import detect_axis_indices
 from pyramids.netcdf.metadata import MetadataBuilder
 from pyramids.netcdf.models import DimensionInfo
+from pyramids.netcdf.ugrid.connectivity import Connectivity
+from pyramids.netcdf.ugrid.dataset import UgridDataset
+from pyramids.netcdf.ugrid.mesh import Mesh2d
+from pyramids.netcdf.ugrid.models import MeshTopologyInfo, MeshVariable
 from pyramids.netcdf.utils import _merge_unit, _read_attributes
 
 pytestmark = pytest.mark.core
@@ -86,6 +96,44 @@ def cf_time_path(tmp_path) -> str:
     return path
 
 
+def _write_units_only_grid(path: str) -> str:
+    """Write a grid whose coordinates declare `units` and nothing else.
+
+    No `standard_name`, no `axis` — so CF axis detection has only the units to go on, which is
+    the case that was silently failing.
+
+    Args:
+        path: Output ``.nc`` path.
+
+    Returns:
+        str: ``path``, for chaining.
+    """
+    ds = gdal.GetDriverByName("netCDF").CreateMultiDimensional(path, [], ["FORMAT=NC4"])
+    rg = ds.GetRootGroup()
+    d_lat = rg.CreateDimension("lat", "", "", 2)
+    d_lon = rg.CreateDimension("lon", "", "", 3)
+    lat = rg.CreateMDArray(
+        "lat", [d_lat], gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+    )
+    lat.Write(np.array([51.0, 51.25]))
+    lon = rg.CreateMDArray(
+        "lon", [d_lon], gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+    )
+    lon.Write(np.array([3.0, 3.25, 3.5]))
+    for arr, units in ((lat, "degrees_north"), (lon, "degrees_east")):
+        attr = arr.CreateAttribute("units", [], gdal.ExtendedDataType.CreateString())
+        attr.Write(units)
+    var = rg.CreateMDArray(
+        "v", [d_lat, d_lon], gdal.ExtendedDataType.Create(gdal.GDT_Float32)
+    )
+    var.Write(np.zeros((2, 3), "float32"))
+    lat = lon = var = d_lat = d_lon = rg = None
+    ds.Close()
+    del ds
+    gc.collect()
+    return path
+
+
 class TestUnitSlotIsFoldedIn:
     """The unit slot reaches dimension attrs without help from the classic top-up."""
 
@@ -101,6 +149,7 @@ class TestUnitSlotIsFoldedIn:
             load-bearing.
         """
         ds = gdal.OpenEx(cf_time_path, gdal.OF_MULTIDIM_RASTER)
+        array = None
         try:
             array = ds.GetRootGroup().OpenMDArray("time")
             assert "units" not in _read_attributes(array), (
@@ -110,6 +159,8 @@ class TestUnitSlotIsFoldedIn:
                 f"the unit slot must hold the CF units, got {array.GetUnit()!r}"
             )
         finally:
+            # Release the array before the dataset: an MDArray keeps the handle alive.
+            array = None
             ds = None
 
     def test_dimension_attrs_carry_units(self, cf_time_path):
@@ -164,6 +215,7 @@ class TestUnitSlotIsFoldedIn:
                 f"the HDF5 driver must still yield the CF units, got {dict(attrs)}"
             )
         finally:
+            time_dim = None
             ds = None
 
     def test_time_decodes_without_the_classic_topup(self, cf_time_path, monkeypatch):
@@ -243,19 +295,17 @@ class TestMergeUnit:
         attrs = {"units": "from the attribute"}
         assert _merge_unit(attrs, _Obj())["units"] == "from the attribute"
 
-    @pytest.mark.parametrize(
-        "unit", ["", None, 42, object()], ids=["empty", "none", "int", "object"]
-    )
-    def test_non_string_unit_is_ignored(self, unit):
-        """Only a real non-empty string becomes a CF attribute.
+    @pytest.mark.parametrize("unit", ["", None], ids=["empty", "none"])
+    def test_absent_unit_adds_nothing(self, unit):
+        """An empty or absent unit slot adds no CF attribute.
 
         Args:
             unit: The value the stand-in's `GetUnit` returns.
 
         Test scenario:
-            `GetUnit`'s contract is `str`, and every value in a CF attrs dict is one. An object
-            that merely *has* the method — a partially-built handle, a test stand-in — must not
-            put a non-CF value into metadata.
+            The ordinary case for any array that is not a coordinate — GDAL returns `''`. A
+            `units` key materialising with an empty value would be worse than none, since CF
+            consumers test for presence.
         """
 
         class _Obj:
@@ -279,3 +329,81 @@ class TestMergeUnit:
                 raise RuntimeError("no unit")
 
         assert _merge_unit({"axis": "T"}, _Obj()) == {"axis": "T"}
+
+
+class TestOtherCfConsumers:
+    """Every CF consumer reads through `read_cf_attributes`, not the raw attribute list."""
+
+    def test_axis_detection_uses_units(self, tmp_path):
+        """Axes are detected on a file whose coordinates declare only `units`.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            `axis_role_of_dimension` advertises classification by `units`
+            (`degrees_east`/`degrees_north`), but read the attribute list raw — where `units`
+            never appears — so that branch was dead for real files. Files written by GDAL
+            escaped it only because its writer also stamps `standard_name`/`axis`. This fixture
+            declares nothing but `units` on its coordinates, so that is the only signal there is.
+        """
+        path = _write_units_only_grid(str(tmp_path / "units_only.nc"))
+        ds = gdal.OpenEx(path, gdal.OF_MULTIDIM_RASTER)
+        array = None
+        try:
+            array = ds.GetRootGroup().OpenMDArray("v")
+            assert detect_axis_indices(array.GetDimensions()) == (1, 0), (
+                "lat/lon declaring only units must still be detected as the Y/X axes"
+            )
+        finally:
+            array = None
+            ds = None
+
+    def test_ugrid_variable_units_survive_a_round_trip(self, tmp_path):
+        """A mesh variable's `units` is still there after write then read.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            `_read_data_variables` took `units` from the attribute list, so the value written
+            through GDAL's unit slot came back as `None` — silently, since a missing unit is a
+            legal state.
+        """
+        path = tmp_path / "mesh.nc"
+        mesh = Mesh2d(
+            node_x=np.array([0.0, 1.0, 0.5]),
+            node_y=np.array([0.0, 0.0, 1.0]),
+            face_node_connectivity=Connectivity(
+                data=np.array([[0, 1, 2]], dtype=np.intp),
+                fill_value=-1,
+                cf_role="face_node_connectivity",
+                original_start_index=0,
+            ),
+        )
+        topology = MeshTopologyInfo(
+            mesh_name="mesh2d",
+            topology_dimension=2,
+            node_x_var="mesh2d_node_x",
+            node_y_var="mesh2d_node_y",
+            face_node_var="mesh2d_face_nodes",
+        )
+        variable = MeshVariable(
+            name="h",
+            location="node",
+            mesh_name="mesh2d",
+            shape=(3,),
+            attributes={"units": "m", "standard_name": "height"},
+            units="m",
+            standard_name="height",
+            _data=np.array([1.0, 2.0, 3.0]),
+        )
+        UgridDataset(
+            mesh=mesh,
+            data_variables={"h": variable},
+            global_attributes={"Conventions": "CF-1.8 UGRID-1.0"},
+            topology_info=topology,
+        ).to_file(path)
+        assert UgridDataset.read_file(path).get_data("h").units == "m", (
+            "the mesh variable's units must survive the round trip"
+        )

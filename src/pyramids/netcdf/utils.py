@@ -891,35 +891,75 @@ def _read_attribute_value(attr: gdal.Attribute) -> AttributeValue:
     return _normalize_attr_value(val)
 
 
-def _merge_unit(attrs: dict[str, Any], gdal_obj: Any) -> dict[str, Any]:
+def _merge_unit(
+    attrs: dict[str, AttributeValue], gdal_obj: Any
+) -> dict[str, AttributeValue]:
     """Fold GDAL's ``GetUnit()`` back into ``attrs`` as a CF ``units`` entry.
 
-    GDAL normalises a CF ``units`` attribute onto the MDArray / indexing-variable
-    **unit slot** and drops it from the attribute list. That is not driver-specific —
-    the netCDF and HDF5 drivers both do it — so anything reading CF attributes off a
-    multidim object sees ``calendar`` and ``standard_name`` but no ``units`` unless the
-    unit slot is merged back in (#1078).
+    Prefer :func:`read_cf_attributes`, which pairs this with the attribute read; call this
+    directly only when the attributes were obtained some other way.
 
-    Existing ``units`` in ``attrs`` win, so a file that really does carry the attribute
-    keeps its own value. The dict is mutated in place and returned for chaining.
+    GDAL normalises a CF ``units`` attribute onto the MDArray / indexing-variable **unit
+    slot** and drops it from the attribute list. That is not driver-specific — the netCDF
+    and HDF5 drivers both do it — so a CF consumer reading attributes alone sees
+    ``calendar`` and ``standard_name`` but never ``units`` (#1078).
+
+    Existing ``units`` in ``attrs`` win, so a file that really does carry the attribute keeps
+    its own value. That incumbent is taken as-is while the slot value is type-checked, which is
+    deliberate but worth naming: the incumbent arrived through :func:`_read_attributes`, which
+    has already normalised it, whereas the slot value goes in unmediated.
+
+    The ``isinstance`` test enforces this mapping's declared value type. Real GDAL returns
+    ``str`` here, so on a live handle the check never fires; what it actually rejects is a
+    non-GDAL stand-in — a ``MagicMock`` in the unit tests will happily return a mock object
+    from ``GetUnit()``, and that must not end up in metadata that is later serialised.
+
+    A raising ``GetUnit`` is treated as "no unit". Reading metadata degrades rather than
+    fails throughout this module, and a unit slot that errors should not take the caller's
+    whole attribute read down with it.
 
     Args:
         attrs: Attributes already read from ``gdal_obj``; mutated in place.
         gdal_obj: Any GDAL object exposing ``GetUnit()`` (MDArray, indexing variable).
 
     Returns:
-        dict[str, Any]: ``attrs``, with ``units`` added when the unit slot held one.
+        dict[str, AttributeValue]: ``attrs``, with ``units`` added when the slot held one.
     """
     try:
         unit = gdal_obj.GetUnit()
     except (RuntimeError, AttributeError):
         unit = None
-    # Require a real non-empty string: GetUnit's contract is `str`, every other value in
-    # a CF attrs dict is one, and an object that merely *has* the attribute (a stand-in
-    # in a test, a partially-built handle) must not put a non-CF value into metadata.
     if isinstance(unit, str) and unit and "units" not in attrs:
         attrs["units"] = unit
     return attrs
+
+
+def read_cf_attributes(obj: Any) -> dict[str, AttributeValue]:
+    """Read a GDAL object's attributes the way a CF consumer needs them.
+
+    The CF reader for every consumer of ``units`` / ``calendar`` / ``standard_name`` /
+    ``axis``. Use this rather than :func:`_read_attributes` wherever the attributes are
+    interpreted as CF: attributes alone omit ``units``, because GDAL moves it to the object's
+    unit slot, so a site that reads them raw silently loses it — which is how a time axis came
+    back undecodable, CF axis detection by units never fired, and a UGRID variable's unit
+    vanished on a round trip (#1078).
+
+    :func:`_read_attributes` remains the right call for a verbatim view of what the file
+    declares (serialisation, round-trip writers); this one is for interpreting CF.
+
+    The slot is the CF ``units`` for the netCDF and HDF5 drivers, which is where this matters.
+    Another multidim driver (Zarr, HDF-EOS) may fill it from a format-specific field, in which
+    case the reported ``units`` is that driver's unit rather than a CF attribute the file
+    literally declares — a reason to read attributes raw when the question is "what does this
+    file say", not "what does this axis mean".
+
+    Args:
+        obj: Any GDAL object exposing ``GetAttributes()`` and ``GetUnit()``.
+
+    Returns:
+        dict[str, AttributeValue]: The object's attributes, including ``units``.
+    """
+    return _merge_unit(_read_attributes(obj), obj)
 
 
 def _read_attributes(obj: Any) -> dict[str, AttributeValue]:

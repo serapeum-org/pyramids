@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from pyramids.netcdf.cf import detect_axis
-from pyramids.netcdf.utils import _read_attributes
+from pyramids.netcdf.utils import read_cf_attributes
 
 
 def axis_role_of_dimension(dim: Any) -> str | None:
@@ -35,7 +35,7 @@ def axis_role_of_dimension(dim: Any) -> str | None:
     # Attribute-only detection (empty `name` disables the name-pattern fallback) so the CF-attribute
     # vs. dimension-name stages stay separated, matching the historical pipeline. Filter to the
     # spatial roles this classifier promises (`detect_axis` can also return `"T"`/`"Z"`).
-    role = detect_axis("", _read_attributes(indexing_var))
+    role = detect_axis("", read_cf_attributes(indexing_var))
     return role if role in ("X", "Y") else None
 
 
