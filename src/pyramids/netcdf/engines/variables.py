@@ -938,7 +938,11 @@ def _create_netcdf_from_array(
         # extension does decide is whether the caller asked for something else:
         # `path="lies.tif"` used to write a netCDF under a GeoTIFF name without
         # a word. Refuse instead, naming what was actually produced.
-        resolved = resolve_output_driver(path)
+        # `for_copy=True` so a copy-only extension reaches the message below
+        # rather than raising the Create-gate error inside the resolver, whose
+        # advice ("build it as GTiff, then convert") is wrong for a caller who
+        # asked a netCDF container to write a PNG.
+        resolved = resolve_output_driver(path, for_copy=True)
         if resolved != "netCDF":
             raise FileFormatNotSupportedError(
                 f"NetCDF.from_array writes a multidimensional netCDF store, but "

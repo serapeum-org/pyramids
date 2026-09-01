@@ -39,7 +39,11 @@ from pyramids.base.crs import (
 )
 from pyramids.base.georeference import GeoReference
 from pyramids.base.remote import cloud_config_from_env, redact_credentials
-from pyramids.dataset._driver import MEMORY_DRIVER, resolve_output_driver
+from pyramids.dataset._driver import (
+    MEMORY_DRIVER,
+    copy_yields_writable,
+    resolve_output_driver,
+)
 from pyramids.dataset._ogc_coverages import from_ogc_coverages as _from_ogc_coverages
 from pyramids.dataset._plot_helpers import nonnull_group_kwargs
 from pyramids.dataset._wcs import from_wcs as _from_wcs
@@ -3579,7 +3583,10 @@ class Dataset(RasterBase):
             # GTiff carrying a netCDF name. `for_copy` because this writes
             # with CreateCopy, which copy-only formats support.
             driver = resolve_output_driver(path, for_copy=True)
-            new_access = "write"
+            # A copy-only driver returns a read-only handle, so claiming
+            # "write" here meant `write_array` leaked a raw GDAL error past
+            # the package's own ReadOnlyError guard.
+            new_access = "write" if copy_yields_writable(driver) else "read_only"
 
         src = gdal.GetDriverByName(driver).CreateCopy(str(path), self._raster)
         return Dataset(src, access=new_access)

@@ -657,14 +657,18 @@ def merge_rasters(
         # `projWin` is what stops the read at the window: without it GDAL has no
         # reason to restrict what it pulls through /vsicurl and materialises the
         # whole mosaic extent.
-        # gdal.Translate infers the driver from the extension, but LZW is a
-        # GTiff creation option: handing it to whatever that inference picks
-        # made netCDF emit "'LZW' is an unexpected value for COMPRESS". Gate it
-        # the way `_create_dataset` and the reduction path above now do.
+        # Hand gdal.Translate the driver the catalog resolved rather than
+        # letting it re-infer from the extension. The two tables disagree: the
+        # catalog knows `.nc4` as a netCDF alias, GDAL's netCDF driver
+        # advertises only `nc`, so the same `dst` wrote a netCDF through the
+        # reduction path and died with "Could not identify an output driver"
+        # here -- the format depending on `method` again, which is exactly what
+        # resolving once was meant to stop.
+        out_driver = resolve_output_driver(dst, for_copy=True)
+        # LZW is a GTiff creation option; other drivers reject it.
         translate_opts = gdal.TranslateOptions(
-            creationOptions=(
-                ["COMPRESS=LZW"] if resolve_output_driver(dst) == "GTiff" else []
-            ),
+            format=out_driver,
+            creationOptions=["COMPRESS=LZW"] if out_driver == "GTiff" else [],
             noData=str(no_data_value),
             projWin=proj_win,
         )

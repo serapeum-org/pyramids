@@ -29,7 +29,11 @@ from pyramids.feature import _ogr as _feature_ogr
 if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
 
-from pyramids.dataset._driver import MEMORY_DRIVER, resolve_output_driver
+from pyramids.dataset._driver import (
+    MEMORY_DRIVER,
+    copy_yields_writable,
+    resolve_output_driver,
+)
 from pyramids.dataset.engines._base import _Engine, logger
 from pyramids.dataset.engines._validate import validate_band_index
 
@@ -773,7 +777,10 @@ class Vectorize(_Engine["Dataset"]):
 
         options = gdal.TranslateOptions(format=driver, **kwargs)
         dst = gdal.Translate(str(path), self._ds.raster, options=options)
-        result = self._ds.__class__(dst, access="write")
+        # A copy-only driver (PNG, JPEG) hands back a read-only dataset;
+        # labelling it "write" bypasses the package's ReadOnlyError guard.
+        access = "write" if copy_yields_writable(driver) else "read_only"
+        result = self._ds.__class__(dst, access=access)
         return result
 
     @staticmethod

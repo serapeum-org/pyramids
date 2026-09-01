@@ -44,6 +44,31 @@ MEMORY_DRIVER = "MEM"
 _CATALOG = get_catalog()
 
 
+def copy_yields_writable(driver_name: str) -> bool:
+    """Whether `CreateCopy` to this driver returns a handle that can be written.
+
+    A driver that cannot `Create` builds its output in one shot and hands back
+    a read-only dataset -- `PNG.CreateCopy` is the common case. Callers that
+    label the result `access="write"` on that basis are wrong twice over: the
+    package's own `ReadOnlyError` guard never fires, and the user gets a raw
+    GDAL "attempt to write to dataset opened in read-only mode" instead.
+
+    Args:
+        driver_name: The GDAL driver short name, as returned by
+            :func:`resolve_output_driver`.
+
+    Returns:
+        bool: `True` when the copy is writable. Unknown drivers answer `True`,
+        which preserves the historical behaviour for anything the catalog does
+        not describe.
+    """
+    key = _CATALOG.get_driver_name(driver_name)
+    if key is None:
+        return True
+    entry = _CATALOG.get_driver(key) or {}
+    return bool(entry.get("Creation"))
+
+
 def resolve_output_driver(path: str | Path | None, *, for_copy: bool = False) -> str:
     """Return the GDAL driver name for a destination path.
 
@@ -188,4 +213,4 @@ raster in memory or as GTiff, then convert.
     return driver
 
 
-__all__ = ["MEMORY_DRIVER", "resolve_output_driver"]
+__all__ = ["MEMORY_DRIVER", "copy_yields_writable", "resolve_output_driver"]
