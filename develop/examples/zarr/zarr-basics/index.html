@@ -7055,7 +7055,7 @@ build a temp workspace with a small synthetic raster.</p>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span><span class="p">,</span> <span class="n">GeoReference</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.plot</span><span class="w"> </span><span class="kn">import</span> <span class="n">ColorBar</span>
 
 <span class="n">workspace</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">tempfile</span><span class="o">.</span><span class="n">mkdtemp</span><span class="p">(</span><span class="n">prefix</span><span class="o">=</span><span class="s2">"pyramids-zarr-basics-"</span><span class="p">))</span>
@@ -7063,12 +7063,10 @@ build a temp workspace with a small synthetic raster.</p>
 
 <span class="n">rows</span><span class="p">,</span> <span class="n">cols</span> <span class="o">=</span> <span class="mi">32</span><span class="p">,</span> <span class="mi">48</span>
 <span class="n">arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="n">rows</span> <span class="o">*</span> <span class="n">cols</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="n">rows</span><span class="p">,</span> <span class="n">cols</span><span class="p">)</span>
-<span class="n">mem</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span>
+<span class="n">mem</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span>
     <span class="n">arr</span><span class="p">,</span>
-    <span class="n">top_left_corner</span><span class="o">=</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="n">rows</span><span class="p">)),</span>
-    <span class="n">cell_size</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
-    <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">,</span>
     <span class="n">no_data_value</span><span class="o">=-</span><span class="mf">9999.0</span><span class="p">,</span>
+    <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">top_left_corner</span><span class="o">=</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="n">rows</span><span class="p">)),</span> <span class="n">cell_size</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">),</span>
 <span class="p">)</span>
 <span class="n">mem</span><span class="o">.</span><span class="n">band_names</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"red"</span><span class="p">,</span> <span class="s2">"nir"</span><span class="p">]</span>
 
@@ -7085,7 +7083,7 @@ from pathlib import Path
 
 import numpy as np
 
-from pyramids.dataset import Dataset
+from pyramids.dataset import Dataset, GeoReference
 from pyramids.plot import ColorBar
 
 workspace = Path(tempfile.mkdtemp(prefix="pyramids-zarr-basics-"))
@@ -7093,12 +7091,10 @@ print("workspace:", workspace)
 
 rows, cols = 32, 48
 arr = np.arange(2 * rows * cols, dtype=np.float32).reshape(2, rows, cols)
-mem = Dataset.create_from_array(
+mem = Dataset.from_array(
     arr,
-    top_left_corner=(0.0, float(rows)),
-    cell_size=1.0,
-    epsg=4326,
     no_data_value=-9999.0,
+    geo_ref=GeoReference(top_left_corner=(0.0, float(rows)), cell_size=1.0, epsg=4326),
 )
 mem.band_names = ["red", "nir"]
 
@@ -7120,7 +7116,7 @@ ds.shape, ds.cell_size, ds.epsg</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>workspace: /tmp/pyramids-zarr-basics-ecg1apea
+<pre>workspace: /tmp/pyramids-zarr-basics-zp55iwur
 </pre>
 </div>
 </div>
@@ -7263,7 +7259,7 @@ rt.plot(
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[3]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7f58fc9dcec0&gt;</pre>
+<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7fcba3fc4d70&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
