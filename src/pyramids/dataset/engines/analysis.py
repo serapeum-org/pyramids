@@ -1863,7 +1863,7 @@ class Analysis(_Engine["Dataset"]):
         band: int = 0,
         bins: int = 15,
         exclude_value: Any | None = None,
-        ax: Any | None = None,
+        ax: Axes | None = None,
         *,
         max_samples: int | None = None,
         **kwargs: Any,
@@ -2038,7 +2038,7 @@ class Analysis(_Engine["Dataset"]):
         u_band: int = 0,
         v_band: int = 1,
         kind: str = "quiver",
-        ax: Any | None = None,
+        ax: Axes | None = None,
         **kwargs: Any,
     ):
         """Plot two bands as a 2-component vector field.
