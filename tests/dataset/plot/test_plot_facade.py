@@ -347,3 +347,21 @@ class TestDatasetPlotFigAx:
         call_kwargs = mock_plot.call_args.kwargs
         assert call_kwargs["fig"] is fig, "fig must reach the engine"
         assert call_kwargs["ax"] is ax, "ax must reach the engine"
+
+    @pytest.mark.plot
+    def test_ax_alone_is_honoured(self):
+        """Supplying only `ax` is sufficient — the panel adopts that axes and its figure.
+
+        Test scenario:
+            An axes already carries its figure, so `ax` on its own is enough to compose
+            into a caller-owned layout. (The mirror case, `fig` without `ax`, currently
+            raises inside cleopatra — see serapeum-org/cleopatra#326 — so it is not
+            exercised here.)
+        """
+        dataset = self._dataset()
+        fig, ax = plt.subplots()
+
+        glyph = dataset.plot(ax=ax)
+
+        assert glyph.ax is ax, "the panel must bind to the supplied axes"
+        assert glyph.fig is fig, "and pick up that axes' own figure"
