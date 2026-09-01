@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -7124,7 +7124,7 @@ next day's overpass on 2024-01-16.</p>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span><span class="p">,</span> <span class="n">DatasetCollection</span><span class="p">,</span> <span class="n">GeoReference</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span><span class="p">,</span> <span class="n">DatasetCollection</span>
 
 <span class="n">work</span> <span class="o">=</span> <span class="n">tempfile</span><span class="o">.</span><span class="n">mkdtemp</span><span class="p">(</span><span class="n">prefix</span><span class="o">=</span><span class="s2">"solar_day_demo_"</span><span class="p">)</span>
 <span class="n">work</span>
@@ -7137,7 +7137,7 @@ from datetime import UTC, datetime, timedelta
 
 import numpy as np
 
-from pyramids.dataset import Dataset, DatasetCollection, GeoReference
+from pyramids.dataset import Dataset, DatasetCollection
 
 work = tempfile.mkdtemp(prefix="solar_day_demo_")
 work</div>
@@ -7152,7 +7152,7 @@ work</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[1]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>'/tmp/solar_day_demo_tp6f5xql'</pre>
+<pre>'/tmp/solar_day_demo_bbrmeee0'</pre>
 </div>
 </div>
 </div>
@@ -7192,11 +7192,14 @@ work</div>
 <span class="w">    </span><span class="sd">"""Write a small 1-band GeoTIFF tile and return its path."""</span>
     <span class="n">path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">work</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
     <span class="n">arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">((</span><span class="mi">20</span><span class="p">,</span> <span class="mi">20</span><span class="p">),</span> <span class="n">value</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">"float32"</span><span class="p">)</span>
-    <span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span>
+    <span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span>
         <span class="n">arr</span><span class="p">,</span>
+        <span class="n">top_left_corner</span><span class="o">=</span><span class="n">top_left</span><span class="p">,</span>
+        <span class="n">cell_size</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span>
+        <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">,</span>
         <span class="n">no_data_value</span><span class="o">=-</span><span class="mf">9999.0</span><span class="p">,</span>
+        <span class="n">driver_type</span><span class="o">=</span><span class="s2">"GTiff"</span><span class="p">,</span>
         <span class="n">path</span><span class="o">=</span><span class="n">path</span><span class="p">,</span>
-        <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">top_left_corner</span><span class="o">=</span><span class="n">top_left</span><span class="p">,</span> <span class="n">cell_size</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">),</span>
     <span class="p">)</span>
     <span class="k">return</span> <span class="n">path</span>
 </pre></div>
@@ -7204,11 +7207,14 @@ work</div>
     """Write a small 1-band GeoTIFF tile and return its path."""
     path = os.path.join(work, name)
     arr = np.full((20, 20), value, dtype="float32")
-    Dataset.from_array(
+    Dataset.create_from_array(
         arr,
+        top_left_corner=top_left,
+        cell_size=0.05,
+        epsg=4326,
         no_data_value=-9999.0,
+        driver_type="GTiff",
         path=path,
-        geo_ref=GeoReference(top_left_corner=top_left, cell_size=0.05, epsg=4326),
     )
     return path</div>
 </div>
@@ -7268,9 +7274,9 @@ tile_c = make_tile("c.tif", top_left=(10.0, 41.0), value=3.0)  # day 2
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[3]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>['/tmp/solar_day_demo_tp6f5xql/a.tif',
- '/tmp/solar_day_demo_tp6f5xql/b.tif',
- '/tmp/solar_day_demo_tp6f5xql/c.tif']</pre>
+<pre>['/tmp/solar_day_demo_bbrmeee0/a.tif',
+ '/tmp/solar_day_demo_bbrmeee0/b.tif',
+ '/tmp/solar_day_demo_bbrmeee0/c.tif']</pre>
 </div>
 </div>
 </div>
@@ -7531,7 +7537,7 @@ solar-day mosaic (west tile = 1, east tile = 2).</p>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[7]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7f93c42bc050&gt;</pre>
+<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7fc868764050&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">

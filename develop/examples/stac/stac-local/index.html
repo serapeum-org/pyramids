@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -7101,7 +7101,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span><span class="p">,</span> <span class="n">DatasetCollection</span><span class="p">,</span> <span class="n">GeoReference</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span><span class="p">,</span> <span class="n">DatasetCollection</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.stac</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">AWSRequesterPaysSigner</span><span class="p">,</span>
     <span class="n">BearerTokenSigner</span><span class="p">,</span>
@@ -7118,10 +7118,12 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">write_band</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">cell</span><span class="o">=</span><span class="mf">10.0</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span> <span class="n">top_left</span><span class="o">=</span><span class="p">(</span><span class="mf">600000.0</span><span class="p">,</span> <span class="mf">5300000.0</span><span class="p">)):</span>
 <span class="w">    </span><span class="sd">"""Write a constant uint16 EPSG:32630 raster (nodata 0) and return its path."""</span>
-    <span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span>
+    <span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span>
         <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">(</span><span class="n">shape</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="s1">'uint16'</span><span class="p">),</span>
+        <span class="n">top_left_corner</span><span class="o">=</span><span class="n">top_left</span><span class="p">,</span>
+        <span class="n">cell_size</span><span class="o">=</span><span class="n">cell</span><span class="p">,</span>
+        <span class="n">epsg</span><span class="o">=</span><span class="mi">32630</span><span class="p">,</span>
         <span class="n">no_data_value</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
-        <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">top_left_corner</span><span class="o">=</span><span class="n">top_left</span><span class="p">,</span> <span class="n">cell_size</span><span class="o">=</span><span class="n">cell</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">32630</span><span class="p">),</span>
     <span class="p">)</span>
     <span class="n">path</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">WORK</span> <span class="o">/</span> <span class="sa">f</span><span class="s1">'</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s1">.tif'</span><span class="p">)</span>
     <span class="n">ds</span><span class="o">.</span><span class="n">to_file</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
@@ -7147,7 +7149,7 @@ from pathlib import Path
 
 import numpy as np
 
-from pyramids.dataset import Dataset, DatasetCollection, GeoReference
+from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.stac import (
     AWSRequesterPaysSigner,
     BearerTokenSigner,
@@ -7164,10 +7166,12 @@ WORK = Path(tempfile.mkdtemp(prefix='pyramids_stac_nb_'))
 
 def write_band(name, value, *, cell=10.0, shape=(4, 4), top_left=(600000.0, 5300000.0)):
     """Write a constant uint16 EPSG:32630 raster (nodata 0) and return its path."""
-    ds = Dataset.from_array(
+    ds = Dataset.create_from_array(
         np.full(shape, value, dtype='uint16'),
+        top_left_corner=top_left,
+        cell_size=cell,
+        epsg=32630,
         no_data_value=0,
-        geo_ref=GeoReference(top_left_corner=top_left, cell_size=cell, epsg=32630),
     )
     path = str(WORK / f'{name}.tif')
     ds.to_file(path)
@@ -7196,7 +7200,7 @@ print('workspace:', WORK)</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>workspace: /tmp/pyramids_stac_nb_y9_eeqj0
+<pre>workspace: /tmp/pyramids_stac_nb_vgnqatap
 </pre>
 </div>
 </div>
@@ -7464,7 +7468,7 @@ ds0.band_count, ds0.band_names, ds0.read_array().shape</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[6]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7fc83d3cbcb0&gt;</pre>
+<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7f3350983e00&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7611,7 +7615,7 @@ mosaic per day.</p>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[8]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7fc834fe2350&gt;</pre>
+<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7f33485d6210&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7865,7 +7869,7 @@ tileB (20) on the right.</p>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[12]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7fc83480cf50&gt;</pre>
+<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7f33483f0e10&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -8011,7 +8015,7 @@ resolved_href(items[0], 'B04')</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[15]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>'/tmp/pyramids_stac_nb_y9_eeqj0/B04.tif'</pre>
+<pre>'/tmp/pyramids_stac_nb_vgnqatap/B04.tif'</pre>
 </div>
 </div>
 </div>

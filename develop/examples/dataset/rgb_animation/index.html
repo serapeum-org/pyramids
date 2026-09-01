@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6992,7 +6992,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">IPython.display</span><span class="w"> </span><span class="kn">import</span> <span class="n">HTML</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span><span class="p">,</span> <span class="n">DatasetCollection</span><span class="p">,</span> <span class="n">GeoReference</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span><span class="p">,</span> <span class="n">DatasetCollection</span>
 
 <span class="o">%</span><span class="n">matplotlib</span> <span class="n">inline</span>
 <span class="c1"># Render at a modest dpi: to_jshtml embeds a PNG per frame, so a lower dpi keeps the</span>
@@ -7007,7 +7007,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from IPython.display import HTML
 
-from pyramids.dataset import Dataset, DatasetCollection, GeoReference
+from pyramids.dataset import Dataset, DatasetCollection
 
 %matplotlib inline
 # Render at a modest dpi: to_jshtml embeds a PNG per frame, so a lower dpi keeps the
@@ -7072,9 +7072,9 @@ of an <code>8</code>-bit image with a bright square that moves across the frame,
     <span class="n">arr</span> <span class="o">=</span> <span class="p">(</span><span class="n">rng</span><span class="o">.</span><span class="n">random</span><span class="p">((</span><span class="mi">3</span><span class="p">,</span> <span class="n">size</span><span class="p">,</span> <span class="n">size</span><span class="p">))</span> <span class="o">*</span> <span class="mi">60</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s2">"float32"</span><span class="p">)</span>
     <span class="n">r0</span> <span class="o">=</span> <span class="mi">4</span> <span class="o">+</span> <span class="n">t</span> <span class="o">*</span> <span class="mi">8</span>
     <span class="n">arr</span><span class="p">[:,</span> <span class="n">r0</span> <span class="p">:</span> <span class="n">r0</span> <span class="o">+</span> <span class="mi">8</span><span class="p">,</span> <span class="n">r0</span> <span class="p">:</span> <span class="n">r0</span> <span class="o">+</span> <span class="mi">8</span><span class="p">]</span> <span class="o">=</span> <span class="mf">230.0</span>
-    <span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span>
-        <span class="n">arr</span><span class="o">=</span><span class="n">arr</span><span class="p">,</span> <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">geo</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">size</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">),</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">)</span>
-    <span class="p">)</span><span class="o">.</span><span class="n">to_file</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">folder</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"frame_</span><span class="si">{</span><span class="n">t</span><span class="si">:</span><span class="s2">02d</span><span class="si">}</span><span class="s2">.tif"</span><span class="p">))</span>
+    <span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span><span class="n">arr</span><span class="o">=</span><span class="n">arr</span><span class="p">,</span> <span class="n">geo</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">size</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">),</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">)</span><span class="o">.</span><span class="n">to_file</span><span class="p">(</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">folder</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"frame_</span><span class="si">{</span><span class="n">t</span><span class="si">:</span><span class="s2">02d</span><span class="si">}</span><span class="s2">.tif"</span><span class="p">)</span>
+    <span class="p">)</span>
 
 <span class="nb">sorted</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">listdir</span><span class="p">(</span><span class="n">folder</span><span class="p">))</span>
 </pre></div>
@@ -7087,9 +7087,9 @@ for t in range(n_times):
     arr = (rng.random((3, size, size)) * 60).astype("float32")
     r0 = 4 + t * 8
     arr[:, r0 : r0 + 8, r0 : r0 + 8] = 230.0
-    Dataset.from_array(
-        arr=arr, geo_ref=GeoReference(geo=(0, 1, 0, size, 0, -1), epsg=4326)
-    ).to_file(os.path.join(folder, f"frame_{t:02d}.tif"))
+    Dataset.create_from_array(arr=arr, geo=(0, 1, 0, size, 0, -1), epsg=4326).to_file(
+        os.path.join(folder, f"frame_{t:02d}.tif")
+    )
 
 sorted(os.listdir(folder))</div>
 </div>
@@ -7448,36 +7448,36 @@ input[type=range].anim-slider {
 }
 </style>
 <div class="animation">
-<img alt="No description has been provided for this image" id="_anim_imge2e2653213bf43c7be18c8135d9df641"/>
+<img alt="No description has been provided for this image" id="_anim_img51d01ece6d0543649766ee0f67002d1e"/>
 <div class="anim-controls">
-<input class="anim-slider" id="_anim_slidere2e2653213bf43c7be18c8135d9df641" max="1" min="0" name="points" oninput="anime2e2653213bf43c7be18c8135d9df641.set_frame(parseInt(this.value));" step="1" type="range" value="0"/>
+<input class="anim-slider" id="_anim_slider51d01ece6d0543649766ee0f67002d1e" max="1" min="0" name="points" oninput="anim51d01ece6d0543649766ee0f67002d1e.set_frame(parseInt(this.value));" step="1" type="range" value="0"/>
 <div class="anim-buttons">
-<button aria-label="Decrease speed" onclick="anime2e2653213bf43c7be18c8135d9df641.slower()" title="Decrease speed">
+<button aria-label="Decrease speed" onclick="anim51d01ece6d0543649766ee0f67002d1e.slower()" title="Decrease speed">
 <i class="fa fa-minus"></i></button>
-<button aria-label="First frame" onclick="anime2e2653213bf43c7be18c8135d9df641.first_frame()" title="First frame">
+<button aria-label="First frame" onclick="anim51d01ece6d0543649766ee0f67002d1e.first_frame()" title="First frame">
 <i class="fa fa-fast-backward"></i></button>
-<button aria-label="Previous frame" onclick="anime2e2653213bf43c7be18c8135d9df641.previous_frame()" title="Previous frame">
+<button aria-label="Previous frame" onclick="anim51d01ece6d0543649766ee0f67002d1e.previous_frame()" title="Previous frame">
 <i class="fa fa-step-backward"></i></button>
-<button aria-label="Play backwards" onclick="anime2e2653213bf43c7be18c8135d9df641.reverse_animation()" title="Play backwards">
+<button aria-label="Play backwards" onclick="anim51d01ece6d0543649766ee0f67002d1e.reverse_animation()" title="Play backwards">
 <i class="fa fa-play fa-flip-horizontal"></i></button>
-<button aria-label="Pause" onclick="anime2e2653213bf43c7be18c8135d9df641.pause_animation()" title="Pause">
+<button aria-label="Pause" onclick="anim51d01ece6d0543649766ee0f67002d1e.pause_animation()" title="Pause">
 <i class="fa fa-pause"></i></button>
-<button aria-label="Play" onclick="anime2e2653213bf43c7be18c8135d9df641.play_animation()" title="Play">
+<button aria-label="Play" onclick="anim51d01ece6d0543649766ee0f67002d1e.play_animation()" title="Play">
 <i class="fa fa-play"></i></button>
-<button aria-label="Next frame" onclick="anime2e2653213bf43c7be18c8135d9df641.next_frame()" title="Next frame">
+<button aria-label="Next frame" onclick="anim51d01ece6d0543649766ee0f67002d1e.next_frame()" title="Next frame">
 <i class="fa fa-step-forward"></i></button>
-<button aria-label="Last frame" onclick="anime2e2653213bf43c7be18c8135d9df641.last_frame()" title="Last frame">
+<button aria-label="Last frame" onclick="anim51d01ece6d0543649766ee0f67002d1e.last_frame()" title="Last frame">
 <i class="fa fa-fast-forward"></i></button>
-<button aria-label="Increase speed" onclick="anime2e2653213bf43c7be18c8135d9df641.faster()" title="Increase speed">
+<button aria-label="Increase speed" onclick="anim51d01ece6d0543649766ee0f67002d1e.faster()" title="Increase speed">
 <i class="fa fa-plus"></i></button>
 </div>
-<form action="#n" aria-label="Repetition mode" class="anim-state" name="_anim_loop_selecte2e2653213bf43c7be18c8135d9df641" title="Repetition mode">
-<input id="_anim_radio1_e2e2653213bf43c7be18c8135d9df641" name="state" type="radio" value="once"/>
-<label for="_anim_radio1_e2e2653213bf43c7be18c8135d9df641">Once</label>
-<input checked="" id="_anim_radio2_e2e2653213bf43c7be18c8135d9df641" name="state" type="radio" value="loop"/>
-<label for="_anim_radio2_e2e2653213bf43c7be18c8135d9df641">Loop</label>
-<input id="_anim_radio3_e2e2653213bf43c7be18c8135d9df641" name="state" type="radio" value="reflect"/>
-<label for="_anim_radio3_e2e2653213bf43c7be18c8135d9df641">Reflect</label>
+<form action="#n" aria-label="Repetition mode" class="anim-state" name="_anim_loop_select51d01ece6d0543649766ee0f67002d1e" title="Repetition mode">
+<input id="_anim_radio1_51d01ece6d0543649766ee0f67002d1e" name="state" type="radio" value="once"/>
+<label for="_anim_radio1_51d01ece6d0543649766ee0f67002d1e">Once</label>
+<input checked="" id="_anim_radio2_51d01ece6d0543649766ee0f67002d1e" name="state" type="radio" value="loop"/>
+<label for="_anim_radio2_51d01ece6d0543649766ee0f67002d1e">Loop</label>
+<input id="_anim_radio3_51d01ece6d0543649766ee0f67002d1e" name="state" type="radio" value="reflect"/>
+<label for="_anim_radio3_51d01ece6d0543649766ee0f67002d1e">Reflect</label>
 </form>
 </div>
 </div>
@@ -7485,9 +7485,9 @@ input[type=range].anim-slider {
   /* Instantiate the Animation class. */
   /* The IDs given should match those used in the template above. */
   (function() {
-    var img_id = "_anim_imge2e2653213bf43c7be18c8135d9df641";
-    var slider_id = "_anim_slidere2e2653213bf43c7be18c8135d9df641";
-    var loop_select_id = "_anim_loop_selecte2e2653213bf43c7be18c8135d9df641";
+    var img_id = "_anim_img51d01ece6d0543649766ee0f67002d1e";
+    var slider_id = "_anim_slider51d01ece6d0543649766ee0f67002d1e";
+    var loop_select_id = "_anim_loop_select51d01ece6d0543649766ee0f67002d1e";
     var frames = new Array(5);
     
   frames[0] = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAANgAAACwCAYAAABth6DaAAAAOnRFWHRTb2Z0d2FyZQBNYXRwbG90\
@@ -9014,7 +9014,7 @@ czlOnjzZpbw79O7dG+fOnZPm586dQ+/evbs44vqg7GAKFKC9B9iwYcMQGxsLrVaLjz/+GL/+2nX/\
     /* set a timeout to make sure all the above elements are created before
        the object is initialized. */
     setTimeout(function() {
-        anime2e2653213bf43c7be18c8135d9df641 = new Animation(frames, img_id, slider_id, 200.0,
+        anim51d01ece6d0543649766ee0f67002d1e = new Animation(frames, img_id, slider_id, 200.0,
                                  loop_select_id);
     }, 0);
   })()
@@ -9303,36 +9303,36 @@ input[type=range].anim-slider {
 }
 </style>
 <div class="animation">
-<img alt="No description has been provided for this image" id="_anim_img28f70b61bb84450ea60203fde7d2f858"/>
+<img alt="No description has been provided for this image" id="_anim_imgc59f601462414779956ebf6b0da13b48"/>
 <div class="anim-controls">
-<input class="anim-slider" id="_anim_slider28f70b61bb84450ea60203fde7d2f858" max="1" min="0" name="points" oninput="anim28f70b61bb84450ea60203fde7d2f858.set_frame(parseInt(this.value));" step="1" type="range" value="0"/>
+<input class="anim-slider" id="_anim_sliderc59f601462414779956ebf6b0da13b48" max="1" min="0" name="points" oninput="animc59f601462414779956ebf6b0da13b48.set_frame(parseInt(this.value));" step="1" type="range" value="0"/>
 <div class="anim-buttons">
-<button aria-label="Decrease speed" onclick="anim28f70b61bb84450ea60203fde7d2f858.slower()" title="Decrease speed">
+<button aria-label="Decrease speed" onclick="animc59f601462414779956ebf6b0da13b48.slower()" title="Decrease speed">
 <i class="fa fa-minus"></i></button>
-<button aria-label="First frame" onclick="anim28f70b61bb84450ea60203fde7d2f858.first_frame()" title="First frame">
+<button aria-label="First frame" onclick="animc59f601462414779956ebf6b0da13b48.first_frame()" title="First frame">
 <i class="fa fa-fast-backward"></i></button>
-<button aria-label="Previous frame" onclick="anim28f70b61bb84450ea60203fde7d2f858.previous_frame()" title="Previous frame">
+<button aria-label="Previous frame" onclick="animc59f601462414779956ebf6b0da13b48.previous_frame()" title="Previous frame">
 <i class="fa fa-step-backward"></i></button>
-<button aria-label="Play backwards" onclick="anim28f70b61bb84450ea60203fde7d2f858.reverse_animation()" title="Play backwards">
+<button aria-label="Play backwards" onclick="animc59f601462414779956ebf6b0da13b48.reverse_animation()" title="Play backwards">
 <i class="fa fa-play fa-flip-horizontal"></i></button>
-<button aria-label="Pause" onclick="anim28f70b61bb84450ea60203fde7d2f858.pause_animation()" title="Pause">
+<button aria-label="Pause" onclick="animc59f601462414779956ebf6b0da13b48.pause_animation()" title="Pause">
 <i class="fa fa-pause"></i></button>
-<button aria-label="Play" onclick="anim28f70b61bb84450ea60203fde7d2f858.play_animation()" title="Play">
+<button aria-label="Play" onclick="animc59f601462414779956ebf6b0da13b48.play_animation()" title="Play">
 <i class="fa fa-play"></i></button>
-<button aria-label="Next frame" onclick="anim28f70b61bb84450ea60203fde7d2f858.next_frame()" title="Next frame">
+<button aria-label="Next frame" onclick="animc59f601462414779956ebf6b0da13b48.next_frame()" title="Next frame">
 <i class="fa fa-step-forward"></i></button>
-<button aria-label="Last frame" onclick="anim28f70b61bb84450ea60203fde7d2f858.last_frame()" title="Last frame">
+<button aria-label="Last frame" onclick="animc59f601462414779956ebf6b0da13b48.last_frame()" title="Last frame">
 <i class="fa fa-fast-forward"></i></button>
-<button aria-label="Increase speed" onclick="anim28f70b61bb84450ea60203fde7d2f858.faster()" title="Increase speed">
+<button aria-label="Increase speed" onclick="animc59f601462414779956ebf6b0da13b48.faster()" title="Increase speed">
 <i class="fa fa-plus"></i></button>
 </div>
-<form action="#n" aria-label="Repetition mode" class="anim-state" name="_anim_loop_select28f70b61bb84450ea60203fde7d2f858" title="Repetition mode">
-<input id="_anim_radio1_28f70b61bb84450ea60203fde7d2f858" name="state" type="radio" value="once"/>
-<label for="_anim_radio1_28f70b61bb84450ea60203fde7d2f858">Once</label>
-<input checked="" id="_anim_radio2_28f70b61bb84450ea60203fde7d2f858" name="state" type="radio" value="loop"/>
-<label for="_anim_radio2_28f70b61bb84450ea60203fde7d2f858">Loop</label>
-<input id="_anim_radio3_28f70b61bb84450ea60203fde7d2f858" name="state" type="radio" value="reflect"/>
-<label for="_anim_radio3_28f70b61bb84450ea60203fde7d2f858">Reflect</label>
+<form action="#n" aria-label="Repetition mode" class="anim-state" name="_anim_loop_selectc59f601462414779956ebf6b0da13b48" title="Repetition mode">
+<input id="_anim_radio1_c59f601462414779956ebf6b0da13b48" name="state" type="radio" value="once"/>
+<label for="_anim_radio1_c59f601462414779956ebf6b0da13b48">Once</label>
+<input checked="" id="_anim_radio2_c59f601462414779956ebf6b0da13b48" name="state" type="radio" value="loop"/>
+<label for="_anim_radio2_c59f601462414779956ebf6b0da13b48">Loop</label>
+<input id="_anim_radio3_c59f601462414779956ebf6b0da13b48" name="state" type="radio" value="reflect"/>
+<label for="_anim_radio3_c59f601462414779956ebf6b0da13b48">Reflect</label>
 </form>
 </div>
 </div>
@@ -9340,9 +9340,9 @@ input[type=range].anim-slider {
   /* Instantiate the Animation class. */
   /* The IDs given should match those used in the template above. */
   (function() {
-    var img_id = "_anim_img28f70b61bb84450ea60203fde7d2f858";
-    var slider_id = "_anim_slider28f70b61bb84450ea60203fde7d2f858";
-    var loop_select_id = "_anim_loop_select28f70b61bb84450ea60203fde7d2f858";
+    var img_id = "_anim_imgc59f601462414779956ebf6b0da13b48";
+    var slider_id = "_anim_sliderc59f601462414779956ebf6b0da13b48";
+    var loop_select_id = "_anim_loop_selectc59f601462414779956ebf6b0da13b48";
     var frames = new Array(5);
     
   frames[0] = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAANoAAADaCAYAAADAHVzbAAAAOnRFWHRTb2Z0d2FyZQBNYXRwbG90\
@@ -10433,7 +10433,7 @@ EQMbux6erT5zhEL36iDfl/HBv+PxpLHieu+AExmC1e7gTE5E9ImmULgCdTSFwgWooykULuCq8NPn\
     /* set a timeout to make sure all the above elements are created before
        the object is initialized. */
     setTimeout(function() {
-        anim28f70b61bb84450ea60203fde7d2f858 = new Animation(frames, img_id, slider_id, 200.0,
+        animc59f601462414779956ebf6b0da13b48 = new Animation(frames, img_id, slider_id, 200.0,
                                  loop_select_id);
     }, 0);
   })()
