@@ -160,11 +160,30 @@ raster in memory or as GTiff, then convert.
         key = _CATALOG.get_driver_name_by_extension(extension)
         entry = _CATALOG.get_driver(key)
         driver = str(entry["GDAL Name"])
-        if not for_copy and not entry.get("Creation"):
+        # `for_copy` selects a *different* capability, not the absence of one.
+        # Skipping the check entirely let `.vrt` through every copy-based
+        # writer, which then emitted a file GDAL could not reopen.
+        if for_copy:
+            if not entry.get("Copy"):
+                raise FileFormatNotSupportedError(
+                    f"'.{extension}' maps to the {driver} driver, which cannot be "
+                    "written by copy. Write a GTiff and convert it with an external "
+                    "tool."
+                )
+        elif not entry.get("Creation"):
             raise FileFormatNotSupportedError(
                 f"'.{extension}' maps to the {driver} driver, which cannot create a "
                 "raster directly (write-by-copy only). Build the raster in memory or "
                 "as GTiff, then convert."
+            )
+        # Refused on both paths: a driver that writes a reference rather than
+        # a self-contained raster produces a file that is unusable (VRT from
+        # an in-memory source) or silently coupled to the source it points at.
+        if entry.get("Self-contained") is False:
+            raise FileFormatNotSupportedError(
+                f"'.{extension}' maps to the {driver} driver, which writes a "
+                "reference to other rasters rather than a self-contained file. "
+                "Write a format that owns its pixels (e.g. '.tif')."
             )
     return driver
 

@@ -121,6 +121,13 @@ vrt:
   # pyramids constructors can build it", which is the question the resolver
   # actually asks, so it is No despite the GDAL capability bit.
   Creation: No
+  # CreateCopy *does* succeed, which is why `Copy` stays yes -- but what it
+  # writes is a pointer, not a file. From an in-memory source the
+  # <SourceFilename> comes out empty and GDAL cannot reopen the result at
+  # all; from a file-backed one it references the original, so the "copy"
+  # breaks when that moves. Neither is a self-contained raster, so the
+  # copy-based writers must refuse it too.
+  Self-contained: No
   Copy: yes
   Geo-referencing: yes
   Build requirements: Built-in by default

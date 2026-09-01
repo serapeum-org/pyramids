@@ -442,3 +442,57 @@ class TestCatalogAgreesWithGdal:
             f"catalog extensions {sorted(reachable)} != covered {sorted(covered)}; "
             "add the new one to test_the_creation_flag_matches_the_real_driver_capability"
         )
+
+
+class TestAReferenceOnlyFormatIsRefusedOnBothGates:
+    """`.vrt` writes a pointer, not a raster, so neither writer may take it."""
+
+    def test_the_create_gate_refuses_it(self):
+        """The `Create` path refuses `.vrt`.
+
+        Test scenario:
+            A VRT owns no pixel storage: `Create()` succeeds and the
+            `WriteArray` after it dies inside GDAL.
+        """
+        with pytest.raises(FileFormatNotSupportedError):
+            resolve_output_driver("out.vrt")
+
+    def test_the_copy_gate_refuses_it_too(self):
+        """`for_copy=True` must not be a way in.
+
+        Test scenario:
+            `for_copy` skipped the format gate entirely rather than switching
+            to the `Copy` capability, and `vrt` carries `Copy: yes`. That let
+            `.vrt` through every copy-based writer, each of which then emitted
+            a file GDAL refuses to reopen -- `<SourceFilename>` comes out empty
+            for an in-memory source. `for_copy` now selects a different gate,
+            and a reference-only format fails both.
+        """
+        with pytest.raises(FileFormatNotSupportedError, match="reference"):
+            resolve_output_driver("out.vrt", for_copy=True)
+
+    def test_a_copy_only_format_is_still_reachable_by_copy(self):
+        """The relaxation `for_copy` exists for is intact.
+
+        Test scenario:
+            Narrowing the gate must not take PNG with it -- PNG cannot
+            `Create` but copies perfectly well, which is the whole point.
+        """
+        assert resolve_output_driver("out.png", for_copy=True) == "PNG"
+
+    def test_the_catalog_marks_vrt_reference_only(self):
+        """The refusal is data, not a hardcoded driver name.
+
+        Test scenario:
+            Any future reference-only driver gets the same treatment by
+            carrying the flag, without editing the resolver.
+        """
+        catalog = Catalog(raster_driver=True)
+        entry = catalog.get_driver(catalog.get_driver_name_by_extension("vrt"))
+        assert entry.get("Self-contained") is False, (
+            "vrt must be marked reference-only for the resolver to refuse it"
+        )
+        assert entry.get("Copy"), (
+            "vrt does support CreateCopy -- the refusal is about what it writes, "
+            "not whether the call succeeds"
+        )
