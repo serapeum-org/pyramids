@@ -19,6 +19,10 @@ _cleo_config = pytest.importorskip("cleopatra.config", reason="cleopatra not ins
 Config = _cleo_config.Config
 Config.set_matplotlib_backend("agg")
 
+# Imported after the backend is pinned to Agg (and after the cleopatra importorskip, which
+# gates the whole module on the [viz] extra) so no GUI backend is ever selected.
+import matplotlib.pyplot as plt  # noqa: E402
+
 
 @pytest.fixture(autouse=True)
 def _close_matplotlib_figures():
@@ -276,3 +280,70 @@ class TestDatasetPlotRgbOptionsEdges:
             w for w in captured if issubclass(w.category, DeprecationWarning)
         ]
         assert not deprecations, "Empty rgb_options must not emit DeprecationWarning"
+
+
+class TestDatasetPlotFigAx:
+    """`fig` / `ax` let several rasters share one figure (#1077)."""
+
+    @staticmethod
+    def _dataset():
+        """A small georeferenced single-band raster."""
+        rng = np.random.default_rng(1337)
+        arr = rng.random((6, 6)).astype("float32")
+        return Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        )
+
+    @pytest.mark.plot
+    def test_draws_into_the_supplied_fig_and_ax(self):
+        """Each panel of a subplots grid renders into the caller's figure and axes.
+
+        Test scenario:
+            Passing `fig` and `ax` must make the glyph adopt those exact objects and
+            create no extra figure, which is what makes a side-by-side comparison grid
+            possible.
+        """
+        dataset = self._dataset()
+        fig, axes = plt.subplots(1, 3)
+        opened_before = set(plt.get_fignums())
+
+        for index, axis in enumerate(axes):
+            glyph = dataset.plot(fig=fig, ax=axis, title=f"panel {index}")
+            assert glyph.ax is axis, f"panel {index} must draw into the supplied axes"
+            assert glyph.fig is fig, f"panel {index} must draw into the supplied figure"
+
+        assert set(plt.get_fignums()) == opened_before, (
+            "supplying fig/ax must not create additional figures"
+        )
+
+    @pytest.mark.plot
+    def test_supplied_axes_keep_the_georeferenced_extent(self):
+        """A panel drawn into caller axes still spans the raster's bbox, not pixel indices.
+
+        Test scenario:
+            The georeferenced extent is the reason to use `plot` over a raw `imshow`, so
+            it must survive being drawn into externally-created axes.
+        """
+        dataset = self._dataset()
+        fig, ax = plt.subplots()
+
+        glyph = dataset.plot(fig=fig, ax=ax)
+
+        xmin, _, xmax, _ = dataset.bbox
+        assert glyph.ax.get_xlim() == pytest.approx((xmin, xmax)), (
+            "the panel must span the raster bbox, not the 0..ncols pixel range"
+        )
+
+    @pytest.mark.plot
+    def test_facade_forwards_fig_and_ax_to_the_engine(self):
+        """The facade passes both through to `Analysis.plot` as named arguments."""
+        dataset = self._dataset()
+        fig, ax = plt.subplots()
+
+        with patch.object(type(dataset.analysis), "plot", autospec=True) as mock_plot:
+            mock_plot.return_value = "stub-glyph"
+            dataset.plot(fig=fig, ax=ax)
+
+        call_kwargs = mock_plot.call_args.kwargs
+        assert call_kwargs["fig"] is fig, "fig must reach the engine"
+        assert call_kwargs["ax"] is ax, "ax must reach the engine"

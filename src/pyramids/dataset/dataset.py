@@ -389,6 +389,8 @@ if TYPE_CHECKING:
     from cleopatra.styling.params import CellValues, Contour, DataStyle
     from cleopatra.styling.scaling import ColorScaling
     from geopandas import GeoDataFrame
+    from matplotlib.axes import Axes
+    from matplotlib.figure import Figure
 
 
 # Conventional coordinate-variable names, used as a fallback when a file
@@ -989,6 +991,8 @@ class Dataset(RasterBase):
         cells: CellValues | None = None,
         data_style: DataStyle | None = None,
         rgb_options: dict | None = None,
+        fig: Figure | None = None,
+        ax: Axes | None = None,
         **kwargs: Unpack[PlotKwargs],
     ):
         """Plot the values/overviews of a band.
@@ -1061,6 +1065,23 @@ class Dataset(RasterBase):
                 ``"surface_reflectance"`` (reflectance scale factor, e.g. ``10000`` for
                 Sentinel-2), ``"cutoff"`` (per-band clip values), ``"percentile"``
                 (percentile stretch). Default is ``None``.
+            fig (matplotlib.figure.Figure, optional):
+                Draw into this figure instead of creating one. Default is ``None``.
+            ax (matplotlib.axes.Axes, optional):
+                Draw into these axes instead of creating them. Passing ``fig`` and ``ax``
+                is what lets several rasters share one figure — a ``plt.subplots`` grid of
+                side-by-side panels — while every panel keeps the georeferenced extent and
+                nodata masking that ``plot`` applies. A shared colour range across panels
+                is then applied through the returned glyph, whose colour bar tracks its
+                mappable (``glyph.cbar.mappable is glyph.im``), e.g.
+                ``glyph.im.set_clim(0, vmax)``. Default is ``None``.
+
+                ```python
+                >>> import matplotlib.pyplot as plt  # doctest: +SKIP
+                >>> fig, axes = plt.subplots(1, 3)  # doctest: +SKIP
+                >>> panels = [ds.plot(fig=fig, ax=a) for a in axes]  # doctest: +SKIP
+
+                ```
             **kwargs:
                 Additional keyword arguments forwarded verbatim to
                 :meth:`Analysis.plot`. See that method for the full kwargs surface
@@ -1153,6 +1174,8 @@ class Dataset(RasterBase):
             points=points,
             kind=kind,
             title=title,
+            fig=fig,
+            ax=ax,
             **group_kwargs,
             **kwargs,
         )
