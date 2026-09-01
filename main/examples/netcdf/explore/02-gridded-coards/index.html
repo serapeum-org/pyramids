@@ -7099,7 +7099,7 @@ print(meta)</div>
 <span class="n">gt</span> <span class="o">=</span> <span class="n">air0</span><span class="o">.</span><span class="n">geotransform</span>
 <span class="n">shifted_gt</span> <span class="o">=</span> <span class="p">(</span><span class="n">gt</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">-</span> <span class="mi">360</span><span class="p">,</span> <span class="n">gt</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">gt</span><span class="p">[</span><span class="mi">2</span><span class="p">],</span> <span class="n">gt</span><span class="p">[</span><span class="mi">3</span><span class="p">],</span> <span class="n">gt</span><span class="p">[</span><span class="mi">4</span><span class="p">],</span> <span class="n">gt</span><span class="p">[</span><span class="mi">5</span><span class="p">])</span>
 <span class="c1"># rebuild the slice as a georeferenced Dataset (assign EPSG:4326, matching its lon/lat axes)</span>
-<span class="n">air_geo</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span><span class="n">air_slice</span><span class="p">,</span> <span class="n">geo</span><span class="o">=</span><span class="n">shifted_gt</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">)</span>
+<span class="n">air_geo</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span><span class="n">air_slice</span><span class="p">,</span> <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">geo</span><span class="o">=</span><span class="n">shifted_gt</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">))</span>
 <span class="c1"># plot the georeferenced air-temperature slice in its own lon/lat CRS</span>
 <span class="n">glyph</span> <span class="o">=</span> <span class="n">air_geo</span><span class="o">.</span><span class="n">plot</span><span class="p">()</span>
 <span class="c1"># draw the Natural Earth coastline on top so the geography stays visible over the data</span>
@@ -7114,7 +7114,7 @@ air_slice = air_data[0]
 gt = air0.geotransform
 shifted_gt = (gt[0] - 360, gt[1], gt[2], gt[3], gt[4], gt[5])
 # rebuild the slice as a georeferenced Dataset (assign EPSG:4326, matching its lon/lat axes)
-air_geo = Dataset.create_from_array(air_slice, geo=shifted_gt, epsg=4326)
+air_geo = Dataset.from_array(air_slice, geo_ref=GeoReference(geo=shifted_gt, epsg=4326))
 # plot the georeferenced air-temperature slice in its own lon/lat CRS
 glyph = air_geo.plot()
 # draw the Natural Earth coastline on top so the geography stays visible over the data
@@ -7295,7 +7295,7 @@ print('dimensions after reducing time:', dict(time_mean.dimension_sizes))</div>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">work</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">tempfile</span><span class="o">.</span><span class="n">mkdtemp</span><span class="p">())</span>
 <span class="n">slice2d</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="nb">tuple</span><span class="p">(</span><span class="mi">0</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">ndim</span> <span class="o">-</span> <span class="mi">2</span><span class="p">))]</span>
-<span class="n">NetCDF</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span>
+<span class="n">NetCDF</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span>
     <span class="n">arr</span><span class="o">=</span><span class="n">slice2d</span><span class="p">,</span>
     <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">geo</span><span class="o">=</span><span class="n">var</span><span class="o">.</span><span class="n">geotransform</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="n">var</span><span class="o">.</span><span class="n">epsg</span> <span class="ow">or</span> <span class="mi">4326</span><span class="p">),</span>
     <span class="n">variable_name</span><span class="o">=</span><span class="s1">'air_slice0'</span><span class="p">,</span>
@@ -7306,7 +7306,7 @@ print('dimensions after reducing time:', dict(time_mean.dimension_sizes))</div>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-8">work = Path(tempfile.mkdtemp())
 slice2d = data[tuple(0 for _ in range(data.ndim - 2))]
-NetCDF.create_from_array(
+NetCDF.from_array(
     arr=slice2d,
     geo_ref=GeoReference(geo=var.geotransform, epsg=var.epsg or 4326),
     variable_name='air_slice0',
@@ -7440,7 +7440,7 @@ print('variables after remove:', nc.variable_names)</div>
 <span class="n">shifted_gt</span> <span class="o">=</span> <span class="p">(</span><span class="n">gt</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">-</span> <span class="mi">360</span><span class="p">,</span> <span class="n">gt</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">gt</span><span class="p">[</span><span class="mi">2</span><span class="p">],</span> <span class="n">gt</span><span class="p">[</span><span class="mi">3</span><span class="p">],</span> <span class="n">gt</span><span class="p">[</span><span class="mi">4</span><span class="p">],</span> <span class="n">gt</span><span class="p">[</span><span class="mi">5</span><span class="p">])</span>
 <span class="c1"># rebuild the first time step as a georeferenced Dataset at -180..180 (EPSG:4326)</span>
 <span class="n">air_slice</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
-<span class="n">air_geo</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span><span class="n">air_slice</span><span class="p">,</span> <span class="n">geo</span><span class="o">=</span><span class="n">shifted_gt</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">)</span>
+<span class="n">air_geo</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span><span class="n">air_slice</span><span class="p">,</span> <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">geo</span><span class="o">=</span><span class="n">shifted_gt</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">))</span>
 <span class="c1"># crop to the USA polygon</span>
 <span class="n">cropped</span> <span class="o">=</span> <span class="n">air_geo</span><span class="o">.</span><span class="n">crop</span><span class="p">(</span><span class="n">aoi</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="s1">'cropped air bounds:'</span><span class="p">,</span> <span class="p">[</span><span class="nb">round</span><span class="p">(</span><span class="n">b</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span> <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">cropped</span><span class="o">.</span><span class="n">total_bounds</span><span class="p">])</span>
@@ -7473,7 +7473,7 @@ gt = var.geotransform
 shifted_gt = (gt[0] - 360, gt[1], gt[2], gt[3], gt[4], gt[5])
 # rebuild the first time step as a georeferenced Dataset at -180..180 (EPSG:4326)
 air_slice = data[0]
-air_geo = Dataset.create_from_array(air_slice, geo=shifted_gt, epsg=4326)
+air_geo = Dataset.from_array(air_slice, geo_ref=GeoReference(geo=shifted_gt, epsg=4326))
 # crop to the USA polygon
 cropped = air_geo.crop(aoi)
 print('cropped air bounds:', [round(b, 1) for b in cropped.total_bounds])
@@ -8055,7 +8055,7 @@ print('dimensions after reducing time:', dict(time_mean.dimension_sizes))</div>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">work</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">tempfile</span><span class="o">.</span><span class="n">mkdtemp</span><span class="p">())</span>
 <span class="n">slice2d</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="nb">tuple</span><span class="p">(</span><span class="mi">0</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">ndim</span> <span class="o">-</span> <span class="mi">2</span><span class="p">))]</span>
-<span class="n">NetCDF</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span>
+<span class="n">NetCDF</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span>
     <span class="n">arr</span><span class="o">=</span><span class="n">slice2d</span><span class="p">,</span>
     <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">geo</span><span class="o">=</span><span class="n">var</span><span class="o">.</span><span class="n">geotransform</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="n">var</span><span class="o">.</span><span class="n">epsg</span> <span class="ow">or</span> <span class="mi">4326</span><span class="p">),</span>
     <span class="n">variable_name</span><span class="o">=</span><span class="s1">'rhum_slice0'</span><span class="p">,</span>
@@ -8066,7 +8066,7 @@ print('dimensions after reducing time:', dict(time_mean.dimension_sizes))</div>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-19">work = Path(tempfile.mkdtemp())
 slice2d = data[tuple(0 for _ in range(data.ndim - 2))]
-NetCDF.create_from_array(
+NetCDF.from_array(
     arr=slice2d,
     geo_ref=GeoReference(geo=var.geotransform, epsg=var.epsg or 4326),
     variable_name='rhum_slice0',
