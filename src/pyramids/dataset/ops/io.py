@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import warnings
+from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -26,6 +27,14 @@ from pyramids.dataset.cog import Layout
 if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
 
+
+# Frames between `warnings.warn` and the user's own call, for the narrowing
+# warning: _warn_if_driver_narrows_dtype -> _write_to_file_sync -> IO.to_file
+# -> the engine-facade `wrapper` -> Dataset.to_file -> the caller. Measured
+# by walking the live stack, not counted by eye -- the generated facade
+# `wrapper` frame is easy to miss, and a wrong value blames pyramids' own
+# source, which tells the user nothing about where their write is.
+_TO_FILE_STACKLEVEL = 6
 
 _LAZY_IMPORT_ERROR = (
     "Lazy reads require the optional 'dask' dependency. Install with one of:\n"
@@ -204,7 +213,6 @@ def _write_to_file_sync(
 
     path = Path(path)
     driver, driver_name = _resolve_output_driver(driver, path)
-    _warn_if_driver_narrows_dtype(ds, driver_name, path)
 
     if driver == "ascii":
         arr = ds.read_array(band=band)
@@ -212,6 +220,11 @@ def _write_to_file_sync(
         xmin, ymin, _, _ = ds.bbox
         _io.to_ascii(arr, ds.cell_size, xmin, ymin, no_data_value, path)
     else:
+        # Only this branch hands the bands to a GDAL driver. The ascii
+        # branch above writes the numbers with Python's `str()` through
+        # `_io.to_ascii`, at full precision, so warning there described a
+        # conversion that provably does not happen.
+        _warn_if_driver_narrows_dtype(ds, driver_name, path)
         # CreateCopy does tiled reads of the source; a NetCDF multidim view can't be
         # window-read by GDAL >= 3.13, so materialise it first (no-op for an ordinary
         # raster or a MEM dataset). Matches the guard to_bytes / the COG writer already
@@ -253,21 +266,66 @@ def _write_cog(
     ds.to_cog(path, **cog_kwargs)
 
 
+@cache
+def _driver_preserves_dtype(driver_name: str, gdal_dtype: int) -> bool | None:
+    """Whether `driver_name` stores `gdal_dtype` without converting it.
+
+    Answered by probing GDAL rather than by reading `DMD_CREATIONDATATYPES`,
+    because that list is **not exhaustive**: this build's GTiff omits `Int64`
+    yet stores it faithfully, and `int64` is what NumPy produces by default --
+    so trusting the metadata warned about the single most common write in the
+    library, wrongly. The probe copies a 1x1 band of the type into `/vsimem`
+    and reads back what the driver actually produced.
+
+    Cached, so a given (driver, dtype) pair costs one tiny in-memory write per
+    process.
+
+    Args:
+        driver_name: GDAL driver short name.
+        gdal_dtype: The `gdal.GDT_*` code of the source band.
+
+    Returns:
+        bool | None: `True` when the driver round-trips the type unchanged,
+        `False` when it converts it, and `None` when the question cannot be
+        answered (driver missing, or it refuses the probe for an unrelated
+        reason) -- in which case the caller says nothing.
+    """
+    driver = gdal.GetDriverByName(driver_name)
+    if driver is None:
+        return None
+    probe_path = f"/vsimem/_pyramids_dtype_probe_{driver_name}_{gdal_dtype}"
+    source = gdal.GetDriverByName("MEM").Create("", 1, 1, 1, gdal_dtype)
+    result: bool | None = None
+    try:
+        # `strict=0`: the question is what the driver *does* with the type, and
+        # a strict copy would refuse rather than answer.
+        written = driver.CreateCopy(probe_path, source, 0)
+        if written is not None:
+            result = written.GetRasterBand(1).DataType == gdal_dtype
+            written = None
+    except RuntimeError:
+        # The driver rejected the probe outright (needs options, a minimum
+        # size, georeferencing...). That is not evidence about the dtype.
+        result = None
+    finally:
+        source = None
+        gdal.Unlink(probe_path)
+    return result
+
+
 def _warn_if_driver_narrows_dtype(ds: Dataset, driver_name: str, path: Path) -> None:
-    """Warn when the target driver cannot carry the dataset's band dtype.
+    """Warn when the target driver will not store the dataset's band dtypes.
 
     `CreateCopy` silently substitutes the nearest type a driver does support --
     a float32 DEM written to `.png` becomes 8-bit `Byte`, destroying the values
     -- and reports it only as a GDAL `RuntimeWarning`, which a caller filtering
     on their own warning categories will not see. This raises the same fact to a
-    `pyramids` warning that names both dtypes and the driver.
+    `pyramids` warning naming both dtypes and the driver.
 
-    The check is advisory and deliberately cheap: it compares band 1's dtype
-    against the driver's advertised `DMD_CREATIONDATATYPES` list. A driver that
-    advertises no list (`MEM`, `VRT`) and one GDAL does not know are both
-    treated as "nothing to say", and a mixed-dtype dataset is judged by its
-    first band alone, so this warns about the common case rather than proving
-    the write is lossless.
+    Every band is checked, not just the first, so a mixed-dtype dataset whose
+    narrowing band is not band 1 is still reported. Capability comes from
+    :func:`_driver_preserves_dtype`, which probes the driver rather than
+    trusting its advertised type list.
 
     Args:
         ds: The dataset being written.
@@ -275,28 +333,29 @@ def _warn_if_driver_narrows_dtype(ds: Dataset, driver_name: str, path: Path) -> 
         path: The destination, named in the message.
 
     Warns:
-        DtypeNarrowingWarning: Band 1's dtype is not in the driver's list of
-            creatable types, so the write will convert it.
+        DtypeNarrowingWarning: At least one band's dtype is one the driver
+            converts on write.
     """
-    driver = gdal.GetDriverByName(driver_name)
-    if driver is None:
+    raster = ds.raster
+    if raster is None or raster.RasterCount == 0:
+        # Nothing to compare -- a container or an empty handle.
         return
-    supported = driver.GetMetadataItem("DMD_CREATIONDATATYPES")
-    if not supported:
-        # The driver does not advertise a list (MEM, VRT); nothing to check.
+    narrowing: dict[str, None] = {}
+    for index in range(1, raster.RasterCount + 1):
+        dtype = raster.GetRasterBand(index).DataType
+        if _driver_preserves_dtype(driver_name, dtype) is False:
+            narrowing.setdefault(gdal.GetDataTypeName(dtype), None)
+    if not narrowing:
         return
-    accepted = set(supported.split())
-    source = gdal.GetDataTypeName(ds.raster.GetRasterBand(1).DataType)
-    if source in accepted:
-        return
+    names = ", ".join(sorted(narrowing))
     warnings.warn(
-        f"the {driver_name} driver cannot store {source} data, so writing "
-        f"{str(path)!r} will convert the bands to one of {sorted(accepted)} -- "
-        "values outside the target range are clipped and fractional values are "
-        "lost. Convert deliberately (e.g. scale to Byte) if that is intended, "
-        "or choose a format that carries the dtype.",
+        f"the {driver_name} driver does not store {names} data, so writing "
+        f"{str(path)!r} converts those bands -- values outside the target range "
+        "are clipped and fractional values are lost. Convert deliberately (e.g. "
+        "scale to Byte) if that is intended, or choose a format that carries the "
+        "dtype.",
         DtypeNarrowingWarning,
-        stacklevel=3,
+        stacklevel=_TO_FILE_STACKLEVEL,
     )
 
 

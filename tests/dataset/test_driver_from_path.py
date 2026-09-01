@@ -449,8 +449,8 @@ class TestCollectionToFileNormalisesTheDriver:
             collection.to_file(str(tmp_path / "cogdir"), driver="cog")
 
 
-class TestTheDtypeCheckIsQuietWhenItCannotAnswer:
-    """The narrowing check declines rather than guessing."""
+class TestTheDtypeCheckAsksTheDriverRatherThanItsMetadata:
+    """Capability comes from a probe, because the advertised list lies."""
 
     def test_an_unresolvable_driver_name_is_ignored(self, float_raster):
         """A driver GDAL does not know is skipped, not crashed on.
@@ -470,28 +470,175 @@ class TestTheDtypeCheckIsQuietWhenItCannotAnswer:
             _warn_if_driver_narrows_dtype(float_raster, "NoSuchDriver", "x.zzz")
         assert not caught, f"an unknown driver must not warn: {caught}"
 
-    def test_a_driver_advertising_no_type_list_is_ignored(self, float_raster, mocker):
-        """A driver with no `DMD_CREATIONDATATYPES` is left alone.
+    def test_a_bandless_dataset_is_ignored(self, float_raster, mocker):
+        """A handle with no bands has no dtype to judge.
 
         Args:
-            float_raster: A float32 source.
+            float_raster: A source raster, whose handle is stubbed.
             mocker: pytest-mock fixture.
 
         Test scenario:
-            Every driver in this GDAL build happens to advertise a type list,
-            so the empty case is forced. With nothing to compare against,
-            warning would be a guess about a conversion the check cannot
-            actually predict.
+            The check dereferenced `GetRasterBand(1)` unguarded, which is a
+            crash on a container or an emptied handle rather than the silence
+            an advisory check owes.
         """
-        from pyramids.dataset.ops import io as io_ops
+        from pyramids.dataset.ops.io import _warn_if_driver_narrows_dtype
 
-        driver = mocker.Mock()
-        driver.GetMetadataItem.return_value = None
-        mocker.patch.object(io_ops.gdal, "GetDriverByName", return_value=driver)
+        raster = mocker.Mock()
+        raster.RasterCount = 0
+        mocker.patch.object(type(float_raster), "raster", raster)
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            io_ops._warn_if_driver_narrows_dtype(float_raster, "Whatever", "x.tif")
-        assert not caught, f"a driver with no advertised types must not warn: {caught}"
+            _warn_if_driver_narrows_dtype(float_raster, "PNG", "x.png")
+        assert not caught, f"a bandless dataset must not warn: {caught}"
+
+    @pytest.mark.parametrize(
+        "driver, dtype, preserved",
+        [
+            ("GTiff", gdal.GDT_Int64, True),
+            ("GTiff", gdal.GDT_Float64, True),
+            ("PNG", gdal.GDT_Float32, False),
+            ("PNG", gdal.GDT_Byte, True),
+        ],
+    )
+    def test_the_probe_answers_what_the_driver_actually_does(
+        self, driver, dtype, preserved
+    ):
+        """Capability is measured, not read off `DMD_CREATIONDATATYPES`.
+
+        Args:
+            driver: The GDAL driver short name.
+            dtype: The `gdal.GDT_*` code under test.
+            preserved: Whether the driver stores it unchanged.
+
+        Test scenario:
+            The advertised list is not exhaustive -- this build's GTiff omits
+            `Int64` and stores it faithfully anyway. Trusting the metadata made
+            the check warn about the commonest write in the library, wrongly.
+        """
+        from pyramids.dataset.ops.io import _driver_preserves_dtype
+
+        assert _driver_preserves_dtype(driver, dtype) is preserved, (
+            f"{driver} + {gdal.GetDataTypeName(dtype)}: probe disagrees"
+        )
+
+    def test_gtiff_advertises_no_int64_but_stores_it(self):
+        """The exact metadata gap that caused the false positive.
+
+        Test scenario:
+            Pinned so a future GDAL that *does* advertise Int64 cannot quietly
+            turn this into a tautology -- if the advertisement changes, the
+            assertion about the gap fails and says so.
+        """
+        from pyramids.dataset.ops.io import _driver_preserves_dtype
+
+        advertised = gdal.GetDriverByName("GTiff").GetMetadataItem(
+            "DMD_CREATIONDATATYPES"
+        )
+        assert "Int64" not in (advertised or "").split(), (
+            "GTiff now advertises Int64; the metadata gap this guards is closed"
+        )
+        assert _driver_preserves_dtype("GTiff", gdal.GDT_Int64) is True, (
+            "GTiff stores Int64 despite not advertising it"
+        )
+
+
+class TestTheNarrowingWarningDoesNotCryWolf:
+    """The two false positives the warning shipped with, and the true one."""
+
+    @pytest.mark.parametrize(
+        "array, extension",
+        [
+            (np.arange(16).reshape(4, 4), "tif"),
+            (np.full((4, 4), 1 / 3, dtype="float64"), "asc"),
+            (np.full((4, 4), 1 / 3, dtype="float64"), "tif"),
+            (np.arange(16, dtype="uint8").reshape(4, 4), "png"),
+        ],
+        ids=["int64-tif", "float64-asc", "float64-tif", "uint8-png"],
+    )
+    def test_a_lossless_write_is_silent(self, tmp_path, array, extension):
+        """No warning when the target stores the dtype unchanged.
+
+        Args:
+            tmp_path: Temporary directory fixture.
+            array: The source array.
+            extension: The destination extension.
+
+        Test scenario:
+            `int64 -> .tif` is the library's commonest write (NumPy's default
+            integer dtype) and round-trips exactly; `.asc` never reaches a GDAL
+            driver at all, since `_io.to_ascii` writes full precision with
+            `str()`. Both warned, and the advice they gave -- convert
+            deliberately -- would have corrupted data that was fine.
+        """
+        ds = Dataset.from_array(array, geo_ref=GEO_REF)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            ds.to_file(str(tmp_path / f"out.{extension}"))
+        narrowing = [w for w in caught if issubclass(w.category, DtypeNarrowingWarning)]
+        assert not narrowing, (
+            f"{array.dtype} -> .{extension} is lossless but warned: "
+            f"{[str(w.message) for w in narrowing]}"
+        )
+
+    def test_the_asc_write_keeps_full_float64_precision(self, tmp_path):
+        """The claim behind skipping the ascii branch, asserted not assumed.
+
+        Args:
+            tmp_path: Temporary directory fixture.
+
+        Test scenario:
+            The check is skipped for `.asc` because that branch bypasses GDAL
+            entirely. If it ever stopped writing full precision, skipping would
+            become the wrong call -- so the precision is pinned here.
+        """
+        out = tmp_path / "p.asc"
+        Dataset.from_array(
+            np.full((4, 4), 1 / 3, dtype="float64"), geo_ref=GEO_REF
+        ).to_file(str(out))
+        assert "0.3333333333333333" in out.read_text(), (
+            "the ascii writer no longer keeps float64 precision"
+        )
+
+    def test_a_genuinely_lossy_write_still_warns(self, tmp_path):
+        """The case the warning exists for is unaffected.
+
+        Args:
+            tmp_path: Temporary directory fixture.
+        """
+        ds = Dataset.from_array(
+            np.arange(16, dtype="float32").reshape(4, 4), geo_ref=GEO_REF
+        )
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            ds.to_file(str(tmp_path / "lossy.png"))
+        narrowing = [w for w in caught if issubclass(w.category, DtypeNarrowingWarning)]
+        assert narrowing, "float32 -> PNG must still warn"
+        assert "Float32" in str(narrowing[0].message)
+
+    def test_the_warning_blames_the_caller_not_pyramids(self, tmp_path):
+        """`stacklevel` points at the user's `to_file` line.
+
+        Args:
+            tmp_path: Temporary directory fixture.
+
+        Test scenario:
+            A warning attributed to pyramids' own source tells the reader
+            nothing about where their write is. The depth is easy to get wrong:
+            the engine facade inserts a `wrapper` frame a hand count misses.
+        """
+        ds = Dataset.from_array(
+            np.arange(16, dtype="float32").reshape(4, 4), geo_ref=GEO_REF
+        )
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            ds.to_file(str(tmp_path / "blame.png"))
+        narrowing = [w for w in caught if issubclass(w.category, DtypeNarrowingWarning)]
+        assert narrowing, "expected the narrowing warning"
+        blamed = Path(narrowing[0].filename).name
+        assert blamed == Path(__file__).name, (
+            f"the warning should blame this test file, got {blamed}"
+        )
 
 
 class TestForCopyIsNarrowerThanItLooks:
