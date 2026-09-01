@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6509,23 +6509,21 @@ tolerant: it opens GeoZarr stores written by other tools too.</p>
 </blockquote>
 <h2 id="quick-start"><a class="toclink" href="#quick-start">Quick start</a><a class="headerlink" href="#quick-start" title="Permanent link">#</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span><span class="p">,</span> <span class="n">GeoReference</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="mi">8</span> <span class="o">*</span> <span class="mi">8</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">8</span><span class="p">)</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">arr</span><span class="p">,</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">top_left_corner</span><span class="o">=</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">8.0</span><span class="p">),</span> <span class="n">cell_size</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">),</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="p">)</span>
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="n">ds</span><span class="o">.</span><span class="n">band_names</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"red"</span><span class="p">,</span> <span class="s2">"nir"</span><span class="p">]</span>
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_file</span><span class="p">(</span><span class="s2">"source.tif"</span><span class="p">)</span>
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="c1"># Write — parallel chunk writes, GeoZarr layout, default Blosc codec</span>
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="n">Dataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">"source.tif"</span><span class="p">)</span><span class="o">.</span><span class="n">to_zarr</span><span class="p">(</span><span class="s2">"out.zarr"</span><span class="p">)</span>
-<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="c1"># Read — round-trips values, CRS, GeoTransform, nodata, band names</span>
-<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="n">rt</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_zarr</span><span class="p">(</span><span class="s2">"out.zarr"</span><span class="p">)</span>
-<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="k">assert</span> <span class="n">rt</span><span class="o">.</span><span class="n">epsg</span> <span class="o">==</span> <span class="mi">4326</span>
-<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="k">assert</span> <span class="n">rt</span><span class="o">.</span><span class="n">band_names</span> <span class="o">==</span> <span class="p">[</span><span class="s2">"red"</span><span class="p">,</span> <span class="s2">"nir"</span><span class="p">]</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">top_left_corner</span><span class="o">=</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">8.0</span><span class="p">),</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>                               <span class="n">cell_size</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">)</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="n">ds</span><span class="o">.</span><span class="n">band_names</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"red"</span><span class="p">,</span> <span class="s2">"nir"</span><span class="p">]</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_file</span><span class="p">(</span><span class="s2">"source.tif"</span><span class="p">)</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="c1"># Write — parallel chunk writes, GeoZarr layout, default Blosc codec</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="n">Dataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">"source.tif"</span><span class="p">)</span><span class="o">.</span><span class="n">to_zarr</span><span class="p">(</span><span class="s2">"out.zarr"</span><span class="p">)</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="c1"># Read — round-trips values, CRS, GeoTransform, nodata, band names</span>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="n">rt</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_zarr</span><span class="p">(</span><span class="s2">"out.zarr"</span><span class="p">)</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="k">assert</span> <span class="n">rt</span><span class="o">.</span><span class="n">epsg</span> <span class="o">==</span> <span class="mi">4326</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="k">assert</span> <span class="n">rt</span><span class="o">.</span><span class="n">band_names</span> <span class="o">==</span> <span class="p">[</span><span class="s2">"red"</span><span class="p">,</span> <span class="s2">"nir"</span><span class="p">]</span>
 </code></pre></div>
 <h2 id="on-disk-layout-cf-geozarr"><a class="toclink" href="#on-disk-layout-cf-geozarr">On-disk layout (CF / GeoZarr)</a><a class="headerlink" href="#on-disk-layout-cf-geozarr" title="Permanent link">#</a></h2>
 <p>Every pyramids-written store carries:</p>

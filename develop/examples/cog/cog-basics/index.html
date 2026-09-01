@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -7105,7 +7105,7 @@ build a temp workspace plus a couple of small rasters.</p>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span><span class="p">,</span> <span class="n">GeoReference</span><span class="p">,</span> <span class="n">cog</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span><span class="p">,</span> <span class="n">cog</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset.cog</span><span class="w"> </span><span class="kn">import</span> <span class="n">validate</span>
 
 <span class="n">workdir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">tempfile</span><span class="o">.</span><span class="n">mkdtemp</span><span class="p">(</span><span class="n">prefix</span><span class="o">=</span><span class="s2">"pyramids-cog-"</span><span class="p">))</span>
@@ -7113,9 +7113,7 @@ build a temp workspace plus a couple of small rasters.</p>
 <span class="c1"># A 600x600 float raster (large enough to carry internal overviews).</span>
 <span class="n">rng</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="mi">42</span><span class="p">)</span>
 <span class="n">arr</span> <span class="o">=</span> <span class="p">(</span><span class="n">rng</span><span class="o">.</span><span class="n">random</span><span class="p">((</span><span class="mi">600</span><span class="p">,</span> <span class="mi">600</span><span class="p">))</span> <span class="o">*</span> <span class="mi">100</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s2">"float32"</span><span class="p">)</span>
-<span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span>
-    <span class="n">arr</span><span class="p">,</span> <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">top_left_corner</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">10</span><span class="p">),</span> <span class="n">cell_size</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">)</span>
-<span class="p">)</span>
+<span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">top_left_corner</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">10</span><span class="p">),</span> <span class="n">cell_size</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="n">ds</span><span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-1">%matplotlib inline
@@ -7125,7 +7123,7 @@ from pathlib import Path
 
 import numpy as np
 
-from pyramids.dataset import Dataset, GeoReference, cog
+from pyramids.dataset import Dataset, cog
 from pyramids.dataset.cog import validate
 
 workdir = Path(tempfile.mkdtemp(prefix="pyramids-cog-"))
@@ -7133,9 +7131,7 @@ workdir = Path(tempfile.mkdtemp(prefix="pyramids-cog-"))
 # A 600x600 float raster (large enough to carry internal overviews).
 rng = np.random.default_rng(42)
 arr = (rng.random((600, 600)) * 100).astype("float32")
-ds = Dataset.from_array(
-    arr, geo_ref=GeoReference(top_left_corner=(0, 10), cell_size=0.01, epsg=4326)
-)
+ds = Dataset.create_from_array(arr, top_left_corner=(0, 10), cell_size=0.01, epsg=4326)
 print(ds)</div>
 </div>
 </div>
@@ -7213,7 +7209,7 @@ print(ds)</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[2]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7f9cee753a10&gt;</pre>
+<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7fae76893a10&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7280,8 +7276,8 @@ print("wrote", out_zstd)</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>wrote /tmp/pyramids-cog-me_zyjkv/scene.tif
-wrote /tmp/pyramids-cog-me_zyjkv/scene_zstd.tif
+<pre>wrote /tmp/pyramids-cog-nzjbi_jd/scene.tif
+wrote /tmp/pyramids-cog-nzjbi_jd/scene_zstd.tif
 </pre>
 </div>
 </div>
@@ -7405,7 +7401,7 @@ COG encoding.</p>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[5]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7f9ce6360690&gt;</pre>
+<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7fae6e5902d0&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7643,9 +7639,11 @@ never mutated.</p>
 </clipboard-copy>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># A 4-band float source.</span>
-<span class="n">multi</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span>
+<span class="n">multi</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span>
     <span class="n">rng</span><span class="o">.</span><span class="n">random</span><span class="p">((</span><span class="mi">4</span><span class="p">,</span> <span class="mi">64</span><span class="p">,</span> <span class="mi">64</span><span class="p">))</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s2">"float32"</span><span class="p">),</span>
-    <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">top_left_corner</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">10</span><span class="p">),</span> <span class="n">cell_size</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">),</span>
+    <span class="n">top_left_corner</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">10</span><span class="p">),</span>
+    <span class="n">cell_size</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+    <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="n">rgb</span> <span class="o">=</span> <span class="n">multi</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span>
     <span class="n">workdir</span> <span class="o">/</span> <span class="s2">"rgb.tif"</span><span class="p">,</span>
@@ -7670,9 +7668,11 @@ never mutated.</p>
 <span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-9"># A 4-band float source.
-multi = Dataset.from_array(
+multi = Dataset.create_from_array(
     rng.random((4, 64, 64)).astype("float32"),
-    geo_ref=GeoReference(top_left_corner=(0, 10), cell_size=0.01, epsg=4326),
+    top_left_corner=(0, 10),
+    cell_size=0.01,
+    epsg=4326,
 )
 rgb = multi.to_cog(
     workdir / "rgb.tif",
@@ -7768,7 +7768,7 @@ print("validate exit code:", rc_val)</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>file:        /tmp/pyramids-cog-me_zyjkv/scene.tif
+<pre>file:        /tmp/pyramids-cog-nzjbi_jd/scene.tif
 is_cog:      True
 driver:      GTiff
 size:        600 x 600 (1 band(s))
@@ -7782,7 +7782,7 @@ blocksize:   (512, 512)
 overviews:   1
   - level 0: 300 x 300 (1/2)
 info exit code: 0
-/tmp/pyramids-cog-me_zyjkv/scene.tif: valid COG
+/tmp/pyramids-cog-nzjbi_jd/scene.tif: valid COG
 validate exit code: 0
 </pre>
 </div>
