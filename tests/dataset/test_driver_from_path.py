@@ -20,7 +20,11 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
-from pyramids.base._errors import DriverNotExistError, FileFormatNotSupportedError
+from pyramids.base._errors import (
+    DriverNotExistError,
+    FileFormatNotSupportedError,
+    ReadOnlyError,
+)
 from pyramids.dataset import Dataset, GeoReference
 from pyramids.errors import DtypeNarrowingWarning
 
@@ -715,3 +719,109 @@ class TestForCopyIsNarrowerThanItLooks:
         translated = tmp_path / f"t.{extension}"
         byte_raster.translate(path=str(translated))
         assert translated.exists(), f"{translated} was not written"
+
+
+class TestEveryWriterAgreesOnAReferenceOnlyFormat:
+    """`.vrt` is refused by whichever writer you reach for."""
+
+    @pytest.mark.parametrize(
+        "writer",
+        ["to_file", "copy", "translate"],
+    )
+    def test_a_vrt_destination_is_refused(self, float_raster, tmp_path, writer):
+        """No public writer produces a `.vrt`.
+
+        Args:
+            float_raster: The source raster.
+            tmp_path: Temporary directory fixture.
+            writer: The method under test.
+
+        Test scenario:
+            The refusal was added to `resolve_output_driver`, but `to_file` had
+            its own second resolver with no format gate at all -- so the same
+            destination was illegal for `copy` and legal for `to_file`, which
+            then wrote a VRT with an empty `<SourceFilename>` that GDAL refuses
+            to reopen, and reported success. Exercised through the public API
+            rather than the resolver, which is how that gap survived.
+        """
+        out = tmp_path / f"{writer}.vrt"
+        call = getattr(float_raster, writer)
+        with pytest.raises(FileFormatNotSupportedError):
+            call(str(out)) if writer == "to_file" else call(path=str(out))
+
+    def test_nothing_is_left_on_disk_when_it_is_refused(self, float_raster, tmp_path):
+        """The refusal happens before anything is written.
+
+        Args:
+            float_raster: The source raster.
+            tmp_path: Temporary directory fixture.
+        """
+        out = tmp_path / "nothing.vrt"
+        with pytest.raises(FileFormatNotSupportedError):
+            float_raster.to_file(str(out))
+        assert not out.exists(), f"{out} should not have been created"
+
+
+class TestToFileLabelsAccessFromTheDriver:
+    """A copy that cannot be written back must not claim it can."""
+
+    @pytest.mark.parametrize(
+        "extension, expected_access",
+        [("tif", "write"), ("png", "read_only")],
+    )
+    def test_the_access_mode_matches_the_handle(
+        self, byte_raster, tmp_path, extension, expected_access
+    ):
+        """`to_file` derives the access mode instead of asserting `"write"`.
+
+        Args:
+            byte_raster: An 8-bit source, writable to both formats.
+            tmp_path: Temporary directory fixture.
+            extension: The destination extension.
+            expected_access: The access mode the result should report.
+
+        Test scenario:
+            `copy` and `translate` were fixed to derive this; `to_file` still
+            asserted `"write"` unconditionally, so a PNG result claimed to be
+            writable and `write_array` leaked a raw GDAL error past the
+            package's own guard.
+        """
+        out = tmp_path / f"a.{extension}"
+        byte_raster.to_file(str(out))
+        assert byte_raster.access == expected_access, (
+            f".{extension} should report access={expected_access}, "
+            f"got {byte_raster.access}"
+        )
+
+    def test_writing_to_a_read_only_result_raises_the_package_error(
+        self, byte_raster, tmp_path
+    ):
+        """The guard fires instead of GDAL.
+
+        Args:
+            byte_raster: An 8-bit source.
+            tmp_path: Temporary directory fixture.
+        """
+        byte_raster.to_file(str(tmp_path / "ro.png"))
+        with pytest.raises(ReadOnlyError):
+            byte_raster.write_array(np.zeros((4, 4), dtype="uint8"))
+
+    def test_the_dataset_is_repointed_at_the_written_file(self, byte_raster, tmp_path):
+        """A copy-only write still repoints the dataset.
+
+        Args:
+            byte_raster: An 8-bit source.
+            tmp_path: Temporary directory fixture.
+
+        Test scenario:
+            The read-only reopen was unreachable, then reachable but
+            unguarded -- both times leaving the dataset on its old in-memory
+            handle with `file_name == ''` and no indication anything was
+            skipped.
+        """
+        out = tmp_path / "repointed.png"
+        byte_raster.to_file(str(out))
+        assert byte_raster.raster.GetDriver().ShortName == "PNG"
+        assert Path(byte_raster.file_name).name == out.name, (
+            f"expected file_name to name {out.name}, got {byte_raster.file_name!r}"
+        )

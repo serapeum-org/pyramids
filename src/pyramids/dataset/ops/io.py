@@ -19,6 +19,7 @@ from pyramids.base._errors import (
 )
 from pyramids.base._file_manager import CachingFileManager
 from pyramids.base.remote import cloud_config_from_env
+from pyramids.dataset._driver import copy_yields_writable, resolve_output_driver
 from pyramids.dataset.abstract_dataset import (
     CATALOG,
 )
@@ -379,22 +380,20 @@ def _resolve_output_driver(driver: str | None, path: Path) -> tuple[str, str]:
             GDAL driver name.
     """
     if driver is None:
-        # Lower-cased to match `_driver.resolve_output_driver`, which the
-        # constructors use. Without it the two disagreed on case, so a raster
-        # could be built as `x.TIF` and then not written to `x.TIF`: this side
-        # looked up "TIF" while the catalog holds "tif".
-        extension = path.suffix[1:].lower()
-        if not extension:
-            # Same mistake, same exception type, so the same answer as the
-            # constructors give: name the path and the remedy. Slicing the
-            # suffix here and handing "" to the catalog produced a message that
-            # named neither.
+        # Delegate rather than re-implement. Keeping a second, ungated lookup
+        # here is what let `to_file(".vrt")` write an unopenable file while
+        # `copy(".vrt")` refused it -- the format gates, the case folding and
+        # the no-extension message all live in `resolve_output_driver`, and a
+        # copy of any of them drifts. `for_copy=True` because this writer uses
+        # `CreateCopy`, so a copy-only format (PNG, JPEG) is legitimate here
+        # even though the `Create`-based constructors refuse it.
+        gdal_name = resolve_output_driver(path, for_copy=True)
+        driver = CATALOG.get_driver_name(gdal_name)
+        if driver is None:
             raise DriverNotExistError(
-                f"'{path}' has no file extension, so the output format cannot "
-                "be determined. Give the path a suffix naming the format "
-                "(e.g. '.tif')."
+                f"The driver: {gdal_name!r} is not in the driver catalog. Known "
+                f"driver names: {sorted(CATALOG.drivers)}"
             )
-        driver = CATALOG.get_driver_name_by_extension(extension)
     elif not CATALOG.exists(driver):
         catalog_key = CATALOG.get_driver_name(driver)
         if catalog_key is None:
@@ -489,13 +488,29 @@ def _create_copy_and_reopen(
             reopened = gdal.OpenEx(str(path), gdal.OF_RASTER | gdal.OF_UPDATE)
             access = "write"
         except RuntimeError:
+            # A write-once driver refuses OF_UPDATE outright; fall through to
+            # the read-only open below, which sets the access mode.
             reopened = None
-            access = "write"
         if reopened is None:
-            reopened = gdal.OpenEx(str(path), gdal.OF_RASTER)
+            # H2: this fallback was bare. When it raises -- and it can, for a
+            # format GDAL will not reopen at all -- the exception landed in the
+            # outer `except RuntimeError: if not path.exists(): raise` and was
+            # discarded, because CreateCopy *did* leave a file. `to_file` then
+            # returned normally with the dataset still pointing at its old
+            # handle: the exact state the guard above was added to prevent.
+            try:
+                reopened = gdal.OpenEx(str(path), gdal.OF_RASTER)
+            except RuntimeError as exc:
+                raise FailedToSaveError(save_error) from exc
             access = "read_only"
         if reopened is None:
             raise FailedToSaveError(save_error)
+        # Derived, not asserted. A driver whose copy is not writable hands back
+        # a read-only handle, and labelling it "write" is what let a raw GDAL
+        # error escape past the package's own ReadOnlyError guard -- the same
+        # defect `copy` and `translate` were fixed for.
+        if access == "write" and not copy_yields_writable(driver_name):
+            access = "read_only"
         ds._update_inplace(reopened, access)
     except RuntimeError:
         if not path.exists():
