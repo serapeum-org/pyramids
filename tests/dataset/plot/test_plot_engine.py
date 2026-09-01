@@ -28,9 +28,9 @@ _cleo_config = pytest.importorskip("cleopatra.config", reason="cleopatra not ins
 Config = _cleo_config.Config
 Config.set_matplotlib_backend("agg")
 
-# Imported after the backend is pinned to Agg (and after the cleopatra importorskip, which
-# gates the whole module on the [viz] extra) so no GUI backend is ever selected.
-import matplotlib.pyplot as plt  # noqa: E402
+# Must follow the cleopatra importorskip above: matplotlib arrives via the [viz] extra, so
+# importing it at the top of the file would error instead of skipping on a no-viz install.
+import matplotlib.pyplot as plt
 
 
 @pytest.fixture(autouse=True)
@@ -41,8 +41,6 @@ def _close_matplotlib_figures():
     the suite accumulates them and matplotlib warns past 20 open figures.
     """
     yield
-    import matplotlib.pyplot as plt
-
     plt.close("all")
 
 

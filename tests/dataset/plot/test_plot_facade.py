@@ -1,13 +1,15 @@
 """Plot tests: the Dataset.plot facade and RGB options."""
 
+import inspect
 import warnings
 from unittest.mock import patch
 
 import numpy as np
 import pytest
 
-from pyramids.dataset import Dataset
+from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.dataset.engines import Analysis
+from pyramids.netcdf import NetCDF
 
 pytestmark = pytest.mark.plot
 
@@ -19,9 +21,9 @@ _cleo_config = pytest.importorskip("cleopatra.config", reason="cleopatra not ins
 Config = _cleo_config.Config
 Config.set_matplotlib_backend("agg")
 
-# Imported after the backend is pinned to Agg (and after the cleopatra importorskip, which
-# gates the whole module on the [viz] extra) so no GUI backend is ever selected.
-import matplotlib.pyplot as plt  # noqa: E402
+# Must follow the cleopatra importorskip above: matplotlib arrives via the [viz] extra, so
+# importing it at the top of the file would error instead of skipping on a no-viz install.
+import matplotlib.pyplot as plt
 
 
 @pytest.fixture(autouse=True)
@@ -32,8 +34,6 @@ def _close_matplotlib_figures():
     the suite accumulates them and matplotlib warns past 20 open figures.
     """
     yield
-    import matplotlib.pyplot as plt
-
     plt.close("all")
 
 
@@ -285,9 +285,13 @@ class TestDatasetPlotRgbOptionsEdges:
 class TestDatasetPlotFigAx:
     """`fig` / `ax` let several rasters share one figure (#1077)."""
 
-    @staticmethod
-    def _dataset():
-        """A small georeferenced single-band raster."""
+    @pytest.fixture(scope="function")
+    def dataset(self):
+        """Build a small georeferenced single-band raster.
+
+        Returns:
+            Dataset: A 6x6 float32 dataset at EPSG:4326.
+        """
         rng = np.random.default_rng(1337)
         arr = rng.random((6, 6)).astype("float32")
         return Dataset.create_from_array(
@@ -295,7 +299,7 @@ class TestDatasetPlotFigAx:
         )
 
     @pytest.mark.plot
-    def test_draws_into_the_supplied_fig_and_ax(self):
+    def test_draws_into_the_supplied_fig_and_ax(self, dataset):
         """Each panel of a subplots grid renders into the caller's figure and axes.
 
         Test scenario:
@@ -303,7 +307,6 @@ class TestDatasetPlotFigAx:
             create no extra figure, which is what makes a side-by-side comparison grid
             possible.
         """
-        dataset = self._dataset()
         fig, axes = plt.subplots(1, 3)
         opened_before = set(plt.get_fignums())
 
@@ -317,14 +320,13 @@ class TestDatasetPlotFigAx:
         )
 
     @pytest.mark.plot
-    def test_supplied_axes_keep_the_georeferenced_extent(self):
+    def test_supplied_axes_keep_the_georeferenced_extent(self, dataset):
         """A panel drawn into caller axes still spans the raster's bbox, not pixel indices.
 
         Test scenario:
             The georeferenced extent is the reason to use `plot` over a raw `imshow`, so
             it must survive being drawn into externally-created axes.
         """
-        dataset = self._dataset()
         fig, ax = plt.subplots()
 
         glyph = dataset.plot(fig=fig, ax=ax)
@@ -335,9 +337,8 @@ class TestDatasetPlotFigAx:
         )
 
     @pytest.mark.plot
-    def test_facade_forwards_fig_and_ax_to_the_engine(self):
+    def test_facade_forwards_fig_and_ax_to_the_engine(self, dataset):
         """The facade passes both through to `Analysis.plot` as named arguments."""
-        dataset = self._dataset()
         fig, ax = plt.subplots()
 
         with patch.object(type(dataset.analysis), "plot", autospec=True) as mock_plot:
@@ -349,7 +350,7 @@ class TestDatasetPlotFigAx:
         assert call_kwargs["ax"] is ax, "ax must reach the engine"
 
     @pytest.mark.plot
-    def test_ax_alone_is_honoured(self):
+    def test_ax_alone_is_honoured(self, dataset):
         """Supplying only `ax` is sufficient — the panel adopts that axes and its figure.
 
         Test scenario:
@@ -358,10 +359,76 @@ class TestDatasetPlotFigAx:
             raises inside cleopatra — see serapeum-org/cleopatra#326 — so it is not
             exercised here.)
         """
-        dataset = self._dataset()
         fig, ax = plt.subplots()
 
         glyph = dataset.plot(ax=ax)
 
         assert glyph.ax is ax, "the panel must bind to the supplied axes"
         assert glyph.fig is fig, "and pick up that axes' own figure"
+
+    @pytest.mark.plot
+    @pytest.mark.xfail(
+        strict=True,
+        raises=AttributeError,
+        reason=(
+            "serapeum-org/cleopatra#326: cleopatra never derives an axes from a bare "
+            "figure, so it writes the projection marker onto ax=None. Remove this pin "
+            "once that lands and assert the success path instead."
+        ),
+    )
+    def test_fig_alone_is_not_yet_supported(self, dataset):
+        """`fig` without `ax` raises inside cleopatra until #326 lands.
+
+        Test scenario:
+            An axes carries its figure but not the reverse, so cleopatra leaves `ax` as
+            `None` and then dereferences it. This pin is strict: when cleopatra starts
+            adding the subplot itself the test XPASSes and fails, prompting the update.
+        """
+        fig, _ = plt.subplots()
+
+        glyph = dataset.plot(fig=fig)
+
+        assert glyph.fig is fig, "cleopatra should adopt the supplied figure"
+
+
+class TestPlotFigAxSignatureContract:
+    """Every `plot` facade must expose the same keyword-only `fig` / `ax` pair (#1077)."""
+
+    @pytest.mark.plot
+    @pytest.mark.parametrize(
+        "plot_callable",
+        [
+            pytest.param(Dataset.plot, id="Dataset.plot"),
+            pytest.param(Analysis.plot, id="Analysis.plot"),
+            pytest.param(NetCDF.plot, id="NetCDF.plot"),
+            pytest.param(DatasetCollection.plot, id="DatasetCollection.plot"),
+        ],
+    )
+    @pytest.mark.parametrize("name", ["fig", "ax"])
+    def test_declared_as_a_keyword_only_parameter(self, plot_callable, name):
+        """`fig` and `ax` are declared parameters, not keys fished out of `**kwargs`.
+
+        Args:
+            plot_callable: One of the four public `plot` entry points.
+            name: The parameter being asserted, `fig` or `ax`.
+
+        Test scenario:
+            Before #1077 the pair was undeclared — either popped from `**kwargs` or
+            dropped entirely — which hid them from `help()` and made mypy reject the
+            call. Declaring them keyword-only keeps every facade's contract identical
+            and stops a positional argument from ever binding to them.
+        """
+        parameters = inspect.signature(plot_callable).parameters
+
+        assert name in parameters, (
+            f"{plot_callable.__qualname__} must declare `{name}` explicitly, "
+            f"got {list(parameters)}"
+        )
+        assert parameters[name].kind is inspect.Parameter.KEYWORD_ONLY, (
+            f"{plot_callable.__qualname__}'s `{name}` must be keyword-only, "
+            f"got {parameters[name].kind}"
+        )
+        assert parameters[name].default is None, (
+            f"{plot_callable.__qualname__}'s `{name}` must default to None, "
+            f"got {parameters[name].default!r}"
+        )
