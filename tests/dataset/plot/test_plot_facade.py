@@ -200,7 +200,7 @@ class TestDatasetPlotRgbOptionsEdges:
     interactions with the deprecation warning.
     """
 
-    @pytest.fixture(scope="function")
+    @pytest.fixture
     def multiband_dataset(self):
         """Build an in-memory 3-band float32 dataset for RGB testing.
 
@@ -285,7 +285,7 @@ class TestDatasetPlotRgbOptionsEdges:
 class TestDatasetPlotFigAx:
     """`fig` / `ax` let several rasters share one figure (#1077)."""
 
-    @pytest.fixture(scope="function")
+    @pytest.fixture
     def dataset(self):
         """Build a small georeferenced single-band raster.
 
@@ -399,7 +399,7 @@ class TestNetCDFPlotFigAx:
     variables really can share one `plt.subplots` grid.
     """
 
-    @pytest.fixture(scope="function")
+    @pytest.fixture
     def netcdf(self):
         """Build a small in-memory 2-D NetCDF container holding one variable.
 
@@ -484,7 +484,7 @@ class TestNetCDFPlotFigAx:
 class TestDatasetCollectionPlotFigAx:
     """`DatasetCollection.plot` animates into the caller's figure and axes (#1077)."""
 
-    @pytest.fixture(scope="function")
+    @pytest.fixture
     def collection(self):
         """Build a 3-timestep in-memory collection of identical single-band rasters.
 
@@ -559,7 +559,7 @@ class TestDatasetCollectionPlotFigAx:
         assert glyph.ax is ax, "the animation must bind to the supplied axes"
         assert glyph.fig is fig, "and pick up that axes' own figure"
 
-    @pytest.fixture(scope="function")
+    @pytest.fixture
     def rgb_collection(self):
         """Build a 3-timestep collection whose rasters carry three bands.
 
