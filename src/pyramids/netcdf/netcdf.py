@@ -74,7 +74,11 @@ from pyramids.netcdf.engines.variables import Variables
 from pyramids.netcdf.metadata import get_metadata
 from pyramids.netcdf.models import NetCDFMetadata
 from pyramids.netcdf.plot_options import CoordinateSpec, FacetSpec, Selectors
-from pyramids.netcdf.utils import _read_attributes, create_time_conversion_func
+from pyramids.netcdf.utils import (
+    _read_attributes,
+    create_time_conversion_func,
+    read_cf_attributes,
+)
 
 if TYPE_CHECKING:
     from cleopatra.basemap.geo import Basemap
@@ -4451,7 +4455,9 @@ class NetCDF(Dataset):
 
         Returns:
             list[str] or None: Formatted time strings, or None if the
-            time dimension is not found or lacks a `units` attribute.
+            time dimension is not found, lacks a `units` attribute, or
+            carries a `units` that is not a CF time origin (e.g. asking
+            for a spatial dimension, whose units are `degrees_north`).
         """
         time_stamp = None
         time_dim = self.meta_data.get_dimension(var_name)
@@ -4461,9 +4467,19 @@ class NetCDF(Dataset):
                 calendar = time_dim.attrs.get("calendar", "standard")
                 time_vals = self._read_variable(var_name)
                 if time_vals is not None:
-                    func = create_time_conversion_func(
-                        units, time_format, calendar=calendar
-                    )
+                    try:
+                        func = create_time_conversion_func(
+                            units, time_format, calendar=calendar
+                        )
+                    except Exception:
+                        # Guard only the parse, exactly as `_decode_time_labels` does. Every
+                        # dimension now carries its `units` (#1078), so a non-temporal one no
+                        # longer "lacks" the attribute and reaches this parse with something
+                        # like "degrees_north". Returning None keeps the documented contract
+                        # rather than turning a wrong-dimension query into an exception.
+                        return None
+                    # The value conversion stays outside the guard, so a genuinely malformed
+                    # coordinate value still surfaces instead of being hidden.
                     time_stamp = list(map(func, time_vals.reshape(-1)))
         return time_stamp
 
@@ -6947,7 +6963,7 @@ class NetCDF(Dataset):
         # Attribute-only detection (empty ``name`` disables the name-pattern fallback): the
         # name-based stage lives in ``_named_spatial_axes`` and must stay separate so the
         # CF-attribute pass keeps precedence over it.
-        role = detect_axis("", _read_attributes(coord))
+        role = detect_axis("", read_cf_attributes(coord))
         return role if role in ("X", "Y") else None
 
     @staticmethod

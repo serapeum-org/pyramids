@@ -17,6 +17,7 @@ from pyramids.netcdf.utils import (
     _get_group_name,
     _read_attributes,
     _read_dim_names,
+    read_cf_attributes,
     resolve_full_name,
 )
 
@@ -229,6 +230,13 @@ class DimensionInfo:
         variable when one exists (e.g. `units` and
         `calendar` on a time coordinate).
 
+        `units` is recovered from the indexing variable's
+        **unit slot** as well as from its attribute list:
+        GDAL normalises a CF `units` onto that slot and
+        drops it from the attributes, so reading attributes
+        alone yields `calendar` but never `units` (#1078).
+        Which driver GDAL picks does not change this.
+
         Args:
             d: The GDAL multidimensional `Dimension` object.
             group_full_name: Full name of the parent group
@@ -277,9 +285,16 @@ class DimensionInfo:
             iv = None
             ivname = None
 
-        # Read attributes from the indexing variable (e.g., "units", "calendar")
+        # Read attributes from the indexing variable (e.g., "units", "calendar"), then
+        # fold the unit slot back in: GDAL moves a CF `units` attribute onto the object's
+        # own unit and drops it from the attribute list, under the netCDF and the HDF5
+        # driver alike. Without this, `units` reaches dimension metadata only through the
+        # classic-metadata top-up in `MetadataBuilder`, which yields nothing under the HDF5
+        # driver — the one GDAL selected for the reported `/vsicurl` NetCDF-4 read — so the
+        # time axis came back undecodable there (#1078). The guard below is for
+        # `_read_attributes`; `read_cf_attributes` already absorbs a failing unit slot.
         try:
-            iv_attrs = _read_attributes(iv) if iv is not None else {}
+            iv_attrs = read_cf_attributes(iv) if iv is not None else {}
         except Exception:
             iv_attrs = {}
 
@@ -442,6 +457,10 @@ class VariableInfo:
     dtype: str
     shape: list[int]
     dimensions: list[str]
+    # Verbatim: what the file's attribute list declares. Unlike `DimensionInfo.attrs`, the CF
+    # `units` is deliberately *not* folded in here, because `unit` below already carries it —
+    # a dimension has no such field, which is why it needs the fold-in (#1078). Read `unit`
+    # for a variable's CF units: one value in two shapes, not two values.
     attributes: dict[str, AttributeValue] = field(default_factory=dict)
     unit: str | None = None
     nodata: int | float | str | None = None

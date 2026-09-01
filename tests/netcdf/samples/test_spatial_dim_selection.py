@@ -63,8 +63,12 @@ def test_explicit_x_dim_y_dim_selects_plane(sample):
     try:
         var = nc.get_variable("T", x_dim="lon", y_dim="lat")
         assert var.read_array().shape[-2:] == (64, 128)  # (lat, lon)
-        # Default (no override, no CF attrs) falls back to the last two dims (lev, lon).
-        assert nc.get_variable("T").read_array().shape[-2:] == (6, 128)
+        # The default now agrees with the override. `T` is (time, lat, lev, lon), and this
+        # file's lat/lon do declare `degrees_north`/`degrees_east` — on GDAL's unit slot,
+        # which nothing read until #1078, so CF detection saw no attributes and fell back to
+        # the trailing two dims, making a level x longitude plane the raster. Reading the slot
+        # detects the real axes, so the geographic plane is chosen without an override.
+        assert nc.get_variable("T").read_array().shape[-2:] == (64, 128)
     finally:
         nc.close()
 

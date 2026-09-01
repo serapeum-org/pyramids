@@ -241,11 +241,16 @@ class MetadataBuilder:
     ) -> None:
         """Top up `dimensions[*].attrs` from classic GDAL metadata.
 
-        The multidim NetCDF driver occasionally drops CF attributes
-        (notably `units` on time dims of CDS-Beta retrievals) from the
-        indexing variable. The same attributes remain reachable through
-        the classic driver as `<dim_name>#<attr_name>` keys on a
-        classic-mode `gdal.Dataset.GetMetadata()`. This helper merges
+        A multidim dimension can be missing CF attributes the classic
+        view still has. `units` is no longer one of them: GDAL always
+        moves it to the indexing variable's unit slot, under every
+        driver, and `DimensionInfo.from_gdal_dim` folds it back in
+        (#1078). This stays the only source for `calendar`, which has
+        no GDAL slot, and for either attribute on a dimension with
+        **no indexing variable**, where there is no slot to read. Both
+        remain reachable through the classic driver as
+        `<dim_name>#<attr_name>` keys on a classic-mode
+        `gdal.Dataset.GetMetadata()`. This helper merges
         the classic-API view in for any attribute in
         `_CLASSIC_DIM_FALLBACK_ATTRS` that the multidim path did not
         surface, leaving everything else untouched.
