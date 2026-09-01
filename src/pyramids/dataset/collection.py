@@ -2885,6 +2885,8 @@ class DatasetCollection:
                         percentile=percentile,
                     ),
                     mode=ModeSpec(mode="animate", animation_axis_values=axis_values),
+                    ax=ax,
+                    fig=fig,
                     basemap=basemap,
                     basemap_epsg=self.base.epsg,
                 ),

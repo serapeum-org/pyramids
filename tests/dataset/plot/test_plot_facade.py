@@ -559,6 +559,38 @@ class TestDatasetCollectionPlotFigAx:
         assert glyph.ax is ax, "the animation must bind to the supplied axes"
         assert glyph.fig is fig, "and pick up that axes' own figure"
 
+    @pytest.fixture(scope="function")
+    def rgb_collection(self):
+        """Build a 3-timestep collection whose rasters carry three bands.
+
+        Returns:
+            DatasetCollection: Three co-registered 3-band 4x5 float32 timesteps.
+        """
+        rng = np.random.default_rng(326)
+        arr = rng.random((3, 4, 5)).astype("float32")
+        source = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        )
+        return DatasetCollection.from_dataset(source, 3)
+
+    @pytest.mark.plot
+    def test_rgb_time_lapse_threads_fig_and_ax_too(self, rgb_collection):
+        """The RGB branch builds its own request and must thread the pair as well.
+
+        Test scenario:
+            `plot` returns from two places — a true-colour time-lapse and the
+            single-band one. Only the second honoured `fig` / `ax` at first, so an RGB
+            cube silently opened its own figure. Both branches must behave alike.
+        """
+        fig, ax = plt.subplots()
+
+        with patch("pyramids.dataset.collection.render_array") as mock_render:
+            rgb_collection.plot(rgb_options={"rgb": [2, 1, 0]}, fig=fig, ax=ax)
+
+        request = mock_render.call_args.args[0]
+        assert request.fig is fig, "the RGB request must carry the supplied figure"
+        assert request.ax is ax, "the RGB request must carry the supplied axes"
+
 
 class TestPlotFigAxSignatureContract:
     """Every `plot` facade must expose the same keyword-only `fig` / `ax` pair (#1077)."""
