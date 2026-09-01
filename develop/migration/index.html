@@ -6852,7 +6852,8 @@ unrelated argument pick the format. Both take the stricter answer, which refuses
 before through its z-order (<code>method="first"</code> / <code>"last"</code>) path. Write a GTiff and convert it.</p>
 <p><strong><code>Dataset.to_file</code> now accepts more extensions, and one of them can lose data.</strong> This method is untouched by
 the rename, but it reads the same driver catalog, so correcting the catalog's extension rows widened what it
-accepts. <code>.tiff</code>, <code>.png</code>, <code>.jpg</code>, <code>.jpeg</code> and <code>.img</code> previously raised <code>DriverNotExistError</code> and now write a
+accepts. <code>.tiff</code>, <code>.png</code>, <code>.jpg</code>, <code>.jpeg</code>, <code>.img</code>, <code>.jp2</code> and <code>.j2k</code> previously raised
+<code>DriverNotExistError</code> and now write a
 file. The sharp case is dtype: PNG and JPEG store 8-bit data, so a float32 raster written to <code>.png</code> is
 converted to <code>Byte</code> — values clipped, fractional parts gone. GDAL reports that only as a <code>RuntimeWarning</code>, so
 pyramids now raises it to a <code>DtypeNarrowingWarning</code> naming both dtypes and the driver:</p>
