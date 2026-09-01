@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -4546,6 +4546,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#pyramids.netcdf.utils.read_cf_attributes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        read_cf_attributes
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -6206,6 +6217,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#pyramids.netcdf.utils.read_cf_attributes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        read_cf_attributes
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -7172,6 +7194,146 @@ accepts.</p>
 <a id="__codelineno-0-680" name="__codelineno-0-680"></a>        <span class="n">calendar</span><span class="o">=</span><span class="n">calendar</span><span class="p">,</span>
 <a id="__codelineno-0-681" name="__codelineno-0-681"></a>    <span class="p">)</span>
 <a id="__codelineno-0-682" name="__codelineno-0-682"></a>    <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">cftime</span><span class="o">.</span><span class="n">date2num</span><span class="p">(</span><span class="n">dt</span><span class="p">,</span> <span class="n">unit</span><span class="p">,</span> <span class="n">calendar</span><span class="p">))</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="pyramids.netcdf.utils.read_cf_attributes" class="doc doc-heading"><a href="#pyramids.netcdf.utils.read_cf_attributes" class="toclink">
+            <code class="highlight language-python"><span class="n">read_cf_attributes</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span></code>
+
+</a><a href="#pyramids.netcdf.utils.read_cf_attributes" class="headerlink" title="Permanent link">#</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Read a GDAL object's attributes the way a CF consumer needs them.</p>
+<p>The CF reader for every consumer of <code>units</code> / <code>calendar</code> / <code>standard_name</code> /
+<code>axis</code>. Use this rather than :func:<code>_read_attributes</code> wherever the attributes are
+interpreted as CF: attributes alone omit <code>units</code>, because GDAL moves it to the object's
+unit slot, so a site that reads them raw silently loses it — which is how a time axis came
+back undecodable, CF axis detection by units never fired, and a UGRID variable's unit
+vanished on a round trip (#1078).</p>
+<p>:func:<code>_read_attributes</code> remains the right call for a verbatim view of what the file
+declares (serialisation, round-trip writers); this one is for interpreting CF.</p>
+<p>The slot is the CF <code>units</code> for the netCDF and HDF5 drivers, which is where this matters.
+Another multidim driver (Zarr, HDF-EOS) may fill it from a format-specific field, in which
+case the reported <code>units</code> is that driver's unit rather than a CF attribute the file
+literally declares — a reason to read attributes raw when the question is "what does this
+file say", not "what does this axis mean".</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>obj</code>
+            </td>
+            <td>
+                  <code><span title="typing.Any">Any</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Any GDAL object exposing <code>GetAttributes()</code> and <code>GetUnit()</code>.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="dict">dict</span>[<span title="str">str</span>, <span title="pyramids.netcdf.utils.AttributeValue">AttributeValue</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>dict[str, AttributeValue]: The object's attributes, including <code>units</code>.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/pyramids/netcdf/utils.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-937">937</a></span>
+<span class="normal"><a href="#__codelineno-0-938">938</a></span>
+<span class="normal"><a href="#__codelineno-0-939">939</a></span>
+<span class="normal"><a href="#__codelineno-0-940">940</a></span>
+<span class="normal"><a href="#__codelineno-0-941">941</a></span>
+<span class="normal"><a href="#__codelineno-0-942">942</a></span>
+<span class="normal"><a href="#__codelineno-0-943">943</a></span>
+<span class="normal"><a href="#__codelineno-0-944">944</a></span>
+<span class="normal"><a href="#__codelineno-0-945">945</a></span>
+<span class="normal"><a href="#__codelineno-0-946">946</a></span>
+<span class="normal"><a href="#__codelineno-0-947">947</a></span>
+<span class="normal"><a href="#__codelineno-0-948">948</a></span>
+<span class="normal"><a href="#__codelineno-0-949">949</a></span>
+<span class="normal"><a href="#__codelineno-0-950">950</a></span>
+<span class="normal"><a href="#__codelineno-0-951">951</a></span>
+<span class="normal"><a href="#__codelineno-0-952">952</a></span>
+<span class="normal"><a href="#__codelineno-0-953">953</a></span>
+<span class="normal"><a href="#__codelineno-0-954">954</a></span>
+<span class="normal"><a href="#__codelineno-0-955">955</a></span>
+<span class="normal"><a href="#__codelineno-0-956">956</a></span>
+<span class="normal"><a href="#__codelineno-0-957">957</a></span>
+<span class="normal"><a href="#__codelineno-0-958">958</a></span>
+<span class="normal"><a href="#__codelineno-0-959">959</a></span>
+<span class="normal"><a href="#__codelineno-0-960">960</a></span>
+<span class="normal"><a href="#__codelineno-0-961">961</a></span>
+<span class="normal"><a href="#__codelineno-0-962">962</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-937" name="__codelineno-0-937"></a><span class="k">def</span><span class="w"> </span><span class="nf">read_cf_attributes</span><span class="p">(</span><span class="n">obj</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">AttributeValue</span><span class="p">]:</span>
+<a id="__codelineno-0-938" name="__codelineno-0-938"></a><span class="w">    </span><span class="sd">"""Read a GDAL object's attributes the way a CF consumer needs them.</span>
+<a id="__codelineno-0-939" name="__codelineno-0-939"></a>
+<a id="__codelineno-0-940" name="__codelineno-0-940"></a><span class="sd">    The CF reader for every consumer of ``units`` / ``calendar`` / ``standard_name`` /</span>
+<a id="__codelineno-0-941" name="__codelineno-0-941"></a><span class="sd">    ``axis``. Use this rather than :func:`_read_attributes` wherever the attributes are</span>
+<a id="__codelineno-0-942" name="__codelineno-0-942"></a><span class="sd">    interpreted as CF: attributes alone omit ``units``, because GDAL moves it to the object's</span>
+<a id="__codelineno-0-943" name="__codelineno-0-943"></a><span class="sd">    unit slot, so a site that reads them raw silently loses it — which is how a time axis came</span>
+<a id="__codelineno-0-944" name="__codelineno-0-944"></a><span class="sd">    back undecodable, CF axis detection by units never fired, and a UGRID variable's unit</span>
+<a id="__codelineno-0-945" name="__codelineno-0-945"></a><span class="sd">    vanished on a round trip (#1078).</span>
+<a id="__codelineno-0-946" name="__codelineno-0-946"></a>
+<a id="__codelineno-0-947" name="__codelineno-0-947"></a><span class="sd">    :func:`_read_attributes` remains the right call for a verbatim view of what the file</span>
+<a id="__codelineno-0-948" name="__codelineno-0-948"></a><span class="sd">    declares (serialisation, round-trip writers); this one is for interpreting CF.</span>
+<a id="__codelineno-0-949" name="__codelineno-0-949"></a>
+<a id="__codelineno-0-950" name="__codelineno-0-950"></a><span class="sd">    The slot is the CF ``units`` for the netCDF and HDF5 drivers, which is where this matters.</span>
+<a id="__codelineno-0-951" name="__codelineno-0-951"></a><span class="sd">    Another multidim driver (Zarr, HDF-EOS) may fill it from a format-specific field, in which</span>
+<a id="__codelineno-0-952" name="__codelineno-0-952"></a><span class="sd">    case the reported ``units`` is that driver's unit rather than a CF attribute the file</span>
+<a id="__codelineno-0-953" name="__codelineno-0-953"></a><span class="sd">    literally declares — a reason to read attributes raw when the question is "what does this</span>
+<a id="__codelineno-0-954" name="__codelineno-0-954"></a><span class="sd">    file say", not "what does this axis mean".</span>
+<a id="__codelineno-0-955" name="__codelineno-0-955"></a>
+<a id="__codelineno-0-956" name="__codelineno-0-956"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-957" name="__codelineno-0-957"></a><span class="sd">        obj: Any GDAL object exposing ``GetAttributes()`` and ``GetUnit()``.</span>
+<a id="__codelineno-0-958" name="__codelineno-0-958"></a>
+<a id="__codelineno-0-959" name="__codelineno-0-959"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-960" name="__codelineno-0-960"></a><span class="sd">        dict[str, AttributeValue]: The object's attributes, including ``units``.</span>
+<a id="__codelineno-0-961" name="__codelineno-0-961"></a><span class="sd">    """</span>
+<a id="__codelineno-0-962" name="__codelineno-0-962"></a>    <span class="k">return</span> <span class="n">_merge_unit</span><span class="p">(</span><span class="n">_read_attributes</span><span class="p">(</span><span class="n">obj</span><span class="p">),</span> <span class="n">obj</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
