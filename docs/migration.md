@@ -226,7 +226,8 @@ before through its z-order (`method="first"` / `"last"`) path. Write a GTiff and
 
 **`Dataset.to_file` now accepts more extensions, and one of them can lose data.** This method is untouched by
 the rename, but it reads the same driver catalog, so correcting the catalog's extension rows widened what it
-accepts. `.tiff`, `.png`, `.jpg`, `.jpeg` and `.img` previously raised `DriverNotExistError` and now write a
+accepts. `.tiff`, `.png`, `.jpg`, `.jpeg`, `.img`, `.jp2` and `.j2k` previously raised
+`DriverNotExistError` and now write a
 file. The sharp case is dtype: PNG and JPEG store 8-bit data, so a float32 raster written to `.png` is
 converted to `Byte` — values clipped, fractional parts gone. GDAL reports that only as a `RuntimeWarning`, so
 pyramids now raises it to a `DtypeNarrowingWarning` naming both dtypes and the driver:

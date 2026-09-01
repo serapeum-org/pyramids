@@ -182,11 +182,13 @@ class TestResolveOutputDriverFailures:
             driver: The GDAL driver it resolves to.
 
         Test scenario:
-            The `Creation` flag records `Create` support, so callers that write
-            with `CreateCopy` -- `translate`, `copy`, `to_terrain_rgb`,
-            `from_band_files`' VRT branch -- must not inherit the refusal.
-            They could produce these files all along; routing them through the
-            default gate briefly rejected a `.png` they can write.
+            The `Creation` flag records `Create` support, so a caller that
+            writes with `CreateCopy` -- `translate`, `copy`, `to_terrain_rgb` --
+            must not inherit the refusal; each could produce these files all
+            along. `from_band_files` and `merge_rasters` deliberately do *not*
+            relax it: they have two write paths each, and only one can copy, so
+            relaxing would make the destination's legality depend on an
+            unrelated argument.
         """
         assert resolve_output_driver(filename, for_copy=True) == driver
         with pytest.raises(FileFormatNotSupportedError):

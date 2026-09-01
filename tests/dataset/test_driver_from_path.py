@@ -709,6 +709,9 @@ class TestForCopyIsNarrowerThanItLooks:
             the refusal would be a capability they actually have -- and for
             `translate` it is the documented feature.
         """
-        out = tmp_path / f"c.{extension}"
-        byte_raster.copy(path=str(out))
-        assert out.exists(), f"{out} was not written"
+        copied = tmp_path / f"c.{extension}"
+        byte_raster.copy(path=str(copied))
+        assert copied.exists(), f"{copied} was not written"
+        translated = tmp_path / f"t.{extension}"
+        byte_raster.translate(path=str(translated))
+        assert translated.exists(), f"{translated} was not written"

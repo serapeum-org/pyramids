@@ -3776,9 +3776,13 @@ class Dataset(RasterBase):
         no_data_value: Any | None = None,
         path: str | Path | None = None,
     ) -> Dataset:
-        """Create a new dataset and fill it with the no_data_value.
+        """Create a new dataset, optionally filled with the no_data_value.
 
-        The new dataset will have an array filled with the no_data_value.
+        With a `no_data_value` the sentinel is stamped on every band and the
+        array is filled with it. The parameter defaults to `None`, which stamps
+        no sentinel and performs no fill -- the bands read back as whatever the
+        driver allocates (0 for GTiff). Pass one explicitly to get a filled
+        raster, as :meth:`create_empty` documents for the same opt-out.
 
         Args:
             rows (int):

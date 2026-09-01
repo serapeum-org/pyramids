@@ -487,11 +487,16 @@ class TestFromBandFiles:
         with pytest.raises(DriverNotExistError):
             Dataset.from_band_files(band_files, path=filename)
 
-    def test_a_copy_only_format_is_refused_on_both_write_paths(self, band_files):
+    def test_a_copy_only_format_is_refused_on_both_write_paths(
+        self, band_files, tmp_path
+    ):
         """`.png` is refused regardless of which internal branch would run.
 
         Args:
             band_files: The three source bands.
+            tmp_path: Temporary directory fixture -- the destination is only
+                ever rejected, but a bare relative name would drop `out.png`
+                into the working directory the moment that stops being true.
 
         Test scenario:
             This method has two write paths -- a `BuildVRT` + `CreateCopy` one
@@ -504,7 +509,9 @@ class TestFromBandFiles:
         """
         for align in (False, True):
             with pytest.raises(FileFormatNotSupportedError):
-                Dataset.from_band_files(band_files, path="out.png", align=align)
+                Dataset.from_band_files(
+                    band_files, path=str(tmp_path / "out.png"), align=align
+                )
 
     @pytest.mark.parametrize(
         "extension, driver",
