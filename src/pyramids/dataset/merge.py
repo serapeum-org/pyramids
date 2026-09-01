@@ -664,7 +664,11 @@ def merge_rasters(
         # reduction path and died with "Could not identify an output driver"
         # here -- the format depending on `method` again, which is exactly what
         # resolving once was meant to stop.
-        out_driver = resolve_output_driver(dst, for_copy=True)
+        # Strict gate, not `for_copy`: this method has two write paths and the
+        # other builds with `Create`. Relaxing only this one would make `.png`
+        # legal for method="last" and illegal for method="min" -- the very
+        # asymmetry the shared resolution above exists to remove.
+        out_driver = resolve_output_driver(dst)
         # LZW is a GTiff creation option; other drivers reject it.
         translate_opts = gdal.TranslateOptions(
             format=out_driver,
