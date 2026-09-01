@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -8338,8 +8338,7 @@ per successful input (tool, parameters, and timing per step).</p>
 
               <details class="mkdocstrings-source">
                 <summary>Source code in <code>src/pyramids/processing/runner.py</code></summary>
-                <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-34">34</a></span>
-<span class="normal"><a href="#__codelineno-0-35">35</a></span>
+                <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-35">35</a></span>
 <span class="normal"><a href="#__codelineno-0-36">36</a></span>
 <span class="normal"><a href="#__codelineno-0-37">37</a></span>
 <span class="normal"><a href="#__codelineno-0-38">38</a></span>
@@ -8364,33 +8363,34 @@ per successful input (tool, parameters, and timing per step).</p>
 <span class="normal"><a href="#__codelineno-0-57">57</a></span>
 <span class="normal"><a href="#__codelineno-0-58">58</a></span>
 <span class="normal"><a href="#__codelineno-0-59">59</a></span>
-<span class="normal"><a href="#__codelineno-0-60">60</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-34" name="__codelineno-0-34"></a><span class="nd">@dataclass</span>
-<a id="__codelineno-0-35" name="__codelineno-0-35"></a><span class="k">class</span><span class="w"> </span><span class="nc">RunResult</span><span class="p">:</span>
-<a id="__codelineno-0-36" name="__codelineno-0-36"></a><span class="w">    </span><span class="sd">"""The outcome of a batch :func:`run`.</span>
-<a id="__codelineno-0-37" name="__codelineno-0-37"></a>
-<a id="__codelineno-0-38" name="__codelineno-0-38"></a><span class="sd">    Attributes:</span>
-<a id="__codelineno-0-39" name="__codelineno-0-39"></a><span class="sd">        outputs: The final object produced for each input that succeeded, in input</span>
-<a id="__codelineno-0-40" name="__codelineno-0-40"></a><span class="sd">            order. In serial mode these are in-memory `Dataset`/`FeatureCollection`</span>
-<a id="__codelineno-0-41" name="__codelineno-0-41"></a><span class="sd">            objects; in `parallel` mode they are the written output **path strings**</span>
-<a id="__codelineno-0-42" name="__codelineno-0-42"></a><span class="sd">            (GDAL handles cannot cross a process boundary).</span>
-<a id="__codelineno-0-43" name="__codelineno-0-43"></a><span class="sd">        failures: ``(source, exception)`` pairs for inputs that failed under the</span>
-<a id="__codelineno-0-44" name="__codelineno-0-44"></a><span class="sd">            ``"skip"`` policy.</span>
-<a id="__codelineno-0-45" name="__codelineno-0-45"></a><span class="sd">        provenance: One :class:`~pyramids.processing.provenance.Provenance` record</span>
-<a id="__codelineno-0-46" name="__codelineno-0-46"></a><span class="sd">            per successful input (tool, parameters, and timing per step).</span>
-<a id="__codelineno-0-47" name="__codelineno-0-47"></a><span class="sd">    """</span>
-<a id="__codelineno-0-48" name="__codelineno-0-48"></a>
-<a id="__codelineno-0-49" name="__codelineno-0-49"></a>    <span class="n">outputs</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
-<a id="__codelineno-0-50" name="__codelineno-0-50"></a>    <span class="n">failures</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="ne">Exception</span><span class="p">]]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
-<a id="__codelineno-0-51" name="__codelineno-0-51"></a>    <span class="n">provenance</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Provenance</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
-<a id="__codelineno-0-52" name="__codelineno-0-52"></a>
-<a id="__codelineno-0-53" name="__codelineno-0-53"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__len__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
-<a id="__codelineno-0-54" name="__codelineno-0-54"></a><span class="w">        </span><span class="sd">"""The number of successful outputs (failures are counted separately)."""</span>
-<a id="__codelineno-0-55" name="__codelineno-0-55"></a>        <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">outputs</span><span class="p">)</span>
-<a id="__codelineno-0-56" name="__codelineno-0-56"></a>
-<a id="__codelineno-0-57" name="__codelineno-0-57"></a>    <span class="nd">@property</span>
-<a id="__codelineno-0-58" name="__codelineno-0-58"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">ok</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
-<a id="__codelineno-0-59" name="__codelineno-0-59"></a><span class="w">        </span><span class="sd">"""Whether every input succeeded (no collected failures)."""</span>
-<a id="__codelineno-0-60" name="__codelineno-0-60"></a>        <span class="k">return</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">failures</span>
+<span class="normal"><a href="#__codelineno-0-60">60</a></span>
+<span class="normal"><a href="#__codelineno-0-61">61</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-35" name="__codelineno-0-35"></a><span class="nd">@dataclass</span>
+<a id="__codelineno-0-36" name="__codelineno-0-36"></a><span class="k">class</span><span class="w"> </span><span class="nc">RunResult</span><span class="p">:</span>
+<a id="__codelineno-0-37" name="__codelineno-0-37"></a><span class="w">    </span><span class="sd">"""The outcome of a batch :func:`run`.</span>
+<a id="__codelineno-0-38" name="__codelineno-0-38"></a>
+<a id="__codelineno-0-39" name="__codelineno-0-39"></a><span class="sd">    Attributes:</span>
+<a id="__codelineno-0-40" name="__codelineno-0-40"></a><span class="sd">        outputs: The final object produced for each input that succeeded, in input</span>
+<a id="__codelineno-0-41" name="__codelineno-0-41"></a><span class="sd">            order. In serial mode these are in-memory `Dataset`/`FeatureCollection`</span>
+<a id="__codelineno-0-42" name="__codelineno-0-42"></a><span class="sd">            objects; in `parallel` mode they are the written output **path strings**</span>
+<a id="__codelineno-0-43" name="__codelineno-0-43"></a><span class="sd">            (GDAL handles cannot cross a process boundary).</span>
+<a id="__codelineno-0-44" name="__codelineno-0-44"></a><span class="sd">        failures: ``(source, exception)`` pairs for inputs that failed under the</span>
+<a id="__codelineno-0-45" name="__codelineno-0-45"></a><span class="sd">            ``"skip"`` policy.</span>
+<a id="__codelineno-0-46" name="__codelineno-0-46"></a><span class="sd">        provenance: One :class:`~pyramids.processing.provenance.Provenance` record</span>
+<a id="__codelineno-0-47" name="__codelineno-0-47"></a><span class="sd">            per successful input (tool, parameters, and timing per step).</span>
+<a id="__codelineno-0-48" name="__codelineno-0-48"></a><span class="sd">    """</span>
+<a id="__codelineno-0-49" name="__codelineno-0-49"></a>
+<a id="__codelineno-0-50" name="__codelineno-0-50"></a>    <span class="n">outputs</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+<a id="__codelineno-0-51" name="__codelineno-0-51"></a>    <span class="n">failures</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="ne">Exception</span><span class="p">]]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+<a id="__codelineno-0-52" name="__codelineno-0-52"></a>    <span class="n">provenance</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Provenance</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+<a id="__codelineno-0-53" name="__codelineno-0-53"></a>
+<a id="__codelineno-0-54" name="__codelineno-0-54"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__len__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<a id="__codelineno-0-55" name="__codelineno-0-55"></a><span class="w">        </span><span class="sd">"""The number of successful outputs (failures are counted separately)."""</span>
+<a id="__codelineno-0-56" name="__codelineno-0-56"></a>        <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">outputs</span><span class="p">)</span>
+<a id="__codelineno-0-57" name="__codelineno-0-57"></a>
+<a id="__codelineno-0-58" name="__codelineno-0-58"></a>    <span class="nd">@property</span>
+<a id="__codelineno-0-59" name="__codelineno-0-59"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">ok</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<a id="__codelineno-0-60" name="__codelineno-0-60"></a><span class="w">        </span><span class="sd">"""Whether every input succeeded (no collected failures)."""</span>
+<a id="__codelineno-0-61" name="__codelineno-0-61"></a>        <span class="k">return</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">failures</span>
 </code></pre></div></td></tr></table></div>
               </details>
 
@@ -8445,11 +8445,11 @@ per successful input (tool, parameters, and timing per step).</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/processing/runner.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-53">53</a></span>
-<span class="normal"><a href="#__codelineno-0-54">54</a></span>
-<span class="normal"><a href="#__codelineno-0-55">55</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-53" name="__codelineno-0-53"></a><span class="k">def</span><span class="w"> </span><span class="fm">__len__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
-<a id="__codelineno-0-54" name="__codelineno-0-54"></a><span class="w">    </span><span class="sd">"""The number of successful outputs (failures are counted separately)."""</span>
-<a id="__codelineno-0-55" name="__codelineno-0-55"></a>    <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">outputs</span><span class="p">)</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-54">54</a></span>
+<span class="normal"><a href="#__codelineno-0-55">55</a></span>
+<span class="normal"><a href="#__codelineno-0-56">56</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-54" name="__codelineno-0-54"></a><span class="k">def</span><span class="w"> </span><span class="fm">__len__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<a id="__codelineno-0-55" name="__codelineno-0-55"></a><span class="w">    </span><span class="sd">"""The number of successful outputs (failures are counted separately)."""</span>
+<a id="__codelineno-0-56" name="__codelineno-0-56"></a>    <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">outputs</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>

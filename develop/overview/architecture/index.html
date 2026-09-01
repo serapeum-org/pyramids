@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6355,7 +6355,7 @@ Hold "Ctrl" to enable pan &amp; zoom
     <pre class="mermaid"><code>graph LR
     subgraph Dataset
         DS_props["&lt;b&gt;Properties&lt;/b&gt;&lt;br/&gt;raster · rows · columns&lt;br/&gt;geotransform · epsg · crs&lt;br/&gt;band_count · band_names&lt;br/&gt;no_data_value · dtype"]
-        DS_create["&lt;b&gt;Create&lt;/b&gt;&lt;br/&gt;read_file&lt;br/&gt;create_from_array&lt;br/&gt;dataset_like"]
+        DS_create["&lt;b&gt;Create&lt;/b&gt;&lt;br/&gt;read_file&lt;br/&gt;from_array&lt;br/&gt;dataset_like"]
         DS_spatial["&lt;b&gt;Spatial&lt;/b&gt;&lt;br/&gt;crop · to_crs · align&lt;br/&gt;resample · overlay"]
         DS_data["&lt;b&gt;Data Access&lt;/b&gt;&lt;br/&gt;read_array · extract&lt;br/&gt;get_variables"]
         DS_math["&lt;b&gt;Math&lt;/b&gt;&lt;br/&gt;apply · fill · normalize"]
@@ -6380,7 +6380,7 @@ Hold "Ctrl" to enable pan &amp; zoom
 
     subgraph UgridDataset
         UG_props["&lt;b&gt;Properties&lt;/b&gt;&lt;br/&gt;mesh · epsg · n_face&lt;br/&gt;data_variable_names"]
-        UG_create["&lt;b&gt;Create&lt;/b&gt;&lt;br/&gt;read_file&lt;br/&gt;create_from_arrays"]
+        UG_create["&lt;b&gt;Create&lt;/b&gt;&lt;br/&gt;read_file&lt;br/&gt;from_arrays"]
         UG_spatial["&lt;b&gt;Spatial&lt;/b&gt;&lt;br/&gt;subset_by_bounds&lt;br/&gt;clip"]
         UG_convert["&lt;b&gt;Convert&lt;/b&gt;&lt;br/&gt;to_dataset&lt;br/&gt;to_geodataframe"]
         UG_io["&lt;b&gt;I/O&lt;/b&gt;&lt;br/&gt;plot · plot_outline&lt;br/&gt;sel_time"]

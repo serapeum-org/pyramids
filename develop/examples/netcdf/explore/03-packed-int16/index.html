@@ -60,7 +60,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -7344,7 +7344,7 @@ print('dimensions after reducing time:', dict(time_mean.dimension_sizes))</div>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">work</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">tempfile</span><span class="o">.</span><span class="n">mkdtemp</span><span class="p">())</span>
 <span class="n">slice2d</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="nb">tuple</span><span class="p">(</span><span class="mi">0</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">ndim</span> <span class="o">-</span> <span class="mi">2</span><span class="p">))]</span>
-<span class="n">NetCDF</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span>
+<span class="n">NetCDF</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span>
     <span class="n">arr</span><span class="o">=</span><span class="n">slice2d</span><span class="p">,</span>
     <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">geo</span><span class="o">=</span><span class="n">var</span><span class="o">.</span><span class="n">geotransform</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="n">var</span><span class="o">.</span><span class="n">epsg</span> <span class="ow">or</span> <span class="mi">4326</span><span class="p">),</span>
     <span class="n">variable_name</span><span class="o">=</span><span class="s1">'tcw_slice0'</span><span class="p">,</span>
@@ -7355,7 +7355,7 @@ print('dimensions after reducing time:', dict(time_mean.dimension_sizes))</div>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-9">work = Path(tempfile.mkdtemp())
 slice2d = data[tuple(0 for _ in range(data.ndim - 2))]
-NetCDF.create_from_array(
+NetCDF.from_array(
     arr=slice2d,
     geo_ref=GeoReference(geo=var.geotransform, epsg=var.epsg or 4326),
     variable_name='tcw_slice0',
