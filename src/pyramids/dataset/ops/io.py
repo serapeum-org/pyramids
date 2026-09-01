@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import logging
+import pathlib
+import sys
+import threading
 import warnings
 from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from uuid import uuid4
 
 import numpy as np
 from osgeo import gdal
@@ -29,13 +33,44 @@ if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
 
 
-# Frames between `warnings.warn` and the user's own call, for the narrowing
-# warning: _warn_if_driver_narrows_dtype -> _write_to_file_sync -> IO.to_file
-# -> the engine-facade `wrapper` -> Dataset.to_file -> the caller. Measured
-# by walking the live stack, not counted by eye -- the generated facade
-# `wrapper` frame is easy to miss, and a wrong value blames pyramids' own
-# source, which tells the user nothing about where their write is.
-_TO_FILE_STACKLEVEL = 6
+# The pyramids source tree, used to find the first frame outside it.
+_PYRAMIDS_SRC = str(pathlib.Path(__file__).resolve().parents[2])
+
+
+def _caller_stacklevel(default: int = 2) -> int:
+    """Frames to skip so a warning is attributed to the caller, not to pyramids.
+
+    A fixed `stacklevel` cannot work here: `to_file` is reachable at four
+    different depths -- `Dataset.to_file`, `IO.to_file` directly, the
+    `dask.delayed` write, and `DatasetCollection.to_file`, which adds a frame
+    of its own. A constant measured for one of them blamed `collection.py` for
+    the third, which is precisely the failure a `stacklevel` exists to avoid,
+    and it also breaks warning de-duplication: `__warningregistry__` keys on
+    the attributed module, so every timestep of a collection write dedups
+    against the library rather than the user's line.
+
+    Args:
+        default: Returned when every frame is inside pyramids -- a doctest or
+            an internal caller, where there is no user frame to blame.
+
+    Returns:
+        int: The `stacklevel` that attributes the warning to the first frame
+        outside the pyramids package.
+    """
+    depth = 1
+    frame = sys._getframe(1)
+    while frame is not None:
+        if not frame.f_code.co_filename.startswith(_PYRAMIDS_SRC):
+            return depth
+        frame = frame.f_back
+        depth += 1
+    return default
+
+
+# Serialises the dtype probe. `functools.cache` memoises the *result* but
+# does not serialise the call, so without this concurrent first-time probes
+# race inside GDAL.
+_PROBE_LOCK = threading.Lock()
 
 _LAZY_IMPORT_ERROR = (
     "Lazy reads require the optional 'dask' dependency. Install with one of:\n"
@@ -294,31 +329,59 @@ def _driver_preserves_dtype(driver_name: str, gdal_dtype: int) -> bool | None:
     driver = gdal.GetDriverByName(driver_name)
     if driver is None:
         return None
-    probe_path = f"/vsimem/_pyramids_dtype_probe_{driver_name}_{gdal_dtype}"
-    source = gdal.GetDriverByName("MEM").Create("", 1, 1, 1, gdal_dtype)
-    result: bool | None = None
-    try:
-        # `strict=0`: the question is what the driver *does* with the type, and
-        # a strict copy would refuse rather than answer.
-        written = driver.CreateCopy(probe_path, source, 0)
-        if written is not None:
-            result = written.GetRasterBand(1).DataType == gdal_dtype
-            written = None
-    except RuntimeError:
-        # The driver rejected the probe outright (needs options, a minimum
-        # size, georeferencing...). That is not evidence about the dtype.
-        result = None
-    finally:
-        source = None
+    # Unique per call, and serialised. `functools.cache` does not hold a lock
+    # across the wrapped call, so on a cold cache every concurrent caller for
+    # one key runs this body -- and a path derived only from the key meant they
+    # all wrote, read and Unlinked the *same* /vsimem file. One thread's
+    # cleanup ran while another was mid-CreateCopy, and `lru_cache` then stored
+    # whichever call finished last: a transient race permanently memoised
+    # "cannot answer" for that driver/dtype. For a driver whose true answer is
+    # False that silently disables the one guard against a lossy write, and
+    # this package supports threaded and dask-delayed writes.
+    probe_path = f"/vsimem/_pyramids_dtype_probe_{uuid4().hex}"
+    with _PROBE_LOCK:
+        source = gdal.GetDriverByName("MEM").Create("", 1, 1, 1, gdal_dtype)
+        result: bool | None = None
         try:
-            gdal.Unlink(probe_path)
+            # `strict=0`: the question is what the driver *does* with the
+            # type, and a strict copy would refuse rather than answer. GDAL
+            # chatter from a refused probe is not the caller's business.
+            handler = gdal.PushErrorHandler("CPLQuietErrorHandler")
+            try:
+                written = driver.CreateCopy(probe_path, source, 0)
+                if written is not None:
+                    result = written.GetRasterBand(1).DataType == gdal_dtype
+                    written = None
+            finally:
+                gdal.PopErrorHandler()
+                del handler
         except RuntimeError:
-            # Nothing to remove: the driver never created the file (netCDF
-            # writes on close, and refuses a 1x1 probe outright). Cleanup of a
-            # scratch path must never be the thing that fails the caller's
-            # write -- this ran inside `to_file` and turned a netCDF round-trip
-            # into "RuntimeError: unknown error occurred".
-            pass
+            # The driver rejected the probe outright (needs options, a minimum
+            # size, georeferencing...). That is not evidence about the dtype.
+            result = None
+        finally:
+            source = None
+            # Remove the probe and any sidecar the driver wrote beside it
+            # (.aux.xml, .hdr, ...), which would otherwise accumulate in
+            # /vsimem for the life of the process.
+            for leftover in [probe_path, *(gdal.ReadDir("/vsimem") or [])]:
+                name = (
+                    leftover
+                    if leftover.startswith("/vsimem")
+                    else f"/vsimem/{leftover}"
+                )
+                if not name.startswith(probe_path):
+                    continue
+                try:
+                    gdal.Unlink(name)
+                except RuntimeError:
+                    # Nothing to remove: the driver never created the file
+                    # (netCDF writes on close, and refuses a 1x1 probe). Cleanup
+                    # of scratch state must never be the thing that fails the
+                    # caller's write -- this ran inside `to_file` and turned a
+                    # netCDF round-trip into "RuntimeError: unknown error
+                    # occurred".
+                    pass
     return result
 
 
@@ -364,7 +427,7 @@ def _warn_if_driver_narrows_dtype(ds: Dataset, driver_name: str, path: Path) -> 
         "scale to Byte) if that is intended, or choose a format that carries the "
         "dtype.",
         DtypeNarrowingWarning,
-        stacklevel=_TO_FILE_STACKLEVEL,
+        stacklevel=_caller_stacklevel(),
     )
 
 
