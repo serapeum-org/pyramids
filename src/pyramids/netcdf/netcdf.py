@@ -92,6 +92,8 @@ if TYPE_CHECKING:
     from cleopatra.styling.colorbar import ColorBar
     from cleopatra.styling.params import CellValues, Contour, DataStyle
     from cleopatra.styling.scaling import ColorScaling
+    from matplotlib.axes import Axes
+    from matplotlib.figure import Figure
 
 # Guards the per-container `_lazy_managers` WeakSet against a concurrent lazy `read_array` (which adds)
 # and `close()` (which snapshots) on the same container from different threads.
@@ -1817,6 +1819,8 @@ class NetCDF(Dataset):
         contour: Contour | None = None,
         cells: CellValues | None = None,
         data_style: DataStyle | None = None,
+        fig: Figure | None = None,
+        ax: Axes | None = None,
         **kwargs: Unpack[PlotKwargs],
     ):
         """Plot a 2-D slice of a NetCDF variable using the plot vocabulary.
@@ -1931,6 +1935,15 @@ class NetCDF(Dataset):
             data_style (DataStyle, optional):
                 Data-style / relief spec ``pyramids.plot.DataStyle(style=…, hillshade=…)``.
                 Default ``None``.
+            fig (matplotlib.figure.Figure, optional):
+                Draw into this figure instead of creating one. Pass it alongside ``ax``;
+                supplying ``fig`` on its own currently raises inside cleopatra
+                (serapeum-org/cleopatra#326). Default is ``None``.
+            ax (matplotlib.axes.Axes, optional):
+                Draw into these axes instead of creating them, so several variables can
+                share one figure — e.g. a ``plt.subplots`` grid — while each panel keeps
+                its georeferenced extent. An axes already carries its figure, so ``ax`` on
+                its own is sufficient. Default is ``None``.
             **kwargs (Unpack[PlotKwargs]):
                 cleopatra's typed plot keywords, forwarded verbatim to
                 :meth:`Analysis.plot <pyramids.dataset.engines.Analysis.plot>` — the
@@ -2318,6 +2331,8 @@ class NetCDF(Dataset):
             basemap=basemap,
             exclude_value=exclude_value,
             title=title,
+            fig=fig,
+            ax=ax,
             **group_kwargs,
             **kwargs,
         )

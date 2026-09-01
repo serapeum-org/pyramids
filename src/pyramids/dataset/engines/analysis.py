@@ -35,6 +35,8 @@ from pyramids.feature import FeatureCollection
 if TYPE_CHECKING:
     from cleopatra.basemap.geo import Basemap
     from cleopatra.glyphs.gridded.array_glyph import ArrayGlyph
+    from matplotlib.axes import Axes
+    from matplotlib.figure import Figure
 
     from pyramids.dataset.dataset import Dataset
 
@@ -1885,7 +1887,7 @@ class Analysis(_Engine["Dataset"]):
         band: int = 0,
         bins: int = 15,
         exclude_value: Any | None = None,
-        ax: Any | None = None,
+        ax: Axes | None = None,
         *,
         max_samples: int | None = None,
         **kwargs: Any,
@@ -1907,7 +1909,11 @@ class Analysis(_Engine["Dataset"]):
                 An extra value to drop from the samples, in addition to the
                 band's no-data value and ``NaN``. Default is ``None``.
             ax (matplotlib.axes.Axes, optional):
-                Axes to draw on. A new figure/axes is created when ``None``.
+                Draw the histogram into these axes instead of creating them, so it can
+                sit in a caller-owned layout. An axes already carries its figure, so
+                ``ax`` on its own is sufficient and there is no separate ``fig``
+                parameter here. A new figure/axes is created when left unset. Default is
+                ``None``.
             max_samples (int, optional):
                 Opt-in cap on how many pixels are read. When set and the band
                 has more than ``max_samples`` cells, GDAL reads a
@@ -2069,7 +2075,7 @@ class Analysis(_Engine["Dataset"]):
         u_band: int = 0,
         v_band: int = 1,
         kind: str = "quiver",
-        ax: Any | None = None,
+        ax: Axes | None = None,
         **kwargs: Any,
     ):
         """Plot two bands as a 2-component vector field.
@@ -2099,7 +2105,11 @@ class Analysis(_Engine["Dataset"]):
                 Render kind: ``"quiver"`` (default), ``"barbs"``, or
                 ``"streamplot"``.
             ax (matplotlib.axes.Axes, optional):
-                Axes to draw on. A new figure/axes is created when ``None``.
+                Draw the vector field into these axes instead of creating them, which is
+                what lets it be composed onto a shared map (pair it with
+                ``add_colorbar=False``). An axes already carries its figure, so ``ax`` on
+                its own is sufficient and there is no separate ``fig`` parameter here. A
+                new figure/axes is created when left unset. Default is ``None``.
             **kwargs:
                 Style options forwarded to the ``VectorGlyph`` constructor,
                 filtered via :meth:`VectorGlyph.filter_kwargs` (e.g.
@@ -2186,6 +2196,9 @@ class Analysis(_Engine["Dataset"]):
         overview_index: int | None = 0,
         percentile: int | None = None,
         basemap: bool | str | dict[str, Any] | Basemap | None = None,
+        *,
+        fig: Figure | None = None,
+        ax: Axes | None = None,
         **kwargs: Any,
     ) -> ArrayGlyph:
         """Plot the values/overviews of a given band.
@@ -2248,6 +2261,17 @@ class Analysis(_Engine["Dataset"]):
                 shaded-relief / coastline reference layer instead. Default is None (no basemap).
                 Requires the [viz] extra (mercantile, xyzservices, Pillow). A ``Basemap`` is not
                 supported on the faceted path.
+            fig (matplotlib.figure.Figure, optional):
+                Draw into this figure instead of creating one. Pass it alongside ``ax``;
+                supplying ``fig`` on its own currently raises inside cleopatra
+                (serapeum-org/cleopatra#326). Default is ``None``.
+            ax (matplotlib.axes.Axes, optional):
+                Draw into these axes instead of creating them. This is what lets several
+                rasters share one figure — e.g. a ``plt.subplots`` grid where each panel is
+                a different band or dataset — while every panel keeps the georeferenced
+                extent and nodata masking this method applies. An axes already carries its
+                figure, so ``ax`` on its own is sufficient. The returned glyph exposes both
+                objects back as ``cleo.fig`` / ``cleo.ax``. Default is ``None``.
         kwargs:
                 Colour-scale, contour, cell-value and data-style options moved onto typed
                 render groups (all re-exported from ``pyramids.plot``): pass
@@ -2359,8 +2383,6 @@ class Analysis(_Engine["Dataset"]):
             if exclude_value is not None
             else [no_data_value[band]]
         )
-        ax = kwargs.pop("ax", None)
-        fig = kwargs.pop("fig", None)
         # On the self-read paths (`mode="plot"` / `_chunks`) the data and
         # the extent both come from `self._ds`. On the injected-stack path
         # (`mode="facet"`) the caller passes `_extent` so the panels are

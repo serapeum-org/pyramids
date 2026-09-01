@@ -29,6 +29,10 @@ _cleo_config = pytest.importorskip("cleopatra.config", reason="cleopatra not ins
 Config = _cleo_config.Config
 Config.set_matplotlib_backend("agg")
 
+# Must follow the cleopatra importorskip above: matplotlib arrives via the [viz] extra, so
+# importing it at the top of the file would error instead of skipping on a no-viz install.
+import matplotlib.pyplot as plt
+
 
 @pytest.fixture(autouse=True)
 def _close_matplotlib_figures():
@@ -38,8 +42,6 @@ def _close_matplotlib_figures():
     the suite accumulates them and matplotlib warns past 20 open figures.
     """
     yield
-    import matplotlib.pyplot as plt
-
     plt.close("all")
 
 
@@ -70,6 +72,27 @@ class TestAnalysisPlotEngine:
         assert isinstance(result, ArrayGlyph), (
             f"Expected ArrayGlyph, got {type(result).__name__}"
         )
+
+    @pytest.mark.plot
+    def test_engine_draws_into_a_supplied_fig_and_ax(self):
+        """``Analysis.plot`` honours ``fig`` / ``ax`` when called directly (#1077).
+
+        Test scenario:
+            The engine is the generic renderer the facades share, so its ``fig`` / ``ax``
+            contract must hold without going through ``Dataset.plot``.
+        """
+        rng = np.random.default_rng(1337)
+        arr = rng.random((6, 6)).astype("float32")
+        dataset = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+        )
+        fig, ax = plt.subplots()
+
+        glyph = dataset.analysis.plot(band=0, fig=fig, ax=ax)
+
+        assert glyph.ax is ax, "the engine must draw into the supplied axes"
+        assert glyph.fig is fig, "the engine must draw into the supplied figure"
 
     @pytest.mark.plot
     def test_out_of_range_band_raises(self):

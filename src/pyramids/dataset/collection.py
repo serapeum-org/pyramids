@@ -73,6 +73,8 @@ if TYPE_CHECKING:
     from cleopatra.styling.params import CellValues, Contour, DataStyle
     from cleopatra.styling.scaling import ColorScaling
     from dask.delayed import Delayed
+    from matplotlib.axes import Axes
+    from matplotlib.figure import Figure
 
 
 _DEFAULT_GLOB = "*.tif"
@@ -2649,6 +2651,9 @@ class DatasetCollection:
         cells: CellValues | None = None,
         data_style: DataStyle | None = None,
         animation_axis_values: Any = None,
+        *,
+        fig: Figure | None = None,
+        ax: Axes | None = None,
         **kwargs: Unpack[AnimateKwargs],
     ) -> ArrayGlyph:
         r"""Render the collection as an animated stack of band slices.
@@ -2739,6 +2744,15 @@ class DatasetCollection:
                 Pass a sequence to override (e.g. ``range(2000, 2024)``); it must carry
                 exactly one label per timestep or a :class:`ValueError` is raised.
                 Default ``None``.
+            fig (matplotlib.figure.Figure, optional):
+                Draw into this figure instead of creating one. Pass it alongside ``ax``;
+                supplying ``fig`` on its own currently raises inside cleopatra
+                (serapeum-org/cleopatra#326). Default is ``None``.
+            ax (matplotlib.axes.Axes, optional):
+                Animate into these axes instead of creating them, so the time-lapse can
+                sit in a caller-owned layout (e.g. one panel of a ``plt.subplots`` grid).
+                An axes already carries its figure, so ``ax`` on its own is sufficient.
+                Default is ``None``.
             **kwargs:
                 Still-loose cleopatra render kwargs (colour-scale, contour, and cell-value
                 styling moved onto the ``color`` / ``contour`` / ``cells`` params above):
@@ -2880,6 +2894,8 @@ class DatasetCollection:
                         percentile=percentile,
                     ),
                     mode=ModeSpec(mode="animate", animation_axis_values=axis_values),
+                    ax=ax,
+                    fig=fig,
                     basemap=basemap,
                     basemap_epsg=self.base.epsg,
                 ),
@@ -2904,6 +2920,8 @@ class DatasetCollection:
                 arr=data,
                 exclude_value=exclude_value,
                 mode=ModeSpec(mode="animate", animation_axis_values=axis_values),
+                ax=ax,
+                fig=fig,
                 basemap=basemap,
                 basemap_epsg=self.base.epsg,
             ),
