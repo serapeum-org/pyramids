@@ -309,7 +309,15 @@ def _driver_preserves_dtype(driver_name: str, gdal_dtype: int) -> bool | None:
         result = None
     finally:
         source = None
-        gdal.Unlink(probe_path)
+        try:
+            gdal.Unlink(probe_path)
+        except RuntimeError:
+            # Nothing to remove: the driver never created the file (netCDF
+            # writes on close, and refuses a 1x1 probe outright). Cleanup of a
+            # scratch path must never be the thing that fails the caller's
+            # write -- this ran inside `to_file` and turned a netCDF round-trip
+            # into "RuntimeError: unknown error occurred".
+            pass
     return result
 
 
@@ -461,8 +469,18 @@ def _create_copy_and_reopen(
         dst = None
         if not reopen:
             return
-        reopened = gdal.OpenEx(str(path), gdal.OF_RASTER | gdal.OF_UPDATE)
-        access = "write"
+        # The update-mode open is tried in its own try/except. pyramids
+        # enables GDAL exceptions at import, so for a write-once driver (PNG,
+        # JPEG) OpenEx *raises* rather than returning None -- and the broad
+        # handler below swallowed it, leaving `ds` silently pointing at its old
+        # in-memory handle with `file_name == ''`. Catching it here is what
+        # makes the read-only fallback reachable at all.
+        try:
+            reopened = gdal.OpenEx(str(path), gdal.OF_RASTER | gdal.OF_UPDATE)
+            access = "write"
+        except RuntimeError:
+            reopened = None
+            access = "write"
         if reopened is None:
             reopened = gdal.OpenEx(str(path), gdal.OF_RASTER)
             access = "read_only"

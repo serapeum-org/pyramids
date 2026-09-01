@@ -2223,7 +2223,13 @@ class Dataset(RasterBase):
             new_units[index] = target
 
         result_array = out[0] if single_band else out
-        result = self.from_array(
+        # `Dataset.from_array`, not `self.from_array`: this method is inherited
+        # by NetCDF / Container / Variable, whose override returns a *bandless*
+        # Container -- so the `band_units` assignment below died with
+        # `IndexError: index 0 is out of bounds for axis 0 with size 0`, three
+        # frames from the cause. A unit conversion yields a plain raster in
+        # every case, so the base constructor is the right one to name.
+        result = Dataset.from_array(
             result_array,
             no_data_value=list(no_data),
             geo_ref=GeoReference(
