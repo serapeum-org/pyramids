@@ -14,6 +14,7 @@ by the next reviewer.
 from __future__ import annotations
 
 import warnings
+from functools import partial
 from pathlib import Path
 
 import numpy as np
@@ -747,9 +748,16 @@ class TestEveryWriterAgreesOnAReferenceOnlyFormat:
             rather than the resolver, which is how that gap survived.
         """
         out = tmp_path / f"{writer}.vrt"
-        call = getattr(float_raster, writer)
+        method = getattr(float_raster, writer)
+        # Bound outside the block so only the call under test can throw inside
+        # it -- `to_file` takes the path positionally, the other two by keyword.
+        call = (
+            partial(method, str(out))
+            if writer == "to_file"
+            else partial(method, path=str(out))
+        )
         with pytest.raises(FileFormatNotSupportedError):
-            call(str(out)) if writer == "to_file" else call(path=str(out))
+            call()
 
     def test_nothing_is_left_on_disk_when_it_is_refused(self, float_raster, tmp_path):
         """The refusal happens before anything is written.

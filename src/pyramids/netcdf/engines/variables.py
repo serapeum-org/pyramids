@@ -858,6 +858,42 @@ def _resolve_write_crs(
     return srse, srse.IsGeographic() == 1
 
 
+def _require_netcdf_destination(path: str | Path) -> None:
+    """Refuse a destination that names a driver other than netCDF.
+
+    This builds a multidimensional store, which only the netCDF driver carries,
+    so the driver is fixed rather than resolved. What the extension decides is
+    whether the caller asked for something else: `path="lies.tif"` used to
+    write a netCDF under a GeoTIFF name without a word.
+
+    Args:
+        path: The destination the caller supplied.
+
+    Raises:
+        FileFormatNotSupportedError: `path` does not name the netCDF driver.
+    """
+    try:
+        # `for_copy=True` so a copy-only extension reaches the message below
+        # rather than raising the Create-gate error inside the resolver, whose
+        # advice ("build it as GTiff, then convert") is wrong for a caller who
+        # asked a netCDF container to write a PNG.
+        resolved: str | None = resolve_output_driver(path, for_copy=True)
+    except FileFormatNotSupportedError:
+        # Refused outright (a reference-only format such as `.vrt`). Its advice
+        # -- "write a format that owns its pixels, e.g. '.tif'" -- is advice
+        # this method would also refuse, so answer in the terms of the method
+        # the caller actually reached for.
+        resolved = None
+    if resolved == "netCDF":
+        return
+    names = f" -- it names {resolved}" if resolved else ""
+    raise FileFormatNotSupportedError(
+        "NetCDF.from_array writes a multidimensional netCDF store, but "
+        f"{str(path)!r} does not name the netCDF driver{names}. Use a '.nc' or "
+        "'.nc4' path, or build the raster with Dataset.from_array."
+    )
+
+
 def _create_netcdf_from_array(
     arr: np.ndarray,
     variable_name: str,
@@ -933,31 +969,7 @@ def _create_netcdf_from_array(
     y_dim_values = NetCDF.get_y_lat_dimension_array(geo[3], abs(geo[5]), rows)
 
     if path is not None:
-        # This builds a multidimensional store, which only the netCDF driver
-        # can carry here, so the driver is fixed rather than resolved. What the
-        # extension does decide is whether the caller asked for something else:
-        # `path="lies.tif"` used to write a netCDF under a GeoTIFF name without
-        # a word. Refuse instead, naming what was actually produced.
-        # `for_copy=True` so a copy-only extension reaches the message below
-        # rather than raising the Create-gate error inside the resolver, whose
-        # advice ("build it as GTiff, then convert") is wrong for a caller who
-        # asked a netCDF container to write a PNG.
-        try:
-            resolved = resolve_output_driver(path, for_copy=True)
-        except FileFormatNotSupportedError:
-            # The resolver refused it outright (a reference-only format such as
-            # `.vrt`). Its advice -- "write a format that owns its pixels, e.g.
-            # '.tif'" -- is advice this method would also refuse, so answer in
-            # the terms of the method the caller actually reached for.
-            resolved = None
-        if resolved != "netCDF":
-            raise FileFormatNotSupportedError(
-                "NetCDF.from_array writes a multidimensional netCDF store, but "
-                f"{str(path)!r} does not name the netCDF driver"
-                + (f" -- it names {resolved}" if resolved else "")
-                + ". Use a '.nc' or '.nc4' path, or build the raster with "
-                "Dataset.from_array."
-            )
+        _require_netcdf_destination(path)
         driver_type = "netCDF"
     else:
         driver_type = MEMORY_DRIVER
