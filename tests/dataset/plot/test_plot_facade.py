@@ -9,7 +9,7 @@ import pytest
 
 from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.dataset.engines import Analysis
-from pyramids.netcdf import NetCDF
+from pyramids.netcdf import GeoReference, NetCDF
 
 pytestmark = pytest.mark.plot
 
@@ -389,6 +389,175 @@ class TestDatasetPlotFigAx:
         glyph = dataset.plot(fig=fig)
 
         assert glyph.fig is fig, "cleopatra should adopt the supplied figure"
+
+
+class TestNetCDFPlotFigAx:
+    """`NetCDF.plot` renders a variable into the caller's figure and axes (#1077).
+
+    The signature contract below only proves the pair is declared; these tests prove
+    the facade actually threads it down to the shared render call, so several
+    variables really can share one `plt.subplots` grid.
+    """
+
+    @pytest.fixture(scope="function")
+    def netcdf(self):
+        """Build a small in-memory 2-D NetCDF container holding one variable.
+
+        Returns:
+            NetCDF: A 5x5 float32 container whose only variable is ``t2m``.
+        """
+        rng = np.random.default_rng(1077)
+        arr = rng.random((5, 5)).astype("float32")
+        return NetCDF.create_from_array(
+            arr=arr,
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0, 5.0, 0, -1.0), epsg=4326),
+            variable_name="t2m",
+        )
+
+    @pytest.mark.plot
+    def test_draws_into_the_supplied_fig_and_ax(self, netcdf):
+        """A variable renders into the caller's figure and axes without opening another.
+
+        Test scenario:
+            `fig` / `ax` used to be dropped on the NetCDF path, so the panel silently
+            landed in a brand-new figure. The glyph must now adopt both objects and the
+            open-figure set must be unchanged.
+        """
+        fig, ax = plt.subplots()
+        opened_before = set(plt.get_fignums())
+
+        glyph = netcdf.plot(variable="t2m", fig=fig, ax=ax)
+
+        assert glyph.ax is ax, "the variable must draw into the supplied axes"
+        assert glyph.fig is fig, "the variable must draw into the supplied figure"
+        assert set(plt.get_fignums()) == opened_before, (
+            "supplying fig/ax must not create additional figures"
+        )
+
+    @pytest.mark.plot
+    def test_forwards_fig_and_ax_to_the_engine(self, netcdf):
+        """The facade hands both through to `Analysis.plot` as named arguments."""
+        fig, ax = plt.subplots()
+        variable = netcdf.get_variable("t2m")
+
+        with patch.object(type(variable.analysis), "plot", autospec=True) as mock_plot:
+            mock_plot.return_value = "stub-glyph"
+            netcdf.plot(variable="t2m", fig=fig, ax=ax)
+
+        call_kwargs = mock_plot.call_args.kwargs
+        assert call_kwargs["fig"] is fig, "fig must reach the engine"
+        assert call_kwargs["ax"] is ax, "ax must reach the engine"
+
+    @pytest.mark.plot
+    def test_ax_alone_is_honoured(self, netcdf):
+        """Supplying only `ax` is enough — the panel picks up that axes' own figure.
+
+        Test scenario:
+            The docstring promises `ax` on its own suffices because an axes already
+            carries its figure; this pins that promise on the NetCDF facade.
+        """
+        fig, ax = plt.subplots()
+
+        glyph = netcdf.plot(variable="t2m", ax=ax)
+
+        assert glyph.ax is ax, "the panel must bind to the supplied axes"
+        assert glyph.fig is fig, "and pick up that axes' own figure"
+
+    @pytest.mark.plot
+    def test_supplied_axes_keep_the_georeferenced_extent(self, netcdf):
+        """A panel drawn into caller axes still spans the variable's bbox.
+
+        Test scenario:
+            Drawing into external axes must not degrade the plot into a raw `imshow`
+            over pixel indices — the georeferenced extent is the point of `plot`.
+        """
+        fig, ax = plt.subplots()
+
+        glyph = netcdf.plot(variable="t2m", fig=fig, ax=ax)
+
+        xmin, _, xmax, _ = netcdf.get_variable("t2m").bbox
+        assert glyph.ax.get_xlim() == pytest.approx((xmin, xmax)), (
+            "the panel must span the variable bbox, not the 0..ncols pixel range"
+        )
+
+
+class TestDatasetCollectionPlotFigAx:
+    """`DatasetCollection.plot` animates into the caller's figure and axes (#1077)."""
+
+    @pytest.fixture(scope="function")
+    def collection(self):
+        """Build a 3-timestep in-memory collection of identical single-band rasters.
+
+        Returns:
+            DatasetCollection: Three co-registered 4x5 float32 timesteps at EPSG:4326.
+        """
+        rng = np.random.default_rng(1077)
+        arr = rng.random((1, 4, 5)).astype("float32")
+        source = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        )
+        return DatasetCollection.from_dataset(source, 3)
+
+    @pytest.mark.plot
+    def test_threads_fig_and_ax_into_the_render_request(self, collection):
+        """Both land on the `RenderRequest` the collection builds for `render_array`.
+
+        Test scenario:
+            The collection does not call the engine — it assembles a `RenderRequest`
+            directly — so the forwarding contract is asserted on that request object.
+        """
+        fig, ax = plt.subplots()
+
+        with patch("pyramids.dataset.collection.render_array") as mock_render:
+            collection.plot(band=0, fig=fig, ax=ax)
+
+        request = mock_render.call_args.args[0]
+        assert request.fig is fig, "fig must be threaded into the RenderRequest"
+        assert request.ax is ax, "ax must be threaded into the RenderRequest"
+
+    @pytest.mark.plot
+    def test_defaults_leave_the_request_pair_unset(self, collection):
+        """Omitting both keeps the request's `fig` / `ax` at `None`.
+
+        Test scenario:
+            The defaults must stay `None` rather than a stray figure, so cleopatra
+            keeps creating the animation's own figure when the caller supplies nothing.
+        """
+        with patch("pyramids.dataset.collection.render_array") as mock_render:
+            collection.plot(band=0)
+
+        request = mock_render.call_args.args[0]
+        assert request.fig is None, f"expected fig=None, got {request.fig!r}"
+        assert request.ax is None, f"expected ax=None, got {request.ax!r}"
+
+    @pytest.mark.plot
+    def test_animates_into_the_supplied_fig_and_ax(self, collection):
+        """The real animate path binds the glyph to the caller's figure and axes.
+
+        Test scenario:
+            End-to-end through cleopatra: the time-lapse must be able to sit in one
+            panel of a caller-owned layout instead of always owning a whole figure.
+        """
+        fig, ax = plt.subplots()
+        opened_before = set(plt.get_fignums())
+
+        glyph = collection.plot(band=0, fig=fig, ax=ax)
+
+        assert glyph.ax is ax, "the animation must draw into the supplied axes"
+        assert glyph.fig is fig, "the animation must draw into the supplied figure"
+        assert set(plt.get_fignums()) == opened_before, (
+            "supplying fig/ax must not create additional figures"
+        )
+
+    @pytest.mark.plot
+    def test_ax_alone_is_honoured(self, collection):
+        """Supplying only `ax` is enough on the collection facade too."""
+        fig, ax = plt.subplots()
+
+        glyph = collection.plot(band=0, ax=ax)
+
+        assert glyph.ax is ax, "the animation must bind to the supplied axes"
+        assert glyph.fig is fig, "and pick up that axes' own figure"
 
 
 class TestPlotFigAxSignatureContract:
