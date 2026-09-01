@@ -1296,8 +1296,9 @@ class RasterBase(ABC):
                 ``style`` / ``hillshade``) were removed and now raise a ``ValueError``.
 
         Returns:
-            Tuple[Axes, Any]:
-                The axes of the matplotlib figure and the figure object.
+            ArrayGlyph:
+                A cleopatra ``ArrayGlyph`` wrapping the rendered figure. Use
+                ``glyph.fig`` / ``glyph.ax`` to drop down to raw matplotlib.
         """
         pass
 
