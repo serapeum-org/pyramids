@@ -434,7 +434,8 @@ xarray = ">=2023.1.0"
 # the win_arm64 canary. Operator-leading form on purpose: ci/gdal-pin.py
 # consumers build conda matchspecs as "gdal${SPEC}", so a digit-leading
 # spec like "3.13.1.*" concatenates into a nonexistent package name
-# (observed: micromamba "gdal3.13.1.* does not exist", macOS x86_64).
+# (observed: micromamba "gdal3.13.1.* does not exist", macOS x86_64; the
+# same failure applies verbatim to 3.13.3.*).
 [tool.pixi.feature.gdal.dependencies]
 gdal = ">=3.13.3,<3.13.4"
 libgdal-netcdf = ">=3.13.3,<3.13.4"

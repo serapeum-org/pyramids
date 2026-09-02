@@ -724,7 +724,8 @@ def read_file(
             # path with *different* options are never handed the same handle —
             # RELIES ON GDAL keying its shared-dataset cache on the concatenated
             # open options as well as path/access/thread. This holds on the conda
-            # pin (gdal >=3.13.3,<3.13.4 in pyproject.toml, verified on 3.13.1)
+            # pin (gdal >=3.13.3,<3.13.4 in pyproject.toml; verified on 3.13.1,
+            # unchanged through 3.13.3)
             # and every GDAL that has shipped this behaviour. Wheel/sdist installs
             # bring native GDAL out-of-band at an unpinned version; on a
             # hypothetical GDAL that ignored options in its shared key, two
