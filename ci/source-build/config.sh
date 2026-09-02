@@ -95,8 +95,8 @@ define curl       8.18.0    e9274a5f8ab5271c0e0e6762d2fce194d5f98acc568e4ce81684
     "https://curl.se/download/curl-8.18.0.tar.gz"                                                curl-8.18.0.tar.gz
 define libpng     1.6.54    ba7efce137409079989df4667706c339bebfbb10e9f413474718012a13c8cd4c \
     "https://github.com/pnggroup/libpng/archive/refs/tags/v1.6.54.tar.gz"                        libpng-1.6.54.tar.gz
-define giflib     5.2.2     be7ffbd057cadebe2aa144542fd90c6838c6a083b5e8a9048b8ee3b66b29d5fb \
-    "https://sourceforge.net/projects/giflib/files/giflib-5.2.2.tar.gz/download"                 giflib-5.2.2.tar.gz
+define giflib     6.1.3     b65b66b99f0424b93525f987386f22fc5efb9da2bfc92ad4a532249aaffbab0e \
+    "https://sourceforge.net/projects/giflib/files/giflib-6.1.3.tar.gz/download"                 giflib-6.1.3.tar.gz
 define libwebp    1.6.0     93a852c2b3efafee3723efd4636de855b46f9fe1efddd607e1f42f60fc8f2136 \
     "https://github.com/webmproject/libwebp/archive/refs/tags/v1.6.0.tar.gz"                     libwebp-1.6.0.tar.gz
 define zstd       1.5.7     37d7284556b20954e56e1ca85b80226768902e2edabd3b649e9e72c0c9012ee3 \
