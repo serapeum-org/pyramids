@@ -1,6 +1,30 @@
 ﻿# Change log
 
 
+## 0.59.0 (2026-09-01)
+
+### BREAKING CHANGE
+
+- `Dataset.create_from_array`, `NetCDF.create_from_array` and
+`DatasetCollection.create_from_array` are renamed to `from_array`, and
+`UgridDataset.create_from_arrays` to `from_arrays`. All three constructors --
+`from_array`, `create` and `create_empty` -- now take a single required
+`geo_ref: GeoReference` in place of the previous `geo`, `epsg`,
+`top_left_corner` and `cell_size` keyword subsets, and `driver_type` is
+removed from `from_array` and `create_empty`. Writers resolve the driver from
+the path extension, so a destination whose extension names a format other than
+GeoTIFF now produces that format, and a `.vrt` destination raises
+`FileFormatNotSupportedError`. See docs/migration.md.
+
+### Fix
+
+- **dataset**: accept fig and ax as declared parameters on every plot facade (#1080)
+- **netcdf**: read CF units through one reader, so every consumer sees them (#1079)
+
+### Refactor
+
+- **dataset,netcdf**: rename create_from_* to from_* and converge on GeoReference (#1076)
+
 ## 0.58.1 (2026-08-30)
 
 ### Fix
