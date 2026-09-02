@@ -68,11 +68,12 @@ def _irregular_lon_mdim() -> gdal.Dataset:
     return store
 
 
-# The raw multidim-view partial-window crash (`arrayStartIdx`) is a GDAL >= 3.13 regression. The
-# win_arm64 wheel ships GDAL 3.12.4 (the vcpkg port ceiling), where the raw read succeeds instead of
-# raising, so the pre-fix crash is only asserted where that GDAL floor is met; the eager-materialize
-# fix itself is exercised on every platform.
-_GDAL_RAW_VIEW_CRASHES = int(gdal.VersionInfo("VERSION_NUM")) >= 3130000
+# The raw multidim-view partial-window crash (`arrayStartIdx`) was a GDAL 3.13 regression (verified on
+# 3.13.1) that GDAL 3.13.3 fixes (verified on 3.13.3). Below 3.13 -- e.g. the win_arm64 wheel's
+# vcpkg-pinned 3.12.4 -- and from 3.13.3 on, the raw reversed-view read succeeds instead of raising, so
+# the pre-fix crash is asserted only inside the [3.13.0, 3.13.3) window; the eager-materialize fix
+# itself is exercised on every platform.
+_GDAL_RAW_VIEW_CRASHES = 3130000 <= int(gdal.VersionInfo("VERSION_NUM")) < 3130300
 
 
 class TestWindowedRead705:
