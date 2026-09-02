@@ -9,7 +9,7 @@
 # Environment contract:
 #   BUILD_PREFIX  install prefix (default /usr/local)
 #   GDAL_VERSION  GDAL release to build (required; the SHA256 below pins the
-#                 default 3.13.1 — bump both together or the fetch fails)
+#                 default 3.13.3 — bump both together or the fetch fails)
 #
 # Contract with build-gdal-stack.sh:
 #   - runs in a scratch dir; every tarball extracts here and the source
@@ -36,7 +36,7 @@ if [[ "$(uname -s)" != "Linux" ]]; then
 fi
 
 BUILD_PREFIX="${BUILD_PREFIX:-/usr/local}"
-GDAL_VERSION="${GDAL_VERSION:?GDAL_VERSION must be set (e.g. 3.13.1)}"
+GDAL_VERSION="${GDAL_VERSION:?GDAL_VERSION must be set (e.g. 3.13.3)}"
 ARCH="$(uname -m)"
 
 case "${ARCH}" in
@@ -134,7 +134,7 @@ define blosc      1.21.6    9fcd60301aae28f97f1301b735f966cc19e7c49b6b4321b839b4
     "https://github.com/Blosc/c-blosc/archive/refs/tags/v1.21.6.tar.gz"                          c-blosc-1.21.6.tar.gz
 define pcre2      10.47     47fe8c99461250d42f89e6e8fdaeba9da057855d06eb7fc08d9ca03fd08d7bc7 \
     "https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.47/pcre2-10.47.tar.bz2"    pcre2-10.47.tar.bz2
-define gdal       "${GDAL_VERSION}" e04e9813bd215b56753d5554330c53be25f3df2d7ed7e6413a19e6b66751c675 \
+define gdal       "${GDAL_VERSION}" 5e0c388d83da2d686cc00a40272882432cdb54edff43d4af173e532844a0a0ea \
     "https://download.osgeo.org/gdal/${GDAL_VERSION}/gdal-${GDAL_VERSION}.tar.gz"  "gdal-${GDAL_VERSION}.tar.gz"
 
 # Build order: leaves first, GDAL last. Each entry is a src_<dep> function.

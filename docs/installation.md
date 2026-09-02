@@ -157,7 +157,7 @@ set on every build, so drivers cannot silently disappear from a release.
 
 > **Windows ARM64 note**: the `win_arm64` wheel ships Python 3.12–3.14
 > (numpy/scipy publish no cp311 ARM64 wheels), carries GDAL 3.12.4 (the
-> pinned vcpkg port version; the other platforms ship 3.13.1), has no
+> pinned vcpkg port version; the other platforms ship 3.13.3), has no
 > HDF4 driver (like Linux), and **vendors its vector stack** — shapely,
 > geopandas, and pyogrio ship inside the wheel under
 > `pyramids/_vendor/` because upstream publishes no ARM64 wheels for
