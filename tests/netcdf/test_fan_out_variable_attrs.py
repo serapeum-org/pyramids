@@ -64,9 +64,7 @@ class TestFanOutPreservesVariableAttrs:
         bbox = (bounds[0], bounds[1], bounds[2], bounds[3])
 
         single = variable_attrs(container.get_variable(name).crop(bbox=bbox, epsg=4326))
-        whole = variable_attrs(
-            container.crop(bbox=bbox, epsg=4326).get_variable(name)
-        )
+        whole = variable_attrs(container.crop(bbox=bbox, epsg=4326).get_variable(name))
 
         for key, value in single.items():
             assert whole.get(key) == value

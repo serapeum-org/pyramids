@@ -218,9 +218,7 @@ class Selection(_Engine["NetCDF"]):
                 "crop", {"mask": mask, "touch": touch}, path=path
             )
         else:
-            result = self._crop_one(mask, touch=touch, chunks=chunks)._persist_to(
-                path
-            )
+            result = self._crop_one(mask, touch=touch, chunks=chunks)._persist_to(path)
         return cast("NetCDF", result)
 
     def _try_antimeridian(
