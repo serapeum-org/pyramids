@@ -378,13 +378,18 @@ class RasterBase(ABC):
             secret, and prefer a short-lived token.
 
         Raises:
-            TypeError: The dataset has no on-disk path (empty
-                `_file_name` or a `/vsimem/` path). In-memory
+            TypeError: The dataset has no on-disk path -- an empty
+                `_file_name`, a `/vsimem/` path, or a `_vsimem_path`
+                backing store shadowed by a cosmetic `name=`. In-memory
                 datasets are not reconstructible from the recipe;
                 call :meth:`to_file` first to anchor them to disk.
         """
         path = self._file_name
-        if not path or path.startswith("/vsimem/"):
+        # `_vsimem_path` too: `from_bytes(data, name="x")` stages the bytes in
+        # /vsimem and sets a cosmetic `_file_name`, so the path test alone
+        # passed and produced a recipe that only failed on unpickle.
+        vsimem = getattr(self, "_vsimem_path", None)
+        if not path or path.startswith("/vsimem/") or vsimem:
             raise TypeError(
                 f"{type(self).__name__} has no on-disk path "
                 f"(file_name={path!r}); pickling an in-memory "

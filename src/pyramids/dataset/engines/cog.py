@@ -716,8 +716,17 @@ class COG(_Engine["Dataset"]):
             on-disk (or remote `/vsi*`, but not in-memory `/vsimem/`) file;
             `None` for MEM datasets, `/vsimem/` paths, and unsaved datasets.
         """
-        fn = self._ds.file_name
+        # `_vsimem_path` first, and the driver: a MEM container reports a
+        # placeholder `file_name` (a bare driver name such as "netcdf"), which
+        # is neither empty nor a /vsimem/ path, so the old test accepted it and
+        # `is_cog` went on to validate a file that does not exist.
+        fn = getattr(self._ds, "_vsimem_path", "") or self._ds.file_name
         if not fn or fn.startswith("/vsimem/"):
+            return None
+        # `driver_type` calls `_require_open()`, so it is asked only once the
+        # cheap tests have passed and only while the handle is open -- a closed
+        # dataset keeps returning None rather than raising out of `is_cog`.
+        if self._ds._raster is not None and self._ds.driver_type == "memory":
             return None
         return fn
 
