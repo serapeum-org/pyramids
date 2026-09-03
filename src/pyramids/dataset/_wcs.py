@@ -56,7 +56,12 @@ from pyramids.base._coverage import resolution_pair as _resolution_pair
 from pyramids.base._coverage import resolve_native_srs as _resolve_native_srs_neutral
 from pyramids.base._coverage import validate_bbox as _validate_bbox
 from pyramids.base._errors import CoverageError, WCSError
-from pyramids.base._ogc_api import HTTP_RETRY_ATTEMPTS
+from pyramids.base._ogc_api import (
+    HTTP_RETRY_ATTEMPTS,
+    capabilities_url,
+    exception_text,
+    localname,
+)
 from pyramids.base._ogc_api import gdal_http_config as _gdal_http_config
 from pyramids.base._ogc_api import http_get_with_retry as _http_get_with_retry
 from pyramids.base._ogc_api import read_http_error as _read_http_error
@@ -262,18 +267,16 @@ def _resolve_native_srs(
         raise WCSError(str(exc)) from exc
 
 
-def _localname(tag: str) -> str:
-    """Strip the XML namespace from an ElementTree tag (`{ns}Name` → `Name`)."""
-    return tag.rsplit("}", 1)[-1]
+# Imported under the module-private names the readers (and the tests that
+# reach through this module) already use. `SERVICE=WCS` is the only
+# thing that differed between the two copies of the URL builder.
+_localname = localname
+_exception_text = exception_text
 
 
 def _capabilities_url(endpoint: str, version: str | None) -> str:
     """Build the ``GetCapabilities`` URL for a WCS endpoint."""
-    sep = "&" if "?" in endpoint else "?"
-    url = f"{endpoint}{sep}SERVICE=WCS&REQUEST=GetCapabilities"
-    if version:
-        url += f"&VERSION={version}"
-    return url
+    return capabilities_url(endpoint, "WCS", version)
 
 
 @lru_cache(maxsize=32)
@@ -349,14 +352,6 @@ def _extract_coverages(root: ET.Element) -> set[str]:
     if not coverages:
         coverages = _collect_wcs10_names(root)
     return coverages
-
-
-def _exception_text(root: ET.Element) -> str:
-    """Extract the human-readable message from an OWS/WCS exception document."""
-    for el in root.iter():
-        if _localname(el.tag) in ("ExceptionText", "ServiceException") and el.text:
-            return el.text.strip()
-    return (root.text or "").strip() or "no message provided"
 
 
 def _service_descriptor(

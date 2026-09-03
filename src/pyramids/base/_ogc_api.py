@@ -409,3 +409,50 @@ def http_error_detail(exc: urllib.error.HTTPError) -> str:
     except (ValueError, TypeError):
         detail = text[:200] or NO_MESSAGE
     return detail
+
+
+def localname(tag: str) -> str:
+    """Strip the XML namespace from an ElementTree tag (`{ns}Name` -> `Name`).
+
+    Args:
+        tag: A namespaced ElementTree tag.
+
+    Returns:
+        str: The tag without its namespace.
+    """
+    return tag.rsplit("}", 1)[-1]
+
+
+def capabilities_url(endpoint: str, service: str, version: str | None) -> str:
+    """Build the `GetCapabilities` URL for an OWS endpoint.
+
+    Args:
+        endpoint: The service endpoint, with or without an existing query.
+        service: The OWS service token, e.g. `"WCS"` or `"WFS"`.
+        version: Version to pin, or `None` to let the server choose.
+
+    Returns:
+        str: The full `GetCapabilities` URL.
+    """
+    separator = "&" if "?" in endpoint else "?"
+    url = f"{endpoint}{separator}SERVICE={service}&REQUEST=GetCapabilities"
+    if version:
+        url += f"&VERSION={version}"
+    return url
+
+
+def exception_text(root: Any) -> str:
+    """Extract the human-readable message from an OWS exception document.
+
+    Args:
+        root: The parsed exception document's root element.
+
+    Returns:
+        str: The message, or `"no message provided"` when the document
+            carries none.
+    """
+    for element in root.iter():
+        if localname(element.tag) in ("ExceptionText", "ServiceException"):
+            if element.text:
+                return element.text.strip()
+    return (root.text or "").strip() or "no message provided"
