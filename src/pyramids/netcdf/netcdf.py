@@ -5093,32 +5093,30 @@ class NetCDF(Dataset):
     def _get_variable_names(self) -> list[str]:
         """Return names of data variables, excluding dimension coordinates.
 
-        Uses CF classification when metadata is cached (fast path).
-        Otherwise queries `GetMDArrayNames()` and filters out dimension
-        arrays and 0-dimensional scalar variables (grid_mapping etc.).
-        In classic mode, parses subdataset metadata.
+        Queries `GetMDArrayNames()` and filters out dimension arrays and
+        0-dimensional scalar variables (grid_mapping etc.). In classic mode,
+        parses subdataset metadata.
+
+        The answer is derived from the store on every call, never from cached
+        metadata. A CF-classified answer used to be preferred whenever
+        `meta_data` happened to be cached, which made the result depend on
+        whether anything had read `meta_data` first -- and `__str__` reads it,
+        so merely printing or logging a container changed which variables the
+        object reported. On a classic-mode file the CF path returned an empty
+        list, so `get_variable` then raised for every variable in the file.
+        Resolving from the working group unconditionally also generalises the
+        carve-out that group views already needed: their cached metadata keys
+        variables by full store path (`"forecast/temperature"`) while the view's
+        API uses names relative to its sub-group (ARC-12 review H1).
 
         Returns:
             list[str]: Variable names (e.g., `["temperature", "precipitation"]`).
         """
-        # A group view's cached metadata keys variables by their full store path
-        # (e.g. "forecast/temperature"), but the view's API uses names relative to
-        # its sub-group. So for a group view always resolve bare names from the
-        # working group directly — otherwise variable_names (and get_variable's
-        # validation) would flip from "temperature" to "forecast/temperature" once
-        # metadata is cached, breaking get_variable (ARC-12 review H1).
-        if (
-            self._group_path is None
-            and self._cached_meta_data is not None
-            and self._cached_meta_data.cf is not None
-        ):
-            variable_names = list(self._cached_meta_data.cf.data_variable_names)
+        rg = self._working_group()
+        if rg is not None:
+            variable_names = self._mdim_data_variable_names(rg)
         else:
-            rg = self._working_group()
-            if rg is not None:
-                variable_names = self._mdim_data_variable_names(rg)
-            else:
-                variable_names = self._classic_subdataset_variable_names()
+            variable_names = self._classic_subdataset_variable_names()
         return variable_names
 
     @staticmethod
