@@ -20,6 +20,7 @@ from pyramids.netcdf.cf import (
     build_coordinate_attrs,
     grid_mapping_to_srs,
     grid_mapping_var_attrs,
+    is_mesh_topology,
     srs_from_wkt,
     write_attributes_to_md_array,
 )
@@ -133,13 +134,6 @@ def parse_ugrid_topology(rg: gdal.Group) -> list[MeshTopologyInfo]:
     return topologies
 
 
-def _is_mesh_topology(attrs: dict) -> bool:
-    """True if a variable's attributes mark it as a UGRID mesh-topology variable."""
-    return attrs.get("cf_role") == "mesh_topology" or (
-        "topology_dimension" in attrs and "node_coordinates" in attrs
-    )
-
-
 def _find_mesh_topology_arrays(scan: _MeshArrayScan) -> dict[str, gdal.MDArray]:
     """Mesh-topology variables mapped to their (already-opened) MDArrays.
 
@@ -152,7 +146,7 @@ def _find_mesh_topology_arrays(scan: _MeshArrayScan) -> dict[str, gdal.MDArray]:
     scanned_names = scan.names
     for name in scanned_names:
         attrs = scan.attrs[name]
-        if _is_mesh_topology(attrs):
+        if is_mesh_topology(attrs):
             mesh_arrays[name] = scan.open(name)
         mesh_ref = attrs.get("mesh")
         if isinstance(mesh_ref, str) and mesh_ref not in scanned_names:

@@ -890,7 +890,7 @@ def _classify_one(
         role = "cell_measure"
     elif short_name in refs["ancillary"] or name in refs["ancillary"]:
         role = "ancillary"
-    elif _is_mesh_topology(attrs):
+    elif is_mesh_topology(attrs):
         role = "mesh_topology"
     elif _is_connectivity(attrs):
         role = "connectivity"
@@ -903,8 +903,18 @@ def _classify_one(
     return role
 
 
-def _is_mesh_topology(attrs: dict[str, Any]) -> bool:
-    """Check if attributes indicate a UGRID mesh topology variable."""
+def is_mesh_topology(attrs: dict[str, Any]) -> bool:
+    """Check if attributes indicate a UGRID mesh topology variable.
+
+    Public because the UGRID reader asks the same question; it had its own
+    copy of this rule until both were shown to agree on every input.
+
+    Args:
+        attrs: The variable's attributes.
+
+    Returns:
+        bool: True when the attributes mark a UGRID mesh-topology variable.
+    """
     cf_role = attrs.get("cf_role", "")
     has_topo = "topology_dimension" in attrs and "node_coordinates" in attrs
     return cf_role == "mesh_topology" or has_topo
