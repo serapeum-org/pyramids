@@ -906,14 +906,50 @@ def _classify_one(
 def is_mesh_topology(attrs: dict[str, Any]) -> bool:
     """Check if attributes indicate a UGRID mesh topology variable.
 
-    Public because the UGRID reader asks the same question; it had its own
-    copy of this rule until both were shown to agree on every input.
+    A variable qualifies either by declaring `cf_role = "mesh_topology"`, or by
+    carrying both `topology_dimension` and `node_coordinates` -- the pair a mesh
+    needs to describe itself even when `cf_role` was omitted.
+
+    Public because the UGRID reader asks the same question; it kept its own copy
+    of this rule until both were shown to agree on every input.
 
     Args:
         attrs: The variable's attributes.
 
     Returns:
         bool: True when the attributes mark a UGRID mesh-topology variable.
+
+    Examples:
+        - A mesh declared the usual way, by its `cf_role`:
+            ```python
+            >>> from pyramids.netcdf.cf import is_mesh_topology
+            >>> is_mesh_topology({"cf_role": "mesh_topology", "topology_dimension": 2})
+            True
+
+            ```
+        - A mesh that omits `cf_role` is still recognised from the pair of
+          attributes it must carry anyway:
+            ```python
+            >>> from pyramids.netcdf.cf import is_mesh_topology
+            >>> is_mesh_topology(
+            ...     {"topology_dimension": 2, "node_coordinates": "node_x node_y"}
+            ... )
+            True
+
+            ```
+        - An ordinary data variable, and a mesh missing half the pair, are not:
+            ```python
+            >>> from pyramids.netcdf.cf import is_mesh_topology
+            >>> is_mesh_topology({"standard_name": "air_temperature"})
+            False
+            >>> is_mesh_topology({"topology_dimension": 2})
+            False
+
+            ```
+
+    See Also:
+        classify_variables: Assigns every variable in a store its CF role,
+            of which mesh topology is one.
     """
     cf_role = attrs.get("cf_role", "")
     has_topo = "topology_dimension" in attrs and "node_coordinates" in attrs

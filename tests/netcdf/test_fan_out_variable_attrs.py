@@ -9,6 +9,7 @@ route disagreed about the same variable of the same file.
 """
 
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
@@ -69,3 +70,47 @@ class TestFanOutPreservesVariableAttrs:
 
         for key, value in single.items():
             assert whole.get(key) == value
+
+
+class TestCarryVariableAttrsGuards:
+    """`_carry_variable_attrs` declines quietly when there is nothing to write."""
+
+    def test_a_source_with_no_attributes_writes_nothing(self):
+        """No attributes means no group lookup and no array write."""
+        target = Mock()
+        source = Mock(_variable_attrs={})
+
+        NetCDF._carry_variable_attrs(target, "v", source)
+
+        target._working_group.assert_not_called()
+
+    def test_a_container_without_a_root_group_is_left_alone(self, monkeypatch):
+        """A classic-mode container has no root group, so there is nowhere to write."""
+        written: list = []
+        monkeypatch.setattr(
+            "pyramids.netcdf.netcdf.write_attributes_to_md_array",
+            lambda *a, **k: written.append(a),
+        )
+        target = Mock()
+        target._working_group.return_value = None
+        source = Mock(_variable_attrs={"long_name": "temperature"})
+
+        NetCDF._carry_variable_attrs(target, "v", source)
+
+        assert not written, "nothing should be written without a root group"
+
+    def test_a_missing_array_is_left_alone(self, monkeypatch):
+        """If the variable cannot be opened, the write is skipped rather than raising."""
+        written: list = []
+        monkeypatch.setattr("pyramids.netcdf.netcdf.open_mdarray", lambda *a, **k: None)
+        monkeypatch.setattr(
+            "pyramids.netcdf.netcdf.write_attributes_to_md_array",
+            lambda *a, **k: written.append(a),
+        )
+        target = Mock()
+        target._working_group.return_value = Mock()
+        source = Mock(_variable_attrs={"long_name": "temperature"})
+
+        NetCDF._carry_variable_attrs(target, "v", source)
+
+        assert not written, "nothing should be written for a missing array"
