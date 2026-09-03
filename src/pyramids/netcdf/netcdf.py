@@ -26,6 +26,7 @@ from pyramids.base.crs import (
     VERTICAL_AXIS_NAMES,
     VERTICAL_STANDARD_NAMES,
     cf_geographic_wkt,
+    crs_equal,
     crs_spec,
     sr_from_epsg,
     sr_from_wkt,
@@ -7473,7 +7474,10 @@ class NetCDF(Dataset):
             f"EPSG:{src_crs}" if isinstance(src_crs, int) else str(src_crs)
         )
         src.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
-        if dst_srs is None or src.IsSame(dst_srs):
+        # `crs_equal` rather than `IsSame`: it normalises both sides, so an
+        # equivalent CRS spelled differently takes the no-op path instead of
+        # a densified round-trip that returns the same bbox.
+        if dst_srs is None or crs_equal(src.ExportToWkt(), dst_srs.ExportToWkt()):
             return min_x, min_y, max_x, max_y
         dst = dst_srs.Clone()
         dst.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)

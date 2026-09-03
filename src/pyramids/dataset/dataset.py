@@ -31,6 +31,7 @@ from pyramids.base.crs import (
     PROJECTED_AXIS_UNITS,
     VERTICAL_AXIS_NAMES,
     cf_geographic_wkt,
+    crs_equal,
     crs_spec,
     epsg_of_crs,
     sr_from_epsg,
@@ -340,7 +341,12 @@ def _same_grid(a: Dataset, b: Dataset) -> bool:
         same CRS.
     """
     return (
-        a.epsg == b.epsg
+        # `crs_equal(crs_spec(...))`, not `a.epsg == b.epsg`: `epsg` is None for
+        # any CRS without an EPSG authority, so two *different* such CRSes both
+        # reported None and compared equal. Two geostationary rasters at
+        # different sub-satellite longitudes were read as one grid, and the
+        # band stack silently dropped every band after the first.
+        crs_equal(crs_spec(a.epsg, a.crs), crs_spec(b.epsg, b.crs))
         and a.rows == b.rows
         and a.columns == b.columns
         and bool(

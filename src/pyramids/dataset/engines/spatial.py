@@ -1124,7 +1124,10 @@ class Spatial(_Engine["Dataset"]):
         src_sr.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
         src_wkt = src_sr.ExportToWkt()
         dst_wkt = dst_sr.ExportToWkt()
-        same_crs = bool(src_sr.IsSame(dst_sr))
+        # Both operands are already traditional-order here, which is exactly
+        # what `crs_equal` builds, so this is a no-op that removes the third
+        # spelling of the same comparison.
+        same_crs = crs_equal(src_sr.ExportToWkt(), dst_sr.ExportToWkt())
 
         if not same_crs:
             # In a geographic source whose longitudes wrap past 180, shift the
