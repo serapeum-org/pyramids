@@ -16,8 +16,10 @@ from __future__ import annotations
 import glob
 from pathlib import Path
 
+import numpy as np
 import pytest
 
+from pyramids.dataset import Dataset, GeoReference
 from pyramids.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
@@ -75,10 +77,6 @@ class TestCopySourceMaterializes:
 
     def test_it_returns_the_backing_raster(self):
         """For an ordinary raster it is just the raster, materialisation a no-op."""
-        import numpy as np
-
-        from pyramids.dataset import Dataset, GeoReference
-
         dataset = Dataset.from_array(
             np.ones((2, 2), dtype="float32"),
             geo_ref=GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326),
