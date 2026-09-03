@@ -888,11 +888,15 @@ class RasterBase(ABC):
         Returns:
             np.ndarray: 1-D array of length *columns* with the
                 centre x coordinate of each column.
+
+        Note:
+            Vectorised via :meth:`GeoTransform.x_axis`; values may differ
+            from the previous element-wise accumulation in the last ULP.
         """
-        x_coords = np.array(
-            [pivot_x + i * cell_size + cell_size / 2 for i in range(columns)]
-        )
-        return x_coords
+        # A degenerate transform carrying only the x terms: this axis does not
+        # depend on the others, and `x_axis` reads the signed pixel width, which
+        # is the contract here (a positive `cell_size` ascends).
+        return GeoTransform(pivot_x, cell_size, 0.0, 0.0, 0.0, 0.0).x_axis(columns)
 
     @staticmethod
     def get_y_lat_dimension_array(pivot_y, cell_size, rows) -> FloatArray:
@@ -910,10 +914,10 @@ class RasterBase(ABC):
             np.ndarray: 1-D array of length *rows* with the
                 centre y coordinate of each row.
         """
-        y_coords = np.array(
-            [pivot_y - i * cell_size - cell_size / 2 for i in range(rows)]
-        )
-        return y_coords
+        # `-cell_size`, not `-abs(cell_size)`: this shim's documented contract
+        # is that `cell_size` is positive and the axis descends, so negating it
+        # is what makes `y_axis`'s signed step match.
+        return GeoTransform(0.0, 0.0, 0.0, pivot_y, 0.0, -cell_size).y_axis(rows)
 
     def _iloc(self, i: int) -> gdal.Band:
         """Access a GDAL Band by 0-based index.

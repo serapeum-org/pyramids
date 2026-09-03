@@ -26,6 +26,8 @@ from typing import Any
 
 import numpy as np
 
+from pyramids.dataset.transform import GeoTransform
+
 ZARR_SCHEMA_VERSION = "2"
 GRID_MAPPING_VAR = "spatial_ref"
 
@@ -64,10 +66,10 @@ def pixel_centre_coords(
 
             ```
     """
-    gt = geotransform
-    x = gt[0] + (np.arange(cols, dtype="float64") + 0.5) * gt[1]
-    y = gt[3] + (np.arange(rows, dtype="float64") + 0.5) * gt[5]
-    return x, y
+    # Sliced to six: `_zarr.py` builds this tuple by splitting a string
+    # attribute, so its declared arity is `tuple[float, ...]`.
+    transform = GeoTransform(*geotransform[:6])
+    return transform.x_axis(cols), transform.y_axis(rows)
 
 
 def write_geobox(

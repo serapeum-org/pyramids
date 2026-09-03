@@ -19,6 +19,7 @@ from numpy.typing import NDArray
 from scipy.interpolate import LinearNDInterpolator
 from scipy.spatial import cKDTree
 
+from pyramids.dataset.transform import GeoTransform
 from pyramids.netcdf.ugrid.mesh import Mesh2d
 
 
@@ -68,8 +69,9 @@ def mesh_to_grid(
     cols = int(np.ceil((xmax - xmin) / cell_size))
     rows = int(np.ceil((ymax - ymin) / cell_size))
 
-    x_centers = xmin + (np.arange(cols) + 0.5) * cell_size
-    y_centers = ymax - (np.arange(rows) + 0.5) * cell_size
+    grid = GeoTransform(xmin, cell_size, 0.0, ymax, 0.0, -cell_size)
+    x_centers = grid.x_axis(cols)
+    y_centers = grid.y_axis(rows)
     xx, yy = np.meshgrid(x_centers, y_centers)
     grid_points = np.column_stack([xx.ravel(), yy.ravel()])
 

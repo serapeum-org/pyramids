@@ -268,6 +268,74 @@ class GeoTransform(NamedTuple):
         )
         return cols, rows
 
+    def x_axis(self, columns: int) -> np.ndarray:
+        """The 1-D array of x coordinates at each column's cell centre.
+
+        Uses the **signed** pixel width, so a west-to-east grid ascends and a
+        mirrored one descends. Note this is not the vectorised form of
+        `self * (col + 0.5, 0)` on a rotated grid: it ignores `row_rotation`, so
+        it describes the axis only when :attr:`is_axis_aligned` holds. On a
+        rotated grid there is no single x per column to return.
+
+        Args:
+            columns: Number of columns.
+
+        Returns:
+            np.ndarray: `columns` x coordinates, at cell centres.
+
+        Examples:
+            - Cell centres of a unit grid start half a cell in:
+                ```python
+                >>> from pyramids.dataset.transform import GeoTransform
+                >>> GeoTransform(0.0, 1.0, 0.0, 4.0, 0.0, -1.0).x_axis(4).tolist()
+                [0.5, 1.5, 2.5, 3.5]
+
+                ```
+            - The sign of the pixel width is honoured:
+                ```python
+                >>> from pyramids.dataset.transform import GeoTransform
+                >>> GeoTransform(10.0, -2.0, 0.0, 0.0, 0.0, -1.0).x_axis(3).tolist()
+                [9.0, 7.0, 5.0]
+
+                ```
+        """
+        return self.x_origin + (np.arange(columns, dtype="float64") + 0.5) * (
+            self.pixel_width
+        )
+
+    def y_axis(self, rows: int) -> np.ndarray:
+        """The 1-D array of y coordinates at each row's cell centre.
+
+        Uses the **signed** pixel height, so a north-up grid (negative height)
+        descends and a south-up one ascends. As with :meth:`x_axis`, this
+        describes the axis only when :attr:`is_axis_aligned` holds.
+
+        Args:
+            rows: Number of rows.
+
+        Returns:
+            np.ndarray: `rows` y coordinates, at cell centres.
+
+        Examples:
+            - A north-up grid descends from the top:
+                ```python
+                >>> from pyramids.dataset.transform import GeoTransform
+                >>> GeoTransform(0.0, 1.0, 0.0, 4.0, 0.0, -1.0).y_axis(4).tolist()
+                [3.5, 2.5, 1.5, 0.5]
+
+                ```
+            - A south-up grid ascends:
+                ```python
+                >>> from pyramids.dataset.transform import GeoTransform
+                >>> GeoTransform(0.0, 1.0, 0.0, 0.0, 0.0, 1.0).y_axis(3).tolist()
+                [0.5, 1.5, 2.5]
+
+                ```
+        """
+        return self.y_origin + (np.arange(rows, dtype="float64") + 0.5) * (
+            self.pixel_height
+        )
+
     def scaled(self, x_factor: float, y_factor: float) -> GeoTransform:
         """The transform for a grid whose cells are larger by the given factors.
 
