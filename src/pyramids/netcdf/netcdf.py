@@ -6285,8 +6285,13 @@ class NetCDF(Dataset):
         none (#583).
         """
         source_conventions = self.global_attributes.get("Conventions")
+        # Resolved before the `try`, not inside it: materialising is not part of
+        # the operation whose RuntimeError the fallback below is meant to catch,
+        # and a failure to materialise should surface rather than be mistaken
+        # for the dimension-layout problem the manual copy exists to work around.
+        source = self._copy_source
         try:
-            dst = gdal.GetDriverByName("netCDF").CreateCopy(str(path), self._raster, 0)
+            dst = gdal.GetDriverByName("netCDF").CreateCopy(str(path), source, 0)
         except RuntimeError:
             # GDAL's netCDF CreateCopy raises on some dimension layouts (re-declaring a dimension
             # name, #584). Fall back to a manual multidim copy that creates each dimension once.
@@ -6402,7 +6407,7 @@ class NetCDF(Dataset):
         else:
             driver = "netCDF"
 
-        src = gdal.GetDriverByName(driver).CreateCopy(str(path), self._raster)
+        src = gdal.GetDriverByName(driver).CreateCopy(str(path), self._copy_source)
         if src is None:
             raise RuntimeError(f"Failed to copy NetCDF dataset to '{path}'")
         # Preserve both the concrete type AND the variable-subset / origin identity: a copy

@@ -1411,6 +1411,27 @@ class Dataset(RasterBase):
         """Facade — delegates to :meth:`IO.read_array <pyramids.dataset.engines.IO.read_array>`."""
         return self.io.read_array(*args, **kwargs)
 
+    @property
+    def _copy_source(self) -> gdal.Dataset:
+        """The backing raster, made window-readable first, for a `CreateCopy`.
+
+        `CreateCopy` reads the source block by block, so it hits the same
+        partial-window restriction every other eager read does: a NetCDF
+        variable subset backed by a reversed multidimensional view raises
+        `arrayStartIdx[...] + (count-1)*arrayStep >= <dim>` part-way through
+        the copy. Reading through this property instead of `self._raster`
+        materialises the view first, exactly as the windowed read paths do.
+
+        Note that materialisation mutates this dataset in place -- that is what
+        :meth:`_materialize_md_view` has always done -- so the caller's own
+        raster is the materialised one afterwards.
+
+        Returns:
+            gdal.Dataset: The backing raster, safe to hand to `CreateCopy`.
+        """
+        self._materialize_md_view()
+        return self._raster
+
     def _materialize_md_view(self) -> None:
         """Make the backing raster window-readable. No-op for an ordinary raster.
 

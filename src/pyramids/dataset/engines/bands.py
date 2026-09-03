@@ -1952,7 +1952,7 @@ class Bands(_Engine["Dataset"]):
         # format. The strict gate refuses it up front, with a message that does.
         driver = resolve_output_driver(path) if path else MEMORY_DRIVER
         target = str(path) if path is not None else ""
-        dst = gdal.GetDriverByName(driver).CreateCopy(target, self._ds.raster, 0)
+        dst = gdal.GetDriverByName(driver).CreateCopy(target, self._ds._copy_source, 0)
         new_dataset = self._ds.__class__(dst, "write")
         try:
             # _set_no_data_value may coerce new_value to each band's dtype; read it
