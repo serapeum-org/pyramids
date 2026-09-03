@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
+import numpy as np
 from osgeo import gdal
 
 
@@ -127,6 +128,145 @@ class GeoTransform(NamedTuple):
         if inverted is None:
             raise ValueError(f"geotransform {tuple(self)} is not invertible.")
         return GeoTransform(*inverted)
+
+    @property
+    def is_axis_aligned(self) -> bool:
+        """True when the grid has no rotation, so rows are y and columns are x.
+
+        Both rotation terms are zero on an axis-aligned grid, which is what lets
+        a caller divide by the pixel size instead of inverting the full affine.
+
+        Returns:
+            bool: True when neither rotation term is set.
+
+        Examples:
+            - A plain north-up grid is axis-aligned:
+                ```python
+                >>> from pyramids.dataset.transform import GeoTransform
+                >>> GeoTransform(0.0, 1.0, 0.0, 4.0, 0.0, -1.0).is_axis_aligned
+                True
+
+                ```
+            - Any shear term makes it not:
+                ```python
+                >>> from pyramids.dataset.transform import GeoTransform
+                >>> GeoTransform(0.0, 1.0, 0.5, 4.0, 0.0, -1.0).is_axis_aligned
+                False
+
+                ```
+        """
+        return not self.row_rotation and not self.column_rotation
+
+    def apply(
+        self,
+        cols: np.typing.ArrayLike,
+        rows: np.typing.ArrayLike,
+        *,
+        center: bool = False,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Map pixel coordinates to map coordinates, element-wise.
+
+        The array form of ``transform * (col, row)``. Broadcasts, so it serves
+        both a single pixel and whole coordinate arrays, and does not consume
+        its inputs.
+
+        Args:
+            cols: Column coordinate(s), fractions allowed.
+            rows: Row coordinate(s), fractions allowed.
+            center: Offset by half a pixel, giving cell centres rather than
+                the top-left corner of each cell.
+
+        Returns:
+            tuple[np.ndarray, np.ndarray]: The `(x, y)` map coordinates.
+
+        Examples:
+            - The top-left corner, and the centre of the same cell:
+                ```python
+                >>> from pyramids.dataset.transform import GeoTransform
+                >>> gt = GeoTransform(0.0, 1.0, 0.0, 4.0, 0.0, -1.0)
+                >>> [float(v) for v in gt.apply(0, 0)[0]]
+                [0.0]
+                >>> [float(v) for v in gt.apply(0, 0, center=True)[0]]
+                [0.5]
+
+                ```
+            - Several pixels at once:
+                ```python
+                >>> from pyramids.dataset.transform import GeoTransform
+                >>> gt = GeoTransform(0.0, 1.0, 0.0, 4.0, 0.0, -1.0)
+                >>> xs, ys = gt.apply([0, 1, 2], [0, 0, 0])
+                >>> [float(v) for v in xs]
+                [0.0, 1.0, 2.0]
+
+                ```
+        """
+        cols_arr = np.atleast_1d(np.asarray(cols, dtype=float))
+        rows_arr = np.atleast_1d(np.asarray(rows, dtype=float))
+        shift = 0.5 if center else 0.0
+        xs = (
+            self.x_origin
+            + (cols_arr + shift) * self.pixel_width
+            + (rows_arr + shift) * self.row_rotation
+        )
+        ys = (
+            self.y_origin
+            + (cols_arr + shift) * self.column_rotation
+            + (rows_arr + shift) * self.pixel_height
+        )
+        return xs, ys
+
+    def invert(
+        self, x: np.typing.ArrayLike, y: np.typing.ArrayLike
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Map map coordinates back to fractional pixel coordinates.
+
+        The array counterpart of :attr:`inverse`, applied element-wise. The
+        result is fractional; a caller wanting array indices floors it.
+
+        Args:
+            x: Map x coordinate(s).
+            y: Map y coordinate(s).
+
+        Returns:
+            tuple[np.ndarray, np.ndarray]: The fractional `(col, row)`.
+
+        Raises:
+            ValueError: The transform is singular and cannot be inverted.
+
+        Examples:
+            - Invert a point back to its pixel:
+                ```python
+                >>> from pyramids.dataset.transform import GeoTransform
+                >>> gt = GeoTransform(0.0, 1.0, 0.0, 4.0, 0.0, -1.0)
+                >>> cols, rows = gt.invert(2.0, 3.0)
+                >>> (float(cols[0]), float(rows[0]))
+                (2.0, 1.0)
+
+                ```
+            - Round-trips with :meth:`apply`:
+                ```python
+                >>> from pyramids.dataset.transform import GeoTransform
+                >>> gt = GeoTransform(0.0, 1.0, 0.5, 4.0, 0.25, -1.0)
+                >>> xs, ys = gt.apply([3], [2])
+                >>> [round(float(v), 9) for v in gt.invert(xs, ys)[0]]
+                [3.0]
+
+                ```
+        """
+        inverse = self.inverse
+        x_arr = np.atleast_1d(np.asarray(x, dtype=float))
+        y_arr = np.atleast_1d(np.asarray(y, dtype=float))
+        cols = (
+            inverse.x_origin
+            + x_arr * inverse.pixel_width
+            + y_arr * inverse.row_rotation
+        )
+        rows = (
+            inverse.y_origin
+            + x_arr * inverse.column_rotation
+            + y_arr * inverse.pixel_height
+        )
+        return cols, rows
 
     def scaled(self, x_factor: float, y_factor: float) -> GeoTransform:
         """The transform for a grid whose cells are larger by the given factors.

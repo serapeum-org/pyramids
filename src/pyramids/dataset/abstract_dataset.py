@@ -654,20 +654,7 @@ class RasterBase(ABC):
         # np.ndim == 0 treats Python scalars, NumPy scalars, and 0-d arrays
         # alike; np.isscalar misses 0-d arrays (np.isscalar(np.array(5)) is False).
         scalar = np.ndim(rows) == 0 and np.ndim(cols) == 0
-        rows_arr = np.atleast_1d(np.asarray(rows, dtype=float))
-        cols_arr = np.atleast_1d(np.asarray(cols, dtype=float))
-        shift = 0.5 if center else 0.0
-        gt = self.transform
-        xs_arr = (
-            gt.x_origin
-            + (cols_arr + shift) * gt.pixel_width
-            + (rows_arr + shift) * gt.row_rotation
-        )
-        ys_arr = (
-            gt.y_origin
-            + (cols_arr + shift) * gt.column_rotation
-            + (rows_arr + shift) * gt.pixel_height
-        )
+        xs_arr, ys_arr = self.transform.apply(cols, rows, center=center)
         xs = [float(value) for value in xs_arr]
         ys = [float(value) for value in ys_arr]
         result = (xs[0], ys[0]) if scalar else (xs, ys)
@@ -734,9 +721,7 @@ class RasterBase(ABC):
         scalar = np.ndim(x) == 0 and np.ndim(y) == 0
         x_arr = np.atleast_1d(np.asarray(x, dtype=float))
         y_arr = np.atleast_1d(np.asarray(y, dtype=float))
-        inv = self.transform.inverse
-        cols_f = inv.x_origin + x_arr * inv.pixel_width + y_arr * inv.row_rotation
-        rows_f = inv.y_origin + x_arr * inv.column_rotation + y_arr * inv.pixel_height
+        cols_f, rows_f = self.transform.invert(x_arr, y_arr)
         rows_idx = np.floor(rows_f).astype(int)
         cols_idx = np.floor(cols_f).astype(int)
         result: tuple[Any, Any]
