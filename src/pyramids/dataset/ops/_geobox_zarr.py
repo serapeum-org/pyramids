@@ -350,6 +350,7 @@ def read_geobox(group: Any, *, data_name: str | None = None) -> dict[str, Any]:
 
     Raises:
         KeyError: When no ``GeoTransform`` and no ``x``/``y`` coords are present.
+        ValueError: The ``GeoTransform`` attribute is not six numbers.
     """
     if data_name is None:
         data_name = detect_data_var(group)
@@ -383,6 +384,15 @@ def read_geobox(group: Any, *, data_name: str | None = None) -> dict[str, Any]:
     gt_str = attrs.get("GeoTransform")
     if gt_str:
         geotransform = tuple(float(v) for v in gt_str.split())
+        # Checked here rather than left to GDAL: a store whose GeoTransform is
+        # not six numbers otherwise reaches the SWIG layer and fails with a bare
+        # TypeError naming neither the store nor the attribute.
+        if len(geotransform) != 6:
+            raise ValueError(
+                f"the GeoTransform attribute of "
+                f"{getattr(group, 'name', group)!r} has {len(geotransform)} "
+                f"elements, expected 6: {gt_str!r}"
+            )
     else:
         geotransform = _transform_from_xy(group)
     return {

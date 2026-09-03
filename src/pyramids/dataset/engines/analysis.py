@@ -1620,7 +1620,9 @@ class Analysis(_Engine["Dataset"]):
         # mask's geotransform must scale its pixel size (and rotation terms) to
         # the coarser grid; the origin is unchanged. Full-resolution reads leave
         # the geotransform untouched.
-        geotransform = self._scaled_geotransform(arr.shape)
+        geotransform = tuple(
+            self._ds.transform.rescaled_to((self._ds.rows, self._ds.columns), arr.shape)
+        )
 
         self._warn_if_nodata_absent(arr, no_data_val)
         if exclude_values:
@@ -1856,31 +1858,6 @@ class Analysis(_Engine["Dataset"]):
                 band=band, out_shape=(out_rows, out_cols), resampling="nearest"
             ),
         )
-
-    def _scaled_geotransform(
-        self, shape: tuple[int, ...]
-    ) -> tuple[float, float, float, float, float, float]:
-        """Geotransform for an array covering the source extent at `shape` cells.
-
-        A full-resolution `shape` returns the source geotransform unchanged; a
-        decimated `shape` (fewer/larger cells over the same extent) scales the
-        pixel-size and rotation terms by the row/column decimation factors while
-        keeping the origin fixed.
-
-        Args:
-            shape: The `(rows, cols)` of the (possibly decimated) array.
-
-        Returns:
-            tuple[float, float, float, float, float, float]: The six-element
-            geotransform for that grid.
-        """
-        d_rows, d_cols = shape
-        gt = self._ds.geotransform
-        if (d_rows, d_cols) == (self._ds.rows, self._ds.columns):
-            return (gt[0], gt[1], gt[2], gt[3], gt[4], gt[5])
-        sx = self._ds.columns / d_cols
-        sy = self._ds.rows / d_rows
-        return (gt[0], gt[1] * sx, gt[2] * sy, gt[3], gt[4] * sx, gt[5] * sy)
 
     def plot_histogram(
         self,

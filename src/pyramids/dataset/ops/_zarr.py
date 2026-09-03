@@ -38,6 +38,7 @@ from pyramids.dataset.ops._geobox_zarr import (
     normalize_compressors,
     read_geobox,
 )
+from pyramids.dataset.transform import GeoTransform
 
 if TYPE_CHECKING:
     from pyramids.dataset import Dataset
@@ -403,10 +404,18 @@ def _resolve_data_array_name(root: Any, level: int, data_name: str | None) -> st
 
 
 def _scale_geotransform(base_gt: tuple, level: int) -> tuple:
-    """Scale a base GeoTransform by a pyramid level (cell sizes only; origin fixed)."""
+    """Scale a base GeoTransform by a pyramid level (origin fixed).
+
+    The level applies equally to both axes, matching the single `scale` written
+    per level into the `multiscales` coordinateTransformations by
+    `_write_overview_levels`; the two must stay in step.
+
+    Rotation terms scale with their matching axis rather than being zeroed, so a
+    skewed grid survives the round-trip.
+    """
     if level == 1:
         return base_gt
-    return (base_gt[0], base_gt[1] * level, 0.0, base_gt[3], 0.0, base_gt[5] * level)
+    return tuple(GeoTransform(*base_gt).scaled(level, level))
 
 
 def _normalize_no_data(attrs: dict[str, Any]) -> Any:
@@ -518,9 +527,11 @@ def read_dataset_from_zarr(
     dataset = Dataset.from_array(
         arr_for_create,
         no_data_value=_normalize_no_data(attrs),
+        # The full six-element affine, not a top-left/cell-size pair: that pair
+        # cannot express rotation terms or a positive pixel height, so a rotated
+        # or south-up store came back silently re-gridded as north-up square.
         geo_ref=GeoReference(
-            top_left_corner=(geotransform[0], geotransform[3]),
-            cell_size=float(geotransform[1]),
+            geo=tuple(float(value) for value in geotransform),
             epsg=geobox_crs(geobox),
         ),
     )

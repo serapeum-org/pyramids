@@ -128,6 +128,94 @@ class GeoTransform(NamedTuple):
             raise ValueError(f"geotransform {tuple(self)} is not invertible.")
         return GeoTransform(*inverted)
 
+    def scaled(self, x_factor: float, y_factor: float) -> GeoTransform:
+        """The transform for a grid whose cells are larger by the given factors.
+
+        Scales all four resolution and rotation terms, as GDAL's
+        `GDALOverviewDataset` does: leaving the rotation terms unscaled shears
+        every pixel but the origin on a skewed grid. The origin is fixed, since
+        a decimated grid still starts at the same corner.
+
+        The axis pairing is the part that is easy to get wrong: `row_rotation`
+        is the y-per-column term and so follows the **row** factor, while
+        `column_rotation` is the x-per-row term and follows the **column**
+        factor.
+
+        Args:
+            x_factor: How much wider each cell becomes along x (columns).
+            y_factor: How much taller each cell becomes along y (rows).
+
+        Returns:
+            GeoTransform: The scaled transform, origin unchanged.
+
+        Examples:
+            - Halve the resolution of a north-up grid:
+                ```python
+                >>> from pyramids.dataset.transform import GeoTransform
+                >>> GeoTransform(0.0, 1.0, 0.0, 4.0, 0.0, -1.0).scaled(2, 2)
+                GeoTransform(x_origin=0.0, pixel_width=2.0, row_rotation=0.0, y_origin=4.0, column_rotation=0.0, pixel_height=-2.0)
+
+                ```
+            - A rotated grid keeps its shear, scaled on the matching axis:
+                ```python
+                >>> from pyramids.dataset.transform import GeoTransform
+                >>> rotated = GeoTransform(0.0, 1.0, 0.5, 4.0, 0.25, -1.0)
+                >>> rotated.scaled(2, 4).row_rotation
+                2.0
+                >>> rotated.scaled(2, 4).column_rotation
+                0.5
+
+                ```
+        """
+        return GeoTransform(
+            self.x_origin,
+            self.pixel_width * x_factor,
+            self.row_rotation * y_factor,
+            self.y_origin,
+            self.column_rotation * x_factor,
+            self.pixel_height * y_factor,
+        )
+
+    def rescaled_to(
+        self, from_shape: tuple[int, int], to_shape: tuple[int, int]
+    ) -> GeoTransform:
+        """The transform for the same extent resampled to a different shape.
+
+        A `to_shape` equal to `from_shape` returns this transform unchanged; a
+        decimated shape (fewer, larger cells over the same extent) scales
+        through :meth:`scaled` by the row and column decimation factors.
+
+        Args:
+            from_shape: The `(rows, columns)` this transform describes.
+            to_shape: The `(rows, columns)` of the target grid.
+
+        Returns:
+            GeoTransform: The transform for `to_shape` over the same extent.
+
+        Examples:
+            - Decimating by two doubles the cell size:
+                ```python
+                >>> from pyramids.dataset.transform import GeoTransform
+                >>> gt = GeoTransform(0.0, 1.0, 0.0, 4.0, 0.0, -1.0)
+                >>> gt.rescaled_to((4, 4), (2, 2)).pixel_width
+                2.0
+
+                ```
+            - The same shape is a no-op:
+                ```python
+                >>> from pyramids.dataset.transform import GeoTransform
+                >>> gt = GeoTransform(0.0, 1.0, 0.0, 4.0, 0.0, -1.0)
+                >>> gt.rescaled_to((4, 4), (4, 4)) == gt
+                True
+
+                ```
+        """
+        from_rows, from_columns = from_shape
+        to_rows, to_columns = to_shape
+        if (to_rows, to_columns) == (from_rows, from_columns):
+            return self
+        return self.scaled(from_columns / to_columns, from_rows / to_rows)
+
     @classmethod
     def from_bounds(
         cls,

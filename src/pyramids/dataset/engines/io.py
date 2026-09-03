@@ -4200,18 +4200,12 @@ class IO(_Engine["Dataset"]):
         ]
         arr = planes[0] if band is not None else np.stack(planes, axis=0)
         rows, columns = planes[0].shape
-        geo = self._ds.geotransform
-        # Scale all four resolution/rotation terms, as GDALOverviewDataset does: leaving
-        # the rotation terms unscaled shears every pixel but the origin on a skewed grid.
-        x_ratio = self._ds.columns / columns
-        y_ratio = self._ds.rows / rows
-        scaled_geo = (
-            geo[0],
-            geo[1] * x_ratio,
-            geo[2] * y_ratio,
-            geo[3],
-            geo[4] * x_ratio,
-            geo[5] * y_ratio,
+        # `GeoTransform.scaled` carries the rationale: all four resolution and
+        # rotation terms scale, as GDALOverviewDataset does.
+        scaled_geo = tuple(
+            self._ds.transform.rescaled_to(
+                (self._ds.rows, self._ds.columns), (rows, columns)
+            )
         )
         parent_no_data = [self._ds.no_data_value[index] for index in selection]
         # Build with no no-data at all, then declare it only for the bands that actually
