@@ -24,7 +24,7 @@ from osgeo import gdal
 from pyproj import CRS, Transformer
 from shapely.geometry import LineString, box
 
-from pyramids.base.crs import crs_from_user_input, sr_from_epsg
+from pyramids.base.crs import crs_from_user_input, crs_spec, sr_from_epsg
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.dataset._plot_helpers import mesh_render as _mesh_render
@@ -188,6 +188,19 @@ class UgridDataset:
         return result
 
     @property
+    def crs_wkt(self) -> str | None:
+        """The mesh CRS as WKT, or `None` when there is none that parses.
+
+        Gated on a successful parse rather than returning `_crs_wkt` verbatim.
+        `_crs_wkt` is copied straight out of the file and :attr:`crs` tolerates
+        an unparseable one on purpose, swallowing the error and reporting no
+        CRS. Handing the raw string to a caller would move that parse out from
+        under the handler, so a malformed WKT would start raising downstream
+        instead of being reported as "no CRS" here.
+        """
+        return self._crs_wkt if self.crs is not None else None
+
+    @property
     def bounds(self) -> tuple[float, float, float, float]:
         """Mesh bounding box as (xmin, ymin, xmax, ymax)."""
         return self._mesh.bounds
@@ -296,7 +309,11 @@ class UgridDataset:
             nodata=nodata,
         )
 
-        target_epsg = epsg or self.epsg or 4326
+        # `crs_spec` rather than `self.epsg or 4326`: a mesh carrying a projected
+        # WKT with no EPSG code has `epsg is None`, and the old default stamped
+        # EPSG:4326 onto metre coordinates. `None` yields an ungeoreferenced
+        # result, which is honest about a mesh that has no CRS at all.
+        target_epsg = epsg if epsg is not None else crs_spec(self.epsg, self.crs_wkt)
         result = Dataset.from_array(
             grid_array,
             no_data_value=nodata,
@@ -483,17 +500,23 @@ class UgridDataset:
         Returns:
             New UgridDataset with reprojected coordinates.
         """
-        source_epsg = self.epsg
-        if source_epsg is None:
+        # The mesh may describe its CRS by WKT alone, with no EPSG code to
+        # resolve; `crs_spec` returns whichever of the two is usable, so a
+        # projected mesh stops being refused for a CRS it plainly has.
+        source_crs = crs_spec(self.epsg, self.crs_wkt)
+        if source_crs is None:
             raise ValueError(
                 "Cannot reproject: source CRS is unknown. "
                 "Set CRS before calling to_crs()."
             )
 
         # Through `crs_from_user_input` so a mesh in a CRS whose code only GDAL's
-        # PROJ database carries still reprojects (issue #943).
+        # PROJ database carries still reprojects (issue #943). The source goes in
+        # as-is rather than as `EPSG:{...}`: `crs_spec` yields the mesh's WKT when
+        # there is no usable code, and prefixing that builds the nonsense
+        # `EPSG:PROJCS[...]`. The target is always a bare integer code.
         transformer = Transformer.from_crs(
-            crs_from_user_input(f"EPSG:{source_epsg}"),
+            crs_from_user_input(source_crs),
             crs_from_user_input(f"EPSG:{to_epsg}"),
             always_xy=True,
         )
@@ -1026,7 +1049,9 @@ class UgridDataset:
             f"  Mesh: {self.mesh_name}",
             f"  Nodes: {self.n_node}, Faces: {self.n_face}, Edges: {self.n_edge}",
             f"  Bounds: {self.bounds}",
-            f"  CRS: {self.epsg or 'unknown'}",
+            # A mesh may carry a projected WKT with no EPSG code; reporting
+            # 'unknown' for a CRS it plainly has was misleading.
+            f"  CRS: {self.epsg or (self.crs.name if self.crs is not None else 'unknown')}",
             f"  Data variables ({len(self._data_variables)}):",
         ]
         for name, var in self._data_variables.items():
