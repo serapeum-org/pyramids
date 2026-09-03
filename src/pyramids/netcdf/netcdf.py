@@ -3255,6 +3255,15 @@ class NetCDF(Dataset):
                     variable_name=var_name,
                     dims=ExtraDimensions(dims=extra_dims),
                 )
+                # `from_array` takes only CF *global* attributes, so the source
+                # variable's own attributes (`long_name`, `standard_name`, ...)
+                # have to be written onto the new array directly. Without this a
+                # container-wide crop/to_crs/resample silently returned variables
+                # stripped of the descriptions the identical single-variable call
+                # preserves. Written in place rather than re-stamped through
+                # `set_variable`, which would write the array a second time and
+                # drop the `grid_mapping` that `from_array` just added.
+                NetCDF._carry_variable_attrs(result, var_name, var)
             else:
                 # Subsequent variables: drop into the existing container.
                 ds = Dataset.from_array(
@@ -3266,6 +3275,9 @@ class NetCDF(Dataset):
                     ),
                 )
                 NetCDF._copy_band_dim_metadata(ds, var)
+                # `_resolve_band_metadata` picks these up off the source dataset
+                # when `set_variable` is called without an explicit `attrs`.
+                ds._variable_attrs = dict(getattr(var, "_variable_attrs", {}) or {})
                 # `result` is a private container built by this fan-out; nothing else
                 # references its raster yet, so mutate it in place (copy=False) to avoid
                 # an O(n^2) per-variable MEM copy on wide cubes (#143).
@@ -3273,6 +3285,31 @@ class NetCDF(Dataset):
 
         self._carry_aux_variables(cast("NetCDF", result), aux_vars, operation)
         return cast("NetCDF", result)
+
+    @staticmethod
+    def _carry_variable_attrs(container: NetCDF, var_name: str, source: Any) -> None:
+        """Copy a source variable's own CF attributes onto a rebuilt variable.
+
+        The rebuild routes go through `from_array`, which accepts CF *global*
+        attributes only, so per-variable attributes such as `long_name` and
+        `standard_name` are otherwise lost. Writing them onto the created
+        MDArray is the same channel `set_variable` uses, without the second
+        array write that re-stamping would cost.
+
+        Args:
+            container: The freshly built container holding `var_name`.
+            var_name: Name of the variable to stamp.
+            source: The variable the attributes are copied from.
+        """
+        attrs = dict(getattr(source, "_variable_attrs", {}) or {})
+        if not attrs:
+            return
+        rg = container._working_group()
+        if rg is None:
+            return
+        md_arr = open_mdarray(rg, var_name)
+        if md_arr is not None:
+            write_attributes_to_md_array(md_arr, attrs)
 
     def _warn_demoted_variables(self, rg, aux_vars, operation, warn_demoted) -> None:
         """Warn about auxiliary variables carried through untransformed for lack of spatial axes.
