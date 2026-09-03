@@ -503,6 +503,57 @@ def _lazy_timestep(
     )
 
 
+def _delayed():
+    """The `dask.delayed` decorator, or a clear error naming the missing extra.
+
+    Every deferred per-timestep path needs it, and each used to import `dask`
+    inline at the point of use, so a missing extra surfaced differently
+    depending on which arm the caller reached.
+
+    Returns:
+        The `dask.delayed` callable.
+
+    Raises:
+        OptionalPackageDoesNotExist: `dask` is not installed.
+    """
+    try:
+        import dask
+    except ImportError as exc:
+        raise OptionalPackageDoesNotExist(
+            lazy_extra_hint(
+                "DatasetCollection deferred operations (compute=False) require "
+                "the optional 'dask' dependency."
+            )
+        ) from exc
+    return dask.delayed
+
+
+def _named_op(method_name: str, *args: Any, **kwargs: Any):
+    """A per-timestep callable that dispatches `Dataset.<method_name>`.
+
+    `_apply_operator` drives every per-timestep operation through a
+    `per_step(dataset, compute)` callable. Operations that simply forward to a
+    named `Dataset` method built that callable by hand, each with its own inline
+    `dask` import for the deferred arm.
+
+    Args:
+        method_name: Method to call on each timestep (`"crop"`, `"to_crs"`, ...).
+        *args: Positional arguments forwarded to the per-timestep call.
+        **kwargs: Keyword arguments forwarded to the per-timestep call.
+
+    Returns:
+        A `per_step(dataset, compute)` callable for :meth:`_apply_operator`.
+    """
+
+    def per_step(dataset: Dataset, do_compute: bool) -> Any:
+        bound = getattr(dataset, method_name)
+        if do_compute:
+            return bound(*args, **kwargs)
+        return _delayed()(bound)(*args, **kwargs)
+
+    return per_step
+
+
 def _target_epsg(to_epsg: int | str | Any) -> int | None:
     """Return the integer EPSG for ``to_epsg``, or ``None`` for a non-EPSG CRS.
 
@@ -558,7 +609,7 @@ class DatasetCollection:
           ``Dataset.from_array(...)`` per slice).
         * Per-timestep ops: ``crop``, ``to_crs``, ``align``,
           ``apply``, ``overlay``, ``to_file``, ``to_cog_stack``.
-          Each loops the handles via ``_apply_per_timestep`` and
+          Each loops the handles via ``_apply_operator`` and
           produces a new collection wrapping the per-timestep
           results.
         * Visualisation: ``plot`` materialises the cube on demand
@@ -3196,33 +3247,6 @@ class DatasetCollection:
             paths.append(target)
         return paths
 
-    def _apply_per_timestep(
-        self, method_name: str, *args: Any, **kwargs: Any
-    ) -> list[Dataset]:
-        """Apply `Dataset.<method_name>(*args, **kwargs)` to each timestep.
-
-        Iterates over the per-timestep ``Dataset`` handles in
-        :attr:`datasets` and dispatches the named method. Each
-        per-timestep call returns a new ``Dataset`` (typically a
-        MEM-backed result of an internal :func:`gdal.Warp`); the
-        list of those results is wrapped in a new collection by
-        :meth:`_finalize_per_timestep_result`.
-
-        Nothing materialises the full cube as a numpy array — each
-        ``Dataset.<op>`` already streams blocks through GDAL.
-
-        Args:
-            method_name: Name of the method to call on each timestep
-                Dataset (e.g. ``"to_crs"``, ``"crop"``, ``"align"``).
-            *args, **kwargs: Forwarded to the per-timestep call.
-
-        Returns:
-            list[Dataset]: One ``Dataset`` per timestep — each is the
-                output of calling the named method on the corresponding
-                input handle.
-        """
-        return [getattr(ds, method_name)(*args, **kwargs) for ds in self.datasets]
-
     def to_crs(
         self,
         to_epsg: int | str | Any = 3857,
@@ -3298,16 +3322,12 @@ class DatasetCollection:
         else:
             # A target CRS with no EPSG code (orthographic / Robinson / …) cannot go
             # through Reprojector (int-EPSG only); reproject each timestep directly.
-            def per_step(ds: Dataset, do_compute: bool) -> Any:
-                if do_compute:
-                    return ds.to_crs(
-                        to_epsg, method=method, maintain_alignment=maintain_alignment
-                    )
-                import dask
-
-                return dask.delayed(ds.to_crs)(
-                    to_epsg, method=method, maintain_alignment=maintain_alignment
-                )
+            per_step = _named_op(
+                "to_crs",
+                to_epsg,
+                method=method,
+                maintain_alignment=maintain_alignment,
+            )
 
         return self._apply_operator(per_step, inplace=inplace, compute=compute)
 
@@ -3404,8 +3424,9 @@ class DatasetCollection:
             raise TypeError(
                 "crop requires a `mask` or a `bbox` (west, south, east, north)"
             )
-        new_datasets = self._apply_per_timestep("crop", mask, touch=touch)
-        return self._finalize_per_timestep_result(new_datasets, inplace=inplace)
+        return self._apply_operator(
+            _named_op("crop", mask, touch=touch), inplace=inplace, compute=True
+        )
 
     def align(
         self,
@@ -3480,12 +3501,7 @@ class DatasetCollection:
                 return op(ds, compute=do_compute)
         else:
             # A reference with no EPSG code can't go through Aligner; align directly.
-            def per_step(ds: Dataset, do_compute: bool) -> Any:
-                if do_compute:
-                    return ds.align(alignment_src, method=method)
-                import dask
-
-                return dask.delayed(ds.align)(alignment_src, method=method)
+            per_step = _named_op("align", alignment_src, method=method)
 
         return self._apply_operator(per_step, inplace=inplace, compute=compute)
 
@@ -3513,10 +3529,25 @@ class DatasetCollection:
             self._base = new_datasets[0]
             self._files = None  # In-memory results no longer correspond to disk paths.
             return None
+        return DatasetCollection._wrap_datasets(new_datasets)
+
+    @staticmethod
+    def _wrap_datasets(datasets: list[Dataset]) -> DatasetCollection:
+        """Wrap per-timestep Datasets into a collection.
+
+        Shared by the eager arm of :meth:`_finalize_per_timestep_result` and the
+        deferred arm of :meth:`_apply_operator`, which built the identical
+        collection separately. A staticmethod referenced by qualified name so
+        the ``compute=False`` :func:`dask.delayed` can pickle it.
+
+        Args:
+            datasets: One `Dataset` per timestep.
+
+        Returns:
+            DatasetCollection: A collection over `datasets`.
+        """
         return DatasetCollection(
-            new_datasets[0],
-            time_length=len(new_datasets),
-            datasets=new_datasets,
+            datasets[0], time_length=len(datasets), datasets=datasets
         )
 
     def _apply_operator(
@@ -3540,30 +3571,13 @@ class DatasetCollection:
             return self._finalize_per_timestep_result(new_datasets, inplace=inplace)
         if inplace:
             raise ValueError("compute=False cannot be combined with inplace=True.")
-        try:
-            import dask
-        except ImportError as exc:
-            raise OptionalPackageDoesNotExist(
-                lazy_extra_hint(
-                    "DatasetCollection.to_crs / align (compute=False) requires the "
-                    "optional 'dask' dependency."
-                )
-            ) from exc
+        # Resolved before the loop, so a missing dask fails once and uniformly
+        # rather than from inside whichever per-timestep arm ran first.
+        delayed = _delayed()
         delayeds = [per_step(ds, False) for ds in self.datasets]
         return cast(
             "Delayed",
-            dask.delayed(DatasetCollection._collection_from_datasets)(delayeds),
-        )
-
-    @staticmethod
-    def _collection_from_datasets(datasets: list[Dataset]) -> DatasetCollection:
-        """Wrap computed per-timestep Datasets into a collection (compute=False path).
-
-        A staticmethod so the ``compute=False`` reproject / align
-        :func:`dask.delayed` can pickle it by qualified name.
-        """
-        return DatasetCollection(
-            datasets[0], time_length=len(datasets), datasets=datasets
+            delayed(DatasetCollection._wrap_datasets)(delayeds),
         )
 
     def merge(
@@ -3707,8 +3721,9 @@ class DatasetCollection:
         """
         if not callable(ufunc):
             raise TypeError("The Second argument should be a function")
-        new_datasets = self._apply_per_timestep("apply", ufunc)
-        return self._finalize_per_timestep_result(new_datasets, inplace=inplace)
+        return self._apply_operator(
+            _named_op("apply", ufunc), inplace=inplace, compute=True
+        )
 
     def overlay(
         self,
