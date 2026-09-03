@@ -3339,7 +3339,8 @@ class DatasetCollection:
         *,
         bbox: tuple[float, float, float, float] | list[float] | None = None,
         epsg: Any = None,
-    ) -> DatasetCollection | None:
+        compute: bool = True,
+    ) -> DatasetCollection | None | Delayed:
         """Crop every timestep against ``mask`` or a ``bbox``.
 
         Args:
@@ -3425,7 +3426,7 @@ class DatasetCollection:
                 "crop requires a `mask` or a `bbox` (west, south, east, north)"
             )
         return self._apply_operator(
-            _named_op("crop", mask, touch=touch), inplace=inplace, compute=True
+            _named_op("crop", mask, touch=touch), inplace=inplace, compute=compute
         )
 
     def align(
@@ -3529,10 +3530,38 @@ class DatasetCollection:
             self._base = new_datasets[0]
             self._files = None  # In-memory results no longer correspond to disk paths.
             return None
-        return DatasetCollection._wrap_datasets(new_datasets)
+        return DatasetCollection._wrap_datasets(
+            new_datasets, **self._derived_kwargs(len(new_datasets))
+        )
+
+    def _derived_kwargs(self, length: int) -> dict[str, Any]:
+        """Collection metadata that survives a per-timestep operation.
+
+        Only the time axis, and only when it still describes the result. A
+        per-timestep op returns one dataset per input, so the lengths normally
+        match -- but the guard matters, because a stale `_time` (one that no
+        longer matches the handle count) would otherwise be stamped onto the
+        new collection and make the mismatch harder to find.
+
+        Deliberately narrow: `gdal_env`, `open_options` and `meta` are not
+        carried. Each has its own staleness question, and answering them here
+        would widen a structural change into a behavioural one.
+
+        Args:
+            length: Number of datasets in the result.
+
+        Returns:
+            dict[str, Any]: Keyword arguments for :meth:`_wrap_datasets`.
+        """
+        time = self._time
+        return {
+            "time": list(time) if (time is not None and len(time) == length) else None
+        }
 
     @staticmethod
-    def _wrap_datasets(datasets: list[Dataset]) -> DatasetCollection:
+    def _wrap_datasets(
+        datasets: list[Dataset], *, time: list | None = None
+    ) -> DatasetCollection:
         """Wrap per-timestep Datasets into a collection.
 
         Shared by the eager arm of :meth:`_finalize_per_timestep_result` and the
@@ -3542,13 +3571,17 @@ class DatasetCollection:
 
         Args:
             datasets: One `Dataset` per timestep.
+            time: Time axis to carry onto the result, when it still describes it.
 
         Returns:
             DatasetCollection: A collection over `datasets`.
         """
-        return DatasetCollection(
+        collection = DatasetCollection(
             datasets[0], time_length=len(datasets), datasets=datasets
         )
+        if time is not None:
+            collection._time = time
+        return collection
 
     def _apply_operator(
         self, per_step: Any, *, inplace: bool, compute: bool
@@ -3575,9 +3608,10 @@ class DatasetCollection:
         # rather than from inside whichever per-timestep arm ran first.
         delayed = _delayed()
         delayeds = [per_step(ds, False) for ds in self.datasets]
+        derived = self._derived_kwargs(len(delayeds))
         return cast(
             "Delayed",
-            delayed(DatasetCollection._wrap_datasets)(delayeds),
+            delayed(DatasetCollection._wrap_datasets)(delayeds, **derived),
         )
 
     def merge(
@@ -3678,8 +3712,8 @@ class DatasetCollection:
             )
 
     def apply(
-        self, ufunc: Callable, *, inplace: bool = False
-    ) -> DatasetCollection | None:
+        self, ufunc: Callable, *, inplace: bool = False, compute: bool = True
+    ) -> DatasetCollection | None | Delayed:
         """Apply a function to every timestep raster.
 
         Each timestep ``Dataset.apply(ufunc)`` runs over the
@@ -3722,7 +3756,7 @@ class DatasetCollection:
         if not callable(ufunc):
             raise TypeError("The Second argument should be a function")
         return self._apply_operator(
-            _named_op("apply", ufunc), inplace=inplace, compute=True
+            _named_op("apply", ufunc), inplace=inplace, compute=compute
         )
 
     def overlay(
