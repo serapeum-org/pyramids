@@ -19,6 +19,7 @@ from typing import Any
 
 from osgeo import gdal
 
+from pyramids.base.crs import epsg_of_crs
 from pyramids.dataset.cog.validate import (
     _resolve_read_config,
     config_context,
@@ -175,11 +176,11 @@ def _cog_info_impl(p: str) -> COGInfo:
         max_x = min_x + gt[1] * width
         min_y = max_y + gt[5] * height
 
-        srs = ds.GetSpatialRef()
-        epsg: int | None = None
-        if srs is not None:
-            code = srs.GetAuthorityCode(None)
-            epsg = int(code) if code is not None else None
+        # `epsg_of_crs` is the package's answer to "what EPSG code does this
+        # CRS declare". Reading the authority code directly returned the ESRI
+        # number for an ESRI-authority CRS as though it were EPSG (#965), and
+        # raised on an OGC:CRS84 raster.
+        epsg = epsg_of_crs(ds.GetProjectionRef())
 
         overviews: list[OverviewLevel] = []
         for i in range(band0.GetOverviewCount()):

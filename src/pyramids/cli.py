@@ -207,7 +207,10 @@ def _cmd_info(args: argparse.Namespace) -> int:
     print(f"driver:      {info.driver}")
     print(f"size:        {info.width} x {info.height} ({info.band_count} band(s))")
     print(f"dtype:       {info.dtype}")
-    print(f"crs:         EPSG:{info.crs_epsg}")
+    # `crs_epsg` is None for a CRS that declares no EPSG code (ESRI authority,
+    # OGC:CRS84, or no CRS at all); "EPSG:None" would be a lie.
+    crs_label = f"EPSG:{info.crs_epsg}" if info.crs_epsg is not None else "unknown"
+    print(f"crs:         {crs_label}")
     print(f"resolution:  {info.resolution}")
     print(f"bounds:      {info.bounds}")
     print(f"compression: {info.compression}")
