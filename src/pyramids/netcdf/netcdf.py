@@ -2679,6 +2679,32 @@ class NetCDF(Dataset):
         for manager in managers:
             manager.close()
 
+    def _persist_to(self, path: str | Path | None) -> NetCDF:
+        """Write this result to `path` and hand back a file-backed reopen.
+
+        The spatial operations that build an in-memory result honour a `path`
+        argument the same way: write it out, drop the in-memory handle, and
+        reopen the file. `path=None` returns `self` untouched.
+
+        The write is wrapped so the handle is released even when it fails.
+        Three of the call sites this replaces closed only on success, so a
+        failed write -- a full disk, a locked file -- leaked the handle and, on
+        Windows, left the target locked against the retry.
+
+        Args:
+            path: Destination to persist to, or `None` to stay in memory.
+
+        Returns:
+            NetCDF: `self` when `path` is `None`, else a file-backed reopen.
+        """
+        if path is None:
+            return self
+        try:
+            self.to_file(str(path))
+        finally:
+            self.close()
+        return NetCDF.read_file(str(path))
+
     def _preserve_netcdf_metadata(self, result: Dataset) -> NetCDF:
         """Wrap a Dataset result as a NetCDF, preserving variable-subset metadata.
 
@@ -3360,11 +3386,7 @@ class NetCDF(Dataset):
         if streamed is not None:
             return streamed
         mem = self._apply_to_all_variables(operation, op_kwargs, warn_demoted=False)
-        try:
-            mem.to_file(str(path))
-        finally:
-            mem.close()
-        return NetCDF.read_file(str(path))
+        return mem._persist_to(path)
 
     def reduce(self, *args, **kwargs) -> NetCDF:
         """Facade — :meth:`Selection.reduce <pyramids.netcdf.engines.selection.Selection.reduce>`."""
@@ -3627,11 +3649,7 @@ class NetCDF(Dataset):
                 method=method,
                 maintain_alignment=maintain_alignment,
             )
-            result = self._preserve_netcdf_metadata(result)
-            if path is not None:
-                result.to_file(str(path))
-                result.close()
-                result = NetCDF.read_file(str(path))
+            result = self._preserve_netcdf_metadata(result)._persist_to(path)
         return cast("NetCDF", result)
 
     def warped_view(
@@ -4103,11 +4121,7 @@ class NetCDF(Dataset):
                 cell_size=cell_size,
                 method=method,
             )
-            result = self._preserve_netcdf_metadata(result)
-            if path is not None:
-                result.to_file(str(path))
-                result.close()
-                result = NetCDF.read_file(str(path))
+            result = self._preserve_netcdf_metadata(result)._persist_to(path)
         return cast("NetCDF", result)
 
     def sel(self, *args, **kwargs) -> NetCDF:

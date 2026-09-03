@@ -200,7 +200,7 @@ class Selection(_Engine["NetCDF"]):
             bbox, mask, epsg, is_container, touch, chunks
         )
         if antimeridian is not None:
-            return cast("NetCDF", self._finalize_crop_output(antimeridian, path))
+            return cast("NetCDF", antimeridian._persist_to(path))
         mask = self._resolve_crop_mask(mask, bbox, epsg)
         if is_container:
             # A container crops every variable; `chunks` is a curvilinear-only, per-variable knob
@@ -218,24 +218,10 @@ class Selection(_Engine["NetCDF"]):
                 "crop", {"mask": mask, "touch": touch}, path=path
             )
         else:
-            result = self._finalize_crop_output(
-                self._crop_one(mask, touch=touch, chunks=chunks), path
+            result = self._crop_one(mask, touch=touch, chunks=chunks)._persist_to(
+                path
             )
         return cast("NetCDF", result)
-
-    @staticmethod
-    def _finalize_crop_output(result: NetCDF, path: str | Path | None) -> NetCDF:
-        """Persist a single-variable / antimeridian crop to ``path`` when requested.
-
-        The container fan-out already streams straight to ``path`` (bounded memory); the
-        non-container crop paths build an in-memory result, so honour ``path`` by writing it
-        out and re-opening a file-backed :class:`NetCDF`. ``path=None`` returns ``result`` as-is.
-        """
-        if path is None:
-            return result
-        result.to_file(str(path))
-        result.close()
-        return cast("NetCDF", type(result).read_file(str(path)))
 
     def _try_antimeridian(
         self,
