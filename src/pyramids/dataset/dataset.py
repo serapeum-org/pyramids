@@ -3563,11 +3563,14 @@ class Dataset(RasterBase):
             Dataset: An independent copy. Access mode of the returned
             Dataset:
 
-            * `path is None` (in-memory copy) → access mode of the
-              source is preserved. A `copy()` of a read-only source
-              stays read-only at the pyramids level (the underlying
-              MEM driver is always writable; pyramids enforces the
-              flag itself).
+            * `path is None` (in-memory copy) → `"write"`. The copy is a
+              fresh MEM raster that nothing else references, so refusing
+              writes on it protects nothing: the source file is untouched
+              either way. Propagating the source's mode instead meant a
+              `copy()` taken specifically to get a mutable working copy of
+              a read-only file could not be written to, and the resulting
+              `ReadOnlyError` advised reopening the *source* with
+              `read_only=False`, which is not what the caller wanted.
             * `path is not None` and the format supports `Create`
               (GTiff, netCDF, HFA, …) → `"write"`, because the caller
               has just made a new file they presumably want to
@@ -3622,7 +3625,11 @@ class Dataset(RasterBase):
         if path is None:
             path = ""
             driver = MEMORY_DRIVER
-            new_access = self._access
+            # A MEM copy is a fresh buffer nothing else holds, so it is always
+            # writable. Carrying the source's read-only flag over made the copy
+            # useless for the case it exists to serve: getting a mutable working
+            # copy of a read-only file.
+            new_access = "write"
         else:
             # From the extension, not hardcoded: `copy(path="x.nc")` produced a
             # GTiff carrying a netCDF name. `for_copy` because this writes
