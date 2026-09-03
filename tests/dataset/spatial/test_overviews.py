@@ -235,7 +235,7 @@ def test_get_overview(era5_image: gdal.Dataset, clean_overview_after_test):
 
 
 # The exact stranding -- levels dropped, a file named `.ovr` left in the working directory
-# -- was measured on GDAL 3.13.1. The win_arm64 wheel ships 3.12.4 (the vcpkg port ceiling),
+# -- was measured on GDAL 3.13.1 (re-confirmed on 3.13.3). The win_arm64 wheel ships 3.12.4 (the vcpkg port ceiling),
 # so the assertions that pin GDAL's own misbehaviour are gated the way #892 gated the
 # equivalent NetCDF sidecar assertions. The guard itself is not gated; only this canary.
 _GDAL_STRANDS_PATHLESS_VRT_OVERVIEWS = int(gdal.VersionInfo("VERSION_NUM")) >= 3130000

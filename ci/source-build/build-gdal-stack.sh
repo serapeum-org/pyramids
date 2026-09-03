@@ -20,7 +20,7 @@
 set -euo pipefail
 
 export BUILD_PREFIX="${BUILD_PREFIX:-/usr/local}"
-export GDAL_VERSION="${GDAL_VERSION:-3.13.1}"
+export GDAL_VERSION="${GDAL_VERSION:-3.13.3}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # glibc (manylinux/AlmaLinux, dnf) vs musl (musllinux/Alpine, apk).

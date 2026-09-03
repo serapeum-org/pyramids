@@ -38,7 +38,7 @@ not resolve pyramids-gis on those platforms yet:
 
 The `win_arm64` wheels (`build-winarm64-wheels`, cp312–cp314; numpy/scipy ship
 no cp311 arm64 wheels) are built from source via vcpkg. GDAL comes from the
-vcpkg port (currently 3.12.4, trailing the 3.13.1 the other wheels ship);
+vcpkg port (currently 3.12.4, trailing the 3.13.3 the other wheels ship);
 like Linux, no HDF4. Because shapely and pyogrio publish no win_arm64 wheels
 on PyPI, the platform markers in `[project.dependencies]` skip them (and
 geopandas) there, and each wheel **vendors the vector stack** — shapely,
