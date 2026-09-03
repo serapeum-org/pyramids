@@ -580,8 +580,16 @@ class RasterBase(ABC):
                 (2.0, 1.0)
 
                 ```
+
+        Note:
+            Reads :attr:`geotransform`, not the `_geotransform` cached at
+            construction. :class:`~pyramids.netcdf.NetCDF` overrides that
+            property to derive the affine from the file's CF coordinate
+            variables, and the cached value is GDAL's identity fallback for
+            every one of them. Reading the cache here made `transform` and
+            `geotransform` disagree on every netCDF container.
         """
-        return GeoTransform(*self._geotransform)
+        return GeoTransform(*self.geotransform)
 
     def xy(
         self,
