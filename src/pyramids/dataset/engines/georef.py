@@ -13,11 +13,11 @@ import weakref
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
-from uuid import uuid4
 
 from osgeo import gdal
 
 from pyramids._io import silent_unlink
+from pyramids.base._artifacts import mint_vsimem
 from pyramids.base._errors import GeolocationArrayError, ReadOnlyError
 from pyramids.base._utils import DEFAULT_RESAMPLING, resolve_resampling
 from pyramids.base.crs import sr_from_user_input
@@ -337,7 +337,7 @@ class Georef(_Engine["Dataset"]):
             if description:
                 result = description
             else:
-                result = f"/vsimem/orthorectify_dem_{uuid4().hex}.tif"
+                result = mint_vsimem("orthorectify_dem")
                 gdal.Translate(result, dem.raster)
         return result
 

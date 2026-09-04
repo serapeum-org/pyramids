@@ -8,7 +8,6 @@ Owns the COG family of operations on a Dataset. Accessed as
 from __future__ import annotations
 
 import math
-import uuid
 import warnings
 from collections.abc import Mapping
 from functools import lru_cache
@@ -20,6 +19,7 @@ from osgeo import gdal
 from pyproj import Transformer
 
 from pyramids._io import read_vsi_bytes, silent_unlink
+from pyramids.base._artifacts import mint_vsimem
 from pyramids.base._errors import FailedToSaveError, OutOfBoundsError
 from pyramids.base._utils import is_integer_gdal_dtype
 from pyramids.base.crs import crs_equal, crs_from_user_input, require_crs_spec
@@ -451,7 +451,7 @@ class COG(_Engine["Dataset"]):
 
                 ```
         """
-        vsi_path = f"/vsimem/{uuid.uuid4().hex}.tif"
+        vsi_path = mint_vsimem("cog")
         try:
             self.to_cog(vsi_path, **kwargs)
             try:

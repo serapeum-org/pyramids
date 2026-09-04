@@ -1801,9 +1801,26 @@ class NetCDF(Dataset):
         """
         return self.get_time_variable()
 
+    @property
+    def _is_root_container(self) -> bool:
+        """True for a whole multidimensional store, false for a variable of one.
+
+        Three conditions that only mean something together: opened through the
+        multidimensional API, not narrowed to a variable, and carrying no bands
+        of its own. Six places asked it and each wrote the conjunction out, so
+        "what counts as a container" was defined six times -- and the operations
+        that refuse a container, the ones that fan out over it, and the one that
+        reads from it all had to be kept in step by hand.
+
+        Returns:
+            bool: True when this object is the store rather than a variable in
+                it.
+        """
+        return self._is_md_array and not self._is_subset and self.band_count == 0
+
     def _check_not_container(self, operation: str):
         """Raise ValueError if this is a root MDIM container (not a variable subset)."""
-        if self._is_md_array and not self._is_subset and self.band_count == 0:
+        if self._is_root_container:
             raise ValueError(
                 f"Spatial operations are not supported on the NetCDF container. "
                 f"Use nc.get_variable('var_name').{operation}(...) instead."
@@ -2560,9 +2577,7 @@ class NetCDF(Dataset):
             - :meth:`crop`: clip the whole dataset by bbox.
         """
         read_window = self._resolve_bbox_to_window(window, bbox, epsg, chunks)
-        is_container = (
-            self._is_md_array and not self._is_subset and self.band_count == 0
-        )
+        is_container = self._is_root_container
         if is_container:
             if variable is None:
                 self._check_not_container("read_array")
@@ -3788,7 +3803,7 @@ class NetCDF(Dataset):
         Returns:
             NetCDF: Reprojected container or variable subset.
         """
-        if self._is_md_array and not self._is_subset and self.band_count == 0:
+        if self._is_root_container:
             result = self._apply_to_all_variables(
                 "to_crs",
                 {
@@ -3850,7 +3865,7 @@ class NetCDF(Dataset):
         See Also:
             NetCDF.to_crs: The eager reprojection (handles whole containers).
         """
-        if self._is_md_array and not self._is_subset and self.band_count == 0:
+        if self._is_root_container:
             raise ValueError(
                 "warped_view works on a single variable, not a root NetCDF "
                 "container — call get_variable(<name>) first and warp that, "
@@ -4266,7 +4281,7 @@ class NetCDF(Dataset):
         Returns:
             NetCDF: Resampled container or variable subset.
         """
-        if self._is_md_array and not self._is_subset and self.band_count == 0:
+        if self._is_root_container:
             result = self._apply_to_all_variables(
                 "resample",
                 {"cell_size": cell_size, "method": method},

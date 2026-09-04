@@ -40,7 +40,6 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
-import uuid
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -49,6 +48,7 @@ from xml.etree import ElementTree as ET  # nosec B405 - server XML; DoS accepted
 from osgeo import gdal
 from pyproj.exceptions import CRSError as _PyprojCRSError
 
+from pyramids.base._artifacts import mint_vsimem
 from pyramids.base._coverage import native_projwin as _native_projwin
 from pyramids.base._coverage import native_resolution as _native_resolution
 from pyramids.base._coverage import read_size as _read_size
@@ -533,7 +533,7 @@ def _open_getcoverage_bytes(payload: bytes, coverage: str) -> gdal.Dataset:
             "mode cannot decode; request a plain binary raster via wcs_format=... "
             "(e.g. 'GEOTIFF')."
         )
-    vsipath = f"/vsimem/wcs_getcoverage_{uuid.uuid4().hex}.tif"
+    vsipath = mint_vsimem("wcs_getcoverage")
     gdal.FileFromMemBuffer(vsipath, payload)
     try:
         src = gdal.Open(vsipath)

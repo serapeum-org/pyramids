@@ -195,7 +195,7 @@ class Selection(_Engine["NetCDF"]):
               shared primitive that builds the one-row FC.
         """
         nc = self._ds
-        is_container = nc._is_md_array and not nc._is_subset and nc.band_count == 0
+        is_container = nc._is_root_container
         antimeridian = self._try_antimeridian(
             bbox, mask, epsg, is_container, touch, chunks
         )

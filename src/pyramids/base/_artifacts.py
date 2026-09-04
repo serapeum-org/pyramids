@@ -28,6 +28,7 @@ import os
 import shutil
 import tempfile
 import threading
+import uuid
 
 from osgeo import gdal
 
@@ -97,6 +98,63 @@ def artifact_dir() -> str:
             ```
     """
     return tempfile.mkdtemp(dir=_root())
+
+
+def mint_vsimem(purpose: str, suffix: str = ".tif") -> str:
+    """A unique ``/vsimem`` path for `purpose`, tracked for the exit sweep.
+
+    Four call sites minted these by hand -- the COG writer, the orthorectify
+    DEM, the dtype probe and the WCS reader -- with four naming conventions
+    between them (`{uuid}.tif`, `orthorectify_dem_{uuid}.tif`,
+    `_pyramids_dtype_probe_{uuid}`, `wcs_getcoverage_{uuid}.tif`), so a
+    `/vsimem` listing during debugging gave no consistent way to tell whose
+    artefact was whose. None of the four registered with
+    :func:`register_vsimem`, so anything they failed to unlink themselves --
+    on an exception path, say -- stayed in memory for the life of the process,
+    while the STAC reader's artefacts were reclaimed at exit.
+
+    Minting and tracking together is what makes the registration hard to
+    forget. Unlinking early is still the caller's job and still worth doing;
+    :func:`unregister_vsimem` is how they say so.
+
+    Args:
+        purpose: A short name for what the artefact is, used as the path
+            prefix so a listing is readable. Kept to identifier characters.
+        suffix: File extension, including the dot. Defaults to `".tif"`;
+            pass `""` for a path GDAL should infer the format of.
+
+    Returns:
+        str: The minted path, already registered for cleanup at exit.
+
+    Examples:
+        - The purpose leads the name, so a listing says whose it is:
+            ```python
+            >>> from pyramids.base._artifacts import mint_vsimem, unregister_vsimem
+            >>> path = mint_vsimem("cog")
+            >>> path.startswith("/vsimem/cog_") and path.endswith(".tif")
+            True
+            >>> unregister_vsimem(path)
+
+            ```
+        - Two calls never collide, which is the whole point of minting rather
+          than naming:
+            ```python
+            >>> from pyramids.base._artifacts import mint_vsimem, unregister_vsimem
+            >>> first, second = mint_vsimem("probe", ""), mint_vsimem("probe", "")
+            >>> first == second
+            False
+            >>> unregister_vsimem(first), unregister_vsimem(second)
+            (None, None)
+
+            ```
+
+    See Also:
+        register_vsimem: Tracks a path this did not mint.
+        unregister_vsimem: Forgets one the caller has already unlinked.
+    """
+    path = f"/vsimem/{purpose}_{uuid.uuid4().hex}{suffix}"
+    register_vsimem(path)
+    return path
 
 
 def register_vsimem(path: str) -> None:

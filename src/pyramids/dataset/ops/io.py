@@ -10,12 +10,12 @@ import warnings
 from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from uuid import uuid4
 
 import numpy as np
 from osgeo import gdal
 
 from pyramids import _io
+from pyramids.base._artifacts import mint_vsimem
 from pyramids.base._errors import (
     DtypeNarrowingWarning,
     FailedToSaveError,
@@ -337,7 +337,7 @@ def _driver_preserves_dtype(driver_name: str, gdal_dtype: int) -> bool | None:
     # "cannot answer" for that driver/dtype. For a driver whose true answer is
     # False that silently disables the one guard against a lossy write, and
     # this package supports threaded and dask-delayed writes.
-    probe_path = f"/vsimem/_pyramids_dtype_probe_{uuid4().hex}"
+    probe_path = mint_vsimem("dtype_probe", "")
     with _PROBE_LOCK:
         source = gdal.GetDriverByName("MEM").Create("", 1, 1, 1, gdal_dtype)
         result: bool | None = None
