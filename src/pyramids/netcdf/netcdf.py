@@ -5169,17 +5169,28 @@ class NetCDF(Dataset):
         return variable_names
 
     @staticmethod
-    def _mdim_data_variable_names(rg) -> list[str]:
-        """Data-variable names from an MDIM root group.
+    def _mdim_data_variable_names(rg, prefix: str = "") -> list[str]:
+        """Data-variable names from an MDIM group and every group beneath it.
 
         Drops dimension coordinate arrays and 0-dimensional scalar variables
         (e.g. `grid_mapping` holders) so only true data variables remain.
 
+        **Recurses into sub-groups**, naming what it finds there by the
+        group-qualified path :meth:`get_variable` already accepts
+        (`"flight_03/CO"`). A NetCDF-4 store that puts each of its variables in
+        its own group is otherwise reported as holding only whatever sits at
+        the root -- one name out of thirty on the suite's own grouped fixture --
+        so anything iterating this to convert, export or plot such a file
+        silently processed a single variable.
+
         Args:
-            rg: The store's multidimensional root :class:`osgeo.gdal.Group`.
+            rg: The :class:`osgeo.gdal.Group` to enumerate.
+            prefix: Group path to prepend, used by the recursion. Empty at the
+                root, so the common flat store is unaffected.
 
         Returns:
-            list[str]: Names of the data variables in `rg`.
+            list[str]: Names of the data variables in `rg` and its sub-groups,
+                the group's own first.
         """
         dim_names = {dim.GetName() for dim in rg.GetDimensions()}
         filtered = []
@@ -5189,7 +5200,13 @@ class NetCDF(Dataset):
             md_arr = rg.OpenMDArray(var)
             if md_arr is not None and len(md_arr.GetDimensions()) == 0:
                 continue
-            filtered.append(var)
+            filtered.append(f"{prefix}{var}")
+        for group_name in rg.GetGroupNames() or []:
+            sub = rg.OpenGroup(group_name)
+            if sub is not None:
+                filtered.extend(
+                    NetCDF._mdim_data_variable_names(sub, f"{prefix}{group_name}/")
+                )
         return filtered
 
     def _classic_subdataset_variable_names(self) -> list[str]:

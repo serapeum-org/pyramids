@@ -7,10 +7,15 @@ logging a container switched which classifier answered -- and on a classic-mode
 file the CF path returned an empty list, so `get_variable` then raised for every
 variable in the file.
 
-These tests pin the invariant the fix establishes: the answer is derived from the
-store on every call, so reading `meta_data`, or printing the object, cannot change
-it. They are deliberately black-box -- they assert the enumerated names, not which
-code path produced them.
+These tests pin the invariant the fix establishes: the CF classification is
+consulted on *every* call for a whole-store view rather than only when the cache
+happens to be warm, so reading `meta_data`, or printing the object, cannot change
+the answer.
+
+Invariance alone is not enough, though: answering "nothing is a data variable"
+every time would satisfy it. `TestGroupedStoresEnumerateEveryVariable` therefore
+pins content too -- that a NetCDF-4 store which puts each variable in its own
+group reports all of them, not just whatever sits at the root.
 """
 
 import glob
@@ -97,3 +102,68 @@ class TestVariableNamesInvariance:
 
         for name in dataset.variable_names:
             assert dataset.get_variable(name) is not None
+
+
+class TestGroupedStoresEnumerateEveryVariable:
+    """Invariance is necessary but not sufficient: the content matters too.
+
+    Enumerating only the working group is stable, and also wrong: a NetCDF-4
+    store that puts each variable in its own sub-group then reports whatever
+    sits at the root and nothing else.
+    """
+
+    def test_a_grouped_store_lists_its_sub_group_variables(self):
+        """One name out of thirty, before the walk recursed.
+
+        Test scenario:
+            This fixture holds 29 variables across per-flight sub-groups plus
+            one at the root. Anything iterating `variable_names` to convert,
+            export or plot the file has to see all of them.
+        """
+        dataset = NetCDF.read_file(str(DATA / "none__35v__1d35__groups-nc4.nc"))
+
+        names = dataset.variable_names
+
+        assert len(names) > 20, f"sub-group variables missing: {names}"
+        assert any("/" in name for name in names), "no group-qualified names"
+        assert "UTC_time" in names, "the root variable should still be listed"
+
+    def test_the_group_qualified_names_resolve(self):
+        """A name this lists must be one `get_variable` accepts.
+
+        Test scenario:
+            Enumerating a name the reader then rejects would be worse than not
+            listing it, so the two are pinned together.
+        """
+        dataset = NetCDF.read_file(str(DATA / "none__35v__1d35__groups-nc4.nc"))
+
+        qualified = next(n for n in dataset.variable_names if "/" in n)
+
+        assert dataset.get_variable(qualified) is not None
+
+    def test_a_flat_store_is_unaffected_by_the_recursion(self):
+        """The common case has no sub-groups and must not change.
+
+        Test scenario:
+            A flat CF file's names carry no `/` and are exactly the root
+            group's arrays, as before.
+        """
+        dataset = NetCDF.read_file(str(DATA / "cf__5v__1d4-4d1__y-asc.nc"))
+
+        names = dataset.variable_names
+
+        assert names == ["temperature"], names
+
+    def test_the_content_is_stable_across_a_meta_data_read(self):
+        """Content and invariance together, on the grouped fixture.
+
+        Test scenario:
+            Both properties are pinned in one place for the case that has
+            sub-groups, so a regression in either is caught here.
+        """
+        dataset = NetCDF.read_file(str(DATA / "none__35v__1d35__groups-nc4.nc"))
+        before = sorted(dataset.variable_names)
+
+        _ = str(dataset)
+
+        assert sorted(dataset.variable_names) == before

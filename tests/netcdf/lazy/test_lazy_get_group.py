@@ -92,8 +92,23 @@ class TestZeroCopyView:
         nc = _build_grouped_mem()
         view = nc.get_group("forecast")
         _ = view.meta_data  # cache metadata first (keyed by full store path)
-        assert view.variable_names == ["temperature"], (
-            f"variable_names must stay bare after caching, got {view.variable_names}"
+        # The invariant is that names stay *relative to the view*, not that the
+        # view is flat: it also holds a `surface` sub-group, whose variable is
+        # named for its path within the view. What must never appear is the
+        # full store path (`forecast/temperature`), which the cache is keyed by.
+        assert "temperature" in view.variable_names, (
+            f"the view's own variable must stay bare, got {view.variable_names}"
+        )
+        assert not any(
+            name.startswith("forecast/") for name in view.variable_names
+        ), f"full store paths leaked into the view, got {view.variable_names}"
+        assert "surface/t2m" in view.variable_names, (
+            f"the nested group's variable should be listed, got {view.variable_names}"
+        )
+        assert_allclose(
+            np.asarray(view.get_variable("surface/t2m").read_array(band=0)),
+            np.full((5, 8), 288.0),
+            err_msg="a nested name the view lists must also resolve through it",
         )
         # get_variable validates against variable_names, so it must still resolve the bare name.
         assert_allclose(
