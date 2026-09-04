@@ -560,6 +560,31 @@ def gdal_to_numpy_dtype(dtype: int) -> str:
     return result_name
 
 
+def gdal_to_numpy_type(dtype: int) -> type:
+    """Convert a GDAL dtype code into the numpy *type*.
+
+    The sibling of :func:`gdal_to_numpy_dtype`, which returns the type's name.
+    Both read `_GDAL_TO_NUMPY`, so the two cannot drift.
+
+    Args:
+        dtype (int): GDAL data type code.
+
+    Returns:
+        type: The corresponding numpy scalar type.
+
+    Raises:
+        ValueError: If `dtype` has no numpy counterpart -- including the
+            placeholder codes ``GDT_Unknown`` and ``GDT_TypeCount``.
+    """
+    matched = _GDAL_TO_NUMPY.get(dtype)
+    if matched is None:
+        raise ValueError(
+            f"unsupported GDAL data type: {dtype}. Supported types are: "
+            f"{DTYPE_CONVERSION_DF['gdal'].unique().tolist()}"
+        )
+    return cast("type", matched)
+
+
 def gdal_to_ogr_dtype(src: Dataset, band: int = 1):
     """Get the corresponding OGR data type for a given GDAL band.
 

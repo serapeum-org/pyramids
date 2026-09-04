@@ -16,10 +16,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, cast
 
-import numpy as np
 from pyproj import CRS
 
-from pyramids.base._utils import gdal_to_numpy_dtype
 from pyramids.base.crs import crs_from_user_input, crs_spec
 
 if TYPE_CHECKING:
@@ -145,16 +143,11 @@ class RasterMeta:
         nodata = tuple(None if v is None else float(v) for v in nodata_raw)
         block_size = tuple(tuple(bs) for bs in ds._block_size)
         band_names = tuple(ds.band_names or ())
-        first_dtype = ds.numpy_dtype[0] if ds.numpy_dtype else None
-        if first_dtype is None:
-            # derive from GDAL band dtype rather than hardcoding
-            # float64 — otherwise a Dataset with an int16 band would
-            # get a bogus float64 dtype metadata on the RasterMeta and
-            # downstream dask graphs produce wrong-dtype arrays.
-            band_type = ds.raster.GetRasterBand(1).DataType
-            dtype = str(gdal_to_numpy_dtype(band_type))
-        else:
-            dtype = str(np.dtype(first_dtype))
+        # `Dataset.dtype` already reads the shared GDAL->numpy map, so the
+        # hand-rolled fallback that used to sit here answered the same question
+        # a second way -- and only for a bandless dataset, where indexing it
+        # raises rather than returning None.
+        dtype = ds.dtype[0]
         return cls(
             rows=int(ds.rows),
             columns=int(ds.columns),

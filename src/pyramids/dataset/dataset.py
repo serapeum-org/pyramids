@@ -23,8 +23,9 @@ from osgeo import gdal
 from pyramids import _io
 from pyramids.base._errors import AlignmentError, ContainerRasterWarning, CRSError
 from pyramids.base._utils import (
-    DTYPE_CONVERSION_DF,
     RGB_CHANNEL_INTERPS,
+    gdal_to_numpy_dtype,
+    gdal_to_numpy_type,
     numpy_to_gdal_dtype,
 )
 from pyramids.base.crs import (
@@ -2801,18 +2802,12 @@ class Dataset(RasterBase):
     @property
     def numpy_dtype(self) -> list[type]:
         """List of the numpy data Type of each band, the data type is a numpy function."""
-        return [
-            DTYPE_CONVERSION_DF.loc[DTYPE_CONVERSION_DF["gdal"] == i, "numpy"].values[0]
-            for i in self.gdal_dtype
-        ]
+        return [gdal_to_numpy_type(code) for code in self.gdal_dtype]
 
     @property
     def dtype(self) -> list[str]:
         """List of the data Type of each band as strings."""
-        return [
-            DTYPE_CONVERSION_DF.loc[DTYPE_CONVERSION_DF["gdal"] == i, "name"].values[0]
-            for i in self.gdal_dtype
-        ]
+        return [gdal_to_numpy_dtype(code) for code in self.gdal_dtype]
 
     @classmethod
     def read_file(
