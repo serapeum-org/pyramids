@@ -24,6 +24,11 @@ DOES_NOT_SUPPORT_INTERNAL = [".gz"]
 # GDAL VSI archive-handler prefixes, named once and reused across the kind
 # map, the vsi-path builders and the prefix checks below to avoid duplicating
 # the literals (S1192).
+# One path segment of an archive member: letters, digits and the punctuation a
+# real file name carries. `..` cannot match, because a segment of only dots is
+# excluded by requiring at least one non-dot character.
+_SAFE_MEMBER_SEGMENT = re.compile(r"(?!\.+$)[A-Za-z0-9._+#@ ()\[\]{}~%,'-]+")
+
 _VSIZIP = "/vsizip/"
 _VSITAR = "/vsitar/"
 _VSIGZIP = "/vsigzip/"
@@ -297,24 +302,38 @@ def _member_at(path: str, members: list[str], file_i: int, kind: str) -> str:
             f"The {kind} file {path!r} holds {len(members)} file(s), so there is no "
             f"member at index {file_i}. Available: {members}"
         )
-    member = members[file_i]
     # The member name comes out of the archive, and the archive is the
     # untrusted input. `/vsitar/x.tar/../../etc/passwd` is a path GDAL will
     # resolve outside the archive, so a crafted tar or zip could make a read of
     # what looks like a self-contained file reach an arbitrary one -- the
-    # tar-slip / zip-slip shape. Nothing legitimate needs an absolute member or
-    # a parent traversal, so both are refused by name.
-    if PurePosixPath(member).is_absolute() or ntpath.isabs(member):
+    # tar-slip / zip-slip shape.
+    #
+    # Validated against an allow-list and then rebuilt from the matched
+    # segments, rather than checked and passed through: the returned string is
+    # assembled here from names this function has proved safe, so nothing of
+    # the archive's own bytes reaches the caller's path.
+    candidate = members[file_i].replace("\\", "/")
+    if ntpath.isabs(candidate) or PurePosixPath(candidate).is_absolute():
         raise FileFormatNotSupportedError(
             f"The {kind} file {path!r} holds a member with an absolute path "
-            f"({member!r}), which would be read from outside the archive."
+            f"({candidate!r}), which would be read from outside the archive."
         )
-    if ".." in PurePosixPath(member.replace("\\", "/")).parts:
+    segments = []
+    for segment in candidate.split("/"):
+        if segment in ("", "."):
+            continue
+        if not _SAFE_MEMBER_SEGMENT.fullmatch(segment):
+            raise FileFormatNotSupportedError(
+                f"The {kind} file {path!r} holds a member whose path escapes it "
+                f"or is not a plain name ({candidate!r}); reading it would "
+                "leave the archive."
+            )
+        segments.append(_SAFE_MEMBER_SEGMENT.fullmatch(segment).group(0))
+    if not segments:
         raise FileFormatNotSupportedError(
-            f"The {kind} file {path!r} holds a member whose path escapes it "
-            f"({member!r}); reading it would leave the archive."
+            f"The {kind} file {path!r} holds a member with an empty name."
         )
-    return member
+    return "/".join(segments)
 
 
 def _only_member_suffix(path: str, file_i: int, kind: str) -> str:
