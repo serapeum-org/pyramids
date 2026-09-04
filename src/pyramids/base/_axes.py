@@ -62,11 +62,24 @@ Y_AXIS_NAMES_ORDERED = (
 )
 
 X_AXIS_NAMES = frozenset(X_AXIS_NAMES_ORDERED)
-Y_AXIS_NAMES = frozenset(Y_AXIS_NAMES_ORDERED)
+"""Membership form of :data:`X_AXIS_NAMES_ORDERED`.
 
-# Both halves. Derived rather than restated -- the third copy of this list used
-# to be written out, and could disagree with the two it was meant to union.
+Use this to ask *is this name an x axis*. When picking one axis from an
+array carrying several, use the ordered sequence instead -- the order is
+what keeps a projected grid from being read in degrees.
+"""
+
+Y_AXIS_NAMES = frozenset(Y_AXIS_NAMES_ORDERED)
+"""Membership form of :data:`Y_AXIS_NAMES_ORDERED`."""
+
 AXIS_NAMES = X_AXIS_NAMES | Y_AXIS_NAMES
+"""Every coordinate spelling, either axis.
+
+Derived rather than restated: a third copy of this list used to be written
+out beside the two halves it was meant to union, and could disagree with
+them. Readers that only need "is this array a coordinate" -- rather than
+which axis it is -- read this one.
+"""
 
 __all__ = [
     "AXIS_NAMES",

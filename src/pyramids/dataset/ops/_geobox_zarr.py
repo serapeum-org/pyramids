@@ -325,12 +325,40 @@ def normalize_compressors(compressor: Any) -> dict[str, Any]:
 def detect_data_var(group: Any) -> str:
     """Pick the primary data array name in a (possibly foreign) GeoZarr group.
 
-    Prefers ``"data"`` (pyramids' own name); otherwise an array carrying a
-    ``grid_mapping`` attribute; otherwise the highest-dimension array that is
-    not an obvious coordinate (``x``/``y``/``spatial_ref``/…).
+    Four rules, in order. The first two are what the store itself says; the
+    rest are inference from names, so they run only when it says nothing.
+
+    1. An array literally named `data` -- what pyramids' own writer emits.
+    2. An array carrying a CF `grid_mapping` attribute, which is the store
+       declaring "this one is the georeferenced variable". This is the escape
+       hatch for a store whose data array happens to be named like an axis.
+    3. Otherwise, the highest-dimension array whose name is not a known
+       coordinate spelling at all. This is what makes a NEMO store's 2-D
+       `nav_lon` / `nav_lat` lose to the real variable.
+    4. Failing that, the highest-dimension array whose name is not *only* ever
+       a coordinate. `east`, `north`, `long` and `x_dim` are axis spellings and
+       also ordinary names for a data array -- an eastward wind component, say
+       -- so a store holding nothing else is read rather than refused. A name
+       that is only ever a coordinate, like `nav_lat` or `rlon`, is excluded
+       from both passes, so a store of only coordinates still raises.
+
+    Ties on dimension count are broken by name, because the store's own key
+    order is neither promised nor stable and the same data would otherwise read
+    back as a different variable from run to run.
+
+    Args:
+        group: An open `zarr` group.
+
+    Returns:
+        str: The name of the array to read as the raster's data.
 
     Raises:
-        KeyError: When no candidate data array can be found.
+        KeyError: No candidate data array could be found -- every array in the
+            group is a name that is only ever a coordinate.
+
+    See Also:
+        pyramids.base._axes: The shared coordinate vocabulary rules 3 and 4
+            consult.
     """
     if "data" in group:
         return "data"

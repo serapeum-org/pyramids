@@ -45,6 +45,10 @@ def transform(
     Returns:
         The reprojected `(minx, miny, maxx, maxy)` bbox in `dst_crs` units.
 
+    Raises:
+        pyramids.base._errors.CRSError: Either CRS could not be interpreted by
+            `pyproj.CRS.from_user_input`.
+
     Examples:
         - A same-CRS transform is an identity (modulo float noise):
             ```python
@@ -66,6 +70,10 @@ def transform(
             True
 
             ```
+
+    See Also:
+        pyramids.feature.bbox: Re-exports this function under the name
+            callers used before it moved down to `base`.
     """
     src = crs_from_user_input(src_crs)
     dst = crs_from_user_input(dst_crs)
