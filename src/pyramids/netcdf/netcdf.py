@@ -3421,13 +3421,16 @@ class NetCDF(Dataset):
                 # references its raster yet, so mutate it in place (copy=False) to avoid
                 # an O(n^2) per-variable MEM copy on wide cubes (#143).
                 result.set_variable(var_name, ds, copy=False)
+                # `set_variable` carries `_variable_attrs` but not the packing
+                # slots, which GDAL keeps outside the attribute dictionary.
+                NetCDF._carry_variable_attrs(result, var_name, var)
 
         self._carry_aux_variables(cast("NetCDF", result), aux_vars, operation)
         return cast("NetCDF", result)
 
     @staticmethod
     def _carry_variable_attrs(container: NetCDF, var_name: str, source: Any) -> None:
-        """Copy a source variable's own CF attributes onto a rebuilt variable.
+        """Copy a source variable's own CF attributes and packing onto a rebuild.
 
         The rebuild routes go through `from_array`, which accepts CF *global*
         attributes only, so per-variable attributes such as `long_name` and
@@ -3435,16 +3438,50 @@ class NetCDF(Dataset):
         MDArray is the same channel `set_variable` uses, without the second
         array write that re-stamping would cost.
 
+        The packing -- `scale_factor` / `add_offset` -- is carried the same
+        way, through `SetScale` / `SetOffset` rather than as attributes. GDAL
+        lifts those two out of the attribute dictionary into the MDArray's own
+        scale and offset slots, so they are absent from `_variable_attrs` and
+        the attribute write above cannot restore them. Losing them silently
+        corrupted a container-wide operation on a packed variable by the
+        packing factor: the fan-out writes the array `read_array()` returns,
+        which is **raw** (`unpack=False` is the default), so the rebuilt
+        variable holds packed counts with nothing left to say they are packed.
+        On the suite's own `scale_factor=0.01` fixture,
+        `nc.crop(mask).get_variable("z").read_array(unpack=True)` came back a
+        hundredfold off from `nc.get_variable("z").crop(mask)` -- the same
+        request, spelled the other way round. Because the stored array stays
+        raw, restoring the slots cannot double-apply.
+
         Args:
             container: The freshly built container holding `var_name`.
             var_name: Name of the variable to stamp.
-            source: The variable the attributes are copied from.
+            source: The variable the attributes and packing are copied from.
         """
         attrs = dict(getattr(source, "_variable_attrs", {}) or {})
-        rg = container._working_group() if attrs else None
+        scale = getattr(source, "_scale", None)
+        offset = getattr(source, "_offset", None)
+        rg = (
+            container._working_group()
+            if attrs or scale is not None or offset is not None
+            else None
+        )
         md_arr = open_mdarray(rg, var_name) if rg is not None else None
         if md_arr is not None:
-            write_attributes_to_md_array(md_arr, attrs)
+            if attrs:
+                write_attributes_to_md_array(md_arr, attrs)
+            # A driver that does not carry packing answers `RuntimeError`
+            # rather than storing it. That is not a reason to fail the
+            # operation -- the array itself is intact either way -- so the
+            # loss is left to the same read path that would have found no
+            # packing on the source.
+            try:
+                if scale is not None:
+                    md_arr.SetScale(scale)
+                if offset is not None:
+                    md_arr.SetOffset(offset)
+            except (RuntimeError, AttributeError):
+                pass
 
     def _warn_demoted_variables(self, rg, aux_vars, operation, warn_demoted) -> None:
         """Warn about auxiliary variables carried through untransformed for lack of spatial axes.
