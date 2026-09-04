@@ -641,11 +641,18 @@ def is_cf_time_units(units: str | None) -> bool:
     then handed back as raw numbers, with nothing raised. This is the one rule
     both questions now use.
 
+    Total: anything that is not a string is not a time unit. GDAL attributes
+    are normalised into scalars *or lists*, so a `units` written as a
+    one-element array is a real input, and the CF compliance checker exists to
+    *report* on malformed files rather than to crash on one.
+
     Args:
-        units: The CF `units` string, or `None`.
+        units: The CF `units` attribute -- a string, `None`, or whatever a
+            malformed file put there.
 
     Returns:
-        bool: True when `units` has the `<period> since <timestamp>` shape.
+        bool: True when `units` is a string with the `<period> since
+            <timestamp>` shape.
 
     Examples:
         - The ordinary form, and the uppercase one that used to decode wrong:
@@ -664,6 +671,15 @@ def is_cf_time_units(units: str | None) -> bool:
             (False, False)
 
             ```
+        - Neither is a `units` a malformed file wrote as a list or a number:
+            ```python
+            >>> from pyramids.netcdf.utils import is_cf_time_units
+            >>> is_cf_time_units(["days since 1970-01-01"])
+            False
+            >>> is_cf_time_units(1)
+            False
+
+            ```
         - `since` has to be a word with a period and an epoch around it, so a
           unit that merely contains the letters is not matched:
             ```python
@@ -676,7 +692,7 @@ def is_cf_time_units(units: str | None) -> bool:
     See Also:
         decode_cf_time: Decodes the axes this identifies.
     """
-    return bool(units) and _CF_TIME_UNITS.search(units) is not None
+    return isinstance(units, str) and _CF_TIME_UNITS.search(units) is not None
 
 
 # The epoch every pyramids writer counts from, and the calendar it declares.

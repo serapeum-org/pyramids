@@ -12,10 +12,12 @@ pyramids' own guard rejected it.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
-from pyramids.netcdf.cf import detect_axis
+from pyramids.netcdf.cf import _check_coordinate_variable, detect_axis
 from pyramids.netcdf.utils import decode_cf_time, is_cf_time_units
 
 pytestmark = pytest.mark.core
@@ -137,3 +139,56 @@ class TestDetectionAndDecodingAgree:
 
         assert decoded is values or np.array_equal(decoded, values)
         assert decoded.dtype.kind == "f"
+
+
+class TestThePredicateIsTotal:
+    """A malformed file must be reported on, not crash the reporter.
+
+    GDAL attributes are normalised into scalars *or lists*, so a `units`
+    attribute written as a one-element array is a real input. The predicate
+    reaches `re.search`, which raises on anything that is not a string --
+    and `check_cf_compliance` exists precisely to describe files like that.
+    """
+
+    @pytest.mark.parametrize(
+        "units",
+        [
+            ["days since 1970-01-01"],
+            [],
+            b"days since 1970-01-01",
+            1,
+            3.5,
+            {"units": "days since 1970-01-01"},
+        ],
+        ids=["list", "empty-list", "bytes", "int", "float", "dict"],
+    )
+    def test_a_non_string_units_is_not_a_time_axis(self, units):
+        """Every one of these raised `TypeError` out of the predicate.
+
+        Args:
+            units: A `units` attribute value that is not a string.
+
+        Test scenario:
+            The answer is False -- these are not CF time units -- and the
+            important part is that answering does not raise.
+        """
+        assert is_cf_time_units(units) is False
+
+    def test_the_compliance_checker_reports_rather_than_crashing(self):
+        """The consumer that made this matter.
+
+        Test scenario:
+            `_check_coordinate_variable` runs over whatever a file contains. A
+            coordinate whose `units` is a one-element list is exactly the sort
+            of malformation the checker is meant to describe, so it has to
+            survive reading it.
+        """
+        variable = SimpleNamespace(
+            name="time",
+            attributes={"units": ["days since 1970-01-01"]},
+            unit=None,
+        )
+
+        issues = _check_coordinate_variable("time", variable)
+
+        assert isinstance(issues, list)
