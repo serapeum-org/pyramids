@@ -654,6 +654,9 @@ class NetCDF(Dataset):
         # Caches (invalidated by _replace_raster, add_variable, remove_variable)
         self._cached_variables: dict[str, NetCDF] | None = None
         self._cached_meta_data: NetCDFMetadata | None = None
+        # Memoised `geotransform`; see that property. Cleared wherever
+        # `_geotransform` is reassigned, so the two cannot disagree.
+        self._derived_geotransform: tuple | None = None
         # Origin-tracking attributes set by get_variable (RT-4)
         self._parent_nc: NetCDF | None = None
         self._source_var_name: str | None = None
@@ -937,7 +940,25 @@ class NetCDF(Dataset):
 
     @property
     def geotransform(self):
-        """Geotransform.
+        """Geotransform, derived from the coordinate arrays and then cached.
+
+        Deriving it reads the `lon` / `lat` MDArrays, which costs about 13 ms
+        on a modest container. `RasterBase.transform` reads this property on
+        every access, and `xy` / `_get_indices` read `transform` per call, so
+        an uncached derivation made a loop of point lookups re-read the
+        coordinate arrays once per point. The value is memoised and cleared
+        wherever `_geotransform` itself is reassigned.
+
+        Returns:
+            tuple[float, float, float, float, float, float]: The GDAL
+            geotransform.
+        """
+        if self._derived_geotransform is None:
+            self._derived_geotransform = self._compute_geotransform()
+        return self._derived_geotransform
+
+    def _compute_geotransform(self):
+        """Derive the geotransform from the coordinate arrays.
 
         Computes from lon/lat coordinate arrays if available.
         Falls back to the parent GDAL GetGeoTransform() otherwise.
@@ -1671,6 +1692,7 @@ class NetCDF(Dataset):
         # ~20x slower than reading the view directly and, over a Y-reversed view, raised
         # "arrayStartIdx[...] >= <dim>" on each windowed block.
         # `_classic_geotransform` returns GDAL's 6-element affine as an unsized `tuple[float, ...]`.
+        self._derived_geotransform = None
         self._geotransform = cast(
             "tuple[float, float, float, float, float, float]", correct
         )
@@ -5643,6 +5665,7 @@ class NetCDF(Dataset):
         if cube._md_x_flipped and gt[1] < 0:
             gt = (gt[0] + gt[1] * cube._columns, -gt[1], gt[2], gt[3], gt[4], gt[5])
         if gt != cube._geotransform:
+            cube._derived_geotransform = None
             cube._geotransform = gt
             cube._cell_size = GeoTransform(*gt).cell_size
 
@@ -5688,6 +5711,7 @@ class NetCDF(Dataset):
                     # The VRT reads through the MDArray view, so keep that view alive.
                     cube._view_source = cube._raster
                     cube._raster = vrt
+                    cube._derived_geotransform = None
                     cube._geotransform = real_gt
                     cube._cell_size = GeoTransform(*real_gt).cell_size
         return cube
@@ -6274,6 +6298,7 @@ class NetCDF(Dataset):
             old.FlushCache()
         # RasterBase state
         self._raster = new_raster
+        self._derived_geotransform = None
         self._geotransform = new_raster.GetGeoTransform()
         self._cell_size = GeoTransform(*self._geotransform).cell_size
         self._file_name = new_raster.GetDescription()
