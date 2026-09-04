@@ -366,21 +366,23 @@ def detect_data_var(group: Any) -> str:
     for name in arrays:
         if "grid_mapping" in dict(group[name].attrs):
             return name
-    # Two tiers. First prefer an array that is not a known coordinate spelling
-    # at all -- that is what lets a NEMO store's 2-D `nav_lon` / `nav_lat` lose
-    # to the real variable. Failing that, accept one of the ambiguous names,
-    # so a store whose only variable is called `east` is readable rather than
-    # undecidable. A name that is only ever a coordinate stays excluded in both
-    # tiers, so a store holding nothing else still raises.
-    candidates = [n for n in arrays if n not in _NON_DATA_ARRAYS]
-    if not candidates:
-        candidates = [n for n in arrays if n not in _NEVER_DATA_ARRAYS]
+    # Names that are only ever coordinates are out entirely; everything else
+    # competes. Dimensionality decides first, because a store's data array
+    # outranks its coordinates, and the name only breaks ties: preferring a
+    # non-coordinate name outright let a 1-D `depth` -- or a 0-D CF
+    # grid-mapping variable named for its projection -- beat a 3-D array that
+    # happened to be called `east`.
+    candidates = [n for n in arrays if n not in _NEVER_DATA_ARRAYS]
     if not candidates:
         raise KeyError(f"no data array found in zarr group; arrays={arrays}")
-    # Sorted before the max so the tie-break is by name. `array_keys()` does not
+    # Sorted first so the final tie-break is by name. `array_keys()` does not
     # promise an order and does not give a stable one, so a store with two
-    # equal-rank candidates otherwise reads as a different variable run to run.
-    return max(sorted(candidates), key=lambda n: group[n].ndim)
+    # equally-ranked candidates otherwise reads as a different variable run to
+    # run.
+    return max(
+        sorted(candidates),
+        key=lambda n: (group[n].ndim, n not in _NON_DATA_ARRAYS),
+    )
 
 
 def _transform_from_xy(group: Any) -> tuple[float, ...]:

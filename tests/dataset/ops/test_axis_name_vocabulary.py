@@ -225,17 +225,80 @@ class TestAnAxisNameCanStillBeAData_Array:
 
     @pytest.mark.lazy
     @needs_zarr
-    def test_a_real_variable_still_beats_an_axis_named_one(self, tmp_path):
-        """The preference only applies when there is something to prefer.
+    def test_a_real_variable_of_equal_rank_wins_the_tie(self, tmp_path):
+        """The name only decides between arrays of the same rank.
+
+        Args:
+            tmp_path: Fixture supplying a temporary directory.
 
         Test scenario:
-            With both `east` and `sst` present, `sst` is not a coordinate
-            spelling at all, so the first tier picks it and `east` is treated
-            as the coordinate it probably is.
+            `east` and `sst` are both 2-D, so dimensionality cannot separate
+            them. `sst` is not a coordinate spelling at all, and that is what
+            breaks the tie -- `east` is treated as the coordinate it probably
+            is.
         """
         store = tmp_path / "mixed.zarr"
         group = zarr.open_group(str(store), mode="w")
         for name in ("east", "north", "sst"):
+            array = group.create_array(name, shape=(6, 8), dtype="float32")
+            array[:] = np.ones((6, 8), dtype=np.float32)
+
+        assert detect_data_var(group) == "sst"
+
+    @pytest.mark.lazy
+    @needs_zarr
+    @pytest.mark.parametrize(
+        ("other_name", "other_shape"),
+        [
+            ("depth", (2,)),
+            ("deptht", (2,)),
+            ("lev", (2,)),
+            ("polar_stereographic", ()),
+        ],
+        ids=["depth", "deptht", "lev", "grid-mapping"],
+    )
+    def test_rank_beats_the_name(self, tmp_path, other_name, other_shape):
+        """A lower-rank non-coordinate name must not outrank the real data.
+
+        Args:
+            tmp_path: Fixture supplying a temporary directory.
+            other_name: A non-axis-named array of lower rank.
+            other_shape: Its shape -- 1-D level axis, or a 0-D grid mapping.
+
+        Test scenario:
+            Preferring "not a coordinate spelling" outright let a 1-D `depth`,
+            or a scalar CF grid-mapping variable named for its projection, beat
+            a 2-D array called `east`. Only `spatial_ref` and `crs` are
+            recognised grid-mapping spellings, so a store naming its own
+            `polar_stereographic` was read as that variable.
+        """
+        store = tmp_path / "ranked.zarr"
+        group = zarr.open_group(str(store), mode="w")
+        for name in ("east", "north"):
+            array = group.create_array(name, shape=(6, 8), dtype="float32")
+            array[:] = np.ones((6, 8), dtype=np.float32)
+        other = group.create_array(other_name, shape=other_shape, dtype="float32")
+        if other_shape:
+            other[:] = np.ones(other_shape, dtype=np.float32)
+
+        assert detect_data_var(group) == "east"
+
+    @pytest.mark.lazy
+    @needs_zarr
+    def test_a_higher_rank_coordinate_name_still_loses_to_real_data(self, tmp_path):
+        """Rank first must not undo the NEMO fix.
+
+        Args:
+            tmp_path: Fixture supplying a temporary directory.
+
+        Test scenario:
+            `nav_lon` / `nav_lat` are 2-D, the same rank as `sst`, so the name
+            still decides -- which is the case the shared vocabulary was
+            introduced for.
+        """
+        store = tmp_path / "nemo_ranked.zarr"
+        group = zarr.open_group(str(store), mode="w")
+        for name in ("nav_lat", "nav_lon", "sst"):
             array = group.create_array(name, shape=(6, 8), dtype="float32")
             array[:] = np.ones((6, 8), dtype=np.float32)
 
