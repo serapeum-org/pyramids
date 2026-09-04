@@ -172,11 +172,65 @@ class TestWhyTheSignMattered:
         assert grid_size(240.0, 180.0, (cell, cell), max_px=None) == (8, 6)
 
     def test_two_rasters_of_one_resolution_compare_equal(self):
-        """Alignment checks compare these scalars directly.
+        """A mirrored grid and a north-up one are the same *resolution*.
 
         Test scenario:
-            A mirrored raster and a north-up one with 30-unit cells have the
-            same resolution. While one reported -30, the alignment comparison
-            in `Spatial` treated them as differently-sized grids.
+            Both have 30-unit cells, so as a size they compare equal. That is
+            what a resolution question wants -- but it is not enough for a
+            co-registration question, which is why `_assert_crop_aligned`
+            compares the axis directions separately rather than relying on
+            this scalar to carry them. See the class below.
         """
         assert _raster(WEST_FLIPPED).cell_size == _raster(NORTH_UP).cell_size
+
+
+class TestAMagnitudeIsNotACoRegistrationCheck:
+    """Making `cell_size` a magnitude removed a signal one consumer relied on.
+
+    `Spatial._assert_crop_aligned` compared the top-left corner and this
+    scalar. The sign was the only term distinguishing a grid from its mirror,
+    so once the scalar became a magnitude, a west-flipped mask sharing a
+    top-left corner compared identical on both terms -- and `crop` proceeded
+    across two rasters covering disjoint ground.
+
+    The fix is in the guard, not the scalar: a size cannot be negative, so the
+    directions are compared on the transform instead.
+    """
+
+    @pytest.mark.parametrize(
+        ("label", "mask_geotransform"),
+        [
+            ("mirrored-x", (0.0, -30.0, 0.0, 180.0, 0.0, -30.0)),
+            ("flipped-y", (0.0, 30.0, 0.0, 180.0, 0.0, 30.0)),
+        ],
+    )
+    def test_a_crop_against_a_flipped_mask_is_refused(
+        self, label: str, mask_geotransform
+    ):
+        """The two grids share an origin and a cell size but not a direction.
+
+        Args:
+            label: Which axis is reversed.
+            mask_geotransform: The mask's GDAL 6-tuple.
+
+        Test scenario:
+            A west-flipped mask sharing the source's top-left corner covers the
+            ground to its *west* -- disjoint from the source. Cropping one
+            against the other returned an array rather than raising.
+        """
+        source = _raster(NORTH_UP)
+        mask = _raster(mask_geotransform)
+
+        with pytest.raises(ValueError, match="upper left corner"):
+            source.crop(mask)
+
+    def test_an_identically_gridded_mask_is_still_accepted(self):
+        """The guard must not have become a blanket refusal.
+
+        Test scenario:
+            Two rasters on the same grid are exactly what `_crop_aligned` is
+            for, so the added direction check must leave them alone.
+        """
+        source = _raster(NORTH_UP)
+
+        assert source.crop(_raster(NORTH_UP)).shape[-2:] == (6, 8)

@@ -1276,9 +1276,27 @@ class Spatial(_Engine["Dataset"]):
                 "Two rasters have different number of columns or rows, please resample or match both rasters"
             )
         if isinstance(mask, RasterBase):
+            # `cell_size` is a magnitude by definition -- a size cannot be
+            # negative -- so on its own it no longer distinguishes a grid from
+            # its mirror. Two rasters sharing a top-left corner and a cell
+            # magnitude can run in opposite directions and cover disjoint
+            # ground, and this is a co-registration check, so the axis
+            # directions are compared as well.
+            #
+            # Only the directions, not the whole transform: the y resolutions
+            # of two co-registered rasters legitimately differ here (the
+            # Sentinel fixtures this guard has always accepted have the same
+            # pixel width and different pixel heights), and tightening that is
+            # a separate decision from catching a mirror.
+            source_gt = self._ds.geotransform
+            mask_gt = mask.geotransform
+            flipped = math.copysign(1.0, source_gt[1]) != math.copysign(
+                1.0, mask_gt[1]
+            ) or math.copysign(1.0, source_gt[5]) != math.copysign(1.0, mask_gt[5])
             if (
                 self._ds.top_left_corner != mask.top_left_corner
                 or self._ds.cell_size != mask.cell_size
+                or flipped
             ):
                 raise ValueError(
                     "the location of the upper left corner of both rasters is not the same or cell size is "
