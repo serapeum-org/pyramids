@@ -3371,6 +3371,23 @@ class NetCDF(Dataset):
             # no_data_value is a TUPLE, so the old `isinstance(..., list)` test never fired and the
             # full per-band tuple leaked into from_array (ARC-29). scalar_no_data handles both.
             var_ndv_scalar = scalar_no_data(var_ndv)
+            # A NaN sentinel cannot be stored in an integer band, and GDAL does
+            # not refuse it -- it writes 0, which is an ordinary value of every
+            # integer type. On the suite's `int16` COARDS fixture, whose file
+            # declares *no* no-data at all, a container-wide crop came back
+            # declaring 0 as its no-data while the same crop taken per variable
+            # did not, so masking the container's result blanked real cells.
+            # Carrying no sentinel is what the source says and what the
+            # per-variable path effectively means; fabricating one that
+            # collides with the data is the only outcome that is wrong.
+            if var_ndv_scalar is not None and np.issubdtype(
+                np.asarray(var_arr).dtype, np.integer
+            ):
+                try:
+                    if np.isnan(float(var_ndv_scalar)):
+                        var_ndv_scalar = None
+                except (TypeError, ValueError):
+                    pass
             extra_dims = (
                 [
                     (name, var._band_dim_values_map.get(name))

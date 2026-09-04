@@ -32,6 +32,9 @@ DATA = Path(__file__).parents[1] / "data" / "netcdf"
 # Two variables, packed with *different* factors (0.01/1.5 and 0.1/2.5), so a
 # carry that stamped one factor onto every variable would fail rather than pass.
 PACKED = DATA / "coards__4v__1d2-2d2__scaleoffset__y-asc.nc"
+# An int16 store that declares no no-data at all, which is what makes a
+# fabricated sentinel visible: 0 is an ordinary value of the type.
+INTEGER = DATA / "coards__4v__1d3-3d1__y-desc.nc"
 UNPACKED = DATA / "cf__5v__1d4-4d1__y-asc.nc"
 
 
@@ -194,3 +197,75 @@ class TestAnUnpackedVariableGainsNoPacking:
 
         assert cropped._scale is None, f"invented a scale: {cropped._scale}"
         assert cropped._offset is None, f"invented an offset: {cropped._offset}"
+
+
+class TestTheFanOutInventsNoNoDataSentinel:
+    """A sentinel an integer band cannot hold must not be written as 0."""
+
+    def test_an_integer_variable_keeps_its_absent_no_data(self):
+        """The regression: a crop declared 0 no-data on a store that had none.
+
+        Test scenario:
+            The fixture's `air` is `int16` and its file declares no no-data.
+            The rebuild was handed a NaN sentinel, which no integer type can
+            hold -- and GDAL does not refuse it, it writes 0. Every cell
+            genuinely equal to 0 then reads back as missing, so masking the
+            container's result blanks real data. The per-variable crop of the
+            same variable never did this.
+        """
+        container = NetCDF.read_file(str(INTEGER))
+        source = container.get_variable("air")
+        assert set(source.no_data_value) == {None}, "fixture must declare no no-data"
+        west, south, east, north = source.bounds.total_bounds
+        mask = gpd.GeoDataFrame(
+            geometry=[box(west, south, east, north)], crs=source.crs
+        )
+
+        cropped = container.crop(mask).get_variable("air")
+
+        assert set(cropped.no_data_value) == {None}, (
+            f"a sentinel was invented: {set(cropped.no_data_value)}"
+        )
+
+    def test_the_data_itself_is_untouched(self):
+        """Dropping the sentinel must not change a single cell.
+
+        Test scenario:
+            The fix is about what the result *declares*, not what it holds.
+            The array has to be the same one the per-variable path produces,
+            or the sentinel change would be masking a real difference.
+        """
+        container = NetCDF.read_file(str(INTEGER))
+        source = container.get_variable("air")
+        west, south, east, north = source.bounds.total_bounds
+        mask = gpd.GeoDataFrame(
+            geometry=[box(west, south, east, north)], crs=source.crs
+        )
+
+        per_variable = container.get_variable("air").crop(mask).read_array()
+        via_container = container.crop(mask).get_variable("air").read_array()
+
+        assert np.array_equal(np.asarray(per_variable), np.asarray(via_container)), (
+            "the rebuilt array differs from the per-variable one"
+        )
+
+    def test_a_float_variable_still_carries_its_nan_sentinel(self):
+        """The guard is for integer bands only.
+
+        Test scenario:
+            A float band can hold NaN, and a NaN sentinel there is both
+            representable and meaningful. Dropping it everywhere would strip
+            the masking from every floating-point container operation.
+        """
+        container = NetCDF.read_file(str(PACKED))
+        source = container.get_variable("z")
+        west, south, east, north = source.bounds.total_bounds
+        mask = gpd.GeoDataFrame(
+            geometry=[box(west, south, east, north)], crs=source.crs
+        )
+
+        cropped = container.crop(mask).get_variable("z")
+
+        assert all(np.isnan(value) for value in cropped.no_data_value), (
+            f"the float sentinel was dropped: {cropped.no_data_value}"
+        )
