@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -10733,13 +10733,7 @@ round-trips to the source elevation within one <code>interval</code>.</p>
 <span class="normal"><a href="#__codelineno-0-4326">4326</a></span>
 <span class="normal"><a href="#__codelineno-0-4327">4327</a></span>
 <span class="normal"><a href="#__codelineno-0-4328">4328</a></span>
-<span class="normal"><a href="#__codelineno-0-4329">4329</a></span>
-<span class="normal"><a href="#__codelineno-0-4330">4330</a></span>
-<span class="normal"><a href="#__codelineno-0-4331">4331</a></span>
-<span class="normal"><a href="#__codelineno-0-4332">4332</a></span>
-<span class="normal"><a href="#__codelineno-0-4333">4333</a></span>
-<span class="normal"><a href="#__codelineno-0-4334">4334</a></span>
-<span class="normal"><a href="#__codelineno-0-4335">4335</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-427" name="__codelineno-0-427"></a><span class="k">class</span><span class="w"> </span><span class="nc">IO</span><span class="p">(</span><span class="n">_Engine</span><span class="p">[</span><span class="s2">"Dataset"</span><span class="p">]):</span>
+<span class="normal"><a href="#__codelineno-0-4329">4329</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-427" name="__codelineno-0-427"></a><span class="k">class</span><span class="w"> </span><span class="nc">IO</span><span class="p">(</span><span class="n">_Engine</span><span class="p">[</span><span class="s2">"Dataset"</span><span class="p">]):</span>
 <a id="__codelineno-0-428" name="__codelineno-0-428"></a>    <span class="nd">@under_gdal_env</span>
 <a id="__codelineno-0-429" name="__codelineno-0-429"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">read_array</span><span class="p">(</span>
 <a id="__codelineno-0-430" name="__codelineno-0-430"></a>        <span class="bp">self</span><span class="p">,</span>
@@ -14515,139 +14509,133 @@ round-trips to the source elevation within one <code>interval</code>.</p>
 <a id="__codelineno-0-4200" name="__codelineno-0-4200"></a>        <span class="p">]</span>
 <a id="__codelineno-0-4201" name="__codelineno-0-4201"></a>        <span class="n">arr</span> <span class="o">=</span> <span class="n">planes</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">if</span> <span class="n">band</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">np</span><span class="o">.</span><span class="n">stack</span><span class="p">(</span><span class="n">planes</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
 <a id="__codelineno-0-4202" name="__codelineno-0-4202"></a>        <span class="n">rows</span><span class="p">,</span> <span class="n">columns</span> <span class="o">=</span> <span class="n">planes</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span>
-<a id="__codelineno-0-4203" name="__codelineno-0-4203"></a>        <span class="n">geo</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">geotransform</span>
-<a id="__codelineno-0-4204" name="__codelineno-0-4204"></a>        <span class="c1"># Scale all four resolution/rotation terms, as GDALOverviewDataset does: leaving</span>
-<a id="__codelineno-0-4205" name="__codelineno-0-4205"></a>        <span class="c1"># the rotation terms unscaled shears every pixel but the origin on a skewed grid.</span>
-<a id="__codelineno-0-4206" name="__codelineno-0-4206"></a>        <span class="n">x_ratio</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">columns</span> <span class="o">/</span> <span class="n">columns</span>
-<a id="__codelineno-0-4207" name="__codelineno-0-4207"></a>        <span class="n">y_ratio</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">rows</span> <span class="o">/</span> <span class="n">rows</span>
-<a id="__codelineno-0-4208" name="__codelineno-0-4208"></a>        <span class="n">scaled_geo</span> <span class="o">=</span> <span class="p">(</span>
-<a id="__codelineno-0-4209" name="__codelineno-0-4209"></a>            <span class="n">geo</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
-<a id="__codelineno-0-4210" name="__codelineno-0-4210"></a>            <span class="n">geo</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">*</span> <span class="n">x_ratio</span><span class="p">,</span>
-<a id="__codelineno-0-4211" name="__codelineno-0-4211"></a>            <span class="n">geo</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">*</span> <span class="n">y_ratio</span><span class="p">,</span>
-<a id="__codelineno-0-4212" name="__codelineno-0-4212"></a>            <span class="n">geo</span><span class="p">[</span><span class="mi">3</span><span class="p">],</span>
-<a id="__codelineno-0-4213" name="__codelineno-0-4213"></a>            <span class="n">geo</span><span class="p">[</span><span class="mi">4</span><span class="p">]</span> <span class="o">*</span> <span class="n">x_ratio</span><span class="p">,</span>
-<a id="__codelineno-0-4214" name="__codelineno-0-4214"></a>            <span class="n">geo</span><span class="p">[</span><span class="mi">5</span><span class="p">]</span> <span class="o">*</span> <span class="n">y_ratio</span><span class="p">,</span>
-<a id="__codelineno-0-4215" name="__codelineno-0-4215"></a>        <span class="p">)</span>
-<a id="__codelineno-0-4216" name="__codelineno-0-4216"></a>        <span class="n">parent_no_data</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">no_data_value</span><span class="p">[</span><span class="n">index</span><span class="p">]</span> <span class="k">for</span> <span class="n">index</span> <span class="ow">in</span> <span class="n">selection</span><span class="p">]</span>
-<a id="__codelineno-0-4217" name="__codelineno-0-4217"></a>        <span class="c1"># Build with no no-data at all, then declare it only for the bands that actually</span>
-<a id="__codelineno-0-4218" name="__codelineno-0-4218"></a>        <span class="c1"># had one. Handing the builder a list containing Nones coerces each None into a</span>
-<a id="__codelineno-0-4219" name="__codelineno-0-4219"></a>        <span class="c1"># real sentinel (nan), which invents a no-data the parent never had -- and a</span>
-<a id="__codelineno-0-4220" name="__codelineno-0-4220"></a>        <span class="c1"># parent may well declare it on some bands and not others.</span>
-<a id="__codelineno-0-4221" name="__codelineno-0-4221"></a>        <span class="c1"># `epsg` alone is None for a CRS with no authority code (a geostationary</span>
-<a id="__codelineno-0-4222" name="__codelineno-0-4222"></a>        <span class="c1"># grid, say), which would clear the projection outright.</span>
-<a id="__codelineno-0-4223" name="__codelineno-0-4223"></a>        <span class="n">overview</span> <span class="o">=</span> <span class="n">_Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span>
-<a id="__codelineno-0-4224" name="__codelineno-0-4224"></a>            <span class="n">arr</span><span class="p">,</span>
-<a id="__codelineno-0-4225" name="__codelineno-0-4225"></a>            <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span>
-<a id="__codelineno-0-4226" name="__codelineno-0-4226"></a>                <span class="n">geo</span><span class="o">=</span><span class="n">scaled_geo</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="n">crs_spec</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">epsg</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">crs</span><span class="p">)</span>
-<a id="__codelineno-0-4227" name="__codelineno-0-4227"></a>            <span class="p">),</span>
-<a id="__codelineno-0-4228" name="__codelineno-0-4228"></a>            <span class="n">no_data_value</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-4229" name="__codelineno-0-4229"></a>        <span class="p">)</span>
-<a id="__codelineno-0-4230" name="__codelineno-0-4230"></a>        <span class="k">for</span> <span class="n">position</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">parent_no_data</span><span class="p">):</span>
-<a id="__codelineno-0-4231" name="__codelineno-0-4231"></a>            <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-4232" name="__codelineno-0-4232"></a>                <span class="n">overview</span><span class="o">.</span><span class="n">bands</span><span class="o">.</span><span class="n">_change_no_data_value_attr</span><span class="p">(</span><span class="n">position</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
-<a id="__codelineno-0-4233" name="__codelineno-0-4233"></a>        <span class="c1"># from_array hands back a "write" handle; label it like the VRT branch so</span>
-<a id="__codelineno-0-4234" name="__codelineno-0-4234"></a>        <span class="c1"># one public method does not report two different access modes.</span>
-<a id="__codelineno-0-4235" name="__codelineno-0-4235"></a>        <span class="n">overview</span><span class="o">.</span><span class="n">_access</span> <span class="o">=</span> <span class="s2">"read_only"</span>
-<a id="__codelineno-0-4236" name="__codelineno-0-4236"></a>        <span class="k">return</span> <span class="n">overview</span>
-<a id="__codelineno-0-4237" name="__codelineno-0-4237"></a>
-<a id="__codelineno-0-4238" name="__codelineno-0-4238"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">read_overview_array</span><span class="p">(</span>
-<a id="__codelineno-0-4239" name="__codelineno-0-4239"></a>        <span class="bp">self</span><span class="p">,</span> <span class="n">band</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">overview_index</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
-<a id="__codelineno-0-4240" name="__codelineno-0-4240"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">typing</span><span class="o">.</span><span class="n">NDArray</span><span class="p">:</span>
-<a id="__codelineno-0-4241" name="__codelineno-0-4241"></a><span class="w">        </span><span class="sd">"""Read overview values.</span>
-<a id="__codelineno-0-4242" name="__codelineno-0-4242"></a><span class="sd">            - Read the values stored in a given band or overview.</span>
-<a id="__codelineno-0-4243" name="__codelineno-0-4243"></a><span class="sd">        Args:</span>
-<a id="__codelineno-0-4244" name="__codelineno-0-4244"></a><span class="sd">            band (int | None):</span>
-<a id="__codelineno-0-4245" name="__codelineno-0-4245"></a><span class="sd">                The band to read. If None and multiple bands exist, reads all bands at the given overview.</span>
-<a id="__codelineno-0-4246" name="__codelineno-0-4246"></a><span class="sd">            overview_index (int):</span>
-<a id="__codelineno-0-4247" name="__codelineno-0-4247"></a><span class="sd">                Index of the overview. Defaults to 0.</span>
-<a id="__codelineno-0-4248" name="__codelineno-0-4248"></a><span class="sd">        Returns:</span>
-<a id="__codelineno-0-4249" name="__codelineno-0-4249"></a><span class="sd">            np.ndarray:</span>
-<a id="__codelineno-0-4250" name="__codelineno-0-4250"></a><span class="sd">                Array with the values in the raster.</span>
-<a id="__codelineno-0-4251" name="__codelineno-0-4251"></a><span class="sd">        Examples:</span>
-<a id="__codelineno-0-4252" name="__codelineno-0-4252"></a><span class="sd">            - Create `Dataset` consisting of 4 bands, 10 rows, 10 columns, at lon/lat (0, 0):</span>
-<a id="__codelineno-0-4253" name="__codelineno-0-4253"></a><span class="sd">              ```python</span>
-<a id="__codelineno-0-4254" name="__codelineno-0-4254"></a><span class="sd">              &gt;&gt;&gt; import numpy as np</span>
-<a id="__codelineno-0-4255" name="__codelineno-0-4255"></a><span class="sd">              &gt;&gt;&gt; from pyramids.dataset import Dataset, GeoReference</span>
-<a id="__codelineno-0-4256" name="__codelineno-0-4256"></a><span class="sd">              &gt;&gt;&gt; arr = np.random.randint(1, 10, size=(4, 10, 10))</span>
-<a id="__codelineno-0-4257" name="__codelineno-0-4257"></a><span class="sd">              &gt;&gt;&gt; print(arr[0, :, :])     # doctest: +SKIP</span>
-<a id="__codelineno-0-4258" name="__codelineno-0-4258"></a><span class="sd">              array([[6, 3, 3, 7, 4, 8, 4, 3, 8, 7],</span>
-<a id="__codelineno-0-4259" name="__codelineno-0-4259"></a><span class="sd">                     [6, 7, 3, 7, 8, 6, 3, 4, 3, 8],</span>
-<a id="__codelineno-0-4260" name="__codelineno-0-4260"></a><span class="sd">                     [5, 8, 9, 6, 7, 7, 5, 4, 6, 4],</span>
-<a id="__codelineno-0-4261" name="__codelineno-0-4261"></a><span class="sd">                     [2, 9, 9, 5, 8, 4, 9, 6, 8, 7],</span>
-<a id="__codelineno-0-4262" name="__codelineno-0-4262"></a><span class="sd">                     [5, 8, 3, 9, 1, 5, 7, 9, 5, 9],</span>
-<a id="__codelineno-0-4263" name="__codelineno-0-4263"></a><span class="sd">                     [8, 3, 7, 2, 2, 5, 2, 8, 7, 7],</span>
-<a id="__codelineno-0-4264" name="__codelineno-0-4264"></a><span class="sd">                     [1, 1, 4, 2, 2, 2, 6, 5, 9, 2],</span>
-<a id="__codelineno-0-4265" name="__codelineno-0-4265"></a><span class="sd">                     [6, 3, 2, 9, 8, 8, 1, 9, 7, 7],</span>
-<a id="__codelineno-0-4266" name="__codelineno-0-4266"></a><span class="sd">                     [4, 1, 3, 1, 6, 7, 5, 4, 8, 7],</span>
-<a id="__codelineno-0-4267" name="__codelineno-0-4267"></a><span class="sd">                     [9, 7, 2, 1, 4, 6, 1, 2, 3, 3]], dtype=int32)</span>
-<a id="__codelineno-0-4268" name="__codelineno-0-4268"></a><span class="sd">              &gt;&gt;&gt; top_left_corner = (0, 0)</span>
-<a id="__codelineno-0-4269" name="__codelineno-0-4269"></a><span class="sd">              &gt;&gt;&gt; cell_size = 0.05</span>
-<a id="__codelineno-0-4270" name="__codelineno-0-4270"></a><span class="sd">              &gt;&gt;&gt; dataset = Dataset.from_array(</span>
-<a id="__codelineno-0-4271" name="__codelineno-0-4271"></a><span class="sd">              ...     arr,</span>
-<a id="__codelineno-0-4272" name="__codelineno-0-4272"></a><span class="sd">              ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),</span>
-<a id="__codelineno-0-4273" name="__codelineno-0-4273"></a><span class="sd">              ... )</span>
-<a id="__codelineno-0-4274" name="__codelineno-0-4274"></a>
-<a id="__codelineno-0-4275" name="__codelineno-0-4275"></a><span class="sd">              ```</span>
-<a id="__codelineno-0-4276" name="__codelineno-0-4276"></a><span class="sd">            - Create overviews using the default parameters and read overview arrays:</span>
-<a id="__codelineno-0-4277" name="__codelineno-0-4277"></a><span class="sd">              ```python</span>
-<a id="__codelineno-0-4278" name="__codelineno-0-4278"></a><span class="sd">              &gt;&gt;&gt; dataset.create_overviews()</span>
-<a id="__codelineno-0-4279" name="__codelineno-0-4279"></a><span class="sd">              &gt;&gt;&gt; print(dataset.overview_count)  # doctest: +SKIP</span>
-<a id="__codelineno-0-4280" name="__codelineno-0-4280"></a><span class="sd">              [4, 4, 4, 4]</span>
-<a id="__codelineno-0-4281" name="__codelineno-0-4281"></a><span class="sd">              &gt;&gt;&gt; arr = dataset.read_overview_array(band=0, overview_index=0)</span>
-<a id="__codelineno-0-4282" name="__codelineno-0-4282"></a><span class="sd">              &gt;&gt;&gt; print(arr)  # doctest: +SKIP</span>
-<a id="__codelineno-0-4283" name="__codelineno-0-4283"></a><span class="sd">              array([[6, 3, 4, 4, 8],</span>
-<a id="__codelineno-0-4284" name="__codelineno-0-4284"></a><span class="sd">                     [5, 9, 7, 5, 6],</span>
-<a id="__codelineno-0-4285" name="__codelineno-0-4285"></a><span class="sd">                     [5, 3, 1, 7, 5],</span>
-<a id="__codelineno-0-4286" name="__codelineno-0-4286"></a><span class="sd">                     [1, 4, 2, 6, 9],</span>
-<a id="__codelineno-0-4287" name="__codelineno-0-4287"></a><span class="sd">                     [4, 3, 6, 5, 8]], dtype=int32)</span>
-<a id="__codelineno-0-4288" name="__codelineno-0-4288"></a><span class="sd">              &gt;&gt;&gt; arr = dataset.read_overview_array(band=0, overview_index=1)</span>
-<a id="__codelineno-0-4289" name="__codelineno-0-4289"></a><span class="sd">              &gt;&gt;&gt; print(arr)  # doctest: +SKIP</span>
-<a id="__codelineno-0-4290" name="__codelineno-0-4290"></a><span class="sd">              array([[6, 7, 3],</span>
-<a id="__codelineno-0-4291" name="__codelineno-0-4291"></a><span class="sd">                     [2, 5, 6],</span>
-<a id="__codelineno-0-4292" name="__codelineno-0-4292"></a><span class="sd">                     [6, 9, 9]], dtype=int32)</span>
-<a id="__codelineno-0-4293" name="__codelineno-0-4293"></a><span class="sd">              &gt;&gt;&gt; arr = dataset.read_overview_array(band=0, overview_index=2)</span>
-<a id="__codelineno-0-4294" name="__codelineno-0-4294"></a><span class="sd">              &gt;&gt;&gt; print(arr)  # doctest: +SKIP</span>
-<a id="__codelineno-0-4295" name="__codelineno-0-4295"></a><span class="sd">              array([[6, 8],</span>
-<a id="__codelineno-0-4296" name="__codelineno-0-4296"></a><span class="sd">                     [8, 5]], dtype=int32)</span>
-<a id="__codelineno-0-4297" name="__codelineno-0-4297"></a><span class="sd">              &gt;&gt;&gt; arr = dataset.read_overview_array(band=0, overview_index=3)</span>
-<a id="__codelineno-0-4298" name="__codelineno-0-4298"></a><span class="sd">              &gt;&gt;&gt; print(arr)  # doctest: +SKIP</span>
-<a id="__codelineno-0-4299" name="__codelineno-0-4299"></a><span class="sd">              array([[6]], dtype=int32)</span>
-<a id="__codelineno-0-4300" name="__codelineno-0-4300"></a>
-<a id="__codelineno-0-4301" name="__codelineno-0-4301"></a><span class="sd">              ```</span>
-<a id="__codelineno-0-4302" name="__codelineno-0-4302"></a><span class="sd">        See Also:</span>
-<a id="__codelineno-0-4303" name="__codelineno-0-4303"></a><span class="sd">            - Dataset.create_overviews: Create the dataset overviews.</span>
-<a id="__codelineno-0-4304" name="__codelineno-0-4304"></a><span class="sd">            - Dataset.recreate_overviews: Regenerate the dataset overviews if they exist.</span>
-<a id="__codelineno-0-4305" name="__codelineno-0-4305"></a><span class="sd">            - Dataset.get_overview: Get an overview of a band.</span>
-<a id="__codelineno-0-4306" name="__codelineno-0-4306"></a><span class="sd">            - Dataset.overview_count: Number of overviews.</span>
-<a id="__codelineno-0-4307" name="__codelineno-0-4307"></a><span class="sd">            - Dataset.plot: Plot a band.</span>
-<a id="__codelineno-0-4308" name="__codelineno-0-4308"></a><span class="sd">        """</span>
-<a id="__codelineno-0-4309" name="__codelineno-0-4309"></a>        <span class="k">if</span> <span class="n">band</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">band_count</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
-<a id="__codelineno-0-4310" name="__codelineno-0-4310"></a>            <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">elem</span> <span class="o">==</span> <span class="mi">0</span> <span class="k">for</span> <span class="n">elem</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">overview_count</span><span class="p">):</span>
-<a id="__codelineno-0-4311" name="__codelineno-0-4311"></a>                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-4312" name="__codelineno-0-4312"></a>                    <span class="s2">"Some bands do not have overviews, please create overviews first"</span>
-<a id="__codelineno-0-4313" name="__codelineno-0-4313"></a>                <span class="p">)</span>
-<a id="__codelineno-0-4314" name="__codelineno-0-4314"></a>            <span class="c1"># read the array from the first overview to get the size of the array.</span>
-<a id="__codelineno-0-4315" name="__codelineno-0-4315"></a>            <span class="n">ovr_arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_overview</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">ReadAsArray</span><span class="p">())</span>
-<a id="__codelineno-0-4316" name="__codelineno-0-4316"></a>            <span class="n">arr</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span>
-<a id="__codelineno-0-4317" name="__codelineno-0-4317"></a>                <span class="p">(</span>
-<a id="__codelineno-0-4318" name="__codelineno-0-4318"></a>                    <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">band_count</span><span class="p">,</span>
-<a id="__codelineno-0-4319" name="__codelineno-0-4319"></a>                    <span class="n">ovr_arr</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
-<a id="__codelineno-0-4320" name="__codelineno-0-4320"></a>                    <span class="n">ovr_arr</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
-<a id="__codelineno-0-4321" name="__codelineno-0-4321"></a>                <span class="p">),</span>
-<a id="__codelineno-0-4322" name="__codelineno-0-4322"></a>                <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">numpy_dtype</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
-<a id="__codelineno-0-4323" name="__codelineno-0-4323"></a>            <span class="p">)</span>
-<a id="__codelineno-0-4324" name="__codelineno-0-4324"></a>            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">band_count</span><span class="p">):</span>
-<a id="__codelineno-0-4325" name="__codelineno-0-4325"></a>                <span class="n">arr</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="p">:,</span> <span class="p">:]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_overview</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">overview_index</span><span class="p">)</span><span class="o">.</span><span class="n">ReadAsArray</span><span class="p">()</span>
-<a id="__codelineno-0-4326" name="__codelineno-0-4326"></a>        <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-4327" name="__codelineno-0-4327"></a>            <span class="n">validate_band_index</span><span class="p">(</span><span class="n">band</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">band_count</span><span class="p">)</span>
-<a id="__codelineno-0-4328" name="__codelineno-0-4328"></a>            <span class="k">if</span> <span class="n">band</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-4329" name="__codelineno-0-4329"></a>                <span class="n">band</span> <span class="o">=</span> <span class="mi">0</span>
-<a id="__codelineno-0-4330" name="__codelineno-0-4330"></a>            <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">overview_count</span><span class="p">[</span><span class="n">band</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-<a id="__codelineno-0-4331" name="__codelineno-0-4331"></a>                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-4332" name="__codelineno-0-4332"></a>                    <span class="sa">f</span><span class="s2">"band </span><span class="si">{</span><span class="n">band</span><span class="si">}</span><span class="s2"> has no overviews, please create overviews first"</span>
-<a id="__codelineno-0-4333" name="__codelineno-0-4333"></a>                <span class="p">)</span>
-<a id="__codelineno-0-4334" name="__codelineno-0-4334"></a>            <span class="n">arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_overview</span><span class="p">(</span><span class="n">band</span><span class="p">,</span> <span class="n">overview_index</span><span class="p">)</span><span class="o">.</span><span class="n">ReadAsArray</span><span class="p">())</span>
-<a id="__codelineno-0-4335" name="__codelineno-0-4335"></a>        <span class="k">return</span> <span class="n">arr</span>
+<a id="__codelineno-0-4203" name="__codelineno-0-4203"></a>        <span class="c1"># `GeoTransform.scaled` carries the rationale: all four resolution and</span>
+<a id="__codelineno-0-4204" name="__codelineno-0-4204"></a>        <span class="c1"># rotation terms scale, as GDALOverviewDataset does.</span>
+<a id="__codelineno-0-4205" name="__codelineno-0-4205"></a>        <span class="n">scaled_geo</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span>
+<a id="__codelineno-0-4206" name="__codelineno-0-4206"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">transform</span><span class="o">.</span><span class="n">rescaled_to</span><span class="p">(</span>
+<a id="__codelineno-0-4207" name="__codelineno-0-4207"></a>                <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">rows</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">columns</span><span class="p">),</span> <span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">columns</span><span class="p">)</span>
+<a id="__codelineno-0-4208" name="__codelineno-0-4208"></a>            <span class="p">)</span>
+<a id="__codelineno-0-4209" name="__codelineno-0-4209"></a>        <span class="p">)</span>
+<a id="__codelineno-0-4210" name="__codelineno-0-4210"></a>        <span class="n">parent_no_data</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">no_data_value</span><span class="p">[</span><span class="n">index</span><span class="p">]</span> <span class="k">for</span> <span class="n">index</span> <span class="ow">in</span> <span class="n">selection</span><span class="p">]</span>
+<a id="__codelineno-0-4211" name="__codelineno-0-4211"></a>        <span class="c1"># Build with no no-data at all, then declare it only for the bands that actually</span>
+<a id="__codelineno-0-4212" name="__codelineno-0-4212"></a>        <span class="c1"># had one. Handing the builder a list containing Nones coerces each None into a</span>
+<a id="__codelineno-0-4213" name="__codelineno-0-4213"></a>        <span class="c1"># real sentinel (nan), which invents a no-data the parent never had -- and a</span>
+<a id="__codelineno-0-4214" name="__codelineno-0-4214"></a>        <span class="c1"># parent may well declare it on some bands and not others.</span>
+<a id="__codelineno-0-4215" name="__codelineno-0-4215"></a>        <span class="c1"># `epsg` alone is None for a CRS with no authority code (a geostationary</span>
+<a id="__codelineno-0-4216" name="__codelineno-0-4216"></a>        <span class="c1"># grid, say), which would clear the projection outright.</span>
+<a id="__codelineno-0-4217" name="__codelineno-0-4217"></a>        <span class="n">overview</span> <span class="o">=</span> <span class="n">_Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span>
+<a id="__codelineno-0-4218" name="__codelineno-0-4218"></a>            <span class="n">arr</span><span class="p">,</span>
+<a id="__codelineno-0-4219" name="__codelineno-0-4219"></a>            <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span>
+<a id="__codelineno-0-4220" name="__codelineno-0-4220"></a>                <span class="n">geo</span><span class="o">=</span><span class="n">scaled_geo</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="n">crs_spec</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">epsg</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">crs</span><span class="p">)</span>
+<a id="__codelineno-0-4221" name="__codelineno-0-4221"></a>            <span class="p">),</span>
+<a id="__codelineno-0-4222" name="__codelineno-0-4222"></a>            <span class="n">no_data_value</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-4223" name="__codelineno-0-4223"></a>        <span class="p">)</span>
+<a id="__codelineno-0-4224" name="__codelineno-0-4224"></a>        <span class="k">for</span> <span class="n">position</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">parent_no_data</span><span class="p">):</span>
+<a id="__codelineno-0-4225" name="__codelineno-0-4225"></a>            <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-4226" name="__codelineno-0-4226"></a>                <span class="n">overview</span><span class="o">.</span><span class="n">bands</span><span class="o">.</span><span class="n">_change_no_data_value_attr</span><span class="p">(</span><span class="n">position</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+<a id="__codelineno-0-4227" name="__codelineno-0-4227"></a>        <span class="c1"># from_array hands back a "write" handle; label it like the VRT branch so</span>
+<a id="__codelineno-0-4228" name="__codelineno-0-4228"></a>        <span class="c1"># one public method does not report two different access modes.</span>
+<a id="__codelineno-0-4229" name="__codelineno-0-4229"></a>        <span class="n">overview</span><span class="o">.</span><span class="n">_access</span> <span class="o">=</span> <span class="s2">"read_only"</span>
+<a id="__codelineno-0-4230" name="__codelineno-0-4230"></a>        <span class="k">return</span> <span class="n">overview</span>
+<a id="__codelineno-0-4231" name="__codelineno-0-4231"></a>
+<a id="__codelineno-0-4232" name="__codelineno-0-4232"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">read_overview_array</span><span class="p">(</span>
+<a id="__codelineno-0-4233" name="__codelineno-0-4233"></a>        <span class="bp">self</span><span class="p">,</span> <span class="n">band</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">overview_index</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
+<a id="__codelineno-0-4234" name="__codelineno-0-4234"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">typing</span><span class="o">.</span><span class="n">NDArray</span><span class="p">:</span>
+<a id="__codelineno-0-4235" name="__codelineno-0-4235"></a><span class="w">        </span><span class="sd">"""Read overview values.</span>
+<a id="__codelineno-0-4236" name="__codelineno-0-4236"></a><span class="sd">            - Read the values stored in a given band or overview.</span>
+<a id="__codelineno-0-4237" name="__codelineno-0-4237"></a><span class="sd">        Args:</span>
+<a id="__codelineno-0-4238" name="__codelineno-0-4238"></a><span class="sd">            band (int | None):</span>
+<a id="__codelineno-0-4239" name="__codelineno-0-4239"></a><span class="sd">                The band to read. If None and multiple bands exist, reads all bands at the given overview.</span>
+<a id="__codelineno-0-4240" name="__codelineno-0-4240"></a><span class="sd">            overview_index (int):</span>
+<a id="__codelineno-0-4241" name="__codelineno-0-4241"></a><span class="sd">                Index of the overview. Defaults to 0.</span>
+<a id="__codelineno-0-4242" name="__codelineno-0-4242"></a><span class="sd">        Returns:</span>
+<a id="__codelineno-0-4243" name="__codelineno-0-4243"></a><span class="sd">            np.ndarray:</span>
+<a id="__codelineno-0-4244" name="__codelineno-0-4244"></a><span class="sd">                Array with the values in the raster.</span>
+<a id="__codelineno-0-4245" name="__codelineno-0-4245"></a><span class="sd">        Examples:</span>
+<a id="__codelineno-0-4246" name="__codelineno-0-4246"></a><span class="sd">            - Create `Dataset` consisting of 4 bands, 10 rows, 10 columns, at lon/lat (0, 0):</span>
+<a id="__codelineno-0-4247" name="__codelineno-0-4247"></a><span class="sd">              ```python</span>
+<a id="__codelineno-0-4248" name="__codelineno-0-4248"></a><span class="sd">              &gt;&gt;&gt; import numpy as np</span>
+<a id="__codelineno-0-4249" name="__codelineno-0-4249"></a><span class="sd">              &gt;&gt;&gt; from pyramids.dataset import Dataset, GeoReference</span>
+<a id="__codelineno-0-4250" name="__codelineno-0-4250"></a><span class="sd">              &gt;&gt;&gt; arr = np.random.randint(1, 10, size=(4, 10, 10))</span>
+<a id="__codelineno-0-4251" name="__codelineno-0-4251"></a><span class="sd">              &gt;&gt;&gt; print(arr[0, :, :])     # doctest: +SKIP</span>
+<a id="__codelineno-0-4252" name="__codelineno-0-4252"></a><span class="sd">              array([[6, 3, 3, 7, 4, 8, 4, 3, 8, 7],</span>
+<a id="__codelineno-0-4253" name="__codelineno-0-4253"></a><span class="sd">                     [6, 7, 3, 7, 8, 6, 3, 4, 3, 8],</span>
+<a id="__codelineno-0-4254" name="__codelineno-0-4254"></a><span class="sd">                     [5, 8, 9, 6, 7, 7, 5, 4, 6, 4],</span>
+<a id="__codelineno-0-4255" name="__codelineno-0-4255"></a><span class="sd">                     [2, 9, 9, 5, 8, 4, 9, 6, 8, 7],</span>
+<a id="__codelineno-0-4256" name="__codelineno-0-4256"></a><span class="sd">                     [5, 8, 3, 9, 1, 5, 7, 9, 5, 9],</span>
+<a id="__codelineno-0-4257" name="__codelineno-0-4257"></a><span class="sd">                     [8, 3, 7, 2, 2, 5, 2, 8, 7, 7],</span>
+<a id="__codelineno-0-4258" name="__codelineno-0-4258"></a><span class="sd">                     [1, 1, 4, 2, 2, 2, 6, 5, 9, 2],</span>
+<a id="__codelineno-0-4259" name="__codelineno-0-4259"></a><span class="sd">                     [6, 3, 2, 9, 8, 8, 1, 9, 7, 7],</span>
+<a id="__codelineno-0-4260" name="__codelineno-0-4260"></a><span class="sd">                     [4, 1, 3, 1, 6, 7, 5, 4, 8, 7],</span>
+<a id="__codelineno-0-4261" name="__codelineno-0-4261"></a><span class="sd">                     [9, 7, 2, 1, 4, 6, 1, 2, 3, 3]], dtype=int32)</span>
+<a id="__codelineno-0-4262" name="__codelineno-0-4262"></a><span class="sd">              &gt;&gt;&gt; top_left_corner = (0, 0)</span>
+<a id="__codelineno-0-4263" name="__codelineno-0-4263"></a><span class="sd">              &gt;&gt;&gt; cell_size = 0.05</span>
+<a id="__codelineno-0-4264" name="__codelineno-0-4264"></a><span class="sd">              &gt;&gt;&gt; dataset = Dataset.from_array(</span>
+<a id="__codelineno-0-4265" name="__codelineno-0-4265"></a><span class="sd">              ...     arr,</span>
+<a id="__codelineno-0-4266" name="__codelineno-0-4266"></a><span class="sd">              ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),</span>
+<a id="__codelineno-0-4267" name="__codelineno-0-4267"></a><span class="sd">              ... )</span>
+<a id="__codelineno-0-4268" name="__codelineno-0-4268"></a>
+<a id="__codelineno-0-4269" name="__codelineno-0-4269"></a><span class="sd">              ```</span>
+<a id="__codelineno-0-4270" name="__codelineno-0-4270"></a><span class="sd">            - Create overviews using the default parameters and read overview arrays:</span>
+<a id="__codelineno-0-4271" name="__codelineno-0-4271"></a><span class="sd">              ```python</span>
+<a id="__codelineno-0-4272" name="__codelineno-0-4272"></a><span class="sd">              &gt;&gt;&gt; dataset.create_overviews()</span>
+<a id="__codelineno-0-4273" name="__codelineno-0-4273"></a><span class="sd">              &gt;&gt;&gt; print(dataset.overview_count)  # doctest: +SKIP</span>
+<a id="__codelineno-0-4274" name="__codelineno-0-4274"></a><span class="sd">              [4, 4, 4, 4]</span>
+<a id="__codelineno-0-4275" name="__codelineno-0-4275"></a><span class="sd">              &gt;&gt;&gt; arr = dataset.read_overview_array(band=0, overview_index=0)</span>
+<a id="__codelineno-0-4276" name="__codelineno-0-4276"></a><span class="sd">              &gt;&gt;&gt; print(arr)  # doctest: +SKIP</span>
+<a id="__codelineno-0-4277" name="__codelineno-0-4277"></a><span class="sd">              array([[6, 3, 4, 4, 8],</span>
+<a id="__codelineno-0-4278" name="__codelineno-0-4278"></a><span class="sd">                     [5, 9, 7, 5, 6],</span>
+<a id="__codelineno-0-4279" name="__codelineno-0-4279"></a><span class="sd">                     [5, 3, 1, 7, 5],</span>
+<a id="__codelineno-0-4280" name="__codelineno-0-4280"></a><span class="sd">                     [1, 4, 2, 6, 9],</span>
+<a id="__codelineno-0-4281" name="__codelineno-0-4281"></a><span class="sd">                     [4, 3, 6, 5, 8]], dtype=int32)</span>
+<a id="__codelineno-0-4282" name="__codelineno-0-4282"></a><span class="sd">              &gt;&gt;&gt; arr = dataset.read_overview_array(band=0, overview_index=1)</span>
+<a id="__codelineno-0-4283" name="__codelineno-0-4283"></a><span class="sd">              &gt;&gt;&gt; print(arr)  # doctest: +SKIP</span>
+<a id="__codelineno-0-4284" name="__codelineno-0-4284"></a><span class="sd">              array([[6, 7, 3],</span>
+<a id="__codelineno-0-4285" name="__codelineno-0-4285"></a><span class="sd">                     [2, 5, 6],</span>
+<a id="__codelineno-0-4286" name="__codelineno-0-4286"></a><span class="sd">                     [6, 9, 9]], dtype=int32)</span>
+<a id="__codelineno-0-4287" name="__codelineno-0-4287"></a><span class="sd">              &gt;&gt;&gt; arr = dataset.read_overview_array(band=0, overview_index=2)</span>
+<a id="__codelineno-0-4288" name="__codelineno-0-4288"></a><span class="sd">              &gt;&gt;&gt; print(arr)  # doctest: +SKIP</span>
+<a id="__codelineno-0-4289" name="__codelineno-0-4289"></a><span class="sd">              array([[6, 8],</span>
+<a id="__codelineno-0-4290" name="__codelineno-0-4290"></a><span class="sd">                     [8, 5]], dtype=int32)</span>
+<a id="__codelineno-0-4291" name="__codelineno-0-4291"></a><span class="sd">              &gt;&gt;&gt; arr = dataset.read_overview_array(band=0, overview_index=3)</span>
+<a id="__codelineno-0-4292" name="__codelineno-0-4292"></a><span class="sd">              &gt;&gt;&gt; print(arr)  # doctest: +SKIP</span>
+<a id="__codelineno-0-4293" name="__codelineno-0-4293"></a><span class="sd">              array([[6]], dtype=int32)</span>
+<a id="__codelineno-0-4294" name="__codelineno-0-4294"></a>
+<a id="__codelineno-0-4295" name="__codelineno-0-4295"></a><span class="sd">              ```</span>
+<a id="__codelineno-0-4296" name="__codelineno-0-4296"></a><span class="sd">        See Also:</span>
+<a id="__codelineno-0-4297" name="__codelineno-0-4297"></a><span class="sd">            - Dataset.create_overviews: Create the dataset overviews.</span>
+<a id="__codelineno-0-4298" name="__codelineno-0-4298"></a><span class="sd">            - Dataset.recreate_overviews: Regenerate the dataset overviews if they exist.</span>
+<a id="__codelineno-0-4299" name="__codelineno-0-4299"></a><span class="sd">            - Dataset.get_overview: Get an overview of a band.</span>
+<a id="__codelineno-0-4300" name="__codelineno-0-4300"></a><span class="sd">            - Dataset.overview_count: Number of overviews.</span>
+<a id="__codelineno-0-4301" name="__codelineno-0-4301"></a><span class="sd">            - Dataset.plot: Plot a band.</span>
+<a id="__codelineno-0-4302" name="__codelineno-0-4302"></a><span class="sd">        """</span>
+<a id="__codelineno-0-4303" name="__codelineno-0-4303"></a>        <span class="k">if</span> <span class="n">band</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">band_count</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+<a id="__codelineno-0-4304" name="__codelineno-0-4304"></a>            <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">elem</span> <span class="o">==</span> <span class="mi">0</span> <span class="k">for</span> <span class="n">elem</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">overview_count</span><span class="p">):</span>
+<a id="__codelineno-0-4305" name="__codelineno-0-4305"></a>                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-4306" name="__codelineno-0-4306"></a>                    <span class="s2">"Some bands do not have overviews, please create overviews first"</span>
+<a id="__codelineno-0-4307" name="__codelineno-0-4307"></a>                <span class="p">)</span>
+<a id="__codelineno-0-4308" name="__codelineno-0-4308"></a>            <span class="c1"># read the array from the first overview to get the size of the array.</span>
+<a id="__codelineno-0-4309" name="__codelineno-0-4309"></a>            <span class="n">ovr_arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_overview</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">ReadAsArray</span><span class="p">())</span>
+<a id="__codelineno-0-4310" name="__codelineno-0-4310"></a>            <span class="n">arr</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span>
+<a id="__codelineno-0-4311" name="__codelineno-0-4311"></a>                <span class="p">(</span>
+<a id="__codelineno-0-4312" name="__codelineno-0-4312"></a>                    <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">band_count</span><span class="p">,</span>
+<a id="__codelineno-0-4313" name="__codelineno-0-4313"></a>                    <span class="n">ovr_arr</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+<a id="__codelineno-0-4314" name="__codelineno-0-4314"></a>                    <span class="n">ovr_arr</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
+<a id="__codelineno-0-4315" name="__codelineno-0-4315"></a>                <span class="p">),</span>
+<a id="__codelineno-0-4316" name="__codelineno-0-4316"></a>                <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">numpy_dtype</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+<a id="__codelineno-0-4317" name="__codelineno-0-4317"></a>            <span class="p">)</span>
+<a id="__codelineno-0-4318" name="__codelineno-0-4318"></a>            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">band_count</span><span class="p">):</span>
+<a id="__codelineno-0-4319" name="__codelineno-0-4319"></a>                <span class="n">arr</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="p">:,</span> <span class="p">:]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_overview</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">overview_index</span><span class="p">)</span><span class="o">.</span><span class="n">ReadAsArray</span><span class="p">()</span>
+<a id="__codelineno-0-4320" name="__codelineno-0-4320"></a>        <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-4321" name="__codelineno-0-4321"></a>            <span class="n">validate_band_index</span><span class="p">(</span><span class="n">band</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">band_count</span><span class="p">)</span>
+<a id="__codelineno-0-4322" name="__codelineno-0-4322"></a>            <span class="k">if</span> <span class="n">band</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-4323" name="__codelineno-0-4323"></a>                <span class="n">band</span> <span class="o">=</span> <span class="mi">0</span>
+<a id="__codelineno-0-4324" name="__codelineno-0-4324"></a>            <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">overview_count</span><span class="p">[</span><span class="n">band</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+<a id="__codelineno-0-4325" name="__codelineno-0-4325"></a>                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-4326" name="__codelineno-0-4326"></a>                    <span class="sa">f</span><span class="s2">"band </span><span class="si">{</span><span class="n">band</span><span class="si">}</span><span class="s2"> has no overviews, please create overviews first"</span>
+<a id="__codelineno-0-4327" name="__codelineno-0-4327"></a>                <span class="p">)</span>
+<a id="__codelineno-0-4328" name="__codelineno-0-4328"></a>            <span class="n">arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_overview</span><span class="p">(</span><span class="n">band</span><span class="p">,</span> <span class="n">overview_index</span><span class="p">)</span><span class="o">.</span><span class="n">ReadAsArray</span><span class="p">())</span>
+<a id="__codelineno-0-4329" name="__codelineno-0-4329"></a>        <span class="k">return</span> <span class="n">arr</span>
 </code></pre></div></td></tr></table></div>
               </details>
 
@@ -22711,7 +22699,13 @@ See Also:
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/dataset/engines/io.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-4238">4238</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-4232">4232</a></span>
+<span class="normal"><a href="#__codelineno-0-4233">4233</a></span>
+<span class="normal"><a href="#__codelineno-0-4234">4234</a></span>
+<span class="normal"><a href="#__codelineno-0-4235">4235</a></span>
+<span class="normal"><a href="#__codelineno-0-4236">4236</a></span>
+<span class="normal"><a href="#__codelineno-0-4237">4237</a></span>
+<span class="normal"><a href="#__codelineno-0-4238">4238</a></span>
 <span class="normal"><a href="#__codelineno-0-4239">4239</a></span>
 <span class="normal"><a href="#__codelineno-0-4240">4240</a></span>
 <span class="normal"><a href="#__codelineno-0-4241">4241</a></span>
@@ -22802,110 +22796,104 @@ See Also:
 <span class="normal"><a href="#__codelineno-0-4326">4326</a></span>
 <span class="normal"><a href="#__codelineno-0-4327">4327</a></span>
 <span class="normal"><a href="#__codelineno-0-4328">4328</a></span>
-<span class="normal"><a href="#__codelineno-0-4329">4329</a></span>
-<span class="normal"><a href="#__codelineno-0-4330">4330</a></span>
-<span class="normal"><a href="#__codelineno-0-4331">4331</a></span>
-<span class="normal"><a href="#__codelineno-0-4332">4332</a></span>
-<span class="normal"><a href="#__codelineno-0-4333">4333</a></span>
-<span class="normal"><a href="#__codelineno-0-4334">4334</a></span>
-<span class="normal"><a href="#__codelineno-0-4335">4335</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-4238" name="__codelineno-0-4238"></a><span class="k">def</span><span class="w"> </span><span class="nf">read_overview_array</span><span class="p">(</span>
-<a id="__codelineno-0-4239" name="__codelineno-0-4239"></a>    <span class="bp">self</span><span class="p">,</span> <span class="n">band</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">overview_index</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
-<a id="__codelineno-0-4240" name="__codelineno-0-4240"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">typing</span><span class="o">.</span><span class="n">NDArray</span><span class="p">:</span>
-<a id="__codelineno-0-4241" name="__codelineno-0-4241"></a><span class="w">    </span><span class="sd">"""Read overview values.</span>
-<a id="__codelineno-0-4242" name="__codelineno-0-4242"></a><span class="sd">        - Read the values stored in a given band or overview.</span>
-<a id="__codelineno-0-4243" name="__codelineno-0-4243"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-4244" name="__codelineno-0-4244"></a><span class="sd">        band (int | None):</span>
-<a id="__codelineno-0-4245" name="__codelineno-0-4245"></a><span class="sd">            The band to read. If None and multiple bands exist, reads all bands at the given overview.</span>
-<a id="__codelineno-0-4246" name="__codelineno-0-4246"></a><span class="sd">        overview_index (int):</span>
-<a id="__codelineno-0-4247" name="__codelineno-0-4247"></a><span class="sd">            Index of the overview. Defaults to 0.</span>
-<a id="__codelineno-0-4248" name="__codelineno-0-4248"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-4249" name="__codelineno-0-4249"></a><span class="sd">        np.ndarray:</span>
-<a id="__codelineno-0-4250" name="__codelineno-0-4250"></a><span class="sd">            Array with the values in the raster.</span>
-<a id="__codelineno-0-4251" name="__codelineno-0-4251"></a><span class="sd">    Examples:</span>
-<a id="__codelineno-0-4252" name="__codelineno-0-4252"></a><span class="sd">        - Create `Dataset` consisting of 4 bands, 10 rows, 10 columns, at lon/lat (0, 0):</span>
-<a id="__codelineno-0-4253" name="__codelineno-0-4253"></a><span class="sd">          ```python</span>
-<a id="__codelineno-0-4254" name="__codelineno-0-4254"></a><span class="sd">          &gt;&gt;&gt; import numpy as np</span>
-<a id="__codelineno-0-4255" name="__codelineno-0-4255"></a><span class="sd">          &gt;&gt;&gt; from pyramids.dataset import Dataset, GeoReference</span>
-<a id="__codelineno-0-4256" name="__codelineno-0-4256"></a><span class="sd">          &gt;&gt;&gt; arr = np.random.randint(1, 10, size=(4, 10, 10))</span>
-<a id="__codelineno-0-4257" name="__codelineno-0-4257"></a><span class="sd">          &gt;&gt;&gt; print(arr[0, :, :])     # doctest: +SKIP</span>
-<a id="__codelineno-0-4258" name="__codelineno-0-4258"></a><span class="sd">          array([[6, 3, 3, 7, 4, 8, 4, 3, 8, 7],</span>
-<a id="__codelineno-0-4259" name="__codelineno-0-4259"></a><span class="sd">                 [6, 7, 3, 7, 8, 6, 3, 4, 3, 8],</span>
-<a id="__codelineno-0-4260" name="__codelineno-0-4260"></a><span class="sd">                 [5, 8, 9, 6, 7, 7, 5, 4, 6, 4],</span>
-<a id="__codelineno-0-4261" name="__codelineno-0-4261"></a><span class="sd">                 [2, 9, 9, 5, 8, 4, 9, 6, 8, 7],</span>
-<a id="__codelineno-0-4262" name="__codelineno-0-4262"></a><span class="sd">                 [5, 8, 3, 9, 1, 5, 7, 9, 5, 9],</span>
-<a id="__codelineno-0-4263" name="__codelineno-0-4263"></a><span class="sd">                 [8, 3, 7, 2, 2, 5, 2, 8, 7, 7],</span>
-<a id="__codelineno-0-4264" name="__codelineno-0-4264"></a><span class="sd">                 [1, 1, 4, 2, 2, 2, 6, 5, 9, 2],</span>
-<a id="__codelineno-0-4265" name="__codelineno-0-4265"></a><span class="sd">                 [6, 3, 2, 9, 8, 8, 1, 9, 7, 7],</span>
-<a id="__codelineno-0-4266" name="__codelineno-0-4266"></a><span class="sd">                 [4, 1, 3, 1, 6, 7, 5, 4, 8, 7],</span>
-<a id="__codelineno-0-4267" name="__codelineno-0-4267"></a><span class="sd">                 [9, 7, 2, 1, 4, 6, 1, 2, 3, 3]], dtype=int32)</span>
-<a id="__codelineno-0-4268" name="__codelineno-0-4268"></a><span class="sd">          &gt;&gt;&gt; top_left_corner = (0, 0)</span>
-<a id="__codelineno-0-4269" name="__codelineno-0-4269"></a><span class="sd">          &gt;&gt;&gt; cell_size = 0.05</span>
-<a id="__codelineno-0-4270" name="__codelineno-0-4270"></a><span class="sd">          &gt;&gt;&gt; dataset = Dataset.from_array(</span>
-<a id="__codelineno-0-4271" name="__codelineno-0-4271"></a><span class="sd">          ...     arr,</span>
-<a id="__codelineno-0-4272" name="__codelineno-0-4272"></a><span class="sd">          ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),</span>
-<a id="__codelineno-0-4273" name="__codelineno-0-4273"></a><span class="sd">          ... )</span>
-<a id="__codelineno-0-4274" name="__codelineno-0-4274"></a>
-<a id="__codelineno-0-4275" name="__codelineno-0-4275"></a><span class="sd">          ```</span>
-<a id="__codelineno-0-4276" name="__codelineno-0-4276"></a><span class="sd">        - Create overviews using the default parameters and read overview arrays:</span>
-<a id="__codelineno-0-4277" name="__codelineno-0-4277"></a><span class="sd">          ```python</span>
-<a id="__codelineno-0-4278" name="__codelineno-0-4278"></a><span class="sd">          &gt;&gt;&gt; dataset.create_overviews()</span>
-<a id="__codelineno-0-4279" name="__codelineno-0-4279"></a><span class="sd">          &gt;&gt;&gt; print(dataset.overview_count)  # doctest: +SKIP</span>
-<a id="__codelineno-0-4280" name="__codelineno-0-4280"></a><span class="sd">          [4, 4, 4, 4]</span>
-<a id="__codelineno-0-4281" name="__codelineno-0-4281"></a><span class="sd">          &gt;&gt;&gt; arr = dataset.read_overview_array(band=0, overview_index=0)</span>
-<a id="__codelineno-0-4282" name="__codelineno-0-4282"></a><span class="sd">          &gt;&gt;&gt; print(arr)  # doctest: +SKIP</span>
-<a id="__codelineno-0-4283" name="__codelineno-0-4283"></a><span class="sd">          array([[6, 3, 4, 4, 8],</span>
-<a id="__codelineno-0-4284" name="__codelineno-0-4284"></a><span class="sd">                 [5, 9, 7, 5, 6],</span>
-<a id="__codelineno-0-4285" name="__codelineno-0-4285"></a><span class="sd">                 [5, 3, 1, 7, 5],</span>
-<a id="__codelineno-0-4286" name="__codelineno-0-4286"></a><span class="sd">                 [1, 4, 2, 6, 9],</span>
-<a id="__codelineno-0-4287" name="__codelineno-0-4287"></a><span class="sd">                 [4, 3, 6, 5, 8]], dtype=int32)</span>
-<a id="__codelineno-0-4288" name="__codelineno-0-4288"></a><span class="sd">          &gt;&gt;&gt; arr = dataset.read_overview_array(band=0, overview_index=1)</span>
-<a id="__codelineno-0-4289" name="__codelineno-0-4289"></a><span class="sd">          &gt;&gt;&gt; print(arr)  # doctest: +SKIP</span>
-<a id="__codelineno-0-4290" name="__codelineno-0-4290"></a><span class="sd">          array([[6, 7, 3],</span>
-<a id="__codelineno-0-4291" name="__codelineno-0-4291"></a><span class="sd">                 [2, 5, 6],</span>
-<a id="__codelineno-0-4292" name="__codelineno-0-4292"></a><span class="sd">                 [6, 9, 9]], dtype=int32)</span>
-<a id="__codelineno-0-4293" name="__codelineno-0-4293"></a><span class="sd">          &gt;&gt;&gt; arr = dataset.read_overview_array(band=0, overview_index=2)</span>
-<a id="__codelineno-0-4294" name="__codelineno-0-4294"></a><span class="sd">          &gt;&gt;&gt; print(arr)  # doctest: +SKIP</span>
-<a id="__codelineno-0-4295" name="__codelineno-0-4295"></a><span class="sd">          array([[6, 8],</span>
-<a id="__codelineno-0-4296" name="__codelineno-0-4296"></a><span class="sd">                 [8, 5]], dtype=int32)</span>
-<a id="__codelineno-0-4297" name="__codelineno-0-4297"></a><span class="sd">          &gt;&gt;&gt; arr = dataset.read_overview_array(band=0, overview_index=3)</span>
-<a id="__codelineno-0-4298" name="__codelineno-0-4298"></a><span class="sd">          &gt;&gt;&gt; print(arr)  # doctest: +SKIP</span>
-<a id="__codelineno-0-4299" name="__codelineno-0-4299"></a><span class="sd">          array([[6]], dtype=int32)</span>
-<a id="__codelineno-0-4300" name="__codelineno-0-4300"></a>
-<a id="__codelineno-0-4301" name="__codelineno-0-4301"></a><span class="sd">          ```</span>
-<a id="__codelineno-0-4302" name="__codelineno-0-4302"></a><span class="sd">    See Also:</span>
-<a id="__codelineno-0-4303" name="__codelineno-0-4303"></a><span class="sd">        - Dataset.create_overviews: Create the dataset overviews.</span>
-<a id="__codelineno-0-4304" name="__codelineno-0-4304"></a><span class="sd">        - Dataset.recreate_overviews: Regenerate the dataset overviews if they exist.</span>
-<a id="__codelineno-0-4305" name="__codelineno-0-4305"></a><span class="sd">        - Dataset.get_overview: Get an overview of a band.</span>
-<a id="__codelineno-0-4306" name="__codelineno-0-4306"></a><span class="sd">        - Dataset.overview_count: Number of overviews.</span>
-<a id="__codelineno-0-4307" name="__codelineno-0-4307"></a><span class="sd">        - Dataset.plot: Plot a band.</span>
-<a id="__codelineno-0-4308" name="__codelineno-0-4308"></a><span class="sd">    """</span>
-<a id="__codelineno-0-4309" name="__codelineno-0-4309"></a>    <span class="k">if</span> <span class="n">band</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">band_count</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
-<a id="__codelineno-0-4310" name="__codelineno-0-4310"></a>        <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">elem</span> <span class="o">==</span> <span class="mi">0</span> <span class="k">for</span> <span class="n">elem</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">overview_count</span><span class="p">):</span>
-<a id="__codelineno-0-4311" name="__codelineno-0-4311"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-4312" name="__codelineno-0-4312"></a>                <span class="s2">"Some bands do not have overviews, please create overviews first"</span>
-<a id="__codelineno-0-4313" name="__codelineno-0-4313"></a>            <span class="p">)</span>
-<a id="__codelineno-0-4314" name="__codelineno-0-4314"></a>        <span class="c1"># read the array from the first overview to get the size of the array.</span>
-<a id="__codelineno-0-4315" name="__codelineno-0-4315"></a>        <span class="n">ovr_arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_overview</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">ReadAsArray</span><span class="p">())</span>
-<a id="__codelineno-0-4316" name="__codelineno-0-4316"></a>        <span class="n">arr</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span>
-<a id="__codelineno-0-4317" name="__codelineno-0-4317"></a>            <span class="p">(</span>
-<a id="__codelineno-0-4318" name="__codelineno-0-4318"></a>                <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">band_count</span><span class="p">,</span>
-<a id="__codelineno-0-4319" name="__codelineno-0-4319"></a>                <span class="n">ovr_arr</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
-<a id="__codelineno-0-4320" name="__codelineno-0-4320"></a>                <span class="n">ovr_arr</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
-<a id="__codelineno-0-4321" name="__codelineno-0-4321"></a>            <span class="p">),</span>
-<a id="__codelineno-0-4322" name="__codelineno-0-4322"></a>            <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">numpy_dtype</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
-<a id="__codelineno-0-4323" name="__codelineno-0-4323"></a>        <span class="p">)</span>
-<a id="__codelineno-0-4324" name="__codelineno-0-4324"></a>        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">band_count</span><span class="p">):</span>
-<a id="__codelineno-0-4325" name="__codelineno-0-4325"></a>            <span class="n">arr</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="p">:,</span> <span class="p">:]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_overview</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">overview_index</span><span class="p">)</span><span class="o">.</span><span class="n">ReadAsArray</span><span class="p">()</span>
-<a id="__codelineno-0-4326" name="__codelineno-0-4326"></a>    <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-4327" name="__codelineno-0-4327"></a>        <span class="n">validate_band_index</span><span class="p">(</span><span class="n">band</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">band_count</span><span class="p">)</span>
-<a id="__codelineno-0-4328" name="__codelineno-0-4328"></a>        <span class="k">if</span> <span class="n">band</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-4329" name="__codelineno-0-4329"></a>            <span class="n">band</span> <span class="o">=</span> <span class="mi">0</span>
-<a id="__codelineno-0-4330" name="__codelineno-0-4330"></a>        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">overview_count</span><span class="p">[</span><span class="n">band</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-<a id="__codelineno-0-4331" name="__codelineno-0-4331"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-4332" name="__codelineno-0-4332"></a>                <span class="sa">f</span><span class="s2">"band </span><span class="si">{</span><span class="n">band</span><span class="si">}</span><span class="s2"> has no overviews, please create overviews first"</span>
-<a id="__codelineno-0-4333" name="__codelineno-0-4333"></a>            <span class="p">)</span>
-<a id="__codelineno-0-4334" name="__codelineno-0-4334"></a>        <span class="n">arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_overview</span><span class="p">(</span><span class="n">band</span><span class="p">,</span> <span class="n">overview_index</span><span class="p">)</span><span class="o">.</span><span class="n">ReadAsArray</span><span class="p">())</span>
-<a id="__codelineno-0-4335" name="__codelineno-0-4335"></a>    <span class="k">return</span> <span class="n">arr</span>
+<span class="normal"><a href="#__codelineno-0-4329">4329</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-4232" name="__codelineno-0-4232"></a><span class="k">def</span><span class="w"> </span><span class="nf">read_overview_array</span><span class="p">(</span>
+<a id="__codelineno-0-4233" name="__codelineno-0-4233"></a>    <span class="bp">self</span><span class="p">,</span> <span class="n">band</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">overview_index</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
+<a id="__codelineno-0-4234" name="__codelineno-0-4234"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">typing</span><span class="o">.</span><span class="n">NDArray</span><span class="p">:</span>
+<a id="__codelineno-0-4235" name="__codelineno-0-4235"></a><span class="w">    </span><span class="sd">"""Read overview values.</span>
+<a id="__codelineno-0-4236" name="__codelineno-0-4236"></a><span class="sd">        - Read the values stored in a given band or overview.</span>
+<a id="__codelineno-0-4237" name="__codelineno-0-4237"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-4238" name="__codelineno-0-4238"></a><span class="sd">        band (int | None):</span>
+<a id="__codelineno-0-4239" name="__codelineno-0-4239"></a><span class="sd">            The band to read. If None and multiple bands exist, reads all bands at the given overview.</span>
+<a id="__codelineno-0-4240" name="__codelineno-0-4240"></a><span class="sd">        overview_index (int):</span>
+<a id="__codelineno-0-4241" name="__codelineno-0-4241"></a><span class="sd">            Index of the overview. Defaults to 0.</span>
+<a id="__codelineno-0-4242" name="__codelineno-0-4242"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-4243" name="__codelineno-0-4243"></a><span class="sd">        np.ndarray:</span>
+<a id="__codelineno-0-4244" name="__codelineno-0-4244"></a><span class="sd">            Array with the values in the raster.</span>
+<a id="__codelineno-0-4245" name="__codelineno-0-4245"></a><span class="sd">    Examples:</span>
+<a id="__codelineno-0-4246" name="__codelineno-0-4246"></a><span class="sd">        - Create `Dataset` consisting of 4 bands, 10 rows, 10 columns, at lon/lat (0, 0):</span>
+<a id="__codelineno-0-4247" name="__codelineno-0-4247"></a><span class="sd">          ```python</span>
+<a id="__codelineno-0-4248" name="__codelineno-0-4248"></a><span class="sd">          &gt;&gt;&gt; import numpy as np</span>
+<a id="__codelineno-0-4249" name="__codelineno-0-4249"></a><span class="sd">          &gt;&gt;&gt; from pyramids.dataset import Dataset, GeoReference</span>
+<a id="__codelineno-0-4250" name="__codelineno-0-4250"></a><span class="sd">          &gt;&gt;&gt; arr = np.random.randint(1, 10, size=(4, 10, 10))</span>
+<a id="__codelineno-0-4251" name="__codelineno-0-4251"></a><span class="sd">          &gt;&gt;&gt; print(arr[0, :, :])     # doctest: +SKIP</span>
+<a id="__codelineno-0-4252" name="__codelineno-0-4252"></a><span class="sd">          array([[6, 3, 3, 7, 4, 8, 4, 3, 8, 7],</span>
+<a id="__codelineno-0-4253" name="__codelineno-0-4253"></a><span class="sd">                 [6, 7, 3, 7, 8, 6, 3, 4, 3, 8],</span>
+<a id="__codelineno-0-4254" name="__codelineno-0-4254"></a><span class="sd">                 [5, 8, 9, 6, 7, 7, 5, 4, 6, 4],</span>
+<a id="__codelineno-0-4255" name="__codelineno-0-4255"></a><span class="sd">                 [2, 9, 9, 5, 8, 4, 9, 6, 8, 7],</span>
+<a id="__codelineno-0-4256" name="__codelineno-0-4256"></a><span class="sd">                 [5, 8, 3, 9, 1, 5, 7, 9, 5, 9],</span>
+<a id="__codelineno-0-4257" name="__codelineno-0-4257"></a><span class="sd">                 [8, 3, 7, 2, 2, 5, 2, 8, 7, 7],</span>
+<a id="__codelineno-0-4258" name="__codelineno-0-4258"></a><span class="sd">                 [1, 1, 4, 2, 2, 2, 6, 5, 9, 2],</span>
+<a id="__codelineno-0-4259" name="__codelineno-0-4259"></a><span class="sd">                 [6, 3, 2, 9, 8, 8, 1, 9, 7, 7],</span>
+<a id="__codelineno-0-4260" name="__codelineno-0-4260"></a><span class="sd">                 [4, 1, 3, 1, 6, 7, 5, 4, 8, 7],</span>
+<a id="__codelineno-0-4261" name="__codelineno-0-4261"></a><span class="sd">                 [9, 7, 2, 1, 4, 6, 1, 2, 3, 3]], dtype=int32)</span>
+<a id="__codelineno-0-4262" name="__codelineno-0-4262"></a><span class="sd">          &gt;&gt;&gt; top_left_corner = (0, 0)</span>
+<a id="__codelineno-0-4263" name="__codelineno-0-4263"></a><span class="sd">          &gt;&gt;&gt; cell_size = 0.05</span>
+<a id="__codelineno-0-4264" name="__codelineno-0-4264"></a><span class="sd">          &gt;&gt;&gt; dataset = Dataset.from_array(</span>
+<a id="__codelineno-0-4265" name="__codelineno-0-4265"></a><span class="sd">          ...     arr,</span>
+<a id="__codelineno-0-4266" name="__codelineno-0-4266"></a><span class="sd">          ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),</span>
+<a id="__codelineno-0-4267" name="__codelineno-0-4267"></a><span class="sd">          ... )</span>
+<a id="__codelineno-0-4268" name="__codelineno-0-4268"></a>
+<a id="__codelineno-0-4269" name="__codelineno-0-4269"></a><span class="sd">          ```</span>
+<a id="__codelineno-0-4270" name="__codelineno-0-4270"></a><span class="sd">        - Create overviews using the default parameters and read overview arrays:</span>
+<a id="__codelineno-0-4271" name="__codelineno-0-4271"></a><span class="sd">          ```python</span>
+<a id="__codelineno-0-4272" name="__codelineno-0-4272"></a><span class="sd">          &gt;&gt;&gt; dataset.create_overviews()</span>
+<a id="__codelineno-0-4273" name="__codelineno-0-4273"></a><span class="sd">          &gt;&gt;&gt; print(dataset.overview_count)  # doctest: +SKIP</span>
+<a id="__codelineno-0-4274" name="__codelineno-0-4274"></a><span class="sd">          [4, 4, 4, 4]</span>
+<a id="__codelineno-0-4275" name="__codelineno-0-4275"></a><span class="sd">          &gt;&gt;&gt; arr = dataset.read_overview_array(band=0, overview_index=0)</span>
+<a id="__codelineno-0-4276" name="__codelineno-0-4276"></a><span class="sd">          &gt;&gt;&gt; print(arr)  # doctest: +SKIP</span>
+<a id="__codelineno-0-4277" name="__codelineno-0-4277"></a><span class="sd">          array([[6, 3, 4, 4, 8],</span>
+<a id="__codelineno-0-4278" name="__codelineno-0-4278"></a><span class="sd">                 [5, 9, 7, 5, 6],</span>
+<a id="__codelineno-0-4279" name="__codelineno-0-4279"></a><span class="sd">                 [5, 3, 1, 7, 5],</span>
+<a id="__codelineno-0-4280" name="__codelineno-0-4280"></a><span class="sd">                 [1, 4, 2, 6, 9],</span>
+<a id="__codelineno-0-4281" name="__codelineno-0-4281"></a><span class="sd">                 [4, 3, 6, 5, 8]], dtype=int32)</span>
+<a id="__codelineno-0-4282" name="__codelineno-0-4282"></a><span class="sd">          &gt;&gt;&gt; arr = dataset.read_overview_array(band=0, overview_index=1)</span>
+<a id="__codelineno-0-4283" name="__codelineno-0-4283"></a><span class="sd">          &gt;&gt;&gt; print(arr)  # doctest: +SKIP</span>
+<a id="__codelineno-0-4284" name="__codelineno-0-4284"></a><span class="sd">          array([[6, 7, 3],</span>
+<a id="__codelineno-0-4285" name="__codelineno-0-4285"></a><span class="sd">                 [2, 5, 6],</span>
+<a id="__codelineno-0-4286" name="__codelineno-0-4286"></a><span class="sd">                 [6, 9, 9]], dtype=int32)</span>
+<a id="__codelineno-0-4287" name="__codelineno-0-4287"></a><span class="sd">          &gt;&gt;&gt; arr = dataset.read_overview_array(band=0, overview_index=2)</span>
+<a id="__codelineno-0-4288" name="__codelineno-0-4288"></a><span class="sd">          &gt;&gt;&gt; print(arr)  # doctest: +SKIP</span>
+<a id="__codelineno-0-4289" name="__codelineno-0-4289"></a><span class="sd">          array([[6, 8],</span>
+<a id="__codelineno-0-4290" name="__codelineno-0-4290"></a><span class="sd">                 [8, 5]], dtype=int32)</span>
+<a id="__codelineno-0-4291" name="__codelineno-0-4291"></a><span class="sd">          &gt;&gt;&gt; arr = dataset.read_overview_array(band=0, overview_index=3)</span>
+<a id="__codelineno-0-4292" name="__codelineno-0-4292"></a><span class="sd">          &gt;&gt;&gt; print(arr)  # doctest: +SKIP</span>
+<a id="__codelineno-0-4293" name="__codelineno-0-4293"></a><span class="sd">          array([[6]], dtype=int32)</span>
+<a id="__codelineno-0-4294" name="__codelineno-0-4294"></a>
+<a id="__codelineno-0-4295" name="__codelineno-0-4295"></a><span class="sd">          ```</span>
+<a id="__codelineno-0-4296" name="__codelineno-0-4296"></a><span class="sd">    See Also:</span>
+<a id="__codelineno-0-4297" name="__codelineno-0-4297"></a><span class="sd">        - Dataset.create_overviews: Create the dataset overviews.</span>
+<a id="__codelineno-0-4298" name="__codelineno-0-4298"></a><span class="sd">        - Dataset.recreate_overviews: Regenerate the dataset overviews if they exist.</span>
+<a id="__codelineno-0-4299" name="__codelineno-0-4299"></a><span class="sd">        - Dataset.get_overview: Get an overview of a band.</span>
+<a id="__codelineno-0-4300" name="__codelineno-0-4300"></a><span class="sd">        - Dataset.overview_count: Number of overviews.</span>
+<a id="__codelineno-0-4301" name="__codelineno-0-4301"></a><span class="sd">        - Dataset.plot: Plot a band.</span>
+<a id="__codelineno-0-4302" name="__codelineno-0-4302"></a><span class="sd">    """</span>
+<a id="__codelineno-0-4303" name="__codelineno-0-4303"></a>    <span class="k">if</span> <span class="n">band</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">band_count</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+<a id="__codelineno-0-4304" name="__codelineno-0-4304"></a>        <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">elem</span> <span class="o">==</span> <span class="mi">0</span> <span class="k">for</span> <span class="n">elem</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">overview_count</span><span class="p">):</span>
+<a id="__codelineno-0-4305" name="__codelineno-0-4305"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-4306" name="__codelineno-0-4306"></a>                <span class="s2">"Some bands do not have overviews, please create overviews first"</span>
+<a id="__codelineno-0-4307" name="__codelineno-0-4307"></a>            <span class="p">)</span>
+<a id="__codelineno-0-4308" name="__codelineno-0-4308"></a>        <span class="c1"># read the array from the first overview to get the size of the array.</span>
+<a id="__codelineno-0-4309" name="__codelineno-0-4309"></a>        <span class="n">ovr_arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_overview</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">ReadAsArray</span><span class="p">())</span>
+<a id="__codelineno-0-4310" name="__codelineno-0-4310"></a>        <span class="n">arr</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span>
+<a id="__codelineno-0-4311" name="__codelineno-0-4311"></a>            <span class="p">(</span>
+<a id="__codelineno-0-4312" name="__codelineno-0-4312"></a>                <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">band_count</span><span class="p">,</span>
+<a id="__codelineno-0-4313" name="__codelineno-0-4313"></a>                <span class="n">ovr_arr</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+<a id="__codelineno-0-4314" name="__codelineno-0-4314"></a>                <span class="n">ovr_arr</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
+<a id="__codelineno-0-4315" name="__codelineno-0-4315"></a>            <span class="p">),</span>
+<a id="__codelineno-0-4316" name="__codelineno-0-4316"></a>            <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">numpy_dtype</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+<a id="__codelineno-0-4317" name="__codelineno-0-4317"></a>        <span class="p">)</span>
+<a id="__codelineno-0-4318" name="__codelineno-0-4318"></a>        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">band_count</span><span class="p">):</span>
+<a id="__codelineno-0-4319" name="__codelineno-0-4319"></a>            <span class="n">arr</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="p">:,</span> <span class="p">:]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_overview</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">overview_index</span><span class="p">)</span><span class="o">.</span><span class="n">ReadAsArray</span><span class="p">()</span>
+<a id="__codelineno-0-4320" name="__codelineno-0-4320"></a>    <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-4321" name="__codelineno-0-4321"></a>        <span class="n">validate_band_index</span><span class="p">(</span><span class="n">band</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">band_count</span><span class="p">)</span>
+<a id="__codelineno-0-4322" name="__codelineno-0-4322"></a>        <span class="k">if</span> <span class="n">band</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-4323" name="__codelineno-0-4323"></a>            <span class="n">band</span> <span class="o">=</span> <span class="mi">0</span>
+<a id="__codelineno-0-4324" name="__codelineno-0-4324"></a>        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">overview_count</span><span class="p">[</span><span class="n">band</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+<a id="__codelineno-0-4325" name="__codelineno-0-4325"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-4326" name="__codelineno-0-4326"></a>                <span class="sa">f</span><span class="s2">"band </span><span class="si">{</span><span class="n">band</span><span class="si">}</span><span class="s2"> has no overviews, please create overviews first"</span>
+<a id="__codelineno-0-4327" name="__codelineno-0-4327"></a>            <span class="p">)</span>
+<a id="__codelineno-0-4328" name="__codelineno-0-4328"></a>        <span class="n">arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_overview</span><span class="p">(</span><span class="n">band</span><span class="p">,</span> <span class="n">overview_index</span><span class="p">)</span><span class="o">.</span><span class="n">ReadAsArray</span><span class="p">())</span>
+<a id="__codelineno-0-4329" name="__codelineno-0-4329"></a>    <span class="k">return</span> <span class="n">arr</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>

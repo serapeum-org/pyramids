@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -9375,8 +9375,7 @@ client is chosen by <code>stac_asset</code> from each asset href.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/stac/download.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-36">36</a></span>
-<span class="normal"><a href="#__codelineno-0-37">37</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-37">37</a></span>
 <span class="normal"><a href="#__codelineno-0-38">38</a></span>
 <span class="normal"><a href="#__codelineno-0-39">39</a></span>
 <span class="normal"><a href="#__codelineno-0-40">40</a></span>
@@ -9422,54 +9421,55 @@ client is chosen by <code>stac_asset</code> from each asset href.</p>
 <span class="normal"><a href="#__codelineno-0-80">80</a></span>
 <span class="normal"><a href="#__codelineno-0-81">81</a></span>
 <span class="normal"><a href="#__codelineno-0-82">82</a></span>
-<span class="normal"><a href="#__codelineno-0-83">83</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-36" name="__codelineno-0-36"></a><span class="k">def</span><span class="w"> </span><span class="nf">download_item</span><span class="p">(</span>
-<a id="__codelineno-0-37" name="__codelineno-0-37"></a>    <span class="n">item</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
-<a id="__codelineno-0-38" name="__codelineno-0-38"></a>    <span class="n">directory</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
-<a id="__codelineno-0-39" name="__codelineno-0-39"></a>    <span class="o">*</span><span class="p">,</span>
-<a id="__codelineno-0-40" name="__codelineno-0-40"></a>    <span class="n">include</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-41" name="__codelineno-0-41"></a>    <span class="n">exclude</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-42" name="__codelineno-0-42"></a>    <span class="n">s3_requester_pays</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
-<a id="__codelineno-0-43" name="__codelineno-0-43"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
-<a id="__codelineno-0-44" name="__codelineno-0-44"></a><span class="w">    </span><span class="sd">"""Download a STAC Item's assets to a local directory.</span>
-<a id="__codelineno-0-45" name="__codelineno-0-45"></a>
-<a id="__codelineno-0-46" name="__codelineno-0-46"></a><span class="sd">    A thin, synchronous wrapper over ``stac_asset.blocking.download_item`` (the</span>
-<a id="__codelineno-0-47" name="__codelineno-0-47"></a><span class="sd">    async `download_item` cannot run inside a live event loop). The per-protocol</span>
-<a id="__codelineno-0-48" name="__codelineno-0-48"></a><span class="sd">    client is chosen by `stac_asset` from each asset href.</span>
-<a id="__codelineno-0-49" name="__codelineno-0-49"></a>
-<a id="__codelineno-0-50" name="__codelineno-0-50"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-51" name="__codelineno-0-51"></a><span class="sd">        item: A `pystac.Item` (stac-asset operates on pystac objects).</span>
-<a id="__codelineno-0-52" name="__codelineno-0-52"></a><span class="sd">        directory: Destination directory for the downloaded assets.</span>
-<a id="__codelineno-0-53" name="__codelineno-0-53"></a><span class="sd">        include: Optional asset keys to include (others skipped).</span>
-<a id="__codelineno-0-54" name="__codelineno-0-54"></a><span class="sd">        exclude: Optional asset keys to exclude.</span>
-<a id="__codelineno-0-55" name="__codelineno-0-55"></a><span class="sd">        s3_requester_pays: Opt into Requester-Pays for `s3://` assets.</span>
-<a id="__codelineno-0-56" name="__codelineno-0-56"></a>
-<a id="__codelineno-0-57" name="__codelineno-0-57"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-58" name="__codelineno-0-58"></a><span class="sd">        The downloaded `pystac.Item` (with asset hrefs rewritten to the local</span>
-<a id="__codelineno-0-59" name="__codelineno-0-59"></a><span class="sd">        paths), as returned by `stac_asset`.</span>
-<a id="__codelineno-0-60" name="__codelineno-0-60"></a>
-<a id="__codelineno-0-61" name="__codelineno-0-61"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-62" name="__codelineno-0-62"></a><span class="sd">        OptionalPackageDoesNotExist: When `stac-asset` is not installed.</span>
-<a id="__codelineno-0-63" name="__codelineno-0-63"></a>
-<a id="__codelineno-0-64" name="__codelineno-0-64"></a><span class="sd">    Examples:</span>
-<a id="__codelineno-0-65" name="__codelineno-0-65"></a><span class="sd">        - Download an item's assets, then build a collection from the locals</span>
-<a id="__codelineno-0-66" name="__codelineno-0-66"></a><span class="sd">          (requires the `[stac]` extra + network):</span>
-<a id="__codelineno-0-67" name="__codelineno-0-67"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-68" name="__codelineno-0-68"></a><span class="sd">            &gt;&gt;&gt; from pyramids.stac import download_item  # doctest: +SKIP</span>
-<a id="__codelineno-0-69" name="__codelineno-0-69"></a><span class="sd">            &gt;&gt;&gt; local = download_item(item, "scenes/")  # doctest: +SKIP</span>
-<a id="__codelineno-0-70" name="__codelineno-0-70"></a><span class="sd">            &gt;&gt;&gt; hrefs = [a.href for a in local.assets.values()]  # doctest: +SKIP</span>
-<a id="__codelineno-0-71" name="__codelineno-0-71"></a>
-<a id="__codelineno-0-72" name="__codelineno-0-72"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-73" name="__codelineno-0-73"></a><span class="sd">    """</span>
-<a id="__codelineno-0-74" name="__codelineno-0-74"></a>    <span class="n">import_stac_asset</span><span class="p">(</span><span class="n">_STAC_ASSET_INSTALL_HINT</span><span class="p">)</span>
-<a id="__codelineno-0-75" name="__codelineno-0-75"></a>    <span class="kn">import</span><span class="w"> </span><span class="nn">stac_asset.blocking</span>
-<a id="__codelineno-0-76" name="__codelineno-0-76"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">stac_asset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Config</span>
-<a id="__codelineno-0-77" name="__codelineno-0-77"></a>
-<a id="__codelineno-0-78" name="__codelineno-0-78"></a>    <span class="n">config</span> <span class="o">=</span> <span class="n">Config</span><span class="p">(</span>
-<a id="__codelineno-0-79" name="__codelineno-0-79"></a>        <span class="n">include</span><span class="o">=</span><span class="nb">list</span><span class="p">(</span><span class="n">include</span><span class="p">)</span> <span class="k">if</span> <span class="n">include</span> <span class="k">else</span> <span class="p">[],</span>
-<a id="__codelineno-0-80" name="__codelineno-0-80"></a>        <span class="n">exclude</span><span class="o">=</span><span class="nb">list</span><span class="p">(</span><span class="n">exclude</span><span class="p">)</span> <span class="k">if</span> <span class="n">exclude</span> <span class="k">else</span> <span class="p">[],</span>
-<a id="__codelineno-0-81" name="__codelineno-0-81"></a>        <span class="n">s3_requester_pays</span><span class="o">=</span><span class="n">s3_requester_pays</span><span class="p">,</span>
-<a id="__codelineno-0-82" name="__codelineno-0-82"></a>    <span class="p">)</span>
-<a id="__codelineno-0-83" name="__codelineno-0-83"></a>    <span class="k">return</span> <span class="n">stac_asset</span><span class="o">.</span><span class="n">blocking</span><span class="o">.</span><span class="n">download_item</span><span class="p">(</span><span class="n">item</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">directory</span><span class="p">),</span> <span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-83">83</a></span>
+<span class="normal"><a href="#__codelineno-0-84">84</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-37" name="__codelineno-0-37"></a><span class="k">def</span><span class="w"> </span><span class="nf">download_item</span><span class="p">(</span>
+<a id="__codelineno-0-38" name="__codelineno-0-38"></a>    <span class="n">item</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+<a id="__codelineno-0-39" name="__codelineno-0-39"></a>    <span class="n">directory</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
+<a id="__codelineno-0-40" name="__codelineno-0-40"></a>    <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-0-41" name="__codelineno-0-41"></a>    <span class="n">include</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-42" name="__codelineno-0-42"></a>    <span class="n">exclude</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-43" name="__codelineno-0-43"></a>    <span class="n">s3_requester_pays</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-44" name="__codelineno-0-44"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<a id="__codelineno-0-45" name="__codelineno-0-45"></a><span class="w">    </span><span class="sd">"""Download a STAC Item's assets to a local directory.</span>
+<a id="__codelineno-0-46" name="__codelineno-0-46"></a>
+<a id="__codelineno-0-47" name="__codelineno-0-47"></a><span class="sd">    A thin, synchronous wrapper over ``stac_asset.blocking.download_item`` (the</span>
+<a id="__codelineno-0-48" name="__codelineno-0-48"></a><span class="sd">    async `download_item` cannot run inside a live event loop). The per-protocol</span>
+<a id="__codelineno-0-49" name="__codelineno-0-49"></a><span class="sd">    client is chosen by `stac_asset` from each asset href.</span>
+<a id="__codelineno-0-50" name="__codelineno-0-50"></a>
+<a id="__codelineno-0-51" name="__codelineno-0-51"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-52" name="__codelineno-0-52"></a><span class="sd">        item: A `pystac.Item` (stac-asset operates on pystac objects).</span>
+<a id="__codelineno-0-53" name="__codelineno-0-53"></a><span class="sd">        directory: Destination directory for the downloaded assets.</span>
+<a id="__codelineno-0-54" name="__codelineno-0-54"></a><span class="sd">        include: Optional asset keys to include (others skipped).</span>
+<a id="__codelineno-0-55" name="__codelineno-0-55"></a><span class="sd">        exclude: Optional asset keys to exclude.</span>
+<a id="__codelineno-0-56" name="__codelineno-0-56"></a><span class="sd">        s3_requester_pays: Opt into Requester-Pays for `s3://` assets.</span>
+<a id="__codelineno-0-57" name="__codelineno-0-57"></a>
+<a id="__codelineno-0-58" name="__codelineno-0-58"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-59" name="__codelineno-0-59"></a><span class="sd">        The downloaded `pystac.Item` (with asset hrefs rewritten to the local</span>
+<a id="__codelineno-0-60" name="__codelineno-0-60"></a><span class="sd">        paths), as returned by `stac_asset`.</span>
+<a id="__codelineno-0-61" name="__codelineno-0-61"></a>
+<a id="__codelineno-0-62" name="__codelineno-0-62"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-63" name="__codelineno-0-63"></a><span class="sd">        OptionalPackageDoesNotExist: When `stac-asset` is not installed.</span>
+<a id="__codelineno-0-64" name="__codelineno-0-64"></a>
+<a id="__codelineno-0-65" name="__codelineno-0-65"></a><span class="sd">    Examples:</span>
+<a id="__codelineno-0-66" name="__codelineno-0-66"></a><span class="sd">        - Download an item's assets, then build a collection from the locals</span>
+<a id="__codelineno-0-67" name="__codelineno-0-67"></a><span class="sd">          (requires the `[stac]` extra + network):</span>
+<a id="__codelineno-0-68" name="__codelineno-0-68"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-69" name="__codelineno-0-69"></a><span class="sd">            &gt;&gt;&gt; from pyramids.stac import download_item  # doctest: +SKIP</span>
+<a id="__codelineno-0-70" name="__codelineno-0-70"></a><span class="sd">            &gt;&gt;&gt; local = download_item(item, "scenes/")  # doctest: +SKIP</span>
+<a id="__codelineno-0-71" name="__codelineno-0-71"></a><span class="sd">            &gt;&gt;&gt; hrefs = [a.href for a in local.assets.values()]  # doctest: +SKIP</span>
+<a id="__codelineno-0-72" name="__codelineno-0-72"></a>
+<a id="__codelineno-0-73" name="__codelineno-0-73"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-74" name="__codelineno-0-74"></a><span class="sd">    """</span>
+<a id="__codelineno-0-75" name="__codelineno-0-75"></a>    <span class="n">import_stac_asset</span><span class="p">(</span><span class="n">_STAC_ASSET_INSTALL_HINT</span><span class="p">)</span>
+<a id="__codelineno-0-76" name="__codelineno-0-76"></a>    <span class="kn">import</span><span class="w"> </span><span class="nn">stac_asset.blocking</span>
+<a id="__codelineno-0-77" name="__codelineno-0-77"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">stac_asset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Config</span>
+<a id="__codelineno-0-78" name="__codelineno-0-78"></a>
+<a id="__codelineno-0-79" name="__codelineno-0-79"></a>    <span class="n">config</span> <span class="o">=</span> <span class="n">Config</span><span class="p">(</span>
+<a id="__codelineno-0-80" name="__codelineno-0-80"></a>        <span class="n">include</span><span class="o">=</span><span class="nb">list</span><span class="p">(</span><span class="n">include</span><span class="p">)</span> <span class="k">if</span> <span class="n">include</span> <span class="k">else</span> <span class="p">[],</span>
+<a id="__codelineno-0-81" name="__codelineno-0-81"></a>        <span class="n">exclude</span><span class="o">=</span><span class="nb">list</span><span class="p">(</span><span class="n">exclude</span><span class="p">)</span> <span class="k">if</span> <span class="n">exclude</span> <span class="k">else</span> <span class="p">[],</span>
+<a id="__codelineno-0-82" name="__codelineno-0-82"></a>        <span class="n">s3_requester_pays</span><span class="o">=</span><span class="n">s3_requester_pays</span><span class="p">,</span>
+<a id="__codelineno-0-83" name="__codelineno-0-83"></a>    <span class="p">)</span>
+<a id="__codelineno-0-84" name="__codelineno-0-84"></a>    <span class="k">return</span> <span class="n">stac_asset</span><span class="o">.</span><span class="n">blocking</span><span class="o">.</span><span class="n">download_item</span><span class="p">(</span><span class="n">item</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">directory</span><span class="p">),</span> <span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
