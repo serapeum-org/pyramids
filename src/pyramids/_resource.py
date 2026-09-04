@@ -53,10 +53,12 @@ _TAR_GZ_SUFFIX = ".tar.gz"
 
 _RASTER_SUFFIXES = {".tif", ".tiff", ".cog", ".nc", ".nc4", ".vrt"}
 # Raster suffixes whose reader is `NetCDF`, not the plain `Dataset` reader.
-# `.cdf` is deliberately absent: `_RASTER_SUFFIXES` above does not list it
-# either, so such a file never reaches the raster reader and an entry here
-# could never be consulted.
-_NETCDF_SUFFIXES = {".nc", ".nc4"}
+# `.cdf` belongs here even though `_RASTER_SUFFIXES` does not list it: a file
+# with an unlisted suffix falls through to `sniff_format`, which maps `.cdf`
+# to "nc" and so to the raster kind. Dropping it sent such a file to the
+# plain raster reader, which returns a band-less Dataset -- the same defect
+# `640b6b538` fixed for `.nc`.
+_NETCDF_SUFFIXES = {".nc", ".nc4", ".cdf"}
 _VECTOR_SUFFIXES = {
     ".gpkg",
     ".shp",

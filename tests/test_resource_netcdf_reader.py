@@ -56,13 +56,31 @@ class TestNetcdfResourcesReachTheNetcdfReader:
         """A netCDF is still in the raster family; only the reader changed."""
         assert sniff_kind("cube.nc") == "raster"
 
-    @pytest.mark.parametrize("suffix", [".nc", ".nc4"])
+    @pytest.mark.parametrize("suffix", [".nc", ".nc4", ".cdf"])
     def test_every_netcdf_suffix_routes_the_same_way(self, suffix: str, tmp_path: Path):
-        """`.nc` and `.nc4` are the same format under two names."""
+        """The same format under three names, content deciding the reader.
+
+        Args:
+            suffix: A netCDF file extension.
+            tmp_path: Fixture supplying a temporary directory.
+
+        Test scenario:
+            `.cdf` is the one that needs saying. It is absent from
+            `_RASTER_SUFFIXES`, which makes the netCDF suffix set look as
+            though it could never be consulted for such a file -- but an
+            unlisted suffix falls through to `sniff_format`, which maps `.cdf`
+            to "nc" and back to the raster kind. Leaving it out of this
+            parametrize is what let it be dropped from the suffix set
+            unnoticed, sending the file to the plain raster reader and back as
+            a band-less `Dataset`.
+        """
         destination = tmp_path / f"cube{suffix}"
         shutil.copy(FIXTURE, destination)
 
-        assert isinstance(read_resource(str(destination)), NetCDF)
+        resource = read_resource(str(destination))
+
+        assert isinstance(resource, NetCDF)
+        assert resource.variable_names, f"{suffix} enumerated no variables"
 
     def test_a_geotiff_still_reads_as_a_plain_dataset(self, tmp_path: Path):
         """The other raster suffixes are untouched."""
