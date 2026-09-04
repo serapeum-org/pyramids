@@ -16,7 +16,13 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from pyramids.base._axes import AXIS_NAMES, X_AXIS_NAMES, Y_AXIS_NAMES
+from pyramids.base._axes import (
+    AXIS_NAMES,
+    X_AXIS_NAMES,
+    X_AXIS_NAMES_ORDERED,
+    Y_AXIS_NAMES,
+    Y_AXIS_NAMES_ORDERED,
+)
 from pyramids.dataset.dataset import (
     _AXIS_VARIABLE_NAMES,
     _X_AXIS_NAMES,
@@ -270,3 +276,139 @@ class TestAnAxisNameCanStillBeAData_Array:
             the ambiguous ones sit between, excluded first and allowed second.
         """
         assert _ALWAYS_COORDS <= _NEVER_DATA_ARRAYS <= _NON_DATA_ARRAYS
+
+
+class TestTheOrderedSequences:
+    """Order is part of the definition, so its shape is pinned too."""
+
+    @pytest.mark.core
+    @pytest.mark.parametrize(
+        ("ordered", "first"),
+        [(X_AXIS_NAMES_ORDERED, "x"), (Y_AXIS_NAMES_ORDERED, "y")],
+        ids=["x", "y"],
+    )
+    def test_the_grid_dimension_name_comes_first(self, ordered, first):
+        """The whole point of the ordering, stated on the sequence itself.
+
+        Args:
+            ordered: One of the two preference sequences.
+            first: The name that must lead it.
+
+        Test scenario:
+            A reader picking one axis from an array carrying several has to
+            reach the grid's own dimension before any auxiliary alias, so `x`
+            and `y` lead. Sorting alphabetically puts `east` and `lat` first,
+            which is the regression this ordering exists to prevent.
+        """
+        assert ordered[0] == first
+
+    @pytest.mark.core
+    @pytest.mark.parametrize(
+        "ordered",
+        [X_AXIS_NAMES_ORDERED, Y_AXIS_NAMES_ORDERED],
+        ids=["x", "y"],
+    )
+    def test_the_geographic_aliases_come_last(self, ordered):
+        """On a projected grid these describe the same cells in other units.
+
+        Args:
+            ordered: One of the two preference sequences.
+
+        Test scenario:
+            Every `lon`/`lat`-family spelling must sit after every
+            dimension/projected one, or a projected grid carrying auxiliary
+            degree coordinates picks the degrees.
+        """
+        geographic = {"lon", "long", "longitude", "nav_lon", "lat", "latitude", "nav_lat"}
+        positions = [i for i, name in enumerate(ordered) if name in geographic]
+        others = [i for i, name in enumerate(ordered) if name not in geographic]
+
+        assert min(positions) > max(others)
+
+    @pytest.mark.core
+    @pytest.mark.parametrize(
+        "ordered",
+        [X_AXIS_NAMES_ORDERED, Y_AXIS_NAMES_ORDERED],
+        ids=["x", "y"],
+    )
+    def test_a_sequence_lists_each_name_once(self, ordered):
+        """A repeat would make the preference order ambiguous.
+
+        Args:
+            ordered: One of the two preference sequences.
+        """
+        assert len(ordered) == len(set(ordered))
+
+    @pytest.mark.core
+    @pytest.mark.parametrize(
+        "ordered",
+        [X_AXIS_NAMES_ORDERED, Y_AXIS_NAMES_ORDERED],
+        ids=["x", "y"],
+    )
+    def test_every_name_is_lowercase(self, ordered):
+        """Lookups compare raw coordinate names against these directly.
+
+        Args:
+            ordered: One of the two preference sequences.
+
+        Test scenario:
+            Nothing lowercases a store's coordinate names before the
+            comparison, so a capitalised entry here would simply never match.
+        """
+        assert all(name == name.lower() for name in ordered)
+
+    @pytest.mark.core
+    def test_the_sets_are_exactly_their_sequences(self):
+        """Derived, so the two spellings of the vocabulary cannot diverge."""
+        assert X_AXIS_NAMES == frozenset(X_AXIS_NAMES_ORDERED)
+        assert Y_AXIS_NAMES == frozenset(Y_AXIS_NAMES_ORDERED)
+        assert AXIS_NAMES == frozenset(X_AXIS_NAMES_ORDERED + Y_AXIS_NAMES_ORDERED)
+
+
+class TestTheEarlierBranchesOfDetectDataVar:
+    """The two branches that run before the vocabulary is consulted."""
+
+    @pytest.mark.lazy
+    @needs_zarr
+    def test_an_array_literally_named_data_short_circuits(self, tmp_path):
+        """pyramids' own writer names it `data`; nothing else is examined.
+
+        Args:
+            tmp_path: Fixture supplying a temporary directory.
+
+        Test scenario:
+            A store written by pyramids has an unambiguous answer, so the
+            vocabulary is never reached -- even with a higher-dimension array
+            sitting beside it.
+        """
+        store = tmp_path / "own.zarr"
+        group = zarr.open_group(str(store), mode="w")
+        group.create_array("data", shape=(6, 8), dtype="float32")[:] = np.ones((6, 8), "float32")
+        group.create_array("other", shape=(2, 6, 8), dtype="float32")[:] = np.ones(
+            (2, 6, 8), "float32"
+        )
+
+        assert detect_data_var(group) == "data"
+
+    @pytest.mark.lazy
+    @needs_zarr
+    def test_a_grid_mapping_attribute_wins_over_the_vocabulary(self, tmp_path):
+        """A store that declares its data array is believed.
+
+        Args:
+            tmp_path: Fixture supplying a temporary directory.
+
+        Test scenario:
+            `grid_mapping` is CF's own way of saying "this is a georeferenced
+            data variable". An array carrying it is chosen even when its name
+            is a coordinate spelling, which is the escape hatch for a store the
+            vocabulary would otherwise misread.
+        """
+        store = tmp_path / "declared.zarr"
+        group = zarr.open_group(str(store), mode="w")
+        declared = group.create_array("east", shape=(6, 8), dtype="float32")
+        declared[:] = np.ones((6, 8), dtype=np.float32)
+        declared.attrs["grid_mapping"] = "spatial_ref"
+        group.create_array("sst", shape=(6, 8), dtype="float32")[:] = np.ones((6, 8), "float32")
+
+        assert detect_data_var(group) == "east"

@@ -288,3 +288,77 @@ class TestOperationsCarryTheArraysTheyDoNotTransform:
         )
 
         assert "lat_bnds" not in cropped._readable_variable_names()
+
+
+class TestCarryableAuxNames:
+    """The rule an operation uses to decide what to copy through untouched.
+
+    Two conditions, and both are load-bearing. The candidate set is the
+    *readable* names, so an array the enumeration leaves out still survives the
+    operation. The filter then drops anything indexed by a dimension the
+    operation reshapes, because such an array would describe the source's grid
+    rather than the result's.
+    """
+
+    def test_the_transformed_variables_are_not_carried(self):
+        """An operation must not copy what it is busy rewriting.
+
+        Test scenario:
+            The spatial variables are the operation's output; listing them as
+            aux would write each one twice.
+        """
+        dataset = NetCDF.read_file(str(DATA / "cf__7v__1d3-2d3-3d1__y-asc.nc"))
+        rg = dataset._working_group()
+        spatial = dataset._spatial_variable_names(rg)
+
+        carryable = dataset._carryable_aux_names(rg, spatial)
+
+        assert not set(carryable) & set(spatial)
+
+    def test_bounds_of_a_reshaped_axis_are_excluded(self):
+        """`lat_bnds` is not spatial by the (y, x) test but is still on `lat`.
+
+        Test scenario:
+            It would pass a "not a spatial variable" filter and be copied
+            verbatim into a cropped result, where it would describe the source's
+            latitude axis. Sharing a reshaped dimension is what disqualifies it.
+        """
+        dataset = NetCDF.read_file(str(DATA / "cf__7v__1d3-2d3-3d1__y-asc.nc"))
+        rg = dataset._working_group()
+        spatial = dataset._spatial_variable_names(rg)
+
+        carryable = dataset._carryable_aux_names(rg, spatial)
+
+        assert "lat_bnds" in dataset._readable_variable_names()
+        assert "lat_bnds" not in carryable
+
+    def test_an_array_on_an_untouched_dimension_is_carried(self):
+        """Sharing *any* dimension is too strict; only y / x count.
+
+        Test scenario:
+            ERA5's `expver` is indexed by `valid_time`, which the gridded
+            variables also use -- but a crop does not reshape it, so the array
+            is unaffected and must survive.
+        """
+        dataset = NetCDF.read_file(str(DATA / "cf__5v__1d4-3d1__geog__y-desc.nc"))
+        if "expver" not in dataset._readable_variable_names():
+            pytest.skip("fixture carries no non-spatial ancillary array")
+        rg = dataset._working_group()
+
+        carryable = dataset._carryable_aux_names(rg, dataset._spatial_variable_names(rg))
+
+        assert "expver" in carryable
+
+    def test_it_is_a_subset_of_what_can_be_read(self):
+        """Nothing may be carried that the store cannot hand back.
+
+        Test scenario:
+            Every name returned has to be one `get_variable` accepts, or the
+            copy step would fail on a name the rule invented.
+        """
+        dataset = NetCDF.read_file(str(DATA / "cf__12v__1d4-2d5-3d2-4d1__y-asc.nc"))
+        rg = dataset._working_group()
+
+        carryable = dataset._carryable_aux_names(rg, dataset._spatial_variable_names(rg))
+
+        assert set(carryable) <= set(dataset._readable_variable_names())
