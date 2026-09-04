@@ -1125,10 +1125,15 @@ class Spatial(_Engine["Dataset"]):
         src_sr.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
         src_wkt = src_sr.ExportToWkt()
         dst_wkt = dst_sr.ExportToWkt()
-        # Both operands are already traditional-order here, which is exactly
-        # what `crs_equal` builds, so this is a no-op that removes the third
-        # spelling of the same comparison.
-        same_crs = crs_equal(src_sr.ExportToWkt(), dst_sr.ExportToWkt())
+        # Compared as live OSR objects rather than through `crs_equal`. Both
+        # operands are already normalised to traditional order above, which is
+        # the premise that would make the shared helper equivalent -- but it
+        # re-parses each side through pyproj and answers False when pyproj
+        # refuses one. A locally-defined PROJCS that GDAL accepts and pyproj
+        # does not would then compare unequal to itself, and this method would
+        # reproject a raster into its own CRS instead of taking the identity
+        # branch. GDAL has already parsed both; asking it again cannot fail.
+        same_crs = bool(src_sr.IsSame(dst_sr))
 
         if not same_crs:
             # In a geographic source whose longitudes wrap past 180, shift the
