@@ -3,12 +3,13 @@ from __future__ import annotations
 import fnmatch
 import gzip
 import itertools
+import ntpath
 import re
 import tarfile
 import time
 import warnings
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import NoReturn
 
 import numpy as np
@@ -296,7 +297,24 @@ def _member_at(path: str, members: list[str], file_i: int, kind: str) -> str:
             f"The {kind} file {path!r} holds {len(members)} file(s), so there is no "
             f"member at index {file_i}. Available: {members}"
         )
-    return members[file_i]
+    member = members[file_i]
+    # The member name comes out of the archive, and the archive is the
+    # untrusted input. `/vsitar/x.tar/../../etc/passwd` is a path GDAL will
+    # resolve outside the archive, so a crafted tar or zip could make a read of
+    # what looks like a self-contained file reach an arbitrary one -- the
+    # tar-slip / zip-slip shape. Nothing legitimate needs an absolute member or
+    # a parent traversal, so both are refused by name.
+    if PurePosixPath(member).is_absolute() or ntpath.isabs(member):
+        raise FileFormatNotSupportedError(
+            f"The {kind} file {path!r} holds a member with an absolute path "
+            f"({member!r}), which would be read from outside the archive."
+        )
+    if ".." in PurePosixPath(member.replace("\\", "/")).parts:
+        raise FileFormatNotSupportedError(
+            f"The {kind} file {path!r} holds a member whose path escapes it "
+            f"({member!r}); reading it would leave the archive."
+        )
+    return member
 
 
 def _only_member_suffix(path: str, file_i: int, kind: str) -> str:
