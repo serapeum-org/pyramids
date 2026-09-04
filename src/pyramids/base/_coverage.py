@@ -26,10 +26,48 @@ from pyramids.base.crs import sr_from_user_input
 def validate_bbox(
     bbox: tuple[float, float, float, float],
 ) -> tuple[float, float, float, float]:
-    """Validate a ``(minx, miny, maxx, maxy)`` bbox."""
+    """Validate a ``(minx, miny, maxx, maxy)`` bbox.
+
+    Args:
+        bbox: Four numbers, or anything `float()` accepts for each of them --
+            a bbox read out of JSON arrives as strings often enough that
+            coercing is worth more than refusing.
+
+    Returns:
+        tuple[float, float, float, float]: The bbox as floats.
+
+    Raises:
+        ValueError: `bbox` is not four values, any of them is not finite, or
+            the box is empty or inverted on either axis.
+
+    Examples:
+        - An ordinary box passes and comes back as floats:
+            ```python
+            >>> from pyramids.base._coverage import validate_bbox
+            >>> validate_bbox(("1", "2", "3", "4"))
+            (1.0, 2.0, 3.0, 4.0)
+
+            ```
+        - A non-finite corner is refused here rather than reaching a request
+          URL as the literal text `nan`:
+            ```python
+            >>> from pyramids.base._coverage import validate_bbox
+            >>> validate_bbox((1.0, 2.0, float("nan"), 4.0))
+            Traceback (most recent call last):
+            ValueError: bbox must be four finite numbers, got (1.0, 2.0, nan, 4.0)
+
+            ```
+    """
     if len(bbox) != 4:
         raise ValueError(f"bbox must be (minx, miny, maxx, maxy), got {bbox!r}")
     minx, miny, maxx, maxy = (float(v) for v in bbox)
+    # Checked before the ordering test, which cannot see them: every comparison
+    # against NaN is False, so `minx >= maxx` passes a NaN corner straight
+    # through, and an infinite one compares as a legitimately huge box. Both
+    # then reach a WCS / WMS request as the literal text `nan` / `inf`, where
+    # the failure is the server's and reads as a network problem.
+    if not all(isfinite(v) for v in (minx, miny, maxx, maxy)):
+        raise ValueError(f"bbox must be four finite numbers, got {bbox!r}")
     if minx >= maxx or miny >= maxy:
         raise ValueError(f"bbox must have minx < maxx and miny < maxy, got {bbox!r}")
     return minx, miny, maxx, maxy
