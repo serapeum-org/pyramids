@@ -21,7 +21,7 @@ import logging
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from functools import lru_cache
 from typing import Any, cast
 from urllib.parse import SplitResult, urlsplit, urlunsplit
@@ -39,7 +39,10 @@ USER_AGENT = "pyramids-gis"
 # Headers for the urllib ``/collections`` pre-check. A real User-Agent avoids
 # services that block the default ``Python-urllib`` agent, and ``Accept`` adds
 # JSON content negotiation alongside the ``f=json`` query so the pre-check is no
-# stricter than the GDAL driver it guards.
+# stricter than the GDAL driver it guards. Both entries are read back by
+# :func:`discovery_request`: the ``Accept`` value is the JSON default it sends
+# for every discovery read, and the ``User-Agent`` is what the OGC API caller
+# passes as its own override of :data:`USER_AGENT`.
 DISCOVERY_HEADERS = {
     "User-Agent": "pyramids-gis OGC API client",
     "Accept": "application/json",
@@ -549,7 +552,9 @@ def exception_text(root: Any) -> str:
 _ADVERTISED_PREVIEW = 10
 
 
-def not_advertised(kind: str, name: str, endpoint: str, available) -> ValueError:
+def not_advertised(
+    kind: str, name: str, endpoint: str, available: Iterable[str]
+) -> ValueError:
     """The refusal for a coverage or layer the service does not advertise.
 
     Written out three times -- once in the WCS reader, once in the WMTS one and

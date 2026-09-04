@@ -3363,7 +3363,8 @@ class NetCDF(Dataset):
             array: The array being rebuilt, for its dtype.
 
         Returns:
-            The scalar sentinel, or `None` when there is none to carry.
+            Any: The scalar sentinel the rebuild should declare, or `None`
+                when the source carries none that this dtype can hold.
 
         Note:
             `no_data_value` is a *tuple*, so an `isinstance(..., list)` test
@@ -3378,6 +3379,51 @@ class NetCDF(Dataset):
             did not, so masking the container's result blanked real cells.
             Carrying no sentinel is what the source says; fabricating one that
             collides with the data is the only outcome that is wrong.
+
+        Examples:
+            - A sentinel a float band can hold survives the rebuild:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf.netcdf import NetCDF
+              >>> NetCDF._storable_no_data(-9999.0, np.zeros((2, 2), "float32"))
+              -9999.0
+
+              ```
+
+            - The per-band tuple GDAL reports collapses to the one scalar a
+              rebuilt variable can declare:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf.netcdf import NetCDF
+              >>> NetCDF._storable_no_data((250.0, 250.0), np.zeros((2, 2, 2), "uint8"))
+              250.0
+
+              ```
+
+            - A NaN an integer band cannot store is dropped, rather than
+              written out as the 0 GDAL would put there instead:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf.netcdf import NetCDF
+              >>> print(NetCDF._storable_no_data(float("nan"), np.zeros((2, 2), "int16")))
+              None
+
+              ```
+
+            - The same NaN against a float band is a usable sentinel, so it
+              stays:
+
+              ```python
+              >>> import math
+              >>> import numpy as np
+              >>> from pyramids.netcdf.netcdf import NetCDF
+              >>> math.isnan(NetCDF._storable_no_data(float("nan"), np.zeros((2, 2))))
+              True
+
+              ```
         """
         scalar = scalar_no_data(no_data_value)
         if scalar is not None and np.issubdtype(np.asarray(array).dtype, np.integer):

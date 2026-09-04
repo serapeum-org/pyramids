@@ -21,14 +21,19 @@ from pyramids.base._errors import FileFormatNotSupportedError
 COMPRESSED_FILES_EXTENSIONS = [".zip", ".gz", ".tar"]
 DOES_NOT_SUPPORT_INTERNAL = [".gz"]
 
+# One path segment of an archive member name: letters, digits and the
+# punctuation a real file name carries. The character class on its own would
+# admit `..`, because `.` is one of its members; the leading `(?!\.+$)`
+# lookahead is what refuses a segment made of nothing but dots, so under
+# `fullmatch` no run of dots -- `..`, `...`, any length -- can match, while an
+# ordinary dotted name (`.hidden`, `a..b.tif`) still does. Traversal is
+# therefore refused by the segment grammar itself, not by a separate
+# `".." in name` scan that a later caller could forget to run.
+_SAFE_MEMBER_SEGMENT = re.compile(r"(?!\.+$)[A-Za-z0-9._+#@ ()\[\]{}~%,'-]+")
+
 # GDAL VSI archive-handler prefixes, named once and reused across the kind
 # map, the vsi-path builders and the prefix checks below to avoid duplicating
 # the literals (S1192).
-# One path segment of an archive member: letters, digits and the punctuation a
-# real file name carries. `..` cannot match, because a segment of only dots is
-# excluded by requiring at least one non-dot character.
-_SAFE_MEMBER_SEGMENT = re.compile(r"(?!\.+$)[A-Za-z0-9._+#@ ()\[\]{}~%,'-]+")
-
 _VSIZIP = "/vsizip/"
 _VSITAR = "/vsitar/"
 _VSIGZIP = "/vsigzip/"
@@ -260,7 +265,10 @@ def _is_tar(path: str) -> bool:
 
 
 def _member_at(path: str, members: list[str], file_i: int, kind: str) -> str:
-    """The member `file_i` names, or a typed refusal saying what is there.
+    # Raw docstring: the examples carry Windows-style member names, whose
+    # backslashes the compiler would otherwise read as escapes, long before
+    # doctest sees them.
+    r"""The member `file_i` names, or a typed refusal saying what is there.
 
     The three archive handlers each indexed their own member list, and each
     failed differently when the index was past the end: the zip handler let a
@@ -276,10 +284,20 @@ def _member_at(path: str, members: list[str], file_i: int, kind: str) -> str:
         kind: The archive kind, for the message (`"zip"`, `"tar"`, `"gzip"`).
 
     Returns:
-        str: The member name at `file_i`.
+        str: The member name at `file_i`, rejoined from segments this function
+            has validated, with `.` and empty segments normalised away. Every
+            character of it has been matched by the allow-list; it may still be
+            the input object itself when the name is a single segment.
 
     Raises:
-        FileFormatNotSupportedError: `file_i` is past the end of the archive.
+        FileFormatNotSupportedError: `file_i` is past the end of the archive;
+            or the member it names would be read from outside the archive --
+            an absolute path in either spelling (a POSIX `/tmp/x`, a Windows
+            drive letter or UNC root), or a segment that is not a plain file
+            name, which is what refuses a `..` climbing out of it and any
+            character outside :data:`_SAFE_MEMBER_SEGMENT`; or nothing is
+            left of the name once its no-op `.` and empty segments are
+            dropped.
 
     Examples:
         - An index inside the archive names its member:
@@ -288,12 +306,41 @@ def _member_at(path: str, members: list[str], file_i: int, kind: str) -> str:
             '2.asc'
 
             ```
+        - A member nested in a directory keeps its path, rebuilt segment by
+          segment and normalised to forward slashes:
+            ```python
+            >>> _member_at("x.zip", [r"sub\dir\1.asc"], 0, "zip")
+            'sub/dir/1.asc'
+
+            ```
         - One past the end says how many there are, rather than raising
           `IndexError` from inside a list lookup:
             ```python
-            >>> _member_at("x.zip", ["1.asc"], 3, "zip")
+            >>> _member_at("x.zip", ["1.asc"], 3, "zip")  # doctest: +NORMALIZE_WHITESPACE
             Traceback (most recent call last):
-            pyramids.base._errors.FileFormatNotSupportedError: The zip file 'x.zip' holds 1 file(s), so there is no member at index 3. Available: ['1.asc']
+            pyramids.base._errors.FileFormatNotSupportedError: The zip file
+            'x.zip' holds 1 file(s), so there is no member at index 3.
+            Available: ['1.asc']
+
+            ```
+        - A member that climbs out of the archive is refused, so the path
+          handed to GDAL cannot resolve outside it -- the tar-slip shape:
+            ```python
+            >>> _member_at("x.tar", ["../../etc/passwd"], 0, "tar")  # doctest: +NORMALIZE_WHITESPACE
+            Traceback (most recent call last):
+            pyramids.base._errors.FileFormatNotSupportedError: The tar file
+            'x.tar' holds a member whose path escapes it or is not a plain name
+            ('../../etc/passwd'); reading it would leave the archive.
+
+            ```
+        - So is an absolute one, in either platform's spelling:
+            ```python
+            >>> _member_at("x.zip", [r"C:\Windows\win.ini"], 0, "zip")  # doctest: +NORMALIZE_WHITESPACE
+            Traceback (most recent call last):
+            pyramids.base._errors.FileFormatNotSupportedError: The zip file
+            'x.zip' holds a member with an absolute path
+            ('C:/Windows/win.ini'), which would be read from outside the
+            archive.
 
             ```
     """
@@ -308,10 +355,17 @@ def _member_at(path: str, members: list[str], file_i: int, kind: str) -> str:
     # what looks like a self-contained file reach an arbitrary one -- the
     # tar-slip / zip-slip shape.
     #
-    # Validated against an allow-list and then rebuilt from the matched
-    # segments, rather than checked and passed through: the returned string is
-    # assembled here from names this function has proved safe, so nothing of
-    # the archive's own bytes reaches the caller's path.
+    # Validated against an allow-list segment by segment, then rejoined from the
+    # matched segments rather than checked and passed through. What that buys is
+    # that every character of the result has been matched by
+    # `_SAFE_MEMBER_SEGMENT`, so the guarantee is about the *value*, not about
+    # object identity: for a single-segment name CPython hands back the input
+    # object itself (`str.replace` returns `self` when nothing matched,
+    # `Match.group(0)` the original on a full-span match, `"/".join([x])` its
+    # only element), and that is fine -- an allow-listed string is allow-listed
+    # whichever object holds it. Rejoining is still worth doing: it normalises
+    # `.` and empty segments away, and it is the form a taint analysis can
+    # follow.
     candidate = members[file_i].replace("\\", "/")
     if ntpath.isabs(candidate) or PurePosixPath(candidate).is_absolute():
         raise FileFormatNotSupportedError(
@@ -365,9 +419,11 @@ def _only_member_suffix(path: str, file_i: int, kind: str) -> str:
             ```
         - Any other index is refused rather than quietly answered:
             ```python
-            >>> _only_member_suffix("x.gz", 2, "gzip")
+            >>> _only_member_suffix("x.gz", 2, "gzip")  # doctest: +NORMALIZE_WHITESPACE
             Traceback (most recent call last):
-            pyramids.base._errors.FileFormatNotSupportedError: The gzip file 'x.gz' holds a single stream with no member list, so there is no member at index 2.
+            pyramids.base._errors.FileFormatNotSupportedError: The gzip file
+            'x.gz' holds a single stream with no member list, so there is no
+            member at index 2.
 
             ```
     """
@@ -497,7 +553,10 @@ def _get_tar_path(path: str, file_i: int = 0):
         str: Path for GDAL to read the tar file.
 
     Raises:
-        FileFormatNotSupportedError: `file_i` is past the end of the archive.
+        FileFormatNotSupportedError: `file_i` is past the end of the archive,
+            or the member it names would be read from outside the archive --
+            both refusals come from :func:`_member_at`, so a tar reports them
+            in the same words a zip does.
 
     Examples:
         - A path that already names a member is only prefixed:

@@ -15,6 +15,19 @@ chunk file. This module provides two helpers wrapped by
 Zarr and fsspec are imported lazily inside the helpers — pyramids'
 core import stays free of both even when the `[lazy]` extra is not
 installed.
+
+The no-data sentinel is written twice, in two spellings that are not
+redundant. `no_data_value` in the attributes is pyramids' own per-band list;
+:func:`read_dataset_from_zarr` recovers the whole list from it and nothing
+else reads it. `_FillValue` — mirrored into the array metadata's own
+`fill_value` — is the CF / GeoZarr spelling, and it is the one GDAL's Zarr
+driver looks for: without it a store opened through
+:meth:`Dataset.read_file` reports a no-data of `0.0`, an ordinary value of
+every numeric type, so masking a read taken that way blanks every
+genuinely-zero cell. One Zarr array holds every band, so `_FillValue` can
+only describe a sentinel the bands agree on; where they differ it is left
+off rather than written wrong, and the per-band list survives in
+`no_data_value` either way.
 """
 
 from __future__ import annotations
@@ -65,7 +78,60 @@ def _require_zarr() -> Any:
 
 
 def _metadata_dict(ds: Dataset) -> dict[str, Any]:
-    """Return the standard CRS / GeoTransform geobox attr dict for the store."""
+    """Return the standard CRS / GeoTransform geobox attr dict for the store.
+
+    Args:
+        ds: The dataset about to be serialised, read for its CRS, geotransform,
+            per-band no-data, band names, dtype and shape.
+
+    Returns:
+        dict[str, Any]: The attributes to stamp on the store's root group and
+            on its `data` array. `spatial_ref`, `GeoTransform` and `epsg` place
+            the raster; `band_names`, `dtype` and `shape` describe it; and the
+            no-data appears in up to two spellings. `no_data_value` is always
+            present and always the full per-band list — pyramids' own key, and
+            what `from_zarr` reads back. `_FillValue` is added only when every
+            band names the same sentinel, because one Zarr array holds them all
+            and a single value cannot honestly stand for two: it is the CF /
+            GeoZarr key GDAL's Zarr driver looks for, and where the bands
+            disagree it is omitted rather than written wrong, leaving a GDAL
+            read of the store with no no-data instead of the wrong one.
+
+    Examples:
+        - Bands that agree carry both spellings, so pyramids and GDAL read the
+          same sentinel out of the store:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base.georeference import GeoReference
+            >>> from pyramids.dataset import Dataset
+            >>> from pyramids.dataset.ops._zarr import _metadata_dict
+            >>> geo_ref = GeoReference(top_left_corner=(0, 0), cell_size=0.1, epsg=4326)
+            >>> agreed = Dataset.from_array(
+            ...     np.zeros((2, 4, 4), "float32"), geo_ref=geo_ref, no_data_value=-9999.0
+            ... )
+            >>> meta = _metadata_dict(agreed)
+            >>> meta["no_data_value"], meta["_FillValue"]
+            ([-9999.0, -9999.0], -9999.0)
+
+            ```
+        - Bands that disagree keep the per-band list and drop the single-valued
+          key, rather than promoting one band's sentinel over the other's:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base.georeference import GeoReference
+            >>> from pyramids.dataset import Dataset
+            >>> from pyramids.dataset.ops._zarr import _metadata_dict
+            >>> geo_ref = GeoReference(top_left_corner=(0, 0), cell_size=0.1, epsg=4326)
+            >>> mixed = Dataset.from_array(
+            ...     np.zeros((2, 4, 4), "float32"), geo_ref=geo_ref, no_data_value=[-9999.0, 0.0]
+            ... )
+            >>> _metadata_dict(mixed)["no_data_value"]
+            [-9999.0, 0.0]
+            >>> "_FillValue" in _metadata_dict(mixed)
+            False
+
+            ```
+    """
     # A geostationary (and other no-EPSG) CRS has `.epsg is None`; carry it
     # through the WKT `spatial_ref` and record epsg 0 (the geobox convention for
     # "no authority code") so `to_zarr` does not crash on `int(None)` (#706).
