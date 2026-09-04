@@ -1939,12 +1939,16 @@ class Analysis(_Engine["Dataset"]):
             mask &= ~np.isnan(arr)
         # `is_no_data` rather than a branch on the sentinel's spelling plus an
         # exact `!=`: it answers for a NaN sentinel and a concrete one alike,
-        # so the two-branch form collapses. It compares with `np.isclose`,
-        # which is what `_warn_if_nodata_absent` above already asks of the same
-        # data -- a histogram that kept cells the "is this nodata absent?"
-        # check counts as nodata was reporting on a different set of pixels
-        # than the warning beside it.
-        mask &= ~is_no_data(arr, no_data_value)
+        # so the two-branch form collapses.
+        #
+        # `rtol` is passed, not defaulted. `DEFAULT_RTOL` is 1e-3, which for a
+        # sentinel of -9999 masks everything in [-10009, -9989] -- on the
+        # suite's own fixtures that swallows real cells, and on a uint16 band
+        # with sentinel 65535 it masks 66 legitimate integers. 1e-5 is what
+        # `_warn_if_nodata_absent` below asks of the same band, and a histogram
+        # that counted different pixels from the warning printed beside it was
+        # the divergence this was meant to remove.
+        mask &= ~is_no_data(arr, no_data_value, rtol=0.00001)
         if exclude_value is not None:
             mask &= arr != exclude_value
         values = arr[mask]

@@ -21,15 +21,17 @@ from pyramids.base._errors import FileFormatNotSupportedError
 COMPRESSED_FILES_EXTENSIONS = [".zip", ".gz", ".tar"]
 DOES_NOT_SUPPORT_INTERNAL = [".gz"]
 
-# One path segment of an archive member name: letters, digits and the
-# punctuation a real file name carries. The character class on its own would
-# admit `..`, because `.` is one of its members; the leading `(?!\.+$)`
-# lookahead is what refuses a segment made of nothing but dots, so under
-# `fullmatch` no run of dots -- `..`, `...`, any length -- can match, while an
-# ordinary dotted name (`.hidden`, `a..b.tif`) still does. Traversal is
-# therefore refused by the segment grammar itself, not by a separate
-# `".." in name` scan that a later caller could forget to run.
-_SAFE_MEMBER_SEGMENT = re.compile(r"(?!\.+$)[A-Za-z0-9._+#@ ()\[\]{}~%,'-]+")
+# What a member-name segment may NOT be. An allow-list of characters was the
+# first attempt and was wrong in the expensive direction: it was ASCII-only, so
+# every accented, Cyrillic, Greek, CJK or Arabic filename was refused, along
+# with `=` (how partitioned datasets name directories), `&`, `!`, `$`, `;` and
+# `:`. That is a regression dressed as a security fix -- the threat is a segment
+# that *navigates*, not one that is unusual.
+#
+# So the rule is stated as the threat: a segment of nothing but dots (`..`,
+# `...`) is what climbs out of the archive, and a NUL or control character is
+# what smuggles one past a downstream parser. Everything else is a file name.
+_UNSAFE_MEMBER_SEGMENT = re.compile(r"\A\.+\Z|[\x00-\x1f\x7f]")
 
 # GDAL VSI archive-handler prefixes, named once and reused across the kind
 # map, the vsi-path builders and the prefix checks below to avoid duplicating
@@ -295,7 +297,7 @@ def _member_at(path: str, members: list[str], file_i: int, kind: str) -> str:
             an absolute path in either spelling (a POSIX `/tmp/x`, a Windows
             drive letter or UNC root), or a segment that is not a plain file
             name, which is what refuses a `..` climbing out of it and any
-            character outside :data:`_SAFE_MEMBER_SEGMENT`; or nothing is
+            character outside :data:`_UNSAFE_MEMBER_SEGMENT`; or nothing is
             left of the name once its no-op `.` and empty segments are
             dropped.
 
@@ -358,7 +360,7 @@ def _member_at(path: str, members: list[str], file_i: int, kind: str) -> str:
     # Validated against an allow-list segment by segment, then rejoined from the
     # matched segments rather than checked and passed through. What that buys is
     # that every character of the result has been matched by
-    # `_SAFE_MEMBER_SEGMENT`, so the guarantee is about the *value*, not about
+    # `_UNSAFE_MEMBER_SEGMENT`, so the guarantee is about the *value*, not about
     # object identity: for a single-segment name CPython hands back the input
     # object itself (`str.replace` returns `self` when nothing matched,
     # `Match.group(0)` the original on a full-span match, `"/".join([x])` its
@@ -376,14 +378,13 @@ def _member_at(path: str, members: list[str], file_i: int, kind: str) -> str:
     for segment in candidate.split("/"):
         if segment in ("", "."):
             continue
-        matched = _SAFE_MEMBER_SEGMENT.fullmatch(segment)
-        if matched is None:
+        if _UNSAFE_MEMBER_SEGMENT.search(segment):
             raise FileFormatNotSupportedError(
                 f"The {kind} file {path!r} holds a member whose path escapes it "
-                f"or is not a plain name ({candidate!r}); reading it would "
-                "leave the archive."
+                f"or carries a control character ({candidate!r}); reading it "
+                "would leave the archive."
             )
-        segments.append(matched.group(0))
+        segments.append(segment)
     if not segments:
         raise FileFormatNotSupportedError(
             f"The {kind} file {path!r} holds a member with an empty name."

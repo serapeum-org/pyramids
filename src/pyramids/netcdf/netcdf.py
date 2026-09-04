@@ -3232,9 +3232,21 @@ class NetCDF(Dataset):
         recorded as the global `nodata`. (Writing `scalar_no_data(res.no_data_value)` unconditionally
         was rejected — it surfaces GDAL's uninitialised default as a spurious out-of-range
         `_FillValue` for no-data-less vars.)
+
+        The packing is added back by hand. GDAL lifts `scale_factor` / `add_offset` out of the
+        attribute dictionary into the MDArray's own scale and offset slots, so `_read_attributes`
+        never returns them — and the slab written here is raw, because `read_array` does not unpack
+        by default. Without them the file declares no packing and every value reads back shifted by
+        the packing factor. The eager fan-out carries the same two through `SetScale` / `SetOffset`;
+        this arm writes CF attributes because that is what the netCDF writer takes, and GDAL lifts
+        them again on the next read.
         """
         src_md = rg.OpenMDArray(name)
         attrs = _read_attributes(src_md) if src_md is not None else {}
+        if getattr(var, "_scale", None) is not None:
+            attrs["scale_factor"] = var._scale
+        if getattr(var, "_offset", None) is not None:
+            attrs["add_offset"] = var._offset
         band_dims = var._band_dim_names
         if not band_dims:
             var_specs[name] = (("y", "x"), np.dtype(res.numpy_dtype[0]), attrs)

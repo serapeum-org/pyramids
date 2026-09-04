@@ -33,6 +33,7 @@ off rather than written wrong, and the per-band list survives in
 from __future__ import annotations
 
 import logging
+import math
 import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -75,6 +76,179 @@ def _require_zarr() -> Any:
     import zarr
 
     return zarr
+
+
+def _agreed_sentinel(no_data_list: list) -> float | None:
+    """The one no-data every band declares, or `None` when they do not agree.
+
+    One zarr array holds every band, so `fill_value` can only describe a
+    sentinel the bands share. Two ways of getting that wrong were both live:
+
+    * Filtering `None` out before comparing made `(5.0, None)` look unanimous.
+      GDAL then reported `5.0` as band 2's no-data, and masking a read of the
+      store blanked every genuine `5.0` in a band with no sentinel at all --
+      the exact failure declaring a shared sentinel is meant to avoid.
+    * Comparing through a `set` made NaN's answer depend on object identity.
+      `float("nan") != float("nan")`, but a `set` short-circuits on identity, so
+      one band's sentinel deduped to a single element and two *distinct* NaN
+      objects did not. A NaN sentinel survived on a one-band raster and vanished
+      on a two-band one.
+
+    Args:
+        no_data_list: One entry per band -- a float, or `None` for a band that
+            declares no sentinel.
+
+    Returns:
+        float | None: The shared sentinel, or `None` when the bands disagree,
+            when any band has none, or when there are no bands.
+
+    Examples:
+        - Bands that agree yield the value:
+            ```python
+            >>> from pyramids.dataset.ops._zarr import _agreed_sentinel
+            >>> _agreed_sentinel([-9999.0, -9999.0, -9999.0])
+            -9999.0
+
+            ```
+        - A band with no sentinel means no agreement, whatever the others say:
+            ```python
+            >>> from pyramids.dataset.ops._zarr import _agreed_sentinel
+            >>> print(_agreed_sentinel([5.0, None]))
+            None
+
+            ```
+        - NaN agrees with NaN, however the two were built:
+            ```python
+            >>> from pyramids.dataset.ops._zarr import _agreed_sentinel
+            >>> import math
+            >>> math.isnan(_agreed_sentinel([float("nan"), float("nan")]))
+            True
+
+            ```
+        - And disagrees with a number:
+            ```python
+            >>> from pyramids.dataset.ops._zarr import _agreed_sentinel
+            >>> print(_agreed_sentinel([float("nan"), 5.0]))
+            None
+
+            ```
+    """
+    agreed: float | None = None
+    if no_data_list and None not in no_data_list:
+        first = no_data_list[0]
+        if all(_same_sentinel(first, other) for other in no_data_list[1:]):
+            agreed = first
+    return agreed
+
+
+def _same_sentinel(left: float, right: float) -> bool:
+    """True when two no-data values mean the same thing, NaN included.
+
+    Args:
+        left: One band's sentinel.
+        right: Another band's sentinel.
+
+    Returns:
+        bool: True when they agree. Two NaNs agree, which `==` denies and a
+            `set` answers only when they happen to be the same object.
+
+    Examples:
+        - Equal numbers agree, different ones do not:
+            ```python
+            >>> from pyramids.dataset.ops._zarr import _same_sentinel
+            >>> _same_sentinel(-9999.0, -9999.0), _same_sentinel(-9999.0, 0.0)
+            (True, False)
+
+            ```
+        - Two separately built NaNs agree, where `==` would say otherwise:
+            ```python
+            >>> from pyramids.dataset.ops._zarr import _same_sentinel
+            >>> _same_sentinel(float("nan"), float("nan"))
+            True
+
+            ```
+    """
+    both_nan = _is_nan(left) and _is_nan(right)
+    return both_nan or left == right
+
+
+def _is_nan(value: float) -> bool:
+    """True when `value` is a float NaN, without raising on anything else.
+
+    Args:
+        value: Any no-data value.
+
+    Returns:
+        bool: True only for a float NaN.
+
+    Examples:
+        - NaN is, a number and `None` are not:
+            ```python
+            >>> from pyramids.dataset.ops._zarr import _is_nan
+            >>> _is_nan(float("nan")), _is_nan(0.0), _is_nan(None)
+            (True, False, False)
+
+            ```
+    """
+    return isinstance(value, float) and math.isnan(value)
+
+
+def _representable(sentinel: float, dtype: str) -> bool:
+    """True when `sentinel` survives the round trip into `dtype`.
+
+    `_metadata_dict` carries the no-data as a `float`, because the attribute it
+    writes is JSON. For a 64-bit integer band that is lossy at the limits:
+    `float(2**63 - 1)` rounds *up* to `2**63`, which `int64` cannot hold, so
+    promoting it into zarr's `fill_value` raised `OverflowError` and a store
+    that used to be writable could not be written at all.
+
+    Args:
+        sentinel: The candidate no-data, already coerced to `float`.
+        dtype: The band's numpy dtype name.
+
+    Returns:
+        bool: True when the value can be stored in `dtype` unchanged, so it is
+            safe to declare as `fill_value`. False means the attribute still
+            carries it and only the zarr field is left off -- `from_zarr` reads
+            the attribute, so nothing is lost for pyramids' own reader.
+
+    Examples:
+        - An ordinary sentinel on a float band round-trips:
+            ```python
+            >>> from pyramids.dataset.ops._zarr import _representable
+            >>> _representable(-9999.0, "float32")
+            True
+
+            ```
+        - The int64 maximum does not: `float` cannot hold it exactly, and the
+          rounded value is out of range:
+            ```python
+            >>> from pyramids.dataset.ops._zarr import _representable
+            >>> _representable(float(2**63 - 1), "int64")
+            False
+
+            ```
+        - A sentinel an integer band can hold is fine:
+            ```python
+            >>> from pyramids.dataset.ops._zarr import _representable
+            >>> _representable(-9999.0, "int32")
+            True
+
+            ```
+    """
+    representable = True
+    try:
+        as_dtype = np.dtype(dtype)
+    except TypeError:
+        as_dtype = None
+    if as_dtype is not None and np.issubdtype(as_dtype, np.integer):
+        info = np.iinfo(as_dtype)
+        representable = (
+            float(sentinel).is_integer()
+            and info.min <= sentinel <= info.max
+            and int(sentinel) == sentinel
+        )
+    return representable
 
 
 def _metadata_dict(ds: Dataset) -> dict[str, Any]:
@@ -140,6 +314,9 @@ def _metadata_dict(ds: Dataset) -> dict[str, Any]:
     # (e.g. geostationary) carries its own `.crs` WKT so its `spatial_ref` is preserved.
     crs_wkt = sr_from_epsg(epsg_code).ExportToWkt() if ds.epsg else (ds.crs or "")
     nodata_tuple = ds.no_data_value
+    # Kept as `float` for the attribute, which is JSON and has no integer
+    # sentinel to preserve; `_representable` below is what stops the rounded
+    # value reaching zarr's own `fill_value`.
     no_data_list = [None if v is None else float(v) for v in nodata_tuple]
     # `no_data_value` is pyramids' own per-band list and only pyramids reads it.
     # `_FillValue` is the CF/GeoZarr spelling, and it is what GDAL's Zarr driver
@@ -150,7 +327,7 @@ def _metadata_dict(ds: Dataset) -> dict[str, Any]:
     # sentinel the bands agree on; where they differ it is left off rather than
     # written wrong, and `from_zarr` still recovers the full list from
     # `no_data_value` either way.
-    distinct = {v for v in no_data_list if v is not None}
+    agreed = _agreed_sentinel(no_data_list)
     metadata = {
         "spatial_ref": crs_wkt,
         "GeoTransform": " ".join(str(v) for v in ds.geotransform),
@@ -160,8 +337,8 @@ def _metadata_dict(ds: Dataset) -> dict[str, Any]:
         "dtype": str(np.dtype(ds.numpy_dtype[0])),
         "shape": [int(ds.band_count), int(ds.rows), int(ds.columns)],
     }
-    if len(distinct) == 1 and len(no_data_list) == len(nodata_tuple):
-        metadata["_FillValue"] = distinct.pop()
+    if agreed is not None and _representable(agreed, ds.numpy_dtype[0]):
+        metadata["_FillValue"] = agreed
     return metadata
 
 
