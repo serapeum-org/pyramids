@@ -1987,8 +1987,14 @@ class Spatial(_Engine["Dataset"]):
             y_far = min(max(math.ceil((y0 - south) / -dy - eps), 0), rows)
             x_size, y_size = x_far - xoff, y_far - yoff
             if x_size > 0 and y_size > 0:
-                array = self._ds.read_array(window=[xoff, yoff, x_size, y_size])
-                new_gt = (x0 + xoff * dx, dx, 0.0, y0 + yoff * dy, 0.0, dy)
+                window = Window(xoff, yoff, x_size, y_size)
+                array = self._ds.read_array(window=list(window.to_read_args()))
+                # `Window.transform` rather than the same arithmetic inline. On
+                # the north-up grid this branch is gated to, the two agree
+                # exactly; what the shared one adds is carrying the rotation
+                # terms through instead of writing zeros, so it stays correct
+                # by construction rather than by the gate above.
+                new_gt = window.transform(self._ds._raster.GetGeoTransform())
                 # Rebuild on the base Dataset class (never a subclass like NetCDF), whose
                 # from_array has the plain array->raster behaviour this path needs.
                 base_cls = Spatial._base_dataset_class(self._ds.__class__)
