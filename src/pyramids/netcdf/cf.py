@@ -16,6 +16,7 @@ from typing import Any
 from osgeo import gdal, osr
 
 from pyramids.base.crs import sr_from_wkt
+from pyramids.netcdf.utils import is_cf_time_units
 
 logger = logging.getLogger(__name__)
 
@@ -765,7 +766,7 @@ def _axis_from_units(unit_str: Any) -> str | None:
             axis = "Y"
         elif unit_lower in ("degrees_east", "degree_east", "degree_e", "degrees_e"):
             axis = "X"
-        elif "since" in unit_lower:
+        elif is_cf_time_units(unit_str):
             axis = "T"
     return axis
 
@@ -1278,10 +1279,6 @@ def _check_coordinate_variable(short: str, var: Any) -> list[str]:
     # A time coordinate may carry its unit only on the MDArray unit slot (`var.unit`), not as a
     # `units` attribute, so consult both when detecting the `<period> since <epoch>` form (ARC-30).
     units_val = var.attributes.get("units") or var.unit or ""
-    if (
-        isinstance(units_val, str)
-        and "since" in units_val
-        and "calendar" not in var.attributes
-    ):
+    if is_cf_time_units(units_val) and "calendar" not in var.attributes:
         issues.append(f"Time coordinate '{short}' has no 'calendar' attribute.")
     return issues

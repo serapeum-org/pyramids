@@ -37,7 +37,11 @@ from pyramids.base.remote import (
     _to_vsi,
     resolve_s3_region,
 )
-from pyramids.netcdf.utils import decode_cf_time, encode_cf_time
+from pyramids.netcdf.utils import (
+    decode_cf_time,
+    encode_cf_time,
+    is_cf_time_units,
+)
 
 # Soft guard: realising a store this large into a DataFrame loads it all into
 # memory. Above this many bytes the write methods warn the caller to slice first
@@ -683,7 +687,7 @@ class LabeledDataset:
             np.ndarray: Decoded datetimes for a time axis, else ``values``.
         """
         unit = arr.GetUnit()
-        if not unit or " since " not in unit:
+        if not is_cf_time_units(unit):
             return values
         cal_attr = _get_attr(arr, "calendar")
         calendar = cal_attr.ReadAsString() if cal_attr is not None else "standard"

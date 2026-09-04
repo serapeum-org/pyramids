@@ -625,6 +625,60 @@ def create_time_conversion_func(
     return converter
 
 
+# CF's time form is "<period> since <timestamp>". Matched case-insensitively,
+# with `since` a whitespace-separated word carrying text on both sides, so a
+# unit that merely contains the letters (or that is only the word) is not one.
+_CF_TIME_UNITS = re.compile(r"\S\s+since\s+\S", re.IGNORECASE)
+
+
+def is_cf_time_units(units: str | None) -> bool:
+    """True when `units` declares a CF time axis.
+
+    Four places asked this and answered differently. Axis *detection* matched a
+    bare lowercased `"since"` substring; *decoding* required a case-sensitive
+    `" since "`. A file whose units read `"Days SINCE 1970-01-01"` -- which
+    `cftime` parses perfectly well -- was therefore reported as a time axis and
+    then handed back as raw numbers, with nothing raised. This is the one rule
+    both questions now use.
+
+    Args:
+        units: The CF `units` string, or `None`.
+
+    Returns:
+        bool: True when `units` has the `<period> since <timestamp>` shape.
+
+    Examples:
+        - The ordinary form, and the uppercase one that used to decode wrong:
+            ```python
+            >>> from pyramids.netcdf.utils import is_cf_time_units
+            >>> is_cf_time_units("days since 1970-01-01")
+            True
+            >>> is_cf_time_units("Days SINCE 1970-01-01")
+            True
+
+            ```
+        - A spatial unit is not a time axis, nor is a missing one:
+            ```python
+            >>> from pyramids.netcdf.utils import is_cf_time_units
+            >>> is_cf_time_units("degrees_north"), is_cf_time_units(None)
+            (False, False)
+
+            ```
+        - `since` has to be a word with a period and an epoch around it, so a
+          unit that merely contains the letters is not matched:
+            ```python
+            >>> from pyramids.netcdf.utils import is_cf_time_units
+            >>> is_cf_time_units("sincerity"), is_cf_time_units("since")
+            (False, False)
+
+            ```
+
+    See Also:
+        decode_cf_time: Decodes the axes this identifies.
+    """
+    return bool(units) and _CF_TIME_UNITS.search(units) is not None
+
+
 # The epoch every pyramids writer counts from, and the calendar it declares.
 # Both writers -- the collection's netCDF axis and the xarray interop path --
 # stamp these onto the arrays they emit, and `decode_cf_time` below is what
@@ -695,7 +749,7 @@ def decode_cf_time(
     Returns:
         np.ndarray: Decoded datetimes for a time axis, else ``values`` unchanged.
     """
-    if not unit or " since " not in unit:
+    if not is_cf_time_units(unit):
         return values
     standard = _is_standard_calendar(calendar)
     decoded = np.asarray(
