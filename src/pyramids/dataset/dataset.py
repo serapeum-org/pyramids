@@ -21,6 +21,7 @@ import numpy as np
 from osgeo import gdal
 
 from pyramids import _io
+from pyramids.base._axes import AXIS_NAMES, X_AXIS_NAMES, Y_AXIS_NAMES
 from pyramids.base._errors import AlignmentError, ContainerRasterWarning, CRSError
 from pyramids.base._utils import (
     RGB_CHANNEL_INTERPS,
@@ -415,61 +416,12 @@ if TYPE_CHECKING:
 # The X-ish and Y-ish halves of `_AXIS_VARIABLE_NAMES`, used to require that a
 # veto comes from a PAIR of axes. Together they partition that list exactly, so
 # the pairing rule introduces no new vocabulary.
-_X_AXIS_NAMES = frozenset(
-    {
-        "x",
-        "xc",
-        "xdim",
-        "x_dim",
-        "lon",
-        "longitude",
-        "long",
-        "rlon",
-        "east",
-        "easting",
-        "nav_lon",
-    }
-)
-_Y_AXIS_NAMES = frozenset(
-    {
-        "y",
-        "yc",
-        "ydim",
-        "y_dim",
-        "lat",
-        "latitude",
-        "rlat",
-        "north",
-        "northing",
-        "nav_lat",
-    }
-)
-
-_AXIS_VARIABLE_NAMES = frozenset(
-    {
-        "x",
-        "y",
-        "xc",
-        "yc",
-        "xdim",
-        "ydim",
-        "x_dim",
-        "y_dim",
-        "lon",
-        "lat",
-        "longitude",
-        "latitude",
-        "long",
-        "rlon",
-        "rlat",
-        "east",
-        "north",
-        "easting",
-        "northing",
-        "nav_lon",
-        "nav_lat",
-    }
-)
+# The shared vocabulary, not a local copy: the Zarr reader tells a
+# coordinate from a data array with the same list, and its own shorter
+# one made it return a `nav_lat` field as the raster.
+_X_AXIS_NAMES = X_AXIS_NAMES
+_Y_AXIS_NAMES = Y_AXIS_NAMES
+_AXIS_VARIABLE_NAMES = AXIS_NAMES
 
 
 # Identity transform: one unit per pixel, origin at (0, 0), north-up. Used when a

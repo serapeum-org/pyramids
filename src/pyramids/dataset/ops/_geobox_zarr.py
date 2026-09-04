@@ -26,6 +26,7 @@ from typing import Any
 
 import numpy as np
 
+from pyramids.base._axes import AXIS_NAMES
 from pyramids.dataset.transform import GeoTransform
 
 ZARR_SCHEMA_VERSION = "2"
@@ -264,18 +265,11 @@ def finalize_zarr_metadata(
         zarr.consolidate_metadata(resolved_store)
 
 
-_NON_DATA_ARRAYS = {
-    "x",
-    "y",
-    "lon",
-    "lat",
-    "longitude",
-    "latitude",
-    "time",
-    "band",
-    GRID_MAPPING_VAR,
-    "crs",
-}
+# Every known coordinate spelling, plus the non-spatial arrays a store carries
+# alongside its data. Derived from the shared axis vocabulary rather than listed
+# here: the short local list omitted `nav_lon` / `nav_lat`, so a NEMO store's 2-D
+# coordinate fields were offered as data-array candidates and one of them won.
+_NON_DATA_ARRAYS = AXIS_NAMES | {"time", "band", GRID_MAPPING_VAR, "crs"}
 
 
 def normalize_compressors(compressor: Any) -> dict[str, Any]:
