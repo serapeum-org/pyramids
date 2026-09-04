@@ -16,6 +16,8 @@ from typing import Any
 
 import numpy as np
 
+from pyramids.netcdf.utils import CF_EPOCH_CALENDAR, cf_epoch_units
+
 
 @dataclass(frozen=True, eq=False)
 class TimeAxis:
@@ -205,6 +207,9 @@ class TimeAxis:
             # round-trip lossless.
             epoch = np.datetime64("1970-01-01", "ns")
             values = (values.astype("datetime64[ns]") - epoch).astype("int64")
-            attrs["units"] = "nanoseconds since 1970-01-01 00:00:00"
-            attrs["calendar"] = "proleptic_gregorian"
+            # Counting in nanoseconds is this writer's own choice: an int64 at
+            # that scale round-trips `datetime64[ns]` exactly. The epoch and the
+            # calendar are not -- they come from the module that decodes them.
+            attrs["units"] = cf_epoch_units("nanoseconds")
+            attrs["calendar"] = CF_EPOCH_CALENDAR
         return cls(values, attrs)

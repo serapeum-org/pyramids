@@ -625,6 +625,56 @@ def create_time_conversion_func(
     return converter
 
 
+# The epoch every pyramids writer counts from, and the calendar it declares.
+# Both writers -- the collection's netCDF axis and the xarray interop path --
+# stamp these onto the arrays they emit, and `decode_cf_time` below is what
+# reads them back. Defining them beside the reader is what keeps a written axis
+# decodable: a writer that drifted to "standard", or to a different epoch,
+# would produce a file this module silently decodes to the wrong dates.
+CF_EPOCH = "1970-01-01 00:00:00"
+CF_EPOCH_CALENDAR = "proleptic_gregorian"
+
+
+def cf_epoch_units(resolution: str) -> str:
+    """The CF `units` string for offsets counted from the pyramids epoch.
+
+    The writers disagree, deliberately, on the resolution they count in: the
+    collection axis uses `nanoseconds` because an `int64` count at that scale
+    round-trips `datetime64[ns]` exactly, while the xarray interop path uses
+    fractional `seconds` because it must also carry `NaT` as `NaN`. What they
+    must not disagree on is the epoch, which is why only that half is shared.
+
+    Args:
+        resolution: A CF time unit name, e.g. `"nanoseconds"` or `"seconds"`.
+
+    Returns:
+        str: `"<resolution> since <epoch>"`, in the form `decode_cf_time`
+            parses.
+
+    Examples:
+        - The collection axis counts in nanoseconds:
+            ```python
+            >>> from pyramids.netcdf.utils import cf_epoch_units
+            >>> cf_epoch_units("nanoseconds")
+            'nanoseconds since 1970-01-01 00:00:00'
+
+            ```
+        - What it produces is decodable, which is the point of sharing it:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.netcdf.utils import cf_epoch_units, decode_cf_time
+            >>> units = cf_epoch_units("seconds")
+            >>> decode_cf_time(np.array([0.0, 86400.0]), units).astype(str).tolist()
+            ['1970-01-01T00:00:00.000000000', '1970-01-02T00:00:00.000000000']
+
+            ```
+
+    See Also:
+        decode_cf_time: Reads these strings back; the reason they live here.
+    """
+    return f"{resolution} since {CF_EPOCH}"
+
+
 def decode_cf_time(
     values: np.ndarray,
     unit: str | None,

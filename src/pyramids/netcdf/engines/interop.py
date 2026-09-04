@@ -33,7 +33,11 @@ from pyramids.netcdf.cf import (
     write_attributes_to_md_array,
     write_global_attributes,
 )
-from pyramids.netcdf.utils import read_cf_attributes
+from pyramids.netcdf.utils import (
+    CF_EPOCH_CALENDAR,
+    cf_epoch_units,
+    read_cf_attributes,
+)
 
 _XARRAY_HINT = (
     "xarray is required for {func}(). Install with one of:\n"
@@ -301,9 +305,14 @@ def _encode_temporal_array(values: np.ndarray) -> tuple[np.ndarray, dict[str, An
         # `np.where` keeps this scalar-safe: a 0-d input's `/ 1e9` is a NumPy scalar that does not
         # support in-place item assignment (review round-2 M1).
         seconds = np.where(np.isnat(as_ns), np.nan, seconds)
+        # Counting in *fractional* seconds is this path's own choice: it has to
+        # carry `NaT` as `NaN`, which an integer count cannot. Dividing the
+        # nanosecond count rather than casting to `datetime64[s]` is deliberate
+        # too -- the cast truncates, losing sub-second times. Only the epoch and
+        # calendar are shared, with the module that decodes them.
         return seconds, {
-            "units": "seconds since 1970-01-01 00:00:00",
-            "calendar": "proleptic_gregorian",
+            "units": cf_epoch_units("seconds"),
+            "calendar": CF_EPOCH_CALENDAR,
         }
     if np.issubdtype(values.dtype, np.timedelta64):
         as_ns = values.astype("timedelta64[ns]")
