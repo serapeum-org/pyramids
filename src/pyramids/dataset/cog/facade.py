@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 from osgeo import gdal
 
+from pyramids.base._axes import X_AXIS_NAMES, Y_AXIS_NAMES
 from pyramids.base._errors import CRSError, ReadOnlyError
 from pyramids.base._utils import resolve_cog_predictor
 from pyramids.base.crs import epsg_from_user_input
@@ -176,6 +177,42 @@ def _array_to_dataset(
     return dataset
 
 
+def _first_1d_coord(da: Any, names: frozenset[str]) -> str | None:
+    """The DataArray's first 1-D coordinate whose name is one of `names`.
+
+    The vocabulary is the package's shared one, so a rotated-pole (`rlon`) or
+    projected (`easting`) DataArray is understood here as it already is
+    elsewhere, rather than refused for its spelling.
+
+    Only a **1-D** coordinate qualifies. The geotransform below is derived from
+    the first two values of each axis, which describes a grid only when the
+    coordinate is a vector. A curvilinear store's 2-D `nav_lon` / `nav_lat`
+    carry the same names but not that shape, and accepting one would build a
+    transform from two cells of a raster of positions -- so they fall through
+    to the explicit error instead.
+
+    Args:
+        da: The labeled `DataArray` being converted.
+        names: Candidate coordinate names, from `pyramids.base._axes`.
+
+    Returns:
+        str | None: The coordinate's name, or `None` when the array carries no
+            1-D coordinate from `names`.
+    """
+    matched = None
+    for name in sorted(names):
+        coord = da.coords.get(name)
+        if coord is None:
+            continue
+        # `.values` rather than the coordinate itself: this reader accepts
+        # anything duck-typing as a DataArray, and a minimal stand-in exposes
+        # its array there without carrying xarray's own `ndim`.
+        if np.ndim(getattr(coord, "values", coord)) == 1:
+            matched = name
+            break
+    return matched
+
+
 def _dataarray_to_dataset(
     da: Any,
     crs: Any | None,
@@ -202,11 +239,11 @@ def _dataarray_to_dataset(
     Raises:
         ValueError: When spatial coordinates or a CRS cannot be determined.
     """
-    x_name = next((c for c in ("x", "longitude", "lon") if c in da.coords), None)
-    y_name = next((c for c in ("y", "latitude", "lat") if c in da.coords), None)
+    x_name = _first_1d_coord(da, X_AXIS_NAMES)
+    y_name = _first_1d_coord(da, Y_AXIS_NAMES)
     if x_name is None or y_name is None:
         raise ValueError(
-            "Could not find longitude/latitude (or x/y) coordinates on the "
+            "Could not find 1-D longitude/latitude (or x/y) coordinates on the "
             "DataArray; build a Dataset explicitly and pass that instead."
         )
 
