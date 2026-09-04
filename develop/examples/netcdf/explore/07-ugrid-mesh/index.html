@@ -60,7 +60,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6979,7 +6979,7 @@ print('bounds:', ug.bounds)</div>
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
 <pre>nodes: 16 | faces: 4 | edges: 0
-mesh: &lt;pyramids.netcdf.ugrid.mesh.Mesh2d object at 0x7f64587df770&gt;
+mesh: &lt;pyramids.netcdf.ugrid.mesh.Mesh2d object at 0x7fb5579df620&gt;
 bounds: (-0.3252372145652771, -0.26931479573249817, 0.38283485174179077, 0.2782424986362457)
 </pre>
 </div>
@@ -7031,7 +7031,7 @@ bounds: (-0.3252372145652771, -0.26931479573249817, 0.38283485174179077, 0.27824
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[4]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.glyphs.gridded.mesh_glyph.MeshGlyph at 0x7f645817f0e0&gt;</pre>
+<pre>&lt;cleopatra.glyphs.gridded.mesh_glyph.MeshGlyph at 0x7fb557362f90&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7299,7 +7299,7 @@ print('faces before:', ug.n_face, '| faces after crop:', cropped.n_face)</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[9]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.glyphs.gridded.mesh_glyph.MeshGlyph at 0x7f644f557ed0&gt;</pre>
+<pre>&lt;cleopatra.glyphs.gridded.mesh_glyph.MeshGlyph at 0x7fb54e60c050&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7574,7 +7574,7 @@ print('faces inside the triangle:', triangle_crop.n_face)</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[14]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.glyphs.gridded.mesh_glyph.MeshGlyph at 0x7f644f4439d0&gt;</pre>
+<pre>&lt;cleopatra.glyphs.gridded.mesh_glyph.MeshGlyph at 0x7fb54e63fb10&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7636,6 +7636,14 @@ print('dimensions:', dict(nc.dimension_sizes))</div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
 <pre>variables: ['multi_dim_data']
 dimensions: {'time': 8, 'lev': 8, 'n_face': 4}
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>/home/runner/work/pyramids/pyramids/.pixi/envs/docs/lib/python3.14/site-packages/osgeo/gdal.py:13224: RuntimeWarning: No 1D variable is indexed by dimension time
+  return _gdal.Open(*args)
 </pre>
 </div>
 </div>
