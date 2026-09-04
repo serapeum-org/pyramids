@@ -26,7 +26,6 @@ from pyramids.base.crs import (
     VERTICAL_AXIS_NAMES,
     VERTICAL_STANDARD_NAMES,
     cf_geographic_wkt,
-    crs_equal,
     crs_spec,
     sr_from_epsg,
     sr_from_user_input,
@@ -2743,17 +2742,21 @@ class NetCDF(Dataset):
         failed write -- a full disk, a locked file -- leaked the handle and, on
         Windows, left the target locked against the retry.
 
-        The reopen goes through `type(self)`, not `NetCDF`, so a subclass gets
-        an instance of itself back. One of the call sites this replaced already
-        did that; hard-coding `NetCDF` here would have made `crop(path=...)`
-        quietly downgrade a subclass to its base.
+        The reopen goes through `type(self)` rather than a hard-coded `NetCDF`,
+        which is what one of the call sites this replaced already did. That
+        routes the lookup through the subclass, so an override of `read_file`
+        is honoured -- but it does **not** mean a subclass gets an instance of
+        itself back: `NetCDF.read_file` ends in `return Container(...)` and
+        ignores `cls`, so persisting a `Variable` yields a `Container`, exactly
+        as it did before. Do not read the `type(self)` here as a
+        same-class guarantee.
 
         Args:
             path: Destination to persist to, or `None` to stay in memory.
 
         Returns:
-            NetCDF: `self` when `path` is `None`, else a file-backed reopen of
-                the same class.
+            NetCDF: `self` when `path` is `None`, else a file-backed reopen --
+                a `Container`, whatever the receiver's class, per above.
         """
         if path is None:
             result: NetCDF = self
@@ -7636,13 +7639,24 @@ class NetCDF(Dataset):
         # It also resolves a CRS whose code only GDAL's PROJ database carries
         # (#943), and raises CRSError where the raw call raised RuntimeError.
         src = sr_from_user_input(src_crs)
-        # `crs_equal` rather than `IsSame`: it normalises both sides, so an
-        # equivalent CRS spelled differently takes the no-op path instead of
-        # a densified round-trip that returns the same bbox.
-        if dst_srs is None or crs_equal(src.ExportToWkt(), dst_srs.ExportToWkt()):
+        # Normalise the destination *before* the identity check, not after.
+        # `IsSame` is axis-mapping sensitive for a geographic CRS
+        # (`IGNORE_DATA_AXIS_TO_SRS_AXIS_MAPPING` defaults to `NO`), and `src`
+        # comes out of `sr_from_user_input` stamped traditional while a
+        # `GetSpatialRef()` off the store carries authority order -- so EPSG:4326
+        # against EPSG:4326 compared *unequal* and took the densified
+        # round-trip. Comparing the clone answers that in GDAL rather than
+        # through pyproj: `crs_equal` re-parses both sides with
+        # `pyproj.CRS.from_user_input` and returns False -- not "unknown" -- for
+        # a CRS GDAL accepts and pyproj refuses, so such a CRS would compare
+        # unequal to itself. Same reasoning as the revert in
+        # `dataset/engines/spatial.py`, with the normalisation that revert
+        # relies on made explicit here.
+        dst = dst_srs.Clone() if dst_srs is not None else None
+        if dst is not None:
+            dst.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        if dst is None or src.IsSame(dst):
             return min_x, min_y, max_x, max_y
-        dst = dst_srs.Clone()
-        dst.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
         transform = osr.CoordinateTransformation(src, dst)
         edge = np.linspace(0.0, 1.0, max(int(densify), 2))
         xs = np.concatenate(

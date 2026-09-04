@@ -1027,7 +1027,8 @@ class Spatial(_Engine["Dataset"]):
         finally runs :func:`gdal.ReprojectImage` to fill it.
 
         Both source and destination spatial references are normalised to
-        ``OAMS_TRADITIONAL_GIS_ORDER`` before the identity check. This lets
+        ``OAMS_TRADITIONAL_GIS_ORDER`` before the identity check -- the
+        destination on a clone, so a caller's SRS is not mutated. This lets
         :meth:`osr.SpatialReference.IsSame` report semantic equality even when
         the two SRSes were built from different axis-order strategies (the
         common case: a ``sr_from_wkt(self._ds.crs)`` source + a
@@ -1041,10 +1042,11 @@ class Spatial(_Engine["Dataset"]):
 
         Args:
             dst_sr: Target spatial reference. Any axis-mapping strategy is
-                accepted; the function normalises only the *source* side.
-                Built from ``Spatial.to_crs(..., maintain_alignment=True)``
-                via :func:`pyramids.base.crs.sr_from_user_input`, but callers
-                may pass any pre-built SRS.
+                accepted: the function normalises both sides, on a clone, so
+                the object passed in is never mutated. Built from
+                ``Spatial.to_crs(..., maintain_alignment=True)`` via
+                :func:`pyramids.base.crs.sr_from_user_input`, but callers may
+                pass any pre-built SRS.
             method: GDAL resampling algorithm constant (e.g.
                 ``gdal.GRA_NearestNeighbour``, ``gdal.GRA_Bilinear``,
                 ``gdal.GRA_Cubic``). Resolve a method *name* through
@@ -1123,6 +1125,17 @@ class Spatial(_Engine["Dataset"]):
         # fails for two SRSes that differ only in axis-mapping strategy — #418)
         # and removes any axis-order surprise from downstream reprojection math.
         src_sr.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        # The destination too, on a clone so a caller's pre-built SRS is not
+        # mutated. `IsSame` *is* axis-mapping sensitive for a geographic CRS
+        # (`IGNORE_DATA_AXIS_TO_SRS_AXIS_MAPPING` defaults to `NO`), so
+        # normalising only the source left the identity check unable to fire
+        # for a `dst_sr` built any way other than `sr_from_user_input` --
+        # `sr_from_epsg(4326)` against a WGS 84 source reprojected the raster
+        # into its own CRS, which is #418 verbatim. The in-repo caller happens
+        # to use `sr_from_user_input`, so this was a promise the docstring made
+        # and the code kept only by luck.
+        dst_sr = dst_sr.Clone()
+        dst_sr.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
         src_wkt = src_sr.ExportToWkt()
         dst_wkt = dst_sr.ExportToWkt()
         # Compared as live OSR objects rather than through `crs_equal`. Both

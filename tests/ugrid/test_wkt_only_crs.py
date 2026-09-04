@@ -132,3 +132,79 @@ class TestWktOnlyMeshIsUsable:
     ):
         """A mesh with a CRS but no code stops printing "unknown"."""
         assert "unknown" not in str(wkt_only_projected_mesh)
+
+
+class TestAMeshWithNoCrsAtAllKeepsItsWgs84Default:
+    """Teaching this line about WKT must not narrow the other case."""
+
+    def test_it_still_rasterises_to_wgs84(self, triangle_mesh):
+        """The default that predates the branch, on the mesh that relies on it.
+
+        Test scenario:
+            `triangle_mesh` has neither an EPSG code nor a WKT. Resolving the
+            CRS through `crs_spec` alone yields `None` for it, which would
+            hand back a georeference-free raster -- so
+            `to_dataset(...).to_file("out.tif")` would write a GeoTIFF with no
+            CRS where it has always written WGS 84.
+        """
+        dataset = UgridDataset(
+            mesh=triangle_mesh,
+            data_variables={
+                "h": MeshVariable(
+                    name="h",
+                    location="face",
+                    mesh_name="mesh2d",
+                    shape=(2,),
+                    _data=np.array([1.0, 2.0]),
+                )
+            },
+            global_attributes={},
+        )
+        assert dataset.epsg is None and dataset.crs_wkt is None
+
+        raster = dataset.to_dataset("h", cell_size=0.25)
+
+        assert raster.epsg == 4326
+        assert raster.crs, "the raster must carry a CRS, not an empty string"
+
+    def test_an_explicit_epsg_still_wins(self, triangle_mesh):
+        """The default is a fallback, not an override.
+
+        Test scenario:
+            A caller naming the CRS must get it. The `or 4326` sits behind the
+            `epsg is not None` branch, so an argument of 3857 has to survive
+            it.
+        """
+        dataset = UgridDataset(
+            mesh=triangle_mesh,
+            data_variables={
+                "h": MeshVariable(
+                    name="h",
+                    location="face",
+                    mesh_name="mesh2d",
+                    shape=(2,),
+                    _data=np.array([1.0, 2.0]),
+                )
+            },
+            global_attributes={},
+        )
+
+        raster = dataset.to_dataset("h", cell_size=0.25, epsg=3857)
+
+        assert raster.epsg == 3857
+
+    def test_the_wkt_only_mesh_is_not_dragged_back_to_wgs84(
+        self, wkt_only_projected_mesh: UgridDataset
+    ):
+        """The fix this restores a default behind must still hold.
+
+        Test scenario:
+            `crs_spec` returns the orthographic WKT for this mesh, which is
+            truthy, so the `or 4326` never fires. Had it been written as a
+            plain `self.epsg or 4326` the metre grid would be relabelled
+            degrees again.
+        """
+        raster = wkt_only_projected_mesh.to_dataset("h", cell_size=1000.0)
+
+        assert raster.epsg != 4326
+        assert "Orthographic" in raster.crs

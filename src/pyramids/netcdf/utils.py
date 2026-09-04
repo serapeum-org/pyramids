@@ -631,7 +631,62 @@ def create_time_conversion_func(
 _CF_TIME_UNITS = re.compile(r"\S\s+since\s+\S", re.IGNORECASE)
 
 
-def is_cf_time_units(units: str | None) -> bool:
+def cf_units_text(units: Any) -> str | None:
+    """The `units` attribute as text, or `None` when it is not text at all.
+
+    A `units` read straight out of an HDF5 / netCDF attribute can arrive as
+    `bytes`. That is the same unit, undecoded -- not a different kind of thing
+    -- so both the predicate below and the decoder that gates on it resolve it
+    here rather than each deciding for itself. Answering "not a time unit" for
+    bytes put them back in the hole the predicate exists to fill; decoding them
+    in the predicate alone would have let `decode_cf_time` hand the raw bytes
+    to `cftime`, which raises.
+
+    Args:
+        units: The CF `units` attribute -- a string, the bytes an undecoded
+            attribute arrives as, `None`, or whatever a malformed file put
+            there. GDAL normalises attributes into scalars *or lists*, so a
+            `units` written as a one-element array is a real input.
+
+    Returns:
+        str | None: The text, or `None` for a non-text value and for bytes
+            that are not valid UTF-8.
+
+    Examples:
+        - A string is itself, and bytes are decoded:
+            ```python
+            >>> from pyramids.netcdf.utils import cf_units_text
+            >>> cf_units_text("days since 1970-01-01")
+            'days since 1970-01-01'
+            >>> cf_units_text(b"days since 1970-01-01")
+            'days since 1970-01-01'
+
+            ```
+        - Anything that is not text at all answers `None`, rather than
+          raising the way a bare `" since " in unit` would:
+            ```python
+            >>> from pyramids.netcdf.utils import cf_units_text
+            >>> print(cf_units_text(None), cf_units_text(1), cf_units_text(["a"]))
+            None None None
+
+            ```
+
+    See Also:
+        is_cf_time_units: Asks whether that text names a CF time axis.
+    """
+    if isinstance(units, str):
+        text: str | None = units
+    elif isinstance(units, (bytes, bytearray)):
+        try:
+            text = bytes(units).decode("utf-8")
+        except UnicodeDecodeError:
+            text = None
+    else:
+        text = None
+    return text
+
+
+def is_cf_time_units(units: str | bytes | None) -> bool:
     """True when `units` declares a CF time axis.
 
     Four places asked this and answered differently. Axis *detection* matched a
@@ -647,8 +702,9 @@ def is_cf_time_units(units: str | None) -> bool:
     *report* on malformed files rather than to crash on one.
 
     Args:
-        units: The CF `units` attribute -- a string, `None`, or whatever a
-            malformed file put there.
+        units: The CF `units` attribute -- a string, the bytes an undecoded
+            attribute arrives as, `None`, or whatever a malformed file put
+            there.
 
     Returns:
         bool: True when `units` is a string with the `<period> since
@@ -688,11 +744,20 @@ def is_cf_time_units(units: str | None) -> bool:
             (False, False)
 
             ```
+        - Bytes are decoded first, so an attribute that arrived undecoded
+          still names the axis it names:
+            ```python
+            >>> from pyramids.netcdf.utils import is_cf_time_units
+            >>> is_cf_time_units(b"days since 1970-01-01")
+            True
+
+            ```
 
     See Also:
         decode_cf_time: Decodes the axes this identifies.
     """
-    return isinstance(units, str) and _CF_TIME_UNITS.search(units) is not None
+    text = cf_units_text(units)
+    return text is not None and _CF_TIME_UNITS.search(text) is not None
 
 
 # The epoch every pyramids writer counts from, and the calendar it declares.
@@ -747,7 +812,7 @@ def cf_epoch_units(resolution: str) -> str:
 
 def decode_cf_time(
     values: np.ndarray,
-    unit: str | None,
+    unit: str | bytes | None,
     calendar: str = "standard",
 ) -> np.typing.NDArray:
     """Decode numeric CF time offsets to datetimes.
@@ -759,17 +824,21 @@ def decode_cf_time(
 
     Args:
         values: The numeric values already read for the coordinate.
-        unit: The coordinate's CF unit string (e.g. ``"days since 1979-01-01"``).
+        unit: The coordinate's CF unit string (e.g. ``"days since 1979-01-01"``),
+            or the bytes an undecoded attribute arrives as.
         calendar: The CF calendar name. Defaults to ``"standard"``.
 
     Returns:
         np.ndarray: Decoded datetimes for a time axis, else ``values`` unchanged.
     """
-    if not is_cf_time_units(unit):
+    # Through the same normaliser the predicate uses: `cftime` needs `str`, and
+    # a `units` the predicate accepted as bytes would otherwise raise here.
+    text = cf_units_text(unit)
+    if not is_cf_time_units(text):
         return values
     standard = _is_standard_calendar(calendar)
     decoded = np.asarray(
-        cftime.num2date(values, unit, calendar, only_use_cftime_datetimes=not standard)
+        cftime.num2date(values, text, calendar, only_use_cftime_datetimes=not standard)
     )
     if standard:
         try:

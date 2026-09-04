@@ -155,22 +155,25 @@ class TestThePredicateIsTotal:
         [
             ["days since 1970-01-01"],
             [],
-            b"days since 1970-01-01",
             1,
             3.5,
             {"units": "days since 1970-01-01"},
+            bytes([0xFF, 0xFE]) + b" not utf-8",
         ],
-        ids=["list", "empty-list", "bytes", "int", "float", "dict"],
+        ids=["list", "empty-list", "int", "float", "dict", "undecodable-bytes"],
     )
     def test_a_non_string_units_is_not_a_time_axis(self, units):
         """Every one of these raised `TypeError` out of the predicate.
 
         Args:
-            units: A `units` attribute value that is not a string.
+            units: A `units` attribute value that is not text.
 
         Test scenario:
-            The answer is False -- these are not CF time units -- and the
-            important part is that answering does not raise.
+            The answer is False -- none of these is a CF time unit -- and the
+            important part is that answering does not raise. `bytes` are the
+            one non-`str` input that *is* text, so they moved to the class
+            below; bytes that are not valid UTF-8 stay here, being text in
+            name only.
         """
         assert is_cf_time_units(units) is False
 

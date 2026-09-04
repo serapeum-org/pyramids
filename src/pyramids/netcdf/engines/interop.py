@@ -125,11 +125,60 @@ class Interop(_Engine["NetCDF"]):
                 "Open the file with open_as_multi_dimensional=True."
             )
 
-        return xr.Dataset(
+        exported = xr.Dataset(
             data_vars=_data_vars_from_arrays(rg, ds, chunks),
             coords=_coords_from_dimensions(rg, ds),
             attrs=ds.global_attributes,
         )
+        return _promote_cf_non_data_arrays(exported, ds)
+
+
+# The CF roles xarray represents as coordinates rather than data variables.
+# `ancillary` is deliberately absent: CF ancillary variables are quality flags
+# and uncertainty estimates, which xarray and cf-xarray both carry as ordinary
+# data variables, so promoting them would be the opposite correction.
+_COORDINATE_CF_ROLES = frozenset(
+    {
+        "bounds",
+        "coordinate",
+        "auxiliary_coordinate",
+        "cell_measure",
+        "grid_mapping",
+    }
+)
+
+
+def _promote_cf_non_data_arrays(exported: Any, ds: NetCDF) -> Any:
+    """Move the exported CF non-data arrays from ``data_vars`` into ``coords``.
+
+    The export loop reads every *readable* variable, which is what stops an
+    aux array from vanishing -- but it hands `lat_bnds` and the 2-D
+    `lat_rho` / `lon_rho` to `xr.Dataset` as data variables. In xarray's
+    convention `lat_bnds` belongs under `lat`'s `bounds` attribute and the
+    `*_rho` pair are auxiliary coordinates; exported as data variables, a
+    `to_netcdf()` round-trip writes them back as ordinary variables and the CF
+    relationship is gone.
+
+    Args:
+        exported: The `xr.Dataset` just built from the container.
+        ds: The container it was built from, for its CF classification.
+
+    Returns:
+        xr.Dataset: The same dataset with those names promoted. Unchanged when
+            the store carries no CF classification, so a non-CF file is not
+            second-guessed.
+    """
+    cf = ds.meta_data.cf
+    if cf is None:
+        result = exported
+    else:
+        promote = [
+            name
+            for name, role in cf.classifications.items()
+            if role in _COORDINATE_CF_ROLES and name in exported.data_vars
+        ]
+        result = exported.set_coords(promote) if promote else exported
+    return result
 
 
 def _coords_from_dimensions(rg: Any, ds: NetCDF) -> dict[str, Any]:

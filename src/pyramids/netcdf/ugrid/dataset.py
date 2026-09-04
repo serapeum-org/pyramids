@@ -311,9 +311,17 @@ class UgridDataset:
 
         # `crs_spec` rather than `self.epsg or 4326`: a mesh carrying a projected
         # WKT with no EPSG code has `epsg is None`, and the old default stamped
-        # EPSG:4326 onto metre coordinates. `None` yields an ungeoreferenced
-        # result, which is honest about a mesh that has no CRS at all.
-        target_epsg = epsg if epsg is not None else crs_spec(self.epsg, self.crs_wkt)
+        # EPSG:4326 onto metre coordinates. That is the case this resolves.
+        #
+        # The `or 4326` behind it keeps the *other* case as it was. A mesh with
+        # no CRS at all -- no code and no WKT -- has always rasterised to WGS 84
+        # here, and `to_dataset(...).to_file("out.tif")` writing a GeoTIFF with
+        # no CRS instead would be a silent behaviour change for every caller
+        # holding such a mesh. Narrowing that default is a decision for its own
+        # change, not a side effect of teaching this line about WKT.
+        target_epsg = (
+            epsg if epsg is not None else crs_spec(self.epsg, self.crs_wkt) or 4326
+        )
         result = Dataset.from_array(
             grid_array,
             no_data_value=nodata,

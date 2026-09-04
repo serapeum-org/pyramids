@@ -129,13 +129,24 @@ class TestTheUnsignedNoDataDefault:
             `_fallback_no_data` picks a sentinel when the requested value
             overflows and has always asked the dtype. If the two disagreed, a
             Byte band would get 255 down one path and `None` down the other.
+            The type is asserted too: both answers flow into
+            `Dataset.no_data_value` and out to GDAL, and `255 ==
+            np.uint8(255)` is True, so an `==` alone cannot see one path
+            returning a Python `int` and the other a numpy scalar.
         """
         # The dataset is bound to a name: the engine reaches its parent through
         # a weakref proxy, so a temporary would be collected mid-test.
         dataset = _raster(np.uint8)
         bands = dataset.bands
 
-        assert bands._coerce_band_no_data(0, None) == bands._fallback_no_data(0)
+        coerced = bands._coerce_band_no_data(0, None)
+        fallback = bands._fallback_no_data(0)
+
+        assert coerced == fallback
+        assert type(coerced) is type(fallback), (
+            f"same value, different types: {type(coerced)} vs {type(fallback)}"
+        )
+        assert np.dtype(type(coerced)) == np.uint8
 
 
 class TestHalfPrecisionRasters:

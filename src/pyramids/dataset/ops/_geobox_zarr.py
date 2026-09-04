@@ -320,6 +320,50 @@ def normalize_compressors(compressor: Any) -> dict[str, Any]:
     return {"compressors": [compressor]}
 
 
+# The CF attributes whose *value* names another array, and how many
+# whitespace-separated names that value carries. `cell_measures` is
+# `"area: cell_area"`, so its names are the odd-indexed tokens; the rest are a
+# plain list of names (`bounds` holds exactly one).
+_CF_REFERENCE_ATTRS = ("bounds", "ancillary_variables", "coordinates", "grid_mapping")
+
+
+def _cf_referenced_names(group: Any, arrays: list[str]) -> set[str]:
+    """The arrays that some other array points at, so are not the data.
+
+    A CF store says which of its arrays are supporting cast: `lat` names its
+    `lat_bnds`, a data variable names its auxiliary `coordinates` and its
+    `grid_mapping`. The reader had no notion of a CF role, so an
+    `xarray.Dataset.to_zarr` of any CF dataset offered its 2-D `lat_bnds`
+    alongside the 2-D data variable and let the name tie-break decide -- which
+    `lat_bnds` usually wins, being early in the alphabet.
+
+    Args:
+        group: An open `zarr` group.
+        arrays: Its array names, already listed by the caller.
+
+    Returns:
+        set[str]: Names referenced by another array's CF attributes, plus the
+            `_bnds` / `_bounds` spellings, which are conventional enough to
+            exclude even in a store that forgot to declare them.
+    """
+    referenced = {n for n in arrays if n.endswith(("_bnds", "_bounds"))}
+    for name in arrays:
+        attrs = dict(group[name].attrs)
+        named: set[str] = set()
+        for attr in _CF_REFERENCE_ATTRS:
+            value = attrs.get(attr)
+            if isinstance(value, str):
+                named.update(value.split())
+        measures = attrs.get("cell_measures")
+        if isinstance(measures, str):
+            named.update(measures.split()[1::2])
+        # An array never demotes itself. A malformed store that lists its own
+        # name among its `coordinates` would otherwise erase the only
+        # candidate it has.
+        referenced.update(named - {name})
+    return referenced
+
+
 def detect_data_var(group: Any) -> str:
     """Pick the primary data array name in a (possibly foreign) GeoZarr group.
 
@@ -330,19 +374,28 @@ def detect_data_var(group: Any) -> str:
     2. An array carrying a CF `grid_mapping` attribute, which is the store
        declaring "this one is the georeferenced variable". This is the escape
        hatch for a store whose data array happens to be named like an axis.
-    3. Otherwise, the highest-dimension array whose name is not a known
-       coordinate spelling at all. This is what makes a NEMO store's 2-D
-       `nav_lon` / `nav_lat` lose to the real variable.
-    4. Failing that, the highest-dimension array whose name is not *only* ever
-       a coordinate. `east`, `north`, `long` and `x_dim` are axis spellings and
-       also ordinary names for a data array -- an eastward wind component, say
-       -- so a store holding nothing else is read rather than refused. A name
-       that is only ever a coordinate, like `nav_lat` or `rlon`, is excluded
-       from both passes, so a store of only coordinates still raises.
+    3. Otherwise, arrays whose name is a known coordinate spelling are dropped,
+       and so are arrays some *other* array points at -- its `bounds`, its
+       auxiliary `coordinates`, its `ancillary_variables`, its `cell_measures`
+       or its `grid_mapping`. The first is what makes a NEMO store's 2-D
+       `nav_lon` / `nav_lat` lose to the real variable; the second is what
+       stops a CF store's 2-D `lat_bnds` from beating a 2-D data variable on
+       the name tie-break.
+    4. Of what remains, the highest-dimension array wins, preferring a name
+       that is not *only* ever a coordinate. `east`, `north` and `long` are
+       axis spellings and also ordinary names for a data array -- an eastward
+       wind component, say -- so a store holding nothing else is read rather
+       than refused. A name that is only ever a coordinate, like `nav_lat`,
+       `rlon` or `x_dim`, is excluded outright, so a store of only coordinates
+       still raises.
 
     Ties on dimension count are broken by name, because the store's own key
     order is neither promised nor stable and the same data would otherwise read
-    back as a different variable from run to run.
+    back as a different variable from run to run. A store with two equally
+    ranked data variables -- `pr` and `tas`, say -- therefore reads back the
+    alphabetically first, where it used to read back whichever key `zarr`
+    happened to list first. Name the array explicitly (`data_name=`) when a
+    store has more than one candidate and the choice matters.
 
     Args:
         group: An open `zarr` group.
@@ -352,7 +405,9 @@ def detect_data_var(group: Any) -> str:
 
     Raises:
         KeyError: No candidate data array could be found -- every array in the
-            group is a name that is only ever a coordinate.
+            group is either a name that is only ever a coordinate, or one some
+            other array points at as its bounds, coordinates, ancillary
+            variables, cell measures or grid mapping.
 
     See Also:
         pyramids.base._axes: The shared coordinate vocabulary rules 3 and 4
@@ -371,6 +426,12 @@ def detect_data_var(group: Any) -> str:
     # grid-mapping variable named for its projection -- beat a 3-D array that
     # happened to be called `east`.
     candidates = [n for n in arrays if n not in _NEVER_DATA_ARRAYS]
+    # Then what the store says about itself. A store left with nothing after
+    # this is a store of bounds and coordinates, which has no data array to
+    # return -- the same answer as a store of nothing but `nav_lat`, and the
+    # message below names every array so the caller can see why.
+    referenced = _cf_referenced_names(group, arrays)
+    candidates = [n for n in candidates if n not in referenced]
     if not candidates:
         raise KeyError(f"no data array found in zarr group; arrays={arrays}")
     # Sorted first so the final tie-break is by name. `array_keys()` does not

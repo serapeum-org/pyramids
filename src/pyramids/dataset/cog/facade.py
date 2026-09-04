@@ -277,11 +277,27 @@ def _dataarray_to_dataset(
             "Could not find 1-D longitude/latitude (or x/y) coordinates on the "
             "DataArray; build a Dataset explicitly and pass that instead."
         )
-
     x = np.asarray(da[x_name].values, dtype="float64")
     y = np.asarray(da[y_name].values, dtype="float64")
     if x.size < 2 or y.size < 2:
         raise ValueError("DataArray spatial coordinates need at least 2 cells.")
+    # The array's last two axes are its rows and columns, and the coordinates
+    # just looked up by name have to be those axes. Without this a
+    # `(y, x, time)` DataArray built a raster of its last two axes -- 6x3 for a
+    # 4x6x3 array, with 4 bands -- and georeferenced it from the 4- and 6-long
+    # coordinates it is not shaped by, which is silently wrong rather than
+    # refused. Compared by length rather than against `da.dims` so a
+    # duck-typed labeled array is checked too; a square grid handed over
+    # transposed is the one case lengths cannot separate.
+    shape = np.shape(da.values)
+    if len(shape) < 2 or (shape[-1], shape[-2]) != (x.size, y.size):
+        raise ValueError(
+            f"The DataArray's spatial coordinates {y_name!r} ({y.size}) / "
+            f"{x_name!r} ({x.size}) do not match its last two axes {shape[-2:]}, "
+            "so its rows and columns are not the axes they label. Transpose it "
+            "so the spatial axes come last, or build a Dataset explicitly and "
+            "pass that instead."
+        )
     cell_x = float(x[1] - x[0])
     cell_y = float(y[1] - y[0])
     transform = (

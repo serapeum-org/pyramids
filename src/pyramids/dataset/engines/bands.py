@@ -1625,8 +1625,14 @@ class Bands(_Engine["Dataset"]):
             # missed a Byte band, whose dtype string did not begin with "u",
             # so the one unsigned type most rasters actually use took the
             # pass-through branch. `_fallback_no_data` below already asks this
-            # way, and the two must agree.
-            result = np.iinfo(np.dtype(self._ds.numpy_dtype[i])).max
+            # way, and the two must agree -- on the *type* as well as the
+            # value, since both flow into `Dataset.no_data_value` and out to
+            # GDAL. A Python `int` here and a numpy scalar there made the same
+            # answer read back as `(255,)` from one path and `(np.uint8(255),)`
+            # from the other, which the `==` pinning their agreement cannot
+            # see.
+            np_dtype = np.dtype(self._ds.numpy_dtype[i])
+            result = np_dtype.type(np.iinfo(np_dtype).max)
         else:
             # None/np.nan on any non-unsigned dtype: pass through unchanged.
             result = val

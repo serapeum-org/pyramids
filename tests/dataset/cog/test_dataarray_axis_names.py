@@ -20,12 +20,12 @@ import numpy as np
 import pytest
 
 from pyramids.base._axes import (
+    AXIS_NAME_FAMILIES,
     X_AXIS_NAMES,
     X_AXIS_NAMES_ORDERED,
     Y_AXIS_NAMES,
     Y_AXIS_NAMES_ORDERED,
 )
-from pyramids.base._axes import AXIS_NAME_FAMILIES
 from pyramids.dataset.cog.facade import (
     _dataarray_to_dataset,
     _first_1d_coord,
