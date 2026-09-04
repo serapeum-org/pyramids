@@ -253,6 +253,94 @@ def _is_tar(path: str) -> bool:
     return path.endswith(".tar.gz") or ".tar" in path
 
 
+def _member_at(path: str, members: list[str], file_i: int, kind: str) -> str:
+    """The member `file_i` names, or a typed refusal saying what is there.
+
+    The three archive handlers each indexed their own member list, and each
+    failed differently when the index was past the end: the zip handler let a
+    bare `IndexError: list index out of range` escape, the tar handler did not
+    index at all, and only gzip raised something a caller could act on. This is
+    the one refusal, so `file_i=1` on a single-member archive reads the same
+    whatever the archive is.
+
+    Args:
+        path: The archive, named in the message.
+        members: Its member names, in archive order.
+        file_i: The index requested.
+        kind: The archive kind, for the message (`"zip"`, `"tar"`, `"gzip"`).
+
+    Returns:
+        str: The member name at `file_i`.
+
+    Raises:
+        FileFormatNotSupportedError: `file_i` is past the end of the archive.
+
+    Examples:
+        - An index inside the archive names its member:
+            ```python
+            >>> _member_at("x.zip", ["1.asc", "2.asc"], 1, "zip")
+            '2.asc'
+
+            ```
+        - One past the end says how many there are, rather than raising
+          `IndexError` from inside a list lookup:
+            ```python
+            >>> _member_at("x.zip", ["1.asc"], 3, "zip")
+            Traceback (most recent call last):
+            pyramids.base._errors.FileFormatNotSupportedError: The zip file 'x.zip' holds 1 file(s), so there is no member at index 3. Available: ['1.asc']
+
+            ```
+    """
+    if file_i >= len(members):
+        raise FileFormatNotSupportedError(
+            f"The {kind} file {path!r} holds {len(members)} file(s), so there is no "
+            f"member at index {file_i}. Available: {members}"
+        )
+    return members[file_i]
+
+
+def _only_member_suffix(path: str, file_i: int, kind: str) -> str:
+    """Empty for the one stream a member-less archive holds, else a refusal.
+
+    A plain gzip is a single compressed stream with no member list, so there is
+    nothing to index. Asking for index 3 of one was silently answered with the
+    stream itself, which is the same shape of quiet wrong answer the tar and zip
+    handlers used to give in their own ways.
+
+    Args:
+        path: The archive, named in the message.
+        file_i: The index requested.
+        kind: The archive kind, for the message.
+
+    Returns:
+        str: The empty string, so the caller appends nothing to the VSI path.
+
+    Raises:
+        FileFormatNotSupportedError: `file_i` is anything but the first member.
+
+    Examples:
+        - The first member is the only one, so nothing is appended:
+            ```python
+            >>> _only_member_suffix("x.gz", 0, "gzip")
+            ''
+
+            ```
+        - Any other index is refused rather than quietly answered:
+            ```python
+            >>> _only_member_suffix("x.gz", 2, "gzip")
+            Traceback (most recent call last):
+            pyramids.base._errors.FileFormatNotSupportedError: The gzip file 'x.gz' holds a single stream with no member list, so there is no member at index 2.
+
+            ```
+    """
+    if file_i:
+        raise FileFormatNotSupportedError(
+            f"The {kind} file {path!r} holds a single stream with no member list, "
+            f"so there is no member at index {file_i}."
+        )
+    return ""
+
+
 def _get_zip_path(path: str, file_i: int = 0):
     """Get Zip Path.
 
@@ -309,7 +397,7 @@ def _get_zip_path(path: str, file_i: int = 0):
         # the archive.
         with zipfile.ZipFile(path) as archive:
             file_list = archive.namelist()
-        vsi_path = f"{_VSIZIP}{path}/{file_list[file_i]}"
+        vsi_path = f"{_VSIZIP}{path}/{_member_at(path, file_list, file_i, 'zip')}"
     return vsi_path
 
 
@@ -338,29 +426,78 @@ def _get_gzip_path(path: str, file_i: int = 0):
         try:
             with tarfile.open(path) as tf:
                 file_list = tf.getnames()
-            vsi_path = f"{_VSIGZIP}{path}/{file_list[file_i]}"
+            vsi_path = f"{_VSIGZIP}{path}/{_member_at(path, file_list, file_i, 'gzip')}"
         except tarfile.ReadError:
             # if the tarfile.open() does not give a getnames() method, it means the file contains one file
             # so return the path of the main file
-            vsi_path = f"{_VSIGZIP}{path}"
+            vsi_path = f"{_VSIGZIP}{path}{_only_member_suffix(path, file_i, 'gzip')}"
     return vsi_path
 
 
-def _get_tar_path(path: str):
-    """Get Zip Path.
+def _get_tar_path(path: str, file_i: int = 0):
+    """Get the ``/vsitar/`` path for a tar archive, selecting a member.
 
-    - Check if the given path contains a.tar in it.
-    - If the path contains a.tar but does not end with.tar (xxxx.tar/1.asc), so the path contains the internal path inside the tar file, so just add the prefix.
-    - Otherwise, just add the prefix.
+    - Check if the given path contains a ``.tar`` in it.
+    - If the path contains a ``.tar`` but does not end with ``.tar``
+      (``xxxx.tar/1.asc``), the path already names the internal file, so just
+      add the prefix.
+    - Otherwise list the archive and name a member, the way the zip handler
+      does. Prefixing alone hands GDAL ``/vsitar/x.tar``, which is a
+      *directory*: a single-member archive happened to resolve anyway, but a
+      multi-member one failed with a raw GDAL ``RuntimeError`` quoting the
+      internal ``/vsitar/`` path, where the same zip opened its first member
+      and the same gzip raised a typed :class:`FileFormatNotSupportedError`.
+      The `file_i` argument was accepted by the caller and silently discarded
+      here, so there was no way to reach the second member of a tar at all.
 
     Args:
         path (str): Path to the tar file.
+        file_i (int): Index of the member to read. Defaults to the first, which
+            is what the zip handler does for an archive named without a member.
 
     Returns:
         str: Path for GDAL to read the tar file.
+
+    Raises:
+        FileFormatNotSupportedError: `file_i` is past the end of the archive.
+
+    Examples:
+        - A path that already names a member is only prefixed:
+            ```python
+            >>> rdir = "tests/data/virtual-file-system"
+            >>> print(_get_tar_path(f"{rdir}/multiple_compressed_files.tar/1.asc"))
+            /vsitar/tests/data/virtual-file-system/multiple_compressed_files.tar/1.asc
+
+            ```
+        - An archive named on its own resolves to its first member:
+            ```python
+            >>> rdir = "tests/data/virtual-file-system"
+            >>> print(_get_tar_path(f"{rdir}/multiple_compressed_files.tar"))
+            /vsitar/tests/data/virtual-file-system/multiple_compressed_files.tar/1.asc
+
+            ```
+        - An index picks a later one, as it does for a zip:
+            ```python
+            >>> rdir = "tests/data/virtual-file-system"
+            >>> print(_get_tar_path(f"{rdir}/multiple_compressed_files.tar", file_i=1))
+            /vsitar/tests/data/virtual-file-system/multiple_compressed_files.tar/2.asc
+
+            ```
     """
-    # get list of files inside the compressed file
-    vsi_path = f"{_VSITAR}{path}"
+    if ".tar" in path and not path.endswith((".tar", ".tgz", ".tar.gz", ".tar.bz2")):
+        vsi_path = f"{_VSITAR}{path}"
+    else:
+        try:
+            with tarfile.open(path) as archive:
+                members = [m.name for m in archive.getmembers() if m.isfile()]
+        except tarfile.TarError:
+            # Unreadable as a tar through Python; leave it to GDAL, which
+            # supports compressed variants this may not open.
+            members = []
+        if not members:
+            vsi_path = f"{_VSITAR}{path}"
+        else:
+            vsi_path = f"{_VSITAR}{path}/{_member_at(path, members, file_i, 'tar')}"
     return vsi_path
 
 
@@ -390,7 +527,7 @@ def _parse_path(path: str | Path, file_i: int = 0) -> str:
     elif _is_zip(path):
         new_path = _get_zip_path(path, file_i=file_i)
     elif _is_tar(path):
-        new_path = _get_tar_path(path)
+        new_path = _get_tar_path(path, file_i=file_i)
     elif _is_gzip(path):
         new_path = _get_gzip_path(path, file_i=file_i)
     else:
