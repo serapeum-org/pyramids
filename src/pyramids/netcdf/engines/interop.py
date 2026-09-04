@@ -163,10 +163,27 @@ def _promote_cf_non_data_arrays(exported: Any, ds: NetCDF) -> Any:
         exported: The `xr.Dataset` just built from the container.
         ds: The container it was built from, for its CF classification.
 
+    Which roles move is :data:`_COORDINATE_CF_ROLES`. `ancillary` is
+    deliberately not among them: CF ancillary variables are quality flags and
+    uncertainty estimates, which xarray and cf-xarray both carry as ordinary
+    data variables, so promoting them would be the opposite correction.
+
+    No doctest: reaching this needs a container with a real CF classification,
+    which means a file on disk, and the behaviour is covered by
+    `tests/netcdf/test_round2_followups.py` against the suite's own fixtures.
+
+    Args-note: `exported` and the return are typed `Any` rather than
+    `xr.Dataset` because xarray is an optional extra -- the annotation would
+    have to be imported at module level to be more precise.
+
     Returns:
         xr.Dataset: The same dataset with those names promoted. Unchanged when
             the store carries no CF classification, so a non-CF file is not
             second-guessed.
+
+    See Also:
+        _data_vars_from_arrays: Builds the mapping this reclassifies.
+        _coords_from_dimensions: The dimension coordinates it joins them to.
     """
     cf = ds.meta_data.cf
     if cf is None:

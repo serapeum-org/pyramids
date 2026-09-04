@@ -287,3 +287,138 @@ class TestWhatCountsAsReferenced:
         group = _store(tmp_path, {"sst": (6, 8), "nav_lat": (6, 8)})
 
         assert _cf_referenced_names(group, list(group.array_keys())) == set()
+
+
+class TestTheRuleOrderSurvivedTheSingleReturnRewrite:
+    """Four rules collapsed into one return must still run in order."""
+
+    @pytest.mark.lazy
+    @needs_zarr
+    def test_an_array_named_data_wins_over_a_declared_grid_mapping(self, tmp_path):
+        """Rule 1 before rule 2, which the rewrite reordered the code around.
+
+        Args:
+            tmp_path: Fixture supplying a temporary directory.
+
+        Test scenario:
+            The `grid_mapping` lookup moved above the `data` check to keep the
+            function to one return. It is guarded so it still resolves to
+            `None` when `data` is present, but the observable contract is the
+            order: pyramids' own writer emits `data`, and a foreign
+            `grid_mapping` attribute on some other array must not displace it.
+        """
+        group = _store(
+            tmp_path,
+            {"data": (4, 6), "east": (4, 6)},
+            {"east": {"grid_mapping": "spatial_ref"}},
+        )
+
+        assert detect_data_var(group) == "data", (
+            "the `data` fast path lost its priority"
+        )
+
+    @pytest.mark.lazy
+    @needs_zarr
+    def test_a_declared_grid_mapping_wins_over_a_referenced_name(self, tmp_path):
+        """Rule 2 before rule 3: a declaration outranks an inference.
+
+        Args:
+            tmp_path: Fixture supplying a temporary directory.
+
+        Test scenario:
+            An array can carry `grid_mapping` and be named by another array's
+            `coordinates` at once. The store declaring it georeferenced is an
+            explicit statement, so it must beat the inference that would
+            otherwise demote it.
+        """
+        group = _store(
+            tmp_path,
+            {"tas": (4, 6), "aux": (4, 6)},
+            {"tas": {"coordinates": "aux"}, "aux": {"grid_mapping": "spatial_ref"}},
+        )
+
+        assert detect_data_var(group) == "aux", "an explicit declaration was overridden"
+
+    @pytest.mark.lazy
+    @needs_zarr
+    def test_dimension_count_outranks_the_name_preference(self, tmp_path):
+        """Rule 4's two signals, in the order the ranking key applies them.
+
+        Args:
+            tmp_path: Fixture supplying a temporary directory.
+
+        Test scenario:
+            `east` is an ambiguous coordinate spelling and `depth` is not, so
+            the name preference favours `depth` -- but `east` has three
+            dimensions to `depth`'s one. Dimensionality decides first, which
+            is what stops a 1-D coordinate from beating the real field.
+        """
+        group = _store(tmp_path, {"east": (2, 4, 6), "depth": (4,)})
+
+        assert detect_data_var(group) == "east", "the name preference outranked ndim"
+
+
+class TestMalformedCfAttributesAreIgnoredNotFatal:
+    """The filter reads whatever a store put in those attributes."""
+
+    @pytest.mark.lazy
+    @needs_zarr
+    @pytest.mark.parametrize(
+        "value",
+        [1, 3.5, ["aux"], [], {"name": "aux"}, None],
+        ids=["int", "float", "list", "empty-list", "dict", "none"],
+    )
+    def test_a_non_string_reference_attribute_references_nothing(self, tmp_path, value):
+        """Only text names another array; anything else is not a reference.
+
+        Args:
+            tmp_path: Fixture supplying a temporary directory.
+            value: A `coordinates` attribute value that is not a string.
+
+        Test scenario:
+            zarr attributes are JSON, so a store can put a number or a list
+            there. Splitting a non-string would raise inside a reader whose
+            job is to survive foreign stores, and treating a list as a name
+            list would demote arrays the store never pointed at.
+        """
+        group = _store(tmp_path, {"tas": (4, 6), "aux": (4, 6)})
+        group["tas"].attrs.update({"coordinates": value})
+
+        referenced = _cf_referenced_names(group, list(group.array_keys()))
+
+        assert referenced == set(), f"a {type(value).__name__} was read as a reference"
+
+    @pytest.mark.lazy
+    @needs_zarr
+    def test_a_reference_to_an_array_that_is_not_there_is_harmless(self, tmp_path):
+        """A dangling name excludes nothing, because nothing matches it.
+
+        Test scenario:
+            A store may name a bounds array it does not actually contain. The
+            filter works by set difference, so the missing name simply never
+            matches a candidate -- it must not raise, and must not remove the
+            real data variable.
+        """
+        group = _store(
+            tmp_path,
+            {"tas": (4, 6), "lat": (4,)},
+            {"lat": {"bounds": "not_present"}},
+        )
+
+        assert detect_data_var(group) == "tas", "a dangling reference changed the pick"
+
+    @pytest.mark.lazy
+    @needs_zarr
+    def test_an_odd_length_cell_measures_does_not_raise(self, tmp_path):
+        """`"area:"` with no name after it is malformed but not fatal.
+
+        Test scenario:
+            The `"measure: name"` parse takes the odd-indexed tokens. A value
+            with a trailing measure and no name has none, which must simply
+            yield nothing rather than an index error.
+        """
+        group = _store(tmp_path, {"tas": (4, 6)}, {"tas": {"cell_measures": "area:"}})
+
+        referenced = _cf_referenced_names(group, list(group.array_keys()))
+
+        assert referenced == set(), f"expected no references, got {referenced}"

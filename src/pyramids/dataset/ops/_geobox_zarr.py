@@ -345,6 +345,55 @@ def _cf_referenced_names(group: Any, arrays: list[str]) -> set[str]:
         set[str]: Names referenced by another array's CF attributes, plus the
             `_bnds` / `_bounds` spellings, which are conventional enough to
             exclude even in a store that forgot to declare them.
+
+    Examples:
+        - A coordinate naming its bounds array demotes it, whatever it is
+          called:
+            ```python
+            >>> import zarr
+            >>> from pyramids.dataset.ops._geobox_zarr import _cf_referenced_names
+            >>> group = zarr.open_group(store=zarr.storage.MemoryStore(), mode="w")
+            >>> group.create_array("tas", shape=(2, 3), dtype="f4").attrs.update({})
+            >>> group.create_array("lat", shape=(2,), dtype="f8").attrs.update(
+            ...     {"bounds": "edges"}
+            ... )
+            >>> group.create_array("edges", shape=(2, 2), dtype="f8").attrs.update({})
+            >>> sorted(_cf_referenced_names(group, list(group.array_keys())))
+            ['edges']
+
+            ```
+        - `cell_measures` is `"measure: name"` pairs, so only the odd tokens
+          are names -- reading it as a flat list would take `area:` for one
+          and leave `areacella` a candidate:
+            ```python
+            >>> import zarr
+            >>> from pyramids.dataset.ops._geobox_zarr import _cf_referenced_names
+            >>> group = zarr.open_group(store=zarr.storage.MemoryStore(), mode="w")
+            >>> group.create_array("tas", shape=(2, 3), dtype="f4").attrs.update(
+            ...     {"cell_measures": "area: areacella", "coordinates": "aux"}
+            ... )
+            >>> group.create_array("areacella", shape=(2, 3), dtype="f4").attrs.update({})
+            >>> group.create_array("aux", shape=(2, 3), dtype="f4").attrs.update({})
+            >>> sorted(_cf_referenced_names(group, list(group.array_keys())))
+            ['areacella', 'aux']
+
+            ```
+        - An array never demotes itself, so a store that lists its own name is
+          not left with nothing:
+            ```python
+            >>> import zarr
+            >>> from pyramids.dataset.ops._geobox_zarr import _cf_referenced_names
+            >>> group = zarr.open_group(store=zarr.storage.MemoryStore(), mode="w")
+            >>> group.create_array("tas", shape=(2, 3), dtype="f4").attrs.update(
+            ...     {"coordinates": "tas"}
+            ... )
+            >>> _cf_referenced_names(group, list(group.array_keys()))
+            set()
+
+            ```
+
+    See Also:
+        detect_data_var: Applies this as rule 3, before ranking what is left.
     """
     referenced = {n for n in arrays if n.endswith(("_bnds", "_bounds"))}
     for name in arrays:
