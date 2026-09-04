@@ -1,18 +1,24 @@
 """Process-scoped scratch artefacts for readers that must outlive their call.
 
-Several STAC readers must materialise intermediate rasters that have to outlive
-the call because the returned object is *file-backed* by them: multi-asset
-``from_stac`` and ``groupby="solar_day"`` write per-item / per-day GeoTIFFs, and
-``build_vrt_from_stac`` writes an in-memory ``/vsimem`` VRT. Previously each call
-made its own ``tempfile.mkdtemp`` (or a fresh ``/vsimem`` path) that was **never
-cleaned up**, so a long-running process leaked disk / memory indefinitely.
+Some readers must materialise an intermediate raster that has to outlive the
+call, because the object they return is *file-backed* by it. Multi-asset
+``from_stac`` and ``groupby="solar_day"`` write per-item / per-day GeoTIFFs;
+``build_vrt_from_stac`` writes an in-memory ``/vsimem`` VRT; the COG writer, the
+orthorectify DEM, the dtype probe and the WCS reader each mint a ``/vsimem``
+raster of their own. Previously each call made its own ``tempfile.mkdtemp`` (or
+a fresh ``/vsimem`` path) that was **never cleaned up**, so a long-running
+process leaked disk and memory indefinitely.
 
 This module centralises that scratch space:
 
 * :func:`artifact_dir` returns a fresh unique directory under **one** shared,
   process-level temp root (so N calls create N small subdirs under a single
   root, not N independent roots).
-* :func:`register_vsimem` tracks a ``/vsimem`` path for unlink.
+* :func:`mint_vsimem` names a ``/vsimem`` path and tracks it in one call, which
+  is what stops a new call site from forgetting the tracking -- four of them
+  had.
+* :func:`register_vsimem` tracks a path the caller named itself, and
+  :func:`unregister_vsimem` forgets one it has already unlinked.
 * both the root and the tracked ``/vsimem`` paths are removed by an ``atexit``
   hook, so everything is reclaimed at interpreter shutdown.
 

@@ -37,8 +37,12 @@ def validate_bbox(
         tuple[float, float, float, float]: The bbox as floats.
 
     Raises:
-        ValueError: `bbox` is not four values, any of them is not finite, or
-            the box is empty or inverted on either axis.
+        ValueError: `bbox` is not four values, one of them is text `float()`
+            cannot read, any of them is not finite, or the box is empty or
+            inverted on either axis.
+        TypeError: One of the four is a value `float()` refuses outright, such
+            as `None` or a list. Raised by the coercion rather than by a check
+            here -- the message names the type, which is what the caller needs.
 
     Examples:
         - An ordinary box passes and comes back as floats:
