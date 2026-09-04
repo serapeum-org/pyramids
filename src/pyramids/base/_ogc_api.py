@@ -30,22 +30,16 @@ from pyramids.base._errors import OGCAPIError
 
 logger = logging.getLogger(__name__)
 
+# The plain library name, for a request that is not part of a named protocol.
+# Callers that are -- the OGC API discovery read, the VectorTileServer fetch --
+# declare their own, because a service filtering on User-Agent must go on seeing
+# what it saw before.
+USER_AGENT = "pyramids-gis"
+
 # Headers for the urllib ``/collections`` pre-check. A real User-Agent avoids
 # services that block the default ``Python-urllib`` agent, and ``Accept`` adds
 # JSON content negotiation alongside the ``f=json`` query so the pre-check is no
 # stricter than the GDAL driver it guards.
-# The plain library name, for a request that is not part of a named protocol.
-# Callers that are -- the OGC API discovery read, the VectorTileServer fetch --
-# declare their own, because a service filtering on User-Agent must go on seeing
-# what it saw before.
-USER_AGENT = "pyramids-gis"
-
-# The plain library name, for a request that is not part of a named protocol.
-# Callers that are -- the OGC API discovery read, the VectorTileServer fetch --
-# declare their own, because a service filtering on User-Agent must go on seeing
-# what it saw before.
-USER_AGENT = "pyramids-gis"
-
 DISCOVERY_HEADERS = {
     "User-Agent": "pyramids-gis OGC API client",
     "Accept": "application/json",
