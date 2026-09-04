@@ -43,6 +43,7 @@ from pyramids.dataset.engines._base import _Engine
 from pyramids.dataset.engines._warp import carry_raster_metadata, warp_to_dataset
 from pyramids.dataset.engines._warp import dst_srs_arg as _dst_srs_arg
 from pyramids.dataset.engines.vectorize import Vectorize
+from pyramids.dataset.window import Window
 
 
 @overload
@@ -1758,10 +1759,18 @@ class Spatial(_Engine["Dataset"]):
         densification, so its edges stay straight in source coordinates and the polygon's
         `total_bounds` envelope is exact — for any polygon, not only axis-aligned ones.
 
+        The snapping itself is :class:`~pyramids.dataset.window.Window`'s: covering the
+        envelope is `from_bounds`, the touch margin is `buffer(1)`, clipping to the source
+        is `crop`, and the map-space window is `to_bounds`. Doing the same arithmetic by
+        hand here is how the two drifted apart.
+
         Returns `None`, falling back to the full-source warp, whenever the optimisation
         cannot be applied safely: a rotated, sheared or non-north-up geotransform; a
-        missing or differing CRS; a degenerate (non-finite) envelope; or a cutline that
-        does not overlap the source (left for the existing "no valid pixels" error).
+        missing or differing CRS; a degenerate (non-finite or zero-width) envelope; or a
+        cutline that does not overlap the source (left for the existing "no valid pixels"
+        error). A zero-width envelope means a point, line or collapsed-polygon cutline,
+        which GDAL rejects ("Cutline not of polygon type") on the full-source path too, so
+        declining the optimisation costs nothing.
 
         Args:
             src: The raster being cropped.
@@ -1772,7 +1781,8 @@ class Spatial(_Engine["Dataset"]):
                 The clipped window, or None to fall back.
         """
         window: tuple[float, float, float, float] | None = None
-        x0, dx, row_skew, y0, col_skew, dy = src._raster.GetGeoTransform()
+        geotransform = src._raster.GetGeoTransform()
+        _, dx, row_skew, _, col_skew, dy = geotransform
         source_crs = src.crs
         north_up = not row_skew and not col_skew and dx > 0 and dy < 0
         same_crs = (
@@ -1781,19 +1791,21 @@ class Spatial(_Engine["Dataset"]):
             and crs_equal(source_crs, feature.crs.to_wkt())
         )
         if north_up and same_crs:
-            minx, miny, maxx, maxy = (float(v) for v in feature.total_bounds)
-            if all(math.isfinite(v) for v in (minx, miny, maxx, maxy)):
-                src_west, src_east = x0, x0 + dx * src.columns
-                src_south, src_north = y0 + dy * src.rows, y0  # dy < 0
-                # Snap outward to whole pixels, then one cell of "touch" margin per side.
-                west = x0 + (math.floor((minx - x0) / dx) - 1) * dx
-                east = x0 + (math.ceil((maxx - x0) / dx) + 1) * dx
-                north = y0 + (math.floor((y0 - maxy) / -dy) - 1) * dy
-                south = y0 + (math.ceil((y0 - miny) / -dy) + 1) * dy
-                west, east = max(west, src_west), min(east, src_east)
-                south, north = max(south, src_south), min(north, src_north)
-                if west < east and south < north:
-                    window = (west, south, east, north)
+            envelope = tuple(float(v) for v in feature.total_bounds)
+            min_x, min_y, max_x, max_y = envelope
+            usable = (
+                all(math.isfinite(v) for v in envelope)
+                and min_x < max_x
+                and min_y < max_y
+            )
+            if usable:
+                clipped = (
+                    Window.from_bounds(envelope, geotransform)
+                    .buffer(1)
+                    .crop(rows=src.rows, cols=src.columns)
+                )
+                if clipped is not None:
+                    window = clipped.to_bounds(geotransform)
         return window
 
     @staticmethod
