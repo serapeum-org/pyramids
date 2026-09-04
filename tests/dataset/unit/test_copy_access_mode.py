@@ -25,9 +25,7 @@ GEO = GeoReference(top_left_corner=(0.0, 5.0), cell_size=1.0, epsg=4326)
 def source_path(tmp_path):
     """A small GeoTIFF on disk, so it can be reopened in either mode."""
     path = tmp_path / "source.tif"
-    Dataset.from_array(
-        np.ones((4, 5), dtype=np.float32), geo_ref=GEO, path=str(path)
-    )
+    Dataset.from_array(np.ones((4, 5), dtype=np.float32), geo_ref=GEO, path=str(path))
     return str(path)
 
 

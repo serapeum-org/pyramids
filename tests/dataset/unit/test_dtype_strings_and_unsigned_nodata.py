@@ -105,7 +105,9 @@ class TestTheUnsignedNoDataDefault:
 
         assert dataset.bands._coerce_band_no_data(0, None) == expected
 
-    @pytest.mark.parametrize("numpy_dtype", [np.int16, np.int32, np.float32, np.float64])
+    @pytest.mark.parametrize(
+        "numpy_dtype", [np.int16, np.int32, np.float32, np.float64]
+    )
     def test_a_signed_or_float_band_passes_none_through(self, numpy_dtype):
         """These can represent the absence, so nothing is substituted.
 

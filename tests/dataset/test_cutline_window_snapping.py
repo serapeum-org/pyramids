@@ -27,7 +27,6 @@ from pyramids.dataset.window import Window
 pytestmark = pytest.mark.core
 
 
-
 def _handrolled(geotransform, rows, cols, bounds):
     """The arithmetic as `_cutline_window_bounds` used to spell it out."""
     x0, dx, _, y0, _, dy = geotransform
@@ -153,7 +152,9 @@ class TestTheSnappingIsUnchanged:
             if expected is None:
                 assert actual is None, f"{envelope} -> {actual}, expected fallback"
             else:
-                assert actual is not None, f"{envelope} -> fallback, expected {expected}"
+                assert actual is not None, (
+                    f"{envelope} -> fallback, expected {expected}"
+                )
                 assert actual == pytest.approx(expected, abs=1e-9), f"at {envelope}"
 
 

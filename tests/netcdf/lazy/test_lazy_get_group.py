@@ -99,9 +99,9 @@ class TestZeroCopyView:
         assert "temperature" in view.variable_names, (
             f"the view's own variable must stay bare, got {view.variable_names}"
         )
-        assert not any(
-            name.startswith("forecast/") for name in view.variable_names
-        ), f"full store paths leaked into the view, got {view.variable_names}"
+        assert not any(name.startswith("forecast/") for name in view.variable_names), (
+            f"full store paths leaked into the view, got {view.variable_names}"
+        )
         assert "surface/t2m" in view.variable_names, (
             f"the nested group's variable should be listed, got {view.variable_names}"
         )

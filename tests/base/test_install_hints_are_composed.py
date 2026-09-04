@@ -39,7 +39,9 @@ def _runtime_strings(source: str) -> list[str]:
     docstrings = {
         id(node.body[0].value)
         for node in ast.walk(tree)
-        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+        if isinstance(
+            node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+        )
         and node.body
         and isinstance(node.body[0], ast.Expr)
         and isinstance(node.body[0].value, ast.Constant)
@@ -92,8 +94,14 @@ class TestTheCollapsedMessagesAreUnchanged:
     @pytest.mark.parametrize(
         ("lead", "extra"),
         [
-            ("GeoParquet support requires the optional 'pyarrow' dependency.", "parquet"),
-            ("backend='dask' requires the optional 'dask-geopandas' dependency.", "parquet"),
+            (
+                "GeoParquet support requires the optional 'pyarrow' dependency.",
+                "parquet",
+            ),
+            (
+                "backend='dask' requires the optional 'dask-geopandas' dependency.",
+                "parquet",
+            ),
             ("search requires the optional 'pystac-client' dependency.", "stac"),
         ],
     )

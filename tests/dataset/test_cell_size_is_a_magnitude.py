@@ -88,14 +88,19 @@ class TestGeoTransformCellSize:
         """
         angle = math.radians(30)
         rotated = GeoTransform(
-            0.0, math.cos(angle), math.sin(angle), 0.0, math.sin(angle), -math.cos(angle)
+            0.0,
+            math.cos(angle),
+            math.sin(angle),
+            0.0,
+            math.sin(angle),
+            -math.cos(angle),
         )
 
         assert rotated.is_axis_aligned is False
         assert rotated.cell_size == pytest.approx(0.8660254, abs=1e-6)
-        assert math.hypot(rotated.pixel_width, rotated.column_rotation) == pytest.approx(
-            1.0
-        )
+        assert math.hypot(
+            rotated.pixel_width, rotated.column_rotation
+        ) == pytest.approx(1.0)
 
 
 class TestEveryReaderAgrees:

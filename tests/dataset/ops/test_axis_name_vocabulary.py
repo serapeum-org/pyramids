@@ -241,7 +241,6 @@ class TestAnAxisNameCanStillBeAData_Array:
 
         assert detect_data_var(group) == "sst"
 
-
     @pytest.mark.lazy
     @needs_zarr
     def test_the_pick_is_stable_across_stores_of_the_same_shape(self, tmp_path):
@@ -319,7 +318,15 @@ class TestTheOrderedSequences:
             dimension/projected one, or a projected grid carrying auxiliary
             degree coordinates picks the degrees.
         """
-        geographic = {"lon", "long", "longitude", "nav_lon", "lat", "latitude", "nav_lat"}
+        geographic = {
+            "lon",
+            "long",
+            "longitude",
+            "nav_lon",
+            "lat",
+            "latitude",
+            "nav_lat",
+        }
         positions = [i for i, name in enumerate(ordered) if name in geographic]
         others = [i for i, name in enumerate(ordered) if name not in geographic]
 
@@ -383,7 +390,9 @@ class TestTheEarlierBranchesOfDetectDataVar:
         """
         store = tmp_path / "own.zarr"
         group = zarr.open_group(str(store), mode="w")
-        group.create_array("data", shape=(6, 8), dtype="float32")[:] = np.ones((6, 8), "float32")
+        group.create_array("data", shape=(6, 8), dtype="float32")[:] = np.ones(
+            (6, 8), "float32"
+        )
         group.create_array("other", shape=(2, 6, 8), dtype="float32")[:] = np.ones(
             (2, 6, 8), "float32"
         )
@@ -409,6 +418,8 @@ class TestTheEarlierBranchesOfDetectDataVar:
         declared = group.create_array("east", shape=(6, 8), dtype="float32")
         declared[:] = np.ones((6, 8), dtype=np.float32)
         declared.attrs["grid_mapping"] = "spatial_ref"
-        group.create_array("sst", shape=(6, 8), dtype="float32")[:] = np.ones((6, 8), "float32")
+        group.create_array("sst", shape=(6, 8), dtype="float32")[:] = np.ones(
+            (6, 8), "float32"
+        )
 
         assert detect_data_var(group) == "east"

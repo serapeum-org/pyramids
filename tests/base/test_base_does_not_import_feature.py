@@ -21,11 +21,7 @@ pytestmark = pytest.mark.core
 
 def _imports_after(module: str) -> set[str]:
     """Module names present in `sys.modules` after importing `module` alone."""
-    code = (
-        "import sys, json;"
-        f" import {module};"
-        " print(json.dumps(sorted(sys.modules)))"
-    )
+    code = f"import sys, json; import {module}; print(json.dumps(sorted(sys.modules)))"
     completed = subprocess.run(
         [sys.executable, "-c", code], capture_output=True, text=True, check=True
     )
@@ -80,7 +76,9 @@ class TestTheReExportStillResolves:
         """
         from pyramids.feature.bbox import transform
 
-        assert [round(v, 1) for v in transform((-10.0, -5.0, 10.0, 5.0), 4326, 4326)] == [
+        assert [
+            round(v, 1) for v in transform((-10.0, -5.0, 10.0, 5.0), 4326, 4326)
+        ] == [
             -10.0,
             -5.0,
             10.0,

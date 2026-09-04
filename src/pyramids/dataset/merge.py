@@ -351,9 +351,7 @@ def _source_bounds(
         ds, opened = gdal.Open(str(path)), True
     if ds is None:
         raise RuntimeError(f"gdal.Open returned None for merge source {path!r}.")
-    bounds = GeoTransform(*ds.GetGeoTransform()).extent(
-        ds.RasterXSize, ds.RasterYSize
-    )
+    bounds = GeoTransform(*ds.GetGeoTransform()).extent(ds.RasterXSize, ds.RasterYSize)
     if opened:
         # Close the handle we opened; a caller-supplied gdal.Dataset is theirs to own.
         ds = None

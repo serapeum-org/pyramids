@@ -55,7 +55,13 @@ _BBOX_KEY_ALIASES: dict[str, tuple[str, ...]] = {
 """Accepted key spellings per bbox edge (GeoJSON, eodag, shapely/geopandas, compass), matched case-insensitively."""
 
 
-__all__ = ["Bbox", "normalise_longitude", "split_antimeridian", "to_shapely", "transform"]
+__all__ = [
+    "Bbox",
+    "normalise_longitude",
+    "split_antimeridian",
+    "to_shapely",
+    "transform",
+]
 
 
 def split_antimeridian(bbox: Bbox) -> list[Bbox]:
