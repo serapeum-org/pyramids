@@ -3004,22 +3004,7 @@ class NetCDF(Dataset):
         Returns:
             list[str]: Names to copy through unchanged.
         """
-        spatial_dims: set[str] = set()
-        for name in spatial_vars:
-            dim_names = self._variable_dim_names(rg, name)
-            axes = self._cf_spatial_axes(rg, dim_names) or self._named_spatial_axes(
-                dim_names
-            )
-            if axes is not None:
-                spatial_dims.update(dim_names[axis] for axis in axes)
-        carryable = []
-        for name in self._readable_variable_names():
-            if name in spatial_vars:
-                continue
-            if spatial_dims.intersection(self._variable_dim_names(rg, name)):
-                continue
-            carryable.append(name)
-        return carryable
+        return [n for n in self._readable_variable_names() if n not in spatial_vars]
 
     def _carry_aux_variables(
         self, result: NetCDF, aux_vars: list[str], operation: str

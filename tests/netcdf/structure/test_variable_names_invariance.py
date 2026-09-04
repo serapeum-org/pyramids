@@ -270,26 +270,27 @@ class TestOperationsCarryTheArraysTheyDoNotTransform:
     actually overlaps that fixture's valid data.
     """
 
-    def test_a_crop_does_not_carry_bounds_of_a_reshaped_axis(self):
-        """Carrying `lat_bnds` verbatim would describe the wrong axis.
+    def test_an_operation_carries_every_array_it_does_not_transform(self):
+        """Nothing is silently dropped, whatever dimensions it shares.
 
         Test scenario:
-            `lat_bnds(lat, nv)` is not spatial by the `(y, x)` test, so a naive
-            "carry everything unenumerated" rule copies it into the cropped
-            result -- where it still describes the source's latitude axis, not
-            the cropped one. Sharing a reshaped dimension is what disqualifies
-            it.
+            An earlier rule also excluded any array indexed by a dimension the
+            operation reshapes, to stop a `lat_bnds(lat, nv)` being copied
+            verbatim into a cropped result where it describes the source's
+            axis. That filter dropped real data: a WRF store's staggered `U` /
+            `V` and a CAM store's `gw` share one spatial dimension and vanished
+            from the output with no warning. Carrying a possibly-stale bounds
+            array is the lesser fault, and is what the base commit did.
         """
-        dataset = NetCDF.read_file(str(DATA / "cf__7v__1d3-2d3-3d1__y-asc.nc"))
-        assert "lat_bnds" in dataset._readable_variable_names()
-
-        west, south, east, north = dataset.bounds.total_bounds
-        pad_x, pad_y = (east - west) / 4, (north - south) / 4
-        cropped = dataset.crop(
-            bbox=[west + pad_x, south + pad_y, east - pad_x, north - pad_y]
+        dataset = NetCDF.read_file(
+            str(DATA / "none__17v__1d1-2d5-3d6-4d5__stag-str.nc")
         )
+        rg = dataset._working_group()
+        spatial = dataset._spatial_variable_names(rg)
 
-        assert "lat_bnds" not in cropped._readable_variable_names()
+        reachable = set(spatial) | set(dataset._carryable_aux_names(rg, spatial))
+
+        assert set(dataset._readable_variable_names()) <= reachable
 
 
 class TestCarryableAuxNames:
@@ -317,13 +318,17 @@ class TestCarryableAuxNames:
 
         assert not set(carryable) & set(spatial)
 
-    def test_bounds_of_a_reshaped_axis_are_excluded(self):
-        """`lat_bnds` is not spatial by the (y, x) test but is still on `lat`.
+    def test_a_bounds_array_is_carried_rather_than_dropped(self):
+        """The lesser of two faults, and the one the base commit chose.
 
         Test scenario:
-            It would pass a "not a spatial variable" filter and be copied
-            verbatim into a cropped result, where it would describe the source's
-            latitude axis. Sharing a reshaped dimension is what disqualifies it.
+            `lat_bnds(lat, nv)` is not spatial by the `(y, x)` test, so a crop
+            copies it through unchanged -- where it still describes the
+            source's latitude axis rather than the cropped one. Excluding
+            everything that shares a reshaped dimension fixed that and dropped
+            real data with it: a WRF store's staggered `U` / `V` and a CAM
+            store's `gw` disappeared from the output silently. Stale bounds are
+            visible and correctable; a missing variable is neither.
         """
         dataset = NetCDF.read_file(str(DATA / "cf__7v__1d3-2d3-3d1__y-asc.nc"))
         rg = dataset._working_group()
@@ -331,8 +336,7 @@ class TestCarryableAuxNames:
 
         carryable = dataset._carryable_aux_names(rg, spatial)
 
-        assert "lat_bnds" in dataset._readable_variable_names()
-        assert "lat_bnds" not in carryable
+        assert "lat_bnds" in carryable
 
     def test_an_array_on_an_untouched_dimension_is_carried(self):
         """Sharing *any* dimension is too strict; only y / x count.

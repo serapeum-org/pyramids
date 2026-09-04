@@ -23,9 +23,17 @@ pytestmark = pytest.mark.core
 
 
 def _snapshot(nc):
-    """Materialise every variable's array, keyed by name, for a value comparison."""
+    """Materialise every array the store holds, keyed by name, for comparison.
+
+    Keyed on the readable names rather than `variables`: the latter is the
+    CF-classified enumeration, which the eager and streamed results populate
+    differently because the CF attributes survive a file round-trip but not an
+    in-memory rebuild. Both stores carry the same arrays, and those are what
+    this compares.
+    """
     return {
-        name: np.asarray(nc.get_variable(name).read_array()) for name in nc.variables
+        name: np.asarray(nc.get_variable(name).read_array())
+        for name in nc._readable_variable_names()
     }
 
 
@@ -40,7 +48,16 @@ def _assert_same(mem, streamed):
     so they differ sub-pixel (~1e-5 of a cell) — still far tighter than any real CRS/affine
     regression, which flips units or collapses to identity.
     """
-    assert sorted(mem.variables) == sorted(streamed.variables)
+    # Compared on what each store *holds*, not on `variables`. That property is
+    # the CF-classified enumeration, and the two results legitimately classify
+    # differently: the streamed file round-trips the CF `bounds` attributes, so
+    # its bounds arrays are recognised as non-data, while the eager path
+    # rebuilds each variable in memory and those attributes do not survive, so
+    # the same arrays are enumerated as data. Both stores carry all of them,
+    # which is what "streamed matches in-memory" means here.
+    assert sorted(mem._readable_variable_names()) == sorted(
+        streamed._readable_variable_names()
+    )
     left, right = _snapshot(mem), _snapshot(streamed)
     for name in left:
         assert left[name].shape == right[name].shape, name
