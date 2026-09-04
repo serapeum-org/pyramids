@@ -2928,6 +2928,13 @@ class DatasetCollection:
         # Dataset's band into one stacked array is fine for a plot call
         # (the user explicitly asked to render). Delegates the cleopatra
         # call to :func:`render_array` (D-2 — shared with `Analysis.plot`).
+        # The stack's spatial domain, which every timestep shares -- the
+        # collection is co-registered by construction. `Analysis.plot` has
+        # always passed this, and the two `RenderRequest`s below did not, so a
+        # collection rendered on pixel indices where the identical single-raster
+        # call rendered on world coordinates. `basemap=` was accepted here all
+        # the same, with no extent to place it against.
+        extent = self.base.bbox
         if rgb is not None:
             # RGB time-lapse: read the FULL multi-band array per timestep and
             # stack to (time, bands, rows, cols); render_array composites the
@@ -2939,6 +2946,7 @@ class DatasetCollection:
             return render_array(
                 RenderRequest(
                     arr=data,
+                    extent=extent,
                     rgb=RgbSpec(
                         rgb=rgb,
                         surface_reflectance=surface_reflectance,
@@ -2970,6 +2978,7 @@ class DatasetCollection:
         return render_array(
             RenderRequest(
                 arr=data,
+                extent=extent,
                 exclude_value=exclude_value,
                 mode=ModeSpec(mode="animate", animation_axis_values=axis_values),
                 ax=ax,
