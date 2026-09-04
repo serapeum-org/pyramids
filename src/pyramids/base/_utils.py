@@ -989,12 +989,17 @@ class Catalog:
         if self.exists(driver):
             result = driver
         else:
-            result = self.get_driver_name(driver)
-            if result is None:
+            # Bound to its own name first: `get_driver_name` returns `str | None`
+            # and the guard below is what makes it a `str`, so assigning
+            # straight into `result` would widen the declared type of the
+            # single return.
+            looked_up = self.get_driver_name(driver)
+            if looked_up is None:
                 raise DriverNotExistError(
                     f"The driver: {driver!r} is not in the driver catalog. Known "
                     f"driver names: {sorted(self.drivers)}"
                 )
+            result = looked_up
         return result
 
     def get_driver_name(self, gdal_name) -> str | None:

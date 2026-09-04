@@ -4217,7 +4217,8 @@ class IO(_Engine["Dataset"]):
         overview = _Dataset.from_array(
             arr,
             geo_ref=GeoReference(
-                geo=scaled_geo, epsg=crs_spec(self._ds.epsg, self._ds.crs)
+                geo=cast("tuple[float, float, float, float, float, float]", scaled_geo),
+                epsg=crs_spec(self._ds.epsg, self._ds.crs),
             ),
             no_data_value=None,
         )

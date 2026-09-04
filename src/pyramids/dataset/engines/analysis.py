@@ -1628,7 +1628,10 @@ class Analysis(_Engine["Dataset"]):
             arr,
             no_data_value=0,
             geo_ref=GeoReference(
-                geo=geotransform, epsg=crs_spec(self._ds.epsg, self._ds.crs)
+                geo=cast(
+                    "tuple[float, float, float, float, float, float]", geotransform
+                ),
+                epsg=crs_spec(self._ds.epsg, self._ds.crs),
             ),
         )
         # The mask is always single-band (the one extracted band flagged as 2 / nodata),

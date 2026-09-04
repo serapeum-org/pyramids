@@ -1631,8 +1631,12 @@ class Bands(_Engine["Dataset"]):
             # answer read back as `(255,)` from one path and `(np.uint8(255),)`
             # from the other, which the `==` pinning their agreement cannot
             # see.
+            # Cast for the same reason `_fallback_no_data` casts: the
+            # `np.issubdtype` above narrows at runtime but the numpy stubs do
+            # not follow it.
             np_dtype = np.dtype(self._ds.numpy_dtype[i])
-            result = np_dtype.type(np.iinfo(np_dtype).max)
+            unsigned_dtype = cast("np.dtype[np.unsignedinteger]", np_dtype)
+            result = np_dtype.type(np.iinfo(unsigned_dtype).max)
         else:
             # None/np.nan on any non-unsigned dtype: pass through unchanged.
             result = val

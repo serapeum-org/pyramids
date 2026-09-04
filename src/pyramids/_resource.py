@@ -28,6 +28,7 @@ tabular ``fmt``) explicitly.
 from __future__ import annotations
 
 import warnings
+from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
@@ -513,7 +514,7 @@ def _read_raster(path: Path) -> Dataset:
             NetCDF,  # noqa: PLC0415 - cycle: netcdf imports Dataset
         )
 
-        reader = NetCDF.read_file
+        reader: Callable[[str], Dataset] = NetCDF.read_file
     else:
         reader = Dataset.read_file
     return reader(source)

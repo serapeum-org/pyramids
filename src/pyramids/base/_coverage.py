@@ -13,6 +13,7 @@ which each reader re-wraps into its own branded error (WCSError / OGCAPIError).
 from __future__ import annotations
 
 from math import isfinite
+from typing import cast
 
 from osgeo import gdal, osr
 
@@ -120,7 +121,9 @@ def native_projwin(
     # is not crudely axis-aligned), same always_xy convention, and it resolves a
     # CRS whose code only GDAL's PROJ database carries (#943).
     left, bottom, right, top = bbox_transform(
-        tuple(bbox), crs, native_srs.ExportToWkt()
+        cast("tuple[float, float, float, float]", tuple(bbox)),
+        crs,
+        native_srs.ExportToWkt(),
     )
     projwin = [left, top, right, bottom]
     if not all(isfinite(v) for v in projwin):

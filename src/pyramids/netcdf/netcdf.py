@@ -3495,7 +3495,7 @@ class NetCDF(Dataset):
         if streamed is not None:
             return streamed
         mem = self._apply_to_all_variables(operation, op_kwargs, warn_demoted=False)
-        return mem._persist_to(path)
+        return cast("NetCDF", mem._persist_to(path))
 
     def reduce(self, *args, **kwargs) -> NetCDF:
         """Facade — :meth:`Selection.reduce <pyramids.netcdf.engines.selection.Selection.reduce>`."""

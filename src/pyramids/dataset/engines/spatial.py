@@ -1836,7 +1836,10 @@ class Spatial(_Engine["Dataset"]):
             )
             if usable:
                 clipped = (
-                    Window.from_bounds(envelope, geotransform)
+                    Window.from_bounds(
+                        cast("tuple[float, float, float, float]", envelope),
+                        geotransform,
+                    )
                     .buffer(1)
                     .crop(rows=src.rows, cols=src.columns)
                 )
