@@ -322,13 +322,14 @@ def _member_at(path: str, members: list[str], file_i: int, kind: str) -> str:
     for segment in candidate.split("/"):
         if segment in ("", "."):
             continue
-        if not _SAFE_MEMBER_SEGMENT.fullmatch(segment):
+        matched = _SAFE_MEMBER_SEGMENT.fullmatch(segment)
+        if matched is None:
             raise FileFormatNotSupportedError(
                 f"The {kind} file {path!r} holds a member whose path escapes it "
                 f"or is not a plain name ({candidate!r}); reading it would "
                 "leave the archive."
             )
-        segments.append(_SAFE_MEMBER_SEGMENT.fullmatch(segment).group(0))
+        segments.append(matched.group(0))
     if not segments:
         raise FileFormatNotSupportedError(
             f"The {kind} file {path!r} holds a member with an empty name."
