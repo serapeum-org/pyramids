@@ -349,7 +349,10 @@ def detect_data_var(group: Any) -> str:
         candidates = [n for n in arrays if n not in _NEVER_DATA_ARRAYS]
     if not candidates:
         raise KeyError(f"no data array found in zarr group; arrays={arrays}")
-    return max(candidates, key=lambda n: group[n].ndim)
+    # Sorted before the max so the tie-break is by name. `array_keys()` does not
+    # promise an order and does not give a stable one, so a store with two
+    # equal-rank candidates otherwise reads as a different variable run to run.
+    return max(sorted(candidates), key=lambda n: group[n].ndim)
 
 
 def _transform_from_xy(group: Any) -> tuple[float, ...]:

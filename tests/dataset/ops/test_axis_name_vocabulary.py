@@ -235,6 +235,32 @@ class TestAnAxisNameCanStillBeAData_Array:
 
         assert detect_data_var(group) == "sst"
 
+
+    @pytest.mark.lazy
+    @needs_zarr
+    def test_the_pick_is_stable_across_stores_of_the_same_shape(self, tmp_path):
+        """`array_keys()` has no promised order, so the tie-break must not use it.
+
+        Args:
+            tmp_path: Fixture supplying a temporary directory.
+
+        Test scenario:
+            `east` and `north` are both 2-D, so the highest-dimension rule
+            cannot separate them. Left to the store's own key order the same
+            data read back as a different variable from run to run; sorting
+            first makes the answer a property of the store, not of the walk.
+        """
+        picks = set()
+        for index in range(6):
+            store = tmp_path / f"tie_{index}.zarr"
+            group = zarr.open_group(str(store), mode="w")
+            for name in ("east", "north", "x", "y"):
+                array = group.create_array(name, shape=(6, 8), dtype="float32")
+                array[:] = np.ones((6, 8), dtype=np.float32)
+            picks.add(detect_data_var(group))
+
+        assert picks == {"east"}, f"the pick varied between runs: {picks}"
+
     @pytest.mark.core
     def test_the_three_tiers_are_nested(self):
         """The tiers are nested, so the fallback can only ever widen.
