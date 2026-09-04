@@ -15,10 +15,10 @@ from __future__ import annotations
 from math import isfinite
 
 from osgeo import gdal, osr
-from pyproj import CRS, Transformer
+from pyproj import Transformer
 
-from pyramids.base._errors import CoverageError
-from pyramids.base.crs import crs_from_user_input
+from pyramids.base._errors import CoverageError, CRSError
+from pyramids.base.crs import crs_from_user_input, sr_from_user_input
 
 
 def validate_bbox(
@@ -78,11 +78,14 @@ def resolve_native_srs(
             "with the coverage's CRS, e.g. the proj4 string."
         )
     else:
-        result = osr.SpatialReference()
         try:
-            # GDAL exceptions are enabled package-wide, so a bad CRS raises here.
-            result.SetFromUserInput(coverage_crs)
-        except RuntimeError as exc:
+            # `sr_from_user_input` rather than a bare SetFromUserInput: it
+            # stamps traditional axis order, which is what the sibling branch
+            # above and `native_projwin`'s always_xy transformer both assume.
+            # Building it raw left a geographic `coverage_crs` in
+            # authority-compliant order, so it disagreed with both.
+            result = sr_from_user_input(coverage_crs)
+        except (RuntimeError, CRSError) as exc:
             raise ValueError(
                 f"coverage_crs could not be interpreted: {coverage_crs!r} ({exc})"
             ) from exc
@@ -104,7 +107,10 @@ def native_projwin(
             (``pyproj`` returns ``inf``/``nan`` when the bbox falls outside the
             native CRS's area of use).
     """
-    native = CRS.from_user_input(native_srs.ExportToWkt())
+    # Through the package helper so a CRS whose code only GDAL's PROJ database
+    # carries still resolves (#943). Axis order is not exposed here: the
+    # transformer below is built with always_xy=True.
+    native = crs_from_user_input(native_srs.ExportToWkt())
     transformer = Transformer.from_crs(crs_from_user_input(crs), native, always_xy=True)
     minx, miny, maxx, maxy = bbox
     # Densify the edges (not just the corners) so the native-CRS window still

@@ -29,6 +29,7 @@ from pyproj import Transformer
 
 from pyramids.base._artifacts import artifact_dir
 from pyramids.base._errors import StacAssetError
+from pyramids.base.crs import sr_from_user_input
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset.grid import Grid
 from pyramids.utm import utm_epsg
@@ -867,12 +868,10 @@ def _footprint_4326(
 
     corners = [(minx, miny), (maxx, miny), (maxx, maxy), (minx, maxy), (minx, miny)]
     if int(epsg) != 4326:
-        src = osr.SpatialReference()
-        src.ImportFromEPSG(int(epsg))
-        src.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
-        dst = osr.SpatialReference()
-        dst.ImportFromEPSG(4326)
-        dst.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        # `sr_from_user_input` already stamps traditional axis order, which is
+        # the whole reason both operands were being built by hand here.
+        src = sr_from_user_input(int(epsg))
+        dst = sr_from_user_input(4326)
         transform = osr.CoordinateTransformation(src, dst)
         corners = [
             (round(x, precision), round(y, precision))

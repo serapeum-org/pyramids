@@ -1618,8 +1618,14 @@ def sr_from_user_input(crs: int | str | Any) -> osr.SpatialReference:
     take a WKT directly and does not require an EPSG integer.
 
     The returned SRS is set to ``OAMS_TRADITIONAL_GIS_ORDER`` so that x/y always
-    means longitude/easting first, matching the axis order used everywhere else
-    in pyramids (geotransform, ``reproject_coordinates``, ``sr_from_epsg``).
+    means longitude/easting first, matching the geotransform and
+    ``reproject_coordinates``.
+
+    It does **not** match :func:`sr_from_epsg`, which leaves GDAL's
+    authority-compliant default in place -- for a geographic CRS such as
+    EPSG:4326 that is latitude first. The two are therefore not
+    interchangeable, and swapping one for the other transposes coordinates on
+    any geographic CRS.
 
     Args:
         crs: Any CRS form :meth:`pyproj.CRS.from_user_input` accepts — an EPSG

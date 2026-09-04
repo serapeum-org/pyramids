@@ -29,6 +29,7 @@ from pyramids.base.crs import (
     crs_equal,
     crs_spec,
     sr_from_epsg,
+    sr_from_user_input,
     sr_from_wkt,
     within_lonlat_range,
 )
@@ -7469,11 +7470,11 @@ class NetCDF(Dataset):
                 ```
         """
         min_x, min_y, max_x, max_y = (float(v) for v in bbox)
-        src = osr.SpatialReference()
-        src.SetFromUserInput(
-            f"EPSG:{src_crs}" if isinstance(src_crs, int) else str(src_crs)
-        )
-        src.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        # `sr_from_user_input` handles the int-vs-string spelling and stamps
+        # traditional axis order itself, so the restamp below it was redundant.
+        # It also resolves a CRS whose code only GDAL's PROJ database carries
+        # (#943), and raises CRSError where the raw call raised RuntimeError.
+        src = sr_from_user_input(src_crs)
         # `crs_equal` rather than `IsSame`: it normalises both sides, so an
         # equivalent CRS spelled differently takes the no-op path instead of
         # a densified round-trip that returns the same bbox.
