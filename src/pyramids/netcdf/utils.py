@@ -10,6 +10,12 @@ import numpy as np
 import pandas as pd
 from osgeo import gdal, osr
 
+# Re-exported, not defined here. They moved down to `base` because
+# `dataset/_cube_time.py` is one of the two writers that stamps them, and
+# reaching into `netcdf` for them pointed `dataset` back up at a package
+# that imports it. `decode_cf_time` below is what reads them back, so the
+# names stay importable from here for every caller that already does.
+from pyramids.base._cf_epoch import CF_EPOCH, CF_EPOCH_CALENDAR, cf_epoch_units
 from pyramids.base._utils import gdal_to_numpy_dtype
 
 # Keep simple, JSON-serializable attribute values only
@@ -631,6 +637,28 @@ def create_time_conversion_func(
 _CF_TIME_UNITS = re.compile(r"\S\s+since\s+\S", re.IGNORECASE)
 
 
+def _epoch_units_round_trip() -> None:
+    """`cf_epoch_units` produces what `decode_cf_time` parses.
+
+    The two halves live in different packages now -- the writer's constants in
+    :mod:`pyramids.base._cf_epoch`, the reader here -- so the property that
+    made sharing them worthwhile is asserted where both are in scope. Named
+    with a leading underscore because it exists for its doctest.
+
+    Examples:
+        - A seconds axis written from the shared epoch decodes back to the
+          dates it was written from:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.netcdf.utils import cf_epoch_units, decode_cf_time
+            >>> units = cf_epoch_units("seconds")
+            >>> decode_cf_time(np.array([0.0, 86400.0]), units).astype(str).tolist()
+            ['1970-01-01T00:00:00.000000000', '1970-01-02T00:00:00.000000000']
+
+            ```
+    """
+
+
 def cf_units_text(units: Any) -> str | None:
     """The `units` attribute as text, or `None` when it is not text at all.
 
@@ -758,56 +786,6 @@ def is_cf_time_units(units: str | bytes | None) -> bool:
     """
     text = cf_units_text(units)
     return text is not None and _CF_TIME_UNITS.search(text) is not None
-
-
-# The epoch every pyramids writer counts from, and the calendar it declares.
-# Both writers -- the collection's netCDF axis and the xarray interop path --
-# stamp these onto the arrays they emit, and `decode_cf_time` below is what
-# reads them back. Defining them beside the reader is what keeps a written axis
-# decodable: a writer that drifted to "standard", or to a different epoch,
-# would produce a file this module silently decodes to the wrong dates.
-CF_EPOCH = "1970-01-01 00:00:00"
-CF_EPOCH_CALENDAR = "proleptic_gregorian"
-
-
-def cf_epoch_units(resolution: str) -> str:
-    """The CF `units` string for offsets counted from the pyramids epoch.
-
-    The writers disagree, deliberately, on the resolution they count in: the
-    collection axis uses `nanoseconds` because an `int64` count at that scale
-    round-trips `datetime64[ns]` exactly, while the xarray interop path uses
-    fractional `seconds` because it must also carry `NaT` as `NaN`. What they
-    must not disagree on is the epoch, which is why only that half is shared.
-
-    Args:
-        resolution: A CF time unit name, e.g. `"nanoseconds"` or `"seconds"`.
-
-    Returns:
-        str: `"<resolution> since <epoch>"`, in the form `decode_cf_time`
-            parses.
-
-    Examples:
-        - The collection axis counts in nanoseconds:
-            ```python
-            >>> from pyramids.netcdf.utils import cf_epoch_units
-            >>> cf_epoch_units("nanoseconds")
-            'nanoseconds since 1970-01-01 00:00:00'
-
-            ```
-        - What it produces is decodable, which is the point of sharing it:
-            ```python
-            >>> import numpy as np
-            >>> from pyramids.netcdf.utils import cf_epoch_units, decode_cf_time
-            >>> units = cf_epoch_units("seconds")
-            >>> decode_cf_time(np.array([0.0, 86400.0]), units).astype(str).tolist()
-            ['1970-01-01T00:00:00.000000000', '1970-01-02T00:00:00.000000000']
-
-            ```
-
-    See Also:
-        decode_cf_time: Reads these strings back; the reason they live here.
-    """
-    return f"{resolution} since {CF_EPOCH}"
 
 
 def decode_cf_time(
@@ -1218,3 +1196,14 @@ def _read_dim_names(md_arr: Any) -> list[str]:
     except Exception:
         return []
     return dim_names
+
+
+__all__ = [
+    "CF_EPOCH",
+    "CF_EPOCH_CALENDAR",
+    "cf_epoch_units",
+    "cf_units_text",
+    "decode_cf_time",
+    "encode_cf_time",
+    "is_cf_time_units",
+]

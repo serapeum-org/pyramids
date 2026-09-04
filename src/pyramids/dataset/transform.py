@@ -527,8 +527,10 @@ class GeoTransform(NamedTuple):
         from_rows, from_columns = from_shape
         to_rows, to_columns = to_shape
         if (to_rows, to_columns) == (from_rows, from_columns):
-            return self
-        return self.scaled(from_columns / to_columns, from_rows / to_rows)
+            rescaled = self
+        else:
+            rescaled = self.scaled(from_columns / to_columns, from_rows / to_rows)
+        return rescaled
 
     @classmethod
     def from_bounds(

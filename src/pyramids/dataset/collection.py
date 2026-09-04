@@ -3288,6 +3288,13 @@ class DatasetCollection:
             `inplace=False`; `None` when `inplace=True`; a `Delayed` when
             `compute=False`.
 
+            The result carries this collection's time axis when it still
+            describes it -- one dataset out per dataset in, so the lengths
+            normally match. Previously the result's `time` was always
+            `None`, so anything branching on `collection.time is None`, or
+            writing the result with `to_netcdf` / `to_zarr`, sees a time
+            coordinate where it saw none before.
+
         Examples:
             - Reproject every timestep to EPSG:3857 and keep the result:
 
@@ -3371,6 +3378,13 @@ class DatasetCollection:
             DatasetCollection | None | Delayed: A new collection when
             `inplace=False`; `None` when `inplace=True`; or a dask
             `Delayed` wrapping either of those when `compute=False`.
+
+            The result carries this collection's time axis when it still
+            describes it -- one dataset out per dataset in, so the lengths
+            normally match. Previously the result's `time` was always
+            `None`, so anything branching on `collection.time is None`, or
+            writing the result with `to_netcdf` / `to_zarr`, sees a time
+            coordinate where it saw none before.
 
         Examples:
             - Crop every timestep against another dataset used as a mask:
@@ -3465,6 +3479,13 @@ class DatasetCollection:
             DatasetCollection | None | dask.delayed.Delayed: A new collection when
             `inplace=False`; `None` when `inplace=True`; a `Delayed` when
             `compute=False`.
+
+            The result carries this collection's time axis when it still
+            describes it -- one dataset out per dataset in, so the lengths
+            normally match. Previously the result's `time` was always
+            `None`, so anything branching on `collection.time is None`, or
+            writing the result with `to_netcdf` / `to_zarr`, sees a time
+            coordinate where it saw none before.
 
         Raises:
             TypeError: `alignment_src` is not a `Dataset`, or `method` is not a string.
@@ -3581,6 +3602,13 @@ class DatasetCollection:
             datasets[0], time_length=len(datasets), datasets=datasets
         )
         if time is not None:
+            # Assigned past the public `time` setter, which would re-validate
+            # the length. `_derived_kwargs` has already done that -- it is the
+            # only producer of this argument, and it passes `None` rather than
+            # a mismatched axis. Going through the setter here would re-run
+            # the same check on every wrap for no new information; if a second
+            # producer ever appears, it must make the same guarantee or this
+            # should become `collection.time = time`.
             collection._time = time
         return collection
 
@@ -3749,6 +3777,13 @@ class DatasetCollection:
             DatasetCollection | None | Delayed: A new collection when
             `inplace=False`; `None` when `inplace=True`; or a dask
             `Delayed` wrapping either of those when `compute=False`.
+
+            The result carries this collection's time axis when it still
+            describes it -- one dataset out per dataset in, so the lengths
+            normally match. Previously the result's `time` was always
+            `None`, so anything branching on `collection.time is None`, or
+            writing the result with `to_netcdf` / `to_zarr`, sees a time
+            coordinate where it saw none before.
 
         Examples:
             - Apply a simple modulo operation to each value:

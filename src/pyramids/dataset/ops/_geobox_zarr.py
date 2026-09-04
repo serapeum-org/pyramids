@@ -413,35 +413,48 @@ def detect_data_var(group: Any) -> str:
         pyramids.base._axes: The shared coordinate vocabulary rules 3 and 4
             consult.
     """
-    if "data" in group:
-        return "data"
     arrays = list(group.array_keys())
-    for name in arrays:
-        if "grid_mapping" in dict(group[name].attrs):
-            return name
-    # Names that are only ever coordinates are out entirely; everything else
-    # competes. Dimensionality decides first, because a store's data array
-    # outranks its coordinates, and the name only breaks ties: preferring a
-    # non-coordinate name outright let a 1-D `depth` -- or a 0-D CF
-    # grid-mapping variable named for its projection -- beat a 3-D array that
-    # happened to be called `east`.
-    candidates = [n for n in arrays if n not in _NEVER_DATA_ARRAYS]
-    # Then what the store says about itself. A store left with nothing after
-    # this is a store of bounds and coordinates, which has no data array to
-    # return -- the same answer as a store of nothing but `nav_lat`, and the
-    # message below names every array so the caller can see why.
-    referenced = _cf_referenced_names(group, arrays)
-    candidates = [n for n in candidates if n not in referenced]
-    if not candidates:
-        raise KeyError(f"no data array found in zarr group; arrays={arrays}")
-    # Sorted first so the final tie-break is by name. `array_keys()` does not
-    # promise an order and does not give a stable one, so a store with two
-    # equally-ranked candidates otherwise reads as a different variable run to
-    # run.
-    return max(
-        sorted(candidates),
-        key=lambda n: (group[n].ndim, n not in _NON_DATA_ARRAYS),
+    # `declared` is resolved inside the branch that needs it: reading every
+    # array's attributes costs a metadata read each, and the `data` case --
+    # what pyramids' own writer emits -- must not pay for it.
+    declared = (
+        None
+        if "data" in group
+        else next(
+            (name for name in arrays if "grid_mapping" in dict(group[name].attrs)),
+            None,
+        )
     )
+    if "data" in group:
+        chosen = "data"
+    elif declared is not None:
+        chosen = declared
+    else:
+        # Names that are only ever coordinates are out entirely; everything else
+        # competes. Dimensionality decides first, because a store's data array
+        # outranks its coordinates, and the name only breaks ties: preferring a
+        # non-coordinate name outright let a 1-D `depth` -- or a 0-D CF
+        # grid-mapping variable named for its projection -- beat a 3-D array that
+        # happened to be called `east`.
+        candidates = [n for n in arrays if n not in _NEVER_DATA_ARRAYS]
+        # Then what the store says about itself. A store left with nothing
+        # after this is a store of bounds and coordinates, which has no data
+        # array to return -- the same answer as a store of nothing but
+        # `nav_lat`, and the message names every array so the caller can see
+        # why.
+        referenced = _cf_referenced_names(group, arrays)
+        candidates = [n for n in candidates if n not in referenced]
+        if not candidates:
+            raise KeyError(f"no data array found in zarr group; arrays={arrays}")
+        # Sorted first so the final tie-break is by name. `array_keys()` does
+        # not promise an order and does not give a stable one, so a store with
+        # two equally-ranked candidates otherwise reads as a different variable
+        # run to run.
+        chosen = max(
+            sorted(candidates),
+            key=lambda n: (group[n].ndim, n not in _NON_DATA_ARRAYS),
+        )
+    return chosen
 
 
 def _transform_from_xy(group: Any) -> tuple[float, ...]:

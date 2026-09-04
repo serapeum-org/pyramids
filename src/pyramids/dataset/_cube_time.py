@@ -16,7 +16,7 @@ from typing import Any
 
 import numpy as np
 
-from pyramids.netcdf.utils import CF_EPOCH_CALENDAR, cf_epoch_units
+from pyramids.base._cf_epoch import CF_EPOCH_CALENDAR, cf_epoch_units
 
 
 @dataclass(frozen=True, eq=False)

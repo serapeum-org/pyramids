@@ -157,11 +157,13 @@ def is_nan_sentinel(no_data_value: float | None) -> bool:
             mean anything.
     """
     if no_data_value is None:
-        return True
-    try:
-        return bool(np.isnan(no_data_value))
-    except (TypeError, ValueError):
-        return False
+        result = True
+    else:
+        try:
+            result = bool(np.isnan(no_data_value))
+        except (TypeError, ValueError):
+            result = False
+    return result
 
 
 __all__ = ["DEFAULT_RTOL", "inside_domain", "is_nan_sentinel", "is_no_data"]

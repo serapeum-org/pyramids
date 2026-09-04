@@ -127,6 +127,13 @@ _NETCDF_COLLABORATOR_ATTRS = ("interop", "varops", "selection")
 _RESERVED_ACCESSOR_NAMES.update(_NETCDF_COLLABORATOR_ATTRS)
 
 
+# How deep the sub-group walk descends. netCDF-4 cannot express a group cycle
+# and nothing sane nests this far, so the cap never fires on a real store --
+# it is here so a malformed or hostile one cannot turn enumeration into an
+# unbounded walk.
+_MAX_GROUP_DEPTH = 32
+
+
 class _LazyVariableDict(dict):
     """Dict that loads NetCDF variables on first access per key.
 
@@ -5277,11 +5284,22 @@ class NetCDF(Dataset):
             names = self._mdim_data_variable_names(rg)
         else:
             cf = self.meta_data.cf
-            classified = list(cf.data_variable_names) if cf is not None else []
+            classified = set(cf.data_variable_names) if cf is not None else set()
+            declared = self._mdim_data_variable_names(rg)
+            # The classification says *which* names are data variables; the
+            # store says in what order. Reporting the classification's own
+            # order (it is sorted) reordered every container: `_fan_out_eager`
+            # templates the result from the *first* spatial variable, taking
+            # its geotransform, CRS, no-data and extra dimensions, so a
+            # different first name silently changes the output container --
+            # and the variable order propagates on into `to_netcdf` and
+            # `to_xarray`. Filtering the declared list keeps both.
+            filtered = [n for n in declared if n in classified]
             # An empty classification means the store declares no CF roles at
             # all, not that it holds no data -- fall back rather than report
-            # nothing.
-            names = classified or self._mdim_data_variable_names(rg)
+            # nothing. Same for a classification naming nothing the store
+            # declares at this level.
+            names = filtered or declared
         return names
 
     def _readable_variable_names(self) -> list[str]:
@@ -5307,7 +5325,7 @@ class NetCDF(Dataset):
         return readable
 
     @staticmethod
-    def _mdim_data_variable_names(rg, prefix: str = "") -> list[str]:
+    def _mdim_data_variable_names(rg, prefix: str = "", depth: int = 0) -> list[str]:
         """Data-variable names from an MDIM group and every group beneath it.
 
         Drops dimension coordinate arrays and 0-dimensional scalar variables
@@ -5325,6 +5343,8 @@ class NetCDF(Dataset):
             rg: The :class:`osgeo.gdal.Group` to enumerate.
             prefix: Group path to prepend, used by the recursion. Empty at the
                 root, so the common flat store is unaffected.
+            depth: Recursion depth, used by the recursion. Sub-groups below
+                :data:`_MAX_GROUP_DEPTH` are not descended into.
 
         Returns:
             list[str]: Names of the data variables in `rg` and its sub-groups,
@@ -5339,12 +5359,15 @@ class NetCDF(Dataset):
             if md_arr is not None and len(md_arr.GetDimensions()) == 0:
                 continue
             filtered.append(f"{prefix}{var}")
-        for group_name in rg.GetGroupNames() or []:
-            sub = rg.OpenGroup(group_name)
-            if sub is not None:
-                filtered.extend(
-                    NetCDF._mdim_data_variable_names(sub, f"{prefix}{group_name}/")
-                )
+        if depth < _MAX_GROUP_DEPTH:
+            for group_name in rg.GetGroupNames() or []:
+                sub = rg.OpenGroup(group_name)
+                if sub is not None:
+                    filtered.extend(
+                        NetCDF._mdim_data_variable_names(
+                            sub, f"{prefix}{group_name}/", depth + 1
+                        )
+                    )
         return filtered
 
     def _classic_subdataset_variable_names(self) -> list[str]:
