@@ -1618,10 +1618,15 @@ class Bands(_Engine["Dataset"]):
         if val is not None and not np.isnan(val):
             # cast to the band dtype (raises OverflowError when out of range)
             result = self._ds.numpy_dtype[i](val)
-        elif self._ds.dtype[i].startswith("u"):
+        elif np.issubdtype(np.dtype(self._ds.numpy_dtype[i]), np.unsignedinteger):
             # None/np.nan on an Unsigned integer band would misbehave; use the
-            # dtype max bound as the no_data_value.
-            result = np.iinfo(self._ds.dtype[i]).max
+            # dtype max bound as the no_data_value. Asked of the dtype rather
+            # than of `dtype[i].startswith("u")`: that string test silently
+            # missed a Byte band, whose dtype string did not begin with "u",
+            # so the one unsigned type most rasters actually use took the
+            # pass-through branch. `_fallback_no_data` below already asks this
+            # way, and the two must agree.
+            result = np.iinfo(np.dtype(self._ds.numpy_dtype[i])).max
         else:
             # None/np.nan on any non-unsigned dtype: pass through unchanged.
             result = val
