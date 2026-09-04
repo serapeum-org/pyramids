@@ -8,12 +8,23 @@ normalise a ``resolution``, resolve a coverage's native CRS (applying the
 here once — neither reader reaches into the other's internals — and the CRS
 resolver raises the protocol-neutral :class:`~pyramids.base._errors.CoverageError`,
 which each reader re-wraps into its own branded error (WCSError / OGCAPIError).
+
+The two GDAL calls those readers wrap around live here too. Every network reader
+— WCS, WMS / WMTS (:mod:`pyramids.dataset._wms`) and OGC API – Coverages — opens a
+connection string with GDAL and then materialises a window of it into a ``MEM``
+dataset, and each has to turn the same two failure shapes into its own branded
+error: a ``RuntimeError`` (GDAL raises under ``gdal.UseExceptions()``) and a
+``None`` return (a driver that declines the source without raising).
+:func:`open_network_dataset` and :func:`translate_to_mem` own that sequence and
+that classification; the readers pass in their own exception class and the words
+that name the request, so the messages stay branded per protocol.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from math import isfinite
-from typing import cast
+from typing import Any, cast
 
 from osgeo import gdal, osr
 
@@ -242,3 +253,178 @@ def native_resolution(src: gdal.Dataset) -> tuple[float, float]:
     """Return the source raster's absolute native ``(x_res, y_res)`` from its geotransform."""
     gt = src.GetGeoTransform()
     return (abs(gt[1]), abs(gt[5]))
+
+
+def open_network_dataset(
+    connection: str,
+    *,
+    error: type[Exception],
+    subject: str,
+    open_options: Sequence[str] | None = None,
+) -> gdal.Dataset:
+    """Open a GDAL network connection, re-branding both failure shapes as `error`.
+
+    The WCS, WMS / WMTS and OGC API – Coverages readers each hand GDAL a connection
+    string — a ``<WCS_GDAL>`` or ``<GDAL_WMS>`` service descriptor, a ``WMTS:`` or
+    ``OGCAPI:`` connection — and each has to answer for two different failures: GDAL
+    raises ``RuntimeError`` under ``gdal.UseExceptions()``, but a driver that declines
+    the source without an error returns ``None`` instead. Handling only the first
+    leaks a ``None`` that fails an attribute access one frame later; handling neither
+    leaks a raw GDAL message with no idea which coverage or layer it was about.
+
+    Args:
+        connection: The GDAL connection string / service descriptor to open.
+        error: The reader's branded exception class (``WCSError``, ``WMSError``,
+            ``OGCAPIError``, ...), called with a single message argument.
+        subject: What is being opened, already worded for the message — e.g.
+            ``f"WCS coverage {coverage!r}"`` or ``f"WMTS layer {layer!r}"``. It is the
+            only reader-specific text in either message.
+        open_options: GDAL open options. ``None`` (the default) opens through
+            :func:`osgeo.gdal.Open`; a sequence opens through :func:`osgeo.gdal.OpenEx`
+            with ``gdal.OF_RASTER`` and these options, which is how the ``OGCAPI``
+            driver is told which API and image format to negotiate.
+
+    Returns:
+        gdal.Dataset: The opened dataset, never ``None``.
+
+    Raises:
+        error: GDAL raised while opening, or returned no dataset.
+
+    Examples:
+        - A connection GDAL can open comes back as a dataset (a ``/vsimem`` GeoTIFF
+          stands in here for the network source):
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.base._coverage import open_network_dataset
+            >>> writer = gdal.GetDriverByName("GTiff").Create("/vsimem/doc_cov.tif", 2, 3, 1)
+            >>> writer = None
+            >>> src = open_network_dataset(
+            ...     "/vsimem/doc_cov.tif", error=RuntimeError, subject="coverage 'demo'"
+            ... )
+            >>> (src.RasterXSize, src.RasterYSize)
+            (2, 3)
+            >>> src = None
+            >>> _ = gdal.Unlink("/vsimem/doc_cov.tif")
+
+            ```
+        - A source GDAL refuses raises the reader's own error class, naming the
+          subject and keeping GDAL's own message as the tail:
+            ```python
+            >>> from pyramids.base._coverage import open_network_dataset
+            >>> class DemoError(Exception):
+            ...     pass
+            >>> try:
+            ...     open_network_dataset(
+            ...         "/vsimem/absent.tif", error=DemoError, subject="coverage 'demo'"
+            ...     )
+            ... except DemoError as exc:
+            ...     print(str(exc).startswith("could not open coverage 'demo': "))
+            True
+
+            ```
+    """
+    try:
+        if open_options is None:
+            src = gdal.Open(connection)
+        else:
+            src = gdal.OpenEx(
+                connection, gdal.OF_RASTER, open_options=list(open_options)
+            )
+    except RuntimeError as exc:
+        raise error(f"could not open {subject}: {exc}") from exc
+    if src is None:
+        raise error(f"GDAL returned no dataset for {subject}")
+    return src
+
+
+def translate_to_mem(
+    src: gdal.Dataset,
+    *,
+    error: type[Exception],
+    action: str,
+    subject: str,
+    **options: Any,
+) -> gdal.Dataset:
+    """Materialise a window of `src` into a ``MEM`` dataset, re-branding failures as `error`.
+
+    Every network reader ends the same way: :func:`osgeo.gdal.Translate` into ``MEM``,
+    never straight to the caller's output path. That is what guarantees a service
+    answering with an ``<ows:ExceptionReport>`` (or an HTML error page, or a truncated
+    body) cannot be written to a ``.tif`` the caller then has to discover is not a
+    raster — the failure happens here, before any file exists. The two failure shapes
+    are the ones :func:`open_network_dataset` describes: a ``RuntimeError`` and a
+    ``None`` return.
+
+    The window itself is `options`: ``projWin`` bounds the area, ``width`` / ``height``
+    (or ``xRes`` / ``yRes``) bound the allocation, ``resampleAlg`` picks the kernel.
+    ``format="MEM"`` is set here and is not overridable. Bounding the read is the
+    **caller's** job: pass the intended size through :func:`read_size` first, which is
+    where the :data:`MAX_PX` ceiling is enforced.
+
+    Args:
+        src: The opened network dataset to read from.
+        error: The reader's branded exception class, called with one message.
+        action: What the read is, in the reader's own words — ``"WCS GetCoverage"``,
+            ``"WMS GetMap"``, ``"WMTS tile read"``, ``"OGC API coverage read"``. It
+            opens both messages.
+        subject: The request target as it should read in the message, normally
+            ``repr(coverage)`` / ``repr(layer)``.
+        **options: Extra :func:`osgeo.gdal.TranslateOptions` keywords describing the
+            window.
+
+    Returns:
+        gdal.Dataset: The in-memory window, never ``None``.
+
+    Raises:
+        error: GDAL raised while translating, or produced no raster.
+
+    Examples:
+        - The ``projWin`` window is materialised in memory at the source's own
+          resolution:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.base._coverage import translate_to_mem
+            >>> src = gdal.GetDriverByName("MEM").Create("", 8, 8, 1)
+            >>> _ = src.SetGeoTransform((0.0, 1.0, 0.0, 8.0, 0.0, -1.0))
+            >>> mem = translate_to_mem(
+            ...     src,
+            ...     error=RuntimeError,
+            ...     action="demo read",
+            ...     subject="'demo'",
+            ...     projWin=[2.0, 6.0, 6.0, 2.0],
+            ... )
+            >>> (mem.RasterXSize, mem.RasterYSize)
+            (4, 4)
+
+            ```
+        - A read GDAL cannot satisfy surfaces as the reader's own error, opened by the
+          action and naming the subject:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.base._coverage import translate_to_mem
+            >>> class DemoError(Exception):
+            ...     pass
+            >>> src = gdal.GetDriverByName("MEM").Create("", 8, 8, 1)
+            >>> try:
+            ...     translate_to_mem(
+            ...         src,
+            ...         error=DemoError,
+            ...         action="demo read",
+            ...         subject="'demo'",
+            ...         bandList=[5],
+            ...     )
+            ... except DemoError as exc:
+            ...     print(str(exc).startswith("demo read failed for 'demo': "))
+            True
+
+            ```
+    """
+    try:
+        mem = gdal.Translate(
+            "", src, options=gdal.TranslateOptions(format="MEM", **options)
+        )
+    except RuntimeError as exc:
+        raise error(f"{action} failed for {subject}: {exc}") from exc
+    if mem is None:
+        raise error(f"{action} returned no raster for {subject}")
+    return mem

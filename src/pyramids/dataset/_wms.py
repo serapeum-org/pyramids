@@ -34,15 +34,17 @@ EUMETSAT), tile-matrix-set naming — live in the downstream consumer, which cal
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from osgeo import gdal
 
 from pyramids.base._coverage import native_projwin as _native_projwin
 from pyramids.base._coverage import native_resolution as _native_resolution
+from pyramids.base._coverage import open_network_dataset as _open_network_dataset
 from pyramids.base._coverage import read_size as _read_size
 from pyramids.base._coverage import resolution_pair as _resolution_pair
 from pyramids.base._coverage import resolve_native_srs as _resolve_native_srs_neutral
+from pyramids.base._coverage import translate_to_mem as _translate_to_mem
 from pyramids.base._coverage import validate_bbox as _validate_bbox
 from pyramids.base._errors import CoverageError, WMSError
 from pyramids.base._grid import grid_size
@@ -187,13 +189,9 @@ def _open(connection: str, layer: str, hint: str) -> gdal.Dataset:
         WMSError: GDAL could not open the layer (server error, bad descriptor /
             connection, unknown layer, …).
     """
-    try:
-        src = gdal.Open(connection)
-    except RuntimeError as exc:
-        raise WMSError(f"could not open {hint} layer {layer!r}: {exc}") from exc
-    if src is None:
-        raise WMSError(f"GDAL returned no dataset for {hint} layer {layer!r}")
-    return src
+    return _open_network_dataset(
+        connection, error=WMSError, subject=f"{hint} layer {layer!r}"
+    )
 
 
 def _available_wmts_layers(endpoint: str) -> list[str]:
@@ -244,16 +242,16 @@ def _translate_window(
     # discarded. A native (resolution=None) read is sized from the source's own
     # resolution.
     _read_size(projwin, resolution or _native_resolution(src))
-    kwargs: dict = {"format": "MEM", "projWin": projwin, "resampleAlg": resample}
+    window: dict[str, Any] = {"projWin": projwin, "resampleAlg": resample}
     if resolution is not None:
-        kwargs["xRes"], kwargs["yRes"] = resolution
-    try:
-        mem = gdal.Translate("", src, options=gdal.TranslateOptions(**kwargs))
-    except RuntimeError as exc:
-        raise WMSError(f"WMTS tile read failed for {layer!r}: {exc}") from exc
-    if mem is None:
-        raise WMSError(f"WMTS tile read returned no raster for {layer!r}")
-    return mem
+        window["xRes"], window["yRes"] = resolution
+    return _translate_to_mem(
+        src,
+        error=WMSError,
+        action="WMTS tile read",
+        subject=repr(layer),
+        **window,
+    )
 
 
 def _render_wms(src: gdal.Dataset, layers: str) -> gdal.Dataset:
@@ -267,13 +265,9 @@ def _render_wms(src: gdal.Dataset, layers: str) -> gdal.Dataset:
     Raises:
         WMSError: GDAL could not render the requested window.
     """
-    try:
-        mem = gdal.Translate("", src, options=gdal.TranslateOptions(format="MEM"))
-    except RuntimeError as exc:
-        raise WMSError(f"WMS GetMap failed for {layers!r}: {exc}") from exc
-    if mem is None:
-        raise WMSError(f"WMS GetMap returned no raster for {layers!r}")
-    return mem
+    return _translate_to_mem(
+        src, error=WMSError, action="WMS GetMap", subject=repr(layers)
+    )
 
 
 def _reproject_tail(ds: Dataset, output_crs: str | None, resample: str) -> Dataset:

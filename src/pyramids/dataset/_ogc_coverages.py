@@ -50,9 +50,11 @@ from urllib.parse import quote, urlunsplit
 from osgeo import gdal
 
 from pyramids.base._coverage import native_projwin as _native_projwin
+from pyramids.base._coverage import open_network_dataset as _open_network_dataset
 from pyramids.base._coverage import read_size as _read_size
 from pyramids.base._coverage import resolution_pair as _resolution_pair
 from pyramids.base._coverage import resolve_native_srs as _resolve_native_srs
+from pyramids.base._coverage import translate_to_mem as _translate_to_mem
 from pyramids.base._coverage import validate_bbox as _validate_bbox
 from pyramids.base._errors import CoverageError, OGCAPIError
 from pyramids.base._ogc_api import append_path as _append_path
@@ -95,15 +97,12 @@ def _open_coverage(connection: str, coverage: str) -> gdal.Dataset:
             "the OGCAPI driver is not available in this GDAL build; OGC API – "
             "Coverages reads require GDAL built with the OGCAPI driver"
         )
-    try:
-        src = gdal.OpenEx(connection, gdal.OF_RASTER, open_options=_OPEN_OPTIONS)
-    except RuntimeError as exc:
-        raise OGCAPIError(
-            f"could not open OGC API coverage {coverage!r}: {exc}"
-        ) from exc
-    if src is None:
-        raise OGCAPIError(f"GDAL returned no dataset for OGC API coverage {coverage!r}")
-    return src
+    return _open_network_dataset(
+        connection,
+        error=OGCAPIError,
+        subject=f"OGC API coverage {coverage!r}",
+        open_options=_OPEN_OPTIONS,
+    )
 
 
 def _translate_window(
@@ -121,18 +120,15 @@ def _translate_window(
         OGCAPIError: GDAL could not produce a raster for the requested window.
     """
     width, height = size
-    options = gdal.TranslateOptions(
-        format="MEM", projWin=projwin, width=width, height=height
+    return _translate_to_mem(
+        src,
+        error=OGCAPIError,
+        action="OGC API coverage read",
+        subject=repr(coverage),
+        projWin=projwin,
+        width=width,
+        height=height,
     )
-    try:
-        mem = gdal.Translate("", src, options=options)
-    except RuntimeError as exc:
-        raise OGCAPIError(
-            f"OGC API coverage read failed for {coverage!r}: {exc}"
-        ) from exc
-    if mem is None:
-        raise OGCAPIError(f"OGC API coverage read returned no raster for {coverage!r}")
-    return mem
 
 
 def from_ogc_coverages(

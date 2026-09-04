@@ -51,9 +51,11 @@ from pyproj.exceptions import CRSError as _PyprojCRSError
 from pyramids.base._artifacts import mint_vsimem
 from pyramids.base._coverage import native_projwin as _native_projwin
 from pyramids.base._coverage import native_resolution as _native_resolution
+from pyramids.base._coverage import open_network_dataset as _open_network_dataset
 from pyramids.base._coverage import read_size as _read_size
 from pyramids.base._coverage import resolution_pair as _resolution_pair
 from pyramids.base._coverage import resolve_native_srs as _resolve_native_srs_neutral
+from pyramids.base._coverage import translate_to_mem as _translate_to_mem
 from pyramids.base._coverage import validate_bbox as _validate_bbox
 from pyramids.base._errors import CoverageError, WCSError
 from pyramids.base._ogc_api import (
@@ -391,13 +393,9 @@ def _open_service(descriptor: str, coverage: str) -> gdal.Dataset:
         WCSError: GDAL could not open the coverage (server error, bad descriptor,
             unresolvable CRS, …).
     """
-    try:
-        src = gdal.Open(descriptor)
-    except RuntimeError as exc:
-        raise WCSError(f"could not open WCS coverage {coverage!r}: {exc}") from exc
-    if src is None:
-        raise WCSError(f"GDAL returned no dataset for WCS coverage {coverage!r}")
-    return src
+    return _open_network_dataset(
+        descriptor, error=WCSError, subject=f"WCS coverage {coverage!r}"
+    )
 
 
 def _default_subset_axes(crs: str) -> tuple[str, str]:
@@ -745,11 +743,10 @@ def _translate_window(
     # returned (width, height) is intentionally discarded because Translate derives
     # the size from projWin at native resolution.
     _read_size(projwin, _native_resolution(src))
-    options = gdal.TranslateOptions(format="MEM", projWin=projwin)
-    try:
-        mem = gdal.Translate("", src, options=options)
-    except RuntimeError as exc:
-        raise WCSError(f"WCS GetCoverage failed for {coverage!r}: {exc}") from exc
-    if mem is None:
-        raise WCSError(f"WCS GetCoverage returned no raster for {coverage!r}")
-    return mem
+    return _translate_to_mem(
+        src,
+        error=WCSError,
+        action="WCS GetCoverage",
+        subject=repr(coverage),
+        projWin=projwin,
+    )
