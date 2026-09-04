@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import tempfile
 import traceback
+import warnings
 import weakref
 from contextlib import contextmanager, suppress
 from pathlib import Path
@@ -26,7 +27,7 @@ from pyramids.base._utils import import_xarray, numpy_to_gdal_dtype
 from pyramids.base.remote import is_remote
 from pyramids.dataset.engines._base import _Engine
 from pyramids.netcdf._lazy import build_lazy_array
-from pyramids.netcdf._mdim import strip_netcdf_subdataset_prefix
+from pyramids.netcdf._mdim import open_mdarray, strip_netcdf_subdataset_prefix
 from pyramids.netcdf.cf import (
     build_coordinate_attrs,
     srs_from_wkt,
@@ -153,21 +154,46 @@ def _data_vars_from_arrays(rg: Any, ds: NetCDF, chunks: Any = None) -> dict[str,
 
     With ``chunks=None`` each variable is read eagerly; otherwise it is read lazily (dask) in the
     file's native axis order via :func:`_lazy_var_data` (ARC-48).
+
+    An `xr.Dataset` is one flat namespace with one size per dimension name, and
+    a grouped netCDF store is neither: two sub-groups may each declare their own
+    `air_press` at different lengths. Such a variable cannot be represented
+    alongside the one already taken, so it is skipped with a warning naming it
+    -- the alternative is `xarray` raising and the whole export failing.
     """
     data_vars: dict[str, Any] = {}
+    dim_sizes: dict[str, int] = {}
+    conflicted: list[str] = []
     # Readable names, not the data-variable enumeration: an export that
     # dropped the store's aux arrays (`expver`, bounds) would not round-trip.
     for var_name in ds._readable_variable_names():
-        md_arr = rg.OpenMDArray(var_name)
+        # Through the helper: a name from the variable enumeration may be
+        # group-qualified, which `OpenMDArray` alone does not resolve.
+        md_arr = open_mdarray(rg, var_name)
         if md_arr is None:
             continue
-        arr_dim_names = [ad.GetName() for ad in md_arr.GetDimensions() or []]
+        dims = md_arr.GetDimensions() or []
+        arr_dim_names = [ad.GetName() for ad in dims]
+        sizes = {ad.GetName(): ad.GetSize() for ad in dims}
+        if any(dim_sizes.get(n, size) != size for n, size in sizes.items()):
+            conflicted.append(var_name)
+            continue
         if chunks is None:
             arr_data = ds._md_array_to_numpy(md_arr)
         else:
             arr_data = _lazy_var_data(ds, var_name, chunks, md_arr)
         var_attrs = read_cf_attributes(md_arr)
         data_vars[var_name] = (arr_dim_names, arr_data, var_attrs)
+        dim_sizes.update(sizes)
+    if conflicted:
+        warnings.warn(
+            f"to_xarray() skipped {len(conflicted)} variable(s) whose dimensions "
+            f"clash with one already exported: {conflicted}. An xarray Dataset has "
+            "one size per dimension name, which a grouped store need not honour; "
+            "read those variables individually with get_variable() instead.",
+            UserWarning,
+            stacklevel=4,
+        )
     return data_vars
 
 

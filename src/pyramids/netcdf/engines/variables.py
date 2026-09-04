@@ -34,7 +34,7 @@ from pyramids.base.georeference import GeoReference
 from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
 from pyramids.dataset._driver import MEMORY_DRIVER, resolve_output_driver
 from pyramids.dataset.engines._base import _Engine
-from pyramids.netcdf._mdim import scalar_no_data, unflatten_band_axes
+from pyramids.netcdf._mdim import open_mdarray, scalar_no_data, unflatten_band_axes
 from pyramids.netcdf.array_options import (
     CFAttributes,
     Encoding,
@@ -265,7 +265,9 @@ class Variables(_Engine["NetCDF"]):
             dst, dst_rg = nc._writable_root_group()
 
         for var in names_to_copy:
-            md_arr = var_rg.OpenMDArray(var)
+            # Group-qualified names reach here from the variable
+            # enumeration, so resolve through the helper that walks them.
+            md_arr = open_mdarray(var_rg, var)
             # If the variable name already exists in the destination dataset,
             # use a suffixed name to avoid overwriting the original.
             existing = dst_rg.GetMDArrayNames() or []
@@ -323,7 +325,7 @@ class Variables(_Engine["NetCDF"]):
         # CreateMDArray is rejected on a file-backed group (netCDF data mode);
         # work on a writable MEM copy and swap it in, like remove_variable.
         dst, rg = nc._writable_root_group()
-        md_arr = rg.OpenMDArray(old_name)
+        md_arr = open_mdarray(rg, old_name)
         nc._add_md_array_to_group(rg, new_name, md_arr)
         rg.DeleteMDArray(old_name)
         nc._replace_raster(dst)
