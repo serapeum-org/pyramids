@@ -151,8 +151,14 @@ class RasterMeta:
         band_names = tuple(ds.band_names or ())
         # `Dataset.dtype` already reads the shared GDAL->numpy map, so the
         # hand-rolled fallback that used to sit here answered the same question
-        # a second way -- and only for a bandless dataset, where indexing it
-        # raises rather than returning None.
+        # a second way. What that fallback did do is keep a bandless dataset
+        # from reaching the index at all, so the guard is kept -- as a named
+        # error rather than a bare IndexError out of metadata construction.
+        if not ds.dtype:
+            raise ValueError(
+                "cannot build RasterMeta for a dataset with no bands; "
+                f"{ds.band_count} band(s) reported."
+            )
         dtype = ds.dtype[0]
         return cls(
             rows=int(ds.rows),
