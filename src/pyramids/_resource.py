@@ -53,7 +53,10 @@ _TAR_GZ_SUFFIX = ".tar.gz"
 
 _RASTER_SUFFIXES = {".tif", ".tiff", ".cog", ".nc", ".nc4", ".vrt"}
 # Raster suffixes whose reader is `NetCDF`, not the plain `Dataset` reader.
-_NETCDF_SUFFIXES = {".nc", ".nc4", ".cdf"}
+# `.cdf` is deliberately absent: `_RASTER_SUFFIXES` above does not list it
+# either, so such a file never reaches the raster reader and an entry here
+# could never be consulted.
+_NETCDF_SUFFIXES = {".nc", ".nc4"}
 _VECTOR_SUFFIXES = {
     ".gpkg",
     ".shp",
@@ -508,8 +511,10 @@ def _read_raster(path: Path) -> Dataset:
             NetCDF,  # noqa: PLC0415 - cycle: netcdf imports Dataset
         )
 
-        return NetCDF.read_file(source)
-    return Dataset.read_file(source)
+        reader = NetCDF.read_file
+    else:
+        reader = Dataset.read_file
+    return reader(source)
 
 
 def _warn_if_multilayer(path: Path) -> None:

@@ -45,7 +45,7 @@ from pyramids.netcdf._mdim import axis_flips
 from pyramids.netcdf.utils import _dtype_to_str
 
 _DASK_MISSING_MESSAGE = extra_hint(
-    'dask is required for lazy NetCDF reads.',
+    "dask is required for lazy NetCDF reads.",
     "lazy",
 )
 

@@ -451,8 +451,10 @@ def exception_text(root: Any) -> str:
         str: The message, or `"no message provided"` when the document
             carries none.
     """
+    message = ""
     for element in root.iter():
         if localname(element.tag) in ("ExceptionText", "ServiceException"):
             if element.text:
-                return element.text.strip()
-    return (root.text or "").strip() or "no message provided"
+                message = element.text.strip()
+                break
+    return message or (root.text or "").strip() or "no message provided"

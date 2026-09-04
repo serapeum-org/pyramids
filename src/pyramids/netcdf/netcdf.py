@@ -2729,12 +2729,14 @@ class NetCDF(Dataset):
                 the same class.
         """
         if path is None:
-            return self
-        try:
-            self.to_file(str(path))
-        finally:
-            self.close()
-        return cast("NetCDF", type(self).read_file(str(path)))
+            result: NetCDF = self
+        else:
+            try:
+                self.to_file(str(path))
+            finally:
+                self.close()
+            result = cast("NetCDF", type(self).read_file(str(path)))
+        return result
 
     def _preserve_netcdf_metadata(self, result: Dataset) -> NetCDF:
         """Wrap a Dataset result as a NetCDF, preserving variable-subset metadata.
@@ -3403,12 +3405,8 @@ class NetCDF(Dataset):
             source: The variable the attributes are copied from.
         """
         attrs = dict(getattr(source, "_variable_attrs", {}) or {})
-        if not attrs:
-            return
-        rg = container._working_group()
-        if rg is None:
-            return
-        md_arr = open_mdarray(rg, var_name)
+        rg = container._working_group() if attrs else None
+        md_arr = open_mdarray(rg, var_name) if rg is not None else None
         if md_arr is not None:
             write_attributes_to_md_array(md_arr, attrs)
 
@@ -5245,14 +5243,17 @@ class NetCDF(Dataset):
         """
         rg = self._working_group()
         if rg is None:
-            return self._classic_subdataset_variable_names()
-        if self._group_path is not None:
-            return self._mdim_data_variable_names(rg)
-        cf = self.meta_data.cf
-        classified = list(cf.data_variable_names) if cf is not None else []
-        # An empty classification means the store declares no CF roles at all,
-        # not that it holds no data -- fall back rather than report nothing.
-        return classified or self._mdim_data_variable_names(rg)
+            names = self._classic_subdataset_variable_names()
+        elif self._group_path is not None:
+            names = self._mdim_data_variable_names(rg)
+        else:
+            cf = self.meta_data.cf
+            classified = list(cf.data_variable_names) if cf is not None else []
+            # An empty classification means the store declares no CF roles at
+            # all, not that it holds no data -- fall back rather than report
+            # nothing.
+            names = classified or self._mdim_data_variable_names(rg)
+        return names
 
     def _readable_variable_names(self) -> list[str]:
         """Every array name :meth:`get_variable` will accept.

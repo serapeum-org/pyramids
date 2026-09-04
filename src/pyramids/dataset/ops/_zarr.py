@@ -414,8 +414,10 @@ def _scale_geotransform(base_gt: tuple, level: int) -> tuple:
     skewed grid survives the round-trip.
     """
     if level == 1:
-        return base_gt
-    return tuple(GeoTransform(*base_gt).scaled(level, level))
+        scaled = base_gt
+    else:
+        scaled = tuple(GeoTransform(*base_gt).scaled(level, level))
+    return scaled
 
 
 def _normalize_no_data(attrs: dict[str, Any]) -> Any:
