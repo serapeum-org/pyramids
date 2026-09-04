@@ -72,6 +72,14 @@ def resolve_native_srs(
     srs = src.GetSpatialRef()
     if srs is not None:
         result = srs.Clone()
+        # Stamped here too, not only on the `coverage_crs` branch below. The
+        # clone carries whatever mapping the driver attached -- usually GDAL's
+        # authority-compliant default -- so leaving it made the two branches
+        # disagree, and the SRS on a WCS/WMS result raster then declared
+        # traditional order or authority order depending only on which branch
+        # resolved it. `native_projwin`'s always_xy transformer assumes
+        # traditional throughout.
+        result.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
     elif coverage_crs is None:
         raise CoverageError(
             "the coverage has no resolvable spatial reference (the service likely "
@@ -81,10 +89,9 @@ def resolve_native_srs(
     else:
         try:
             # `sr_from_user_input` rather than a bare SetFromUserInput: it
-            # stamps traditional axis order, which is what the sibling branch
-            # above and `native_projwin`'s always_xy transformer both assume.
-            # Building it raw left a geographic `coverage_crs` in
-            # authority-compliant order, so it disagreed with both.
+            # stamps traditional axis order, matching the clone branch above
+            # and `native_projwin`'s always_xy transformer. Building it raw
+            # left a geographic `coverage_crs` in authority-compliant order.
             result = sr_from_user_input(coverage_crs)
         except (RuntimeError, CRSError) as exc:
             raise ValueError(
