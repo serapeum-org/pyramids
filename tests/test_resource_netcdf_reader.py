@@ -94,3 +94,57 @@ class TestNetcdfResourcesReachTheNetcdfReader:
 
         assert isinstance(result, Dataset)
         assert not isinstance(result, NetCDF)
+
+
+class TestTheContainerReplacesAFlatBandStack:
+    """What changed for a caller, on a fixture where it is visible.
+
+    `read_resource` used to hand a multi-variable netCDF to the plain raster
+    reader, which stacked every variable's every timestep into one flat band
+    list -- a 12-band `Dataset` with no way to tell which band was which
+    variable. It now returns a container that names them.
+
+    That is a better answer and a breaking one: the returned type changes, and
+    `read_array()` on the container refuses rather than returning the stack. The
+    file this suite's other tests use has a base band count of zero, so the
+    change is invisible there; this pins it where it shows.
+    """
+
+    FIXTURE = Path(__file__).parent / "data" / "netcdf" / "cf__5v__1d4-4d1__y-asc.nc"
+
+    def test_the_container_names_its_variables(self):
+        """The gain: the variables are addressable instead of anonymous bands.
+
+        Test scenario:
+            The old 12-band stack gave no way to say which band belonged to
+            which variable or timestep.
+        """
+        resource = read_resource(str(self.FIXTURE))
+
+        assert resource.variable_names == ["temperature"]
+
+    def test_reading_the_container_directly_is_refused_with_advice(self):
+        """The break: `read_array()` no longer returns the flat stack.
+
+        Test scenario:
+            A caller who previously did `read_resource(path).read_array()` now
+            gets a `ValueError`. It has to name the way forward rather than
+            fail blankly, since this is the call that used to work.
+        """
+        resource = read_resource(str(self.FIXTURE))
+
+        with pytest.raises(ValueError, match="get_variable"):
+            resource.read_array()
+
+    def test_the_variable_reads_the_data_the_stack_used_to_carry(self):
+        """The migration path, exercised end to end.
+
+        Test scenario:
+            `get_variable(...).read_array()` is what replaces the old call, and
+            it returns the variable's own bands rather than every variable's.
+        """
+        resource = read_resource(str(self.FIXTURE))
+
+        array = resource.get_variable("temperature").read_array()
+
+        assert array.ndim >= 2
