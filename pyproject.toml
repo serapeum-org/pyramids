@@ -94,7 +94,12 @@ dev = [
     "mypy>=1.10.0",
     "types-PyYAML>=6.0.0",
     "pytest-mock>=3.12.0",
-    "pytest-timeout>=2.3.0"
+    "pytest-timeout>=2.3.0",
+    # Parallel test execution. The suite is ~10k tests and runs for about
+    # twelve minutes serially; `-n auto` brings that down to a couple of
+    # minutes on a multi-core machine. Opt-in -- no task below passes `-n`, so
+    # a plain `pytest` run is unchanged and stays deterministic for debugging.
+    "pytest-xdist>=3.6.0"
 ]
 docs = [
     "mkdocs >=1.5.3",
@@ -332,6 +337,14 @@ publish-pypi = { cmd = "twine upload --non-interactive --repository pypi dist/*"
 cz-changelog = { cmd = "cz changelog", description = "Generate changelog using Commitizen" }
 cz-bump = { cmd = "cz bump", description = "Bump version using Commitizen" }
 mypy = { cmd = "mypy", description = "Run mypy type checking" }
+
+# Declared as a sub-table so the lines fit the project's width; it must stay
+# after every inline entry above, since a sub-table header ends the parent.
+[tool.pixi.tasks.test-fast]
+# `--dist loadfile` keeps one module's tests on one worker, so fixtures that
+# build a shared GDAL handle per file are not raced across processes.
+cmd = "pytest -q -n auto --dist loadfile -m 'not plot and not interop'"
+description = "Run the main suite in parallel (pytest-xdist); no coverage"
 
 
 [tool.pixi.environments]
