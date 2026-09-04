@@ -148,9 +148,36 @@ class _LazyVariableDict(dict):
         self._names: list[str] = nc.variable_names
 
     def __getitem__(self, key: str) -> NetCDF:
-        if not dict.__contains__(self, key) and key in self._names:
+        if not dict.__contains__(self, key):
+            if key not in self._names:
+                raise KeyError(self._refusal(key))
             dict.__setitem__(self, key, self._nc.get_variable(key))
         return cast("NetCDF", dict.__getitem__(self, key))
+
+    def _refusal(self, key: str) -> str:
+        """Word the `KeyError`, saying so when the name is merely not a data variable.
+
+        This mapping enumerates the *data* variables, while the accessor behind
+        it reads more than those: on a curvilinear container `get_variable`
+        resolves `lat_rho` and this mapping does not carry it. A bare
+        `KeyError('lat_rho')` on a name the file plainly contains reads as a
+        missing variable, so the two cases are told apart here.
+
+        Args:
+            key: The name that was not found.
+
+        Returns:
+            str: The message to raise, naming `get_variable` when the variable
+                exists but is not a data variable.
+        """
+        if key in self._nc._readable_variable_names():
+            message = (
+                f"{key!r} is not a data variable, so it is not a key of `variables`; "
+                f"read it with `get_variable({key!r})`."
+            )
+        else:
+            message = str(key)
+        return message
 
     def get(self, key: str, default: Any = None) -> NetCDF | Any:
         if key in self._names:
@@ -6334,6 +6361,10 @@ class NetCDF(Dataset):
     def _invalidate_caches(self):
         """Invalidate cached variables and metadata."""
         self._cached_variables = None
+        # Derived from `lon` / `lat`, so it belongs with the rest of the
+        # derived state rather than only at the sites that reassign
+        # `_geotransform` directly.
+        self._derived_geotransform = None
         self._cached_meta_data = None
         # Clear the per-variable geostationary geotransform cache too: it is keyed by
         # variable name and derived from the backing geometry, so it must not survive a
