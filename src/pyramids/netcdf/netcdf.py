@@ -45,6 +45,7 @@ from pyramids.dataset.dataset import (
     _invalidate_cached_accessors,
 )
 from pyramids.dataset.engines._read_window import resolve_read_window
+from pyramids.dataset.transform import GeoTransform
 from pyramids.netcdf._axis import detect_axis_indices
 from pyramids.netcdf._kerchunk_facade import combine_kerchunk, to_kerchunk
 from pyramids.netcdf._lazy import apply_unpack, build_lazy_array
@@ -1678,7 +1679,7 @@ class NetCDF(Dataset):
         # axes _read_md_array actually reversed, or the metre grid would describe the pre-flip array
         # and mirror it. A no-op for every real granule, whose scaled X ascends and scaled Y descends.
         self._correct_flipped_geotransform(self)
-        self._cell_size = abs(self._geotransform[1])
+        self._cell_size = GeoTransform(*self._geotransform).cell_size
         with warnings.catch_warnings():
             # _materialize_md_view warns generically on failure. Here the consequence is specific
             # and worse -- the wrapper claims metres over a raw scan-angle grid -- so own the
@@ -5534,7 +5535,7 @@ class NetCDF(Dataset):
             gt = (gt[0] + gt[1] * cube._columns, -gt[1], gt[2], gt[3], gt[4], gt[5])
         if gt != cube._geotransform:
             cube._geotransform = gt
-            cube._cell_size = abs(gt[1])
+            cube._cell_size = GeoTransform(*gt).cell_size
 
     def _georeference_index_subset(self, cube: NetCDF) -> NetCDF:
         """Re-georeference a variable subset whose MDArray view came back in index space.
@@ -5579,7 +5580,7 @@ class NetCDF(Dataset):
                     cube._view_source = cube._raster
                     cube._raster = vrt
                     cube._geotransform = real_gt
-                    cube._cell_size = real_gt[1]
+                    cube._cell_size = GeoTransform(*real_gt).cell_size
         return cube
 
     def _first_coordinate(self, candidates: tuple[str, ...]) -> tuple[Any, str | None]:
@@ -6165,7 +6166,7 @@ class NetCDF(Dataset):
         # RasterBase state
         self._raster = new_raster
         self._geotransform = new_raster.GetGeoTransform()
-        self._cell_size = self._geotransform[1]
+        self._cell_size = GeoTransform(*self._geotransform).cell_size
         self._file_name = new_raster.GetDescription()
         # Clear the borrowed container CRS *before* re-deriving the EPSG: it is
         # keyed to the variables behind the OLD raster, and `_get_epsg` reads

@@ -130,6 +130,39 @@ class GeoTransform(NamedTuple):
         return GeoTransform(*inverted)
 
     @property
+    def cell_size(self) -> float:
+        """The scalar cell size: the **magnitude** of the x pixel size.
+
+        A size, so it is never negative. `pixel_width` carries the direction
+        the columns run in, and on a west-flipped grid that is negative -- but
+        every consumer of this scalar wants a magnitude: an ASCII grid's
+        `cellsize` header, the divisor in a slope or aspect gradient, the
+        `cell_size` a `GeoReference` re-expands into a transform, and the
+        comparison that decides two rasters share a grid. A signed value makes
+        each of those wrong in a different way, silently.
+
+        Returns:
+            float: `abs(pixel_width)`.
+
+        Examples:
+            - The ordinary grid, where the sign never came up:
+                ```python
+                >>> from pyramids.dataset.transform import GeoTransform
+                >>> GeoTransform(0.0, 30.0, 0.0, 4.0, 0.0, -30.0).cell_size
+                30.0
+
+                ```
+            - A west-flipped grid has the same cell size, not its negation:
+                ```python
+                >>> from pyramids.dataset.transform import GeoTransform
+                >>> GeoTransform(240.0, -30.0, 0.0, 4.0, 0.0, -30.0).cell_size
+                30.0
+
+                ```
+        """
+        return abs(float(self.pixel_width))
+
+    @property
     def is_axis_aligned(self) -> bool:
         """True when the grid has no rotation, so rows are y and columns are x.
 

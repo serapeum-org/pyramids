@@ -108,7 +108,13 @@ class RasterMeta:
 
     @property
     def cell_size(self) -> float:
-        """Absolute x-direction pixel size."""
+        """Absolute x-direction pixel size.
+
+        The same rule as :attr:`pyramids.dataset.transform.GeoTransform.cell_size`,
+        restated rather than imported: this module sits under `base`, and reaching
+        up into `dataset` for it would invert the dependency. A test pins the two
+        against each other so the restatement cannot drift.
+        """
         return abs(self.transform[1])
 
     @property

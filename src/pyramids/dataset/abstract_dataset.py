@@ -247,7 +247,7 @@ class RasterBase(ABC):
         self._geotransform: tuple[float, float, float, float, float, float] = (
             src.GetGeoTransform()
         )
-        self._cell_size = self._geotransform[1]
+        self._cell_size = GeoTransform(*self._geotransform).cell_size
         self._file_name: str = src.GetDescription()
         # the epsg property returns the value of the _epsg attribute, so if the projection changes in any function, the
         # function should also change the value of the _epsg attribute.
