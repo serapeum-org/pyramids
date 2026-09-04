@@ -893,6 +893,49 @@ class TestRasterizeRoundTrip:
             "explicit template no-data must not be overwritten"
         )
 
+    def test_rasterize_integer_dtype_with_a_none_sentinel_falls_back(self, monkeypatch):
+        """The `None` half of the NaN-sentinel predicate, at the burn site.
+
+        Args:
+            monkeypatch: Fixture used to feed the geometry resolver's `None`.
+
+        Test scenario:
+            The C2 guard now asks ``is_nan_sentinel(no_data_value)``, which
+            answers True for ``None`` as well as for NaN. The bare
+            ``np.isnan`` it replaced *raised* on ``None`` and the surrounding
+            try/except swallowed that as "not NaN", so a ``None`` sentinel
+            would have been passed straight to ``Dataset.create`` for an
+            integer raster — the very case the guard exists to prevent.
+            ``_resolve_raster_geometry`` normalises ``None`` to NaN before
+            this point today, so the ``None`` branch is reachable only by
+            feeding it in directly; that is what makes it worth pinning,
+            since nothing else would notice if it regressed.
+        """
+        epsg = 32636
+        cell_size = 1000.0
+        top_left = (500000.0, 3400000.0)
+        x0, y0 = top_left
+        monkeypatch.setattr(
+            "pyramids.dataset.ops.vectorize._resolve_raster_geometry",
+            lambda *args, **kwargs: (x0, y0, 5, 5, cell_size, None),
+        )
+
+        poly = box(x0, y0 - 3 * cell_size, x0 + 3 * cell_size, y0)
+        gdf = gpd.GeoDataFrame(
+            {"v": np.array([7], dtype=np.int32)},
+            geometry=[poly],
+            crs=f"EPSG:{epsg}",
+        )
+        fc = FeatureCollection(gdf)
+
+        raster = Dataset.from_features(fc, cell_size=cell_size, column_name="v")
+
+        nodata = raster.no_data_value[0]
+        assert nodata is not None, "a None sentinel reached an integer raster"
+        assert nodata == Dataset.default_no_data_value, (
+            f"expected the class default sentinel, got {nodata!r}"
+        )
+
     def test_rasterize_then_pickle_roundtrip_chain(self):
         """C2 + C3 chained: rasterize → pickle FC → unpickle → rasterize again.
 
