@@ -74,15 +74,29 @@ def _metadata_dict(ds: Dataset) -> dict[str, Any]:
     # (e.g. geostationary) carries its own `.crs` WKT so its `spatial_ref` is preserved.
     crs_wkt = sr_from_epsg(epsg_code).ExportToWkt() if ds.epsg else (ds.crs or "")
     nodata_tuple = ds.no_data_value
-    return {
+    no_data_list = [None if v is None else float(v) for v in nodata_tuple]
+    # `no_data_value` is pyramids' own per-band list and only pyramids reads it.
+    # `_FillValue` is the CF/GeoZarr spelling, and it is what GDAL's Zarr driver
+    # looks for -- without it `Dataset.read_file(store.zarr)` opened the store
+    # through GDAL and reported **0.0**, an ordinary value of every numeric
+    # type, so masking a store read that way blanked every genuinely-zero cell.
+    # One array holds every band, so a single `_FillValue` can only describe a
+    # sentinel the bands agree on; where they differ it is left off rather than
+    # written wrong, and `from_zarr` still recovers the full list from
+    # `no_data_value` either way.
+    distinct = {v for v in no_data_list if v is not None}
+    metadata = {
         "spatial_ref": crs_wkt,
         "GeoTransform": " ".join(str(v) for v in ds.geotransform),
         "epsg": epsg_code,
-        "no_data_value": [None if v is None else float(v) for v in nodata_tuple],
+        "no_data_value": no_data_list,
         "band_names": list(ds.band_names) if ds.band_names else [],
         "dtype": str(np.dtype(ds.numpy_dtype[0])),
         "shape": [int(ds.band_count), int(ds.rows), int(ds.columns)],
     }
+    if len(distinct) == 1 and len(no_data_list) == len(nodata_tuple):
+        metadata["_FillValue"] = distinct.pop()
+    return metadata
 
 
 def _build_dask_array(ds: Dataset, chunks: Any) -> Any:
@@ -208,12 +222,22 @@ def write_dataset_to_zarr(
     resolved_store = _resolve_store(store, storage_options)
 
     codec_kwargs = normalize_compressors(compressor)
+    # The sentinel goes in the array metadata's own `fill_value`, not only in
+    # the attributes. Zarr defaults it to 0, and 0 is an ordinary value of every
+    # numeric type -- GDAL's Zarr driver reads that field, so
+    # `Dataset.read_file(store.zarr)` reported a no-data of 0.0 and masking such
+    # a read blanked every genuinely-zero cell. `no_data_value` in the
+    # attributes is pyramids' own spelling and only `from_zarr` reads it.
+    fill_kwargs = (
+        {"fill_value": metadata["_FillValue"]} if "_FillValue" in metadata else {}
+    )
     write_result = arr.to_zarr(
         resolved_store,
         component="data",
         overwrite=(mode == "w"),
         compute=compute,
         **codec_kwargs,
+        **fill_kwargs,
     )
     if compute:
         _finalize_metadata(resolved_store, metadata)
@@ -280,6 +304,13 @@ def _write_overview_levels(
             dtype=level_arr.dtype,
             dimension_names=("band", "y", "x"),
             overwrite=True,
+            # Same reason as the base array: a level read through GDAL would
+            # otherwise report the zarr default of 0 as its no-data.
+            **(
+                {"fill_value": metadata["_FillValue"]}
+                if "_FillValue" in metadata
+                else {}
+            ),
         )
         za[...] = level_arr
         za.attrs["_ARRAY_DIMENSIONS"] = ["band", "y", "x"]
@@ -289,6 +320,8 @@ def _write_overview_levels(
         # read preserves them instead of falling back to defaults (M2).
         if "no_data_value" in metadata:
             za.attrs["no_data_value"] = metadata["no_data_value"]
+        if "_FillValue" in metadata:
+            za.attrs["_FillValue"] = metadata["_FillValue"]
         if "band_names" in metadata:
             za.attrs["band_names"] = metadata["band_names"]
         datasets_meta.append(
