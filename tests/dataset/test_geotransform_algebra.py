@@ -38,8 +38,11 @@ class TestApplyAndInvert:
         transform = GeoTransform(*AFFINES[name])
 
         xs, ys = transform.apply([2], [3])
+        mapped = (float(xs[0]), float(ys[0]))
 
-        assert (float(xs[0]), float(ys[0])) == transform * (2, 3)
+        assert mapped == transform * (2, 3), (
+            f"{name}: apply disagreed with the scalar operator"
+        )
 
     @pytest.mark.parametrize("name", list(AFFINES), ids=list(AFFINES))
     def test_invert_round_trips_apply(self, name: str):

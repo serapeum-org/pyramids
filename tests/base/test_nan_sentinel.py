@@ -137,7 +137,10 @@ class TestNanNodataIsFound:
 
         messages = self.warnings_for(array, -9999.0)
 
-        assert messages and "does not exist in the raster" in messages[0]
+        assert messages, "no warning was emitted for a sentinel the raster lacks"
+        assert "does not exist in the raster" in messages[0], (
+            f"the warning does not say the sentinel is absent: {messages[0]!r}"
+        )
 
     def test_a_raster_containing_its_nodata_does_not_warn(self):
         """A concrete sentinel that is present is found."""

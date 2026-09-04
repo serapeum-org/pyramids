@@ -94,8 +94,10 @@ class TestTheBboxIdentityCheckIgnoresAxisOrder:
             bbox, 4326, self._authority_order(32636), 25
         )
 
-        assert min_x > 1e5 and max_y > 1e6
-        assert max_x > min_x and max_y > min_y
+        assert min_x > 1e5, "min_x came back in degrees, not projected metres"
+        assert max_y > 1e6, "max_y came back in degrees, not projected metres"
+        assert max_x > min_x, "the x axis came back inverted"
+        assert max_y > min_y, "the y axis came back inverted"
 
 
 class TestToXarrayPutsCfNonDataArraysInCoords:

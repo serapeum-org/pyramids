@@ -34,8 +34,10 @@ class TestCatalogResolveKey:
 
     def test_an_unknown_driver_raises_and_lists_the_known_ones(self):
         """The error names what was passed and what is available."""
+        catalog = get_catalog()
+
         with pytest.raises(DriverNotExistError, match="not in the driver catalog"):
-            get_catalog().resolve_key("NotADriver")
+            catalog.resolve_key("NotADriver")
 
     def test_every_catalog_key_resolves_to_itself(self):
         """Swept over the whole catalog, not just the GeoTiff example.

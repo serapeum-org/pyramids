@@ -81,7 +81,8 @@ class TestTheSpatialCoordinatesMustBeTheLastTwoAxes:
 
         message = str(excinfo.value)
         assert "Transpose" in message
-        assert "'y' (4)" in message and "'x' (6)" in message
+        assert "'y' (4)" in message, "the message does not name the y axis and its size"
+        assert "'x' (6)" in message, "the message does not name the x axis and its size"
 
     @pytest.mark.lazy
     @needs_xarray

@@ -64,8 +64,10 @@ class TestWindowBuffer:
 
     def test_a_negative_margin_is_refused(self):
         """Shrinking is not this method, and silently would be worse."""
+        window = Window(0, 0, 4, 4)
+
         with pytest.raises(ValueError, match="must not be negative"):
-            Window(0, 0, 4, 4).buffer(-1)
+            window.buffer(-1)
 
     def test_the_original_window_is_left_alone(self):
         """`Window` is frozen; buffering returns a new one.
@@ -206,8 +208,10 @@ class TestTheWindowDoesNotChangeTheCrop:
         window = Spatial._cutline_window_bounds(raster, cutline)
 
         assert window is not None
-        assert window[0] <= west and window[1] <= south
-        assert window[2] >= (west + east) / 2 and window[3] >= (south + north) / 2
+        assert window[0] <= west, "the window starts east of the cutline"
+        assert window[1] <= south, "the window starts north of the cutline"
+        assert window[2] >= (west + east) / 2, "the window stops west of the cutline"
+        assert window[3] >= (south + north) / 2, "the window stops south of the cutline"
 
 
 class TestDegenerateCutlinesDeclineTheOptimisation:

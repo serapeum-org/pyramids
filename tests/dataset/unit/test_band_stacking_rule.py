@@ -31,7 +31,8 @@ class TestTheStackingRule:
         result = _stack_bands(lambda i: np.full((2, 2), i), None, 3)
 
         assert result.shape == (3, 2, 2)
-        assert result[0, 0, 0] == 0 and result[2, 0, 0] == 2
+        assert result[0, 0, 0] == 0, "the first plane is not band 0"
+        assert result[2, 0, 0] == 2, "the last plane is not band 2"
 
     def test_a_named_band_is_read_flat(self):
         """Test scenario: asking for one band gives a 2-D array, not a 1xNxM."""

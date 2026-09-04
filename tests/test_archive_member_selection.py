@@ -52,7 +52,8 @@ class TestAMultiMemberArchiveOpensItsFirstMember:
         dataset = Dataset.read_file(str(ARCHIVES / f"multiple_compressed_files.{kind}"))
 
         assert dataset.band_count == 1, f"{kind}: expected one band"
-        assert dataset.rows > 0 and dataset.columns > 0
+        assert dataset.rows > 0, f"{kind}: the member read back with no rows"
+        assert dataset.columns > 0, f"{kind}: the member read back with no columns"
 
     @pytest.mark.parametrize("kind", ["zip", "tar"])
     def test_an_index_reaches_a_later_member(self, kind: str):

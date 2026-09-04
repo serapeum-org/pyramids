@@ -52,8 +52,10 @@ class TestPicklingAVsimemBackedDataset:
 
     def test_from_bytes_without_a_name_still_refuses(self, geotiff_bytes: bytes):
         """The pre-existing path test keeps working."""
+        dataset = Dataset.from_bytes(geotiff_bytes)
+
         with pytest.raises(TypeError):
-            pickle.dumps(Dataset.from_bytes(geotiff_bytes))
+            pickle.dumps(dataset)
 
     def test_an_on_disk_dataset_still_pickles(self, tmp_path: Path):
         """The guard did not widen to real files."""

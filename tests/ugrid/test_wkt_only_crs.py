@@ -160,7 +160,8 @@ class TestAMeshWithNoCrsAtAllKeepsItsWgs84Default:
             },
             global_attributes={},
         )
-        assert dataset.epsg is None and dataset.crs_wkt is None
+        assert dataset.epsg is None, "the fixture mesh must not declare an EPSG code"
+        assert dataset.crs_wkt is None, "the fixture mesh must not declare a WKT"
 
         raster = dataset.to_dataset("h", cell_size=0.25)
 

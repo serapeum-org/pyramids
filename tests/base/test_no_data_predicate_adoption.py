@@ -77,7 +77,8 @@ class TestTheHistogramMasksWhatTheWarningCounts:
 
         flagged = is_no_data(arr, -9999.0)
 
-        assert flagged[0] and flagged[1], "a value within tolerance was kept"
+        assert flagged[0], "the exact sentinel was kept"
+        assert flagged[1], "a value within tolerance was kept"
         assert not flagged[2], "an ordinary value was masked"
 
     def test_an_unset_sentinel_falls_back_to_nan(self):

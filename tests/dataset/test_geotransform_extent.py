@@ -76,8 +76,10 @@ class TestExtent:
 
         xs, ys = ROTATED.apply([0, columns, 0, columns], [0, 0, rows, rows])
 
-        assert min_x <= xs.min() and max_x >= xs.max()
-        assert min_y <= ys.min() and max_y >= ys.max()
+        assert min_x <= xs.min(), "a corner lies west of the returned extent"
+        assert max_x >= xs.max(), "a corner lies east of the returned extent"
+        assert min_y <= ys.min(), "a corner lies south of the returned extent"
+        assert max_y >= ys.max(), "a corner lies north of the returned extent"
 
     @pytest.mark.parametrize(
         "geotransform",
@@ -195,10 +197,13 @@ class TestTheCallSitesUseIt:
         """
         path = _geotiff(tmp_path, SOUTH_UP, columns=8, rows=6)
 
-        min_x, min_y, max_x, max_y = cog_info(path).bounds
+        bounds = cog_info(path).bounds
+        min_y, max_y = bounds[1], bounds[3]
 
         assert min_y < max_y, f"south-up bounds came back inverted: {(min_y, max_y)}"
-        assert (min_x, min_y, max_x, max_y) == pytest.approx(SOUTH_UP.extent(8, 6))
+        assert bounds == pytest.approx(SOUTH_UP.extent(8, 6)), (
+            "cog_info disagreed with the shared derivation for a south-up grid"
+        )
 
     def test_cog_info_is_unchanged_for_a_north_up_raster(self, tmp_path):
         """The common case must not have moved while fixing the rare one.
