@@ -185,6 +185,9 @@ def _export_srs(srs: osr.SpatialReference | None) -> tuple[str | None, str | Non
     return wkt, projjson
 
 
+CF_NODATA_KEYS: tuple[str, ...] = ("_FillValue", "missing_value", "nodata")
+
+
 def _get_array_nodata(
     mdarr: gdal.MDArray, attrs: dict[str, AttributeValue]
 ) -> int | float | str | None:
@@ -202,8 +205,11 @@ def _get_array_nodata(
         The no-data value as an `int`, `float`, or
         `str`, or `None` if none is defined.
     """
-    # Precedence: CF _FillValue, then missing_value, then driver API
-    for key in ("_FillValue", "missing_value"):
+    # Precedence: CF _FillValue, then missing_value, then `nodata`, then the
+    # driver API. `nodata` is what `DatasetCollection.to_netcdf` writes, and it
+    # was known only to the MDArray reader -- so the attribute path returned
+    # None for a file whose only sentinel was written by pyramids itself.
+    for key in CF_NODATA_KEYS:
         if key in attrs:
             v = attrs[key]
             if isinstance(v, list):

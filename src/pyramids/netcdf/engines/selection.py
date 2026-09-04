@@ -36,7 +36,7 @@ from pyramids.dataset.engines.spatial import (
     _stitch_lon_halves,
 )
 from pyramids.feature import FeatureCollection
-from pyramids.netcdf._mdim import open_mdarray
+from pyramids.netcdf._mdim import open_mdarray, scalar_no_data
 from pyramids.netcdf._plot import NetCDFPlot
 from pyramids.netcdf.array_options import GeoReference
 
@@ -823,7 +823,7 @@ class Selection(_Engine["NetCDF"]):
         ndv = nc.no_data_value
         # no_data_value is a TUPLE; the old `isinstance(ndv, list)` test never fired (ARC-29). Route
         # through the shared helper (handles list AND tuple) like the reduce path below.
-        ndv_scalar = nc._scalar_no_data_value(ndv)
+        ndv_scalar = scalar_no_data(ndv)
         ds_result = Dataset.from_array(
             selected,
             no_data_value=ndv_scalar,
@@ -1149,7 +1149,7 @@ class Selection(_Engine["NetCDF"]):
             var = nc.get_variable(var_name)
             band_names = list(var._band_dim_names)
             values_map = dict(var._band_dim_values_map)
-            ndv = nc._scalar_no_data_value(var.no_data_value)
+            ndv = scalar_no_data(var.no_data_value)
 
             if dim in band_names:
                 found = True

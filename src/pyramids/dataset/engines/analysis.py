@@ -19,7 +19,7 @@ from hpc.indexing import get_indices2, get_pixels2
 from osgeo import gdal
 from pandas import DataFrame
 
-from pyramids.base._domain import inside_domain, is_no_data
+from pyramids.base._domain import inside_domain, is_nan_sentinel, is_no_data
 from pyramids.base._errors import AlignmentError, OutOfBoundsError, ReadOnlyError
 from pyramids.base._utils import gdal_to_numpy_dtype, require_cleopatra
 from pyramids.dataset._mask import MaskFlags
@@ -1492,20 +1492,16 @@ class Analysis(_Engine["Dataset"]):
 
     def _warn_if_nodata_absent(self, arr: np.ndarray, no_data_val: Any) -> None:
         """Warn when the band's nodata value does not actually appear in the data."""
-        if no_data_val is None:
-            if not np.isnan(arr).any():
-                self._ds.logger.warning(
-                    "The nodata value stored in the raster does not exist in the raster "
-                    "so either the raster extent is all full of data, or the no_data_value stored in the raster is"
-                    " not correct"
-                )
-        else:
-            if not np.isclose(arr, no_data_val, rtol=0.00001).any():
-                self._ds.logger.warning(
-                    "the nodata value stored in the raster does not exist in the raster "
-                    "so either the raster extent is all full of data, or the no_data_value stored in the raster is"
-                    " not correct"
-                )
+        # One predicate for both spellings of the sentinel. The `else` arm used
+        # `np.isclose(arr, no_data_val)`, which is always False for a float NaN
+        # sentinel -- so a raster whose nodata is NaN warned that its nodata
+        # was absent even when every cell was nodata.
+        if not is_no_data(arr, no_data_val, rtol=0.00001).any():
+            self._ds.logger.warning(
+                "the nodata value stored in the raster does not exist in the raster "
+                "so either the raster extent is all full of data, or the no_data_value stored in the raster is"
+                " not correct"
+            )
 
     @staticmethod
     def _apply_exclude_values(
@@ -1520,21 +1516,6 @@ class Analysis(_Engine["Dataset"]):
                 arr = arr.astype(np.float32)
                 arr[np.isclose(arr, val)] = no_data_val
         return arr
-
-    @staticmethod
-    def _coverage_mask(arr: np.ndarray, no_data_val: Any) -> np.ndarray:
-        """Boolean mask of covered (non-nodata) cells; NaN and value fills both handled.
-
-        A NaN fill may be stored as None or a float nan (GDAL returns nan), and
-        ``np.isclose(x, nan)`` is always False, so both go through ``np.isnan``.
-        """
-        if no_data_val is None or (
-            isinstance(no_data_val, float) and np.isnan(no_data_val)
-        ):
-            valid = ~np.isnan(arr)
-        else:
-            valid = ~np.isclose(arr, no_data_val, rtol=0.00001)
-        return valid
 
     def footprint(
         self,
@@ -1629,7 +1610,7 @@ class Analysis(_Engine["Dataset"]):
             arr = self._apply_exclude_values(arr, exclude_values, no_data_val)
 
         # Build the coverage mask: covered cells -> 2, nodata cells -> 0.
-        valid = self._coverage_mask(arr, no_data_val)
+        valid = inside_domain(arr, no_data_val, rtol=0.00001)
         if not valid.any():
             self._ds.logger.warning("the raster is full of no_data_value")
             return None
@@ -1953,9 +1934,7 @@ class Analysis(_Engine["Dataset"]):
         mask = np.ones(arr.shape, dtype=bool)
         if np.issubdtype(arr.dtype, np.floating):
             mask &= ~np.isnan(arr)
-        if no_data_value is not None and not (
-            isinstance(no_data_value, float) and np.isnan(no_data_value)
-        ):
+        if not is_nan_sentinel(no_data_value):
             mask &= arr != no_data_value
         if exclude_value is not None:
             mask &= arr != exclude_value
@@ -2027,9 +2006,7 @@ class Analysis(_Engine["Dataset"]):
         arr = self._ds.read_array(band=band)
         no_data_value = self._ds.no_data_value[band]
         exclude: list = []
-        if no_data_value is not None and not (
-            isinstance(no_data_value, float) and np.isnan(no_data_value)
-        ):
+        if not is_nan_sentinel(no_data_value):
             exclude.append(no_data_value)
         if exclude_value is not None:
             exclude.append(exclude_value)

@@ -3395,11 +3395,6 @@ class NetCDF(Dataset):
         return self.selection.reduce(*args, **kwargs)
 
     @staticmethod
-    def _scalar_no_data_value(no_data_value: Any) -> Any:
-        """Return a single NoData value from a per-band list/tuple or scalar."""
-        return scalar_no_data(no_data_value)
-
-    @staticmethod
     def _is_file_backed(var: NetCDF) -> bool:
         """True when the variable's data lives in a reopenable file, so a lazy chunk read is possible.
 

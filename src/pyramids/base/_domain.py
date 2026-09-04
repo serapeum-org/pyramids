@@ -121,4 +121,42 @@ def inside_domain(
     return ~is_no_data(arr, no_data_value, rtol=rtol)
 
 
-__all__ = ["DEFAULT_RTOL", "inside_domain", "is_no_data"]
+def is_nan_sentinel(no_data_value: float | None) -> bool:
+    """True when a no-data sentinel means "NaN" rather than a concrete value.
+
+    A NaN fill reaches pyramids either as `None` (nothing declared) or as a
+    float `nan` (what GDAL returns). Callers that branch on "is this a real
+    comparable value" need both, and `np.isclose(x, nan)` is always False, so
+    testing the value directly silently takes the wrong branch.
+
+    Args:
+        no_data_value: The sentinel to classify.
+
+    Returns:
+        bool: True when the sentinel is `None` or a float NaN.
+
+    Examples:
+        - Both spellings of "NaN fill":
+            ```python
+            >>> from pyramids.base._domain import is_nan_sentinel
+            >>> is_nan_sentinel(None), is_nan_sentinel(float("nan"))
+            (True, True)
+
+            ```
+        - A concrete sentinel is not:
+            ```python
+            >>> from pyramids.base._domain import is_nan_sentinel
+            >>> is_nan_sentinel(-9999.0)
+            False
+
+            ```
+    """
+    if no_data_value is None:
+        return True
+    try:
+        return bool(np.isnan(no_data_value))
+    except (TypeError, ValueError):
+        return False
+
+
+__all__ = ["DEFAULT_RTOL", "inside_domain", "is_nan_sentinel", "is_no_data"]
