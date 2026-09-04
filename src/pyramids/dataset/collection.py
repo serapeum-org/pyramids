@@ -3361,9 +3361,16 @@ class DatasetCollection:
                 CRS for ``bbox`` — anything ``geopandas`` accepts. Defaults to
                 the collection's own CRS.
 
+            compute: Whether to run the operation now. `True` (the default)
+                applies it immediately. `False` returns a dask `Delayed`
+                that produces the result when computed, so several
+                operations can be chained and run once; it needs the
+                optional `[lazy]` extra.
+
         Returns:
-            DatasetCollection | None: New collection when
-            `inplace=False`; `None` when `inplace=True`.
+            DatasetCollection | None | Delayed: A new collection when
+            `inplace=False`; `None` when `inplace=True`; or a dask
+            `Delayed` wrapping either of those when `compute=False`.
 
         Examples:
             - Crop every timestep against another dataset used as a mask:
@@ -3732,9 +3739,16 @@ class DatasetCollection:
                 ``None``. When False (default), return a new
                 ``DatasetCollection`` wrapping the new outputs.
 
+            compute: Whether to run the operation now. `True` (the default)
+                applies it immediately. `False` returns a dask `Delayed`
+                that produces the result when computed, so several
+                operations can be chained and run once; it needs the
+                optional `[lazy]` extra.
+
         Returns:
-            DatasetCollection | None: New collection when
-            ``inplace=False``; ``None`` when ``inplace=True``.
+            DatasetCollection | None | Delayed: A new collection when
+            `inplace=False`; `None` when `inplace=True`; or a dask
+            `Delayed` wrapping either of those when `compute=False`.
 
         Examples:
             - Apply a simple modulo operation to each value:

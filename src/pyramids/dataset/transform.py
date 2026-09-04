@@ -449,10 +449,11 @@ class GeoTransform(NamedTuple):
         every pixel but the origin on a skewed grid. The origin is fixed, since
         a decimated grid still starts at the same corner.
 
-        The axis pairing is the part that is easy to get wrong: `row_rotation`
-        is the y-per-column term and so follows the **row** factor, while
-        `column_rotation` is the x-per-row term and follows the **column**
-        factor.
+        The axis pairing is the part that is easy to get wrong. Read it off
+        :meth:`apply`, which multiplies `row_rotation` by the **row** index
+        into **x**, and `column_rotation` by the **column** index into **y**.
+        So `row_rotation` is dx/drow and scales with the row (y) factor, while
+        `column_rotation` is dy/dcol and scales with the column (x) factor.
 
         Args:
             x_factor: How much wider each cell becomes along x (columns).
