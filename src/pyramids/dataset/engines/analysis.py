@@ -1937,8 +1937,14 @@ class Analysis(_Engine["Dataset"]):
         mask = np.ones(arr.shape, dtype=bool)
         if np.issubdtype(arr.dtype, np.floating):
             mask &= ~np.isnan(arr)
-        if not is_nan_sentinel(no_data_value):
-            mask &= arr != no_data_value
+        # `is_no_data` rather than a branch on the sentinel's spelling plus an
+        # exact `!=`: it answers for a NaN sentinel and a concrete one alike,
+        # so the two-branch form collapses. It compares with `np.isclose`,
+        # which is what `_warn_if_nodata_absent` above already asks of the same
+        # data -- a histogram that kept cells the "is this nodata absent?"
+        # check counts as nodata was reporting on a different set of pixels
+        # than the warning beside it.
+        mask &= ~is_no_data(arr, no_data_value)
         if exclude_value is not None:
             mask &= arr != exclude_value
         values = arr[mask]

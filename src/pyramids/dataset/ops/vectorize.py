@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 from osgeo import gdal
 
+from pyramids.base._domain import is_nan_sentinel
 from pyramids.base._errors import CRSError
 from pyramids.base.georeference import GeoReference
 from pyramids.feature import _ogr as _feature_ogr
@@ -118,12 +119,13 @@ def rasterize_features(
     # burn column's dtype is integer, fall back to the class default
     # sentinel so GDAL does not silently coerce NaN into an arbitrary
     # integer value.
-    if np.issubdtype(numpy_dtype, np.integer):
-        try:
-            if np.isnan(no_data_value):
-                no_data_value = dataset_cls.default_no_data_value
-        except (TypeError, ValueError):
-            pass
+    if np.issubdtype(numpy_dtype, np.integer) and is_nan_sentinel(no_data_value):
+        # Through the shared predicate rather than a local `np.isnan` in a
+        # try/except: `is_nan_sentinel` answers for `None` as well as `nan`,
+        # and swallows the same TypeError/ValueError for a value that is
+        # neither. The two spellings agreed here, but only by coincidence --
+        # this one treated `None` as "not NaN" because `np.isnan(None)` raises.
+        no_data_value = dataset_cls.default_no_data_value
 
     bands_count = 1 if not isinstance(column_name, list) else len(column_name)
     dataset_n = dataset_cls.create(
