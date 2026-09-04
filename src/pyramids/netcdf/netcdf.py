@@ -2694,11 +2694,17 @@ class NetCDF(Dataset):
         failed write -- a full disk, a locked file -- leaked the handle and, on
         Windows, left the target locked against the retry.
 
+        The reopen goes through `type(self)`, not `NetCDF`, so a subclass gets
+        an instance of itself back. One of the call sites this replaced already
+        did that; hard-coding `NetCDF` here would have made `crop(path=...)`
+        quietly downgrade a subclass to its base.
+
         Args:
             path: Destination to persist to, or `None` to stay in memory.
 
         Returns:
-            NetCDF: `self` when `path` is `None`, else a file-backed reopen.
+            NetCDF: `self` when `path` is `None`, else a file-backed reopen of
+                the same class.
         """
         if path is None:
             return self
@@ -2706,7 +2712,7 @@ class NetCDF(Dataset):
             self.to_file(str(path))
         finally:
             self.close()
-        return NetCDF.read_file(str(path))
+        return cast("NetCDF", type(self).read_file(str(path)))
 
     def _preserve_netcdf_metadata(self, result: Dataset) -> NetCDF:
         """Wrap a Dataset result as a NetCDF, preserving variable-subset metadata.
