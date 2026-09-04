@@ -9068,7 +9068,7 @@ categorical-raster resampling guardrail
 <a id="__codelineno-0-451" name="__codelineno-0-451"></a>
 <a id="__codelineno-0-452" name="__codelineno-0-452"></a><span class="sd">                ```</span>
 <a id="__codelineno-0-453" name="__codelineno-0-453"></a><span class="sd">        """</span>
-<a id="__codelineno-0-454" name="__codelineno-0-454"></a>        <span class="n">vsi_path</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"/vsimem/</span><span class="si">{</span><span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">()</span><span class="o">.</span><span class="n">hex</span><span class="si">}</span><span class="s2">.tif"</span>
+<a id="__codelineno-0-454" name="__codelineno-0-454"></a>        <span class="n">vsi_path</span> <span class="o">=</span> <span class="n">mint_vsimem</span><span class="p">(</span><span class="s2">"cog"</span><span class="p">)</span>
 <a id="__codelineno-0-455" name="__codelineno-0-455"></a>        <span class="k">try</span><span class="p">:</span>
 <a id="__codelineno-0-456" name="__codelineno-0-456"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span><span class="n">vsi_path</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
 <a id="__codelineno-0-457" name="__codelineno-0-457"></a>            <span class="k">try</span><span class="p">:</span>
