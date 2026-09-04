@@ -13,9 +13,9 @@ happens to be warm, so reading `meta_data`, or printing the object, cannot chang
 the answer.
 
 Invariance alone is not enough, though: answering "nothing is a data variable"
-every time would satisfy it. `TestGroupedStoresEnumerateEveryVariable` therefore
-pins content too -- that a NetCDF-4 store which puts each variable in its own
-group reports all of them, not just whatever sits at the root.
+every time would satisfy it. The classes below therefore pin content too -- that
+the CF roles are applied, that a grouped store reports every variable, and that
+the arrays the enumeration leaves out are still readable by name.
 """
 
 import glob
@@ -167,3 +167,124 @@ class TestGroupedStoresEnumerateEveryVariable:
         _ = str(dataset)
 
         assert sorted(dataset.variable_names) == before
+
+
+class TestTheCfClassificationIsApplied:
+    """`variable_names` enumerates data variables, so non-data arrays stay out.
+
+    A purely store-derived answer is stable and also wrong in a specific way: it
+    keeps every MDArray that is not a dimension coordinate, sweeping in CF
+    bounds, ancillary variables and 2-D curvilinear coordinate fields. Only the
+    CF roles distinguish those, which is why the classification runs on every
+    call rather than only when the metadata cache happens to be warm.
+    """
+
+    @pytest.mark.parametrize(
+        ("fixture", "excluded"),
+        [
+            ("cf__7v__1d3-2d3-3d1__y-asc.nc", ("lat_bnds", "lon_bnds", "time_bnds")),
+            ("cf__8v__1d3-2d3-3d1-4d1__curv-stag.nc", ("lat_rho", "lon_rho", "h")),
+            ("cf__9v__1d7-2d2__geos__y-desc.nc", ("DQF", "band_id")),
+        ],
+    )
+    def test_cf_non_data_arrays_are_not_enumerated(self, fixture, excluded):
+        """Bounds, ancillary and curvilinear coordinates are not data.
+
+        Args:
+            fixture: The netCDF fixture to read.
+            excluded: Array names that exist in the store but are not data.
+
+        Test scenario:
+            Each of these is a real MDArray with more than zero dimensions, so a
+            store-derived filter keeps it. Only the CF roles say otherwise.
+        """
+        dataset = NetCDF.read_file(str(DATA / fixture))
+
+        names = set(dataset.variable_names)
+
+        assert names, "the fixture should enumerate at least one data variable"
+        assert not names & set(excluded), f"non-data arrays enumerated: {names & set(excluded)}"
+
+    @pytest.mark.parametrize(
+        ("fixture", "array"),
+        [
+            ("cf__7v__1d3-2d3-3d1__y-asc.nc", "lat_bnds"),
+            ("cf__8v__1d3-2d3-3d1-4d1__curv-stag.nc", "lat_rho"),
+        ],
+    )
+    def test_what_is_not_enumerated_is_still_readable(self, fixture, array):
+        """Leaving an array out of the enumeration must not hide it.
+
+        Args:
+            fixture: The netCDF fixture to read.
+            array: A CF non-data array in that fixture.
+
+        Test scenario:
+            The two questions are different: `variable_names` enumerates data
+            variables, while `get_variable` asks what the store holds. Reading a
+            bounds or curvilinear-coordinate array by name is legitimate, and
+            gating it on the enumeration made `get_variable("xc")` fail on a
+            curvilinear store while the array sat right there.
+        """
+        dataset = NetCDF.read_file(str(DATA / fixture))
+
+        assert array not in dataset.variable_names
+        assert array in dataset._readable_variable_names()
+
+    def test_the_readable_set_is_a_superset_of_the_enumeration(self):
+        """The relationship between the two, stated once.
+
+        Test scenario:
+            Every enumerated data variable must also be readable; the reverse
+            does not hold. A readable set that dropped an enumerated name would
+            make `get_variable` reject something `variable_names` advertised.
+        """
+        dataset = NetCDF.read_file(str(DATA / "cf__7v__1d3-2d3-3d1__y-asc.nc"))
+
+        assert set(dataset.variable_names) <= set(dataset._readable_variable_names())
+
+    def test_a_classic_mode_file_still_enumerates_its_variables(self):
+        """The CF list is empty in classic mode, so the store answers instead.
+
+        Test scenario:
+            Preferring an empty CF classification here would make every
+            variable in the file look unreachable, which is the defect the
+            conditional branch originally caused.
+        """
+        dataset = NetCDF.read_file(
+            str(DATA / "cf__7v__1d3-2d3-3d1__y-asc.nc"),
+            open_as_multi_dimensional=False,
+        )
+
+        assert dataset.variable_names, "classic mode reported no variables"
+
+
+class TestOperationsCarryTheArraysTheyDoNotTransform:
+    """Leaving an array out of the enumeration must not make an op lossy.
+
+    The other half of this -- that a non-spatial ancillary array such as ERA5's
+    `expver` does survive a crop -- is pinned by
+    `tests/netcdf/spatial/test_crop_string_aux.py`, which has a mask that
+    actually overlaps that fixture's valid data.
+    """
+
+    def test_a_crop_does_not_carry_bounds_of_a_reshaped_axis(self):
+        """Carrying `lat_bnds` verbatim would describe the wrong axis.
+
+        Test scenario:
+            `lat_bnds(lat, nv)` is not spatial by the `(y, x)` test, so a naive
+            "carry everything unenumerated" rule copies it into the cropped
+            result -- where it still describes the source's latitude axis, not
+            the cropped one. Sharing a reshaped dimension is what disqualifies
+            it.
+        """
+        dataset = NetCDF.read_file(str(DATA / "cf__7v__1d3-2d3-3d1__y-asc.nc"))
+        assert "lat_bnds" in dataset._readable_variable_names()
+
+        west, south, east, north = dataset.bounds.total_bounds
+        pad_x, pad_y = (east - west) / 4, (north - south) / 4
+        cropped = dataset.crop(
+            bbox=[west + pad_x, south + pad_y, east - pad_x, north - pad_y]
+        )
+
+        assert "lat_bnds" not in cropped._readable_variable_names()

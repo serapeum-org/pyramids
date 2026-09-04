@@ -2933,6 +2933,50 @@ class NetCDF(Dataset):
             return []
         return [d.GetName() for d in md.GetDimensions()]
 
+    def _carryable_aux_names(self, rg: Any, spatial_vars: list[str]) -> list[str]:
+        """Arrays an operation must carry through untouched.
+
+        Everything readable that is not one of the `spatial_vars` being
+        transformed, minus anything that shares a dimension with them.
+
+        Both halves matter. The readable set is used rather than
+        :attr:`variable_names` because the CF non-data arrays that property
+        leaves out -- an ancillary `expver`, a scalar flag -- still have to
+        survive a crop; dropping them would make the operation lossy.
+
+        The spatial-dimension filter is what keeps that from going too far. A
+        CF bounds array like `lat_bnds(lat, nv)` is not spatial by the
+        `(y, x)` test, so it would otherwise be carried *verbatim* into a
+        cropped result -- describing the axis the source had, not the one the
+        result has. Only the **y / x** dimensions disqualify an array, because
+        those are the ones these operations reshape: an `expver(valid_time)`
+        shares its dimension with the gridded variables and is still carried
+        through untouched, exactly as it should be.
+
+        Args:
+            rg: The store's root :class:`osgeo.gdal.Group`.
+            spatial_vars: The gridded variables the operation transforms.
+
+        Returns:
+            list[str]: Names to copy through unchanged.
+        """
+        spatial_dims: set[str] = set()
+        for name in spatial_vars:
+            dim_names = self._variable_dim_names(rg, name)
+            axes = self._cf_spatial_axes(rg, dim_names) or self._named_spatial_axes(
+                dim_names
+            )
+            if axes is not None:
+                spatial_dims.update(dim_names[axis] for axis in axes)
+        carryable = []
+        for name in self._readable_variable_names():
+            if name in spatial_vars:
+                continue
+            if spatial_dims.intersection(self._variable_dim_names(rg, name)):
+                continue
+            carryable.append(name)
+        return carryable
+
     def _carry_aux_variables(
         self, result: NetCDF, aux_vars: list[str], operation: str
     ) -> None:
@@ -3212,7 +3256,7 @@ class NetCDF(Dataset):
         # and the aux-variable dimension probe below, instead of re-resolving per call.
         rg = self._working_group()
         spatial_vars = self._spatial_variable_names(rg)
-        aux_vars = [n for n in names if n not in spatial_vars]
+        aux_vars = self._carryable_aux_names(rg, spatial_vars)
         if not spatial_vars:
             raise ValueError(
                 f"{operation}() needs at least one spatial (y, x) variable; none of "
@@ -5146,27 +5190,63 @@ class NetCDF(Dataset):
         0-dimensional scalar variables (grid_mapping etc.). In classic mode,
         parses subdataset metadata.
 
-        The answer is derived from the store on every call, never from cached
-        metadata. A CF-classified answer used to be preferred whenever
-        `meta_data` happened to be cached, which made the result depend on
-        whether anything had read `meta_data` first -- and `__str__` reads it,
-        so merely printing or logging a container changed which variables the
-        object reported. On a classic-mode file the CF path returned an empty
-        list, so `get_variable` then raised for every variable in the file.
-        Resolving from the working group unconditionally also generalises the
-        carve-out that group views already needed: their cached metadata keys
-        variables by full store path (`"forecast/temperature"`) while the view's
-        API uses names relative to its sub-group (ARC-12 review H1).
+        This is an enumeration of **data** variables, so CF arrays that are not
+        data are absent: bounds (`lat_bnds`), ancillary variables (`DQF`), cell
+        measures, UGRID connectivity, and 2-D curvilinear coordinate fields
+        (`lat_rho`). They remain readable by name through :meth:`get_variable`,
+        which checks :meth:`_readable_variable_names` instead -- the two answer
+        different questions and only this one is an enumeration.
+
+        The classification is consulted on *every* call, not only when
+        `meta_data` happens to be cached already. Preferring it conditionally
+        made the answer depend on whether anything had read `meta_data` first --
+        and `__str__` reads it, so merely printing or logging a container
+        changed which variables the object reported.
+
+        Two cases keep the store-derived answer, both because the CF answer
+        would be wrong rather than merely poorer:
+
+        * **Classic mode** (`rg is None`), where the CF list is empty, so every
+          variable in the file would look unreachable.
+        * **A sub-group view**, whose cached metadata keys variables by full
+          store path (`"forecast/temperature"`) while the view's own API uses
+          names relative to its group (ARC-12 review H1).
 
         Returns:
             list[str]: Variable names (e.g., `["temperature", "precipitation"]`).
         """
         rg = self._working_group()
+        if rg is None:
+            return self._classic_subdataset_variable_names()
+        if self._group_path is not None:
+            return self._mdim_data_variable_names(rg)
+        cf = self.meta_data.cf
+        classified = list(cf.data_variable_names) if cf is not None else []
+        # An empty classification means the store declares no CF roles at all,
+        # not that it holds no data -- fall back rather than report nothing.
+        return classified or self._mdim_data_variable_names(rg)
+
+    def _readable_variable_names(self) -> list[str]:
+        """Every array name :meth:`get_variable` will accept.
+
+        A superset of :attr:`variable_names`. That property *enumerates* data
+        variables, so it leaves out the CF arrays that are not data -- 2-D
+        curvilinear coordinate fields, bounds, ancillary variables. Those are
+        still real arrays in the store, and reading one by name is a legitimate
+        thing to do, so reachability is decided against the store rather than
+        against the enumeration.
+
+        Returns:
+            list[str]: Names readable through :meth:`get_variable` -- the
+                enumerated ones first, then anything else the store holds.
+        """
+        readable = list(self.variable_names)
+        rg = self._working_group()
         if rg is not None:
-            variable_names = self._mdim_data_variable_names(rg)
-        else:
-            variable_names = self._classic_subdataset_variable_names()
-        return variable_names
+            for name in self._mdim_data_variable_names(rg):
+                if name not in readable:
+                    readable.append(name)
+        return readable
 
     @staticmethod
     def _mdim_data_variable_names(rg, prefix: str = "") -> list[str]:
@@ -5459,7 +5539,13 @@ class NetCDF(Dataset):
             cube = group_nc.get_variable(parts[1], x_dim=x_dim, y_dim=y_dim)
             return cube  # single return below handles non-group path
 
-        if variable_name not in self.variable_names:
+        # Checked against what the store *holds*, not against `variable_names`:
+        # that property enumerates data variables, so CF non-data arrays -- 2-D
+        # curvilinear coordinates like `xc` / `lat_rho`, bounds, ancillary
+        # fields -- are deliberately absent from it, yet reading one by name is
+        # legitimate. Gating on the enumeration made `get_variable("xc")` fail
+        # on a curvilinear store while the array sat right there.
+        if variable_name not in self._readable_variable_names():
             raise ValueError(
                 f"{variable_name} is not a valid variable name in {self.variable_names}"
             )

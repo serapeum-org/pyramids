@@ -155,7 +155,9 @@ def _data_vars_from_arrays(rg: Any, ds: NetCDF, chunks: Any = None) -> dict[str,
     file's native axis order via :func:`_lazy_var_data` (ARC-48).
     """
     data_vars: dict[str, Any] = {}
-    for var_name in ds.variable_names:
+    # Readable names, not the data-variable enumeration: an export that
+    # dropped the store's aux arrays (`expver`, bounds) would not round-trip.
+    for var_name in ds._readable_variable_names():
         md_arr = rg.OpenMDArray(var_name)
         if md_arr is None:
             continue

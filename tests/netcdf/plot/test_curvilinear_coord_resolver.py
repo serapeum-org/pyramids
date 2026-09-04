@@ -60,6 +60,15 @@ class _FakeNC:
         """Return the declared variable names."""
         return list(self._arrays)
 
+    def _readable_variable_names(self):
+        """Every name the container can read, which for a stub is all of them.
+
+        The real container distinguishes its *data* variables from the
+        coordinate arrays it can still read by name; a stub holding only
+        coordinate arrays has no such split.
+        """
+        return list(self._arrays)
+
     def _read_variable(self, name):
         """Return the array for ``name`` (``None`` if unreadable)."""
         return self._arrays.get(name)

@@ -1141,7 +1141,7 @@ class Selection(_Engine["NetCDF"]):
         # group once and reuse it for the spanning-aux probe further down.
         rg = nc._working_group()
         spatial_vars = nc._spatial_variable_names(rg)
-        aux_vars = [n for n in names if n not in spatial_vars]
+        aux_vars = nc._carryable_aux_names(rg, spatial_vars)
 
         result = None
         found = False

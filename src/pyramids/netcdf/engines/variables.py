@@ -137,8 +137,9 @@ class Variables(_Engine["NetCDF"]):
             dataset, band_dim_name, band_dim_values, attrs
         )
 
-        # Delete existing variable if present
-        if variable_name in nc.variable_names:
+        # Delete existing variable if present. Existence is a question about
+        # the store, so an aux array under this name counts as a collision.
+        if variable_name in nc._readable_variable_names():
             rg.DeleteMDArray(variable_name)
 
         # Read data from the classic dataset
@@ -246,7 +247,9 @@ class Variables(_Engine["NetCDF"]):
         if variable_name is not None:
             names_to_copy = [variable_name]
         elif isinstance(dataset, NetCDF):
-            names_to_copy = dataset.variable_names
+            # Everything the store holds, not just the data variables: a copy
+            # that dropped the aux arrays would not be a copy.
+            names_to_copy = dataset._readable_variable_names()
         else:
             names_to_copy = []
 
@@ -304,11 +307,14 @@ class Variables(_Engine["NetCDF"]):
                 already exists.
         """
         nc = self._ds
-        if old_name not in nc.variable_names:
+        # Both checks ask what the store holds: an aux array is renameable,
+        # and its name is equally taken.
+        readable = nc._readable_variable_names()
+        if old_name not in readable:
             raise ValueError(
                 f"Variable '{old_name}' not found. Available: {nc.variable_names}"
             )
-        if new_name in nc.variable_names:
+        if new_name in readable:
             raise ValueError(f"Variable '{new_name}' already exists.")
 
         if nc._working_group() is None:

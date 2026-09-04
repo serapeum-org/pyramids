@@ -171,8 +171,12 @@ class CFCoordinateCandidates:
             CFCoordinateCandidates: the classified x / y candidate lists.
         """
         arrays: dict[str, np.ndarray] = {}
+        # Readable names, not the data-variable enumeration: every array these
+        # candidates name is an auxiliary coordinate, which `variable_names`
+        # excludes by design.
+        readable = parent._readable_variable_names()
         for name in names:
-            if name in parent.variable_names:
+            if name in readable:
                 arr = parent._read_variable(name)
                 if arr is not None:
                     arrays[name] = _coord_match.squeeze_leading_axes(arr, data_shape)
@@ -475,10 +479,10 @@ class CurvilinearCoordResolver:
         axes). Shape validation against the slice is left to the caller.
         """
         result = None
-        present = (
-            x_name in self.parent.variable_names
-            and y_name in self.parent.variable_names
-        )
+        readable = self.parent._readable_variable_names()
+        # `lat_rho`, `XLAT`, `nav_lat`, `yc` are 2-D coordinate fields, so they
+        # are readable but never enumerated as data variables.
+        present = x_name in readable and y_name in readable
         if present and self.data_shape is not None:
             xv = self.parent._read_variable(x_name)
             yv = self.parent._read_variable(y_name)
@@ -510,7 +514,7 @@ class CurvilinearCoordResolver:
                 :meth:`NetCDF._read_variable` returns ``None``.
         """
         if isinstance(spec, str):
-            if spec not in self.parent.variable_names:
+            if spec not in self.parent._readable_variable_names():
                 raise ValueError(
                     f"coords {axis_label}={spec!r} is not a variable of "
                     f"the parent NetCDF. Available: {self.parent.variable_names}."

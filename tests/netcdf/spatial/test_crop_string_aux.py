@@ -39,7 +39,12 @@ class TestCropStringAux:
             warnings.simplefilter("always")
             masked = cube.crop(mask=_MASK, touch=True)
         try:
-            assert "expver" in masked.variable_names, "string aux var must survive crop"
+            # Readability, not enumeration: `expver` is a CF aux variable, so
+            # `variable_names` (which lists data variables) excludes it by
+            # design. What this test is about is that the array survived.
+            assert "expver" in masked._readable_variable_names(), (
+                "string aux var must survive crop"
+            )
             assert _read_expver(masked) == source_expver, "carried values must match"
             dropped = [
                 str(w.message) for w in caught if "could not carry" in str(w.message)
