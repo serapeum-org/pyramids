@@ -34,6 +34,18 @@ logger = logging.getLogger(__name__)
 # services that block the default ``Python-urllib`` agent, and ``Accept`` adds
 # JSON content negotiation alongside the ``f=json`` query so the pre-check is no
 # stricter than the GDAL driver it guards.
+# The plain library name, for a request that is not part of a named protocol.
+# Callers that are -- the OGC API discovery read, the VectorTileServer fetch --
+# declare their own, because a service filtering on User-Agent must go on seeing
+# what it saw before.
+USER_AGENT = "pyramids-gis"
+
+# The plain library name, for a request that is not part of a named protocol.
+# Callers that are -- the OGC API discovery read, the VectorTileServer fetch --
+# declare their own, because a service filtering on User-Agent must go on seeing
+# what it saw before.
+USER_AGENT = "pyramids-gis"
+
 DISCOVERY_HEADERS = {
     "User-Agent": "pyramids-gis OGC API client",
     "Accept": "application/json",
@@ -279,6 +291,83 @@ def append_path(endpoint: str, suffix: str) -> tuple[SplitResult, str]:
     return parts, f"{parts.path.rstrip('/')}{suffix}"
 
 
+def discovery_request(
+    url: str,
+    auth: tuple[str, str] | None,
+    *,
+    accept_json: bool = True,
+    user_agent: str | None = None,
+) -> urllib.request.Request:
+    """Build a discovery request: a real User-Agent, and Basic auth up front.
+
+    Three places built one of these -- the OGC API `/collections` read, the
+    VectorTileServer fetch and the remote-GeoJSON stage -- each assembling the
+    header dict and the preemptive Basic credentials itself, and two of them
+    carrying the same six-line comment explaining why the credentials go on the
+    request rather than into a handler.
+
+    Preemptive Basic is the part worth stating once: a service that answers 403
+    without a 401 challenge never gets credentials out of a reactive
+    `HTTPBasicAuthHandler`, which only reacts to a 401. It matches what the GDAL
+    read does with `GDAL_HTTP_USERPWD`.
+
+    The User-Agent stays the caller's. The three declare different clients --
+    an OGC API one, a VectorTileServer one some ArcGIS deployments filter on,
+    and the plain library name for a bare GeoJSON fetch -- and those are real
+    differences, not copies that drifted, so unifying the string would change
+    what three services see.
+
+    Args:
+        url: The URL to request.
+        auth: `(user, password)` to send preemptively, or `None`.
+        accept_json: Send `Accept: application/json`. True for a discovery
+            document; pass False for a fetch whose body is not JSON, such as a
+            vector tile.
+        user_agent: The client to declare. Defaults to the plain library name;
+            pass a specific one where a service filters on it or where the
+            request is part of a named protocol.
+
+    Returns:
+        urllib.request.Request: Ready for :func:`http_get_with_retry`.
+
+    Examples:
+        - The plain library User-Agent, and JSON asked for by default:
+            ```python
+            >>> from pyramids.base._ogc_api import discovery_request
+            >>> request = discovery_request("https://x/collections", None)
+            >>> request.get_header("User-agent")
+            'pyramids-gis'
+            >>> request.get_header("Accept")
+            'application/json'
+
+            ```
+        - Credentials go on the request itself, not into a handler that waits
+          for a challenge:
+            ```python
+            >>> from pyramids.base._ogc_api import discovery_request
+            >>> request = discovery_request("https://x", ("ada", "s3cret"))
+            >>> request.get_header("Authorization").startswith("Basic ")
+            True
+
+            ```
+        - A non-JSON fetch asks for no particular type:
+            ```python
+            >>> from pyramids.base._ogc_api import discovery_request
+            >>> discovery_request("https://x/1/2/3.pbf", None, accept_json=False
+            ...     ).get_header("Accept") is None
+            True
+
+            ```
+    """
+    headers = {"User-Agent": user_agent or USER_AGENT}
+    if accept_json:
+        headers["Accept"] = DISCOVERY_HEADERS["Accept"]
+    if auth is not None:
+        token = base64.b64encode(f"{auth[0]}:{auth[1]}".encode()).decode()
+        headers["Authorization"] = f"Basic {token}"
+    return urllib.request.Request(url, headers=headers)
+
+
 def collections_url(endpoint: str) -> str:
     """Build the ``/collections`` discovery URL for an OGC API landing page.
 
@@ -305,14 +394,9 @@ def get_collections(
             answered with a non-JSON body or an OGC API exception document.
     """
     url = collections_url(endpoint)
-    headers = dict(DISCOVERY_HEADERS)
-    if auth is not None:
-        # Send Basic credentials preemptively (matching the GDAL items read's
-        # GDAL_HTTP_USERPWD), so a service that 403s without a 401 challenge still
-        # gets them — a reactive HTTPBasicAuthHandler would only react to a 401.
-        token = base64.b64encode(f"{auth[0]}:{auth[1]}".encode()).decode()
-        headers["Authorization"] = f"Basic {token}"
-    request = urllib.request.Request(url, headers=headers)
+    request = discovery_request(
+        url, auth, accept_json=True, user_agent=DISCOVERY_HEADERS["User-Agent"]
+    )
     try:
         # urllib honours the raw float timeout (a sub-second value is a valid fast
         # timeout here); only the GDAL driver read clamps to >= 1s, because GDAL
