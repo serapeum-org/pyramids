@@ -56,6 +56,61 @@ def validate_band_index(
         raise ValueError(f"{message}{hint}")
 
 
+def validate_one_based_band(band: int, band_count: int, *, name: str = "band") -> None:
+    """Reject a **1-based** band number outside a dataset's band range.
+
+    The sibling of :func:`validate_band_index`, which is 0-based. Both spellings
+    exist because both conventions do: GDAL numbers bands from one, while
+    pyramids' array-facing APIs index from zero. Three call sites had written
+    this guard out, each with its own wording for the same refusal, so what a
+    user was told depended on which entry point they reached.
+
+    Args:
+        band: The 1-based band number to check.
+        band_count: Number of bands on the dataset.
+        name: What to call the argument in the message.
+
+    Raises:
+        ValueError: `band` is below 1 or above `band_count`.
+
+    Examples:
+        - The first and last bands pass; zero does not, these being 1-based:
+            ```python
+            >>> from pyramids.dataset.engines._validate import (
+            ...     validate_one_based_band,
+            ... )
+            >>> validate_one_based_band(1, 3)
+            >>> validate_one_based_band(3, 3)
+            >>> try:
+            ...     validate_one_based_band(0, 3)
+            ... except ValueError as exc:
+            ...     print(exc)
+            band 0 is out of range for a 3-band dataset (bands are 1-based).
+
+            ```
+        - The argument's own name appears when the caller supplies it:
+            ```python
+            >>> from pyramids.dataset.engines._validate import (
+            ...     validate_one_based_band,
+            ... )
+            >>> try:
+            ...     validate_one_based_band(9, 2, name="variable")
+            ... except ValueError as exc:
+            ...     str(exc).startswith("variable 9 is out of range")
+            True
+
+            ```
+
+    See Also:
+        validate_band_index: The 0-based form, for the array-facing APIs.
+    """
+    if not 1 <= band <= band_count:
+        raise ValueError(
+            f"{name} {band} is out of range for a {band_count}-band dataset "
+            f"(bands are 1-based)."
+        )
+
+
 def resolve_band_indices(
     bands: int | list[int] | None, band_count: int
 ) -> tuple[list[int], bool]:

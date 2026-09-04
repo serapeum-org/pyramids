@@ -39,7 +39,10 @@ if TYPE_CHECKING:
 from pyramids.base.crs import crs_spec
 from pyramids.dataset._driver import MEMORY_DRIVER, resolve_output_driver
 from pyramids.dataset.engines._base import _Engine
-from pyramids.dataset.engines._validate import validate_band_index
+from pyramids.dataset.engines._validate import (
+    validate_band_index,
+    validate_one_based_band,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -600,11 +603,7 @@ class Bands(_Engine["Dataset"]):
         if isinstance(selector, numbers.Integral):
             # numbers.Integral admits numpy ints too; normalize to a plain int.
             one_based = int(selector)
-            if not 1 <= one_based <= count:
-                raise ValueError(
-                    f"band index {one_based} is out of range for a {count}-band "
-                    f"dataset (valid 1..{count})."
-                )
+            validate_one_based_band(one_based, count)
         elif isinstance(selector, str):
             if selector not in names:
                 raise ValueError(f"{selector!r} is not a band name; available: {names}")
@@ -1456,11 +1455,7 @@ class Bands(_Engine["Dataset"]):
             tuple[int, int]:
                 The coerced `(start_value, end_value)` integers.
         """
-        if not 1 <= band <= self._ds.band_count:
-            raise ValueError(
-                f"band {band} is out of range for a {self._ds.band_count}-band "
-                "dataset (bands are 1-based)"
-            )
+        validate_one_based_band(band, self._ds.band_count)
         for name, value in (("start_value", start_value), ("end_value", end_value)):
             # bool is an int subclass but not a meaningful colour index; reject it
             # (and any non-numeric type) with the documented TypeError rather than a
