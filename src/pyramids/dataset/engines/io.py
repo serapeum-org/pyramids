@@ -424,6 +424,54 @@ def _terrain_rgba_stack(
     return np.concatenate([rgb, alpha[np.newaxis, :, :]], axis=0)
 
 
+def _stack_bands(read_band: Callable[[int], Any], band: int | None, count: int) -> Any:
+    """Read one band, or every band into a ``(band, rows, cols)`` buffer.
+
+    Both read paths -- the plain windowed read and the decimated one -- spelled
+    this out: `band is None` on a multi-band raster means every band stacked on
+    a leading axis, and anything else is a single band read flat, with `None`
+    on a single-band raster meaning band 0. Two copies of one rule about what
+    `band=None` means, and the squeeze-or-stack decision is the part a caller
+    is most likely to get subtly wrong.
+
+    Args:
+        read_band: Reads one band by zero-based index. The caller closes over
+            its own window, decimation and resampling arguments, which is the
+            only thing that differed between the two sites.
+        band: The band asked for, or `None` for "all of them".
+        count: The raster's band count.
+
+    Returns:
+        The stacked 3-D array, or the single band's 2-D one.
+
+    Examples:
+        - `None` on a multi-band raster stacks, leading axis first:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.dataset.engines.io import _stack_bands
+            >>> _stack_bands(lambda i: np.full((2, 2), i), None, 3).shape
+            (3, 2, 2)
+
+            ```
+        - A named band is read flat, and so is `None` on a single-band raster
+          -- which is why the result is not always 3-D:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.dataset.engines.io import _stack_bands
+            >>> _stack_bands(lambda i: np.full((2, 2), i), 1, 3).tolist()
+            [[1, 1], [1, 1]]
+            >>> _stack_bands(lambda i: np.full((2, 2), i), None, 1).shape
+            (2, 2)
+
+            ```
+    """
+    if band is None and count > 1:
+        result = np.stack([read_band(index) for index in range(count)], axis=0)
+    else:
+        result = read_band(0 if band is None else band)
+    return result
+
+
 class IO(_Engine["Dataset"]):
     @under_gdal_env
     def read_array(
@@ -1018,20 +1066,17 @@ class IO(_Engine["Dataset"]):
             np.ndarray: The requested pixels.
         """
         window_args = tuple(window) if window is not None else ()
-        if band is None and self._ds.band_count > 1:
-            if window is None:
-                arr = handle.ReadAsArray()
-            else:
-                arr = np.stack(
-                    [
-                        handle.GetRasterBand(i + 1).ReadAsArray(*window_args)
-                        for i in range(self._ds.band_count)
-                    ],
-                    axis=0,
-                )
+        if band is None and window is None and self._ds.band_count > 1:
+            # One GDAL call for the whole cube, which the per-band stack below
+            # cannot match. Kept as its own branch rather than folded into the
+            # helper: it is a real optimisation, not a spelling difference.
+            arr = handle.ReadAsArray()
         else:
-            effective_band = 0 if band is None else band
-            arr = handle.GetRasterBand(effective_band + 1).ReadAsArray(*window_args)
+            arr = _stack_bands(
+                lambda index: handle.GetRasterBand(index + 1).ReadAsArray(*window_args),
+                band,
+                self._ds.band_count,
+            )
         # arr comes from GDAL's untyped ReadAsArray/np.stack; this method's own
         # declared contract is a plain ndarray.
         return cast(np.typing.NDArray, arr)
@@ -1327,19 +1372,13 @@ class IO(_Engine["Dataset"]):
         else:
             window_args = ()
         validate_band_index(band, self._ds.band_count)
-        if band is None and self._ds.band_count > 1:
-            arr = np.stack(
-                [
-                    self._decimated_band_read(i, window_args, rows, cols, alg)
-                    for i in range(self._ds.band_count)
-                ],
-                axis=0,
-            )
-        else:
-            effective_band = 0 if band is None else band
-            arr = self._decimated_band_read(
-                effective_band, window_args, rows, cols, alg
-            )
+        arr = _stack_bands(
+            lambda index: self._decimated_band_read(
+                index, window_args, rows, cols, alg
+            ),
+            band,
+            self._ds.band_count,
+        )
         return arr
 
     def _decimated_band_read(
