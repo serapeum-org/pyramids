@@ -424,7 +424,9 @@ def _terrain_rgba_stack(
     return np.concatenate([rgb, alpha[np.newaxis, :, :]], axis=0)
 
 
-def _stack_bands(read_band: Callable[[int], Any], band: int | None, count: int) -> Any:
+def _stack_bands(
+    read_band: Callable[[int], Any], band: int | None, count: int
+) -> np.typing.NDArray:
     """Read one band, or every band into a ``(band, rows, cols)`` buffer.
 
     Both read paths -- the plain windowed read and the decimated one -- spelled
@@ -442,7 +444,7 @@ def _stack_bands(read_band: Callable[[int], Any], band: int | None, count: int) 
         count: The raster's band count.
 
     Returns:
-        The stacked 3-D array, or the single band's 2-D one.
+        np.typing.NDArray: The stacked 3-D array, or the single band's 2-D one.
 
     Examples:
         - `None` on a multi-band raster stacks, leading axis first:
@@ -468,7 +470,9 @@ def _stack_bands(read_band: Callable[[int], Any], band: int | None, count: int) 
     if band is None and count > 1:
         result = np.stack([read_band(index) for index in range(count)], axis=0)
     else:
-        result = read_band(0 if band is None else band)
+        # `read_band` reaches GDAL's untyped `ReadAsArray`, so the single-band
+        # arm is `Any` where the stacked one is already an ndarray.
+        result = cast("np.typing.NDArray", read_band(0 if band is None else band))
     return result
 
 
