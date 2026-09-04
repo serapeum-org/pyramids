@@ -463,3 +463,60 @@ def exception_text(root: Any) -> str:
                 message = text
                 break
     return message or (root.text or "").strip() or NO_MESSAGE
+
+
+# How many advertised names an error message lists before trimming. A server can
+# advertise hundreds; the point is to show the caller the shape of what is there,
+# not to reproduce the capabilities document in a traceback.
+_ADVERTISED_PREVIEW = 10
+
+
+def not_advertised(kind: str, name: str, endpoint: str, available) -> ValueError:
+    """The refusal for a coverage or layer the service does not advertise.
+
+    Written out three times -- once in the WCS reader, once in the WMTS one and
+    once for OGC API Coverages -- with the same wording, the same preview length
+    and the same ellipsis. Two of them sorted the names and the third listed
+    them in whatever order the capabilities document happened to use, so the
+    same kind of mistake against a WMTS endpoint produced an arbitrary ten names
+    while against a WCS endpoint it produced the first ten alphabetically.
+
+    Returned rather than raised so a caller translating a service error can
+    chain it -- `raise not_advertised(...) from exc` -- which a helper that
+    raised internally could not express.
+
+    Args:
+        kind: What the service calls the thing, singular and lowercase
+            (`"coverage"`, `"layer"`).
+        name: The name that was asked for.
+        endpoint: The service URL, quoted into the message.
+        available: The names the service does advertise, in any order.
+
+    Returns:
+        ValueError: Ready to raise, naming what was asked for and listing what
+            is there, sorted and trimmed.
+
+    Examples:
+        - The message names the request, the endpoint and the alternatives:
+            ```python
+            >>> from pyramids.base._ogc_api import not_advertised
+            >>> raise not_advertised("coverage", "dem", "http://x/wcs", ["b", "a"])
+            Traceback (most recent call last):
+            ValueError: coverage 'dem' is not advertised by 'http://x/wcs'. Available coverages: ['a', 'b']
+
+            ```
+        - A long list is trimmed and marked, so a traceback stays readable:
+            ```python
+            >>> from pyramids.base._ogc_api import not_advertised
+            >>> error = not_advertised("layer", "z", "http://x", [str(i) for i in range(30)])
+            >>> str(error).endswith("…")
+            True
+
+            ```
+    """
+    names = sorted(available)
+    return ValueError(
+        f"{kind} {name!r} is not advertised by {endpoint!r}. "
+        f"Available {kind}s: {names[:_ADVERTISED_PREVIEW]}"
+        + (" …" if len(names) > _ADVERTISED_PREVIEW else "")
+    )

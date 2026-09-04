@@ -58,6 +58,7 @@ from pyramids.base._errors import CoverageError, OGCAPIError
 from pyramids.base._ogc_api import append_path as _append_path
 from pyramids.base._ogc_api import gdal_http_config as _gdal_http_config
 from pyramids.base._ogc_api import get_collections as _get_collections
+from pyramids.base._ogc_api import not_advertised
 
 if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
@@ -175,11 +176,7 @@ def from_ogc_coverages(
 
     collections = _get_collections(endpoint, auth, timeout)
     if collections and coverage not in collections:
-        raise ValueError(
-            f"coverage {coverage!r} is not advertised by {endpoint!r}. "
-            f"Available coverages: {sorted(collections)[:10]}"
-            + (" …" if len(collections) > 10 else "")
-        )
+        raise not_advertised("coverage", coverage, endpoint, collections)
 
     connection = _coverage_connection(endpoint, coverage)
     config = _gdal_http_config(auth, timeout)

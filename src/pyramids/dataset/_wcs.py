@@ -61,6 +61,7 @@ from pyramids.base._ogc_api import (
     capabilities_url,
     exception_text,
     localname,
+    not_advertised,
 )
 from pyramids.base._ogc_api import gdal_http_config as _gdal_http_config
 from pyramids.base._ogc_api import http_get_with_retry as _http_get_with_retry
@@ -697,11 +698,7 @@ def from_wcs(
     else:
         _, coverages = _get_capabilities(endpoint, version, auth, timeout)
         if coverages and coverage not in coverages:
-            raise ValueError(
-                f"coverage {coverage!r} is not advertised by {endpoint!r}. "
-                f"Available coverages: {sorted(coverages)[:10]}"
-                + (" …" if len(coverages) > 10 else "")
-            )
+            raise not_advertised("coverage", coverage, endpoint, coverages)
         descriptor = _service_descriptor(
             endpoint, coverage, version, wcs_format, extra_params
         )

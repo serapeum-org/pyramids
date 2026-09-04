@@ -47,6 +47,7 @@ from pyramids.base._coverage import validate_bbox as _validate_bbox
 from pyramids.base._errors import CoverageError, WMSError
 from pyramids.base._grid import grid_size
 from pyramids.base._ogc_api import gdal_http_config as _gdal_http_config
+from pyramids.base._ogc_api import not_advertised
 from pyramids.dataset._subdataset import subdatasets_of
 
 if TYPE_CHECKING:
@@ -385,11 +386,7 @@ def from_wmts(
         except WMSError as exc:
             available = _available_wmts_layers(endpoint)
             if available and layer not in available:
-                raise ValueError(
-                    f"layer {layer!r} is not advertised by {endpoint!r}. "
-                    f"Available layers: {available[:10]}"
-                    + (" …" if len(available) > 10 else "")
-                ) from exc
+                raise not_advertised("layer", layer, endpoint, available) from exc
             raise
         try:
             native_srs = _resolve_native_srs(src, layer_crs)
