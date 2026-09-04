@@ -336,6 +336,60 @@ class GeoTransform(NamedTuple):
             self.pixel_height
         )
 
+    def extent(self, columns: int, rows: int) -> tuple[float, float, float, float]:
+        """The normalised map-space bounding box of a grid this size.
+
+        The inverse of :meth:`from_bounds`, and the answer to "where is this
+        raster". All four corners are projected and then reduced, rather than
+        the top-left and bottom-right pair alone: on a south-up grid (positive
+        `pixel_height`) the pair arrives already swapped, and on a rotated one
+        the extreme x and y do not come from that diagonal at all. Taking the
+        pair on trust yields an inverted or under-sized box in both cases.
+
+        Args:
+            columns: Grid width in pixels.
+            rows: Grid height in pixels.
+
+        Returns:
+            tuple[float, float, float, float]: `(min_x, min_y, max_x, max_y)`,
+                always ordered min-before-max on each axis.
+
+        Examples:
+            - A north-up grid, four cells on a side:
+                ```python
+                >>> from pyramids.dataset.transform import GeoTransform
+                >>> GeoTransform(0.0, 1.0, 0.0, 4.0, 0.0, -1.0).extent(4, 4)
+                (0.0, 0.0, 4.0, 4.0)
+
+                ```
+            - A south-up grid covers the same box, not an inverted one:
+                ```python
+                >>> from pyramids.dataset.transform import GeoTransform
+                >>> GeoTransform(0.0, 1.0, 0.0, 0.0, 0.0, 1.0).extent(4, 4)
+                (0.0, 0.0, 4.0, 4.0)
+
+                ```
+            - Round-trips with `from_bounds` on an axis-aligned grid:
+                ```python
+                >>> from pyramids.dataset.transform import GeoTransform
+                >>> box = (10.0, 20.0, 30.0, 50.0)
+                >>> grid = GeoTransform.from_bounds(box, rows=30, cols=20)
+                >>> grid.extent(columns=20, rows=30) == box
+                True
+
+                ```
+        """
+        corners_x, corners_y = self.apply(
+            [0, columns, 0, columns],
+            [0, 0, rows, rows],
+        )
+        return (
+            float(corners_x.min()),
+            float(corners_y.min()),
+            float(corners_x.max()),
+            float(corners_y.max()),
+        )
+
     def scaled(self, x_factor: float, y_factor: float) -> GeoTransform:
         """The transform for a grid whose cells are larger by the given factors.
 

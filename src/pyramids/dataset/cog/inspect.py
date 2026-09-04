@@ -25,6 +25,7 @@ from pyramids.dataset.cog.validate import (
     config_context,
     validate,
 )
+from pyramids.dataset.transform import GeoTransform
 
 
 @dataclass(frozen=True)
@@ -172,9 +173,9 @@ def _cog_info_impl(p: str) -> COGInfo:
         width, height = ds.RasterXSize, ds.RasterYSize
 
         gt = ds.GetGeoTransform()
-        min_x, max_y = gt[0], gt[3]
-        max_x = min_x + gt[1] * width
-        min_y = max_y + gt[5] * height
+        # Not the top-left/bottom-right pair: on a south-up raster that pair is
+        # already swapped, and this reported `min_y` above `max_y`.
+        min_x, min_y, max_x, max_y = GeoTransform(*gt).extent(width, height)
 
         # `epsg_of_crs` is the package's answer to "what EPSG code does this
         # CRS declare". Reading the authority code directly returned the ESRI
