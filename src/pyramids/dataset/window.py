@@ -336,6 +336,10 @@ class Window:
                 Window(col_off=0, row_off=0, cols=4, rows=4)
 
                 ```
+
+        See Also:
+            crop: Clamps a window back inside a raster, the usual next step.
+            from_bounds: Builds the covering window this one grows.
         """
         if cells < 0:
             raise ValueError(f"cells must not be negative, got {cells}.")

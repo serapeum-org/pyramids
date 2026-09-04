@@ -68,6 +68,49 @@ class TestWindowBuffer:
         with pytest.raises(ValueError, match="must not be negative"):
             Window(0, 0, 4, 4).buffer(-1)
 
+    def test_the_original_window_is_left_alone(self):
+        """`Window` is frozen; buffering returns a new one.
+
+        Test scenario:
+            The window being grown is often the one a caller keeps for the
+            unbuffered read. Mutating it in place would corrupt that caller,
+            so the original's four fields must be unchanged afterwards.
+        """
+        window = Window(5, 5, 10, 10)
+
+        grown = window.buffer(3)
+
+        assert window == Window(5, 5, 10, 10), "the receiver was mutated"
+        assert grown is not window
+
+    @pytest.mark.parametrize("cells", [1, 2, 7])
+    def test_the_shape_grows_by_two_cells_per_side(self, cells: int):
+        """The margin is per side, so each dimension gains twice it.
+
+        Args:
+            cells: The margin applied on every side.
+
+        Test scenario:
+            A margin of n adds n on the left and n on the right, so the width
+            grows by 2n -- an off-by-half here would under-cover the grazed
+            cells the buffer exists to keep.
+        """
+        rows, cols = Window(4, 4, 9, 6).buffer(cells).shape
+
+        assert (rows, cols) == (6 + 2 * cells, 9 + 2 * cells)
+
+    def test_buffering_in_steps_matches_buffering_at_once(self):
+        """Growing is additive, which is what makes it composable.
+
+        Test scenario:
+            Two one-cell margins and one two-cell margin describe the same
+            region. Callers chain `from_bounds(...).buffer(...)`, so a
+            non-additive implementation would make the chain order-sensitive.
+        """
+        window = Window(10, 20, 30, 40)
+
+        assert window.buffer(1).buffer(1) == window.buffer(2)
+
 
 class TestTheSnappingIsUnchanged:
     """The collapsed form computes what the hand-rolled arithmetic did."""

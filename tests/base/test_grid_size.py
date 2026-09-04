@@ -53,3 +53,82 @@ class TestGridSize:
     def test_no_ceiling_means_no_cap(self):
         """`max_px=None` is not "use a default cap"."""
         assert grid_size(100000.0, 10.0, (1.0, 1.0), max_px=None) == (100000, 10)
+
+    @pytest.mark.parametrize(
+        ("span_x", "span_y"),
+        [(1000.0, 10.0), (10.0, 1000.0)],
+        ids=["width-exceeds", "height-exceeds"],
+    )
+    def test_either_axis_alone_trips_the_ceiling(self, span_x, span_y):
+        """A width-only check would let a tall read through.
+
+        Args:
+            span_x: Extent width in CRS units.
+            span_y: Extent height in CRS units.
+
+        Test scenario:
+            One axis at 1000 px against a 100 px cap, the other well inside it.
+            Both orderings must raise, which a `width > max_px` check alone
+            would not do for the tall case.
+        """
+        with pytest.raises(ValueError, match="px limit") as exc_info:
+            grid_size(span_x, span_y, (1.0, 1.0), max_px=100)
+
+        message = str(exc_info.value)
+        assert "1000" in message, f"the offending size should be reported: {message}"
+
+    def test_a_read_exactly_at_the_ceiling_is_allowed(self):
+        """The cap is a maximum, not a strict bound.
+
+        Test scenario:
+            A 100x100 px read against `max_px=100` is the largest permitted
+            read and must not raise; an off-by-one guard would reject it.
+        """
+        assert grid_size(100.0, 100.0, (1.0, 1.0), max_px=100) == (100, 100)
+
+    @pytest.mark.parametrize(
+        "res",
+        [(1.0, 0.0), (1.0, -1.0), (-1.0, -1.0)],
+        ids=["zero-y", "negative-y", "both-negative"],
+    )
+    def test_the_y_resolution_is_guarded_too(self, res):
+        """Guarding x alone would divide by zero on the y axis.
+
+        Args:
+            res: The `(x_resolution, y_resolution)` pair under test.
+
+        Test scenario:
+            Each pair is invalid on the y axis (and, in the last case, on
+            both). All must raise before any division happens.
+        """
+        with pytest.raises(ValueError, match="strictly positive"):
+            grid_size(10.0, 10.0, res, max_px=None)
+
+    def test_a_ceiling_of_one_permits_only_a_single_pixel(self):
+        """The floor and the ceiling meet without contradicting each other.
+
+        Test scenario:
+            A sub-pixel extent is floored up to 1 px, which `max_px=1` must
+            then accept rather than reject as "exceeding" the cap.
+        """
+        assert grid_size(0.1, 0.1, (1.0, 1.0), max_px=1) == (1, 1)
+
+
+class TestGridSizeWithNonFiniteSpans:
+    """A NaN or infinite extent is a caller bug, and surfaces as one."""
+
+    @pytest.mark.parametrize("span", [float("nan"), float("inf"), float("-inf")])
+    def test_it_raises_rather_than_returning_a_nonsense_shape(self, span: float):
+        """`round(nan)` and `round(inf)` both refuse; neither is swallowed.
+
+        Args:
+            span: The non-finite extent under test.
+
+        Test scenario:
+            A non-finite span cannot become a pixel count. The error type is
+            whatever `round` raises (ValueError for NaN, OverflowError for the
+            infinities) -- the contract asserted here is only that it does not
+            silently return a shape.
+        """
+        with pytest.raises((ValueError, OverflowError)):
+            grid_size(span, 10.0, (1.0, 1.0), max_px=None)

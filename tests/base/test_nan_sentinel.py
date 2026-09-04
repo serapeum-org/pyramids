@@ -39,6 +39,71 @@ class TestIsNanSentinel:
         """Something that cannot be tested for NaN is not a NaN fill."""
         assert is_nan_sentinel("nodata") is False
 
+    @pytest.mark.parametrize(
+        "value",
+        [np.float32("nan"), np.float16("nan"), np.longdouble("nan")],
+        ids=["float32", "float16", "longdouble"],
+    )
+    def test_every_numpy_float_width_is_recognised(self, value):
+        """GDAL hands back numpy scalars, not always Python floats.
+
+        Args:
+            value: A NaN in one of numpy's float widths.
+
+        Test scenario:
+            The band's `GetNoDataValue` comes back through numpy, so a check
+            written as `isinstance(x, float)` would miss `np.float32` -- which
+            is not a subclass of `float`. Each width must classify as a NaN
+            fill.
+        """
+        assert is_nan_sentinel(value) is True, f"{type(value).__name__} NaN missed"
+
+    @pytest.mark.parametrize(
+        "value",
+        [float("inf"), float("-inf"), np.float64("inf")],
+        ids=["inf", "-inf", "numpy-inf"],
+    )
+    def test_an_infinity_is_a_concrete_sentinel(self, value):
+        """Infinite is not NaN, and comparisons against it work.
+
+        Args:
+            value: An infinite sentinel.
+
+        Test scenario:
+            `np.isnan(inf)` is False, so an infinite fill is a real comparable
+            value. Classifying it as a NaN fill would send callers down the
+            "cannot compare" branch for a sentinel they can compare.
+        """
+        assert is_nan_sentinel(value) is False
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [(0, False), (0.0, False), (False, False), (True, False)],
+        ids=["int-zero", "float-zero", "false", "true"],
+    )
+    def test_falsy_sentinels_are_not_mistaken_for_absent_ones(self, value, expected):
+        """A `if not no_data_value` spelling would call 0 a NaN fill.
+
+        Args:
+            value: A falsy but entirely concrete sentinel.
+            expected: Always False -- none of these is a NaN fill.
+
+        Test scenario:
+            Zero is a legitimate no-data value. The predicate tests for `None`
+            identity, not truthiness, so these must all be concrete.
+        """
+        assert is_nan_sentinel(value) is expected
+
+    def test_a_multi_element_array_is_not_a_sentinel(self):
+        """A sentinel is one value; an array cannot be coerced to a verdict.
+
+        Test scenario:
+            `np.isnan` on an array returns an array, and `bool()` of a
+            multi-element array raises ValueError. That is caught and answered
+            False rather than propagating out of a predicate.
+        """
+        assert is_nan_sentinel(np.array([np.nan, np.nan])) is False
+
 
 class TestNanNodataIsFound:
     """The warning that fired on a fully-nodata raster."""

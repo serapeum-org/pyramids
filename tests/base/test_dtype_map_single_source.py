@@ -50,6 +50,35 @@ class TestTheTwoHelpersAgree:
         with pytest.raises(ValueError, match="unsupported GDAL data type"):
             gdal_to_numpy_type(gdal.GDT_Unknown)
 
+    def test_the_other_placeholder_raises_too(self):
+        """`GDT_TypeCount` is the map's upper bound, not a type.
+
+        Test scenario:
+            GDAL's enum ends with a count sentinel. It sits one past the last
+            real code, so a map keyed by range rather than by membership would
+            hand back the last type's numpy counterpart instead of raising.
+        """
+        with pytest.raises(ValueError, match="unsupported GDAL data type"):
+            gdal_to_numpy_type(gdal.GDT_TypeCount)
+
+    @pytest.mark.parametrize("code", [-1, 9999], ids=["negative", "far-out-of-range"])
+    def test_a_code_outside_the_enum_raises_and_lists_what_is_supported(self, code):
+        """The error has to be actionable, not just a KeyError.
+
+        Args:
+            code: A GDAL data-type code that does not exist.
+
+        Test scenario:
+            An out-of-range code names the offending value and enumerates the
+            supported codes, so the caller can see what to pass instead.
+        """
+        with pytest.raises(ValueError) as exc_info:
+            gdal_to_numpy_type(code)
+
+        message = str(exc_info.value)
+        assert str(code) in message, f"the offending code should appear: {message}"
+        assert "Supported types are" in message, f"no supported list in: {message}"
+
 
 class TestDatasetDtypeProperties:
     """The two properties round-trip whatever the raster was built with."""

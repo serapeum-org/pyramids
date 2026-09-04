@@ -575,6 +575,40 @@ def gdal_to_numpy_type(dtype: int) -> type:
     Raises:
         ValueError: If `dtype` has no numpy counterpart -- including the
             placeholder codes ``GDT_Unknown`` and ``GDT_TypeCount``.
+
+    Examples:
+        - The returned type allocates an array of that dtype:
+            ```python
+            >>> import numpy as np
+            >>> from osgeo import gdal
+            >>> from pyramids.base._utils import gdal_to_numpy_type
+            >>> np.zeros(3, dtype=gdal_to_numpy_type(gdal.GDT_Float32)).dtype.name
+            'float32'
+
+            ```
+        - GDAL's ``Byte`` is numpy's ``uint8``, not a signed one:
+            ```python
+            >>> import numpy as np
+            >>> from osgeo import gdal
+            >>> from pyramids.base._utils import gdal_to_numpy_type
+            >>> np.dtype(gdal_to_numpy_type(gdal.GDT_Byte)).name
+            'uint8'
+
+            ```
+        - A placeholder code has no counterpart, and the error names it:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.base._utils import gdal_to_numpy_type
+            >>> try:
+            ...     gdal_to_numpy_type(gdal.GDT_Unknown)
+            ... except ValueError as exc:
+            ...     str(exc).startswith("unsupported GDAL data type: 0")
+            True
+
+            ```
+
+    See Also:
+        gdal_to_numpy_dtype: The same lookup returning the dtype's *name*.
     """
     matched = _GDAL_TO_NUMPY.get(dtype)
     if matched is None:
@@ -936,6 +970,10 @@ class Catalog:
                 'geotiff'
 
                 ```
+
+        See Also:
+            get_driver_name: The short-name lookup this falls back to.
+            exists: The key membership test it tries first.
         """
         if self.exists(driver):
             result = driver
@@ -1234,6 +1272,10 @@ def extra_hint(lead: str, extra: str) -> str:
             True
 
             ```
+
+    See Also:
+        lazy_extra_hint: The named case of this composer for the `[lazy]`
+            extra, kept because a dozen call sites read better with it.
     """
     return (
         f"{lead} Install with one of:\n"
@@ -1284,10 +1326,37 @@ def import_xarray(message: str):
     `Dataset`, the other to type-check the argument it was handed.
 
     Args:
-        message: The install hint raised when xarray is missing.
+        message: The install hint raised when xarray is missing. Passed through
+            untouched, so it keeps naming the operation that needed xarray.
 
     Returns:
         The imported `xarray` module.
+
+    Raises:
+        OptionalPackageDoesNotExist: xarray is not installed. The error carries
+            `message` verbatim.
+
+    Examples:
+        - The module comes back ready to use:
+            ```python
+            >>> from pyramids.base._utils import import_xarray
+            >>> xr = import_xarray("to_xarray() needs xarray.")
+            >>> xr.DataArray([1, 2, 3], dims="x").sizes["x"]
+            3
+
+            ```
+        - Repeated guards resolve to the one cached module, so a value built by
+          one call is recognised by another:
+            ```python
+            >>> from pyramids.base._utils import import_xarray
+            >>> import_xarray("first") is import_xarray("second")
+            True
+
+            ```
+
+    See Also:
+        require_optional: The one guard behind every `import_<package>` helper
+            here; this is its xarray case.
     """
     return require_optional("xarray", message, return_module=True)
 

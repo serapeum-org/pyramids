@@ -63,6 +63,11 @@ def grid_size(
             ValueError: requested read exceeds the 100 px limit: 1000x10
 
             ```
+
+    See Also:
+        pyramids.dataset.window.Window.from_bounds: Sizes a window from a bbox
+            and a geotransform, when the caller has a grid to snap to rather
+            than a bare span and resolution.
     """
     x_res, y_res = res
     if x_res <= 0 or y_res <= 0:

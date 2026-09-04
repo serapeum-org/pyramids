@@ -37,6 +37,57 @@ class TestCatalogResolveKey:
         with pytest.raises(DriverNotExistError, match="not in the driver catalog"):
             get_catalog().resolve_key("NotADriver")
 
+    def test_every_catalog_key_resolves_to_itself(self):
+        """Swept over the whole catalog, not just the GeoTiff example.
+
+        Test scenario:
+            The first branch is "the key is already a key". Any entry for which
+            that fails would fall through to the short-name lookup and either
+            resolve to a different driver or raise -- a per-driver bug a single
+            example cannot find.
+        """
+        catalog = get_catalog()
+
+        wrong = {
+            key: catalog.resolve_key(key)
+            for key in catalog.drivers
+            if catalog.resolve_key(key) != key
+        }
+
+        assert wrong == {}, f"these keys did not resolve to themselves: {wrong}"
+
+    def test_every_gdal_short_name_resolves_to_its_own_key(self):
+        """The second branch, likewise swept rather than sampled.
+
+        Test scenario:
+            Each catalog entry's GDAL short name must resolve back to the key
+            that declares it. A short name mapping to a *different* key would
+            silently write through the wrong driver.
+        """
+        catalog = get_catalog()
+
+        wrong = {}
+        for key in catalog.drivers:
+            short_name = catalog.get_gdal_name(key)
+            if short_name and catalog.resolve_key(short_name) != key:
+                wrong[short_name] = (catalog.resolve_key(short_name), key)
+
+        assert wrong == {}, f"short name -> (resolved, expected): {wrong}"
+
+    def test_resolving_twice_changes_nothing(self):
+        """Callers normalise defensively; doing so twice must be safe.
+
+        Test scenario:
+            `resolve_key` is applied at several layers, so an already-resolved
+            key routinely arrives at another one. The operation has to be
+            idempotent for that to be harmless.
+        """
+        catalog = get_catalog()
+
+        once = catalog.resolve_key("GTiff")
+
+        assert catalog.resolve_key(once) == once
+
     def test_no_catalog_key_collides_with_a_gdal_short_name(self):
         """The invariant that makes key-first resolution correct, not lucky.
 

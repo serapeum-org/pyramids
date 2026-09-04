@@ -150,6 +150,11 @@ def is_nan_sentinel(no_data_value: float | None) -> bool:
             False
 
             ```
+
+    See Also:
+        is_no_data: Tests array *cells* against a sentinel; this classifies the
+            sentinel itself, which is what decides whether that comparison can
+            mean anything.
     """
     if no_data_value is None:
         return True
