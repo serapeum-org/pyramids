@@ -115,7 +115,7 @@ def native_projwin(
             (``pyproj`` returns ``inf``/``nan`` when the bbox falls outside the
             native CRS's area of use).
     """
-    # `feature.bbox.transform` is the package's bbox reprojection: same
+    # `base._bbox.transform` is the package's bbox reprojection: same
     # densification (21 points per edge, so a curved or interrupted projection
     # is not crudely axis-aligned), same always_xy convention, and it resolves a
     # CRS whose code only GDAL's PROJ database carries (#943).

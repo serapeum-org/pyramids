@@ -10,12 +10,15 @@ from __future__ import annotations
 
 import io
 import urllib.error
+import xml.etree.ElementTree as ET
 
 import pytest
 
 from pyramids.base._ogc_api import (
     HTTP_RETRY_ATTEMPTS,
+    NO_MESSAGE,
     RETRYABLE_STATUS,
+    exception_text,
     http_get_with_retry,
 )
 
@@ -258,3 +261,56 @@ class TestRetryEdgeCases:
         assert GDAL_HTTP_MAX_RETRY == HTTP_RETRY_ATTEMPTS - 1, (
             f"budget mismatch: GDAL {GDAL_HTTP_MAX_RETRY} vs {HTTP_RETRY_ATTEMPTS}"
         )
+
+
+class TestExceptionTextSkipsEmptyElements:
+    """An empty element must not end the search for a message.
+
+    A document can carry an empty `<ExceptionText/>` before the real one --
+    which is why the reader iterates rather than taking the first match. Taking
+    any element with truthy text stopped on a whitespace-only one and reported
+    nothing; the earlier form returned the empty string outright.
+    """
+
+    def test_a_real_message_after_an_empty_one_is_found(self):
+        """The case iterating the document exists to handle.
+
+        Test scenario:
+            An empty element precedes a populated one. Stopping at the first
+            element that has *any* text discarded the message entirely.
+        """
+        document = ET.fromstring(
+            "<Root><ExceptionText>   </ExceptionText>"
+            "<ExceptionText>real message</ExceptionText></Root>"
+        )
+
+        assert exception_text(document) == "real message"
+
+    def test_the_first_real_message_wins(self):
+        """Two populated elements: the earlier one is the message."""
+        document = ET.fromstring(
+            "<Root><ExceptionText> first </ExceptionText>"
+            "<ExceptionText>second</ExceptionText></Root>"
+        )
+
+        assert exception_text(document) == "first"
+
+    def test_a_whitespace_only_document_falls_back_to_the_root(self):
+        """With no real message anywhere, the root's own text is used."""
+        document = ET.fromstring(
+            "<Root>body text<ExceptionText>  </ExceptionText></Root>"
+        )
+
+        assert exception_text(document) == "body text"
+
+    def test_an_empty_document_reports_the_shared_placeholder(self):
+        """The last resort is the module's own constant, not a local literal."""
+        assert exception_text(ET.fromstring("<Root></Root>")) == NO_MESSAGE
+
+    def test_a_service_exception_element_is_equally_accepted(self):
+        """WMS spells it `ServiceException`; both tags reach the same path."""
+        document = ET.fromstring(
+            "<Root><ServiceException>wms said no</ServiceException></Root>"
+        )
+
+        assert exception_text(document) == "wms said no"

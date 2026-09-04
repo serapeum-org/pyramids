@@ -56,9 +56,14 @@ _BBOX_KEY_ALIASES: dict[str, tuple[str, ...]] = {
 
 
 __all__ = [
+    "MAX_METRES_PER_LAT_DEGREE",
+    "METRES_PER_DEGREE",
     "Bbox",
+    "estimate_pixel_dims",
     "normalise_longitude",
+    "read_bbox_dict",
     "split_antimeridian",
+    "split_polygon_antimeridian",
     "to_shapely",
     "transform",
 ]

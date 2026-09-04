@@ -226,6 +226,7 @@ def window_out_of_bounds(window: object, rows: int, columns: int) -> OutOfBounds
 __all__ = [
     "resolve_band_indices",
     "validate_band_index",
+    "validate_one_based_band",
     "window_out_of_bounds",
     "world_to_pixel",
 ]

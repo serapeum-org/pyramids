@@ -154,12 +154,13 @@ class RasterMeta:
         # a second way. What that fallback did do is keep a bandless dataset
         # from reaching the index at all, so the guard is kept -- as a named
         # error rather than a bare IndexError out of metadata construction.
-        if not ds.dtype:
+        dtypes = ds.dtype
+        if not dtypes:
             raise ValueError(
                 "cannot build RasterMeta for a dataset with no bands; "
                 f"{ds.band_count} band(s) reported."
             )
-        dtype = ds.dtype[0]
+        dtype = dtypes[0]
         return cls(
             rows=int(ds.rows),
             columns=int(ds.columns),

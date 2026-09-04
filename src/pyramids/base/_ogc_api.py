@@ -454,7 +454,12 @@ def exception_text(root: Any) -> str:
     message = ""
     for element in root.iter():
         if localname(element.tag) in ("ExceptionText", "ServiceException"):
-            if element.text:
-                message = element.text.strip()
+            # Only an element with real text ends the search. A whitespace-only
+            # one is skipped and the loop keeps going, which is what iterating
+            # the document is for -- taking the first element with *any* text
+            # discarded a real message that followed an empty one.
+            text = (element.text or "").strip()
+            if text:
+                message = text
                 break
-    return message or (root.text or "").strip() or "no message provided"
+    return message or (root.text or "").strip() or NO_MESSAGE

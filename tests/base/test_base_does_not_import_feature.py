@@ -11,6 +11,7 @@ the name callers already use still resolves.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 
@@ -22,8 +23,20 @@ pytestmark = pytest.mark.core
 def _imports_after(module: str) -> set[str]:
     """Module names present in `sys.modules` after importing `module` alone."""
     code = f"import sys, json; import {module}; print(json.dumps(sorted(sys.modules)))"
+    # The parent's import path is passed through explicitly. Without it the
+    # child resolves `pyramids` from the editable install, which points at the
+    # repo root -- so in a worktree this measured a different tree entirely and
+    # the guard proved nothing about the code under test.
+    environment = {
+        **os.environ,
+        "PYTHONPATH": os.pathsep.join(entry for entry in sys.path if entry),
+    }
     completed = subprocess.run(
-        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=environment,
     )
     import json
 

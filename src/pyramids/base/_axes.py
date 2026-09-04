@@ -45,9 +45,11 @@ X_AXIS_NAMES_ORDERED = (
     "nav_lon",
 )
 
-# The mirror of `X_AXIS_NAMES_ORDERED`, in the same order: a rule that requires
-# a *pair* of axes to agree can only work if the two halves are maintained
-# together, and a reader that picks `x` must be able to pick the matching `y`.
+# The y half, kept in the same *preference* order as the x half: a reader that
+# prefers `x` over `lon` must equally prefer `y` over `lat`, or a projected grid
+# pairs a metre axis with a degree one. It is not a positional mirror -- x has
+# an extra spelling (`long`), so the two lists differ in length and the indices
+# do not correspond. Only the ordering rule is shared, not the arity.
 Y_AXIS_NAMES_ORDERED = (
     "y",
     "yc",
