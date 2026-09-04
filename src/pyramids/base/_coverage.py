@@ -16,10 +16,10 @@ from math import isfinite
 
 from osgeo import gdal, osr
 
+from pyramids.base._bbox import transform as bbox_transform
 from pyramids.base._errors import CoverageError, CRSError
 from pyramids.base._grid import grid_size
 from pyramids.base.crs import sr_from_user_input
-from pyramids.feature.bbox import transform as bbox_transform
 
 
 def validate_bbox(
