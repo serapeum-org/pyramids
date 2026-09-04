@@ -128,6 +128,32 @@ class TestExtent:
         """The smallest grid, where the two corners are one pixel apart."""
         assert NORTH_UP.extent(1, 1) == (0.0, 99.0, 1.0, 100.0)
 
+    def test_a_zero_sized_grid_collapses_to_its_origin(self):
+        """A degenerate size gives a degenerate box, not an error.
+
+        Test scenario:
+            `extent` is arithmetic over corners, so a zero-column or zero-row
+            grid collapses that axis onto the origin. Pinned because the
+            neighbouring `Window` refuses a zero size, and the difference
+            between the two is worth being deliberate about: `extent` answers
+            "where would this grid be", which is defined even when empty.
+        """
+        assert NORTH_UP.extent(0, 0) == (0.0, 100.0, 0.0, 100.0)
+        assert NORTH_UP.extent(4, 0) == (0.0, 100.0, 4.0, 100.0)
+
+    def test_the_extent_grows_linearly_with_the_grid(self):
+        """Doubling the columns doubles the width, and only the width.
+
+        Test scenario:
+            A sanity property over the affine: nothing in the derivation may
+            couple the two axes on an axis-aligned grid.
+        """
+        narrow = NORTH_UP.extent(10, 20)
+        wide = NORTH_UP.extent(20, 20)
+
+        assert wide[2] - wide[0] == 2 * (narrow[2] - narrow[0])
+        assert wide[3] - wide[1] == narrow[3] - narrow[1]
+
 
 class TestTheCallSitesUseIt:
     """Both readers now answer the same way, south-up included."""

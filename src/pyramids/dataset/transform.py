@@ -141,6 +141,14 @@ class GeoTransform(NamedTuple):
         comparison that decides two rasters share a grid. A signed value makes
         each of those wrong in a different way, silently.
 
+        It describes a cell only while :attr:`is_axis_aligned` holds. On a
+        rotated grid the cell's true width is `hypot(pixel_width,
+        column_rotation)`, and this reports the x term alone -- 0.87 for a
+        30-degree-rotated grid of unit cells. That is the historical meaning of
+        the scalar and what its callers were built on, so it is stated here
+        rather than changed; a caller that may meet a rotated grid should test
+        :attr:`is_axis_aligned` first.
+
         Returns:
             float: `abs(pixel_width)`.
 
@@ -159,6 +167,11 @@ class GeoTransform(NamedTuple):
                 30.0
 
                 ```
+
+        See Also:
+            is_axis_aligned: Whether this scalar describes the grid's cells at
+                all; on a rotated grid it does not.
+            pixel_width: The signed x term, when the direction matters.
         """
         return abs(float(self.pixel_width))
 
@@ -411,6 +424,11 @@ class GeoTransform(NamedTuple):
                 True
 
                 ```
+
+        See Also:
+            from_bounds: The inverse -- a grid of a given shape covering a box.
+            pyramids.dataset.window.Window.to_bounds: The same projection for a
+                sub-window rather than the whole grid.
         """
         corners_x, corners_y = self.apply(
             [0, columns, 0, columns],

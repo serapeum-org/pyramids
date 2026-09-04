@@ -16,6 +16,8 @@ into a transform, the comparison that decides two rasters share a grid, and
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pytest
 from osgeo import gdal, osr
@@ -73,6 +75,27 @@ class TestGeoTransformCellSize:
         """
         assert GeoTransform(*WEST_FLIPPED).pixel_width < 0
         assert GeoTransform(*WEST_FLIPPED).cell_size > 0
+
+    def test_on_a_rotated_grid_it_is_the_x_term_not_the_cell_width(self):
+        """A documented limitation, pinned so nobody assumes otherwise.
+
+        Test scenario:
+            A grid of unit cells rotated 30 degrees has a true cell width of
+            1.0, but `cell_size` reports the x term alone -- about 0.87. That
+            is the scalar's historical meaning and what its callers were built
+            on, so it is asserted here rather than quietly corrected; a caller
+            that may meet a rotated grid should check `is_axis_aligned` first.
+        """
+        angle = math.radians(30)
+        rotated = GeoTransform(
+            0.0, math.cos(angle), math.sin(angle), 0.0, math.sin(angle), -math.cos(angle)
+        )
+
+        assert rotated.is_axis_aligned is False
+        assert rotated.cell_size == pytest.approx(0.8660254, abs=1e-6)
+        assert math.hypot(rotated.pixel_width, rotated.column_rotation) == pytest.approx(
+            1.0
+        )
 
 
 class TestEveryReaderAgrees:
