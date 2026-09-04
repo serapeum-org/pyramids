@@ -25,7 +25,12 @@ from pyramids.base._axes import (
     Y_AXIS_NAMES,
     Y_AXIS_NAMES_ORDERED,
 )
-from pyramids.dataset.cog.facade import _dataarray_to_dataset, _first_1d_coord
+from pyramids.base._axes import AXIS_NAME_FAMILIES
+from pyramids.dataset.cog.facade import (
+    _dataarray_to_dataset,
+    _first_1d_coord,
+    _first_1d_coord_pair,
+)
 
 try:
     import xarray as xr
@@ -248,3 +253,89 @@ class TestPreferenceOrderWhenSeveralCoordinatesMatch:
         assert frozenset(Y_AXIS_NAMES_ORDERED) == Y_AXIS_NAMES
         assert len(X_AXIS_NAMES_ORDERED) == len(X_AXIS_NAMES)
         assert len(Y_AXIS_NAMES_ORDERED) == len(Y_AXIS_NAMES)
+
+
+class TestBothAxesComeFromOneFamily:
+    """Ordering each list is not enough; the two picks must agree.
+
+    A projected grid whose row axis is only labelled `lat` resolved to `x` for
+    one axis and `lat` for the other, and the geotransform then measured metres
+    along x and degrees along y under a single CRS -- the same failure the
+    ordering was introduced to prevent, reached through the other axis.
+    """
+
+    @needs_xarray
+    def test_a_grid_mixing_two_families_is_refused(self):
+        """Refusing beats a geotransform in two unit systems.
+
+        Test scenario:
+            Only `x` (metres) and `lat` (degrees) are present. No family
+            resolves both axes, so the reader declines and its caller raises
+            the explicit error rather than building a mixed-unit grid.
+        """
+        da = xr.DataArray(
+            np.zeros((4, 6), dtype="float32"),
+            dims=("lat", "x"),
+            coords={
+                "x": np.linspace(500_000, 500_150, 6),
+                "lat": np.linspace(41.5, 41.4992, 4),
+            },
+        )
+
+        assert _first_1d_coord_pair(da) == (None, None)
+
+        with pytest.raises(ValueError, match="Could not find 1-D"):
+            _dataarray_to_dataset(da, crs=32636, nodata=None)
+
+    @needs_xarray
+    @pytest.mark.parametrize(
+        ("coords", "dims", "expected"),
+        [
+            ({"x": 6, "y": 4}, ("y", "x"), ("x", "y")),
+            (
+                {"easting": 6, "northing": 4},
+                ("northing", "easting"),
+                ("easting", "northing"),
+            ),
+            ({"rlon": 6, "rlat": 4}, ("rlat", "rlon"), ("rlon", "rlat")),
+            (
+                {"longitude": 6, "latitude": 4},
+                ("latitude", "longitude"),
+                ("longitude", "latitude"),
+            ),
+        ],
+        ids=["dimension", "projected", "rotated-pole", "geographic"],
+    )
+    def test_each_family_resolves_on_its_own(self, coords, dims, expected):
+        """Every family must work when it is the only one present.
+
+        Args:
+            coords: Coordinate name to length.
+            dims: The array's dimension names.
+            expected: The `(x, y)` pair that must be chosen.
+        """
+        da = xr.DataArray(
+            np.zeros((4, 6), dtype="float32"),
+            dims=dims,
+            coords={name: np.arange(float(size)) for name, size in coords.items()},
+        )
+
+        assert _first_1d_coord_pair(da) == expected
+
+    @needs_xarray
+    def test_the_grid_family_still_wins_over_an_auxiliary_one(self):
+        """Families are ordered, so the H1 case is unchanged.
+
+        Test scenario:
+            A UTM grid carrying auxiliary degree coordinates must still resolve
+            to `x` / `y`; the pairing rule must not cost that.
+        """
+        assert _first_1d_coord_pair(_utm_grid_with_degree_aliases()) == ("x", "y")
+
+    def test_the_families_partition_the_ordered_sequences(self):
+        """One vocabulary, grouped -- not a second copy that can drift."""
+        family_x = [n for family in AXIS_NAME_FAMILIES for n in family[0]]
+        family_y = [n for family in AXIS_NAME_FAMILIES for n in family[1]]
+
+        assert family_x == list(X_AXIS_NAMES_ORDERED)
+        assert family_y == list(Y_AXIS_NAMES_ORDERED)

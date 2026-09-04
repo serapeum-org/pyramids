@@ -350,6 +350,24 @@ def era5_image_internal_overviews_read_only_true(
     return gdal.OpenShared(era5_internal_overviews_path, gdal.GA_ReadOnly)
 
 
+def _unlink_best_effort(path: Path) -> None:
+    """Delete ``path`` if this process can, and shrug when another one is holding it open.
+
+    Under ``pytest-xdist`` every worker runs the session-scoped sweep below against the *same*
+    tracked sidecar. The worker that draws ``tests/dataset/spatial/test_overviews.py`` keeps that
+    ``.ovr`` open for the whole module (``era5_image`` is a module-scoped ``gdal.Dataset``), so a
+    sibling worker's sweep loses the race and Windows answers ``PermissionError`` (WinError 32).
+    Letting that escape would fail a *session-scoped* fixture, and pytest caches a fixture failure
+    for its whole scope — one lost race would turn into an ERROR on every remaining test in that
+    worker. The sweep is hygiene, not a precondition, so a lost race is simply skipped: the worker
+    that owns the handle deletes the sidecar itself.
+    """
+    try:
+        path.unlink(missing_ok=True)
+    except PermissionError:
+        pass
+
+
 @pytest.fixture(scope="session", autouse=True)
 def clean_overview_around_session(era5_raster_path: str) -> Iterator[None]:
     """Remove the era5 external overview sidecar before and after the session so it never lingers.
@@ -360,22 +378,19 @@ def clean_overview_around_session(era5_raster_path: str) -> Iterator[None]:
     tree is clean even after an interrupted or partial run.
     """
     ovr_path = Path(f"{era5_raster_path}.ovr")
-    ovr_path.unlink(missing_ok=True)
+    _unlink_best_effort(ovr_path)
     yield
     gc.collect()  # release any lingering gdal.Dataset handles so Windows lets us unlink the sidecar
-    ovr_path.unlink(missing_ok=True)
+    _unlink_best_effort(ovr_path)
 
 
 @pytest.fixture
 def clean_overview_after_test(era5_raster_path: str) -> Iterator[None]:
     ovr_path = Path(f"{era5_raster_path}.ovr")
     yield
-    try:
-        ovr_path.unlink(missing_ok=True)
-    except PermissionError:
-        # On Windows the gdal.Dataset can still hold the sidecar open at teardown; the
-        # session-scoped sweep removes it once all handles are released.
-        pass
+    # On Windows the gdal.Dataset can still hold the sidecar open at teardown; the
+    # session-scoped sweep removes it once all handles are released.
+    _unlink_best_effort(ovr_path)
 
 
 @pytest.fixture(scope="module")

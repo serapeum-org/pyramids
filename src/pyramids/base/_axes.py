@@ -63,6 +63,18 @@ Y_AXIS_NAMES_ORDERED = (
     "nav_lat",
 )
 
+# The same vocabulary grouped into the families a grid actually belongs to,
+# most specific first. A reader picking *both* axes must take them from one
+# family: ordering the two lists alone does not stop it pairing a projected `x`
+# with a geographic `lat`, which produces a geotransform measured in metres
+# along one axis and degrees along the other, under a single CRS.
+AXIS_NAME_FAMILIES = (
+    (("x", "xc", "xdim", "x_dim"), ("y", "yc", "ydim", "y_dim")),
+    (("easting", "east"), ("northing", "north")),
+    (("rlon",), ("rlat",)),
+    (("lon", "long", "longitude", "nav_lon"), ("lat", "latitude", "nav_lat")),
+)
+
 X_AXIS_NAMES = frozenset(X_AXIS_NAMES_ORDERED)
 """Membership form of :data:`X_AXIS_NAMES_ORDERED`.
 
@@ -85,6 +97,7 @@ which axis it is -- read this one.
 
 __all__ = [
     "AXIS_NAMES",
+    "AXIS_NAME_FAMILIES",
     "X_AXIS_NAMES",
     "X_AXIS_NAMES_ORDERED",
     "Y_AXIS_NAMES",

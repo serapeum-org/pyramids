@@ -416,8 +416,13 @@ class TestDtypeLookupTables:
             gdal_to_numpy_dtype(gdalconst.GDT_Unknown)
 
     def test_unmapped_numpy_dtype_raises_value_error(self):
-        """A numpy dtype with no GDAL counterpart raises, not `IndexError`."""
-        unmapped = np.dtype("float16")
+        """A numpy dtype with no GDAL counterpart raises, not `IndexError`.
+
+        `datetime64` rather than `float16`: GDAL 3.13 added the half-precision
+        types, so that example became a mapped dtype. A datetime has no GDAL
+        raster counterpart at all, which is what this is asserting.
+        """
+        unmapped = np.dtype("datetime64[ns]")
         with pytest.raises(ValueError, match="not supported"):
             numpy_to_gdal_dtype(unmapped)
 

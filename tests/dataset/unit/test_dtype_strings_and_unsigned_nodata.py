@@ -136,3 +136,94 @@ class TestTheUnsignedNoDataDefault:
         bands = dataset.bands
 
         assert bands._coerce_band_no_data(0, None) == bands._fallback_no_data(0)
+
+
+class TestHalfPrecisionRasters:
+    """GDAL 3.13 added `Float16` / `CFloat16`, and the bundled build makes them.
+
+    The conversion table stopped at `Int8`, so a raster in either type read and
+    computed fine but `dataset.dtype` -- and therefore `print(dataset)` --
+    raised. Centralising the map on one lookup is what made adding the two rows
+    a one-line change.
+    """
+
+    @pytest.mark.parametrize(
+        ("code_name", "expected"),
+        [("GDT_Float16", "float16"), ("GDT_CFloat16", "complex64")],
+    )
+    def test_the_half_precision_codes_convert(self, code_name: str, expected: str):
+        """Both new codes resolve through the shared map.
+
+        Args:
+            code_name: The `gdal.GDT_*` attribute to look up.
+            expected: The numpy dtype name it must convert to.
+        """
+        code = getattr(gdal, code_name, None)
+        if code is None:
+            pytest.skip("this GDAL predates the half-precision types")
+
+        assert gdal_to_numpy_dtype(code) == expected
+
+    def test_a_float16_raster_can_be_printed(self, tmp_path):
+        """The reachable symptom: `__str__` reads `dtype`.
+
+        Args:
+            tmp_path: Fixture supplying a temporary directory.
+
+        Test scenario:
+            The raster reads and computes either way; what failed was asking it
+            what type it is, which `print()` does.
+        """
+        if not hasattr(gdal, "GDT_Float16"):
+            pytest.skip("this GDAL predates the half-precision types")
+        path = tmp_path / "half.tif"
+        raster = gdal.GetDriverByName("GTiff").Create(
+            str(path), 4, 4, 1, gdal.GDT_Float16
+        )
+        raster.SetGeoTransform((0.0, 1.0, 0.0, 4.0, 0.0, -1.0))
+        raster = None
+
+        dataset = Dataset.read_file(str(path))
+
+        assert dataset.dtype == ["float16"]
+        assert str(dataset)
+
+
+class TestChangeNoDataValueOnAByteRaster:
+    """`None` on a Byte band became the dtype maximum rather than a refusal.
+
+    Deciding "is this band unsigned" from the dtype string missed `byte`, so a
+    Byte raster took the signed branch and `change_no_data_value(None)` raised.
+    Every other unsigned width already substituted its maximum, so this makes
+    Byte consistent -- but it is a behaviour change at a public entry point and
+    is pinned here rather than left to be discovered.
+    """
+
+    def test_it_now_stores_the_dtype_maximum(self):
+        """Consistent with `uint16` / `uint32`, which always did this.
+
+        Test scenario:
+            `None` cannot be stored in an unsigned band. Substituting the
+            maximum is what the other widths do; Byte used to refuse instead.
+        """
+        dataset = _raster(np.uint8)
+
+        dataset.change_no_data_value(None)
+
+        assert list(dataset.no_data_value) == [255]
+
+    @pytest.mark.parametrize(
+        ("numpy_dtype", "expected"), [(np.uint16, 65535), (np.uint32, 4294967295)]
+    )
+    def test_the_wider_unsigned_types_are_unchanged(self, numpy_dtype, expected):
+        """Byte was brought into line with these, not the reverse.
+
+        Args:
+            numpy_dtype: An unsigned band dtype.
+            expected: The maximum it substitutes.
+        """
+        dataset = _raster(numpy_dtype)
+
+        dataset.change_no_data_value(None)
+
+        assert list(dataset.no_data_value) == [expected]

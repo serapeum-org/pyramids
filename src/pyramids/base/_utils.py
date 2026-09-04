@@ -34,6 +34,8 @@ DTYPE_NAMES = [
     "int64",
     "int8",
     "count",
+    "float16",
+    "complex-float16",
 ]
 
 GDAL_DTYPE = [
@@ -53,9 +55,14 @@ GDAL_DTYPE = [
     gdalconst.GDT_Int64,
     gdalconst.GDT_Int8,
     gdalconst.GDT_TypeCount,
+    # GDAL 3.13 added the half-precision codes, and the bundled build
+    # creates rasters in them. Guarded so importing pyramids still works
+    # against an older GDAL, where the attributes are absent.
+    getattr(gdalconst, "GDT_Float16", -1),
+    getattr(gdalconst, "GDT_CFloat16", -2),
 ]
 
-GDAL_DTYPE_CODE = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+GDAL_DTYPE_CODE = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
 
 OGR_DTYPE = [
     None,
@@ -73,6 +80,8 @@ OGR_DTYPE = [
     ogr.OFTInteger64,
     ogr.OFTInteger64,
     ogr.OFTInteger,
+    None,
+    ogr.OFTReal,
     None,
 ]
 
@@ -93,6 +102,8 @@ NUMPY_DTYPE = [
     np.int64,
     np.int8,
     None,
+    np.float16,
+    np.complex64,
 ]
 
 DTYPE_CONVERSION_DF = DataFrame(

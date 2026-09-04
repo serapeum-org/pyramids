@@ -282,17 +282,15 @@ _ALWAYS_COORDS = {
 
 # Coordinate spellings that are *also* ordinary names for a data array: an
 # eastward wind or current component is `east`, and `long` could be anything.
-# Nobody names a variable `nav_lat` or `rlon`, so those are not here.
+# Nobody names a variable `nav_lat`, `rlon` or `x_dim`, so those are not
+# here -- the `*dim` spellings in particular are dimension names, and a
+# store holding only those has no data array to return.
 _AMBIGUOUS_NAMES = {
     "east",
     "north",
     "easting",
     "northing",
     "long",
-    "xdim",
-    "ydim",
-    "x_dim",
-    "y_dim",
 }
 
 # Every known coordinate spelling. The wider vocabulary is what lets a NEMO

@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 from osgeo import gdal
 
-from pyramids.base._axes import X_AXIS_NAMES_ORDERED, Y_AXIS_NAMES_ORDERED
+from pyramids.base._axes import AXIS_NAME_FAMILIES
 from pyramids.base._errors import CRSError, ReadOnlyError
 from pyramids.base._utils import resolve_cog_predictor
 from pyramids.base.crs import epsg_from_user_input
@@ -180,32 +180,27 @@ def _array_to_dataset(
 def _first_1d_coord(da: Any, names: tuple[str, ...]) -> str | None:
     """The DataArray's most preferred 1-D coordinate from `names`.
 
-    The vocabulary is the package's shared one, so a rotated-pole (`rlon`) or
-    projected (`easting`) DataArray is understood here as it already is
-    elsewhere, rather than refused for its spelling.
-
-    `names` is **ordered**, and the order is load-bearing. A projected grid with
+    `names` is ordered, and the order is load-bearing: a projected grid with
     `x` / `y` in metres commonly also carries auxiliary 1-D `lon` / `lat` in
-    degrees; picking the wrong one builds a geotransform in degrees and stamps
-    the projected CRS on it, which is a silently mis-georeferenced raster rather
-    than an error. The shared sequences put the grid's own dimension names
-    first for exactly this reason -- do not sort them.
+    degrees, and picking the wrong one builds a geotransform in degrees under a
+    projected CRS. Do not sort them.
 
-    Only a **1-D** coordinate qualifies. The geotransform below is derived from
-    the first two values of each axis, which describes a grid only when the
-    coordinate is a vector. A curvilinear store's 2-D `nav_lon` / `nav_lat`
-    carry known names but not that shape, and accepting one would build a
-    transform from two cells of a raster of positions -- so they fall through
-    to the explicit error instead.
+    Only a **1-D** coordinate qualifies. The geotransform is derived from the
+    first two values of each axis, which describes a grid only for a vector. A
+    curvilinear store's 2-D `nav_lon` / `nav_lat` carry known names but not that
+    shape, so they fall through to the caller's explicit error instead.
 
     Args:
         da: The labeled `DataArray` being converted.
-        names: Candidate coordinate names in preference order, from
-            `pyramids.base._axes`.
+        names: Candidate coordinate names in preference order.
 
     Returns:
         str | None: The coordinate's name, or `None` when the array carries no
             1-D coordinate from `names`.
+
+    See Also:
+        _first_1d_coord_pair: Picks both axes from one family, which is what
+            callers building a geotransform need.
     """
     matched = None
     for name in names:
@@ -219,6 +214,35 @@ def _first_1d_coord(da: Any, names: tuple[str, ...]) -> str | None:
             matched = name
             break
     return matched
+
+
+def _first_1d_coord_pair(da: Any) -> tuple[str | None, str | None]:
+    """The array's spatial axes, both taken from the same naming family.
+
+    Choosing each axis independently is not enough. A projected grid whose row
+    axis is only labelled `lat` yields `x` for one axis and `lat` for the other,
+    and the resulting geotransform measures metres along x and degrees along y
+    under a single CRS -- the same failure an ordering alone was meant to
+    prevent, reached through the other axis.
+
+    The families are ordered most-specific first, so a grid carrying both its
+    own `x` / `y` and auxiliary `lon` / `lat` still resolves to the former.
+
+    Args:
+        da: The labeled `DataArray` being converted.
+
+    Returns:
+        tuple[str | None, str | None]: The `(x, y)` coordinate names, or
+            `(None, None)` when no family resolves both axes.
+    """
+    pair: tuple[str | None, str | None] = (None, None)
+    for x_names, y_names in AXIS_NAME_FAMILIES:
+        x_name = _first_1d_coord(da, x_names)
+        y_name = _first_1d_coord(da, y_names)
+        if x_name is not None and y_name is not None:
+            pair = (x_name, y_name)
+            break
+    return pair
 
 
 def _dataarray_to_dataset(
@@ -247,8 +271,7 @@ def _dataarray_to_dataset(
     Raises:
         ValueError: When spatial coordinates or a CRS cannot be determined.
     """
-    x_name = _first_1d_coord(da, X_AXIS_NAMES_ORDERED)
-    y_name = _first_1d_coord(da, Y_AXIS_NAMES_ORDERED)
+    x_name, y_name = _first_1d_coord_pair(da)
     if x_name is None or y_name is None:
         raise ValueError(
             "Could not find 1-D longitude/latitude (or x/y) coordinates on the "

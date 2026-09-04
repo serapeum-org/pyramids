@@ -197,7 +197,6 @@ class TestAnAxisNameCanStillBeAData_Array:
             (["east", "north", "x", "y"], "east"),
             (["northing", "x", "y"], "northing"),
             (["long", "x", "y"], "long"),
-            (["x_dim", "x", "y"], "x_dim"),
         ],
     )
     def test_a_store_whose_variable_is_axis_named_is_still_readable(
@@ -222,6 +221,29 @@ class TestAnAxisNameCanStillBeAData_Array:
             array[:] = np.ones((6, 8), dtype=np.float32)
 
         assert detect_data_var(group) == expected
+
+    @pytest.mark.lazy
+    @needs_zarr
+    def test_a_dimension_name_is_never_the_data_array(self, tmp_path):
+        """`x_dim` names a dimension; nothing is a data variable by that name.
+
+        Args:
+            tmp_path: Fixture supplying a temporary directory.
+
+        Test scenario:
+            `east` is genuinely ambiguous -- an eastward wind component really
+            is called that. The `*dim` spellings are not, so a store holding
+            only those has no data array and must raise, the way a store of
+            only `nav_lon` / `nav_lat` does.
+        """
+        store = tmp_path / "dims_only.zarr"
+        group = zarr.open_group(str(store), mode="w")
+        for name in ("x_dim", "y_dim"):
+            array = group.create_array(name, shape=(6, 8), dtype="float32")
+            array[:] = np.ones((6, 8), dtype=np.float32)
+
+        with pytest.raises(KeyError, match="no data array"):
+            detect_data_var(group)
 
     @pytest.mark.lazy
     @needs_zarr
