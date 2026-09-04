@@ -528,9 +528,12 @@ def _get_tar_path(path: str, file_i: int = 0):
         try:
             with tarfile.open(path) as archive:
                 members = [m.name for m in archive.getmembers() if m.isfile()]
-        except tarfile.TarError:
-            # Unreadable as a tar through Python; leave it to GDAL, which
-            # supports compressed variants this may not open.
+        except (tarfile.TarError, OSError):
+            # Unreadable as a tar through Python: a compressed variant this
+            # build cannot open, or no such file. Either way the bare prefix is
+            # handed to GDAL, which supports more tar flavours and which owns
+            # the "does this path exist" error -- reporting a missing archive
+            # from here would move that message for every caller.
             members = []
         if not members:
             vsi_path = f"{_VSITAR}{path}"
