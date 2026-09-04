@@ -23,13 +23,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from pyramids.base._utils import import_stac_asset
+from pyramids.base._utils import extra_hint, import_stac_asset
 
+# The caveat is this guard's alone: `[stac]` carries stac-asset on PyPI but the
+# conda-forge package cannot, so the composed block needs a line after it.
 _STAC_ASSET_INSTALL_HINT = (
-    "download_item requires the optional 'stac-asset' dependency. Install with one of:\n"
-    "  - PyPI:        pip install 'pyramids-gis[stac]'\n"
-    "  - conda-forge: conda install -c conda-forge pyramids-stac\n"
-    "                 (stac-asset is not on conda-forge; install it alone: pip install stac-asset)"
+    extra_hint("download_item requires the optional 'stac-asset' dependency.", "stac")
+    + "\n"
+    + "                 (stac-asset is not on conda-forge; install it alone: pip install stac-asset)"
 )
 
 

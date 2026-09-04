@@ -51,7 +51,7 @@ from shapely.geometry import box
 from pyramids import _io as _pyramids_io
 from pyramids.base._errors import FeatureError, VectorTileServerError
 from pyramids.base._ogc_api import http_error_detail, http_get_with_retry
-from pyramids.base._utils import import_pyarrow
+from pyramids.base._utils import extra_hint, import_pyarrow
 from pyramids.base.crs import _pyproj_crs_via_gdal
 from pyramids.base.remote import _ARCHIVE_MARKER_RE, is_remote, to_fsspec_url
 
@@ -592,10 +592,10 @@ def _resolve_lazy_partitioning(
 def _require_pyarrow() -> None:
     """Raise a pyramids-branded ImportError if pyarrow is absent."""
     import_pyarrow(
-        "GeoParquet support requires the optional 'pyarrow' "
-        "dependency. Install with one of:\n"
-        "  - PyPI:        pip install 'pyramids-gis[parquet]'\n"
-        "  - conda-forge: conda install -c conda-forge pyramids-parquet"
+        extra_hint(
+            "GeoParquet support requires the optional 'pyarrow' dependency.",
+            "parquet",
+        )
     )
 
 
@@ -610,10 +610,10 @@ def _import_dask_geopandas():
         import dask_geopandas
     except ImportError as exc:
         raise ImportError(
-            "backend='dask' requires the optional "
-            "'dask-geopandas' dependency. Install with one of:\n"
-            "  - PyPI:        pip install 'pyramids-gis[parquet]'\n"
-            "  - conda-forge: conda install -c conda-forge pyramids-parquet"
+            extra_hint(
+                "backend='dask' requires the optional 'dask-geopandas' dependency.",
+                "parquet",
+            )
         ) from exc
     return dask_geopandas
 

@@ -45,7 +45,7 @@ Available specs:
 from typing import TYPE_CHECKING, Any
 
 from pyramids.base._errors import OptionalPackageDoesNotExist
-from pyramids.base._utils import require_optional
+from pyramids.base._utils import extra_hint, require_optional
 
 if TYPE_CHECKING:  # names for static type checkers / IDEs; resolved lazily at runtime
     # Re-exported for typing only (runtime resolution is via ``__getattr__``), so
@@ -87,9 +87,9 @@ _CLEO_EXPORTS: dict[str, tuple[str, str]] = {
 
 __all__ = sorted(_CLEO_EXPORTS)
 
-_VIZ_HINT = (
-    "The pyramids plotting specs require cleopatra (the [viz] extra). "
-    "Install with: pip install 'pyramids-gis[viz]'."
+_VIZ_HINT = extra_hint(
+    "The pyramids plotting specs require cleopatra (the [viz] extra).",
+    "viz",
 )
 
 

@@ -21,6 +21,7 @@ from pyramids.base._errors import (
     FailedToSaveError,
 )
 from pyramids.base._file_manager import CachingFileManager
+from pyramids.base._utils import extra_hint
 from pyramids.base.remote import cloud_config_from_env
 from pyramids.dataset._driver import copy_yields_writable, resolve_output_driver
 from pyramids.dataset.abstract_dataset import (
@@ -71,10 +72,9 @@ def _caller_stacklevel(default: int = 2) -> int:
 # race inside GDAL.
 _PROBE_LOCK = threading.Lock()
 
-_LAZY_IMPORT_ERROR = (
-    "Lazy reads require the optional 'dask' dependency. Install with one of:\n"
-    "  - PyPI:        pip install 'pyramids-gis[lazy]'\n"
-    "  - conda-forge: conda install -c conda-forge pyramids-lazy"
+_LAZY_IMPORT_ERROR = extra_hint(
+    "Lazy reads require the optional 'dask' dependency.",
+    "lazy",
 )
 
 

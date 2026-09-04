@@ -40,7 +40,7 @@ from pyramids._resource import (
     sniff_magic,
 )
 from pyramids.base._artifacts import artifact_dir
-from pyramids.base._utils import import_pyarrow
+from pyramids.base._utils import extra_hint, import_pyarrow
 from pyramids.dataset import Dataset
 from pyramids.feature import FeatureCollection
 from pyramids.netcdf import NetCDF
@@ -90,10 +90,9 @@ _PRIMARY_EXTS = frozenset(
 # `.csv` stays in the primary tier for backwards compatibility — it was there
 # before the tiering and archives relying on it must keep resolving.
 _SECONDARY_EXTS = frozenset({".tsv", ".xlsx", ".xls"})
-_PARQUET_EXTRA_HINT = (
-    "Reading Parquet requires the optional 'pyarrow' dependency. Install with one of:\n"
-    "  - PyPI:        pip install 'pyramids-gis[parquet]'\n"
-    "  - conda-forge: conda install -c conda-forge pyramids-parquet"
+_PARQUET_EXTRA_HINT = extra_hint(
+    "Reading Parquet requires the optional 'pyarrow' dependency.",
+    "parquet",
 )
 
 

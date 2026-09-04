@@ -29,7 +29,7 @@ import numpy as np
 import pandas as pd
 from osgeo import gdal
 
-from pyramids.base._utils import import_pyarrow
+from pyramids.base._utils import extra_hint, import_pyarrow
 from pyramids.base.remote import (
     _DODS_SCHEME,
     URL_SCHEMES,
@@ -44,11 +44,9 @@ from pyramids.netcdf.utils import decode_cf_time, encode_cf_time
 # (the estimate is dtype x selected size — no data is read to compute it).
 _LARGE_REALISE_BYTES = 512 * 1024 * 1024
 
-_PARQUET_INSTALL_HINT = (
-    "Writing Parquet needs the optional 'pyarrow' dependency. Install it with "
-    "one of:\n"
-    "  - PyPI:  pip install 'pyramids-gis[parquet]'\n"
-    "  - conda: conda install -c conda-forge pyarrow"
+_PARQUET_INSTALL_HINT = extra_hint(
+    "Writing Parquet needs the optional 'pyarrow' dependency.",
+    "parquet",
 )
 
 # URL schemes whose paths must go through `_to_vsi` before GDAL sees them.

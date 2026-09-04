@@ -39,15 +39,14 @@ import numpy as np
 
 from pyramids.base._file_manager import CachingFileManager, gdal_mdarray_open
 from pyramids.base._locks import DummyLock, default_lock
-from pyramids.base._utils import apply_unpack, import_dask
+from pyramids.base._utils import apply_unpack, extra_hint, import_dask
 from pyramids.base.remote import cloud_config_from_env
 from pyramids.netcdf._mdim import axis_flips
 from pyramids.netcdf.utils import _dtype_to_str
 
-_DASK_MISSING_MESSAGE = (
-    "dask is required for lazy NetCDF reads. Install with one of:\n"
-    "  - PyPI:        pip install 'pyramids-gis[lazy]'\n"
-    "  - conda-forge: conda install -c conda-forge pyramids-lazy"
+_DASK_MISSING_MESSAGE = extra_hint(
+    'dask is required for lazy NetCDF reads.',
+    "lazy",
 )
 
 

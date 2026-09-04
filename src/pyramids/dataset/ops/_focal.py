@@ -38,6 +38,7 @@ import numpy as np
 from scipy import ndimage
 
 from pyramids.base._domain import is_no_data
+from pyramids.base._utils import extra_hint
 
 if TYPE_CHECKING:
     import dask.array as da
@@ -45,10 +46,9 @@ if TYPE_CHECKING:
     from pyramids.dataset import Dataset
 
 
-_LAZY_IMPORT_ERROR = (
-    "chunks= requires the optional 'dask' dependency. Install with one of:\n"
-    "  - PyPI:        pip install 'pyramids-gis[lazy]'\n"
-    "  - conda-forge: conda install -c conda-forge pyramids-lazy"
+_LAZY_IMPORT_ERROR = extra_hint(
+    "chunks= requires the optional 'dask' dependency.",
+    "lazy",
 )
 
 
