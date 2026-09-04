@@ -22,7 +22,12 @@ from pyramids.dataset.dataset import (
     _X_AXIS_NAMES,
     _Y_AXIS_NAMES,
 )
-from pyramids.dataset.ops._geobox_zarr import _NON_DATA_ARRAYS, detect_data_var
+from pyramids.dataset.ops._geobox_zarr import (
+    _ALWAYS_COORDS,
+    _NEVER_DATA_ARRAYS,
+    _NON_DATA_ARRAYS,
+    detect_data_var,
+)
 
 try:
     import zarr
@@ -167,3 +172,75 @@ class TestTheZarrReaderKnowsThemAll:
 
         with pytest.raises(KeyError, match="no data array"):
             detect_data_var(group)
+
+
+class TestAnAxisNameCanStillBeAData_Array:
+    """The vocabulary is a preference here, not a veto.
+
+    `east`, `north`, `long` and `x_dim` are coordinate spellings *and* ordinary
+    names for a data array -- an eastward wind or current component, say.
+    Excluding them outright made a store whose only variable is called `east`
+    raise "no data array found", which is worse than the problem being solved.
+    """
+
+    @pytest.mark.lazy
+    @needs_zarr
+    @pytest.mark.parametrize(
+        ("names", "expected"),
+        [
+            (["east", "north", "x", "y"], "east"),
+            (["northing", "x", "y"], "northing"),
+            (["long", "x", "y"], "long"),
+            (["x_dim", "x", "y"], "x_dim"),
+        ],
+    )
+    def test_a_store_whose_variable_is_axis_named_is_still_readable(
+        self, tmp_path, names, expected
+    ):
+        """Each of these raised `KeyError` when the vocabulary was a veto.
+
+        Args:
+            tmp_path: Fixture supplying a temporary directory.
+            names: The arrays in the store.
+            expected: The array that must be chosen as the data.
+
+        Test scenario:
+            With no non-coordinate-named array to choose, the reader falls back
+            to the narrow list that was always excluded, so it picks the same
+            array it did before the vocabulary was shared.
+        """
+        store = tmp_path / "axis_named.zarr"
+        group = zarr.open_group(str(store), mode="w")
+        for name in names:
+            array = group.create_array(name, shape=(6, 8), dtype="float32")
+            array[:] = np.ones((6, 8), dtype=np.float32)
+
+        assert detect_data_var(group) == expected
+
+    @pytest.mark.lazy
+    @needs_zarr
+    def test_a_real_variable_still_beats_an_axis_named_one(self, tmp_path):
+        """The preference only applies when there is something to prefer.
+
+        Test scenario:
+            With both `east` and `sst` present, `sst` is not a coordinate
+            spelling at all, so the first tier picks it and `east` is treated
+            as the coordinate it probably is.
+        """
+        store = tmp_path / "mixed.zarr"
+        group = zarr.open_group(str(store), mode="w")
+        for name in ("east", "north", "sst"):
+            array = group.create_array(name, shape=(6, 8), dtype="float32")
+            array[:] = np.ones((6, 8), dtype=np.float32)
+
+        assert detect_data_var(group) == "sst"
+
+    @pytest.mark.core
+    def test_the_three_tiers_are_nested(self):
+        """The tiers are nested, so the fallback can only ever widen.
+
+        Test scenario:
+            Names that are only ever coordinates stay excluded in both tiers;
+            the ambiguous ones sit between, excluded first and allowed second.
+        """
+        assert _ALWAYS_COORDS <= _NEVER_DATA_ARRAYS <= _NON_DATA_ARRAYS

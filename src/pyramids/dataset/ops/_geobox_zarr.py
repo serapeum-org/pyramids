@@ -265,11 +265,45 @@ def finalize_zarr_metadata(
         zarr.consolidate_metadata(resolved_store)
 
 
-# Every known coordinate spelling, plus the non-spatial arrays a store carries
-# alongside its data. Derived from the shared axis vocabulary rather than listed
-# here: the short local list omitted `nav_lon` / `nav_lat`, so a NEMO store's 2-D
-# coordinate fields were offered as data-array candidates and one of them won.
-_NON_DATA_ARRAYS = AXIS_NAMES | {"time", "band", GRID_MAPPING_VAR, "crs"}
+# The names that are *almost always* coordinates, and were the only ones this
+# reader excluded before. Anything here is rejected outright.
+_ALWAYS_COORDS = {
+    "x",
+    "y",
+    "lon",
+    "lat",
+    "longitude",
+    "latitude",
+    "time",
+    "band",
+    GRID_MAPPING_VAR,
+    "crs",
+}
+
+# Coordinate spellings that are *also* ordinary names for a data array: an
+# eastward wind or current component is `east`, and `long` could be anything.
+# Nobody names a variable `nav_lat` or `rlon`, so those are not here.
+_AMBIGUOUS_NAMES = {
+    "east",
+    "north",
+    "easting",
+    "northing",
+    "long",
+    "xdim",
+    "ydim",
+    "x_dim",
+    "y_dim",
+}
+
+# Every known coordinate spelling. The wider vocabulary is what lets a NEMO
+# store's 2-D `nav_lon` / `nav_lat` lose to the real variable.
+_NON_DATA_ARRAYS = AXIS_NAMES | _ALWAYS_COORDS
+
+# What a store must not fall back to. Excluding the ambiguous names outright
+# made a store whose only variable is called `east` raise "no data array found";
+# excluding nothing would let a store of only `nav_lon` / `nav_lat` return a
+# latitude field as its data.
+_NEVER_DATA_ARRAYS = _NON_DATA_ARRAYS - _AMBIGUOUS_NAMES
 
 
 def normalize_compressors(compressor: Any) -> dict[str, Any]:
@@ -304,7 +338,15 @@ def detect_data_var(group: Any) -> str:
     for name in arrays:
         if "grid_mapping" in dict(group[name].attrs):
             return name
+    # Two tiers. First prefer an array that is not a known coordinate spelling
+    # at all -- that is what lets a NEMO store's 2-D `nav_lon` / `nav_lat` lose
+    # to the real variable. Failing that, accept one of the ambiguous names,
+    # so a store whose only variable is called `east` is readable rather than
+    # undecidable. A name that is only ever a coordinate stays excluded in both
+    # tiers, so a store holding nothing else still raises.
     candidates = [n for n in arrays if n not in _NON_DATA_ARRAYS]
+    if not candidates:
+        candidates = [n for n in arrays if n not in _NEVER_DATA_ARRAYS]
     if not candidates:
         raise KeyError(f"no data array found in zarr group; arrays={arrays}")
     return max(candidates, key=lambda n: group[n].ndim)
