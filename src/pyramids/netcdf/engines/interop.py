@@ -22,8 +22,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 from osgeo import gdal, osr
 
-from pyramids.base._errors import OptionalPackageDoesNotExist
-from pyramids.base._utils import numpy_to_gdal_dtype
+from pyramids.base._utils import import_xarray, numpy_to_gdal_dtype
 from pyramids.base.remote import is_remote
 from pyramids.dataset.engines._base import _Engine
 from pyramids.netcdf._lazy import build_lazy_array
@@ -35,6 +34,12 @@ from pyramids.netcdf.cf import (
     write_global_attributes,
 )
 from pyramids.netcdf.utils import read_cf_attributes
+
+_XARRAY_HINT = (
+    "xarray is required for {func}(). Install with one of:\n"
+    "  - PyPI:        pip install xarray\n"
+    "  - conda-forge: conda install -c conda-forge xarray"
+)
 
 if TYPE_CHECKING:
     from pyramids.netcdf.netcdf import NetCDF
@@ -106,14 +111,7 @@ class Interop(_Engine["NetCDF"]):
                 lazy["temperature"].data  # dask.array.Array
         """
         ds = self._ds
-        try:
-            import xarray as xr
-        except ImportError:
-            raise OptionalPackageDoesNotExist(
-                "xarray is required for to_xarray(). Install with one of:\n"
-                "  - PyPI:        pip install xarray\n"
-                "  - conda-forge: conda install -c conda-forge xarray"
-            )
+        xr = import_xarray(_XARRAY_HINT.format(func="to_xarray"))
 
         rg = ds._working_group()
         if rg is None:
@@ -250,14 +248,7 @@ def from_xarray(
             If `xarray` is not installed.
         TypeError: If *dataset* is not an `xarray.Dataset`.
     """
-    try:
-        import xarray as xr
-    except ImportError:
-        raise OptionalPackageDoesNotExist(
-            "xarray is required for from_xarray(). Install with one of:\n"
-            "  - PyPI:        pip install xarray\n"
-            "  - conda-forge: conda install -c conda-forge xarray"
-        )
+    xr = import_xarray(_XARRAY_HINT.format(func="from_xarray"))
 
     if not isinstance(dataset, xr.Dataset):
         raise TypeError(f"Expected xarray.Dataset, got {type(dataset).__name__}")

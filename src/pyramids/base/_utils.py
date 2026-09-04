@@ -1196,10 +1196,49 @@ def lazy_extra_hint(prefix: str) -> str:
 
             ```
     """
+    return extra_hint(prefix, "lazy")
+
+
+def extra_hint(lead: str, extra: str) -> str:
+    """Compose an install hint for one of the package's optional extras.
+
+    Every optional-dependency guard raises the same two-line install block with
+    only the extra's name changing, and each had written it out. The lead
+    sentence stays the caller's, because that is the part that says which
+    operation needed the dependency.
+
+    Args:
+        lead: The domain-specific lead sentence, ending in a period. Placed
+            verbatim at the start.
+        extra: The extra's name, e.g. `"lazy"`, `"stac"`, `"parquet"`.
+
+    Returns:
+        str: `lead`, then "Install with one of:", then the PyPI and
+            conda-forge install commands for `extra`.
+
+    Examples:
+        - The lead is preserved and the extra names both commands:
+            ```python
+            >>> from pyramids.base._utils import extra_hint
+            >>> hint = extra_hint("Zarr IO needs the 'zarr' dependency.", "lazy")
+            >>> hint.splitlines()[0]
+            "Zarr IO needs the 'zarr' dependency. Install with one of:"
+            >>> "pyramids-gis[lazy]" in hint
+            True
+
+            ```
+        - A different extra changes both commands:
+            ```python
+            >>> from pyramids.base._utils import extra_hint
+            >>> "pyramids-stac" in extra_hint("Needs pystac.", "stac")
+            True
+
+            ```
+    """
     return (
-        f"{prefix} Install with one of:\n"
-        "  - PyPI:        pip install 'pyramids-gis[lazy]'\n"
-        "  - conda-forge: conda install -c conda-forge pyramids-lazy"
+        f"{lead} Install with one of:\n"
+        f"  - PyPI:        pip install 'pyramids-gis[{extra}]'\n"
+        f"  - conda-forge: conda install -c conda-forge pyramids-{extra}"
     )
 
 
@@ -1238,9 +1277,19 @@ def import_dask(message: str):
     return require_optional("dask", message, return_module=True)
 
 
-def import_kerchunk(message: str):
-    """Import kerchunk."""
-    return require_optional("kerchunk", message)
+def import_xarray(message: str):
+    """Import and return :mod:`xarray`.
+
+    Returned because both call sites need the live module -- one to build a
+    `Dataset`, the other to type-check the argument it was handed.
+
+    Args:
+        message: The install hint raised when xarray is missing.
+
+    Returns:
+        The imported `xarray` module.
+    """
+    return require_optional("xarray", message, return_module=True)
 
 
 def import_h5py(message: str):
