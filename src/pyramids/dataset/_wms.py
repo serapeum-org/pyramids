@@ -45,6 +45,7 @@ from pyramids.base._coverage import resolution_pair as _resolution_pair
 from pyramids.base._coverage import resolve_native_srs as _resolve_native_srs_neutral
 from pyramids.base._coverage import validate_bbox as _validate_bbox
 from pyramids.base._errors import CoverageError, WMSError
+from pyramids.base._grid import grid_size
 from pyramids.base._ogc_api import gdal_http_config as _gdal_http_config
 from pyramids.dataset._subdataset import subdatasets_of
 
@@ -116,10 +117,9 @@ def _output_size(
                 "resolution=<pixel size in the bbox CRS units>."
             )
         minx, miny, maxx, maxy = bbox
-        result = (
-            max(1, round((maxx - minx) / res[0])),
-            max(1, round((maxy - miny) / res[1])),
-        )
+        # `max_px=None`: this is a local sizing decision, not the coverage
+        # readers' HTTP-fetch ceiling, so no cap applies here.
+        result = grid_size(maxx - minx, maxy - miny, res, max_px=None)
     return result
 
 

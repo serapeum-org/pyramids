@@ -15,10 +15,11 @@ from __future__ import annotations
 from math import isfinite
 
 from osgeo import gdal, osr
-from pyproj import Transformer
 
 from pyramids.base._errors import CoverageError, CRSError
-from pyramids.base.crs import crs_from_user_input, sr_from_user_input
+from pyramids.base._grid import grid_size
+from pyramids.base.crs import sr_from_user_input
+from pyramids.feature.bbox import transform as bbox_transform
 
 
 def validate_bbox(
@@ -107,17 +108,12 @@ def native_projwin(
             (``pyproj`` returns ``inf``/``nan`` when the bbox falls outside the
             native CRS's area of use).
     """
-    # Through the package helper so a CRS whose code only GDAL's PROJ database
-    # carries still resolves (#943). Axis order is not exposed here: the
-    # transformer below is built with always_xy=True.
-    native = crs_from_user_input(native_srs.ExportToWkt())
-    transformer = Transformer.from_crs(crs_from_user_input(crs), native, always_xy=True)
-    minx, miny, maxx, maxy = bbox
-    # Densify the edges (not just the corners) so the native-CRS window still
-    # covers the requested area under projection curvature / interruptions (e.g.
-    # the Interrupted Goode Homolosine), where the corner hull can bow inward.
-    left, bottom, right, top = transformer.transform_bounds(
-        minx, miny, maxx, maxy, densify_pts=21
+    # `feature.bbox.transform` is the package's bbox reprojection: same
+    # densification (21 points per edge, so a curved or interrupted projection
+    # is not crudely axis-aligned), same always_xy convention, and it resolves a
+    # CRS whose code only GDAL's PROJ database carries (#943).
+    left, bottom, right, top = bbox_transform(
+        tuple(bbox), crs, native_srs.ExportToWkt()
     )
     projwin = [left, top, right, bottom]
     if not all(isfinite(v) for v in projwin):
@@ -166,8 +162,7 @@ def read_size(projwin: list[float], res: tuple[float, float] | None) -> tuple[in
                 f"resolution must be strictly positive on each axis to size a read, "
                 f"got {res!r}; pass an explicit positive resolution"
             )
-        width = max(1, round(span_x / x_res))
-        height = max(1, round(span_y / y_res))
+        width, height = grid_size(span_x, span_y, (x_res, y_res), max_px=None)
     elif span_x >= span_y:
         width = DEFAULT_MAX_PX
         height = (
