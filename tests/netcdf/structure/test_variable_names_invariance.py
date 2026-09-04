@@ -203,7 +203,9 @@ class TestTheCfClassificationIsApplied:
         names = set(dataset.variable_names)
 
         assert names, "the fixture should enumerate at least one data variable"
-        assert not names & set(excluded), f"non-data arrays enumerated: {names & set(excluded)}"
+        assert not names & set(excluded), (
+            f"non-data arrays enumerated: {names & set(excluded)}"
+        )
 
     @pytest.mark.parametrize(
         ("fixture", "array"),
@@ -345,7 +347,9 @@ class TestCarryableAuxNames:
             pytest.skip("fixture carries no non-spatial ancillary array")
         rg = dataset._working_group()
 
-        carryable = dataset._carryable_aux_names(rg, dataset._spatial_variable_names(rg))
+        carryable = dataset._carryable_aux_names(
+            rg, dataset._spatial_variable_names(rg)
+        )
 
         assert "expver" in carryable
 
@@ -359,6 +363,71 @@ class TestCarryableAuxNames:
         dataset = NetCDF.read_file(str(DATA / "cf__12v__1d4-2d5-3d2-4d1__y-asc.nc"))
         rg = dataset._working_group()
 
-        carryable = dataset._carryable_aux_names(rg, dataset._spatial_variable_names(rg))
+        carryable = dataset._carryable_aux_names(
+            rg, dataset._spatial_variable_names(rg)
+        )
 
         assert set(carryable) <= set(dataset._readable_variable_names())
+
+
+class TestAncillaryArraysSurviveAnOperation:
+    """Not enumerating an array must not mean losing it.
+
+    `variable_names` enumerates data variables, so CF ancillary arrays are
+    absent from it. They are still *gridded*, though -- GOES ABI's `DQF`
+    quality flags sit on the same y/x grid as the `CMI` they qualify -- so they
+    have to be reprojected like any other gridded array.
+
+    Deciding spatial-ness from the narrow enumeration left them in neither
+    list: not transformed, and rejected by the carry rule for sharing the
+    reshaped dimensions. A container-wide `to_crs` dropped them from the output
+    entirely, with no warning.
+    """
+
+    GEOS = "cf__9v__1d7-2d2__geos__y-desc.nc"
+
+    def test_an_ancillary_grid_is_reprojected_rather_than_dropped(self):
+        """`DQF` is not enumerated, is gridded, and must come back.
+
+        Test scenario:
+            The array is absent from `variable_names` by design. What matters
+            is that it is present in the *result* of a container-wide `to_crs`,
+            because a user reprojecting a granule expects its quality flags.
+        """
+        dataset = NetCDF.read_file(str(DATA / self.GEOS))
+        assert "DQF" in dataset._readable_variable_names()
+
+        reprojected = dataset.to_crs(4326)
+
+        assert "DQF" in reprojected._readable_variable_names()
+
+    def test_the_operation_loses_no_array_at_all(self):
+        """The general form: nothing readable goes missing.
+
+        Test scenario:
+            Every array the source could hand back must still be reachable on
+            the result. Asserting the whole set rather than one name catches
+            the next array that falls between the two lists.
+        """
+        dataset = NetCDF.read_file(str(DATA / self.GEOS))
+        before = set(dataset._readable_variable_names())
+
+        reprojected = dataset.to_crs(4326)
+
+        assert before <= set(reprojected._readable_variable_names())
+
+    def test_a_gridded_ancillary_array_is_treated_as_spatial(self):
+        """The mechanism, asserted directly rather than through the result.
+
+        Test scenario:
+            `_spatial_variable_names` decides what gets transformed. `DQF` has
+            both spatial axes, so it belongs there even though the enumeration
+            leaves it out.
+        """
+        dataset = NetCDF.read_file(str(DATA / self.GEOS))
+        rg = dataset._working_group()
+
+        spatial = dataset._spatial_variable_names(rg)
+
+        assert "DQF" in spatial
+        assert "DQF" not in dataset.variable_names

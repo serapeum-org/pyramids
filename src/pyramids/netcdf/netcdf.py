@@ -2944,8 +2944,22 @@ class NetCDF(Dataset):
         if rg is None:
             rg = self._working_group()
         if rg is None:
-            return []
-        return [n for n in self.variable_names if self._variable_is_spatial(rg, n)]
+            names: list[str] = []
+        else:
+            # Scanned over the *readable* names, not the enumeration. Whether an
+            # array is gridded is a question about its axes, and CF ancillary
+            # arrays -- GOES ABI's `DQF` quality flags, an uncertainty layer, a
+            # `status_flag` -- sit on the same y/x grid as the data they qualify.
+            # Filtering the narrow enumeration left them in neither list: not
+            # transformed here, and rejected by `_carryable_aux_names` for
+            # sharing the reshaped dimensions, so a container-wide `to_crs` or
+            # `crop` dropped them from the output entirely, without a warning.
+            names = [
+                n
+                for n in self._readable_variable_names()
+                if self._variable_is_spatial(rg, n)
+            ]
+        return names
 
     def _variable_dim_names(self, rg: Any, var_name: str) -> list[str]:
         """Return a variable's dimension names, or ``[]`` if it can't be opened.
