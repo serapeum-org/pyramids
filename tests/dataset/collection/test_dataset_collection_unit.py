@@ -1086,7 +1086,7 @@ class TestRequireFiles:
 
 
 class TestTailHeadRegression:
-    """Tests for the ARC-46 head/tail fix and empty-safe ``_stack_band0``."""
+    """Tests for the ARC-46 head/tail fix and empty-safe ``_stack_timesteps``."""
 
     @pytest.fixture()
     def expected(self) -> np.ndarray:
@@ -1169,25 +1169,34 @@ class TestTailHeadRegression:
             "non-empty head should be int16 too"
         )
 
-    def test_stack_band0_empty_selection(self, cube_with_values: DatasetCollection):
-        """_stack_band0([]) returns a (0, rows, cols) array (empty-safe).
+    def test_stack_timesteps_empty_selection(self, cube_with_values: DatasetCollection):
+        """_stack_timesteps([]) returns a (0, rows, cols) array (empty-safe).
 
         Test scenario:
             Stack an empty selection — expected: a (0, 5, 6) array instead of the
             ``np.stack`` "need at least one array" error.
         """
-        result = cube_with_values._stack_band0([])
+        result = cube_with_values._stack_timesteps([])
         assert result.shape == (0, 5, 6), f"expected (0,5,6), got {result.shape}"
 
-    def test_stack_band0_non_empty(
+    def test_stack_timesteps_non_empty(
         self, cube_with_values: DatasetCollection, expected: np.ndarray
     ):
-        """_stack_band0 over all datasets reproduces the full cube.
+        """_stack_timesteps over all datasets reproduces the full cube.
 
         Test scenario:
             Stack every timestep's band 0 — expected: the (3, 5, 6) source cube.
         """
-        result = cube_with_values._stack_band0(cube_with_values.datasets)
+        result = cube_with_values._stack_timesteps(cube_with_values.datasets)
+        every_band = cube_with_values._stack_timesteps(
+            cube_with_values.datasets, band=None
+        )
+
+        assert every_band.shape[0] == len(cube_with_values.datasets), (
+            "band=None must keep time on the leading axis, not collapse it -- "
+            "it is what the RGB time-lapse asks for, and the only caller that "
+            "passes anything but band 0"
+        )
         assert result.shape == (3, 5, 6), f"expected (3,5,6), got {result.shape}"
         np.testing.assert_array_equal(result, expected)
 

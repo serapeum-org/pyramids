@@ -2424,7 +2424,7 @@ class DatasetCollection:
             np.ndarray: A fresh ``(time_length, rows, cols)`` float
                 array each call.
         """
-        return np.stack([ds.read_array(band=0) for ds in self.datasets], axis=0)
+        return self._stack_timesteps(self.datasets)
 
     @values.setter
     def values(self, val: np.ndarray) -> None:
@@ -2565,21 +2565,38 @@ class DatasetCollection:
         for i in range(self._time_length):
             yield self._dataset_at(i).read_array(band=0)
 
-    def _stack_band0(self, datasets: list[Dataset]) -> np.typing.NDArray:
-        """Stack band 0 of each dataset into a ``(len, rows, cols)`` cube.
+    def _stack_timesteps(
+        self, datasets: list[Dataset], band: int | None = 0
+    ) -> np.typing.NDArray:
+        """Stack each dataset's array into a cube with time on the leading axis.
 
-        Empty-safe: an empty selection returns a ``(0, rows, cols)`` array rather
-        than tripping ``np.stack``'s "need at least one array" error. The empty
-        array carries the collection's own dtype (from :attr:`meta`), not NumPy's
-        default float64, so ``head(0)``/``tail(0)`` match the dtype of a non-empty
-        selection (N1). Lets :meth:`head`/:meth:`tail` read only the selected
-        timesteps instead of materialising the whole cube via :attr:`values`.
+        Four places did this -- :attr:`values`, `head`/`tail` through this
+        helper, and the two `RenderRequest` builds in :meth:`plot` -- and only
+        this one guarded the empty case. The other three tripped `np.stack`'s
+        "need at least one array to stack", which names neither the collection
+        nor the timestep that was missing.
+
+        The empty array carries the collection's own dtype (from :attr:`meta`)
+        rather than NumPy's default float64, so `head(0)` / `tail(0)` match the
+        dtype of a non-empty selection (N1). Taking the dataset list as an
+        argument is what lets `head` / `tail` read only the timesteps they
+        selected instead of materialising the whole cube via :attr:`values`.
+
+        Args:
+            datasets: One `Dataset` per timestep to stack, in time order.
+            band: The band to read from each, or `None` for every band -- which
+                the RGB time-lapse needs, and which makes the result
+                `(time, bands, rows, cols)` rather than `(time, rows, cols)`.
+
+        Returns:
+            np.typing.NDArray: The stacked cube, or a `(0, rows, cols)` array
+                of the collection's dtype when `datasets` is empty.
         """
         if not datasets:
             return np.empty(
                 (0, self.rows, self.columns), dtype=np.dtype(self._meta.dtype)
             )
-        return np.stack([ds.read_array(band=0) for ds in datasets], axis=0)
+        return np.stack([ds.read_array(band=band) for ds in datasets], axis=0)
 
     def head(self, n: int = 5) -> np.typing.NDArray:
         """First ``n`` timestep arrays as a 3D numpy slice.
@@ -2594,7 +2611,7 @@ class DatasetCollection:
         Returns:
             np.ndarray: ``(min(n, time_length), rows, cols)`` array.
         """
-        return self._stack_band0(
+        return self._stack_timesteps(
             [self._dataset_at(j) for j in range(self._time_length)[:n]]
         )
 
@@ -2619,7 +2636,7 @@ class DatasetCollection:
         """
         keep = min(abs(n), self.time_length)
         indices = range(self.time_length - keep, self.time_length)
-        return self._stack_band0([self._dataset_at(j) for j in indices])
+        return self._stack_timesteps([self._dataset_at(j) for j in indices])
 
     def first(self) -> np.typing.NDArray:
         """First timestep array (2D).
@@ -2942,7 +2959,7 @@ class DatasetCollection:
             # misshapen ``rgb`` raises a clear error instead of cleopatra silently
             # collapsing the time axis into the colour channels (issue #538).
             self._validate_rgb_animation(rgb, exclude_value)
-            data = np.stack([ds.read_array(band=None) for ds in self.datasets], axis=0)
+            data = self._stack_timesteps(self.datasets, band=None)
             return render_array(
                 RenderRequest(
                     arr=data,
@@ -2962,7 +2979,7 @@ class DatasetCollection:
                 **animate_extras,
                 **kwargs,
             )
-        data = np.stack([ds.read_array(band=band) for ds in self.datasets], axis=0)
+        data = self._stack_timesteps(self.datasets, band=band)
         # Sanitise an unset no-data value (``None``) to ``np.nan`` before
         # building the exclusion list — mirrors ``Analysis.plot`` (the
         # ``Dataset.plot`` engine). A raw ``None`` would reach cleopatra as
