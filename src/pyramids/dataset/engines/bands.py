@@ -7,6 +7,7 @@ Owns the Bands family of operations on a Dataset. Accessed as
 
 from __future__ import annotations
 
+import logging
 import numbers
 import warnings
 from collections.abc import Iterable
@@ -39,6 +40,9 @@ from pyramids.base.crs import crs_spec
 from pyramids.dataset._driver import MEMORY_DRIVER, resolve_output_driver
 from pyramids.dataset.engines._base import _Engine
 from pyramids.dataset.engines._validate import validate_band_index
+
+logger = logging.getLogger(__name__)
+
 
 # Substring GDAL raises when a write is attempted on a read-only band; matched in
 # several no-data setters below to re-raise a friendly ReadOnlyError. Named once
@@ -75,6 +79,37 @@ def _is_read_only_error(error: BaseException) -> bool:
 
 class Bands(_Engine["Dataset"]):
     """Mixin providing band metadata, attribute table, and color table operations."""
+
+    def apply_names(self, names: list | None, *, source: str) -> bool:
+        """Apply band names from an external store, skipping a length mismatch.
+
+        Restoring names read back from a store is the same operation wherever
+        the store is, and the length check is the part worth having in one
+        place: silently applying a mismatched list renames the wrong bands.
+
+        Args:
+            names: The names read from the store, or `None`.
+            source: What produced them, for the warning message.
+
+        Returns:
+            bool: True when the names were applied.
+        """
+        band_names = list(names or [])
+        if not band_names:
+            applied = False
+        elif len(band_names) == self._ds.band_count:
+            self._ds.band_names = band_names
+            applied = True
+        else:
+            logger.warning(
+                "%s band_names (%d) do not match band count (%d); "
+                "keeping default band names.",
+                source,
+                len(band_names),
+                self._ds.band_count,
+            )
+            applied = False
+        return applied
 
     def _iloc(self, i: int) -> gdal.Band:
         """Access a GDAL Band by 0-based index.

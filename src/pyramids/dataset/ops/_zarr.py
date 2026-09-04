@@ -430,22 +430,6 @@ def _normalize_no_data(attrs: dict[str, Any]) -> Any:
     return None
 
 
-def _apply_band_names(dataset: Dataset, attrs: dict[str, Any]) -> None:
-    """Restore band names from the store, warning (and skipping) on a length mismatch (Z-5)."""
-    band_names = attrs.get("band_names") or []
-    if not band_names:
-        return
-    if len(band_names) == dataset.band_count:
-        dataset.band_names = list(band_names)
-        return
-    logger.warning(
-        "Zarr store band_names (%d) do not match band count (%d); "
-        "keeping default band names.",
-        len(band_names),
-        dataset.band_count,
-    )
-
-
 def read_dataset_from_zarr(
     store: str | Path | Any,
     *,
@@ -539,7 +523,7 @@ def read_dataset_from_zarr(
     # the epsg above is only a fallback when no WKT was written (Z-3).
     if geobox["crs_wkt"]:
         dataset.crs = geobox["crs_wkt"]
-    _apply_band_names(dataset, attrs)
+    dataset.bands.apply_names(attrs.get("band_names"), source="Zarr store")
     return dataset
 
 

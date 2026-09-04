@@ -905,6 +905,49 @@ class Catalog:
         driver_data = self.get_driver(driver)
         return driver_data.get("extension")
 
+    def resolve_key(self, driver: str) -> str:
+        """Normalise a catalog key or a GDAL short name into a catalog key.
+
+        Callers accept both spellings -- `"geotiff"` and `"GTiff"` -- and each
+        had its own two-branch guard for it. The key is tried first, which is
+        unambiguous because no catalog key equals any GDAL short name.
+
+        Args:
+            driver: A catalog key or a GDAL short name.
+
+        Returns:
+            str: The catalog key.
+
+        Raises:
+            DriverNotExistError: `driver` is neither.
+
+        Examples:
+            - A catalog key passes through:
+                ```python
+                >>> from pyramids.base._utils import get_catalog
+                >>> get_catalog().resolve_key("geotiff")
+                'geotiff'
+
+                ```
+            - A GDAL short name resolves to its key:
+                ```python
+                >>> from pyramids.base._utils import get_catalog
+                >>> get_catalog().resolve_key("GTiff")
+                'geotiff'
+
+                ```
+        """
+        if self.exists(driver):
+            result = driver
+        else:
+            result = self.get_driver_name(driver)
+            if result is None:
+                raise DriverNotExistError(
+                    f"The driver: {driver!r} is not in the driver catalog. Known "
+                    f"driver names: {sorted(self.drivers)}"
+                )
+        return result
+
     def get_driver_name(self, gdal_name) -> str | None:
         """Get the catalog key for a GDAL short name.
 

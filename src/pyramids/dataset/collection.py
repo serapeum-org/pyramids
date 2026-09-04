@@ -2237,9 +2237,10 @@ class DatasetCollection:
         )
         if geobox["crs_wkt"]:
             template.crs = geobox["crs_wkt"]
-        band_names = cast("list | None", data_attrs.get("band_names")) or []
-        if band_names and len(band_names) == template.band_count:
-            template.band_names = list(band_names)
+        template.bands.apply_names(
+            cast("list | None", data_attrs.get("band_names")),
+            source="cube Zarr store",
+        )
         meta = RasterMeta.from_dataset(template)
         return cls(template, time_length, meta=meta, zarr_store=resolved)
 
@@ -3100,14 +3101,7 @@ class DatasetCollection:
         # because `get_driver` returned None and was then dereferenced. A key
         # with no extension (e.g. "cog") is refused rather than building
         # filenames literally named "0.None".
-        if not CATALOG.exists(driver):
-            catalog_key = CATALOG.get_driver_name(driver)
-            if catalog_key is None:
-                raise DriverNotExistError(
-                    f"The driver: {driver!r} is not in the driver catalog. Known "
-                    f"driver names: {sorted(CATALOG.drivers)}"
-                )
-            driver = catalog_key
+        driver = CATALOG.resolve_key(driver)
 
         if isinstance(path, (str, Path)):
             # Only this branch derives file names from the driver, so only this

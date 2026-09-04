@@ -17,7 +17,6 @@ from osgeo import gdal
 
 from pyramids import _io
 from pyramids.base._errors import (
-    DriverNotExistError,
     DtypeNarrowingWarning,
     FailedToSaveError,
 )
@@ -460,21 +459,9 @@ def _resolve_output_driver(driver: str | None, path: Path) -> tuple[str, str]:
         # copy of any of them drifts. `for_copy=True` because this writer uses
         # `CreateCopy`, so a copy-only format (PNG, JPEG) is legitimate here
         # even though the `Create`-based constructors refuse it.
-        gdal_name = resolve_output_driver(path, for_copy=True)
-        driver = CATALOG.get_driver_name(gdal_name)
-        if driver is None:
-            raise DriverNotExistError(
-                f"The driver: {gdal_name!r} is not in the driver catalog. Known "
-                f"driver names: {sorted(CATALOG.drivers)}"
-            )
-    elif not CATALOG.exists(driver):
-        catalog_key = CATALOG.get_driver_name(driver)
-        if catalog_key is None:
-            raise DriverNotExistError(
-                f"The driver: {driver!r} is not in the driver catalog. Known "
-                f"driver names: {sorted(CATALOG.drivers)}"
-            )
-        driver = catalog_key
+        driver = CATALOG.resolve_key(resolve_output_driver(path, for_copy=True))
+    else:
+        driver = CATALOG.resolve_key(driver)
     return driver, CATALOG.get_gdal_name(driver)
 
 
