@@ -311,9 +311,16 @@ def _member_at(path: str, members: list[str], file_i: int, kind: str) -> str:
             segment.
 
     Raises:
-        FileFormatNotSupportedError: `file_i` is past the end of the archive;
-            or the member it names would be read from outside the archive --
-            an absolute path in either spelling (a POSIX `/tmp/x`, a Windows
+        FileFormatNotSupportedError: `file_i` is not an index into the archive
+            -- past the end, or **negative**, which is a deliberate change:
+            `-1` used to hand back the last member of a zip or tar (Python's
+            from-the-end meaning) while the member-less gzip helper refused it,
+            and `-5` leaked a bare `IndexError`. `file_i` names a member of an
+            archive the caller has not listed, so a negative one is far more
+            likely a bug than an intent, and all three kinds now refuse it in
+            the same words. Also raised when the member `file_i` names would be
+            read from outside the archive -- an absolute path in either
+            spelling (a POSIX `/tmp/x`, a Windows
             drive letter or UNC root), a drive designator glued to a traversal
             (`Z:..\x.tif`, which `ntpath.isabs` calls relative and whose `..`
             is not a segment of its own), or a segment matching
@@ -343,6 +350,18 @@ def _member_at(path: str, members: list[str], file_i: int, kind: str) -> str:
             pyramids.base._errors.FileFormatNotSupportedError: The zip file
             'x.zip' holds 1 file(s), so there is no member at index 3.
             Available: ['1.asc']
+
+            ```
+        - So is an index below zero, which is *not* read as Python's
+          "from the end": it named the last member for a zip or tar and was
+          refused for a gzip, so the three disagreed one sign flip away from
+          the bound they shared:
+            ```python
+            >>> _member_at("x.zip", ["1.asc", "2.asc"], -1, "zip")  # doctest: +NORMALIZE_WHITESPACE
+            Traceback (most recent call last):
+            pyramids.base._errors.FileFormatNotSupportedError: The zip file
+            'x.zip' holds 2 file(s), so there is no member at index -1.
+            Available: ['1.asc', '2.asc']
 
             ```
         - A member that climbs out of the archive is refused, so the path
@@ -559,10 +578,20 @@ def _get_zip_path(path: str, file_i: int = 0):
 
     Args:
         path (str): Path to the zip file.
-        file_i (int): Index to the file inside the compressed file you want to read.
+        file_i (int): Index of the *file* member to read. Directory entries do
+            not consume an index, so on an archive holding `sub/` and
+            `sub/1.asc` index 0 is the file. `namelist()` counted the directory,
+            which both cost every later member an index and made index 0 a
+            directory GDAL cannot open.
 
     Returns:
         str: Path for GDAL to read the zipped file.
+
+    Raises:
+        FileFormatNotSupportedError: `file_i` is not an index into the
+            archive's files, or the member it names would be read from outside
+            the archive. Both refusals come from :func:`_member_at`, so a zip,
+            a tar and a gzip report them in the same words.
 
     Examples:
         - Internal Zip file path (one/multiple files inside the compressed file): if the path contains a zip but does not end with zip (compressed-file-name.zip/1.asc), so the path contains the internal path inside the zip file, so just add the prefix
@@ -615,17 +644,29 @@ def _get_zip_path(path: str, file_i: int = 0):
 
 
 def _get_gzip_path(path: str, file_i: int = 0):
-    """Get Zip Path.
+    """Get the ``/vsigzip/`` path for a gzip file, selecting a member.
 
     - Check if the given path contains a.gz in it.
     - If the path contains a gz but does not end with gz (xxxx.gz/1.asc), so the path contains the internal path inside the gz file, so just add the prefix.
-    - Anything else just add the prefix.
+    - Otherwise try to read it as a gzipped tar and name a member the way the
+      zip and tar handlers do. A plain gzip is a single stream with no member
+      list, which `tarfile.open` reports as a `ReadError`; then only index 0
+      means anything, and :func:`_only_member_suffix` refuses the rest.
 
     Args:
-        path (str): Path to the zip file.
+        path (str): Path to the gzip file.
+        file_i (int): Index of the *file* member to read, for a gzipped tar.
+            Directory entries do not consume an index. For a plain gzip only
+            0 is accepted.
 
     Returns:
         str: Path for GDAL to read the zipped file.
+
+    Raises:
+        FileFormatNotSupportedError: `file_i` is not an index into the
+            archive's files (from :func:`_member_at`), or the file is a single
+            stream and `file_i` is not 0 (from :func:`_only_member_suffix`), or
+            the member named would be read from outside the archive.
     """
     # get list of files inside the compressed file
     warnings.warn(
@@ -667,20 +708,33 @@ def _get_tar_path(path: str, file_i: int = 0):
       here, so there was no way to reach the second member of a tar at all.
       The listing walks the member headers and stops at the one asked for
       (:func:`_tar_file_members`), so a compressed tar is not inflated past it.
+    - The equivalence with the zip handler is about *indexing*: both count
+      files only, so the same `file_i` names the same file in a tar and a zip
+      built from one tree. It is **not** total. When the listing comes back
+      empty -- the archive is unreadable through Python, or holds no regular
+      file at all -- this hands GDAL the bare prefix, where a zip in the same
+      state refuses with `holds 0 file(s)`. That is deliberate for the
+      unreadable case (GDAL supports tar flavours Python does not, and owns the
+      "no such file" message), and the fileless case rides along with it rather
+      than being told apart; both end in a failed read either way.
 
     Args:
         path (str): Path to the tar file.
-        file_i (int): Index of the member to read. Defaults to the first, which
-            is what the zip handler does for an archive named without a member.
+        file_i (int): Index of the *file* member to read. Directory, symlink
+            and hardlink entries do not consume an index. Defaults to the
+            first, which is what the zip handler does for an archive named
+            without a member.
 
     Returns:
         str: Path for GDAL to read the tar file.
 
     Raises:
-        FileFormatNotSupportedError: `file_i` is past the end of the archive,
-            or the member it names would be read from outside the archive --
-            both refusals come from :func:`_member_at`, so a tar reports them
-            in the same words a zip does.
+        FileFormatNotSupportedError: `file_i` is not an index into the
+            archive's files -- past the end, or negative -- or the member it
+            names would be read from outside the archive. Both refusals come
+            from :func:`_member_at`, so a tar reports them in the same words a
+            zip does. An archive that lists no file at all is the exception:
+            the bare prefix goes to GDAL, so nothing is refused here.
 
     Examples:
         - A path that already names a member is only prefixed:

@@ -23,10 +23,16 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable, Iterable
 from functools import lru_cache
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import SplitResult, urlsplit, urlunsplit
 
 from pyramids.base._errors import OGCAPIError
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    # `base` must not import `xml.etree` at runtime just to name a parameter
+    # type; the annotation is a string under `from __future__ import
+    # annotations`, so the import is only ever needed by a type checker.
+    import xml.etree.ElementTree as ET
 
 logger = logging.getLogger(__name__)
 
@@ -522,11 +528,15 @@ def capabilities_url(endpoint: str, service: str, version: str | None) -> str:
     return url
 
 
-def exception_text(root: Any) -> str:
+def exception_text(root: ET.Element) -> str:
     """Extract the human-readable message from an OWS exception document.
 
     Args:
-        root: The parsed exception document's root element.
+        root: The parsed exception document's root element. Both callers hand
+            over an `xml.etree.ElementTree.Element`, which is what the original
+            two copies of this function each annotated; the type is named here
+            under `TYPE_CHECKING` so consolidating them did not widen it to
+            `Any`.
 
     Returns:
         str: The message, or `"no message provided"` when the document

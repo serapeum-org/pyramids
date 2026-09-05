@@ -119,6 +119,20 @@ def resolve_native_srs(
     GDAL reports no spatial reference when the server's advertised CRS is not in
     the PROJ database. The caller must then supply ``coverage_crs``.
 
+    Both branches return an SRS stamped with ``OAMS_TRADITIONAL_GIS_ORDER``, so a
+    caller reading ``.GetSpatialRef()`` off a WCS / WMS / OGC API result raster
+    gets lon/lat order whichever branch resolved it.
+
+    Note:
+        The ``coverage_crs`` branch resolves through
+        :func:`pyramids.base.crs.sr_from_user_input`, which round-trips the CRS
+        through pyproj. The resulting WKT keeps its root ``AUTHORITY`` node --
+        so ``GetAuthorityCode(None)``, and hence ``Dataset.epsg``, are unchanged
+        -- but loses the nested ones on the datum, spheroid, prime meridian and
+        unit. A read whose CRS came from an explicit ``coverage_crs`` therefore
+        reports a shorter ``.GetProjection()`` string than a raw
+        ``SetFromUserInput`` would have produced.
+
     Raises:
         CoverageError: The dataset has no CRS and no ``coverage_crs`` was given.
         ValueError: ``coverage_crs`` could not be interpreted.
@@ -131,8 +145,14 @@ def resolve_native_srs(
         # authority-compliant default -- so leaving it made the two branches
         # disagree, and the SRS on a WCS/WMS result raster then declared
         # traditional order or authority order depending only on which branch
-        # resolved it. `native_projwin`'s always_xy transformer assumes
-        # traditional throughout.
+        # resolved it.
+        #
+        # What consumes the stamp is `SetSpatialRef` on the result raster
+        # (`dataset/_wcs.py`), which carries the SRS *object* -- and with it the
+        # mapping -- onto what the caller gets back. It is not `native_projwin`:
+        # that sees the SRS only as `native_srs.ExportToWkt()`, and WKT does not
+        # encode the data-axis-to-SRS-axis mapping, so the stamp is invisible to
+        # it (a clone with the mapping flipped exports byte-identical WKT).
         result.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
     elif coverage_crs is None:
         raise CoverageError(
@@ -143,9 +163,12 @@ def resolve_native_srs(
     else:
         try:
             # `sr_from_user_input` rather than a bare SetFromUserInput: it
-            # stamps traditional axis order, matching the clone branch above
-            # and `native_projwin`'s always_xy transformer. Building it raw
-            # left a geographic `coverage_crs` in authority-compliant order.
+            # stamps traditional axis order, matching the clone branch above,
+            # so the SRS this hands to `SetSpatialRef` on the result raster
+            # declares lon/lat either way. Building it raw left a geographic
+            # `coverage_crs` in authority-compliant order. The cost is the WKT
+            # detail named in the docstring's Note: the nested AUTHORITY nodes
+            # do not survive the pyproj round-trip.
             result = sr_from_user_input(coverage_crs)
         except (RuntimeError, CRSError) as exc:
             raise ValueError(

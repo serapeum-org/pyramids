@@ -105,6 +105,44 @@ class TestTheMintedPath:
 
         assert first != second
 
+    @pytest.mark.parametrize(
+        "purpose",
+        ["../../escape", "sub/dir", "with space", ""],
+        ids=["traversal", "separator", "space", "empty"],
+    )
+    def test_a_purpose_that_is_not_an_identifier_is_refused(self, purpose: str):
+        """The documented constraint on `purpose` is enforced, not merely stated.
+
+        Args:
+            purpose: A purpose the docstring's "identifier characters" excludes.
+
+        Test scenario:
+            The docstring says the purpose is kept to identifier characters, and
+            nothing checked it, so `mint_vsimem("../../escape")` composed
+            `/vsimem/../../escape_<uuid>.tif`. `/vsimem` is a flat namespace, so
+            that is inert today — but a documented constraint nothing enforces is
+            one a caller is entitled to rely on and one a future `/vsimem`
+            handler could make matter.
+        """
+        with pytest.raises(ValueError):
+            mint_vsimem(purpose)
+
+    def test_an_identifier_purpose_is_accepted(self, tracked):
+        """The check must admit every purpose the package actually mints with.
+
+        Args:
+            tracked: Fixture releasing what the test mints.
+
+        Test scenario:
+            The four adopting sites pass `cog`, `orthorectify_dem`,
+            `dtype_probe` and `wcs_getcoverage`. A check that refused an
+            underscore would break all but the first.
+        """
+        path = mint_vsimem("orthorectify_dem")
+        tracked.append(path)
+
+        assert path.startswith("/vsimem/orthorectify_dem_"), path
+
 
 class TestTheMintedPathIsTracked:
     """The half every hand-rolled site forgot."""

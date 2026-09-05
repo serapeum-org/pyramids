@@ -125,12 +125,21 @@ def mint_vsimem(purpose: str, suffix: str = ".tif") -> str:
 
     Args:
         purpose: A short name for what the artefact is, used as the path
-            prefix so a listing is readable. Kept to identifier characters.
+            prefix so a listing is readable. Kept to identifier characters,
+            and checked -- the constraint was documented and unenforced, so
+            `mint_vsimem("../../escape")` composed
+            `/vsimem/../../escape_<uuid>.tif`. `/vsimem` is a flat namespace,
+            so that was inert; a documented constraint a caller may rely on
+            should not be one the code declines to hold.
         suffix: File extension, including the dot. Defaults to `".tif"`;
             pass `""` for a path GDAL should infer the format of.
 
     Returns:
         str: The minted path, already registered for cleanup at exit.
+
+    Raises:
+        ValueError: `purpose` is not a Python identifier, so it carries a path
+            separator, a traversal, whitespace, or nothing at all.
 
     Examples:
         - The purpose leads the name, so a listing says whose it is:
@@ -153,11 +162,24 @@ def mint_vsimem(purpose: str, suffix: str = ".tif") -> str:
             (None, None)
 
             ```
+        - A purpose that is a path rather than a name is refused:
+            ```python
+            >>> from pyramids.base._artifacts import mint_vsimem
+            >>> mint_vsimem("../../escape")  # doctest: +NORMALIZE_WHITESPACE
+            Traceback (most recent call last):
+            ValueError: purpose must be an identifier so it cannot compose a
+            path, got '../../escape'
+
+            ```
 
     See Also:
         register_vsimem: Tracks a path this did not mint.
         unregister_vsimem: Forgets one the caller has already unlinked.
     """
+    if not purpose.isidentifier():
+        raise ValueError(
+            f"purpose must be an identifier so it cannot compose a path, got {purpose!r}"
+        )
     path = f"/vsimem/{purpose}_{uuid.uuid4().hex}{suffix}"
     register_vsimem(path)
     return path

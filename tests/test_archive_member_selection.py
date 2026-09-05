@@ -212,13 +212,13 @@ class TestAMemberNameThatWouldLeaveTheArchiveIsRefused:
         )
 
     def test_a_member_of_nothing_but_dots_is_refused(self):
-        """`...` is not a name, and the allow-list cannot match one.
+        """`...` is not a name, and the deny-list matches it by construction.
 
         Test scenario:
-            The segment pattern excludes an all-dot segment by construction —
-            that is *why* `..` cannot match — rather than comparing against the
-            literal `".."`. A longer run of dots would slip past such a
-            comparison on any filesystem that folds it, so it is refused here.
+            The segment pattern names a segment of nothing but dots — that is
+            *why* `..` is caught — rather than comparing against the literal
+            `".."`. A longer run of dots would slip past such a comparison on
+            any filesystem that folds it, so it is refused here.
         """
         with pytest.raises(FileFormatNotSupportedError) as excinfo:
             _member_at("x.tar", ["..."], 0, "tar")
@@ -419,16 +419,17 @@ class TestALegitimateMemberNameStillOpens:
         ],
     )
     def test_it_comes_back_unchanged(self, member: str):
-        """An allow-list is only safe if it admits the ordinary names.
+        """A guard is only safe if it admits the ordinary names.
 
         Args:
             member: A member name a real archive plausibly carries.
 
         Test scenario:
-            The guard rebuilds the name from matched segments, so a character
-            missing from the allow-list would not raise — it would silently
-            change the name and open the wrong member, or none. Equality with
-            the input is what pins the admitted alphabet.
+            The guard rebuilds the name from the segments the deny-list
+            cleared, so a character it wrongly caught would not merely raise —
+            it could silently change the name and open the wrong member, or
+            none. Equality with the input is what pins that these names pass
+            through untouched.
         """
         resolved = _member_at("x.zip", [member], 0, "zip")
 
@@ -473,6 +474,29 @@ class TestALegitimateMemberNameStillOpens:
 
         assert resolved == "sub/file.asc", (
             f"a backslash-separated member resolved to {resolved!r}"
+        )
+
+    def test_the_rewrite_is_unconditional_so_a_literal_backslash_is_lost(self):
+        """The cost of the rewrite above, pinned rather than left implicit.
+
+        Test scenario:
+            A backslash is a legal character in a member name a POSIX archiver
+            wrote, and nothing in the name says whether it separates or is part
+            of the name. Rewriting it anyway is a deliberate choice — on
+            Windows `..\\..\\` is a traversal GDAL resolves, and refusing to
+            normalise would leave that unguarded — and the price is that a
+            member genuinely called `a\\b.tif` is looked for as `a/b.tif` and
+            so cannot be reached through `file_i` at all. This is asserted at
+            the helper rather than through a real archive because on Windows
+            it is unreproducible end to end: `zipfile`'s reader normalises
+            `os.sep` out of every name before `_member_at` ever sees it, so the
+            distinction only exists on a POSIX host.
+        """
+        resolved = _member_at("x.zip", ["a\\b.tif"], 0, "zip")
+
+        assert resolved == "a/b.tif", (
+            "a literal backslash must be rewritten like a separator, since the "
+            f"two cannot be told apart; got {resolved!r}"
         )
 
     def test_the_returned_name_is_rebuilt_from_the_matched_segments(self):
@@ -741,6 +765,7 @@ class TestNamesTheOldAllowListRefused:
             ("cjk", "\u5317\u4eac.tif"),
             ("greek", "\u03a9_flux.tif"),
             ("cyrillic", "\u0440\u0430\u0441\u0442\u0440.tif"),
+            ("arabic", "\u0645\u0635\u0631.tif"),
             ("hive partition", "year=2020/data.tif"),
             ("ampersand", "R&D.tif"),
             ("bang", "file!important.tif"),
@@ -751,14 +776,21 @@ class TestNamesTheOldAllowListRefused:
         ],
     )
     def test_it_comes_back_unchanged(self, label: str, member: str):
-        """Args: label: What the name exercises. member: The member name.
+        """Every script and character `_io.py` names as a regression, pinned.
+
+        Args:
+            label: What the name exercises.
+            member: The member name a real archive plausibly carries.
 
         Test scenario:
             The first version of this guard was an allow-list of ASCII
             punctuation, so every one of these was refused as "not a plain
-            name" -- a regression dressed as a security fix. Each is named in
-            the module comment as a reason the allow-list was wrong, so each
-            is pinned here.
+            name" -- a regression dressed as a security fix. `_io.py`'s comment
+            names accented, Cyrillic, Greek, CJK and Arabic filenames along
+            with `=`, `&`, `!`, `$`, `;` and `:`, so every one of those is a
+            case here: the list of regressions and the list of cases have to
+            stay the same list, or the comment records a promise the tests do
+            not keep.
         """
         resolved = _member_at("x.zip", [member], 0, "zip")
 
