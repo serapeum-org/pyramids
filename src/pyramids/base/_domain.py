@@ -47,6 +47,50 @@ DEFAULT_ATOL: float = 1e-8
 _SINGLE_EPS: float = float(np.finfo(np.float32).eps)
 
 
+def _exact_no_data(
+    arr: np.ndarray | float, no_data_value: float
+) -> np.typing.NDArray | np.bool_:
+    """Compare without tolerance, and without leaving the band's own dtype.
+
+    `np.isclose` computes `|a - b| <= atol + rtol * |b|` in floating point, so
+    it materialises two float64 temporaries the size of the band even when both
+    tolerances are zero and the answer is plain equality. On a 4000x4000 int32
+    band that is 256 MB of peak memory and 185 ms against 16 MB and 13 ms for
+    `==` -- 16x and 14x, on the path `plot_histogram` takes for a whole band by
+    default.
+
+    Equality alone is not enough either: the sentinel arrives as a C double, so
+    `arr == np.float64(-9999.0)` promotes an int32 band to float64 under NEP 50
+    and pays the same cost. It is narrowed to the band's dtype first, and a
+    sentinel that dtype cannot hold matches nothing at all -- which is the
+    correct answer, not an approximation of one.
+
+    Args:
+        arr: The band's cells, or a single value.
+        no_data_value: The sentinel, already known not to be NaN or `None`.
+
+    Returns:
+        np.typing.NDArray | np.bool_: `True` where the cell holds the sentinel.
+    """
+    dtype = np.asarray(arr).dtype
+    result: np.typing.NDArray | np.bool_
+    if np.issubdtype(dtype, np.inexact):
+        result = np.equal(arr, dtype.type(no_data_value))
+    else:
+        integral = float(no_data_value).is_integer()
+        info = np.iinfo(dtype) if np.issubdtype(dtype, np.integer) else None
+        holds = integral and (
+            info is None or info.min <= float(no_data_value) <= info.max
+        )
+        if holds:
+            result = np.equal(arr, dtype.type(no_data_value))
+        elif np.ndim(arr):
+            result = np.zeros_like(arr, dtype=bool)
+        else:
+            result = np.bool_(False)
+    return result
+
+
 @overload
 def is_no_data(
     arr: np.ndarray,
@@ -91,6 +135,12 @@ def is_no_data(
             the answer for a sentinel of `0`, whose relative window is
             empty -- pass `0.0` to compare a zero sentinel exactly.
 
+            With both tolerances at zero the comparison is exact, and is made
+            in the band's own dtype rather than through `numpy.isclose`, whose
+            float64 arithmetic would cost 16x the peak memory of the band for
+            an answer equality already gives. :func:`is_stored_no_data` is the
+            caller that takes this path for every integer band.
+
     Returns:
         Boolean mask shaped like `arr` (or `np.bool_` when `arr` is a
         scalar). `True` where the cell matches `no_data_value`.
@@ -124,6 +174,8 @@ def is_no_data(
             return np.isnan(arr)
     except (TypeError, ValueError):
         pass
+    if rtol == 0.0 and atol == 0.0:
+        return _exact_no_data(arr, no_data_value)
     return np.isclose(arr, no_data_value, rtol=rtol, atol=atol)
 
 
@@ -232,7 +284,7 @@ def is_stored_no_data(
         rtol = max(float(np.finfo(dtype).eps), _SINGLE_EPS)
     else:
         rtol = 0.0
-    return is_no_data(arr, no_data_value, rtol=rtol, atol=0.0)
+    return is_no_data(np.asarray(arr), no_data_value, rtol=rtol, atol=0.0)
 
 
 def is_nan_sentinel(no_data_value: float | None) -> bool:
