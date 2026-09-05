@@ -24,6 +24,11 @@ from pyramids import _io
 from pyramids.base._axes import AXIS_NAMES, X_AXIS_NAMES, Y_AXIS_NAMES
 from pyramids.base._errors import AlignmentError, ContainerRasterWarning, CRSError
 from pyramids.base._utils import (
+    # Re-exported, not used here. The dtype catalogue was defined in this module's
+    # import namespace before it moved down to `base`, and it is a public name in a
+    # public module, so `from pyramids.dataset.dataset import DTYPE_CONVERSION_DF`
+    # has to keep resolving for callers that already do it.
+    DTYPE_CONVERSION_DF,  # noqa: F401
     RGB_CHANNEL_INTERPS,
     gdal_dtype_name,
     gdal_to_numpy_type,

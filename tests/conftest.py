@@ -2,6 +2,7 @@ import gc
 import os
 import random
 import re
+import warnings
 from pathlib import Path
 from typing import Iterator, List, Tuple
 
@@ -351,31 +352,42 @@ def era5_image_internal_overviews_read_only_true(
 
 
 def _unlink_best_effort(path: Path) -> None:
-    """Delete ``path`` if this process can, and shrug when another one is holding it open.
+    """Delete ``path`` if this process can, and warn — rather than fail — when it cannot.
 
     Under ``pytest-xdist`` every worker runs the session-scoped sweep below against the *same*
-    tracked sidecar. The worker that draws ``tests/dataset/spatial/test_overviews.py`` keeps that
+    generated sidecar. The worker that draws ``tests/dataset/spatial/test_overviews.py`` keeps that
     ``.ovr`` open for the whole module (``era5_image`` is a module-scoped ``gdal.Dataset``), so a
     sibling worker's sweep loses the race and Windows answers ``PermissionError`` (WinError 32).
     Letting that escape would fail a *session-scoped* fixture, and pytest caches a fixture failure
     for its whole scope — one lost race would turn into an ERROR on every remaining test in that
-    worker. The sweep is hygiene, not a precondition, so a lost race is simply skipped: the worker
-    that owns the handle deletes the sidecar itself.
+    worker. The sweep is hygiene, not a precondition, so a lost race is not fatal.
+
+    It is not silent either. Swallowing it outright is how the serial case — a ``-k`` filtered or
+    interrupted run, where nobody else is going to delete the sidecar — stopped reporting that it
+    had left an artefact behind. The refusal is therefore warned about, and the sidecar is listed
+    in ``.gitignore`` so a leftover cannot dirty the working tree either way.
     """
     try:
         path.unlink(missing_ok=True)
-    except PermissionError:
-        pass
+    except PermissionError as exc:
+        warnings.warn(
+            f"could not remove the generated overview sidecar {path}: {exc}. Another handle is "
+            "still holding it open, so it is left on disk; it is gitignored and cannot dirty the "
+            "working tree.",
+            stacklevel=2,
+        )
 
 
 @pytest.fixture(scope="session", autouse=True)
 def clean_overview_around_session(era5_raster_path: str) -> Iterator[None]:
-    """Remove the era5 external overview sidecar before and after the session so it never lingers.
+    """Sweep the era5 external overview sidecar before and after the session so it rarely lingers.
 
-    Tests build a ``.ovr`` next to the committed era5 fixture. The per-test cleanup is best-effort
-    because on Windows the ``gdal.Dataset`` may still hold the sidecar open during teardown; this
-    session-scoped sweep runs once every handle is released, guaranteeing the tracked test-data
-    tree is clean even after an interrupted or partial run.
+    Tests build a ``.ovr`` next to the committed era5 fixture. That sidecar is *generated*, never
+    committed, and it is gitignored. Both ends of this sweep are best-effort: on Windows a
+    ``gdal.Dataset`` can still hold the sidecar open when the sweep runs, and under ``xdist`` a
+    sibling worker can be holding it, so neither the pre-sweep nor the post-sweep can promise the
+    file is gone. What is promised is that a leftover is *visible* — ``_unlink_best_effort`` warns
+    — and that it cannot show up as an untracked file after an interrupted or partial run.
     """
     ovr_path = Path(f"{era5_raster_path}.ovr")
     _unlink_best_effort(ovr_path)
