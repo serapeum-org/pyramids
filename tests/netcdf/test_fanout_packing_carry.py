@@ -106,7 +106,7 @@ class TestTheFanOutCarriesThePacking:
         )
 
     @pytest.mark.parametrize("name", ["z", "q"])
-    def test_both_spellings_of_the_request_unpack_alike(self, packed, name: str):
+    def test_the_in_memory_container_crop_unpacks_alike(self, packed, name: str):
         """The user-visible symptom: a hundredfold disagreement.
 
         Args:
@@ -128,6 +128,65 @@ class TestTheFanOutCarriesThePacking:
             f"{name}: {np.asarray(per_variable).ravel()[:4]} != "
             f"{np.asarray(via_container).ravel()[:4]}"
         )
+
+    @pytest.mark.parametrize("name", ["z", "q"])
+    def test_writing_to_a_path_unpacks_alike_too(self, packed, name: str, tmp_path):
+        """The second spelling, which the first test's name once claimed.
+
+        Args:
+            packed: The packed fixture.
+            name: The variable to compare.
+            tmp_path: Where the streamed result is written.
+
+        Test scenario:
+            Passing `path=` sends the crop down `_stream_apply_to_file`, which
+            builds its variable specs from the store's attributes -- and GDAL
+            keeps `scale_factor` / `add_offset` outside those, so the streamed
+            file declared no packing and every value came back shifted by the
+            factor. Adding an argument that only says *where to put the result*
+            changed the numbers a hundredfold, and the test that was supposed
+            to catch it exercised the in-memory arm twice.
+        """
+        mask = _full_extent_mask(packed, name)
+
+        per_variable = packed.get_variable(name).crop(mask).read_array(unpack=True)
+        streamed = (
+            packed.crop(mask, path=str(tmp_path / f"{name}.nc"))
+            .get_variable(name)
+            .read_array(unpack=True)
+        )
+
+        assert np.allclose(np.asarray(per_variable), np.asarray(streamed)), (
+            f"{name}: path= shifted the values -- {np.asarray(per_variable).ravel()[:4]}"
+            f" != {np.asarray(streamed).ravel()[:4]}"
+        )
+
+    @pytest.mark.parametrize("name", ["z", "q"])
+    def test_the_streamed_result_declares_the_packing(
+        self, packed, name: str, tmp_path
+    ):
+        """The mechanism, not just the values.
+
+        Args:
+            packed: The packed fixture.
+            name: The variable to check.
+            tmp_path: Where the streamed result is written.
+
+        Test scenario:
+            The values agreeing is what a user sees; the written file carrying
+            `scale_factor` / `add_offset` is why. Asserting the slots directly
+            means a future change that fixes the numbers by unpacking on write
+            -- which would double-apply on the next read -- fails here.
+        """
+        mask = _full_extent_mask(packed, name)
+        expected = packed.get_variable(name)
+
+        streamed = packed.crop(mask, path=str(tmp_path / f"{name}.nc")).get_variable(
+            name
+        )
+
+        assert streamed._scale == expected._scale
+        assert streamed._offset == expected._offset
 
     @pytest.mark.parametrize("name", ["z", "q"])
     def test_the_stored_array_is_still_raw(self, packed, name: str):

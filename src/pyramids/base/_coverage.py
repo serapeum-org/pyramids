@@ -357,8 +357,12 @@ def translate_to_mem(
 
     The window itself is `options`: ``projWin`` bounds the area, ``width`` / ``height``
     (or ``xRes`` / ``yRes``) bound the allocation, ``resampleAlg`` picks the kernel.
-    ``format="MEM"`` is set here and is not overridable. Bounding the read is the
-    **caller's** job: pass the intended size through :func:`read_size` first, which is
+    ``format="MEM"`` is set here, and passing it is refused rather than silently
+    colliding. Bounding the read is the **caller's** job, and the callers do not
+    all bound it the same way -- the WCS and OGC coverage reads size through
+    :func:`read_size`, while the WMS GetMap path sizes through its own
+    ``_output_size`` with no pixel ceiling, because the server has already been
+    told the size it should render. Where :func:`read_size` is used, it is
     where the :data:`MAX_PX` ceiling is enforced.
 
     Args:
@@ -419,10 +423,22 @@ def translate_to_mem(
 
             ```
     """
-    try:
-        mem = gdal.Translate(
-            "", src, options=gdal.TranslateOptions(format="MEM", **options)
+    if "format" in options:
+        # Refused by name. It used to be a second `format=` on the same call, so
+        # a caller passing one got `TranslateOptions() got multiple values for
+        # keyword argument 'format'` -- a TypeError naming an internal call,
+        # where the docstring promised a refusal.
+        raise ValueError(
+            "format is fixed to 'MEM' by translate_to_mem; the result is an "
+            "in-memory dataset by construction. Write it out afterwards if you "
+            "need another format."
         )
+    # Built outside the guard: a bad keyword here is the caller's mistake, and
+    # re-branding it as a service error would blame the server for it. Only the
+    # translate itself is guarded.
+    translate_options = gdal.TranslateOptions(format="MEM", **options)
+    try:
+        mem = gdal.Translate("", src, options=translate_options)
     except RuntimeError as exc:
         raise error(f"{action} failed for {subject}: {exc}") from exc
     if mem is None:

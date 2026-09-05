@@ -331,8 +331,8 @@ def _member_at(path: str, members: list[str], file_i: int, kind: str) -> str:
             >>> _member_at("x.tar", ["../../etc/passwd"], 0, "tar")  # doctest: +NORMALIZE_WHITESPACE
             Traceback (most recent call last):
             pyramids.base._errors.FileFormatNotSupportedError: The tar file
-            'x.tar' holds a member whose path escapes it or is not a plain name
-            ('../../etc/passwd'); reading it would leave the archive.
+            'x.tar' holds a member whose path escapes it or carries a control
+            character ('../../etc/passwd'); reading it would leave the archive.
 
             ```
         - So is an absolute one, in either platform's spelling:
@@ -389,7 +389,15 @@ def _member_at(path: str, members: list[str], file_i: int, kind: str) -> str:
         raise FileFormatNotSupportedError(
             f"The {kind} file {path!r} holds a member with an empty name."
         )
-    return "/".join(segments)
+    # A zip lists a directory entry with a trailing slash, and that slash is how
+    # GDAL tells `/vsizip/x.zip/subdir/` (a directory to look inside) from
+    # `/vsizip/x.zip/subdir` (a file called `subdir`). Splitting and rejoining
+    # drops it, so it is put back -- the validation above has already run over
+    # every segment either way.
+    rejoined = "/".join(segments)
+    if candidate.endswith("/"):
+        rejoined += "/"
+    return rejoined
 
 
 def _only_member_suffix(path: str, file_i: int, kind: str) -> str:

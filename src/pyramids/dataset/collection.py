@@ -2593,9 +2593,18 @@ class DatasetCollection:
                 of the collection's dtype when `datasets` is empty.
         """
         if not datasets:
-            return np.empty(
-                (0, self.rows, self.columns), dtype=np.dtype(self._meta.dtype)
-            )
+            # Shaped to match what a non-empty read of the same request would
+            # return, so a caller that branches on rank is not told its bands
+            # are wrong when its collection is merely empty: `band=None` on a
+            # multi-band collection produces `(time, bands, rows, cols)`, so the
+            # empty form of that is 4-D, not 3-D. The RGB animation used to
+            # report "got 3-D ... pass rgb only with a multi-band temporal
+            # stack" for an empty collection, which describes a different
+            # problem entirely.
+            shape: tuple[int, ...] = (0, self.rows, self.columns)
+            if band is None and self.base.band_count > 1:
+                shape = (0, self.base.band_count, self.rows, self.columns)
+            return np.empty(shape, dtype=np.dtype(self._meta.dtype))
         return np.stack([ds.read_array(band=band) for ds in datasets], axis=0)
 
     def head(self, n: int = 5) -> np.typing.NDArray:

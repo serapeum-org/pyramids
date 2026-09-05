@@ -1072,8 +1072,17 @@ class IO(_Engine["Dataset"]):
         window_args = tuple(window) if window is not None else ()
         if band is None and window is None and self._ds.band_count > 1:
             # One GDAL call for the whole cube, which the per-band stack below
-            # cannot match. Kept as its own branch rather than folded into the
-            # helper: it is a real optimisation, not a spelling difference.
+            # cannot match, so it is kept as its own branch rather than folded
+            # into the helper.
+            #
+            # The two are not interchangeable, and not only in cost: on a
+            # dataset whose bands have *different* dtypes, `ReadAsArray()` picks
+            # one buffer type for all of them while the per-band stack promotes
+            # through numpy, so `Byte + Float64` comes back `float32` here and
+            # `float64` there -- and a value like `1234567890.1234567` reads
+            # back as `1234567936.0`. That divergence predates this helper and
+            # is unchanged by it; it is recorded here because the branch reads
+            # like a pure optimisation and is not one.
             arr = handle.ReadAsArray()
         else:
             arr = _stack_bands(

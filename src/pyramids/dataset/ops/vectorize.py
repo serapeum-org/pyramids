@@ -121,10 +121,12 @@ def rasterize_features(
     # integer value.
     if np.issubdtype(numpy_dtype, np.integer) and is_nan_sentinel(no_data_value):
         # Through the shared predicate rather than a local `np.isnan` in a
-        # try/except: `is_nan_sentinel` answers for `None` as well as `nan`,
-        # and swallows the same TypeError/ValueError for a value that is
-        # neither. The two spellings agreed here, but only by coincidence --
-        # this one treated `None` as "not NaN" because `np.isnan(None)` raises.
+        # try/except. The two agree on everything this call site can actually
+        # receive: `_resolve_raster_geometry` resolves the sentinel to `np.nan`
+        # or to the class default before it gets here, never to `None`. So this
+        # is defence in depth, not a behaviour change -- it matters only if that
+        # resolution ever starts passing `None` through, which the local
+        # `np.isnan` would have reported as "not NaN" because it raises on it.
         no_data_value = dataset_cls.default_no_data_value
 
     bands_count = 1 if not isinstance(column_name, list) else len(column_name)
