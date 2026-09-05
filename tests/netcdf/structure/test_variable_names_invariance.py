@@ -233,17 +233,24 @@ class TestTheCfClassificationIsApplied:
         assert array not in dataset.variable_names
         assert array in dataset._readable_variable_names()
 
-    def test_the_readable_set_is_a_superset_of_the_enumeration(self):
-        """The relationship between the two, stated once.
+    def test_the_readable_set_is_a_strict_superset_of_the_enumeration(self):
+        """The relationship between the two, stated as content rather than shape.
 
         Test scenario:
-            Every enumerated data variable must also be readable; the reverse
-            does not hold. A readable set that dropped an enumerated name would
-            make `get_variable` reject something `variable_names` advertised.
+            `_readable_variable_names` starts from `variable_names`, so a
+            subset assertion holds for any implementation and pins nothing.
+            What is worth pinning is *which* arrays the wider list adds: the
+            three CF bounds arrays this fixture declares, and nothing else. A
+            readable set that stopped scanning the store, or an enumeration
+            that started sweeping the bounds back in, both fail here.
         """
         dataset = NetCDF.read_file(str(DATA / "cf__7v__1d3-2d3-3d1__y-asc.nc"))
 
-        assert set(dataset.variable_names) <= set(dataset._readable_variable_names())
+        enumerated = set(dataset.variable_names)
+        readable = set(dataset._readable_variable_names())
+
+        assert enumerated == {"tos"}
+        assert readable - enumerated == {"lat_bnds", "lon_bnds", "time_bnds"}
 
     def test_a_classic_mode_file_still_enumerates_its_variables(self):
         """The CF list is empty in classic mode, so the store answers instead.
@@ -270,17 +277,35 @@ class TestOperationsCarryTheArraysTheyDoNotTransform:
     actually overlaps that fixture's valid data.
     """
 
-    def test_an_operation_carries_every_array_it_does_not_transform(self):
-        """Nothing is silently dropped, whatever dimensions it shares.
+    def test_a_crop_carries_every_array_it_does_not_transform(self):
+        """Nothing is silently dropped by a real operation, run here.
 
         Test scenario:
-            An earlier rule also excluded any array indexed by a dimension the
+            The predecessor of this test compared `_carryable_aux_names` with
+            the list it is a comprehension over and never called `crop` at
+            all, so it held for any implementation. This runs the operation
+            and compares the result's arrays with the source's: the bounds
+            arrays share the `lat` / `lon` dimensions the crop reshapes, which
+            is exactly the case an over-broad carry filter used to drop.
+        """
+        dataset = NetCDF.read_file(str(DATA / "cf__7v__1d3-2d3-3d1__y-asc.nc"))
+        before = set(dataset._readable_variable_names())
+
+        cropped = dataset.crop(bbox=[20, -40, 120, 40], epsg=4326)
+
+        assert before == set(cropped._readable_variable_names())
+
+    def test_a_staggered_array_is_not_dropped_for_sharing_a_dimension(self):
+        """The rule that made the earlier filter unacceptable, pinned by name.
+
+        Test scenario:
+            An earlier rule excluded any array indexed by a dimension the
             operation reshapes, to stop a `lat_bnds(lat, nv)` being copied
             verbatim into a cropped result where it describes the source's
             axis. That filter dropped real data: a WRF store's staggered `U` /
-            `V` and a CAM store's `gw` share one spatial dimension and vanished
-            from the output with no warning. Carrying a possibly-stale bounds
-            array is the lesser fault, and is what the base commit did.
+            `V` share one spatial dimension with the gridded variables and
+            vanished from the output with no warning. Naming them is what
+            fails if the filter comes back.
         """
         dataset = NetCDF.read_file(
             str(DATA / "none__17v__1d1-2d5-3d6-4d5__stag-str.nc")
@@ -288,9 +313,10 @@ class TestOperationsCarryTheArraysTheyDoNotTransform:
         rg = dataset._working_group()
         spatial = dataset._spatial_variable_names(rg)
 
-        reachable = set(spatial) | set(dataset._carryable_aux_names(rg, spatial))
+        carryable = set(dataset._carryable_aux_names(rg, spatial))
 
-        assert set(dataset._readable_variable_names()) <= reachable
+        assert {"U", "V"} <= carryable
+        assert {"MAPFAC_U", "MAPFAC_V"} <= carryable
 
 
 class TestCarryableAuxNames:
@@ -303,12 +329,17 @@ class TestCarryableAuxNames:
     rather than the result's.
     """
 
-    def test_the_transformed_variables_are_not_carried(self):
+    def test_the_two_lists_split_the_store_the_way_they_claim(self):
         """An operation must not copy what it is busy rewriting.
 
         Test scenario:
-            The spatial variables are the operation's output; listing them as
-            aux would write each one twice.
+            Disjointness alone is guaranteed by the comprehension's own `if`
+            and pins nothing, so the split is asserted by content instead:
+            `tos` is the only gridded array, and the three bounds arrays are
+            the ones carried through untouched. A `_spatial_variable_names`
+            that started treating a bounds array as gridded (it has no `(y, x)`
+            pair, so it must not) fails on the first line; one that stopped
+            scanning the readable superset fails on the second.
         """
         dataset = NetCDF.read_file(str(DATA / "cf__7v__1d3-2d3-3d1__y-asc.nc"))
         rg = dataset._working_group()
@@ -316,7 +347,8 @@ class TestCarryableAuxNames:
 
         carryable = dataset._carryable_aux_names(rg, spatial)
 
-        assert not set(carryable) & set(spatial)
+        assert spatial == ["tos"]
+        assert sorted(carryable) == ["lat_bnds", "lon_bnds", "time_bnds"]
 
     def test_a_bounds_array_is_carried_rather_than_dropped(self):
         """The lesser of two faults, and the one the base commit chose.
@@ -357,12 +389,14 @@ class TestCarryableAuxNames:
 
         assert "expver" in carryable
 
-    def test_it_is_a_subset_of_what_can_be_read(self):
+    def test_every_carried_name_is_one_the_reader_accepts(self):
         """Nothing may be carried that the store cannot hand back.
 
         Test scenario:
-            Every name returned has to be one `get_variable` accepts, or the
-            copy step would fail on a name the rule invented.
+            Comparing the returned list with the list it is a comprehension
+            over says nothing. What the carry loop actually needs is that
+            `get_variable` resolves each name, because that is the call it
+            makes -- so the reader is exercised here rather than assumed.
         """
         dataset = NetCDF.read_file(str(DATA / "cf__12v__1d4-2d5-3d2-4d1__y-asc.nc"))
         rg = dataset._working_group()
@@ -371,7 +405,9 @@ class TestCarryableAuxNames:
             rg, dataset._spatial_variable_names(rg)
         )
 
-        assert set(carryable) <= set(dataset._readable_variable_names())
+        assert sorted(carryable) == ["lat_bnds", "lon_bnds", "time_bnds"]
+        for name in carryable:
+            assert dataset.get_variable(name) is not None, name
 
 
 class TestAncillaryArraysSurviveAnOperation:

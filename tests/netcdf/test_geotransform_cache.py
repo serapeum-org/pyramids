@@ -40,17 +40,27 @@ class TestTheDerivedGeotransformIsCached:
 
         assert all(tuple(variable.geotransform) == first for _ in range(5))
 
-    def test_the_transform_property_agrees_with_it(self):
-        """`transform` reads this property, so the two cannot diverge.
+    def test_the_transform_property_goes_through_the_memo(self):
+        """Reading `transform` populates the derivation cache, so it used it.
 
         Test scenario:
-            `RasterBase.transform` was changed to read `geotransform` rather
-            than the cached `_geotransform` attribute, which is what made the
-            cost visible. The two must still describe the same grid.
+            Asserting `transform == geotransform` cannot fail -- `transform`
+            is `GeoTransform(*self.geotransform)` -- and the "not the
+            construction-time cache" form has no bite on a *variable*, whose
+            `_geotransform` GDAL has already corrected to the right value (the
+            container is where the two differ, and
+            `test_transform_matches_geotransform.py` pins that for every
+            fixture). What is left to pin here, and what this file is about, is
+            that `transform` reads the memoised property rather than reaching
+            past it to `_geotransform`: bypassing it would put the per-point
+            coordinate re-read straight back.
         """
         variable = NetCDF.read_file(str(SOURCE)).get_variable("temperature")
+        assert variable._derived_geotransform is None, "the cache started warm"
 
-        assert tuple(variable.transform) == tuple(variable.geotransform)
+        _ = variable.transform
+
+        assert variable._derived_geotransform is not None
 
     def test_it_is_derived_from_the_coordinates_not_the_gdal_fallback(self):
         """The cache must hold the derived value, not GDAL's identity.
