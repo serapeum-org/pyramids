@@ -68,6 +68,15 @@ Y_AXIS_NAMES_ORDERED = (
 # family: ordering the two lists alone does not stop it pairing a projected `x`
 # with a geographic `lat`, which produces a geotransform measured in metres
 # along one axis and degrees along the other, under a single CRS.
+#
+# *Between* families the order is load-bearing, as above. *Within* one it is
+# not: the spellings are aliases for the same axis in the same units, so which
+# is taken changes the coordinate's name and nothing about the grid. That makes
+# the order inside a family a free choice, and it is made once here -- shortest
+# first -- rather than per reader. It is worth naming because it is a reversal:
+# the COG facade searched `("x", "longitude", "lon")`, so a `DataArray`
+# carrying both `lon` and `longitude` used to resolve to the long spelling and
+# now resolves to the short one.
 AXIS_NAME_FAMILIES = (
     (("x", "xc", "xdim", "x_dim"), ("y", "yc", "ydim", "y_dim")),
     (("easting", "east"), ("northing", "north")),

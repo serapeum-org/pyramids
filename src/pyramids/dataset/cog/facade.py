@@ -190,6 +190,15 @@ def _first_1d_coord(da: Any, names: tuple[str, ...]) -> str | None:
     curvilinear store's 2-D `nav_lon` / `nav_lat` carry known names but not that
     shape, so they fall through to the caller's explicit error instead.
 
+    This reader kept its own three names per axis, `("x", "longitude", "lon")`,
+    and now takes the shared vocabulary, where the geographic family reads
+    `("lon", "long", "longitude", "nav_lon")`. An array carrying both `lon` and
+    `longitude` therefore resolves to `lon` where it used to resolve to
+    `longitude`. The two name one axis in one unit system, so the geotransform
+    is the same either way and only the reported coordinate name moves; the
+    ordering that does change a grid is the one *between* families, which the
+    shared list preserves.
+
     Args:
         da: The labeled `DataArray` being converted.
         names: Candidate coordinate names in preference order.

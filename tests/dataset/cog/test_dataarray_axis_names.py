@@ -68,6 +68,26 @@ def _utm_grid_with_degree_aliases():
     )
 
 
+def _grid_with_both_spellings():
+    """A geographic grid carrying `lon`/`lat` and `longitude`/`latitude` alike.
+
+    Returns:
+        The 4x6 DataArray, whose axes answer to either spelling.
+    """
+    x = np.linspace(3.0, 8.0, 6)
+    y = np.linspace(50.0, 47.0, 4)
+    return xr.DataArray(
+        np.arange(24, dtype="float32").reshape(4, 6),
+        dims=("lat", "lon"),
+        coords={
+            "lat": y,
+            "lon": x,
+            "latitude": ("lat", y),
+            "longitude": ("lon", x),
+        },
+    )
+
+
 class TestFirstOneDimensionalCoordinate:
     """The lookup itself, without building a whole dataset."""
 
@@ -339,3 +359,36 @@ class TestBothAxesComeFromOneFamily:
 
         assert family_x == list(X_AXIS_NAMES_ORDERED)
         assert family_y == list(Y_AXIS_NAMES_ORDERED)
+
+
+class TestBothGeographicSpellingsOnOneArray:
+    """The within-family order is a reversal, so it is pinned rather than left."""
+
+    @needs_xarray
+    def test_the_short_spelling_wins(self):
+        """`lon` beats `longitude`, where this reader used to prefer the long one.
+
+        Test scenario:
+            The reader's own list was `("x", "longitude", "lon")`; the shared
+            geographic family is `("lon", "long", "longitude", "nav_lon")`. An
+            array carrying both therefore resolves to `lon` now and resolved to
+            `longitude` before -- the one behaviour change the shared
+            vocabulary makes to this reader that is not a widening.
+        """
+        assert _first_1d_coord_pair(_grid_with_both_spellings()) == ("lon", "lat")
+
+    @needs_xarray
+    def test_the_georeferencing_is_the_same_either_way(self):
+        """Which alias wins changes the label, not the grid.
+
+        Test scenario:
+            The two spellings name one axis in one unit system, which is what
+            makes the within-family order a free choice: the same array read
+            under either alias produces the same geotransform. The order that
+            does change a grid is the one *between* families -- metres against
+            degrees -- and that one is unchanged.
+        """
+        both = _dataarray_to_dataset(_grid_with_both_spellings(), 4326, None)
+        long_only = _dataarray_to_dataset(_grid("longitude", "latitude"), 4326, None)
+
+        assert both.geotransform == long_only.geotransform
