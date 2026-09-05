@@ -25,7 +25,7 @@ from pyramids.base._axes import AXIS_NAMES, X_AXIS_NAMES, Y_AXIS_NAMES
 from pyramids.base._errors import AlignmentError, ContainerRasterWarning, CRSError
 from pyramids.base._utils import (
     RGB_CHANNEL_INTERPS,
-    gdal_to_numpy_dtype,
+    gdal_dtype_name,
     gdal_to_numpy_type,
     numpy_to_gdal_dtype,
 )
@@ -2772,8 +2772,23 @@ class Dataset(RasterBase):
 
     @property
     def dtype(self) -> list[str]:
-        """List of the data Type of each band as strings."""
-        return [gdal_to_numpy_dtype(code) for code in self.gdal_dtype]
+        """The data type of each band, as a string.
+
+        numpy's spelling wherever numpy has one -- so a Byte band reports
+        `uint8`, which is what STAC's `raster:bands[].data_type` wants and what
+        this branch changed it to. GDAL's complex-integer and complex-half
+        types have no numpy name (numpy's narrowest complex is a pair of
+        float32), so those keep the catalog's own spelling rather than all
+        collapsing onto `complex64` and losing which type the band is.
+
+        Returns:
+            list[str]: One name per band, in band order.
+
+        See Also:
+            gdal_dtype: The raw GDAL type constants these are derived from.
+            pyramids.base._utils.gdal_dtype_name: The per-code mapping.
+        """
+        return [gdal_dtype_name(code) for code in self.gdal_dtype]
 
     @classmethod
     def read_file(

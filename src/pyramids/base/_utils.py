@@ -547,6 +547,103 @@ def ogr_to_numpy_dtype(dtype_code: int):
     return result_dtype
 
 
+def _ambiguous_numpy_names() -> frozenset[str]:
+    """The numpy dtype names that more than one GDAL type maps onto.
+
+    Derived from the catalog rather than listed, so adding a row cannot make a
+    name ambiguous without this noticing. Today the only one is `complex64`:
+    `CInt16`, `CInt32`, `CFloat16` and `CFloat32` all share it, because numpy
+    has no complex type whose components are integers or half-floats.
+
+    Returns:
+        frozenset[str]: Names that cannot identify a GDAL type on their own.
+    """
+    counts: dict[str, int] = {}
+    for numpy_type in DTYPE_CONVERSION_DF["numpy"]:
+        name = getattr(numpy_type, "__name__", None)
+        if name is not None:
+            counts[name] = counts.get(name, 0) + 1
+    return frozenset(name for name, count in counts.items() if count > 1)
+
+
+# Names that do not identify a GDAL type on their own, so `gdal_dtype_name`
+# reports the catalog's spelling instead. Computed once, from the table.
+_AMBIGUOUS_NUMPY_NAMES = _ambiguous_numpy_names()
+
+
+def gdal_dtype_name(code: int) -> str:
+    """The reportable name of a GDAL band type, numpy's where numpy has one.
+
+    `Dataset.dtype` used to read the catalog's `name` column, which spells the
+    types GDAL's own way (`byte`, `complex-int16`). Moving it to
+    :func:`gdal_to_numpy_dtype` fixed a real problem -- `byte` is not a numpy
+    name, and `uint8` is what STAC's `raster:bands[].data_type` wants -- but it
+    flattened a divergence the `name` column existed to hold.
+
+    numpy has no complex type whose components are integers or half-floats, so
+    `CInt16`, `CInt32`, `CFloat16` and `CFloat32` all map onto `complex64`.
+    Reporting that name loses which of them the band actually is: `Dataset.dtype` could no
+    longer tell a `CInt16` raster from a `CFloat32` one, the STAC field it
+    feeds could not either, and feeding the answer back through
+    :func:`numpy_to_gdal_dtype` -- which accepts a string -- returned `CInt16`
+    for a `CFloat32` raster where it used to raise.
+
+    So numpy's name is used exactly where it is faithful, and the catalog's
+    where it is not.
+
+    Args:
+        code: A GDAL band type constant, as `Dataset.gdal_dtype` reports.
+
+    Returns:
+        str: The numpy dtype name for a type numpy can express, else the
+            catalog's own name for it.
+
+    Raises:
+        ValueError: `code` is not in the catalog.
+
+    Examples:
+        - An ordinary type reports its numpy name, which is the change this
+          branch made deliberately:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.base._utils import gdal_dtype_name
+            >>> gdal_dtype_name(gdal.GDT_Byte)
+            'uint8'
+
+            ```
+        - A complex type numpy can express reports numpy's name too:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.base._utils import gdal_dtype_name
+            >>> gdal_dtype_name(gdal.GDT_CFloat64)
+            'complex128'
+
+            ```
+        - The four GDAL types sharing numpy's `complex64` keep the names
+          that tell them apart:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.base._utils import gdal_dtype_name
+            >>> gdal_dtype_name(gdal.GDT_CInt16), gdal_dtype_name(gdal.GDT_CFloat32)
+            ('complex-int16', 'complex-float32')
+
+            ```
+    """
+    row = DTYPE_CONVERSION_DF.loc[DTYPE_CONVERSION_DF["gdal"] == code]
+    if row.empty:
+        # The same exception `gdal_to_numpy_dtype` raises for an unknown code,
+        # so a caller that already handles one handles both.
+        raise ValueError(f"GDAL data type {code} is not in the conversion catalog.")
+    numpy_name = gdal_to_numpy_dtype(code)
+    # An ambiguous numpy name does not say which GDAL type the band is, and
+    # feeding it back through `numpy_to_gdal_dtype` resolves to whichever row
+    # comes first -- `CInt16` for every one of the four sharing `complex64`.
+    # The catalog's own name is the only spelling that survives the round trip.
+    return (
+        str(row["name"].iloc[0]) if numpy_name in _AMBIGUOUS_NUMPY_NAMES else numpy_name
+    )
+
+
 def gdal_to_numpy_dtype(dtype: int) -> str:
     """Convert GDAL dtype into numpy dtype.
 
