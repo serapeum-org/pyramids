@@ -17,7 +17,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from pyramids.dataset.ops._geobox_zarr import _cf_referenced_names, detect_data_var
+from pyramids.dataset.ops._geobox_zarr import (
+    _attrs_reader,
+    _cf_referenced_names,
+    detect_data_var,
+)
 
 try:
     import zarr
@@ -261,7 +265,9 @@ class TestWhatCountsAsReferenced:
             },
         )
 
-        referenced = _cf_referenced_names(group, list(group.array_keys()))
+        referenced = _cf_referenced_names(
+            sorted(group.array_keys()), _attrs_reader(group)
+        )
 
         assert referenced == {
             "time_bnds",
@@ -286,7 +292,10 @@ class TestWhatCountsAsReferenced:
         """
         group = _store(tmp_path, {"sst": (6, 8), "nav_lat": (6, 8)})
 
-        assert _cf_referenced_names(group, list(group.array_keys())) == set()
+        assert (
+            _cf_referenced_names(sorted(group.array_keys()), _attrs_reader(group))
+            == set()
+        )
 
 
 class TestTheRuleOrderSurvivedTheSingleReturnRewrite:
@@ -384,7 +393,9 @@ class TestMalformedCfAttributesAreIgnoredNotFatal:
         group = _store(tmp_path, {"tas": (4, 6), "aux": (4, 6)})
         group["tas"].attrs.update({"coordinates": value})
 
-        referenced = _cf_referenced_names(group, list(group.array_keys()))
+        referenced = _cf_referenced_names(
+            sorted(group.array_keys()), _attrs_reader(group)
+        )
 
         assert referenced == set(), f"a {type(value).__name__} was read as a reference"
 
@@ -419,6 +430,8 @@ class TestMalformedCfAttributesAreIgnoredNotFatal:
         """
         group = _store(tmp_path, {"tas": (4, 6)}, {"tas": {"cell_measures": "area:"}})
 
-        referenced = _cf_referenced_names(group, list(group.array_keys()))
+        referenced = _cf_referenced_names(
+            sorted(group.array_keys()), _attrs_reader(group)
+        )
 
         assert referenced == set(), f"expected no references, got {referenced}"

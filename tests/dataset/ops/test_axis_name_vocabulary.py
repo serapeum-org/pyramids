@@ -508,3 +508,200 @@ class TestTheEarlierBranchesOfDetectDataVar:
         )
 
         assert detect_data_var(group) == "east"
+
+
+class _ProxyArray:
+    """A zarr array that records every read of its `attrs`.
+
+    Args:
+        array: The real array to delegate to.
+        counts: The shared tally of `attrs` reads, keyed by array name.
+        name: This array's name in the group.
+    """
+
+    def __init__(self, array, counts: dict[str, int], name: str):
+        self._array = array
+        self._counts = counts
+        self._name = name
+
+    @property
+    def attrs(self):
+        """The array's attributes, counting the read.
+
+        Returns:
+            The delegate's attributes.
+        """
+        self._counts[self._name] = self._counts.get(self._name, 0) + 1
+        return self._array.attrs
+
+    @property
+    def ndim(self) -> int:
+        """The delegate's rank.
+
+        Returns:
+            int: Number of dimensions.
+        """
+        return self._array.ndim
+
+
+class _ProxyGroup:
+    """A zarr group with a fixed listing order and a metadata-read tally.
+
+    `detect_data_var` takes any object that answers `array_keys`, `in` and
+    `[name]`, so this stands in for a group. A real store's listing order is
+    neither promised nor stable -- `MemoryStore` reorders it per process, which
+    is what makes the defect this pins invisible to a test that uses one -- so
+    the order is stated here instead of hoped for.
+
+    Args:
+        group: The real group to delegate to.
+        order: The order `array_keys` reports its members in.
+    """
+
+    def __init__(self, group, order: tuple[str, ...]):
+        self._group = group
+        self._order = order
+        self.counts: dict[str, int] = {}
+
+    def array_keys(self):
+        """The member names, in this proxy's fixed order.
+
+        Returns:
+            tuple[str, ...]: The names as given at construction.
+        """
+        return self._order
+
+    def __contains__(self, name: str) -> bool:
+        """Whether the delegate holds `name`.
+
+        Args:
+            name: The member name to test.
+
+        Returns:
+            bool: True when the delegate holds it.
+        """
+        return name in self._group
+
+    def __getitem__(self, name: str) -> _ProxyArray:
+        """The named member, wrapped so its `attrs` reads are counted.
+
+        Args:
+            name: The member name.
+
+        Returns:
+            _ProxyArray: The wrapped member.
+        """
+        return _ProxyArray(self._group[name], self.counts, name)
+
+
+def _cf_group(names: tuple[str, ...], declared: tuple[str, ...] = ()):
+    """A zarr group of 2-D arrays, some of them carrying a CF `grid_mapping`.
+
+    Args:
+        names: The arrays to create, all 2-D and named in this order.
+        declared: Which of them declare `grid_mapping: "crs"`.
+
+    Returns:
+        The open zarr group.
+    """
+    group = zarr.open_group(store=zarr.storage.MemoryStore(), mode="w")
+    for name in names:
+        array = group.create_array(name, shape=(6, 8), dtype="float32")
+        array[:] = np.ones((6, 8), dtype=np.float32)
+        if name in declared:
+            array.attrs["grid_mapping"] = "crs"
+    return group
+
+
+class TestTheGridMappingScanIsDeterministic:
+    """Rule 2 is the common CF case, so it has to answer from the store."""
+
+    @pytest.mark.lazy
+    @needs_zarr
+    @pytest.mark.parametrize(
+        "order",
+        [("tas", "crs", "pr"), ("pr", "crs", "tas")],
+        ids=["tas-first", "pr-first"],
+    )
+    def test_two_georeferenced_variables_resolve_the_same_way(self, order):
+        """The order the store happens to list its keys in must not decide.
+
+        Args:
+            order: The order `array_keys()` reports the members in.
+
+        Test scenario:
+            `pr` and `tas` both carry a CF `grid_mapping`, which is the normal
+            shape of a CF store with more than one variable. Rule 2 walked
+            `array_keys()` and took the first hit, so the same data read back as
+            `tas` from one listing and `pr` from another -- and a store's
+            listing is neither promised nor stable, so that is run to run.
+            Sorted, the answer is a property of the store: the alphabetically
+            first candidate, `pr`.
+        """
+        group = _cf_group(("tas", "pr", "crs"), declared=("tas", "pr"))
+
+        assert detect_data_var(_ProxyGroup(group, order)) == "pr"
+
+    @pytest.mark.lazy
+    @needs_zarr
+    @pytest.mark.parametrize(
+        "order",
+        [("east", "sst"), ("sst", "east")],
+        ids=["declared-first", "declared-last"],
+    )
+    def test_the_declared_variable_still_wins_over_the_vocabulary(self, order):
+        """Sorting the candidates must not turn rule 2 into a name contest.
+
+        Args:
+            order: The order `array_keys()` reports the members in.
+
+        Test scenario:
+            Only `east` declares a `grid_mapping`, and `sst` sorts before it.
+            The store's own declaration still decides, from either listing; the
+            sort only breaks ties among arrays that all declare one.
+        """
+        group = _cf_group(("east", "sst"), declared=("east",))
+
+        assert detect_data_var(_ProxyGroup(group, order)) == "east"
+
+
+class TestTheMetadataIsReadOncePerArray:
+    """Against a remote store every attrs read is a round trip."""
+
+    @pytest.mark.lazy
+    @needs_zarr
+    def test_the_fallback_does_not_read_every_arrays_attrs_twice(self):
+        """Rule 2 and rule 3 walk the same attributes; they share one read.
+
+        Test scenario:
+            No array declares a `grid_mapping`, so rule 2 scans them all and
+            finds nothing, and rule 3's CF-role filter then scanned them all
+            again -- 2N metadata reads before a single chunk is touched. The
+            scan is memoised, so each array is read once however many rules
+            consult it.
+        """
+        names = ("sst", "lat", "lon", "lat_bnds")
+        proxy = _ProxyGroup(_cf_group(names), names)
+
+        assert detect_data_var(proxy) == "sst"
+        assert proxy.counts, "no attrs were read at all"
+        repeated = {n: c for n, c in proxy.counts.items() if c > 1}
+        assert not repeated, f"attrs read more than once: {repeated}"
+
+    @pytest.mark.lazy
+    @needs_zarr
+    def test_a_store_that_declares_its_variable_stops_scanning_early(self):
+        """Rule 2 short-circuits, so a declared store pays for a prefix only.
+
+        Test scenario:
+            `east` sorts first and declares its `grid_mapping`, so nothing after
+            it is ever opened. Memoising the reads must not turn the scan into
+            an unconditional pass over every array in the group.
+        """
+        names = ("east", "sst", "zeta")
+        proxy = _ProxyGroup(_cf_group(names, declared=("east",)), names)
+
+        assert detect_data_var(proxy) == "east"
+        assert set(proxy.counts) == {"east"}, (
+            f"arrays past the declared one were read: {sorted(proxy.counts)}"
+        )

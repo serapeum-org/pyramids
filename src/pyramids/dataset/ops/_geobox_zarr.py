@@ -22,6 +22,8 @@ keep opening.
 from __future__ import annotations
 
 import warnings
+from collections.abc import Callable
+from functools import cache
 from typing import Any
 
 import numpy as np
@@ -327,7 +329,56 @@ def normalize_compressors(compressor: Any) -> dict[str, Any]:
 _CF_REFERENCE_ATTRS = ("bounds", "ancillary_variables", "coordinates", "grid_mapping")
 
 
-def _cf_referenced_names(group: Any, arrays: list[str]) -> set[str]:
+def _attrs_reader(group: Any) -> Callable[[str], dict]:
+    """A reader that fetches each array's attributes at most once.
+
+    `dict(group[name].attrs)` is a metadata read, and against a remote store a
+    round trip. Two of `detect_data_var`'s rules ask the same question of the
+    same arrays -- rule 2 looks for a `grid_mapping`, rule 3 for every CF
+    reference -- so without a memo the fallback path pays `2N` reads before a
+    single chunk is touched. Memoising per group also keeps rule 2's
+    short-circuit: an array nobody asks about is still never opened.
+
+    Args:
+        group: An open `zarr` group.
+
+    Returns:
+        Callable[[str], dict]: Reads one array's attributes as a plain dict.
+
+    Examples:
+        - The second read of the same array costs nothing:
+            ```python
+            >>> import zarr
+            >>> from pyramids.dataset.ops._geobox_zarr import _attrs_reader
+            >>> group = zarr.open_group(store=zarr.storage.MemoryStore(), mode="w")
+            >>> group.create_array("tas", shape=(2, 3), dtype="f4").attrs.update(
+            ...     {"grid_mapping": "crs"}
+            ... )
+            >>> read = _attrs_reader(group)
+            >>> read("tas") == read("tas") == {"grid_mapping": "crs"}
+            True
+
+            ```
+    """
+
+    @cache
+    def read(name: str) -> dict:
+        """The array's attributes, read once and remembered.
+
+        Args:
+            name: The array's name in the group.
+
+        Returns:
+            dict: Its attributes.
+        """
+        return dict(group[name].attrs)
+
+    return read
+
+
+def _cf_referenced_names(
+    arrays: list[str], read_attrs: Callable[[str], dict]
+) -> set[str]:
     """The arrays that some other array points at, so are not the data.
 
     A CF store says which of its arrays are supporting cast: `lat` names its
@@ -338,8 +389,10 @@ def _cf_referenced_names(group: Any, arrays: list[str]) -> set[str]:
     `lat_bnds` usually wins, being early in the alphabet.
 
     Args:
-        group: An open `zarr` group.
-        arrays: Its array names, already listed by the caller.
+        arrays: The group's array names, already listed by the caller.
+        read_attrs: Reads one array's attributes; memoised by the caller, so
+            the rule that ran before this one does not pay for the same reads
+            twice.
 
     Returns:
         set[str]: Names referenced by another array's CF attributes, plus the
@@ -351,14 +404,18 @@ def _cf_referenced_names(group: Any, arrays: list[str]) -> set[str]:
           called:
             ```python
             >>> import zarr
-            >>> from pyramids.dataset.ops._geobox_zarr import _cf_referenced_names
+            >>> from pyramids.dataset.ops._geobox_zarr import (
+            ...     _attrs_reader,
+            ...     _cf_referenced_names,
+            ... )
             >>> group = zarr.open_group(store=zarr.storage.MemoryStore(), mode="w")
             >>> group.create_array("tas", shape=(2, 3), dtype="f4").attrs.update({})
             >>> group.create_array("lat", shape=(2,), dtype="f8").attrs.update(
             ...     {"bounds": "edges"}
             ... )
             >>> group.create_array("edges", shape=(2, 2), dtype="f8").attrs.update({})
-            >>> sorted(_cf_referenced_names(group, list(group.array_keys())))
+            >>> names = sorted(group.array_keys())
+            >>> sorted(_cf_referenced_names(names, _attrs_reader(group)))
             ['edges']
 
             ```
@@ -367,14 +424,18 @@ def _cf_referenced_names(group: Any, arrays: list[str]) -> set[str]:
           and leave `areacella` a candidate:
             ```python
             >>> import zarr
-            >>> from pyramids.dataset.ops._geobox_zarr import _cf_referenced_names
+            >>> from pyramids.dataset.ops._geobox_zarr import (
+            ...     _attrs_reader,
+            ...     _cf_referenced_names,
+            ... )
             >>> group = zarr.open_group(store=zarr.storage.MemoryStore(), mode="w")
             >>> group.create_array("tas", shape=(2, 3), dtype="f4").attrs.update(
             ...     {"cell_measures": "area: areacella", "coordinates": "aux"}
             ... )
             >>> group.create_array("areacella", shape=(2, 3), dtype="f4").attrs.update({})
             >>> group.create_array("aux", shape=(2, 3), dtype="f4").attrs.update({})
-            >>> sorted(_cf_referenced_names(group, list(group.array_keys())))
+            >>> names = sorted(group.array_keys())
+            >>> sorted(_cf_referenced_names(names, _attrs_reader(group)))
             ['areacella', 'aux']
 
             ```
@@ -382,12 +443,16 @@ def _cf_referenced_names(group: Any, arrays: list[str]) -> set[str]:
           not left with nothing:
             ```python
             >>> import zarr
-            >>> from pyramids.dataset.ops._geobox_zarr import _cf_referenced_names
+            >>> from pyramids.dataset.ops._geobox_zarr import (
+            ...     _attrs_reader,
+            ...     _cf_referenced_names,
+            ... )
             >>> group = zarr.open_group(store=zarr.storage.MemoryStore(), mode="w")
             >>> group.create_array("tas", shape=(2, 3), dtype="f4").attrs.update(
             ...     {"coordinates": "tas"}
             ... )
-            >>> _cf_referenced_names(group, list(group.array_keys()))
+            >>> names = sorted(group.array_keys())
+            >>> _cf_referenced_names(names, _attrs_reader(group))
             set()
 
             ```
@@ -397,7 +462,7 @@ def _cf_referenced_names(group: Any, arrays: list[str]) -> set[str]:
     """
     referenced = {n for n in arrays if n.endswith(("_bnds", "_bounds"))}
     for name in arrays:
-        attrs = dict(group[name].attrs)
+        attrs = read_attrs(name)
         named: set[str] = set()
         for attr in _CF_REFERENCE_ATTRS:
             value = attrs.get(attr)
@@ -416,53 +481,65 @@ def _cf_referenced_names(group: Any, arrays: list[str]) -> set[str]:
 def detect_data_var(group: Any) -> str:
     """Pick the primary data array name in a (possibly foreign) GeoZarr group.
 
-    Four rules, in order. The first two are what the store itself says; the
-    rest are inference from names, so they run only when it says nothing.
+        Four rules, in order. The first two are what the store itself says; the
+        rest are inference from names, so they run only when it says nothing.
 
-    1. An array literally named `data` -- what pyramids' own writer emits.
-    2. An array carrying a CF `grid_mapping` attribute, which is the store
-       declaring "this one is the georeferenced variable". This is the escape
-       hatch for a store whose data array happens to be named like an axis.
-    3. Otherwise, arrays whose name is a known coordinate spelling are dropped,
-       and so are arrays some *other* array points at -- its `bounds`, its
-       auxiliary `coordinates`, its `ancillary_variables`, its `cell_measures`
-       or its `grid_mapping`. The first is what makes a NEMO store's 2-D
-       `nav_lon` / `nav_lat` lose to the real variable; the second is what
-       stops a CF store's 2-D `lat_bnds` from beating a 2-D data variable on
-       the name tie-break.
-    4. Of what remains, the highest-dimension array wins, preferring a name
-       that is not *only* ever a coordinate. `east`, `north` and `long` are
-       axis spellings and also ordinary names for a data array -- an eastward
-       wind component, say -- so a store holding nothing else is read rather
-       than refused. A name that is only ever a coordinate, like `nav_lat`,
-       `rlon` or `x_dim`, is excluded outright, so a store of only coordinates
-       still raises.
+        1. An array literally named `data` -- what pyramids' own writer emits.
+        2. An array carrying a CF `grid_mapping` attribute, which is the store
+           declaring "this one is the georeferenced variable". This is the escape
+           hatch for a store whose data array happens to be named like an axis.
+           A CF store with more than one georeferenced variable is the normal
+           case, so this rule reads the names in sorted order too -- taking
+           whichever the store happened to list first made `pr` and `tas` resolve
+           differently from one run to the next.
+        3. Otherwise, arrays whose name is a known coordinate spelling are dropped,
+           and so are arrays some *other* array points at -- its `bounds`, its
+           auxiliary `coordinates`, its `ancillary_variables`, its `cell_measures`
+           or its `grid_mapping`. The first is what makes a NEMO store's 2-D
+           `nav_lon` / `nav_lat` lose to the real variable; the second is what
+           stops a CF store's 2-D `lat_bnds` from beating a 2-D data variable on
+           the name tie-break.
+        4. Of what remains, the highest-dimension array wins, preferring a name
+           that is not *only* ever a coordinate. `east`, `north` and `long` are
+           axis spellings and also ordinary names for a data array -- an eastward
+           wind component, say -- so a store holding nothing else is read rather
+           than refused. A name that is only ever a coordinate, like `nav_lat`,
+           `rlon` or `x_dim`, is excluded outright, so a store of only coordinates
+           still raises.
 
-    Ties on dimension count are broken by name, because the store's own key
-    order is neither promised nor stable and the same data would otherwise read
-    back as a different variable from run to run. A store with two equally
-    ranked data variables -- `pr` and `tas`, say -- therefore reads back the
-    alphabetically first, where it used to read back whichever key `zarr`
-    happened to list first. Name the array explicitly (`data_name=`) when a
-    store has more than one candidate and the choice matters.
+    Every rule reads the array names in sorted order, because the store's own
+        key order is neither promised nor stable and the same data would otherwise
+        read back as a different variable from run to run. A store with two equally
+        ranked data variables -- `pr` and `tas`, say -- therefore reads back the
+        alphabetically first, whether they are ranked by rule 2's declaration or by
+        rule 4's dimension count, where it used to read back whichever key `zarr`
+        happened to list first. Name the array explicitly (`data_name=`) when a
+        store has more than one candidate and the choice matters.
 
-    Args:
-        group: An open `zarr` group.
+        Args:
+            group: An open `zarr` group.
 
-    Returns:
-        str: The name of the array to read as the raster's data.
+        Returns:
+            str: The name of the array to read as the raster's data.
 
-    Raises:
-        KeyError: No candidate data array could be found -- every array in the
-            group is either a name that is only ever a coordinate, or one some
-            other array points at as its bounds, coordinates, ancillary
-            variables, cell measures or grid mapping.
+        Raises:
+            KeyError: No candidate data array could be found -- every array in the
+                group is either a name that is only ever a coordinate, or one some
+                other array points at as its bounds, coordinates, ancillary
+                variables, cell measures or grid mapping.
 
-    See Also:
-        pyramids.base._axes: The shared coordinate vocabulary rules 3 and 4
-            consult.
+        See Also:
+            pyramids.base._axes: The shared coordinate vocabulary rules 3 and 4
+                consult.
     """
-    arrays = list(group.array_keys())
+    # Sorted once, here, so that every rule below reads the same order.
+    # `array_keys()` does not promise one and does not give a stable one, so a
+    # store with two equally-ranked candidates otherwise resolves to a
+    # different array run to run -- for rule 2 just as much as for rule 4.
+    arrays = sorted(group.array_keys())
+    # One memo for every rule that reads an array's attributes: rule 2 asks for
+    # a `grid_mapping` and rule 3 for the CF references, over the same arrays.
+    read_attrs = _attrs_reader(group)
     # `declared` is resolved inside the branch that needs it: reading every
     # array's attributes costs a metadata read each, and the `data` case --
     # what pyramids' own writer emits -- must not pay for it.
@@ -470,7 +547,7 @@ def detect_data_var(group: Any) -> str:
         None
         if "data" in group
         else next(
-            (name for name in arrays if "grid_mapping" in dict(group[name].attrs)),
+            (name for name in arrays if "grid_mapping" in read_attrs(name)),
             None,
         )
     )
@@ -491,16 +568,14 @@ def detect_data_var(group: Any) -> str:
         # array to return -- the same answer as a store of nothing but
         # `nav_lat`, and the message names every array so the caller can see
         # why.
-        referenced = _cf_referenced_names(group, arrays)
+        referenced = _cf_referenced_names(arrays, read_attrs)
         candidates = [n for n in candidates if n not in referenced]
         if not candidates:
             raise KeyError(f"no data array found in zarr group; arrays={arrays}")
-        # Sorted first so the final tie-break is by name. `array_keys()` does
-        # not promise an order and does not give a stable one, so a store with
-        # two equally-ranked candidates otherwise reads as a different variable
-        # run to run.
+        # `candidates` inherits the sorted order of `arrays`, and `max` keeps
+        # the first of equal keys, so the final tie-break is by name.
         chosen = max(
-            sorted(candidates),
+            candidates,
             key=lambda n: (group[n].ndim, n not in _NON_DATA_ARRAYS),
         )
     return chosen
