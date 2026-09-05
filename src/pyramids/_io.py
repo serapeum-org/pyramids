@@ -287,9 +287,10 @@ def _member_at(path: str, members: list[str], file_i: int, kind: str) -> str:
 
     Returns:
         str: The member name at `file_i`, rejoined from segments this function
-            has validated, with `.` and empty segments normalised away. Every
-            character of it has been matched by the allow-list; it may still be
-            the input object itself when the name is a single segment.
+            has validated, with `.` and empty segments normalised away. No
+            segment of it matched `_UNSAFE_MEMBER_SEGMENT`; the string may
+            still be the input object itself when the name is a single
+            segment.
 
     Raises:
         FileFormatNotSupportedError: `file_i` is past the end of the archive;
@@ -346,7 +347,15 @@ def _member_at(path: str, members: list[str], file_i: int, kind: str) -> str:
 
             ```
     """
-    if file_i >= len(members):
+    # Both bounds. `file_i >= len(members)` alone never fired below zero, so a
+    # negative index fell through to the list lookup and raised the bare
+    # `IndexError` this helper exists to replace -- and `-1` quietly opened the
+    # *last* member of a zip or tar while the member-less gzip helper refused
+    # it, which is the three-way divergence the consolidation removed, one sign
+    # flip away. Refused rather than given Python's from-the-end meaning:
+    # `file_i` names a member of an archive the caller has not listed, so a
+    # negative index is far more likely a bug than an intent.
+    if not 0 <= file_i < len(members):
         raise FileFormatNotSupportedError(
             f"The {kind} file {path!r} holds {len(members)} file(s), so there is no "
             f"member at index {file_i}. Available: {members}"
@@ -357,17 +366,20 @@ def _member_at(path: str, members: list[str], file_i: int, kind: str) -> str:
     # what looks like a self-contained file reach an arbitrary one -- the
     # tar-slip / zip-slip shape.
     #
-    # Validated against an allow-list segment by segment, then rejoined from the
-    # matched segments rather than checked and passed through. What that buys is
-    # that every character of the result has been matched by
-    # `_UNSAFE_MEMBER_SEGMENT`, so the guarantee is about the *value*, not about
-    # object identity: for a single-segment name CPython hands back the input
-    # object itself (`str.replace` returns `self` when nothing matched,
-    # `Match.group(0)` the original on a full-span match, `"/".join([x])` its
-    # only element), and that is fine -- an allow-listed string is allow-listed
-    # whichever object holds it. Rejoining is still worth doing: it normalises
-    # `.` and empty segments away, and it is the form a taint analysis can
-    # follow.
+    # Each segment is checked against `_UNSAFE_MEMBER_SEGMENT`, which is a
+    # **deny**-list: it names the two shapes that are dangerous, and everything
+    # else is a file name. Saying it the other way round is not a wording
+    # detail -- the first version of this guard *was* an allow-list, and being
+    # ASCII-only it refused every accented, Cyrillic, Greek, CJK and Arabic
+    # filename along with `=`, `&` and `:`.
+    #
+    # The segments are then rejoined rather than the input passed through. That
+    # normalises `.` and empty segments away and is the form a taint analysis
+    # can follow. It does not guarantee a fresh object: for a single-segment
+    # name CPython hands back the input itself (`str.replace` returns `self`
+    # when nothing matched, `"/".join([x])` its only element). The guarantee is
+    # about the value -- no segment matched the deny-list -- not about
+    # identity.
     candidate = members[file_i].replace("\\", "/")
     if ntpath.isabs(candidate) or PurePosixPath(candidate).is_absolute():
         raise FileFormatNotSupportedError(
@@ -436,7 +448,7 @@ def _only_member_suffix(path: str, file_i: int, kind: str) -> str:
 
             ```
     """
-    if file_i:
+    if file_i != 0:
         raise FileFormatNotSupportedError(
             f"The {kind} file {path!r} holds a single stream with no member list, "
             f"so there is no member at index {file_i}."
@@ -499,7 +511,12 @@ def _get_zip_path(path: str, file_i: int = 0):
         # survives, and on Windows an open handle blocks deleting or overwriting
         # the archive.
         with zipfile.ZipFile(path) as archive:
-            file_list = archive.namelist()
+            # Files only, matching the tar handler. `namelist()` includes
+            # directory entries, so on an archive with a subdirectory `file_i=0`
+            # picked the directory for a zip and the first *file* for a tar --
+            # the same index meaning two different things depending on the
+            # container. A zip records a directory as a name ending in "/".
+            file_list = [name for name in archive.namelist() if not name.endswith("/")]
         vsi_path = f"{_VSIZIP}{path}/{_member_at(path, file_list, file_i, 'zip')}"
     return vsi_path
 
@@ -528,7 +545,11 @@ def _get_gzip_path(path: str, file_i: int = 0):
     else:
         try:
             with tarfile.open(path) as tf:
-                file_list = tf.getnames()
+                # Files only, as the zip and tar handlers do -- `getnames()`
+                # returns directories too.
+                file_list = [
+                    member.name for member in tf.getmembers() if member.isfile()
+                ]
             vsi_path = f"{_VSIGZIP}{path}/{_member_at(path, file_list, file_i, 'gzip')}"
         except tarfile.ReadError:
             # if the tarfile.open() does not give a getnames() method, it means the file contains one file

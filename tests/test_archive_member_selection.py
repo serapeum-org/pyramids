@@ -28,6 +28,7 @@ rather than checking it and passing the original string through.
 from __future__ import annotations
 
 import tarfile
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -515,3 +516,146 @@ class TestATarThatCannotBeListedFallsBackToTheBarePrefix:
         assert resolved == f"/vsitar/{archive}", (
             f"a directory-only tar resolved to {resolved!r} instead of the bare prefix"
         )
+
+
+class TestANegativeIndexIsRefusedByEveryKind:
+    """The bound test only guarded one end, so below zero the three diverged."""
+
+    @pytest.mark.parametrize("kind", KINDS)
+    @pytest.mark.parametrize("file_i", [-1, -2, -9])
+    def test_a_negative_index_is_refused(self, kind: str, file_i: int):
+        """The regression: `-9` leaked the bare `IndexError`, `-1` opened the last member.
+
+        Args:
+            kind: The archive extension under test.
+            file_i: A negative index.
+
+        Test scenario:
+            `file_i >= len(members)` never fires below zero, so `-9` fell
+            through to the list lookup and raised `IndexError: list index out
+            of range` -- verbatim the failure this helper was written to
+            replace. And `-1` quietly returned the *last* member for a zip or
+            tar while the gzip helper refused it, reproducing the three-way
+            divergence the consolidation removed, one sign flip away.
+        """
+        with pytest.raises(FileFormatNotSupportedError):
+            Dataset.read_file(
+                str(ARCHIVES / f"multiple_compressed_files.{kind}"), file_i=file_i
+            )
+
+    @pytest.mark.parametrize("kind", KINDS)
+    def test_no_index_leaks_an_index_error(self, kind: str):
+        """`IndexError` is the thing that must never escape, at either end.
+
+        Args:
+            kind: The archive extension under test.
+
+        Test scenario:
+            A caller writing `except FileFormatNotSupportedError` around an
+            archive read must not be surprised by a bare `IndexError` from
+            inside a list lookup, whichever side of the range they overshot.
+        """
+        archive = str(ARCHIVES / f"multiple_compressed_files.{kind}")
+
+        for file_i in (-100, -1, 99):
+            with pytest.raises(FileFormatNotSupportedError):
+                Dataset.read_file(archive, file_i=file_i)
+
+
+class TestTheMemberListIsFilesOnlyForEveryKind:
+    """`file_i` must mean the same thing whatever the container is."""
+
+    @pytest.fixture
+    def tree_archives(self, tmp_path) -> dict[str, Path]:
+        """A zip and a tar holding the same subdirectory plus one file.
+
+        Args:
+            tmp_path: Fixture supplying a temporary directory.
+
+        Returns:
+            dict[str, Path]: The written archives, keyed by extension.
+        """
+        payload = tmp_path / "inner.asc"
+        payload.write_text(
+            "ncols 2\nnrows 2\nxllcorner 0\nyllcorner 0\ncellsize 1\n"
+            "NODATA_value -9999\n1 2\n3 4\n"
+        )
+        zip_path = tmp_path / "tree.zip"
+        with zipfile.ZipFile(zip_path, "w") as archive:
+            archive.writestr("subdir/", "")
+            archive.write(payload, "subdir/inner.asc")
+        tar_path = tmp_path / "tree.tar"
+        with tarfile.open(tar_path, "w") as archive:
+            archive.add(payload, arcname="subdir/inner.asc")
+        return {"zip": zip_path, "tar": tar_path}
+
+    @pytest.mark.parametrize("kind", ["zip", "tar"])
+    def test_index_zero_is_the_first_file_not_a_directory(
+        self, tree_archives, kind: str
+    ):
+        """The regression: the same index meant different things per container.
+
+        Args:
+            tree_archives: The fixture archives.
+            kind: Which one to open.
+
+        Test scenario:
+            The zip handler indexed `namelist()`, which includes directory
+            entries; the tar handler filtered to `isfile()`. On a tree with a
+            subdirectory, `file_i=0` was the directory for a zip -- opening it
+            gave a raw GDAL error -- and the first file for a tar.
+        """
+        dataset = Dataset.read_file(str(tree_archives[kind]))
+
+        assert dataset.band_count == 1, f"{kind}: expected the file, not a directory"
+
+    @pytest.mark.parametrize("kind", ["zip", "tar"])
+    def test_only_the_file_is_counted(self, tree_archives, kind: str):
+        """A directory entry must not consume an index either.
+
+        Args:
+            tree_archives: The fixture archives.
+            kind: Which one to open.
+
+        Test scenario:
+            One file means one member, so index 1 is past the end. If the
+            directory were still counted the zip would have two and this would
+            open something.
+        """
+        with pytest.raises(FileFormatNotSupportedError):
+            Dataset.read_file(str(tree_archives[kind]), file_i=1)
+
+
+class TestNamesTheOldAllowListRefused:
+    """The regressions `_io.py` names, pinned so they cannot come back."""
+
+    @pytest.mark.parametrize(
+        ("label", "member"),
+        [
+            ("accented", "H\u00f6he.tif"),
+            ("french", "donn\u00e9es.shp"),
+            ("cjk", "\u5317\u4eac.tif"),
+            ("greek", "\u03a9_flux.tif"),
+            ("cyrillic", "\u0440\u0430\u0441\u0442\u0440.tif"),
+            ("hive partition", "year=2020/data.tif"),
+            ("ampersand", "R&D.tif"),
+            ("bang", "file!important.tif"),
+            ("dollar", "cost$.tif"),
+            ("semicolon", "a;b.tif"),
+            ("colon", "semi:colon.tif"),
+            ("caret", "tmp^1.tif"),
+        ],
+    )
+    def test_it_comes_back_unchanged(self, label: str, member: str):
+        """Args: label: What the name exercises. member: The member name.
+
+        Test scenario:
+            The first version of this guard was an allow-list of ASCII
+            punctuation, so every one of these was refused as "not a plain
+            name" -- a regression dressed as a security fix. Each is named in
+            the module comment as a reason the allow-list was wrong, so each
+            is pinned here.
+        """
+        resolved = _member_at("x.zip", [member], 0, "zip")
+
+        assert resolved == member, f"{label}: {member!r} came back as {resolved!r}"
