@@ -24,6 +24,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
+from pyramids.base._errors import NoDataValueError
 from pyramids.base._utils import gdal_to_numpy_dtype
 from pyramids.dataset import Dataset, GeoReference
 
@@ -88,7 +89,6 @@ class TestTheUnsignedNoDataDefault:
     @pytest.mark.parametrize(
         ("numpy_dtype", "expected"),
         [
-            (np.uint8, 255),
             (np.uint16, 65535),
             (np.uint32, 4294967295),
         ],
@@ -132,16 +132,19 @@ class TestTheUnsignedNoDataDefault:
 
         Test scenario:
             `_fallback_no_data` picks a sentinel when the requested value
-            overflows and has always asked the dtype. If the two disagreed, a
-            Byte band would get 255 down one path and `None` down the other.
-            The type is asserted too: both answers flow into
-            `Dataset.no_data_value` and out to GDAL, and `255 ==
-            np.uint8(255)` is True, so an `==` alone cannot see one path
+            overflows and has always asked the dtype. Checked on `uint16`
+            rather than `uint8`, because the two deliberately *differ* on a
+            Byte band: `_fallback_no_data` substitutes 255 there (the caller
+            asked for a sentinel and it overflowed) while
+            `_coerce_band_no_data` does not (the caller asked for none, and
+            255 is white). The type is asserted too: both answers flow into
+            `Dataset.no_data_value` and out to GDAL, and `65535 ==
+            np.uint16(65535)` is True, so an `==` alone cannot see one path
             returning a Python `int` and the other a numpy scalar.
         """
         # The dataset is bound to a name: the engine reaches its parent through
         # a weakref proxy, so a temporary would be collected mid-test.
-        dataset = _raster(np.uint8)
+        dataset = _raster(np.uint16)
         bands = dataset.bands
 
         coerced = bands._coerce_band_no_data(0, None)
@@ -151,7 +154,23 @@ class TestTheUnsignedNoDataDefault:
         assert type(coerced) is type(fallback), (
             f"same value, different types: {type(coerced)} vs {type(fallback)}"
         )
-        assert np.dtype(type(coerced)) == np.uint8
+        assert np.dtype(type(coerced)) == np.uint16
+
+    def test_a_byte_band_deliberately_disagrees(self):
+        """The one dtype where the two answers differ, and why.
+
+        Test scenario:
+            `_coerce_band_no_data(None)` means "the caller declared no
+            sentinel", and inventing 255 there marks every white pixel
+            missing. `_fallback_no_data` means "the caller's sentinel did not
+            fit", where substituting is what they asked for. Pinning the
+            disagreement stops a future tidy-up from making them agree again.
+        """
+        dataset = _raster(np.uint8)
+        bands = dataset.bands
+
+        assert bands._coerce_band_no_data(0, None) is None
+        assert bands._fallback_no_data(0) == 255
 
 
 class TestTheSentinelOnThePublicProperty:
@@ -159,10 +178,15 @@ class TestTheSentinelOnThePublicProperty:
 
     `_coerce_band_no_data` builds the substituted maximum as a numpy scalar of
     the band dtype, for type parity with `_fallback_no_data`. GDAL's
-    `SetNoDataValue` takes a C double and refuses a numpy `uint8`, so the value
-    is retried as `float64` and that is what the property reports: a uint8 band
-    that read back `(255,)` -- a Python `int` -- now reads back
-    `(np.float64(255.0),)`. Same number, different type, and nothing warns.
+    `SetNoDataValue` takes a C double and refuses a numpy unsigned scalar, so
+    the value is retried as `float64` and that is what the property reports: a
+    uint16 band that read back `(65535,)` -- a Python `int` -- now reads back
+    `(np.float64(65535.0),)`. Same number, different type, and nothing warns.
+
+    Exercised on `uint16` rather than `uint8`: a Byte band does not substitute
+    at all, because 255 is white in 8-bit imagery and inventing it as a
+    sentinel marks every white pixel missing. See
+    `TestChangeNoDataValueOnAByteRaster`.
     """
 
     @staticmethod
@@ -184,7 +208,9 @@ class TestTheSentinelOnThePublicProperty:
             geo_ref=GEO,
         )
 
-    @pytest.mark.parametrize(("dtype", "expected"), [("uint8", 255), ("uint16", 65535)])
+    @pytest.mark.parametrize(
+        ("dtype", "expected"), [("uint16", 65535), ("uint32", 4294967295)]
+    )
     def test_the_value_is_still_the_dtype_maximum(self, dtype: str, expected: int):
         """Only the type changed; the number a caller compares against did not.
 
@@ -209,7 +235,7 @@ class TestTheSentinelOnThePublicProperty:
             scalar wraps at the dtype bound instead of promoting. Pinned so a
             future change back to a builtin is a deliberate one.
         """
-        (sentinel,) = self._unsigned_with_substituted_sentinel("uint8").no_data_value
+        (sentinel,) = self._unsigned_with_substituted_sentinel("uint16").no_data_value
 
         assert isinstance(sentinel, np.generic), (
             f"expected a numpy scalar, got {type(sentinel)}"
@@ -271,40 +297,121 @@ class TestHalfPrecisionRasters:
 
 
 class TestChangeNoDataValueOnAByteRaster:
-    """`None` on a Byte band became the dtype maximum rather than a refusal.
+    """A Byte band refuses an unstorable sentinel; it does not invent 255.
 
-    Deciding "is this band unsigned" from the dtype string missed `byte`, so a
-    Byte raster took the signed branch and `change_no_data_value(None)` raised.
-    Every other unsigned width already substituted its maximum, so this makes
-    Byte consistent -- but it is a behaviour change at a public entry point and
-    is pinned here rather than left to be discovered.
+    This class previously pinned the opposite, and was wrong to. Deciding "is
+    this band unsigned" from the dtype string missed `byte`, and replacing that
+    string test with `np.issubdtype` was right in mechanism -- but it swept Byte
+    in with the wider unsigned types, and Byte is the one where substituting the
+    maximum is wrong: 255 is white in 8-bit imagery, so declaring it as no-data
+    marks every white pixel missing, and `align` then hands it to
+    `gdal.ReprojectImage`, which rewrites the real 255s to 254.
+
+    Reported twice before it was fixed -- once as a should-fix ("shipping it
+    unannounced is what is not defensible") and again, at higher severity, once
+    the `ReprojectImage` consequence was measured.
     """
 
-    def test_it_now_stores_the_dtype_maximum(self):
-        """Consistent with `uint16` / `uint32`, which always did this.
+    def test_a_byte_band_refuses_an_unstorable_sentinel(self):
+        """The restored behaviour, matching every release before this branch.
 
         Test scenario:
-            `None` cannot be stored in an unsigned band. Substituting the
-            maximum is what the other widths do; Byte used to refuse instead.
+            `None` resolves to NaN, which no integer band can hold. Refusing
+            says so; answering 255 invents a sentinel the caller never asked
+            for, at the value their imagery most likely uses for white.
         """
         dataset = _raster(np.uint8)
 
-        dataset.change_no_data_value(None)
+        with pytest.raises(NoDataValueError):
+            dataset.change_no_data_value(None)
 
-        assert list(dataset.no_data_value) == [255]
+    def test_a_signed_band_refuses_it_the_same_way(self):
+        """Byte is not a special case; it is the general one.
+
+        Test scenario:
+            `int16` has always refused. Byte refusing alongside it is the rule,
+            and the wider unsigned types substituting is the exception.
+        """
+        dataset = _raster(np.int16)
+
+        with pytest.raises(NoDataValueError):
+            dataset.change_no_data_value(None)
 
     @pytest.mark.parametrize(
         ("numpy_dtype", "expected"), [(np.uint16, 65535), (np.uint32, 4294967295)]
     )
     def test_the_wider_unsigned_types_are_unchanged(self, numpy_dtype, expected):
-        """Byte was brought into line with these, not the reverse.
+        """Their behaviour predates this branch and is left alone.
 
         Args:
-            numpy_dtype: An unsigned band dtype.
+            numpy_dtype: An unsigned band dtype wider than a byte.
             expected: The maximum it substitutes.
+
+        Test scenario:
+            Whether *they* should also stop fabricating a maximum is a real
+            question, and the same one this branch answered "no sentinel" to
+            for the netCDF fan-out and the Zarr writer. It is a change to
+            no-data policy rather than to duplication, so it is not made here
+            -- and this test is what says the decision was deliberate.
         """
         dataset = _raster(numpy_dtype)
 
         dataset.change_no_data_value(None)
 
         assert list(dataset.no_data_value) == [expected]
+
+
+class TestByteKeepsItsPassThrough:
+    """255 is white, not "missing", so it is not fabricated as a sentinel.
+
+    Replacing `dtype.startswith("u")` with an honest `np.issubdtype` test was
+    right -- string-sniffing a type name is not a check -- but it swept Byte in
+    with the wider unsigned types, and Byte is the one where the substitution
+    is wrong. A raster that declares *no* no-data was given 255, which makes
+    every white pixel out-of-domain; `align` then hands it to
+    `gdal.ReprojectImage`, which rewrites the real 255s to 254 to keep them
+    distinguishable from the sentinel.
+    """
+
+    def test_an_unset_sentinel_stays_unset_on_a_byte_band(self):
+        """The regression: `None` became 255.
+
+        Test scenario:
+            `None` means "this band has no no-data". Answering 255 invents one,
+            and invents it at the value 8-bit imagery uses for white.
+        """
+        dataset = _raster(np.uint8)
+
+        assert dataset.bands._coerce_band_no_data(0, None) is None
+
+    @pytest.mark.parametrize("dtype", [np.uint16, np.uint32])
+    def test_the_wider_unsigned_types_still_substitute(self, dtype):
+        """Args: dtype: An unsigned type wider than a byte.
+
+        Test scenario:
+            Their behaviour is unchanged from before this branch. Whether they
+            *should* substitute is a separate question about no-data policy;
+            this branch is about duplication and does not answer it.
+        """
+        dataset = _raster(dtype)
+
+        assert dataset.bands._coerce_band_no_data(0, None) == np.iinfo(dtype).max
+
+    def test_the_overflow_fallback_still_substitutes_for_a_byte(self):
+        """The other branch, which is reached for a different reason.
+
+        Test scenario:
+            `_fallback_no_data` fires when the caller *asked* for a sentinel
+            and it overflowed the band -- so substituting one is what they
+            wanted. `_coerce_band_no_data`'s `None` branch fires when they
+            asked for none. The two must not be conflated.
+        """
+        dataset = _raster(np.uint8)
+
+        assert dataset.bands._fallback_no_data(0) == 255
+
+    def test_a_signed_band_is_untouched(self):
+        """Test scenario: only unsigned types ever substituted; that holds."""
+        dataset = _raster(np.int16)
+
+        assert dataset.bands._coerce_band_no_data(0, None) is None

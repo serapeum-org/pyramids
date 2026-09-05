@@ -80,6 +80,63 @@ def _is_read_only_error(error: BaseException) -> bool:
     return _GDAL_READ_ONLY_MESSAGE in str(error)
 
 
+def _substitutes_dtype_max(dtype: Any) -> bool:
+    """True when an unstorable `None` / NaN sentinel becomes this dtype's maximum.
+
+    Every unsigned integer type except `uint8`. NaN cannot be stored in any of
+    them, so something has to stand in -- but *what* stands in is only safe
+    when it is a value the data is unlikely to contain, and for 8-bit imagery
+    255 is white. Fabricating it as a sentinel on a raster that declares none
+    makes every white pixel out-of-domain, and `resample` / `align` then hand
+    it to `gdal.ReprojectImage`, which rewrites the real 255s to 254 to keep
+    them distinguishable.
+
+    That is not a new rule. It is what the code did before this branch, by
+    accident: the test was `dtype.startswith("u")` and Byte's dtype string is
+    `"byte"`, so Byte fell through to the pass-through branch. Replacing the
+    string test with an honest dtype test was right -- string-sniffing a type
+    name is not a check -- but it silently swept Byte in with the rest.
+    Restoring the exclusion keeps the better mechanism and the older, safer
+    answer.
+
+    Whether `uint16` and friends should also stop fabricating a maximum is a
+    real question, and the same one this branch answered "no sentinel" to for
+    the netCDF fan-out and the Zarr writer. It is a change to no-data policy
+    rather than to duplication, so it is not made here.
+
+    Args:
+        dtype: The band's numpy dtype, or its name.
+
+    Returns:
+        bool: True when the dtype maximum is the right stand-in.
+
+    Examples:
+        - The wider unsigned types substitute their maximum:
+            ```python
+            >>> from pyramids.dataset.engines.bands import _substitutes_dtype_max
+            >>> _substitutes_dtype_max("uint16"), _substitutes_dtype_max("uint32")
+            (True, True)
+
+            ```
+        - Byte does not, because 255 is ordinary data:
+            ```python
+            >>> from pyramids.dataset.engines.bands import _substitutes_dtype_max
+            >>> _substitutes_dtype_max("uint8")
+            False
+
+            ```
+        - Nor does anything signed or floating:
+            ```python
+            >>> from pyramids.dataset.engines.bands import _substitutes_dtype_max
+            >>> _substitutes_dtype_max("int16"), _substitutes_dtype_max("float32")
+            (False, False)
+
+            ```
+    """
+    as_dtype = np.dtype(dtype)
+    return np.issubdtype(as_dtype, np.unsignedinteger) and as_dtype != np.uint8
+
+
 class Bands(_Engine["Dataset"]):
     """Mixin providing band metadata, attribute table, and color table operations."""
 
@@ -1618,19 +1675,19 @@ class Bands(_Engine["Dataset"]):
         if val is not None and not np.isnan(val):
             # cast to the band dtype (raises OverflowError when out of range)
             result = self._ds.numpy_dtype[i](val)
-        elif np.issubdtype(np.dtype(self._ds.numpy_dtype[i]), np.unsignedinteger):
-            # None/np.nan on an Unsigned integer band would misbehave; use the
-            # dtype max bound as the no_data_value. Asked of the dtype rather
-            # than of `dtype[i].startswith("u")`: that string test silently
-            # missed a Byte band, whose dtype string did not begin with "u",
-            # so the one unsigned type most rasters actually use took the
-            # pass-through branch. `_fallback_no_data` below already asks this
-            # way, and the two must agree -- on the *type* as well as the
-            # value, since both flow into `Dataset.no_data_value` and out to
-            # GDAL. A Python `int` here and a numpy scalar there made the same
-            # answer read back as `(255,)` from one path and `(np.uint8(255),)`
-            # from the other, which the `==` pinning their agreement cannot
-            # see.
+        elif _substitutes_dtype_max(self._ds.numpy_dtype[i]):
+            # None/np.nan on an unsigned band would misbehave -- NaN is not
+            # storable there -- so the dtype max stands in. Asked of the dtype
+            # rather than of `dtype[i].startswith("u")`, which was a string
+            # test on a name; but Byte is deliberately excluded, see
+            # `_substitutes_dtype_max`.
+            #
+            # `_fallback_no_data` below asks the same way, and the two must
+            # agree on the *type* as well as the value, since both flow into
+            # `Dataset.no_data_value` and out to GDAL. A Python `int` here and
+            # a numpy scalar there made the same answer read back as `(255,)`
+            # from one path and a numpy scalar from the other, which the `==`
+            # pinning their agreement cannot see.
             # Cast for the same reason `_fallback_no_data` casts: the
             # `np.issubdtype` above narrows at runtime but the numpy stubs do
             # not follow it.
@@ -1652,6 +1709,10 @@ class Bands(_Engine["Dataset"]):
         np_dtype = np.dtype(self._ds.numpy_dtype[i])
         # np.issubdtype narrows at runtime but isn't recognised by the numpy
         # stubs, so cast to the exact integer family each branch just proved.
+        # Every unsigned type here, Byte included -- unlike the None/NaN branch
+        # above. This path is reached because the caller *asked* for a sentinel
+        # and it overflowed the band, so substituting one is what they wanted;
+        # the branch above fires when they asked for none.
         if np.issubdtype(np_dtype, np.unsignedinteger):
             unsigned_dtype = cast("np.dtype[np.unsignedinteger]", np_dtype)
             fallback = np_dtype.type(np.iinfo(unsigned_dtype).max)
