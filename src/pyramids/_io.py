@@ -33,6 +33,24 @@ DOES_NOT_SUPPORT_INTERNAL = [".gz"]
 # what smuggles one past a downstream parser. Everything else is a file name.
 _UNSAFE_MEMBER_SEGMENT = re.compile(r"\A\.+\Z|[\x00-\x1f\x7f]")
 
+# A leading Windows drive designator (`C:`), which `ntpath.isabs` does not call
+# absolute unless a separator follows it, and which is nevertheless a path form:
+# `C:x.tif` resolves against drive C's working directory. Deliberately narrow --
+# a single ASCII letter, at the very start -- so a colon elsewhere in a member
+# name stays the ordinary character it is on every POSIX filesystem.
+# A leading Windows drive designator followed by a parent traversal, as in
+# `Z:..\\x.tif`. Glued to the drive, the `..` is not a segment of its own, so
+# the dots-only deny-list never sees it -- and `ntpath.isabs` says False
+# because there is no separator after the colon. This is the one traversal
+# spelling both other checks miss.
+#
+# Deliberately not every drive-relative name: `a:b.tif` has the same shape
+# and is an ordinary POSIX filename, and refusing it would be the round-3
+# allow-list mistake again -- rejecting real names to catch a threat that is
+# not there. A member is appended to `/vsizip/<archive>/`, where a bare
+# designator names a member rather than a drive; only the `..` navigates.
+_WINDOWS_DRIVE_TRAVERSAL = re.compile(r"\A[A-Za-z]:\.{2,}")
+
 # GDAL VSI archive-handler prefixes, named once and reused across the kind
 # map, the vsi-path builders and the prefix checks below to avoid duplicating
 # the literals (S1192).
@@ -296,11 +314,12 @@ def _member_at(path: str, members: list[str], file_i: int, kind: str) -> str:
         FileFormatNotSupportedError: `file_i` is past the end of the archive;
             or the member it names would be read from outside the archive --
             an absolute path in either spelling (a POSIX `/tmp/x`, a Windows
-            drive letter or UNC root), or a segment that is not a plain file
-            name, which is what refuses a `..` climbing out of it and any
-            character outside :data:`_UNSAFE_MEMBER_SEGMENT`; or nothing is
-            left of the name once its no-op `.` and empty segments are
-            dropped.
+            drive letter or UNC root), a drive designator glued to a traversal
+            (`Z:..\x.tif`, which `ntpath.isabs` calls relative and whose `..`
+            is not a segment of its own), or a segment matching
+            :data:`_UNSAFE_MEMBER_SEGMENT` -- nothing but dots, so it climbs,
+            or holding a NUL or control character; or nothing is left of the
+            name once its no-op `.` and empty segments are dropped.
 
     Examples:
         - An index inside the archive names its member:
@@ -346,6 +365,25 @@ def _member_at(path: str, members: list[str], file_i: int, kind: str) -> str:
             archive.
 
             ```
+        - A drive designator glued to a traversal is the one spelling both
+          other checks miss -- no separator after the colon, so it is not
+          "absolute", and the `..` is not a segment of its own:
+            ```python
+            >>> _member_at("x.zip", [r"Z:..\x.tif"], 0, "zip")  # doctest: +NORMALIZE_WHITESPACE
+            Traceback (most recent call last):
+            pyramids.base._errors.FileFormatNotSupportedError: The zip file
+            'x.zip' holds a member whose path escapes it ('Z:../x.tif'): the
+            leading drive designator glues the parent traversal to itself, so
+            it is not a segment of its own.
+
+            ```
+        - A bare designator with no traversal is an ordinary name, and comes
+          back untouched:
+            ```python
+            >>> _member_at("x.zip", ["a:b.tif"], 0, "zip")
+            'a:b.tif'
+
+            ```
     """
     # Both bounds. `file_i >= len(members)` alone never fired below zero, so a
     # negative index fell through to the list lookup and raised the bare
@@ -380,11 +418,25 @@ def _member_at(path: str, members: list[str], file_i: int, kind: str) -> str:
     # when nothing matched, `"/".join([x])` its only element). The guarantee is
     # about the value -- no segment matched the deny-list -- not about
     # identity.
+    #
+    # One cost is paid knowingly: a backslash is a legal character in a member
+    # name a POSIX archiver wrote, and rewriting it means `a\b.tif` is looked
+    # for as `a/b.tif` -- a member that is not in the archive, so the read fails
+    # naming a path that was never there. It is rewritten anyway, because on
+    # Windows `..\..\` is a traversal GDAL resolves and telling the two apart
+    # from the name alone is not possible. A member whose name really does
+    # carry a backslash is unreachable through `file_i`.
     candidate = members[file_i].replace("\\", "/")
     if ntpath.isabs(candidate) or PurePosixPath(candidate).is_absolute():
         raise FileFormatNotSupportedError(
             f"The {kind} file {path!r} holds a member with an absolute path "
             f"({candidate!r}), which would be read from outside the archive."
+        )
+    if _WINDOWS_DRIVE_TRAVERSAL.match(candidate):
+        raise FileFormatNotSupportedError(
+            f"The {kind} file {path!r} holds a member whose path escapes it "
+            f"({candidate!r}): the leading drive designator glues the parent "
+            "traversal to itself, so it is not a segment of its own."
         )
     segments = []
     for segment in candidate.split("/"):
@@ -398,8 +450,14 @@ def _member_at(path: str, members: list[str], file_i: int, kind: str) -> str:
             )
         segments.append(segment)
     if not segments:
+        # Not "an empty name": `.`, `./` and `//` are names, and saying they
+        # were empty sends a reader looking for a zero-length entry that is not
+        # in the archive. What is true of all of them -- the empty string
+        # included -- is that normalising them leaves nothing to open.
         raise FileFormatNotSupportedError(
-            f"The {kind} file {path!r} holds a member with an empty name."
+            f"The {kind} file {path!r} holds a member ({members[file_i]!r}) whose name "
+            "normalises to nothing once its `.` and empty segments are dropped, so it "
+            "names no file in the archive."
         )
     # A zip lists a directory entry with a trailing slash, and that slash is how
     # GDAL tells `/vsizip/x.zip/subdir/` (a directory to look inside) from
@@ -454,6 +512,41 @@ def _only_member_suffix(path: str, file_i: int, kind: str) -> str:
             f"so there is no member at index {file_i}."
         )
     return ""
+
+
+def _tar_file_members(archive: tarfile.TarFile, file_i: int) -> list[str]:
+    """The archive's file members in order, stopping once `file_i` is in hand.
+
+    `TarFile.getmembers` reads to the end of the stream. On a plain `.tar` that
+    is a cheap seek-walk, but a compressed one (`.tar.gz`, `.tgz`) has no member
+    index, so "the end of the stream" means inflating every byte of the archive
+    in Python -- about four seconds per logical gigabyte -- before GDAL, which
+    then decompresses it again, has even been called. Naming member 0 does not
+    depend on the members after it, so the walk stops at the one asked for and
+    the common read costs a single header.
+
+    The walk runs to the end only when it has to. An index past the end -- or a
+    negative one -- is refused by :func:`_member_at` with a message naming how
+    many members the archive holds, and that count has to be the archive's
+    rather than a partial walk's, so those indices never satisfy the stop
+    condition.
+
+    Args:
+        archive: An open tar, positioned at its first member.
+        file_i: The index the caller asked for.
+
+    Returns:
+        list[str]: The names of the file members walked, in archive order.
+            Directory, symlink and hardlink entries are skipped, so an index
+            means the same thing here as it does for a zip.
+    """
+    members: list[str] = []
+    for member in archive:
+        if member.isfile():
+            members.append(member.name)
+            if 0 <= file_i < len(members):
+                break
+    return members
 
 
 def _get_zip_path(path: str, file_i: int = 0):
@@ -546,10 +639,9 @@ def _get_gzip_path(path: str, file_i: int = 0):
         try:
             with tarfile.open(path) as tf:
                 # Files only, as the zip and tar handlers do -- `getnames()`
-                # returns directories too.
-                file_list = [
-                    member.name for member in tf.getmembers() if member.isfile()
-                ]
+                # returns directories too -- and walked lazily, because the
+                # stream this reads through is a gzip one.
+                file_list = _tar_file_members(tf, file_i)
             vsi_path = f"{_VSIGZIP}{path}/{_member_at(path, file_list, file_i, 'gzip')}"
         except tarfile.ReadError:
             # if the tarfile.open() does not give a getnames() method, it means the file contains one file
@@ -573,6 +665,8 @@ def _get_tar_path(path: str, file_i: int = 0):
       and the same gzip raised a typed :class:`FileFormatNotSupportedError`.
       The `file_i` argument was accepted by the caller and silently discarded
       here, so there was no way to reach the second member of a tar at all.
+      The listing walks the member headers and stops at the one asked for
+      (:func:`_tar_file_members`), so a compressed tar is not inflated past it.
 
     Args:
         path (str): Path to the tar file.
@@ -616,7 +710,7 @@ def _get_tar_path(path: str, file_i: int = 0):
     else:
         try:
             with tarfile.open(path) as archive:
-                members = [m.name for m in archive.getmembers() if m.isfile()]
+                members = _tar_file_members(archive, file_i)
         except (tarfile.TarError, OSError):
             # Unreadable as a tar through Python: a compressed variant this
             # build cannot open, or no such file. Either way the bare prefix is

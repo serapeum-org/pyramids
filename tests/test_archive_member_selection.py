@@ -20,13 +20,14 @@ addressed to.
 
 A member name is also the archive's *own* bytes, so naming a member is where
 the tar-slip / zip-slip shape lives: `/vsitar/x.tar/../../etc/passwd` is a path
-GDAL resolves outside the archive. `_member_at` therefore validates the name
-against an allow-list of segments and rebuilds the result from what matched,
-rather than checking it and passing the original string through.
+GDAL resolves outside the archive. `_member_at` therefore refuses any segment
+that navigates and rebuilds the result from the segments that cleared, rather
+than checking the name and passing the original string through.
 """
 
 from __future__ import annotations
 
+import gzip
 import tarfile
 import zipfile
 from pathlib import Path
@@ -258,6 +259,67 @@ class TestAMemberNameThatWouldLeaveTheArchiveIsRefused:
 
     @pytest.mark.parametrize(
         "member",
+        [r"Z:..\x.tif", "C:../x.tif", r"c:..\..\etc\passwd"],
+        ids=["drive-traversal", "drive-traversal-posix", "drive-traversal-deep"],
+    )
+    def test_a_drive_designator_glued_to_a_traversal_is_refused(self, member: str):
+        """The one traversal spelling both other checks miss.
+
+        Args:
+            member: A member whose leading drive designator is glued to `..`.
+
+        Test scenario:
+            `ntpath.isabs("Z:..\\x")` is False -- there is no separator after
+            the colon -- so the absolute check does not fire; and the `..` is
+            not a segment of its own once the designator is glued to it, so the
+            dots-only deny-list does not see it either. It navigates all the
+            same.
+        """
+        with pytest.raises(FileFormatNotSupportedError) as excinfo:
+            _member_at("x.zip", [member], 0, "zip")
+
+        assert "glues the parent traversal" in str(excinfo.value), (
+            f"{member!r} was refused, but not by the drive check: {excinfo.value}"
+        )
+
+    @pytest.mark.parametrize(
+        "member",
+        ["C:x.tif", "a:b.tif", "c:data/x.tif", "1:2.asc"],
+        ids=["drive-shaped", "single-letter", "nested", "digit"],
+    )
+    def test_a_colon_name_that_does_not_navigate_still_opens(self, member: str):
+        """Refusing every drive-shaped name would be the allow-list mistake again.
+
+        Args:
+            member: A member whose name contains a colon.
+
+        Test scenario:
+            `a:b.tif` and `C:x.tif` are the same string shape, and on POSIX
+            both are ordinary filenames. A member is appended to
+            `/vsizip/<archive>/`, where a bare designator names a member rather
+            than a drive -- only the `..` navigates, and only that is refused.
+            Rejecting real names to catch a threat that is not there is exactly
+            what the round-3 allow-list did.
+        """
+        assert _member_at("x.zip", [member], 0, "zip") == member
+
+    def test_a_colon_that_is_not_a_drive_designator_still_opens(self):
+        """The drive check must not turn back into a ban on the colon.
+
+        Test scenario:
+            `:` is one of the characters the round-3 ASCII allow-list refused,
+            and it is pinned as legitimate elsewhere in this module. The
+            traversal check reads a leading designator only as the prefix of
+            `..`; a colon anywhere else is an ordinary character in a name.
+        """
+        resolved = _member_at("x.zip", ["semi:colon.tif"], 0, "zip")
+
+        assert resolved == "semi:colon.tif", (
+            f"an interior colon was not preserved: {resolved!r}"
+        )
+
+    @pytest.mark.parametrize(
+        "member",
         ["", ".", "./", "./."],
         ids=["empty", "dot", "dot-slash", "dot-slash-dot"],
     )
@@ -275,8 +337,32 @@ class TestAMemberNameThatWouldLeaveTheArchiveIsRefused:
         with pytest.raises(FileFormatNotSupportedError) as excinfo:
             _member_at("x.tar", [member], 0, "tar")
 
-        assert "empty name" in str(excinfo.value), (
-            f"{member!r} was refused, but not as an empty name: {excinfo.value}"
+        assert "normalises to nothing" in str(excinfo.value), (
+            f"{member!r} was refused, but not as a name that normalises away: "
+            f"{excinfo.value}"
+        )
+
+    @pytest.mark.parametrize(
+        "member", [".", "./", "./."], ids=["dot", "dot-slash", "dot-slash-dot"]
+    )
+    def test_the_refusal_quotes_the_name_that_was_actually_there(self, member: str):
+        """A name that normalised away was not an empty name, and is not called one.
+
+        Args:
+            member: A member name that is not empty but normalises to nothing.
+
+        Test scenario:
+            `.` and `./.` are names; they are refused because *normalising* them
+            leaves nothing, which is a different fact about the archive than
+            "this member has no name". Reporting the second sends a reader
+            looking for a zero-length entry that is not there, so the message
+            has to quote the name it actually saw.
+        """
+        with pytest.raises(FileFormatNotSupportedError) as excinfo:
+            _member_at("x.tar", [member], 0, "tar")
+
+        assert repr(member) in str(excinfo.value), (
+            f"the refusal for {member!r} did not quote it: {excinfo.value}"
         )
 
     def test_a_real_tar_carrying_a_crafted_member_is_refused_on_read(self, tmp_path):
@@ -394,19 +480,37 @@ class TestALegitimateMemberNameStillOpens:
 
         Test scenario:
             The guard validates *and rebuilds*: the string handed back is
-            joined from the segments the allow-list matched, so none of the
-            archive's own bytes reach the path GDAL resolves. A
-            check-then-pass-through would let the untrusted object itself flow
-            on, which is the shape every taint analysis (rightly) flags.
+            joined from the segments the deny-list cleared, so the name GDAL
+            resolves is one this function composed. The observable side of that
+            is normalisation — a name carrying segments the rebuild drops comes
+            back without them, which a check-then-pass-through could not
+            produce. Object identity is deliberately *not* asserted: the
+            helper's own docstring says the guarantee is about the value, and
+            for a single-segment name CPython hands back the input object
+            itself, so pinning identity would pin a `str.join` implementation
+            detail rather than the contract.
+        """
+        member = "a/./b//1.asc"
+
+        resolved = _member_at("x.zip", [member], 0, "zip")
+
+        assert resolved == "a/b/1.asc", (
+            f"{member!r} was not rebuilt from its segments; got {resolved!r}"
+        )
+
+    def test_a_name_with_nothing_to_normalise_survives_intact(self):
+        """Rebuilding must not perturb a name that was already clean.
+
+        Test scenario:
+            The counterpart to the normalisation above: the rebuild exists to
+            drop no-op segments, not to alter the name, so a nested name with
+            none of them has to come back byte-for-byte.
         """
         member = "a/b/1.asc"
 
         resolved = _member_at("x.zip", [member], 0, "zip")
 
         assert resolved == member, "a safe nested name must survive intact"
-        assert resolved is not member, (
-            "the archive's own string was passed through rather than rebuilt"
-        )
 
 
 class TestTheOnlyStreamOfAMemberLessArchive:
@@ -659,3 +763,124 @@ class TestNamesTheOldAllowListRefused:
         resolved = _member_at("x.zip", [member], 0, "zip")
 
         assert resolved == member, f"{label}: {member!r} came back as {resolved!r}"
+
+
+# Large enough that inflating it is unmistakable in the byte count below, small enough
+# that building it costs nothing: a run of zeros gzips to a few kilobytes on disk.
+_LARGE_MEMBER_BYTES = 8_000_000
+
+
+class _CountingGzipFile(gzip.GzipFile):
+    """A :class:`gzip.GzipFile` that records how far into the decompressed stream it went.
+
+    ``tarfile.open`` does ``from gzip import GzipFile`` inside ``gzopen``, so substituting
+    this for :class:`gzip.GzipFile` puts the probe on the exact object the tar reader
+    inflates through. Both reading and seeking are recorded: `tarfile` skips a member's
+    payload with ``seek``, and on a gzip stream a forward seek is a decompression too --
+    counting only ``read`` would report a walk of the whole archive as nearly free.
+    """
+
+    reached = 0
+
+    def read(self, size: int = -1) -> bytes:
+        """Read as :class:`gzip.GzipFile` does, recording the offset that leaves us at."""
+        chunk = super().read(size)
+        _CountingGzipFile.reached = max(_CountingGzipFile.reached, self.tell())
+        return chunk
+
+    def seek(self, offset: int, whence: int = 0) -> int:
+        """Seek as :class:`gzip.GzipFile` does, recording how far into the stream it lands."""
+        position = super().seek(offset, whence)
+        _CountingGzipFile.reached = max(_CountingGzipFile.reached, position)
+        return position
+
+
+def _tar_gz_with_a_large_second_member(tmp_path) -> Path:
+    """A two-member ``.tar.gz`` whose second member is large, written to `tmp_path`."""
+    first = tmp_path / "1.asc"
+    first.write_text("ncols 1\n")
+    second = tmp_path / "2.asc"
+    second.write_bytes(b"\0" * _LARGE_MEMBER_BYTES)
+    archive = tmp_path / "big.tar.gz"
+    with tarfile.open(archive, "w:gz") as tar:
+        tar.add(first, arcname="1.asc")
+        tar.add(second, arcname="2.asc")
+    return archive
+
+
+class TestACompressedTarIsNotInflatedToNameItsFirstMember:
+    """Listing a `.tar.gz` member must not decompress the archive Python-side first.
+
+    A plain `.tar` is a seek-walk, but a `.tar.gz` has no member index: reaching the *last*
+    header means inflating every byte before it. Materialising the whole member table to
+    answer `file_i=0` therefore paid a full decompression before GDAL -- which decompresses
+    it again -- was even called. Walking the headers and stopping at the member asked for
+    keeps the common read at one header.
+    """
+
+    def test_naming_the_first_member_reads_only_its_header(self, tmp_path, monkeypatch):
+        """Resolving `file_i=0` inflates a header, not the archive.
+
+        Args:
+            tmp_path: Fixture supplying a temporary directory.
+            monkeypatch: Fixture used to install the counting gzip reader.
+
+        Test scenario:
+            The archive's second member is 8 MB. Enumerating every member -- what
+            `getmembers()` does -- has to inflate all of it to read the header that
+            follows; naming the first member needs only the 512-byte header that opens
+            the stream.
+        """
+        archive = _tar_gz_with_a_large_second_member(tmp_path)
+        _CountingGzipFile.reached = 0
+        monkeypatch.setattr(gzip, "GzipFile", _CountingGzipFile)
+
+        resolved = _get_tar_path(str(archive))
+
+        assert resolved.endswith("/1.asc"), (
+            f"expected the first member, got {resolved!r}"
+        )
+        assert _CountingGzipFile.reached < 100_000, (
+            f"the reader inflated {_CountingGzipFile.reached} bytes to name the first member of a "
+            f"{_LARGE_MEMBER_BYTES}-byte archive; the member table was materialised eagerly"
+        )
+
+    def test_a_later_member_is_still_reachable(self, tmp_path):
+        """Stopping early must not cost the ability to select a later member.
+
+        Args:
+            tmp_path: Fixture supplying a temporary directory.
+
+        Test scenario:
+            The walk stops at the member asked for, so `file_i=1` has to keep walking
+            past the first one. An off-by-one in the stop condition would show up here as
+            the wrong member or a spurious refusal.
+        """
+        archive = _tar_gz_with_a_large_second_member(tmp_path)
+
+        resolved = _get_tar_path(str(archive), file_i=1)
+
+        assert resolved.endswith("/2.asc"), (
+            f"expected the second member, got {resolved!r}"
+        )
+
+    def test_an_index_past_the_end_still_reports_the_true_count(self, tmp_path):
+        """The refusal counts every member, not the truncated walk.
+
+        Args:
+            tmp_path: Fixture supplying a temporary directory.
+
+        Test scenario:
+            The walk stops early only when it found what it was asked for. An index past
+            the end is exactly the case that has to keep going, because the message names
+            how many members there actually are -- reporting the length of a partial walk
+            would tell the caller a number that is not true of the archive.
+        """
+        archive = _tar_gz_with_a_large_second_member(tmp_path)
+
+        with pytest.raises(FileFormatNotSupportedError) as excinfo:
+            _get_tar_path(str(archive), file_i=7)
+
+        assert "holds 2 file(s)" in str(excinfo.value), (
+            f"the refusal did not report both members: {excinfo.value}"
+        )
