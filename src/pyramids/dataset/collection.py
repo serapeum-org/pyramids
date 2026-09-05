@@ -2582,6 +2582,11 @@ class DatasetCollection:
         argument is what lets `head` / `tail` read only the timesteps they
         selected instead of materialising the whole cube via :attr:`values`.
 
+        An empty cube is a legitimate answer for a *read* -- `values`, `head`,
+        `tail` -- and not for a render, which has no frames to draw; `plot`
+        refuses one itself rather than handing a zero-length stack on to
+        cleopatra.
+
         Args:
             datasets: One `Dataset` per timestep to stack, in time order.
             band: The band to read from each, or `None` for every band -- which
@@ -2599,8 +2604,9 @@ class DatasetCollection:
             # multi-band collection produces `(time, bands, rows, cols)`, so the
             # empty form of that is 4-D, not 3-D. The RGB animation used to
             # report "got 3-D ... pass rgb only with a multi-band temporal
-            # stack" for an empty collection, which describes a different
-            # problem entirely.
+            # stack" for an empty collection; :meth:`plot` now refuses one
+            # by name before it gets that far, so the shape here is only about
+            # rank.
             shape: tuple[int, ...] = (0, self.rows, self.columns)
             if band is None and self.base.band_count > 1:
                 shape = (0, self.base.band_count, self.rows, self.columns)
@@ -2851,11 +2857,13 @@ class DatasetCollection:
                 ``(time, rows, cols, 3)`` stack and ``cbar`` is ``None``.
 
         Raises:
-            ValueError: When ``rgb`` does not list exactly 3 (RGB) or 4
-                (RGBA) band indices, when any index is negative, or when the
-                collection's datasets carry fewer than ``max(rgb) + 1`` bands.
-                Also raised (via ``_unpack_rgb_options``) for an unknown key
-                in ``rgb_options``.
+            ValueError: When the collection is empty (``time_length == 0``),
+                so there are no frames to animate; when ``rgb`` does not list
+                exactly 3 (RGB) or 4 (RGBA) band indices, when any index is
+                negative, or when the collection's datasets carry fewer than
+                ``max(rgb) + 1`` bands. Also raised (via
+                ``_unpack_rgb_options``) for an unknown key in
+                ``rgb_options``.
 
         Warns:
             UserWarning: When ``exclude_value`` is passed together with
@@ -2903,6 +2911,15 @@ class DatasetCollection:
               cleopatra dispatch that composites the true-colour frames for
               the animate path.
         """
+        # An empty collection has nothing to animate. Read accessors return an
+        # empty cube for it, which is a sensible answer for a read and not for
+        # a render: the zero-length stack used to reach cleopatra and come back
+        # as "zero-size array to reduction operation minimum which has no
+        # identity", naming neither the collection nor the reason.
+        if self.time_length == 0:
+            raise ValueError(
+                "plot: cannot render an empty collection (time_length == 0)."
+            )
         # Unpack the grouped ``rgb_options`` exactly as ``Dataset.plot`` does, so both
         # facades share one RGB-parameter contract.
         rgb, surface_reflectance, cutoff, percentile = Dataset._unpack_rgb_options(

@@ -1435,6 +1435,71 @@ class TestTailHeadRegression:
         )
 
 
+class TestPlottingAnEmptyCollection:
+    """A render has no frames to draw, and the refusal has to say so."""
+
+    def test_plot_refuses_an_empty_collection_by_name(
+        self, base_dataset: Dataset, monkeypatch
+    ):
+        """The empty cube is a read's answer, not a render's.
+
+        Args:
+            base_dataset: A single 5x6 raster to build the collection from.
+            monkeypatch: pytest fixture, standing in for the cleopatra dispatch
+                so the refusal is what fails the call, not a missing extra.
+
+        Test scenario:
+            `_stack_timesteps` returns an empty `(0, rows, cols)` cube for an
+            empty collection, which is right for `values` / `head` / `tail` and
+            useless for an animation: the zero-length stack reached cleopatra
+            and came back as numpy's "zero-size array to reduction operation
+            minimum which has no identity", which names neither the collection
+            nor the reason.
+        """
+        collection = DatasetCollection.from_dataset(base_dataset, time_length=0)
+        monkeypatch.setattr(
+            "pyramids.dataset.collection.render_array", lambda request, **kw: "glyph"
+        )
+
+        with pytest.raises(ValueError, match="empty collection"):
+            collection.plot()
+
+    def test_the_rgb_path_refuses_it_too(self, base_dataset: Dataset, monkeypatch):
+        """Both render paths stack timesteps, so both need the guard.
+
+        Args:
+            base_dataset: A single 5x6 raster to build the collection from.
+            monkeypatch: pytest fixture, standing in for the cleopatra dispatch.
+
+        Test scenario:
+            The RGB time-lapse builds its own `(time, bands, rows, cols)` stack;
+            an empty collection makes that 4-D and empty rather than 3-D, so it
+            fails somewhere else again unless the refusal comes first.
+        """
+        collection = DatasetCollection.from_dataset(base_dataset, time_length=0)
+        monkeypatch.setattr(
+            "pyramids.dataset.collection.render_array", lambda request, **kw: "glyph"
+        )
+
+        with pytest.raises(ValueError, match="empty collection"):
+            collection.plot(rgb_options={"rgb": [0, 1, 2]})
+
+    def test_the_read_accessors_still_return_an_empty_cube(self, base_dataset: Dataset):
+        """Refusing the render must not turn a legitimate read into an error.
+
+        Test scenario:
+            `values` on an empty collection is `(0, rows, cols)` of the
+            collection's dtype -- the answer the empty-safe stack helper was
+            written for -- and the plot guard sits in `plot`, not in it.
+
+        Args:
+            base_dataset: A single 5x6 raster to build the collection from.
+        """
+        collection = DatasetCollection.from_dataset(base_dataset, time_length=0)
+
+        assert collection.values.shape == (0, 5, 6)
+
+
 class TestFromFilesValidate:
     """Tests for ``from_files(validate=...)`` + ``_validate_headers`` (ARC-75b)."""
 
