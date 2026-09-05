@@ -210,9 +210,11 @@ class Variables(_Engine["NetCDF"]):
             dataset: Source NetCDF dataset whose variables will be copied.
                 Must have a root group (opened in MDIM mode).
             variable_name: Specific variable name(s) to copy. If None, all
-                variables from the source are copied. If a variable with
-                the same name already exists, it is renamed with a
-                `"-new"` suffix.
+                variables from the source are copied. A group-qualified source
+                name (`"flight_03/CO"`) is copied under its leaf name, because
+                this container's root group is flat and netCDF-4 forbids `/` in
+                a name; where that collides with a name already present the copy
+                is suffixed (`"-new"`, then numbered) rather than overwriting.
             copy: When True (the default) an in-memory container is copied
                 before mutation so a shared `gdal.Dataset` handle is not
                 corrupted — see #143. Pass False only from a caller that
@@ -268,10 +270,12 @@ class Variables(_Engine["NetCDF"]):
             # Group-qualified names reach here from the variable
             # enumeration, so resolve through the helper that walks them.
             md_arr = open_mdarray(var_rg, var)
+            if md_arr is None:
+                continue
             # If the variable name already exists in the destination dataset,
             # use a suffixed name to avoid overwriting the original.
             existing = dst_rg.GetMDArrayNames() or []
-            target_name = f"{var}-new" if var in existing else var
+            target_name = _free_target_name(var, existing)
             nc._add_md_array_to_group(dst_rg, target_name, md_arr)
 
         if not in_place:
@@ -330,6 +334,58 @@ class Variables(_Engine["NetCDF"]):
         rg.DeleteMDArray(old_name)
         nc._replace_raster(dst)
         nc._invalidate_caches()
+
+
+def _free_target_name(source_name: str, existing: Sequence[str]) -> str:
+    """Pick the destination array name for a copied variable.
+
+    The destination root group is **flat**, and netCDF-4 forbids ``/`` in a
+    variable name, so a group-qualified source name (``"flight_03/CO"``) cannot
+    be used verbatim: creating an array under it built a container that
+    ``to_file`` later refused with *"NetCDF: Name contains illegal
+    characters"*, long after the ``add_variable`` call that caused it. The leaf
+    segment is the name, and collisions are resolved by suffixing rather than
+    overwriting -- ``"-new"`` first, as before, then numbered, so a store whose
+    sub-groups repeat a leaf name copies all of them instead of clobbering one
+    with the next.
+
+    Args:
+        source_name: The source array's name, possibly group-qualified.
+        existing: Names already present in the destination group.
+
+    Returns:
+        str: A name not already taken in ``existing``.
+
+    Examples:
+        - A free name is used unchanged:
+            ```python
+            >>> _free_target_name("CO", [])
+            'CO'
+
+            ```
+        - A group-qualified name is reduced to its leaf:
+            ```python
+            >>> _free_target_name("flight_03/CO", [])
+            'CO'
+
+            ```
+        - A taken name is suffixed rather than overwritten:
+            ```python
+            >>> _free_target_name("flight_03/CO", ["CO"])
+            'CO-new'
+            >>> _free_target_name("flight_04/CO", ["CO", "CO-new"])
+            'CO-new-2'
+
+            ```
+    """
+    leaf = source_name.rpartition("/")[2]
+    taken = set(existing)
+    candidate = leaf
+    suffix = 1
+    while candidate in taken:
+        suffix += 1
+        candidate = f"{leaf}-new" if suffix == 2 else f"{leaf}-new-{suffix - 1}"
+    return candidate
 
 
 def _resolve_band_metadata(

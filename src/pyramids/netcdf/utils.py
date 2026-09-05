@@ -1198,12 +1198,20 @@ def _read_dim_names(md_arr: Any) -> list[str]:
     return dim_names
 
 
+# Every public name this module offers: the CF epoch constants and helpers it
+# re-exports from `base._cf_epoch`, plus every public function it defines
+# itself. The list is the module's declared surface -- a star-import and
+# mkdocstrings' public-member detection both read it -- so a helper left out is
+# a helper withdrawn, not merely one that is undocumented.
 __all__ = [
     "CF_EPOCH",
     "CF_EPOCH_CALENDAR",
     "cf_epoch_units",
     "cf_units_text",
+    "create_time_conversion_func",
     "decode_cf_time",
     "encode_cf_time",
     "is_cf_time_units",
+    "read_cf_attributes",
+    "resolve_full_name",
 ]
