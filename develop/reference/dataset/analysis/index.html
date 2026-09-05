@@ -9386,7 +9386,7 @@ its own <a href="../../../tutorials/lazy/lazy-raster/#zonal-statistics-datasetzo
 <a id="__codelineno-0-300" name="__codelineno-0-300"></a>        <span class="c1"># happens to be non-zero; with `no_data_value == 0` it is always 0, so nothing</span>
 <a id="__codelineno-0-301" name="__codelineno-0-301"></a>        <span class="c1"># was subtracted and every cell counted as domain.</span>
 <a id="__codelineno-0-302" name="__codelineno-0-302"></a>        <span class="k">def</span><span class="w"> </span><span class="nf">_count</span><span class="p">(</span><span class="n">acc</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">strip</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">_window</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
-<a id="__codelineno-0-303" name="__codelineno-0-303"></a>            <span class="k">return</span> <span class="n">acc</span> <span class="o">+</span> <span class="nb">int</span><span class="p">(</span><span class="n">is_no_data</span><span class="p">(</span><span class="n">strip</span><span class="p">,</span> <span class="n">no_data_value</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">())</span>
+<a id="__codelineno-0-303" name="__codelineno-0-303"></a>            <span class="k">return</span> <span class="n">acc</span> <span class="o">+</span> <span class="nb">int</span><span class="p">(</span><span class="n">is_stored_no_data</span><span class="p">(</span><span class="n">strip</span><span class="p">,</span> <span class="n">no_data_value</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">())</span>
 <a id="__codelineno-0-304" name="__codelineno-0-304"></a>
 <a id="__codelineno-0-305" name="__codelineno-0-305"></a>        <span class="c1"># Stream the count in row strips so a very large or /vsicurl source is never</span>
 <a id="__codelineno-0-306" name="__codelineno-0-306"></a>        <span class="c1"># read whole (#967). A summed count is order-independent, so the tiled total</span>
@@ -9514,7 +9514,7 @@ its own <a href="../../../tutorials/lazy/lazy-raster/#zonal-statistics-datasetzo
 <a id="__codelineno-0-428" name="__codelineno-0-428"></a><span class="sd">            out_array: The pre-filled output array written in place.</span>
 <a id="__codelineno-0-429" name="__codelineno-0-429"></a><span class="sd">            no_data_value: The value marking cells to exclude from the domain.</span>
 <a id="__codelineno-0-430" name="__codelineno-0-430"></a><span class="sd">        """</span>
-<a id="__codelineno-0-431" name="__codelineno-0-431"></a>        <span class="n">domain_mask</span> <span class="o">=</span> <span class="n">inside_domain</span><span class="p">(</span><span class="n">src_array</span><span class="p">,</span> <span class="n">no_data_value</span><span class="p">)</span>
+<a id="__codelineno-0-431" name="__codelineno-0-431"></a>        <span class="n">domain_mask</span> <span class="o">=</span> <span class="o">~</span><span class="n">is_stored_no_data</span><span class="p">(</span><span class="n">src_array</span><span class="p">,</span> <span class="n">no_data_value</span><span class="p">)</span>
 <a id="__codelineno-0-432" name="__codelineno-0-432"></a>        <span class="n">domain_values</span> <span class="o">=</span> <span class="n">src_array</span><span class="p">[</span><span class="n">domain_mask</span><span class="p">]</span>
 <a id="__codelineno-0-433" name="__codelineno-0-433"></a>        <span class="c1"># An empty domain (an all-no-data tile, common when streaming) needs no</span>
 <a id="__codelineno-0-434" name="__codelineno-0-434"></a>        <span class="c1"># write -- out_array is already the no-data fill -- and short-circuiting</span>
@@ -9601,11 +9601,11 @@ its own <a href="../../../tutorials/lazy/lazy-raster/#zonal-statistics-datasetzo
 <a id="__codelineno-0-515" name="__codelineno-0-515"></a>        <span class="n">no_data_value</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">no_data_value</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
 <a id="__codelineno-0-516" name="__codelineno-0-516"></a>
 <a id="__codelineno-0-517" name="__codelineno-0-517"></a>        <span class="k">def</span><span class="w"> </span><span class="nf">_fill_tile</span><span class="p">(</span><span class="n">tile</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
-<a id="__codelineno-0-518" name="__codelineno-0-518"></a>            <span class="c1"># rtol=1e-6 is intentionally tighter than the package default (1e-3):</span>
-<a id="__codelineno-0-519" name="__codelineno-0-519"></a>            <span class="c1"># `fill` writes user-supplied values into every domain cell, so a</span>
-<a id="__codelineno-0-520" name="__codelineno-0-520"></a>            <span class="c1"># too-loose match would clobber legitimate cells that happen to lie</span>
-<a id="__codelineno-0-521" name="__codelineno-0-521"></a>            <span class="c1"># within ~0.1% of the no-data sentinel.</span>
-<a id="__codelineno-0-522" name="__codelineno-0-522"></a>            <span class="n">tile</span><span class="p">[</span><span class="n">inside_domain</span><span class="p">(</span><span class="n">tile</span><span class="p">,</span> <span class="n">no_data_value</span><span class="p">,</span> <span class="n">rtol</span><span class="o">=</span><span class="mf">0.000001</span><span class="p">)]</span> <span class="o">=</span> <span class="n">value</span>
+<a id="__codelineno-0-518" name="__codelineno-0-518"></a>            <span class="c1"># The band-wide predicate, not a tolerance of this method's own:</span>
+<a id="__codelineno-0-519" name="__codelineno-0-519"></a>            <span class="c1"># `fill` decides from it which cells are the domain, so a cell it</span>
+<a id="__codelineno-0-520" name="__codelineno-0-520"></a>            <span class="c1"># calls no-data here and the histogram calls data is the same</span>
+<a id="__codelineno-0-521" name="__codelineno-0-521"></a>            <span class="c1"># disagreement, reached through the writer instead of a reader.</span>
+<a id="__codelineno-0-522" name="__codelineno-0-522"></a>            <span class="n">tile</span><span class="p">[</span><span class="o">~</span><span class="n">is_stored_no_data</span><span class="p">(</span><span class="n">tile</span><span class="p">,</span> <span class="n">no_data_value</span><span class="p">)]</span> <span class="o">=</span> <span class="n">value</span>
 <a id="__codelineno-0-523" name="__codelineno-0-523"></a>            <span class="k">return</span> <span class="n">tile</span>
 <a id="__codelineno-0-524" name="__codelineno-0-524"></a>
 <a id="__codelineno-0-525" name="__codelineno-0-525"></a>        <span class="c1"># Stream the fill tile-by-tile so a very large or /vsicurl source is never</span>
@@ -10582,7 +10582,7 @@ its own <a href="../../../tutorials/lazy/lazy-raster/#zonal-statistics-datasetzo
 <a id="__codelineno-0-1496" name="__codelineno-0-1496"></a>        <span class="c1"># `np.isclose(arr, no_data_val)`, which is always False for a float NaN</span>
 <a id="__codelineno-0-1497" name="__codelineno-0-1497"></a>        <span class="c1"># sentinel -- so a raster whose nodata is NaN warned that its nodata</span>
 <a id="__codelineno-0-1498" name="__codelineno-0-1498"></a>        <span class="c1"># was absent even when every cell was nodata.</span>
-<a id="__codelineno-0-1499" name="__codelineno-0-1499"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">is_no_data</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">no_data_val</span><span class="p">,</span> <span class="n">rtol</span><span class="o">=</span><span class="mf">0.00001</span><span class="p">)</span><span class="o">.</span><span class="n">any</span><span class="p">():</span>
+<a id="__codelineno-0-1499" name="__codelineno-0-1499"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">is_stored_no_data</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">no_data_val</span><span class="p">)</span><span class="o">.</span><span class="n">any</span><span class="p">():</span>
 <a id="__codelineno-0-1500" name="__codelineno-0-1500"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
 <a id="__codelineno-0-1501" name="__codelineno-0-1501"></a>                <span class="s2">"the nodata value stored in the raster does not exist in the raster "</span>
 <a id="__codelineno-0-1502" name="__codelineno-0-1502"></a>                <span class="s2">"so either the raster extent is all full of data, or the no_data_value stored in the raster is"</span>
@@ -10696,7 +10696,7 @@ its own <a href="../../../tutorials/lazy/lazy-raster/#zonal-statistics-datasetzo
 <a id="__codelineno-0-1610" name="__codelineno-0-1610"></a>            <span class="n">arr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_apply_exclude_values</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">exclude_values</span><span class="p">,</span> <span class="n">no_data_val</span><span class="p">)</span>
 <a id="__codelineno-0-1611" name="__codelineno-0-1611"></a>
 <a id="__codelineno-0-1612" name="__codelineno-0-1612"></a>        <span class="c1"># Build the coverage mask: covered cells -&gt; 2, nodata cells -&gt; 0.</span>
-<a id="__codelineno-0-1613" name="__codelineno-0-1613"></a>        <span class="n">valid</span> <span class="o">=</span> <span class="n">inside_domain</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">no_data_val</span><span class="p">,</span> <span class="n">rtol</span><span class="o">=</span><span class="mf">0.00001</span><span class="p">)</span>
+<a id="__codelineno-0-1613" name="__codelineno-0-1613"></a>        <span class="n">valid</span> <span class="o">=</span> <span class="o">~</span><span class="n">is_stored_no_data</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">no_data_val</span><span class="p">)</span>
 <a id="__codelineno-0-1614" name="__codelineno-0-1614"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">valid</span><span class="o">.</span><span class="n">any</span><span class="p">():</span>
 <a id="__codelineno-0-1615" name="__codelineno-0-1615"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">"the raster is full of no_data_value"</span><span class="p">)</span>
 <a id="__codelineno-0-1616" name="__codelineno-0-1616"></a>            <span class="k">return</span> <span class="kc">None</span>
@@ -11023,106 +11023,106 @@ its own <a href="../../../tutorials/lazy/lazy-raster/#zonal-statistics-datasetzo
 <a id="__codelineno-0-1937" name="__codelineno-0-1937"></a>        <span class="n">mask</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="n">arr</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">)</span>
 <a id="__codelineno-0-1938" name="__codelineno-0-1938"></a>        <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">issubdtype</span><span class="p">(</span><span class="n">arr</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">floating</span><span class="p">):</span>
 <a id="__codelineno-0-1939" name="__codelineno-0-1939"></a>            <span class="n">mask</span> <span class="o">&amp;=</span> <span class="o">~</span><span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">arr</span><span class="p">)</span>
-<a id="__codelineno-0-1940" name="__codelineno-0-1940"></a>        <span class="c1"># `is_no_data` rather than a branch on the sentinel's spelling plus an</span>
-<a id="__codelineno-0-1941" name="__codelineno-0-1941"></a>        <span class="c1"># exact `!=`: it answers for a NaN sentinel and a concrete one alike,</span>
-<a id="__codelineno-0-1942" name="__codelineno-0-1942"></a>        <span class="c1"># so the two-branch form collapses.</span>
-<a id="__codelineno-0-1943" name="__codelineno-0-1943"></a>        <span class="c1">#</span>
-<a id="__codelineno-0-1944" name="__codelineno-0-1944"></a>        <span class="c1"># `rtol` is passed, not defaulted. `DEFAULT_RTOL` is 1e-3, which for a</span>
-<a id="__codelineno-0-1945" name="__codelineno-0-1945"></a>        <span class="c1"># sentinel of -9999 masks everything in [-10009, -9989] -- on the</span>
-<a id="__codelineno-0-1946" name="__codelineno-0-1946"></a>        <span class="c1"># suite's own fixtures that swallows real cells, and on a uint16 band</span>
-<a id="__codelineno-0-1947" name="__codelineno-0-1947"></a>        <span class="c1"># with sentinel 65535 it masks 66 legitimate integers. 1e-5 is what</span>
-<a id="__codelineno-0-1948" name="__codelineno-0-1948"></a>        <span class="c1"># `_warn_if_nodata_absent` below asks of the same band, and a histogram</span>
-<a id="__codelineno-0-1949" name="__codelineno-0-1949"></a>        <span class="c1"># that counted different pixels from the warning printed beside it was</span>
-<a id="__codelineno-0-1950" name="__codelineno-0-1950"></a>        <span class="c1"># the divergence this was meant to remove.</span>
-<a id="__codelineno-0-1951" name="__codelineno-0-1951"></a>        <span class="n">mask</span> <span class="o">&amp;=</span> <span class="o">~</span><span class="n">is_no_data</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">no_data_value</span><span class="p">,</span> <span class="n">rtol</span><span class="o">=</span><span class="mf">0.00001</span><span class="p">)</span>
-<a id="__codelineno-0-1952" name="__codelineno-0-1952"></a>        <span class="k">if</span> <span class="n">exclude_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-1953" name="__codelineno-0-1953"></a>            <span class="n">mask</span> <span class="o">&amp;=</span> <span class="n">arr</span> <span class="o">!=</span> <span class="n">exclude_value</span>
-<a id="__codelineno-0-1954" name="__codelineno-0-1954"></a>        <span class="n">values</span> <span class="o">=</span> <span class="n">arr</span><span class="p">[</span><span class="n">mask</span><span class="p">]</span>
-<a id="__codelineno-0-1955" name="__codelineno-0-1955"></a>        <span class="k">if</span> <span class="n">values</span><span class="o">.</span><span class="n">size</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-<a id="__codelineno-0-1956" name="__codelineno-0-1956"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-1957" name="__codelineno-0-1957"></a>                <span class="sa">f</span><span class="s2">"Band </span><span class="si">{</span><span class="n">band</span><span class="si">}</span><span class="s2"> has no valid samples to histogram after masking "</span>
-<a id="__codelineno-0-1958" name="__codelineno-0-1958"></a>                <span class="s2">"no-data / exclude_value / NaN."</span>
-<a id="__codelineno-0-1959" name="__codelineno-0-1959"></a>            <span class="p">)</span>
-<a id="__codelineno-0-1960" name="__codelineno-0-1960"></a>        <span class="n">glyph</span> <span class="o">=</span> <span class="n">HistogramGlyph</span><span class="p">(</span><span class="n">values</span><span class="p">,</span> <span class="n">ax</span><span class="o">=</span><span class="n">ax</span><span class="p">,</span> <span class="o">**</span><span class="n">HistogramGlyph</span><span class="o">.</span><span class="n">filter_kwargs</span><span class="p">(</span><span class="n">kwargs</span><span class="p">))</span>
-<a id="__codelineno-0-1961" name="__codelineno-0-1961"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">glyph</span><span class="o">.</span><span class="n">histogram</span><span class="p">(</span><span class="n">bins</span><span class="o">=</span><span class="n">bins</span><span class="p">)</span>
-<a id="__codelineno-0-1962" name="__codelineno-0-1962"></a>        <span class="k">return</span> <span class="n">result</span>
-<a id="__codelineno-0-1963" name="__codelineno-0-1963"></a>
-<a id="__codelineno-0-1964" name="__codelineno-0-1964"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">to_image</span><span class="p">(</span>
-<a id="__codelineno-0-1965" name="__codelineno-0-1965"></a>        <span class="bp">self</span><span class="p">,</span>
-<a id="__codelineno-0-1966" name="__codelineno-0-1966"></a>        <span class="n">band</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
-<a id="__codelineno-0-1967" name="__codelineno-0-1967"></a>        <span class="n">cmap</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"viridis"</span><span class="p">,</span>
-<a id="__codelineno-0-1968" name="__codelineno-0-1968"></a>        <span class="n">exclude_value</span><span class="p">:</span> <span class="n">Any</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-1969" name="__codelineno-0-1969"></a>    <span class="p">):</span>
-<a id="__codelineno-0-1970" name="__codelineno-0-1970"></a><span class="w">        </span><span class="sd">"""Export a band as a colour-mapped RGB image.</span>
-<a id="__codelineno-0-1971" name="__codelineno-0-1971"></a>
-<a id="__codelineno-0-1972" name="__codelineno-0-1972"></a><span class="sd">        Reads the band, masks the no-data value (and an optional</span>
-<a id="__codelineno-0-1973" name="__codelineno-0-1973"></a><span class="sd">        ``exclude_value``), applies a matplotlib colormap via cleopatra's</span>
-<a id="__codelineno-0-1974" name="__codelineno-0-1974"></a><span class="sd">        :meth:`ArrayGlyph.apply_colormap`, and returns the result as a</span>
-<a id="__codelineno-0-1975" name="__codelineno-0-1975"></a><span class="sd">        :class:`PIL.Image.Image`. Masked / no-data pixels are rendered with</span>
-<a id="__codelineno-0-1976" name="__codelineno-0-1976"></a><span class="sd">        the colormap's "bad" fill colour. Requires the ``[viz]`` extra.</span>
-<a id="__codelineno-0-1977" name="__codelineno-0-1977"></a>
-<a id="__codelineno-0-1978" name="__codelineno-0-1978"></a><span class="sd">        Args:</span>
-<a id="__codelineno-0-1979" name="__codelineno-0-1979"></a><span class="sd">            band (int, optional):</span>
-<a id="__codelineno-0-1980" name="__codelineno-0-1980"></a><span class="sd">                Band index to export. Default is ``0``.</span>
-<a id="__codelineno-0-1981" name="__codelineno-0-1981"></a><span class="sd">            cmap (str, optional):</span>
-<a id="__codelineno-0-1982" name="__codelineno-0-1982"></a><span class="sd">                Matplotlib colormap name. Default is ``"viridis"``.</span>
-<a id="__codelineno-0-1983" name="__codelineno-0-1983"></a><span class="sd">            exclude_value (Any, optional):</span>
-<a id="__codelineno-0-1984" name="__codelineno-0-1984"></a><span class="sd">                An extra value to mask out, in addition to the band's</span>
-<a id="__codelineno-0-1985" name="__codelineno-0-1985"></a><span class="sd">                no-data value. Default is ``None``.</span>
-<a id="__codelineno-0-1986" name="__codelineno-0-1986"></a>
-<a id="__codelineno-0-1987" name="__codelineno-0-1987"></a><span class="sd">        Returns:</span>
-<a id="__codelineno-0-1988" name="__codelineno-0-1988"></a><span class="sd">            PIL.Image.Image:</span>
-<a id="__codelineno-0-1989" name="__codelineno-0-1989"></a><span class="sd">                An RGB image of the colour-mapped band, the same width and</span>
-<a id="__codelineno-0-1990" name="__codelineno-0-1990"></a><span class="sd">                height as the raster band.</span>
-<a id="__codelineno-0-1991" name="__codelineno-0-1991"></a>
-<a id="__codelineno-0-1992" name="__codelineno-0-1992"></a><span class="sd">        Raises:</span>
-<a id="__codelineno-0-1993" name="__codelineno-0-1993"></a><span class="sd">            ValueError: If the band has no valid (non-nodata) pixels left</span>
-<a id="__codelineno-0-1994" name="__codelineno-0-1994"></a><span class="sd">                after masking the no-data value, ``exclude_value``, and</span>
-<a id="__codelineno-0-1995" name="__codelineno-0-1995"></a><span class="sd">                ``NaN`` — there is then nothing to colour-map.</span>
-<a id="__codelineno-0-1996" name="__codelineno-0-1996"></a>
-<a id="__codelineno-0-1997" name="__codelineno-0-1997"></a><span class="sd">        Examples:</span>
-<a id="__codelineno-0-1998" name="__codelineno-0-1998"></a><span class="sd">            - Export a band as a viridis thumbnail, inspect its size, and</span>
-<a id="__codelineno-0-1999" name="__codelineno-0-1999"></a><span class="sd">              save it to disk (tagged ``+SKIP`` — needs the ``[viz]`` extra):</span>
-<a id="__codelineno-0-2000" name="__codelineno-0-2000"></a>
-<a id="__codelineno-0-2001" name="__codelineno-0-2001"></a><span class="sd">                ```python</span>
-<a id="__codelineno-0-2002" name="__codelineno-0-2002"></a><span class="sd">                &gt;&gt;&gt; import numpy as np</span>
-<a id="__codelineno-0-2003" name="__codelineno-0-2003"></a><span class="sd">                &gt;&gt;&gt; from pyramids.dataset import Dataset, GeoReference</span>
-<a id="__codelineno-0-2004" name="__codelineno-0-2004"></a><span class="sd">                &gt;&gt;&gt; arr = np.arange(48, dtype="float32").reshape(6, 8)</span>
-<a id="__codelineno-0-2005" name="__codelineno-0-2005"></a><span class="sd">                &gt;&gt;&gt; ds = Dataset.from_array(</span>
-<a id="__codelineno-0-2006" name="__codelineno-0-2006"></a><span class="sd">                ...     arr,</span>
-<a id="__codelineno-0-2007" name="__codelineno-0-2007"></a><span class="sd">                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),</span>
-<a id="__codelineno-0-2008" name="__codelineno-0-2008"></a><span class="sd">                ... )</span>
-<a id="__codelineno-0-2009" name="__codelineno-0-2009"></a><span class="sd">                &gt;&gt;&gt; img = ds.to_image(band=0, cmap="viridis")  # doctest: +SKIP</span>
-<a id="__codelineno-0-2010" name="__codelineno-0-2010"></a><span class="sd">                &gt;&gt;&gt; img.size  # (width, height) == (columns, rows)  # doctest: +SKIP</span>
-<a id="__codelineno-0-2011" name="__codelineno-0-2011"></a><span class="sd">                (8, 6)</span>
-<a id="__codelineno-0-2012" name="__codelineno-0-2012"></a><span class="sd">                &gt;&gt;&gt; img.save("band0.png")  # doctest: +SKIP</span>
-<a id="__codelineno-0-2013" name="__codelineno-0-2013"></a>
-<a id="__codelineno-0-2014" name="__codelineno-0-2014"></a><span class="sd">                ```</span>
-<a id="__codelineno-0-2015" name="__codelineno-0-2015"></a><span class="sd">        """</span>
-<a id="__codelineno-0-2016" name="__codelineno-0-2016"></a>        <span class="n">require_cleopatra</span><span class="p">()</span>
-<a id="__codelineno-0-2017" name="__codelineno-0-2017"></a>        <span class="kn">from</span><span class="w"> </span><span class="nn">cleopatra.glyphs.gridded.array_glyph</span><span class="w"> </span><span class="kn">import</span> <span class="n">ArrayGlyph</span>
-<a id="__codelineno-0-2018" name="__codelineno-0-2018"></a>
-<a id="__codelineno-0-2019" name="__codelineno-0-2019"></a>        <span class="n">arr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">read_array</span><span class="p">(</span><span class="n">band</span><span class="o">=</span><span class="n">band</span><span class="p">)</span>
-<a id="__codelineno-0-2020" name="__codelineno-0-2020"></a>        <span class="n">no_data_value</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">no_data_value</span><span class="p">[</span><span class="n">band</span><span class="p">]</span>
-<a id="__codelineno-0-2021" name="__codelineno-0-2021"></a>        <span class="c1"># The list cleopatra masks with, which is not the same question as the</span>
-<a id="__codelineno-0-2022" name="__codelineno-0-2022"></a>        <span class="c1"># one below. A NaN sentinel has no value to compare against, so it is</span>
-<a id="__codelineno-0-2023" name="__codelineno-0-2023"></a>        <span class="c1"># left out and the NaN branch covers it.</span>
-<a id="__codelineno-0-2024" name="__codelineno-0-2024"></a>        <span class="n">exclude</span><span class="p">:</span> <span class="nb">list</span> <span class="o">=</span> <span class="p">[]</span>
-<a id="__codelineno-0-2025" name="__codelineno-0-2025"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">is_nan_sentinel</span><span class="p">(</span><span class="n">no_data_value</span><span class="p">):</span>
-<a id="__codelineno-0-2026" name="__codelineno-0-2026"></a>            <span class="n">exclude</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">no_data_value</span><span class="p">)</span>
-<a id="__codelineno-0-2027" name="__codelineno-0-2027"></a>        <span class="k">if</span> <span class="n">exclude_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-2028" name="__codelineno-0-2028"></a>            <span class="n">exclude</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">exclude_value</span><span class="p">)</span>
-<a id="__codelineno-0-2029" name="__codelineno-0-2029"></a>        <span class="n">valid</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="n">arr</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">)</span>
-<a id="__codelineno-0-2030" name="__codelineno-0-2030"></a>        <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">issubdtype</span><span class="p">(</span><span class="n">arr</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">floating</span><span class="p">):</span>
-<a id="__codelineno-0-2031" name="__codelineno-0-2031"></a>            <span class="n">valid</span> <span class="o">&amp;=</span> <span class="o">~</span><span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">arr</span><span class="p">)</span>
-<a id="__codelineno-0-2032" name="__codelineno-0-2032"></a>        <span class="c1"># `is_no_data`, with the tolerance `plot_histogram` above and</span>
-<a id="__codelineno-0-2033" name="__codelineno-0-2033"></a>        <span class="c1"># `_warn_if_nodata_absent` and `footprint` below all ask of the same</span>
-<a id="__codelineno-0-2034" name="__codelineno-0-2034"></a>        <span class="c1"># band. These are two renderings of one raster, so a cell the histogram</span>
-<a id="__codelineno-0-2035" name="__codelineno-0-2035"></a>        <span class="c1"># drops and the image draws is a disagreement a reader can see -- and</span>
-<a id="__codelineno-0-2036" name="__codelineno-0-2036"></a>        <span class="c1"># this was the last site still asking in its own words, an exact `!=`</span>
-<a id="__codelineno-0-2037" name="__codelineno-0-2037"></a>        <span class="c1"># over `exclude`. `exclude_value` stays an exact match: it is a value</span>
-<a id="__codelineno-0-2038" name="__codelineno-0-2038"></a>        <span class="c1"># the caller named, not a sentinel the band declares.</span>
-<a id="__codelineno-0-2039" name="__codelineno-0-2039"></a>        <span class="n">valid</span> <span class="o">&amp;=</span> <span class="o">~</span><span class="n">is_no_data</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">no_data_value</span><span class="p">,</span> <span class="n">rtol</span><span class="o">=</span><span class="mf">0.00001</span><span class="p">)</span>
+<a id="__codelineno-0-1940" name="__codelineno-0-1940"></a>        <span class="c1"># `is_stored_no_data` rather than a branch on the sentinel's spelling</span>
+<a id="__codelineno-0-1941" name="__codelineno-0-1941"></a>        <span class="c1"># plus an exact `!=`: it answers for a NaN sentinel and a concrete one</span>
+<a id="__codelineno-0-1942" name="__codelineno-0-1942"></a>        <span class="c1"># alike, so the two-branch form collapses -- and every other reader of</span>
+<a id="__codelineno-0-1943" name="__codelineno-0-1943"></a>        <span class="c1"># this band asks the same question through the same predicate, so the</span>
+<a id="__codelineno-0-1944" name="__codelineno-0-1944"></a>        <span class="c1"># histogram cannot count a different set of pixels from the warning</span>
+<a id="__codelineno-0-1945" name="__codelineno-0-1945"></a>        <span class="c1"># printed beside it. Its tolerance is the band dtype's, not a constant:</span>
+<a id="__codelineno-0-1946" name="__codelineno-0-1946"></a>        <span class="c1"># a fixed `rtol=1e-5` masked everything within 0.1 of a -9999 sentinel</span>
+<a id="__codelineno-0-1947" name="__codelineno-0-1947"></a>        <span class="c1"># and within 20 000 of a 2e9 one, so the bars quietly lost real cells.</span>
+<a id="__codelineno-0-1948" name="__codelineno-0-1948"></a>        <span class="n">mask</span> <span class="o">&amp;=</span> <span class="o">~</span><span class="n">is_stored_no_data</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">no_data_value</span><span class="p">)</span>
+<a id="__codelineno-0-1949" name="__codelineno-0-1949"></a>        <span class="k">if</span> <span class="n">exclude_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1950" name="__codelineno-0-1950"></a>            <span class="n">mask</span> <span class="o">&amp;=</span> <span class="n">arr</span> <span class="o">!=</span> <span class="n">exclude_value</span>
+<a id="__codelineno-0-1951" name="__codelineno-0-1951"></a>        <span class="n">values</span> <span class="o">=</span> <span class="n">arr</span><span class="p">[</span><span class="n">mask</span><span class="p">]</span>
+<a id="__codelineno-0-1952" name="__codelineno-0-1952"></a>        <span class="k">if</span> <span class="n">values</span><span class="o">.</span><span class="n">size</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+<a id="__codelineno-0-1953" name="__codelineno-0-1953"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-1954" name="__codelineno-0-1954"></a>                <span class="sa">f</span><span class="s2">"Band </span><span class="si">{</span><span class="n">band</span><span class="si">}</span><span class="s2"> has no valid samples to histogram after masking "</span>
+<a id="__codelineno-0-1955" name="__codelineno-0-1955"></a>                <span class="s2">"no-data / exclude_value / NaN."</span>
+<a id="__codelineno-0-1956" name="__codelineno-0-1956"></a>            <span class="p">)</span>
+<a id="__codelineno-0-1957" name="__codelineno-0-1957"></a>        <span class="n">glyph</span> <span class="o">=</span> <span class="n">HistogramGlyph</span><span class="p">(</span><span class="n">values</span><span class="p">,</span> <span class="n">ax</span><span class="o">=</span><span class="n">ax</span><span class="p">,</span> <span class="o">**</span><span class="n">HistogramGlyph</span><span class="o">.</span><span class="n">filter_kwargs</span><span class="p">(</span><span class="n">kwargs</span><span class="p">))</span>
+<a id="__codelineno-0-1958" name="__codelineno-0-1958"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">glyph</span><span class="o">.</span><span class="n">histogram</span><span class="p">(</span><span class="n">bins</span><span class="o">=</span><span class="n">bins</span><span class="p">)</span>
+<a id="__codelineno-0-1959" name="__codelineno-0-1959"></a>        <span class="k">return</span> <span class="n">result</span>
+<a id="__codelineno-0-1960" name="__codelineno-0-1960"></a>
+<a id="__codelineno-0-1961" name="__codelineno-0-1961"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">to_image</span><span class="p">(</span>
+<a id="__codelineno-0-1962" name="__codelineno-0-1962"></a>        <span class="bp">self</span><span class="p">,</span>
+<a id="__codelineno-0-1963" name="__codelineno-0-1963"></a>        <span class="n">band</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+<a id="__codelineno-0-1964" name="__codelineno-0-1964"></a>        <span class="n">cmap</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"viridis"</span><span class="p">,</span>
+<a id="__codelineno-0-1965" name="__codelineno-0-1965"></a>        <span class="n">exclude_value</span><span class="p">:</span> <span class="n">Any</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-1966" name="__codelineno-0-1966"></a>    <span class="p">):</span>
+<a id="__codelineno-0-1967" name="__codelineno-0-1967"></a><span class="w">        </span><span class="sd">"""Export a band as a colour-mapped RGB image.</span>
+<a id="__codelineno-0-1968" name="__codelineno-0-1968"></a>
+<a id="__codelineno-0-1969" name="__codelineno-0-1969"></a><span class="sd">        Reads the band, masks the no-data value (and an optional</span>
+<a id="__codelineno-0-1970" name="__codelineno-0-1970"></a><span class="sd">        ``exclude_value``), applies a matplotlib colormap via cleopatra's</span>
+<a id="__codelineno-0-1971" name="__codelineno-0-1971"></a><span class="sd">        :meth:`ArrayGlyph.apply_colormap`, and returns the result as a</span>
+<a id="__codelineno-0-1972" name="__codelineno-0-1972"></a><span class="sd">        :class:`PIL.Image.Image`. Masked / no-data pixels are rendered with</span>
+<a id="__codelineno-0-1973" name="__codelineno-0-1973"></a><span class="sd">        the colormap's "bad" fill colour. Requires the ``[viz]`` extra.</span>
+<a id="__codelineno-0-1974" name="__codelineno-0-1974"></a>
+<a id="__codelineno-0-1975" name="__codelineno-0-1975"></a><span class="sd">        Args:</span>
+<a id="__codelineno-0-1976" name="__codelineno-0-1976"></a><span class="sd">            band (int, optional):</span>
+<a id="__codelineno-0-1977" name="__codelineno-0-1977"></a><span class="sd">                Band index to export. Default is ``0``.</span>
+<a id="__codelineno-0-1978" name="__codelineno-0-1978"></a><span class="sd">            cmap (str, optional):</span>
+<a id="__codelineno-0-1979" name="__codelineno-0-1979"></a><span class="sd">                Matplotlib colormap name. Default is ``"viridis"``.</span>
+<a id="__codelineno-0-1980" name="__codelineno-0-1980"></a><span class="sd">            exclude_value (Any, optional):</span>
+<a id="__codelineno-0-1981" name="__codelineno-0-1981"></a><span class="sd">                An extra value to mask out, in addition to the band's</span>
+<a id="__codelineno-0-1982" name="__codelineno-0-1982"></a><span class="sd">                no-data value. Default is ``None``.</span>
+<a id="__codelineno-0-1983" name="__codelineno-0-1983"></a>
+<a id="__codelineno-0-1984" name="__codelineno-0-1984"></a><span class="sd">        Returns:</span>
+<a id="__codelineno-0-1985" name="__codelineno-0-1985"></a><span class="sd">            PIL.Image.Image:</span>
+<a id="__codelineno-0-1986" name="__codelineno-0-1986"></a><span class="sd">                An RGB image of the colour-mapped band, the same width and</span>
+<a id="__codelineno-0-1987" name="__codelineno-0-1987"></a><span class="sd">                height as the raster band.</span>
+<a id="__codelineno-0-1988" name="__codelineno-0-1988"></a>
+<a id="__codelineno-0-1989" name="__codelineno-0-1989"></a><span class="sd">        Raises:</span>
+<a id="__codelineno-0-1990" name="__codelineno-0-1990"></a><span class="sd">            ValueError: If the band has no valid (non-nodata) pixels left</span>
+<a id="__codelineno-0-1991" name="__codelineno-0-1991"></a><span class="sd">                after masking the no-data value, ``exclude_value``, and</span>
+<a id="__codelineno-0-1992" name="__codelineno-0-1992"></a><span class="sd">                ``NaN`` — there is then nothing to colour-map.</span>
+<a id="__codelineno-0-1993" name="__codelineno-0-1993"></a>
+<a id="__codelineno-0-1994" name="__codelineno-0-1994"></a><span class="sd">        Examples:</span>
+<a id="__codelineno-0-1995" name="__codelineno-0-1995"></a><span class="sd">            - Export a band as a viridis thumbnail, inspect its size, and</span>
+<a id="__codelineno-0-1996" name="__codelineno-0-1996"></a><span class="sd">              save it to disk (tagged ``+SKIP`` — needs the ``[viz]`` extra):</span>
+<a id="__codelineno-0-1997" name="__codelineno-0-1997"></a>
+<a id="__codelineno-0-1998" name="__codelineno-0-1998"></a><span class="sd">                ```python</span>
+<a id="__codelineno-0-1999" name="__codelineno-0-1999"></a><span class="sd">                &gt;&gt;&gt; import numpy as np</span>
+<a id="__codelineno-0-2000" name="__codelineno-0-2000"></a><span class="sd">                &gt;&gt;&gt; from pyramids.dataset import Dataset, GeoReference</span>
+<a id="__codelineno-0-2001" name="__codelineno-0-2001"></a><span class="sd">                &gt;&gt;&gt; arr = np.arange(48, dtype="float32").reshape(6, 8)</span>
+<a id="__codelineno-0-2002" name="__codelineno-0-2002"></a><span class="sd">                &gt;&gt;&gt; ds = Dataset.from_array(</span>
+<a id="__codelineno-0-2003" name="__codelineno-0-2003"></a><span class="sd">                ...     arr,</span>
+<a id="__codelineno-0-2004" name="__codelineno-0-2004"></a><span class="sd">                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),</span>
+<a id="__codelineno-0-2005" name="__codelineno-0-2005"></a><span class="sd">                ... )</span>
+<a id="__codelineno-0-2006" name="__codelineno-0-2006"></a><span class="sd">                &gt;&gt;&gt; img = ds.to_image(band=0, cmap="viridis")  # doctest: +SKIP</span>
+<a id="__codelineno-0-2007" name="__codelineno-0-2007"></a><span class="sd">                &gt;&gt;&gt; img.size  # (width, height) == (columns, rows)  # doctest: +SKIP</span>
+<a id="__codelineno-0-2008" name="__codelineno-0-2008"></a><span class="sd">                (8, 6)</span>
+<a id="__codelineno-0-2009" name="__codelineno-0-2009"></a><span class="sd">                &gt;&gt;&gt; img.save("band0.png")  # doctest: +SKIP</span>
+<a id="__codelineno-0-2010" name="__codelineno-0-2010"></a>
+<a id="__codelineno-0-2011" name="__codelineno-0-2011"></a><span class="sd">                ```</span>
+<a id="__codelineno-0-2012" name="__codelineno-0-2012"></a><span class="sd">        """</span>
+<a id="__codelineno-0-2013" name="__codelineno-0-2013"></a>        <span class="n">require_cleopatra</span><span class="p">()</span>
+<a id="__codelineno-0-2014" name="__codelineno-0-2014"></a>        <span class="kn">from</span><span class="w"> </span><span class="nn">cleopatra.glyphs.gridded.array_glyph</span><span class="w"> </span><span class="kn">import</span> <span class="n">ArrayGlyph</span>
+<a id="__codelineno-0-2015" name="__codelineno-0-2015"></a>
+<a id="__codelineno-0-2016" name="__codelineno-0-2016"></a>        <span class="n">arr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">read_array</span><span class="p">(</span><span class="n">band</span><span class="o">=</span><span class="n">band</span><span class="p">)</span>
+<a id="__codelineno-0-2017" name="__codelineno-0-2017"></a>        <span class="n">no_data_value</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">no_data_value</span><span class="p">[</span><span class="n">band</span><span class="p">]</span>
+<a id="__codelineno-0-2018" name="__codelineno-0-2018"></a>        <span class="c1"># The list cleopatra masks with, which is not the same question as the</span>
+<a id="__codelineno-0-2019" name="__codelineno-0-2019"></a>        <span class="c1"># one below. A NaN sentinel has no value to compare against, so it is</span>
+<a id="__codelineno-0-2020" name="__codelineno-0-2020"></a>        <span class="c1"># left out and the NaN branch covers it.</span>
+<a id="__codelineno-0-2021" name="__codelineno-0-2021"></a>        <span class="n">exclude</span><span class="p">:</span> <span class="nb">list</span> <span class="o">=</span> <span class="p">[]</span>
+<a id="__codelineno-0-2022" name="__codelineno-0-2022"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">is_nan_sentinel</span><span class="p">(</span><span class="n">no_data_value</span><span class="p">):</span>
+<a id="__codelineno-0-2023" name="__codelineno-0-2023"></a>            <span class="n">exclude</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">no_data_value</span><span class="p">)</span>
+<a id="__codelineno-0-2024" name="__codelineno-0-2024"></a>        <span class="k">if</span> <span class="n">exclude_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-2025" name="__codelineno-0-2025"></a>            <span class="n">exclude</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">exclude_value</span><span class="p">)</span>
+<a id="__codelineno-0-2026" name="__codelineno-0-2026"></a>        <span class="n">valid</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="n">arr</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">)</span>
+<a id="__codelineno-0-2027" name="__codelineno-0-2027"></a>        <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">issubdtype</span><span class="p">(</span><span class="n">arr</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">floating</span><span class="p">):</span>
+<a id="__codelineno-0-2028" name="__codelineno-0-2028"></a>            <span class="n">valid</span> <span class="o">&amp;=</span> <span class="o">~</span><span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">arr</span><span class="p">)</span>
+<a id="__codelineno-0-2029" name="__codelineno-0-2029"></a>        <span class="c1"># The same predicate `plot_histogram` above and</span>
+<a id="__codelineno-0-2030" name="__codelineno-0-2030"></a>        <span class="c1"># `_warn_if_nodata_absent` and `footprint` below ask of the same band.</span>
+<a id="__codelineno-0-2031" name="__codelineno-0-2031"></a>        <span class="c1"># These are two renderings of one raster, so a cell the histogram drops</span>
+<a id="__codelineno-0-2032" name="__codelineno-0-2032"></a>        <span class="c1"># and the image draws is a disagreement a reader can see -- and this</span>
+<a id="__codelineno-0-2033" name="__codelineno-0-2033"></a>        <span class="c1"># was the last site still asking in its own words, an exact `!=` over</span>
+<a id="__codelineno-0-2034" name="__codelineno-0-2034"></a>        <span class="c1"># `exclude`. `exclude_value` stays an exact match: it is a value the</span>
+<a id="__codelineno-0-2035" name="__codelineno-0-2035"></a>        <span class="c1"># caller named, not a sentinel the band declares. What this mask decides</span>
+<a id="__codelineno-0-2036" name="__codelineno-0-2036"></a>        <span class="c1"># is whether the band has anything to draw at all -- which cells come</span>
+<a id="__codelineno-0-2037" name="__codelineno-0-2037"></a>        <span class="c1"># out as the colormap's "bad" fill is cleopatra's own comparison against</span>
+<a id="__codelineno-0-2038" name="__codelineno-0-2038"></a>        <span class="c1"># the `exclude` list below, on its own tolerance.</span>
+<a id="__codelineno-0-2039" name="__codelineno-0-2039"></a>        <span class="n">valid</span> <span class="o">&amp;=</span> <span class="o">~</span><span class="n">is_stored_no_data</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">no_data_value</span><span class="p">)</span>
 <a id="__codelineno-0-2040" name="__codelineno-0-2040"></a>        <span class="k">if</span> <span class="n">exclude_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
 <a id="__codelineno-0-2041" name="__codelineno-0-2041"></a>            <span class="n">valid</span> <span class="o">&amp;=</span> <span class="n">arr</span> <span class="o">!=</span> <span class="n">exclude_value</span>
 <a id="__codelineno-0-2042" name="__codelineno-0-2042"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">valid</span><span class="o">.</span><span class="n">any</span><span class="p">():</span>
@@ -12242,7 +12242,7 @@ often a band with no valid pixels at all.</p>
 <a id="__codelineno-0-300" name="__codelineno-0-300"></a>    <span class="c1"># happens to be non-zero; with `no_data_value == 0` it is always 0, so nothing</span>
 <a id="__codelineno-0-301" name="__codelineno-0-301"></a>    <span class="c1"># was subtracted and every cell counted as domain.</span>
 <a id="__codelineno-0-302" name="__codelineno-0-302"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_count</span><span class="p">(</span><span class="n">acc</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">strip</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">_window</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
-<a id="__codelineno-0-303" name="__codelineno-0-303"></a>        <span class="k">return</span> <span class="n">acc</span> <span class="o">+</span> <span class="nb">int</span><span class="p">(</span><span class="n">is_no_data</span><span class="p">(</span><span class="n">strip</span><span class="p">,</span> <span class="n">no_data_value</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">())</span>
+<a id="__codelineno-0-303" name="__codelineno-0-303"></a>        <span class="k">return</span> <span class="n">acc</span> <span class="o">+</span> <span class="nb">int</span><span class="p">(</span><span class="n">is_stored_no_data</span><span class="p">(</span><span class="n">strip</span><span class="p">,</span> <span class="n">no_data_value</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">())</span>
 <a id="__codelineno-0-304" name="__codelineno-0-304"></a>
 <a id="__codelineno-0-305" name="__codelineno-0-305"></a>    <span class="c1"># Stream the count in row strips so a very large or /vsicurl source is never</span>
 <a id="__codelineno-0-306" name="__codelineno-0-306"></a>    <span class="c1"># read whole (#967). A summed count is order-independent, so the tiled total</span>
@@ -12898,11 +12898,11 @@ A new Dataset with cells filled, or <code>None</code> when
 <a id="__codelineno-0-515" name="__codelineno-0-515"></a>    <span class="n">no_data_value</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">no_data_value</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
 <a id="__codelineno-0-516" name="__codelineno-0-516"></a>
 <a id="__codelineno-0-517" name="__codelineno-0-517"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_fill_tile</span><span class="p">(</span><span class="n">tile</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
-<a id="__codelineno-0-518" name="__codelineno-0-518"></a>        <span class="c1"># rtol=1e-6 is intentionally tighter than the package default (1e-3):</span>
-<a id="__codelineno-0-519" name="__codelineno-0-519"></a>        <span class="c1"># `fill` writes user-supplied values into every domain cell, so a</span>
-<a id="__codelineno-0-520" name="__codelineno-0-520"></a>        <span class="c1"># too-loose match would clobber legitimate cells that happen to lie</span>
-<a id="__codelineno-0-521" name="__codelineno-0-521"></a>        <span class="c1"># within ~0.1% of the no-data sentinel.</span>
-<a id="__codelineno-0-522" name="__codelineno-0-522"></a>        <span class="n">tile</span><span class="p">[</span><span class="n">inside_domain</span><span class="p">(</span><span class="n">tile</span><span class="p">,</span> <span class="n">no_data_value</span><span class="p">,</span> <span class="n">rtol</span><span class="o">=</span><span class="mf">0.000001</span><span class="p">)]</span> <span class="o">=</span> <span class="n">value</span>
+<a id="__codelineno-0-518" name="__codelineno-0-518"></a>        <span class="c1"># The band-wide predicate, not a tolerance of this method's own:</span>
+<a id="__codelineno-0-519" name="__codelineno-0-519"></a>        <span class="c1"># `fill` decides from it which cells are the domain, so a cell it</span>
+<a id="__codelineno-0-520" name="__codelineno-0-520"></a>        <span class="c1"># calls no-data here and the histogram calls data is the same</span>
+<a id="__codelineno-0-521" name="__codelineno-0-521"></a>        <span class="c1"># disagreement, reached through the writer instead of a reader.</span>
+<a id="__codelineno-0-522" name="__codelineno-0-522"></a>        <span class="n">tile</span><span class="p">[</span><span class="o">~</span><span class="n">is_stored_no_data</span><span class="p">(</span><span class="n">tile</span><span class="p">,</span> <span class="n">no_data_value</span><span class="p">)]</span> <span class="o">=</span> <span class="n">value</span>
 <a id="__codelineno-0-523" name="__codelineno-0-523"></a>        <span class="k">return</span> <span class="n">tile</span>
 <a id="__codelineno-0-524" name="__codelineno-0-524"></a>
 <a id="__codelineno-0-525" name="__codelineno-0-525"></a>    <span class="c1"># Stream the fill tile-by-tile so a very large or /vsicurl source is never</span>
@@ -16077,7 +16077,7 @@ footprint is exact.</p>
 <a id="__codelineno-0-1610" name="__codelineno-0-1610"></a>        <span class="n">arr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_apply_exclude_values</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">exclude_values</span><span class="p">,</span> <span class="n">no_data_val</span><span class="p">)</span>
 <a id="__codelineno-0-1611" name="__codelineno-0-1611"></a>
 <a id="__codelineno-0-1612" name="__codelineno-0-1612"></a>    <span class="c1"># Build the coverage mask: covered cells -&gt; 2, nodata cells -&gt; 0.</span>
-<a id="__codelineno-0-1613" name="__codelineno-0-1613"></a>    <span class="n">valid</span> <span class="o">=</span> <span class="n">inside_domain</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">no_data_val</span><span class="p">,</span> <span class="n">rtol</span><span class="o">=</span><span class="mf">0.00001</span><span class="p">)</span>
+<a id="__codelineno-0-1613" name="__codelineno-0-1613"></a>    <span class="n">valid</span> <span class="o">=</span> <span class="o">~</span><span class="n">is_stored_no_data</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">no_data_val</span><span class="p">)</span>
 <a id="__codelineno-0-1614" name="__codelineno-0-1614"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">valid</span><span class="o">.</span><span class="n">any</span><span class="p">():</span>
 <a id="__codelineno-0-1615" name="__codelineno-0-1615"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">"the raster is full of no_data_value"</span><span class="p">)</span>
 <a id="__codelineno-0-1616" name="__codelineno-0-1616"></a>        <span class="k">return</span> <span class="kc">None</span>
@@ -17078,10 +17078,7 @@ the no-data value, <code>exclude_value</code>, and <code>NaN</code>.</p>
 <span class="normal"><a href="#__codelineno-0-1956">1956</a></span>
 <span class="normal"><a href="#__codelineno-0-1957">1957</a></span>
 <span class="normal"><a href="#__codelineno-0-1958">1958</a></span>
-<span class="normal"><a href="#__codelineno-0-1959">1959</a></span>
-<span class="normal"><a href="#__codelineno-0-1960">1960</a></span>
-<span class="normal"><a href="#__codelineno-0-1961">1961</a></span>
-<span class="normal"><a href="#__codelineno-0-1962">1962</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1846" name="__codelineno-0-1846"></a><span class="k">def</span><span class="w"> </span><span class="nf">plot_histogram</span><span class="p">(</span>
+<span class="normal"><a href="#__codelineno-0-1959">1959</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1846" name="__codelineno-0-1846"></a><span class="k">def</span><span class="w"> </span><span class="nf">plot_histogram</span><span class="p">(</span>
 <a id="__codelineno-0-1847" name="__codelineno-0-1847"></a>    <span class="bp">self</span><span class="p">,</span>
 <a id="__codelineno-0-1848" name="__codelineno-0-1848"></a>    <span class="n">band</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
 <a id="__codelineno-0-1849" name="__codelineno-0-1849"></a>    <span class="n">bins</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">15</span><span class="p">,</span>
@@ -17175,29 +17172,26 @@ the no-data value, <code>exclude_value</code>, and <code>NaN</code>.</p>
 <a id="__codelineno-0-1937" name="__codelineno-0-1937"></a>    <span class="n">mask</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="n">arr</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">)</span>
 <a id="__codelineno-0-1938" name="__codelineno-0-1938"></a>    <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">issubdtype</span><span class="p">(</span><span class="n">arr</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">floating</span><span class="p">):</span>
 <a id="__codelineno-0-1939" name="__codelineno-0-1939"></a>        <span class="n">mask</span> <span class="o">&amp;=</span> <span class="o">~</span><span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">arr</span><span class="p">)</span>
-<a id="__codelineno-0-1940" name="__codelineno-0-1940"></a>    <span class="c1"># `is_no_data` rather than a branch on the sentinel's spelling plus an</span>
-<a id="__codelineno-0-1941" name="__codelineno-0-1941"></a>    <span class="c1"># exact `!=`: it answers for a NaN sentinel and a concrete one alike,</span>
-<a id="__codelineno-0-1942" name="__codelineno-0-1942"></a>    <span class="c1"># so the two-branch form collapses.</span>
-<a id="__codelineno-0-1943" name="__codelineno-0-1943"></a>    <span class="c1">#</span>
-<a id="__codelineno-0-1944" name="__codelineno-0-1944"></a>    <span class="c1"># `rtol` is passed, not defaulted. `DEFAULT_RTOL` is 1e-3, which for a</span>
-<a id="__codelineno-0-1945" name="__codelineno-0-1945"></a>    <span class="c1"># sentinel of -9999 masks everything in [-10009, -9989] -- on the</span>
-<a id="__codelineno-0-1946" name="__codelineno-0-1946"></a>    <span class="c1"># suite's own fixtures that swallows real cells, and on a uint16 band</span>
-<a id="__codelineno-0-1947" name="__codelineno-0-1947"></a>    <span class="c1"># with sentinel 65535 it masks 66 legitimate integers. 1e-5 is what</span>
-<a id="__codelineno-0-1948" name="__codelineno-0-1948"></a>    <span class="c1"># `_warn_if_nodata_absent` below asks of the same band, and a histogram</span>
-<a id="__codelineno-0-1949" name="__codelineno-0-1949"></a>    <span class="c1"># that counted different pixels from the warning printed beside it was</span>
-<a id="__codelineno-0-1950" name="__codelineno-0-1950"></a>    <span class="c1"># the divergence this was meant to remove.</span>
-<a id="__codelineno-0-1951" name="__codelineno-0-1951"></a>    <span class="n">mask</span> <span class="o">&amp;=</span> <span class="o">~</span><span class="n">is_no_data</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">no_data_value</span><span class="p">,</span> <span class="n">rtol</span><span class="o">=</span><span class="mf">0.00001</span><span class="p">)</span>
-<a id="__codelineno-0-1952" name="__codelineno-0-1952"></a>    <span class="k">if</span> <span class="n">exclude_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-1953" name="__codelineno-0-1953"></a>        <span class="n">mask</span> <span class="o">&amp;=</span> <span class="n">arr</span> <span class="o">!=</span> <span class="n">exclude_value</span>
-<a id="__codelineno-0-1954" name="__codelineno-0-1954"></a>    <span class="n">values</span> <span class="o">=</span> <span class="n">arr</span><span class="p">[</span><span class="n">mask</span><span class="p">]</span>
-<a id="__codelineno-0-1955" name="__codelineno-0-1955"></a>    <span class="k">if</span> <span class="n">values</span><span class="o">.</span><span class="n">size</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-<a id="__codelineno-0-1956" name="__codelineno-0-1956"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-1957" name="__codelineno-0-1957"></a>            <span class="sa">f</span><span class="s2">"Band </span><span class="si">{</span><span class="n">band</span><span class="si">}</span><span class="s2"> has no valid samples to histogram after masking "</span>
-<a id="__codelineno-0-1958" name="__codelineno-0-1958"></a>            <span class="s2">"no-data / exclude_value / NaN."</span>
-<a id="__codelineno-0-1959" name="__codelineno-0-1959"></a>        <span class="p">)</span>
-<a id="__codelineno-0-1960" name="__codelineno-0-1960"></a>    <span class="n">glyph</span> <span class="o">=</span> <span class="n">HistogramGlyph</span><span class="p">(</span><span class="n">values</span><span class="p">,</span> <span class="n">ax</span><span class="o">=</span><span class="n">ax</span><span class="p">,</span> <span class="o">**</span><span class="n">HistogramGlyph</span><span class="o">.</span><span class="n">filter_kwargs</span><span class="p">(</span><span class="n">kwargs</span><span class="p">))</span>
-<a id="__codelineno-0-1961" name="__codelineno-0-1961"></a>    <span class="n">result</span> <span class="o">=</span> <span class="n">glyph</span><span class="o">.</span><span class="n">histogram</span><span class="p">(</span><span class="n">bins</span><span class="o">=</span><span class="n">bins</span><span class="p">)</span>
-<a id="__codelineno-0-1962" name="__codelineno-0-1962"></a>    <span class="k">return</span> <span class="n">result</span>
+<a id="__codelineno-0-1940" name="__codelineno-0-1940"></a>    <span class="c1"># `is_stored_no_data` rather than a branch on the sentinel's spelling</span>
+<a id="__codelineno-0-1941" name="__codelineno-0-1941"></a>    <span class="c1"># plus an exact `!=`: it answers for a NaN sentinel and a concrete one</span>
+<a id="__codelineno-0-1942" name="__codelineno-0-1942"></a>    <span class="c1"># alike, so the two-branch form collapses -- and every other reader of</span>
+<a id="__codelineno-0-1943" name="__codelineno-0-1943"></a>    <span class="c1"># this band asks the same question through the same predicate, so the</span>
+<a id="__codelineno-0-1944" name="__codelineno-0-1944"></a>    <span class="c1"># histogram cannot count a different set of pixels from the warning</span>
+<a id="__codelineno-0-1945" name="__codelineno-0-1945"></a>    <span class="c1"># printed beside it. Its tolerance is the band dtype's, not a constant:</span>
+<a id="__codelineno-0-1946" name="__codelineno-0-1946"></a>    <span class="c1"># a fixed `rtol=1e-5` masked everything within 0.1 of a -9999 sentinel</span>
+<a id="__codelineno-0-1947" name="__codelineno-0-1947"></a>    <span class="c1"># and within 20 000 of a 2e9 one, so the bars quietly lost real cells.</span>
+<a id="__codelineno-0-1948" name="__codelineno-0-1948"></a>    <span class="n">mask</span> <span class="o">&amp;=</span> <span class="o">~</span><span class="n">is_stored_no_data</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">no_data_value</span><span class="p">)</span>
+<a id="__codelineno-0-1949" name="__codelineno-0-1949"></a>    <span class="k">if</span> <span class="n">exclude_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1950" name="__codelineno-0-1950"></a>        <span class="n">mask</span> <span class="o">&amp;=</span> <span class="n">arr</span> <span class="o">!=</span> <span class="n">exclude_value</span>
+<a id="__codelineno-0-1951" name="__codelineno-0-1951"></a>    <span class="n">values</span> <span class="o">=</span> <span class="n">arr</span><span class="p">[</span><span class="n">mask</span><span class="p">]</span>
+<a id="__codelineno-0-1952" name="__codelineno-0-1952"></a>    <span class="k">if</span> <span class="n">values</span><span class="o">.</span><span class="n">size</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+<a id="__codelineno-0-1953" name="__codelineno-0-1953"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-1954" name="__codelineno-0-1954"></a>            <span class="sa">f</span><span class="s2">"Band </span><span class="si">{</span><span class="n">band</span><span class="si">}</span><span class="s2"> has no valid samples to histogram after masking "</span>
+<a id="__codelineno-0-1955" name="__codelineno-0-1955"></a>            <span class="s2">"no-data / exclude_value / NaN."</span>
+<a id="__codelineno-0-1956" name="__codelineno-0-1956"></a>        <span class="p">)</span>
+<a id="__codelineno-0-1957" name="__codelineno-0-1957"></a>    <span class="n">glyph</span> <span class="o">=</span> <span class="n">HistogramGlyph</span><span class="p">(</span><span class="n">values</span><span class="p">,</span> <span class="n">ax</span><span class="o">=</span><span class="n">ax</span><span class="p">,</span> <span class="o">**</span><span class="n">HistogramGlyph</span><span class="o">.</span><span class="n">filter_kwargs</span><span class="p">(</span><span class="n">kwargs</span><span class="p">))</span>
+<a id="__codelineno-0-1958" name="__codelineno-0-1958"></a>    <span class="n">result</span> <span class="o">=</span> <span class="n">glyph</span><span class="o">.</span><span class="n">histogram</span><span class="p">(</span><span class="n">bins</span><span class="o">=</span><span class="n">bins</span><span class="p">)</span>
+<a id="__codelineno-0-1959" name="__codelineno-0-1959"></a>    <span class="k">return</span> <span class="n">result</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -17359,7 +17353,10 @@ after masking the no-data value, <code>exclude_value</code>, and
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/dataset/engines/analysis.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1964">1964</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1961">1961</a></span>
+<span class="normal"><a href="#__codelineno-0-1962">1962</a></span>
+<span class="normal"><a href="#__codelineno-0-1963">1963</a></span>
+<span class="normal"><a href="#__codelineno-0-1964">1964</a></span>
 <span class="normal"><a href="#__codelineno-0-1965">1965</a></span>
 <span class="normal"><a href="#__codelineno-0-1966">1966</a></span>
 <span class="normal"><a href="#__codelineno-0-1967">1967</a></span>
@@ -17444,82 +17441,85 @@ after masking the no-data value, <code>exclude_value</code>, and
 <span class="normal"><a href="#__codelineno-0-2046">2046</a></span>
 <span class="normal"><a href="#__codelineno-0-2047">2047</a></span>
 <span class="normal"><a href="#__codelineno-0-2048">2048</a></span>
-<span class="normal"><a href="#__codelineno-0-2049">2049</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1964" name="__codelineno-0-1964"></a><span class="k">def</span><span class="w"> </span><span class="nf">to_image</span><span class="p">(</span>
-<a id="__codelineno-0-1965" name="__codelineno-0-1965"></a>    <span class="bp">self</span><span class="p">,</span>
-<a id="__codelineno-0-1966" name="__codelineno-0-1966"></a>    <span class="n">band</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
-<a id="__codelineno-0-1967" name="__codelineno-0-1967"></a>    <span class="n">cmap</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"viridis"</span><span class="p">,</span>
-<a id="__codelineno-0-1968" name="__codelineno-0-1968"></a>    <span class="n">exclude_value</span><span class="p">:</span> <span class="n">Any</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-1969" name="__codelineno-0-1969"></a><span class="p">):</span>
-<a id="__codelineno-0-1970" name="__codelineno-0-1970"></a><span class="w">    </span><span class="sd">"""Export a band as a colour-mapped RGB image.</span>
-<a id="__codelineno-0-1971" name="__codelineno-0-1971"></a>
-<a id="__codelineno-0-1972" name="__codelineno-0-1972"></a><span class="sd">    Reads the band, masks the no-data value (and an optional</span>
-<a id="__codelineno-0-1973" name="__codelineno-0-1973"></a><span class="sd">    ``exclude_value``), applies a matplotlib colormap via cleopatra's</span>
-<a id="__codelineno-0-1974" name="__codelineno-0-1974"></a><span class="sd">    :meth:`ArrayGlyph.apply_colormap`, and returns the result as a</span>
-<a id="__codelineno-0-1975" name="__codelineno-0-1975"></a><span class="sd">    :class:`PIL.Image.Image`. Masked / no-data pixels are rendered with</span>
-<a id="__codelineno-0-1976" name="__codelineno-0-1976"></a><span class="sd">    the colormap's "bad" fill colour. Requires the ``[viz]`` extra.</span>
-<a id="__codelineno-0-1977" name="__codelineno-0-1977"></a>
-<a id="__codelineno-0-1978" name="__codelineno-0-1978"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-1979" name="__codelineno-0-1979"></a><span class="sd">        band (int, optional):</span>
-<a id="__codelineno-0-1980" name="__codelineno-0-1980"></a><span class="sd">            Band index to export. Default is ``0``.</span>
-<a id="__codelineno-0-1981" name="__codelineno-0-1981"></a><span class="sd">        cmap (str, optional):</span>
-<a id="__codelineno-0-1982" name="__codelineno-0-1982"></a><span class="sd">            Matplotlib colormap name. Default is ``"viridis"``.</span>
-<a id="__codelineno-0-1983" name="__codelineno-0-1983"></a><span class="sd">        exclude_value (Any, optional):</span>
-<a id="__codelineno-0-1984" name="__codelineno-0-1984"></a><span class="sd">            An extra value to mask out, in addition to the band's</span>
-<a id="__codelineno-0-1985" name="__codelineno-0-1985"></a><span class="sd">            no-data value. Default is ``None``.</span>
-<a id="__codelineno-0-1986" name="__codelineno-0-1986"></a>
-<a id="__codelineno-0-1987" name="__codelineno-0-1987"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-1988" name="__codelineno-0-1988"></a><span class="sd">        PIL.Image.Image:</span>
-<a id="__codelineno-0-1989" name="__codelineno-0-1989"></a><span class="sd">            An RGB image of the colour-mapped band, the same width and</span>
-<a id="__codelineno-0-1990" name="__codelineno-0-1990"></a><span class="sd">            height as the raster band.</span>
-<a id="__codelineno-0-1991" name="__codelineno-0-1991"></a>
-<a id="__codelineno-0-1992" name="__codelineno-0-1992"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-1993" name="__codelineno-0-1993"></a><span class="sd">        ValueError: If the band has no valid (non-nodata) pixels left</span>
-<a id="__codelineno-0-1994" name="__codelineno-0-1994"></a><span class="sd">            after masking the no-data value, ``exclude_value``, and</span>
-<a id="__codelineno-0-1995" name="__codelineno-0-1995"></a><span class="sd">            ``NaN`` — there is then nothing to colour-map.</span>
-<a id="__codelineno-0-1996" name="__codelineno-0-1996"></a>
-<a id="__codelineno-0-1997" name="__codelineno-0-1997"></a><span class="sd">    Examples:</span>
-<a id="__codelineno-0-1998" name="__codelineno-0-1998"></a><span class="sd">        - Export a band as a viridis thumbnail, inspect its size, and</span>
-<a id="__codelineno-0-1999" name="__codelineno-0-1999"></a><span class="sd">          save it to disk (tagged ``+SKIP`` — needs the ``[viz]`` extra):</span>
-<a id="__codelineno-0-2000" name="__codelineno-0-2000"></a>
-<a id="__codelineno-0-2001" name="__codelineno-0-2001"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-2002" name="__codelineno-0-2002"></a><span class="sd">            &gt;&gt;&gt; import numpy as np</span>
-<a id="__codelineno-0-2003" name="__codelineno-0-2003"></a><span class="sd">            &gt;&gt;&gt; from pyramids.dataset import Dataset, GeoReference</span>
-<a id="__codelineno-0-2004" name="__codelineno-0-2004"></a><span class="sd">            &gt;&gt;&gt; arr = np.arange(48, dtype="float32").reshape(6, 8)</span>
-<a id="__codelineno-0-2005" name="__codelineno-0-2005"></a><span class="sd">            &gt;&gt;&gt; ds = Dataset.from_array(</span>
-<a id="__codelineno-0-2006" name="__codelineno-0-2006"></a><span class="sd">            ...     arr,</span>
-<a id="__codelineno-0-2007" name="__codelineno-0-2007"></a><span class="sd">            ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),</span>
-<a id="__codelineno-0-2008" name="__codelineno-0-2008"></a><span class="sd">            ... )</span>
-<a id="__codelineno-0-2009" name="__codelineno-0-2009"></a><span class="sd">            &gt;&gt;&gt; img = ds.to_image(band=0, cmap="viridis")  # doctest: +SKIP</span>
-<a id="__codelineno-0-2010" name="__codelineno-0-2010"></a><span class="sd">            &gt;&gt;&gt; img.size  # (width, height) == (columns, rows)  # doctest: +SKIP</span>
-<a id="__codelineno-0-2011" name="__codelineno-0-2011"></a><span class="sd">            (8, 6)</span>
-<a id="__codelineno-0-2012" name="__codelineno-0-2012"></a><span class="sd">            &gt;&gt;&gt; img.save("band0.png")  # doctest: +SKIP</span>
-<a id="__codelineno-0-2013" name="__codelineno-0-2013"></a>
-<a id="__codelineno-0-2014" name="__codelineno-0-2014"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-2015" name="__codelineno-0-2015"></a><span class="sd">    """</span>
-<a id="__codelineno-0-2016" name="__codelineno-0-2016"></a>    <span class="n">require_cleopatra</span><span class="p">()</span>
-<a id="__codelineno-0-2017" name="__codelineno-0-2017"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">cleopatra.glyphs.gridded.array_glyph</span><span class="w"> </span><span class="kn">import</span> <span class="n">ArrayGlyph</span>
-<a id="__codelineno-0-2018" name="__codelineno-0-2018"></a>
-<a id="__codelineno-0-2019" name="__codelineno-0-2019"></a>    <span class="n">arr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">read_array</span><span class="p">(</span><span class="n">band</span><span class="o">=</span><span class="n">band</span><span class="p">)</span>
-<a id="__codelineno-0-2020" name="__codelineno-0-2020"></a>    <span class="n">no_data_value</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">no_data_value</span><span class="p">[</span><span class="n">band</span><span class="p">]</span>
-<a id="__codelineno-0-2021" name="__codelineno-0-2021"></a>    <span class="c1"># The list cleopatra masks with, which is not the same question as the</span>
-<a id="__codelineno-0-2022" name="__codelineno-0-2022"></a>    <span class="c1"># one below. A NaN sentinel has no value to compare against, so it is</span>
-<a id="__codelineno-0-2023" name="__codelineno-0-2023"></a>    <span class="c1"># left out and the NaN branch covers it.</span>
-<a id="__codelineno-0-2024" name="__codelineno-0-2024"></a>    <span class="n">exclude</span><span class="p">:</span> <span class="nb">list</span> <span class="o">=</span> <span class="p">[]</span>
-<a id="__codelineno-0-2025" name="__codelineno-0-2025"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">is_nan_sentinel</span><span class="p">(</span><span class="n">no_data_value</span><span class="p">):</span>
-<a id="__codelineno-0-2026" name="__codelineno-0-2026"></a>        <span class="n">exclude</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">no_data_value</span><span class="p">)</span>
-<a id="__codelineno-0-2027" name="__codelineno-0-2027"></a>    <span class="k">if</span> <span class="n">exclude_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-2028" name="__codelineno-0-2028"></a>        <span class="n">exclude</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">exclude_value</span><span class="p">)</span>
-<a id="__codelineno-0-2029" name="__codelineno-0-2029"></a>    <span class="n">valid</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="n">arr</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">)</span>
-<a id="__codelineno-0-2030" name="__codelineno-0-2030"></a>    <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">issubdtype</span><span class="p">(</span><span class="n">arr</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">floating</span><span class="p">):</span>
-<a id="__codelineno-0-2031" name="__codelineno-0-2031"></a>        <span class="n">valid</span> <span class="o">&amp;=</span> <span class="o">~</span><span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">arr</span><span class="p">)</span>
-<a id="__codelineno-0-2032" name="__codelineno-0-2032"></a>    <span class="c1"># `is_no_data`, with the tolerance `plot_histogram` above and</span>
-<a id="__codelineno-0-2033" name="__codelineno-0-2033"></a>    <span class="c1"># `_warn_if_nodata_absent` and `footprint` below all ask of the same</span>
-<a id="__codelineno-0-2034" name="__codelineno-0-2034"></a>    <span class="c1"># band. These are two renderings of one raster, so a cell the histogram</span>
-<a id="__codelineno-0-2035" name="__codelineno-0-2035"></a>    <span class="c1"># drops and the image draws is a disagreement a reader can see -- and</span>
-<a id="__codelineno-0-2036" name="__codelineno-0-2036"></a>    <span class="c1"># this was the last site still asking in its own words, an exact `!=`</span>
-<a id="__codelineno-0-2037" name="__codelineno-0-2037"></a>    <span class="c1"># over `exclude`. `exclude_value` stays an exact match: it is a value</span>
-<a id="__codelineno-0-2038" name="__codelineno-0-2038"></a>    <span class="c1"># the caller named, not a sentinel the band declares.</span>
-<a id="__codelineno-0-2039" name="__codelineno-0-2039"></a>    <span class="n">valid</span> <span class="o">&amp;=</span> <span class="o">~</span><span class="n">is_no_data</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">no_data_value</span><span class="p">,</span> <span class="n">rtol</span><span class="o">=</span><span class="mf">0.00001</span><span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-2049">2049</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1961" name="__codelineno-0-1961"></a><span class="k">def</span><span class="w"> </span><span class="nf">to_image</span><span class="p">(</span>
+<a id="__codelineno-0-1962" name="__codelineno-0-1962"></a>    <span class="bp">self</span><span class="p">,</span>
+<a id="__codelineno-0-1963" name="__codelineno-0-1963"></a>    <span class="n">band</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+<a id="__codelineno-0-1964" name="__codelineno-0-1964"></a>    <span class="n">cmap</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"viridis"</span><span class="p">,</span>
+<a id="__codelineno-0-1965" name="__codelineno-0-1965"></a>    <span class="n">exclude_value</span><span class="p">:</span> <span class="n">Any</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-1966" name="__codelineno-0-1966"></a><span class="p">):</span>
+<a id="__codelineno-0-1967" name="__codelineno-0-1967"></a><span class="w">    </span><span class="sd">"""Export a band as a colour-mapped RGB image.</span>
+<a id="__codelineno-0-1968" name="__codelineno-0-1968"></a>
+<a id="__codelineno-0-1969" name="__codelineno-0-1969"></a><span class="sd">    Reads the band, masks the no-data value (and an optional</span>
+<a id="__codelineno-0-1970" name="__codelineno-0-1970"></a><span class="sd">    ``exclude_value``), applies a matplotlib colormap via cleopatra's</span>
+<a id="__codelineno-0-1971" name="__codelineno-0-1971"></a><span class="sd">    :meth:`ArrayGlyph.apply_colormap`, and returns the result as a</span>
+<a id="__codelineno-0-1972" name="__codelineno-0-1972"></a><span class="sd">    :class:`PIL.Image.Image`. Masked / no-data pixels are rendered with</span>
+<a id="__codelineno-0-1973" name="__codelineno-0-1973"></a><span class="sd">    the colormap's "bad" fill colour. Requires the ``[viz]`` extra.</span>
+<a id="__codelineno-0-1974" name="__codelineno-0-1974"></a>
+<a id="__codelineno-0-1975" name="__codelineno-0-1975"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-1976" name="__codelineno-0-1976"></a><span class="sd">        band (int, optional):</span>
+<a id="__codelineno-0-1977" name="__codelineno-0-1977"></a><span class="sd">            Band index to export. Default is ``0``.</span>
+<a id="__codelineno-0-1978" name="__codelineno-0-1978"></a><span class="sd">        cmap (str, optional):</span>
+<a id="__codelineno-0-1979" name="__codelineno-0-1979"></a><span class="sd">            Matplotlib colormap name. Default is ``"viridis"``.</span>
+<a id="__codelineno-0-1980" name="__codelineno-0-1980"></a><span class="sd">        exclude_value (Any, optional):</span>
+<a id="__codelineno-0-1981" name="__codelineno-0-1981"></a><span class="sd">            An extra value to mask out, in addition to the band's</span>
+<a id="__codelineno-0-1982" name="__codelineno-0-1982"></a><span class="sd">            no-data value. Default is ``None``.</span>
+<a id="__codelineno-0-1983" name="__codelineno-0-1983"></a>
+<a id="__codelineno-0-1984" name="__codelineno-0-1984"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-1985" name="__codelineno-0-1985"></a><span class="sd">        PIL.Image.Image:</span>
+<a id="__codelineno-0-1986" name="__codelineno-0-1986"></a><span class="sd">            An RGB image of the colour-mapped band, the same width and</span>
+<a id="__codelineno-0-1987" name="__codelineno-0-1987"></a><span class="sd">            height as the raster band.</span>
+<a id="__codelineno-0-1988" name="__codelineno-0-1988"></a>
+<a id="__codelineno-0-1989" name="__codelineno-0-1989"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-1990" name="__codelineno-0-1990"></a><span class="sd">        ValueError: If the band has no valid (non-nodata) pixels left</span>
+<a id="__codelineno-0-1991" name="__codelineno-0-1991"></a><span class="sd">            after masking the no-data value, ``exclude_value``, and</span>
+<a id="__codelineno-0-1992" name="__codelineno-0-1992"></a><span class="sd">            ``NaN`` — there is then nothing to colour-map.</span>
+<a id="__codelineno-0-1993" name="__codelineno-0-1993"></a>
+<a id="__codelineno-0-1994" name="__codelineno-0-1994"></a><span class="sd">    Examples:</span>
+<a id="__codelineno-0-1995" name="__codelineno-0-1995"></a><span class="sd">        - Export a band as a viridis thumbnail, inspect its size, and</span>
+<a id="__codelineno-0-1996" name="__codelineno-0-1996"></a><span class="sd">          save it to disk (tagged ``+SKIP`` — needs the ``[viz]`` extra):</span>
+<a id="__codelineno-0-1997" name="__codelineno-0-1997"></a>
+<a id="__codelineno-0-1998" name="__codelineno-0-1998"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-1999" name="__codelineno-0-1999"></a><span class="sd">            &gt;&gt;&gt; import numpy as np</span>
+<a id="__codelineno-0-2000" name="__codelineno-0-2000"></a><span class="sd">            &gt;&gt;&gt; from pyramids.dataset import Dataset, GeoReference</span>
+<a id="__codelineno-0-2001" name="__codelineno-0-2001"></a><span class="sd">            &gt;&gt;&gt; arr = np.arange(48, dtype="float32").reshape(6, 8)</span>
+<a id="__codelineno-0-2002" name="__codelineno-0-2002"></a><span class="sd">            &gt;&gt;&gt; ds = Dataset.from_array(</span>
+<a id="__codelineno-0-2003" name="__codelineno-0-2003"></a><span class="sd">            ...     arr,</span>
+<a id="__codelineno-0-2004" name="__codelineno-0-2004"></a><span class="sd">            ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),</span>
+<a id="__codelineno-0-2005" name="__codelineno-0-2005"></a><span class="sd">            ... )</span>
+<a id="__codelineno-0-2006" name="__codelineno-0-2006"></a><span class="sd">            &gt;&gt;&gt; img = ds.to_image(band=0, cmap="viridis")  # doctest: +SKIP</span>
+<a id="__codelineno-0-2007" name="__codelineno-0-2007"></a><span class="sd">            &gt;&gt;&gt; img.size  # (width, height) == (columns, rows)  # doctest: +SKIP</span>
+<a id="__codelineno-0-2008" name="__codelineno-0-2008"></a><span class="sd">            (8, 6)</span>
+<a id="__codelineno-0-2009" name="__codelineno-0-2009"></a><span class="sd">            &gt;&gt;&gt; img.save("band0.png")  # doctest: +SKIP</span>
+<a id="__codelineno-0-2010" name="__codelineno-0-2010"></a>
+<a id="__codelineno-0-2011" name="__codelineno-0-2011"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-2012" name="__codelineno-0-2012"></a><span class="sd">    """</span>
+<a id="__codelineno-0-2013" name="__codelineno-0-2013"></a>    <span class="n">require_cleopatra</span><span class="p">()</span>
+<a id="__codelineno-0-2014" name="__codelineno-0-2014"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">cleopatra.glyphs.gridded.array_glyph</span><span class="w"> </span><span class="kn">import</span> <span class="n">ArrayGlyph</span>
+<a id="__codelineno-0-2015" name="__codelineno-0-2015"></a>
+<a id="__codelineno-0-2016" name="__codelineno-0-2016"></a>    <span class="n">arr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">read_array</span><span class="p">(</span><span class="n">band</span><span class="o">=</span><span class="n">band</span><span class="p">)</span>
+<a id="__codelineno-0-2017" name="__codelineno-0-2017"></a>    <span class="n">no_data_value</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">no_data_value</span><span class="p">[</span><span class="n">band</span><span class="p">]</span>
+<a id="__codelineno-0-2018" name="__codelineno-0-2018"></a>    <span class="c1"># The list cleopatra masks with, which is not the same question as the</span>
+<a id="__codelineno-0-2019" name="__codelineno-0-2019"></a>    <span class="c1"># one below. A NaN sentinel has no value to compare against, so it is</span>
+<a id="__codelineno-0-2020" name="__codelineno-0-2020"></a>    <span class="c1"># left out and the NaN branch covers it.</span>
+<a id="__codelineno-0-2021" name="__codelineno-0-2021"></a>    <span class="n">exclude</span><span class="p">:</span> <span class="nb">list</span> <span class="o">=</span> <span class="p">[]</span>
+<a id="__codelineno-0-2022" name="__codelineno-0-2022"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">is_nan_sentinel</span><span class="p">(</span><span class="n">no_data_value</span><span class="p">):</span>
+<a id="__codelineno-0-2023" name="__codelineno-0-2023"></a>        <span class="n">exclude</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">no_data_value</span><span class="p">)</span>
+<a id="__codelineno-0-2024" name="__codelineno-0-2024"></a>    <span class="k">if</span> <span class="n">exclude_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-2025" name="__codelineno-0-2025"></a>        <span class="n">exclude</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">exclude_value</span><span class="p">)</span>
+<a id="__codelineno-0-2026" name="__codelineno-0-2026"></a>    <span class="n">valid</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="n">arr</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">)</span>
+<a id="__codelineno-0-2027" name="__codelineno-0-2027"></a>    <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">issubdtype</span><span class="p">(</span><span class="n">arr</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">floating</span><span class="p">):</span>
+<a id="__codelineno-0-2028" name="__codelineno-0-2028"></a>        <span class="n">valid</span> <span class="o">&amp;=</span> <span class="o">~</span><span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">arr</span><span class="p">)</span>
+<a id="__codelineno-0-2029" name="__codelineno-0-2029"></a>    <span class="c1"># The same predicate `plot_histogram` above and</span>
+<a id="__codelineno-0-2030" name="__codelineno-0-2030"></a>    <span class="c1"># `_warn_if_nodata_absent` and `footprint` below ask of the same band.</span>
+<a id="__codelineno-0-2031" name="__codelineno-0-2031"></a>    <span class="c1"># These are two renderings of one raster, so a cell the histogram drops</span>
+<a id="__codelineno-0-2032" name="__codelineno-0-2032"></a>    <span class="c1"># and the image draws is a disagreement a reader can see -- and this</span>
+<a id="__codelineno-0-2033" name="__codelineno-0-2033"></a>    <span class="c1"># was the last site still asking in its own words, an exact `!=` over</span>
+<a id="__codelineno-0-2034" name="__codelineno-0-2034"></a>    <span class="c1"># `exclude`. `exclude_value` stays an exact match: it is a value the</span>
+<a id="__codelineno-0-2035" name="__codelineno-0-2035"></a>    <span class="c1"># caller named, not a sentinel the band declares. What this mask decides</span>
+<a id="__codelineno-0-2036" name="__codelineno-0-2036"></a>    <span class="c1"># is whether the band has anything to draw at all -- which cells come</span>
+<a id="__codelineno-0-2037" name="__codelineno-0-2037"></a>    <span class="c1"># out as the colormap's "bad" fill is cleopatra's own comparison against</span>
+<a id="__codelineno-0-2038" name="__codelineno-0-2038"></a>    <span class="c1"># the `exclude` list below, on its own tolerance.</span>
+<a id="__codelineno-0-2039" name="__codelineno-0-2039"></a>    <span class="n">valid</span> <span class="o">&amp;=</span> <span class="o">~</span><span class="n">is_stored_no_data</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">no_data_value</span><span class="p">)</span>
 <a id="__codelineno-0-2040" name="__codelineno-0-2040"></a>    <span class="k">if</span> <span class="n">exclude_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
 <a id="__codelineno-0-2041" name="__codelineno-0-2041"></a>        <span class="n">valid</span> <span class="o">&amp;=</span> <span class="n">arr</span> <span class="o">!=</span> <span class="n">exclude_value</span>
 <a id="__codelineno-0-2042" name="__codelineno-0-2042"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">valid</span><span class="o">.</span><span class="n">any</span><span class="p">():</span>

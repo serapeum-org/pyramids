@@ -7019,6 +7019,27 @@ itself open read-only. It is <strong>not</strong> a promise that reopening will 
 <code>&lt;Overview&gt;</code> owns a real, on-disk-writable <code>.ovr</code>, yet GDAL opens VRT sources read-only and refuses however the
 parent was opened. What has changed is that a dataset <strong>already open for writing</strong> never gets told to reopen —
 that shape now raises <code>OverviewTargetError</code> too, since the access mode demonstrably is not the blocker.</p>
+<p><strong>No-data masking in the analysis engine now takes its tolerance from the band's dtype.</strong> Hard change, silent.
+<code>count_domain_cells</code>, <code>apply</code>, <code>fill</code>, <code>footprint</code>, <code>plot_histogram</code> and <code>to_image</code> all ask one question — does this
+cell hold the band's no-data sentinel — and each asked it with a <em>relative</em> tolerance of its own: <code>rtol=1e-3</code> in
+<code>count_domain_cells</code> and <code>apply</code>, <code>1e-6</code> in <code>fill</code>, <code>1e-5</code> in the two renderers. So one band could be counted one way
+and drawn another, and every one of them discarded ordinary cells that merely lay near the sentinel. A relative
+window scales with the sentinel: <code>rtol=1e-3</code> around <code>-9999</code> masks everything down to <code>-10009</code>, and <code>rtol=1e-5</code> around
+an <code>int32</code> sentinel of <code>2e9</code> masks everything within <code>20 000</code> of it.</p>
+<p>The tolerance is now the band's own — none at all for an integer or boolean band, whose sentinel is stored exactly,
+and for a floating band the wider of its dtype's <code>eps</code> and single precision's (about <code>1.2e-7</code> relative), which still
+matches a sentinel that has been through <code>float32</code> storage or a driver's decimal text. <code>numpy.isclose</code>'s default
+<code>atol=1e-8</code> is dropped with it, so a sentinel of <code>0</code> no longer swallows genuinely small cells.</p>
+<p>For a caller, a cell within ~0.1% of the sentinel that used to be no-data to <code>count_domain_cells</code> / <code>apply</code> is now
+data; nothing that was masked before is unmasked <em>less</em> accurately, the change only ever keeps cells. On the test
+suite's own rasters nothing moves at all — all 464 fixture bands carrying a concrete sentinel mask identically under
+the old rule and the new one — so this surfaces only on data that holds values close to its own sentinel. Ask
+<code>pyramids.base._domain.is_no_data(arr, nodata, rtol=...)</code> directly if you want the old, looser window.</p>
+<p><strong>Coordinate axis arrays can differ in the last ULP.</strong> <code>RasterBase.get_x_lon_dimension_array</code> /
+<code>get_y_lat_dimension_array</code> moved from an element-wise accumulation to the shared <code>GeoTransform.x_axis</code> / <code>y_axis</code>,
+which multiplies the index by the cell size instead of adding it repeatedly. The new values are the more accurate
+ones — <code>10.35</code> where the walk produced <code>10.350000000000001</code> — but any golden file, doctest or notebook output that
+pins the printed coordinate will move. Compare axis arrays with <code>numpy.allclose</code>, not with <code>==</code> or a repr.</p>
 <h3 id="0480"><a class="toclink" href="#0480">0.48.0</a><a class="headerlink" href="#0480" title="Permanent link">#</a></h3>
 <p><strong><code>recreate_overviews</code> now rebuilds a band's levels in one cascading pass.</strong> Each deeper level is decimated from
 the level above rather than from the full-resolution band, matching what <code>create_overviews</code> (<code>BuildOverviews</code>)
