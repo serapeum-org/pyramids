@@ -509,9 +509,20 @@ def _write_data_var(
             f"variable {var_name!r} has shape {shape} but its "
             f"dimensions {tuple(var_dims)} imply {expected}"
         )
-    ext = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(np.dtype(write_dtype)))
-    md_arr = root.CreateMDArray(var_name, [gdal_dims[d] for d in var_dims], ext)
-    _write_md_array_streamed(md_arr, values)
+    if np.dtype(write_dtype).kind in ("U", "S", "O"):
+        # `numpy_to_gdal_dtype` has no numeric code for a character column, and
+        # `ReadAsArray` / `Write` cannot carry one through SWIG. GDAL's string
+        # extended type plus the Python list `Write()` can -- the same channel
+        # `_add_md_array_to_group` uses to carry ERA5's `expver` through a
+        # container op (#565). Without it a CF label array is unwritable, so an
+        # export carrying one either raised or lost it.
+        ext = gdal.ExtendedDataType.CreateString()
+        md_arr = root.CreateMDArray(var_name, [gdal_dims[d] for d in var_dims], ext)
+        md_arr.Write(np.asarray(values).astype(str).tolist())
+    else:
+        ext = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(np.dtype(write_dtype)))
+        md_arr = root.CreateMDArray(var_name, [gdal_dims[d] for d in var_dims], ext)
+        _write_md_array_streamed(md_arr, values)
     merged = dict(var_attrs)
     merged.update(cf_attrs)
     _apply_md_array_attrs(md_arr, merged)
@@ -606,6 +617,7 @@ def _build_multidim(
     data_vars: dict[str, tuple[tuple[str, ...], Any, dict[str, Any]]],
     global_attrs: dict[str, Any],
     crs_wkt: str | None = None,
+    aux_vars: dict[str, tuple[tuple[str, ...], Any, dict[str, Any]]] | None = None,
 ) -> gdal.Dataset:
     """Build an in-memory GDAL multidim container from plain arrays and attrs.
 
@@ -632,6 +644,12 @@ def _build_multidim(
         global_attrs: Root-group (global) attributes.
         crs_wkt: The dataset CRS as a WKT string, or None. Drives the CF coordinate
             attributes and the `grid_mapping` variable.
+        aux_vars: Auxiliary arrays -- CF bounds, 2-D curvilinear coordinate
+            fields, label columns -- in the same `(dimension-name tuple, values,
+            attrs)` shape as `data_vars`. They are written as ordinary MDArrays
+            but are **not** linked to the grid mapping, because a coordinate
+            variable is not itself georeferenced by one. `coords` cannot carry
+            them: an entry there must name a dimension, and these do not.
 
     Returns:
         gdal.Dataset: An in-memory `MEM` multidimensional dataset ready to be
@@ -669,6 +687,11 @@ def _build_multidim(
     data_arrays: dict[str, gdal.MDArray] = {}
     for var_name, (var_dims, var_values, var_attrs) in data_vars.items():
         data_arrays[var_name] = _write_data_var(
+            root, gdal_dims, dims, var_name, var_dims, var_values, var_attrs
+        )
+
+    for var_name, (var_dims, var_values, var_attrs) in (aux_vars or {}).items():
+        _write_data_var(
             root, gdal_dims, dims, var_name, var_dims, var_values, var_attrs
         )
 
@@ -711,12 +734,18 @@ def _crs_wkt_from_xarray(dataset: Any) -> str | None:
 def _build_multidim_from_xarray(dataset: Any) -> gdal.Dataset:
     """Build an in-memory GDAL multidim container from an xarray Dataset.
 
-    Extracts the plain `(dims, coords, data_vars, attrs)` spec from the
-    `xarray.Dataset` and delegates to `_build_multidim`, so the GDAL multidim
-    assembly lives in one place and this adapter only reads `.sizes` /
+    Extracts the plain `(dims, coords, aux_vars, data_vars, attrs)` spec from
+    the `xarray.Dataset` and delegates to `_build_multidim`, so the GDAL
+    multidim assembly lives in one place and this adapter only reads `.sizes` /
     `.coords` / `.data_vars` / `.attrs` off xarray. When the dataset carries a CRS,
     it is passed down so the x/y coordinates gain CF attributes and a `grid_mapping`
     variable is written (see :func:`_build_multidim`).
+
+    A coordinate that is not also a dimension is passed on as an auxiliary array
+    rather than dropped: xarray keeps CF bounds and 2-D curvilinear coordinate
+    fields in `coords`, and for a ROMS-style store that pair is the only
+    georeferencing the file has. A rank-0 (scalar) coordinate is the exception
+    and is still skipped -- GDAL's multidim writer cannot take one.
 
     Args:
         dataset: The source `xarray.Dataset`.
@@ -734,6 +763,20 @@ def _build_multidim_from_xarray(dataset: Any) -> gdal.Dataset:
     # When we re-generate a grid_mapping from the resolved CRS, drop any pre-existing
     # scalar grid-mapping variable so the output carries a single one.
     skip = {"spatial_ref", "crs"} if crs_wkt is not None else set()
+    # A coordinate that is not a dimension -- a CF bounds array, a 2-D
+    # curvilinear `lat_rho`, a label column -- belongs to neither mapping above:
+    # `coords` takes only dimension coordinates, and xarray does not list it
+    # among `data_vars`. Left out of both it was written nowhere, so
+    # `to_xarray()` -> `from_xarray()` silently dropped exactly the arrays the
+    # export's CF promotion had just moved into `coords` (round-4 M1).
+    # A rank-0 coordinate stays out: GDAL's numpy write path refuses a 0-d
+    # array ("Illegal numpy array rank 1"), and pyramids' own enumeration drops
+    # 0-dimensional MDArrays anyway, so no `to_xarray` export can carry one in.
+    aux_vars = {
+        name: (tuple(coord.dims), coord.data, dict(coord.attrs))
+        for name, coord in dataset.coords.items()
+        if name not in dims and coord.ndim > 0
+    }
     data_vars = {
         # `var.data` hands the underlying array through WITHOUT computing it, so a
         # dask-backed variable stays lazy and `_build_multidim` can stream it block by
@@ -743,7 +786,12 @@ def _build_multidim_from_xarray(dataset: Any) -> gdal.Dataset:
         if not (name in skip and var.ndim == 0)
     }
     return _build_multidim(
-        dims, coords, data_vars, dict(dataset.attrs), crs_wkt=crs_wkt
+        dims,
+        coords,
+        data_vars,
+        dict(dataset.attrs),
+        crs_wkt=crs_wkt,
+        aux_vars=aux_vars,
     )
 
 
