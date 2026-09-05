@@ -19,7 +19,7 @@ from hpc.indexing import get_indices2, get_pixels2
 from osgeo import gdal
 from pandas import DataFrame
 
-from pyramids.base._domain import inside_domain, is_nan_sentinel, is_no_data
+from pyramids.base._domain import is_nan_sentinel, is_stored_no_data
 from pyramids.base._errors import AlignmentError, OutOfBoundsError, ReadOnlyError
 from pyramids.base._utils import gdal_to_numpy_dtype, require_cleopatra
 from pyramids.dataset._mask import MaskFlags
@@ -300,7 +300,7 @@ class Analysis(_Engine["Dataset"]):
         # happens to be non-zero; with `no_data_value == 0` it is always 0, so nothing
         # was subtracted and every cell counted as domain.
         def _count(acc: int, strip: np.ndarray, _window: list[int]) -> int:
-            return acc + int(is_no_data(strip, no_data_value).sum())
+            return acc + int(is_stored_no_data(strip, no_data_value).sum())
 
         # Stream the count in row strips so a very large or /vsicurl source is never
         # read whole (#967). A summed count is order-independent, so the tiled total
@@ -428,7 +428,7 @@ class Analysis(_Engine["Dataset"]):
             out_array: The pre-filled output array written in place.
             no_data_value: The value marking cells to exclude from the domain.
         """
-        domain_mask = inside_domain(src_array, no_data_value)
+        domain_mask = ~is_stored_no_data(src_array, no_data_value)
         domain_values = src_array[domain_mask]
         # An empty domain (an all-no-data tile, common when streaming) needs no
         # write -- out_array is already the no-data fill -- and short-circuiting
@@ -515,11 +515,11 @@ class Analysis(_Engine["Dataset"]):
         no_data_value = self._ds.no_data_value[0]
 
         def _fill_tile(tile: np.ndarray) -> np.ndarray:
-            # rtol=1e-6 is intentionally tighter than the package default (1e-3):
-            # `fill` writes user-supplied values into every domain cell, so a
-            # too-loose match would clobber legitimate cells that happen to lie
-            # within ~0.1% of the no-data sentinel.
-            tile[inside_domain(tile, no_data_value, rtol=0.000001)] = value
+            # The band-wide predicate, not a tolerance of this method's own:
+            # `fill` decides from it which cells are the domain, so a cell it
+            # calls no-data here and the histogram calls data is the same
+            # disagreement, reached through the writer instead of a reader.
+            tile[~is_stored_no_data(tile, no_data_value)] = value
             return tile
 
         # Stream the fill tile-by-tile so a very large or /vsicurl source is never
@@ -1496,7 +1496,7 @@ class Analysis(_Engine["Dataset"]):
         # `np.isclose(arr, no_data_val)`, which is always False for a float NaN
         # sentinel -- so a raster whose nodata is NaN warned that its nodata
         # was absent even when every cell was nodata.
-        if not is_no_data(arr, no_data_val, rtol=0.00001).any():
+        if not is_stored_no_data(arr, no_data_val).any():
             self._ds.logger.warning(
                 "the nodata value stored in the raster does not exist in the raster "
                 "so either the raster extent is all full of data, or the no_data_value stored in the raster is"
@@ -1610,7 +1610,7 @@ class Analysis(_Engine["Dataset"]):
             arr = self._apply_exclude_values(arr, exclude_values, no_data_val)
 
         # Build the coverage mask: covered cells -> 2, nodata cells -> 0.
-        valid = inside_domain(arr, no_data_val, rtol=0.00001)
+        valid = ~is_stored_no_data(arr, no_data_val)
         if not valid.any():
             self._ds.logger.warning("the raster is full of no_data_value")
             return None
@@ -1937,18 +1937,15 @@ class Analysis(_Engine["Dataset"]):
         mask = np.ones(arr.shape, dtype=bool)
         if np.issubdtype(arr.dtype, np.floating):
             mask &= ~np.isnan(arr)
-        # `is_no_data` rather than a branch on the sentinel's spelling plus an
-        # exact `!=`: it answers for a NaN sentinel and a concrete one alike,
-        # so the two-branch form collapses.
-        #
-        # `rtol` is passed, not defaulted. `DEFAULT_RTOL` is 1e-3, which for a
-        # sentinel of -9999 masks everything in [-10009, -9989] -- on the
-        # suite's own fixtures that swallows real cells, and on a uint16 band
-        # with sentinel 65535 it masks 66 legitimate integers. 1e-5 is what
-        # `_warn_if_nodata_absent` below asks of the same band, and a histogram
-        # that counted different pixels from the warning printed beside it was
-        # the divergence this was meant to remove.
-        mask &= ~is_no_data(arr, no_data_value, rtol=0.00001)
+        # `is_stored_no_data` rather than a branch on the sentinel's spelling
+        # plus an exact `!=`: it answers for a NaN sentinel and a concrete one
+        # alike, so the two-branch form collapses -- and every other reader of
+        # this band asks the same question through the same predicate, so the
+        # histogram cannot count a different set of pixels from the warning
+        # printed beside it. Its tolerance is the band dtype's, not a constant:
+        # a fixed `rtol=1e-5` masked everything within 0.1 of a -9999 sentinel
+        # and within 20 000 of a 2e9 one, so the bars quietly lost real cells.
+        mask &= ~is_stored_no_data(arr, no_data_value)
         if exclude_value is not None:
             mask &= arr != exclude_value
         values = arr[mask]
@@ -2029,14 +2026,17 @@ class Analysis(_Engine["Dataset"]):
         valid = np.ones(arr.shape, dtype=bool)
         if np.issubdtype(arr.dtype, np.floating):
             valid &= ~np.isnan(arr)
-        # `is_no_data`, with the tolerance `plot_histogram` above and
-        # `_warn_if_nodata_absent` and `footprint` below all ask of the same
-        # band. These are two renderings of one raster, so a cell the histogram
-        # drops and the image draws is a disagreement a reader can see -- and
-        # this was the last site still asking in its own words, an exact `!=`
-        # over `exclude`. `exclude_value` stays an exact match: it is a value
-        # the caller named, not a sentinel the band declares.
-        valid &= ~is_no_data(arr, no_data_value, rtol=0.00001)
+        # The same predicate `plot_histogram` above and
+        # `_warn_if_nodata_absent` and `footprint` below ask of the same band.
+        # These are two renderings of one raster, so a cell the histogram drops
+        # and the image draws is a disagreement a reader can see -- and this
+        # was the last site still asking in its own words, an exact `!=` over
+        # `exclude`. `exclude_value` stays an exact match: it is a value the
+        # caller named, not a sentinel the band declares. What this mask decides
+        # is whether the band has anything to draw at all -- which cells come
+        # out as the colormap's "bad" fill is cleopatra's own comparison against
+        # the `exclude` list below, on its own tolerance.
+        valid &= ~is_stored_no_data(arr, no_data_value)
         if exclude_value is not None:
             valid &= arr != exclude_value
         if not valid.any():

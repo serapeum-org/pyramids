@@ -395,6 +395,31 @@ itself open read-only. It is **not** a promise that reopening will succeed: a VR
 parent was opened. What has changed is that a dataset **already open for writing** never gets told to reopen —
 that shape now raises `OverviewTargetError` too, since the access mode demonstrably is not the blocker.
 
+**No-data masking in the analysis engine now takes its tolerance from the band's dtype.** Hard change, silent.
+`count_domain_cells`, `apply`, `fill`, `footprint`, `plot_histogram` and `to_image` all ask one question — does this
+cell hold the band's no-data sentinel — and each asked it with a *relative* tolerance of its own: `rtol=1e-3` in
+`count_domain_cells` and `apply`, `1e-6` in `fill`, `1e-5` in the two renderers. So one band could be counted one way
+and drawn another, and every one of them discarded ordinary cells that merely lay near the sentinel. A relative
+window scales with the sentinel: `rtol=1e-3` around `-9999` masks everything down to `-10009`, and `rtol=1e-5` around
+an `int32` sentinel of `2e9` masks everything within `20 000` of it.
+
+The tolerance is now the band's own — none at all for an integer or boolean band, whose sentinel is stored exactly,
+and for a floating band the wider of its dtype's `eps` and single precision's (about `1.2e-7` relative), which still
+matches a sentinel that has been through `float32` storage or a driver's decimal text. `numpy.isclose`'s default
+`atol=1e-8` is dropped with it, so a sentinel of `0` no longer swallows genuinely small cells.
+
+For a caller, a cell within ~0.1% of the sentinel that used to be no-data to `count_domain_cells` / `apply` is now
+data; nothing that was masked before is unmasked *less* accurately, the change only ever keeps cells. On the test
+suite's own rasters nothing moves at all — all 464 fixture bands carrying a concrete sentinel mask identically under
+the old rule and the new one — so this surfaces only on data that holds values close to its own sentinel. Ask
+`pyramids.base._domain.is_no_data(arr, nodata, rtol=...)` directly if you want the old, looser window.
+
+**Coordinate axis arrays can differ in the last ULP.** `RasterBase.get_x_lon_dimension_array` /
+`get_y_lat_dimension_array` moved from an element-wise accumulation to the shared `GeoTransform.x_axis` / `y_axis`,
+which multiplies the index by the cell size instead of adding it repeatedly. The new values are the more accurate
+ones — `10.35` where the walk produced `10.350000000000001` — but any golden file, doctest or notebook output that
+pins the printed coordinate will move. Compare axis arrays with `numpy.allclose`, not with `==` or a repr.
+
 ### 0.48.0
 
 **`recreate_overviews` now rebuilds a band's levels in one cascading pass.** Each deeper level is decimated from
