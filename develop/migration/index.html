@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -5775,6 +5775,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#unreleased_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        unreleased
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#0370" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -6489,6 +6500,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#unreleased_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        unreleased
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#0370" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -6801,30 +6823,53 @@ that leaked out of an empty table lookup. Only affects code catching the old typ
 </table>
 <h2 id="dataset"><a class="toclink" href="#dataset">dataset</a><a class="headerlink" href="#dataset" title="Permanent link">#</a></h2>
 <h3 id="unreleased_1"><a class="toclink" href="#unreleased_1">unreleased</a><a class="headerlink" href="#unreleased_1" title="Permanent link">#</a></h3>
+<p><strong><code>Dataset.no_data_value</code> can report a numpy scalar where it reported a Python <code>int</code>.</strong> Hard change, silent —
+the number is the same, only its type differs. It affects one case: an <strong>unsigned</strong> band whose no-data is unset
+or <code>NaN</code>, where pyramids substitutes the dtype's maximum. That substituted sentinel is now built as a numpy
+scalar of the band's dtype instead of a Python <code>int</code>, so it agrees in type as well as value with the sentinel
+picked when a requested no-data overflows the band — previously the same answer read back as <code>255</code> from one path
+and <code>np.uint8(255)</code> from the other, and the <code>==</code> pinning their agreement could not see the difference.</p>
+<p>What a caller sees, for a <code>uint8</code> band with no usable no-data:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Before</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">ds</span><span class="o">.</span><span class="n">no_data_value</span>      <span class="c1"># (255,)          &lt;- builtin int</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="c1"># After</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="n">ds</span><span class="o">.</span><span class="n">no_data_value</span>      <span class="c1"># (np.float64(255.0),)</span>
+</code></pre></div>
+<p><code>float64</code>, not <code>uint8</code>: GDAL's <code>SetNoDataValue</code> takes a C double and refuses a numpy <code>uint8</code>, so the value is
+round-tripped through a <code>float64</code>. Signed and floating bands are unaffected (nothing is substituted for them),
+and a band with a concrete no-data already reported a numpy scalar before this release.</p>
+<p>Anything comparing with <code>==</code>, or reading the value into numpy, needs no change. Change what needs a builtin:</p>
+<ul>
+<li><code>json.dumps(ds.no_data_value)</code> → <code>json.dumps([float(v) for v in ds.no_data_value])</code></li>
+<li><code>"%d" % nodata</code> and <code>is</code>-comparisons against small ints</li>
+<li>arithmetic where wrapping matters — a numpy <em>integer</em> scalar wraps at the dtype bound
+  (<code>np.uint8(255) + 1 == 0</code>) instead of promoting. <code>float(nodata)</code> first if you are doing arithmetic on it.</li>
+</ul>
 <p><strong><code>create_from_array</code> is now <code>from_array</code>, and takes a <code>GeoReference</code>.</strong> Hard change, no deprecation alias — the
 old name and the old flat keywords are gone. The same rename applies to <code>UgridDataset.create_from_arrays</code> -&gt;
 <code>from_arrays</code> (still plural: it takes three arrays, not one).</p>
 <p>The four flat georeferencing keywords are replaced by one <code>geo_ref</code> argument, and <code>driver_type</code> is gone
 entirely — the driver is now derived from the path extension:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Before</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">geo</span><span class="o">=</span><span class="n">GEO</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">)</span>
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">top_left_corner</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">10</span><span class="p">),</span> <span class="n">cell_size</span><span class="o">=</span><span class="mf">0.05</span><span class="p">)</span>
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">driver_type</span><span class="o">=</span><span class="s2">"GTiff"</span><span class="p">,</span> <span class="n">path</span><span class="o">=</span><span class="s2">"out.tif"</span><span class="p">)</span>
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="n">Dataset</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">cell_size</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span> <span class="n">rows</span><span class="o">=</span><span class="n">r</span><span class="p">,</span> <span class="n">columns</span><span class="o">=</span><span class="n">c</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">"float32"</span><span class="p">,</span> <span class="n">bands</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
-<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>               <span class="n">top_left_corner</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">10</span><span class="p">),</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">)</span>
-<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="n">Dataset</span><span class="o">.</span><span class="n">create_empty</span><span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">cols</span><span class="p">,</span> <span class="n">geo</span><span class="o">=</span><span class="n">GEO</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">,</span> <span class="n">driver_type</span><span class="o">=</span><span class="s2">"MEM"</span><span class="p">)</span>
-<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="n">UgridDataset</span><span class="o">.</span><span class="n">create_from_arrays</span><span class="p">(</span><span class="n">node_x</span><span class="p">,</span> <span class="n">node_y</span><span class="p">,</span> <span class="n">faces</span><span class="p">)</span>
-<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>
-<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="c1"># After</span>
-<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span><span class="p">,</span> <span class="n">GeoReference</span>
-<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a>
-<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">geo</span><span class="o">=</span><span class="n">GEO</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">))</span>
-<a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a><span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">top_left_corner</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">10</span><span class="p">),</span> <span class="n">cell_size</span><span class="o">=</span><span class="mf">0.05</span><span class="p">))</span>
-<a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a><span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">geo</span><span class="o">=</span><span class="n">GEO</span><span class="p">),</span> <span class="n">path</span><span class="o">=</span><span class="s2">"out.tif"</span><span class="p">)</span>  <span class="c1"># driver from the extension</span>
-<a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a><span class="n">Dataset</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">rows</span><span class="o">=</span><span class="n">r</span><span class="p">,</span> <span class="n">columns</span><span class="o">=</span><span class="n">c</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">"float32"</span><span class="p">,</span> <span class="n">bands</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
-<a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a>               <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">top_left_corner</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">10</span><span class="p">),</span> <span class="n">cell_size</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">))</span>
-<a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a><span class="n">Dataset</span><span class="o">.</span><span class="n">create_empty</span><span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">cols</span><span class="p">,</span> <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">geo</span><span class="o">=</span><span class="n">GEO</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">))</span>
-<a id="__codelineno-5-19" name="__codelineno-5-19" href="#__codelineno-5-19"></a><span class="n">UgridDataset</span><span class="o">.</span><span class="n">from_arrays</span><span class="p">(</span><span class="n">node_x</span><span class="p">,</span> <span class="n">node_y</span><span class="p">,</span> <span class="n">faces</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Before</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">geo</span><span class="o">=</span><span class="n">GEO</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">)</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">top_left_corner</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">10</span><span class="p">),</span> <span class="n">cell_size</span><span class="o">=</span><span class="mf">0.05</span><span class="p">)</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">driver_type</span><span class="o">=</span><span class="s2">"GTiff"</span><span class="p">,</span> <span class="n">path</span><span class="o">=</span><span class="s2">"out.tif"</span><span class="p">)</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="n">Dataset</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">cell_size</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span> <span class="n">rows</span><span class="o">=</span><span class="n">r</span><span class="p">,</span> <span class="n">columns</span><span class="o">=</span><span class="n">c</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">"float32"</span><span class="p">,</span> <span class="n">bands</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>               <span class="n">top_left_corner</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">10</span><span class="p">),</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">)</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="n">Dataset</span><span class="o">.</span><span class="n">create_empty</span><span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">cols</span><span class="p">,</span> <span class="n">geo</span><span class="o">=</span><span class="n">GEO</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">,</span> <span class="n">driver_type</span><span class="o">=</span><span class="s2">"MEM"</span><span class="p">)</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="n">UgridDataset</span><span class="o">.</span><span class="n">create_from_arrays</span><span class="p">(</span><span class="n">node_x</span><span class="p">,</span> <span class="n">node_y</span><span class="p">,</span> <span class="n">faces</span><span class="p">)</span>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="c1"># After</span>
+<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span><span class="p">,</span> <span class="n">GeoReference</span>
+<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a>
+<a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a><span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">geo</span><span class="o">=</span><span class="n">GEO</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">))</span>
+<a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a><span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">top_left_corner</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">10</span><span class="p">),</span> <span class="n">cell_size</span><span class="o">=</span><span class="mf">0.05</span><span class="p">))</span>
+<a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a><span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">geo</span><span class="o">=</span><span class="n">GEO</span><span class="p">),</span> <span class="n">path</span><span class="o">=</span><span class="s2">"out.tif"</span><span class="p">)</span>  <span class="c1"># driver from the extension</span>
+<a id="__codelineno-6-16" name="__codelineno-6-16" href="#__codelineno-6-16"></a><span class="n">Dataset</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">rows</span><span class="o">=</span><span class="n">r</span><span class="p">,</span> <span class="n">columns</span><span class="o">=</span><span class="n">c</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">"float32"</span><span class="p">,</span> <span class="n">bands</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+<a id="__codelineno-6-17" name="__codelineno-6-17" href="#__codelineno-6-17"></a>               <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">top_left_corner</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">10</span><span class="p">),</span> <span class="n">cell_size</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">))</span>
+<a id="__codelineno-6-18" name="__codelineno-6-18" href="#__codelineno-6-18"></a><span class="n">Dataset</span><span class="o">.</span><span class="n">create_empty</span><span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">cols</span><span class="p">,</span> <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">geo</span><span class="o">=</span><span class="n">GEO</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">))</span>
+<a id="__codelineno-6-19" name="__codelineno-6-19" href="#__codelineno-6-19"></a><span class="n">UgridDataset</span><span class="o">.</span><span class="n">from_arrays</span><span class="p">(</span><span class="n">node_x</span><span class="p">,</span> <span class="n">node_y</span><span class="p">,</span> <span class="n">faces</span><span class="p">)</span>
 </code></pre></div>
 <p>The module-level <code>pyramids.netcdf.engines.variables.create_from_array</code> is renamed <code>from_array</code> too. It carries
 no underscore but is an engine internal — reach it through <code>NetCDF.from_array</code>, its public facade.</p>
@@ -6859,10 +6904,10 @@ converted to <code>Byte</code> — values clipped, fractional parts gone. GDAL r
 pyramids now raises it to a <code>DtypeNarrowingWarning</code> naming both dtypes and the driver. JPEG2000 is stricter
 still: <code>.jp2</code> / <code>.j2k</code> accept only their own dtypes and <strong>raise</strong> rather than converting, so a float32 raster
 there warns and then fails with <code>FailedToSaveError</code> — write those from a <code>uint8</code> / <code>int16</code> source.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">DtypeNarrowingWarning</span>
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="n">warnings</span><span class="o">.</span><span class="n">simplefilter</span><span class="p">(</span><span class="s2">"error"</span><span class="p">,</span> <span class="n">DtypeNarrowingWarning</span><span class="p">)</span>   <span class="c1"># make the conversion fail loudly</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">DtypeNarrowingWarning</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="n">warnings</span><span class="o">.</span><span class="n">simplefilter</span><span class="p">(</span><span class="s2">"error"</span><span class="p">,</span> <span class="n">DtypeNarrowingWarning</span><span class="p">)</span>   <span class="c1"># make the conversion fail loudly</span>
 </code></pre></div>
 <p>Note the deliberate asymmetry with the constructors: <code>to_file("x.png")</code> writes (PNG supports <code>CreateCopy</code>)
 while <code>from_array(path="x.png")</code> raises <code>FileFormatNotSupportedError</code> (PNG does not support <code>Create</code>). Whether
@@ -6939,10 +6984,10 @@ practice an inline VRT XML document passed to <code>Dataset.read_file(...)</code
   it always did, in <code>to_zarr</code>'s base-array write.</li>
 </ul>
 <p>Write the view out first and build the overviews on the saved raster:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">view</span><span class="o">.</span><span class="n">to_file</span><span class="p">(</span><span class="s2">"level.tif"</span><span class="p">)</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="n">view</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>  <span class="c1"># on Windows an open handle keeps the parent file locked</span>
-<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="n">saved</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">"level.tif"</span><span class="p">,</span> <span class="n">read_only</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
-<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="n">saved</span><span class="o">.</span><span class="n">create_overviews</span><span class="p">(</span><span class="n">overview_levels</span><span class="o">=</span><span class="p">[</span><span class="mi">2</span><span class="p">,</span> <span class="mi">4</span><span class="p">])</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">view</span><span class="o">.</span><span class="n">to_file</span><span class="p">(</span><span class="s2">"level.tif"</span><span class="p">)</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="n">view</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>  <span class="c1"># on Windows an open handle keeps the parent file locked</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="n">saved</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">"level.tif"</span><span class="p">,</span> <span class="n">read_only</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="n">saved</span><span class="o">.</span><span class="n">create_overviews</span><span class="p">(</span><span class="n">overview_levels</span><span class="o">=</span><span class="p">[</span><span class="mi">2</span><span class="p">,</span> <span class="mi">4</span><span class="p">])</span>
 </code></pre></div>
 <p>Unaffected <strong>by the <code>create_overviews</code> refusal</strong>: <strong>warped</strong> VRTs keep their overviews in RAM and need no
 sidecar. These produce one — <code>Dataset.warped_view(...)</code>, <code>Dataset.to_crs(...)</code> in its warping form,
@@ -7028,6 +7073,24 @@ ignored: there is no frame to transform into.</p>
 stamp a default; set a CRS on the input first. <code>pyramids georeference</code> is unaffected — its GCPs and <code>--gcp-crs</code>
 replace the georeference wholesale.</p>
 <h2 id="netcdf"><a class="toclink" href="#netcdf">netcdf</a><a class="headerlink" href="#netcdf" title="Permanent link">#</a></h2>
+<h3 id="unreleased_2"><a class="toclink" href="#unreleased_2">unreleased</a><a class="headerlink" href="#unreleased_2" title="Permanent link">#</a></h3>
+<p><strong><code>NetCDF.variable_names</code> reports the store's declaration order, not alphabetical order.</strong> Hard change, silent —
+the <em>set</em> of names is unchanged, only the order, so nothing raises and nothing warns. The property used to hand
+back the CF classification's own list, which is sorted; it now filters the declared list instead, keeping the
+order the file uses.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># Before</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="n">nc</span><span class="o">.</span><span class="n">variable_names</span>     <span class="c1"># ['q', 'z']   &lt;- alphabetical</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="c1"># After</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="n">nc</span><span class="o">.</span><span class="n">variable_names</span>     <span class="c1"># ['z', 'q']   &lt;- the order the store declares</span>
+</code></pre></div>
+<p>This matters beyond iteration order. <code>_fan_out_eager</code> templates a container-wide result from the <strong>first</strong>
+spatial variable — taking its geotransform, CRS, no-data and extra dimensions — so a container-wide <code>to_crs</code>,
+<code>resample</code> or <code>crop</code> can now template from a different variable than it did before, and the order propagates
+into <code>to_netcdf</code> and <code>to_xarray</code> output.</p>
+<p>The declared order is the intended answer: it is what the file says, it matches what <code>ncdump</code> and xarray show,
+and templating a fan-out from an alphabetically-first variable was arbitrary. If you depended on the sorted
+order, sort explicitly: <code>sorted(nc.variable_names)</code>.</p>
 <h3 id="0370"><a class="toclink" href="#0370">0.37.0</a><a class="headerlink" href="#0370" title="Permanent link">#</a></h3>
 <p>Introduces the <code>Container</code> / <code>Variable</code> type split plus a wave of API consolidation. Each change below shows
 <strong>what changed</strong> and the <strong>before → after</strong> so you can update at a glance.</p>
@@ -7098,89 +7161,89 @@ replace the georeference wholesale.</p>
 <p><strong>1. Opening a store returns <code>Container</code>; extracting a variable returns <code>Variable</code>.</strong>
 <code>NetCDF</code> is now a base class with two concrete subclasses. Both still pass <code>isinstance(x, NetCDF)</code>, so only
 <em>exact-type</em> checks break.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># Before — everything was a NetCDF</span>
-<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="n">nc</span>  <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">"cube.nc"</span><span class="p">)</span>     <span class="c1"># NetCDF</span>
-<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="n">var</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="s2">"t"</span><span class="p">)</span>            <span class="c1"># NetCDF</span>
-<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="nb">type</span><span class="p">(</span><span class="n">nc</span><span class="p">)</span> <span class="ow">is</span> <span class="n">NetCDF</span>                    <span class="c1"># True</span>
-<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>
-<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="c1"># After</span>
-<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="n">nc</span>  <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">"cube.nc"</span><span class="p">)</span>     <span class="c1"># Container</span>
-<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="n">var</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="s2">"t"</span><span class="p">)</span>            <span class="c1"># Variable</span>
-<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a><span class="nb">isinstance</span><span class="p">(</span><span class="n">nc</span><span class="p">,</span> <span class="n">NetCDF</span><span class="p">)</span>                <span class="c1"># True   &lt;- use this</span>
-<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="nb">type</span><span class="p">(</span><span class="n">nc</span><span class="p">)</span> <span class="ow">is</span> <span class="n">NetCDF</span>                    <span class="c1"># False  &lt;- this no longer holds</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># Before — everything was a NetCDF</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="n">nc</span>  <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">"cube.nc"</span><span class="p">)</span>     <span class="c1"># NetCDF</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="n">var</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="s2">"t"</span><span class="p">)</span>            <span class="c1"># NetCDF</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="nb">type</span><span class="p">(</span><span class="n">nc</span><span class="p">)</span> <span class="ow">is</span> <span class="n">NetCDF</span>                    <span class="c1"># True</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>
+<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="c1"># After</span>
+<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="n">nc</span>  <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">"cube.nc"</span><span class="p">)</span>     <span class="c1"># Container</span>
+<a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="n">var</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="s2">"t"</span><span class="p">)</span>            <span class="c1"># Variable</span>
+<a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a><span class="nb">isinstance</span><span class="p">(</span><span class="n">nc</span><span class="p">,</span> <span class="n">NetCDF</span><span class="p">)</span>                <span class="c1"># True   &lt;- use this</span>
+<a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a><span class="nb">type</span><span class="p">(</span><span class="n">nc</span><span class="p">)</span> <span class="ow">is</span> <span class="n">NetCDF</span>                    <span class="c1"># False  &lt;- this no longer holds</span>
 </code></pre></div>
 <p><strong>2. <code>subset()</code> returns a <code>NetCDF</code> (a <code>Variable</code>), not a plain <code>Dataset</code>.</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># Before</span>
-<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">subset</span><span class="p">(</span><span class="s2">"t"</span><span class="p">,</span> <span class="n">time</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>           <span class="c1"># Dataset</span>
-<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>
-<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="c1"># After</span>
-<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="n">var</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">subset</span><span class="p">(</span><span class="s2">"t"</span><span class="p">,</span> <span class="n">time</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>          <span class="c1"># Variable (a NetCDF); read_array()/crop()/sel() all still work</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="c1"># Before</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">subset</span><span class="p">(</span><span class="s2">"t"</span><span class="p">,</span> <span class="n">time</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>           <span class="c1"># Dataset</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="c1"># After</span>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="n">var</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">subset</span><span class="p">(</span><span class="s2">"t"</span><span class="p">,</span> <span class="n">time</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>          <span class="c1"># Variable (a NetCDF); read_array()/crop()/sel() all still work</span>
 </code></pre></div>
 <p><strong>3. <code>CFInfo</code> is immutable (frozen).</strong> In-place assignment now raises <code>dataclasses.FrozenInstanceError</code>.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># Before</span>
-<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="n">cf</span><span class="o">.&lt;</span><span class="n">field</span><span class="o">&gt;</span> <span class="o">=</span> <span class="n">new_value</span>                <span class="c1"># mutated in place</span>
-<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>
-<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="c1"># After</span>
-<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="kn">import</span><span class="w"> </span><span class="nn">dataclasses</span>
-<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="n">cf</span> <span class="o">=</span> <span class="n">dataclasses</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">cf</span><span class="p">,</span> <span class="o">&lt;</span><span class="n">field</span><span class="o">&gt;=</span><span class="n">new_value</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="c1"># Before</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="n">cf</span><span class="o">.&lt;</span><span class="n">field</span><span class="o">&gt;</span> <span class="o">=</span> <span class="n">new_value</span>                <span class="c1"># mutated in place</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="c1"># After</span>
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="kn">import</span><span class="w"> </span><span class="nn">dataclasses</span>
+<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="n">cf</span> <span class="o">=</span> <span class="n">dataclasses</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">cf</span><span class="p">,</span> <span class="o">&lt;</span><span class="n">field</span><span class="o">&gt;=</span><span class="n">new_value</span><span class="p">)</span>
 </code></pre></div>
 <p><strong>4. <code>LabeledDataset.read_file(engine=...)</code> validates the engine.</strong> An unrecognised value now raises
 <code>ValueError</code> instead of being silently ignored.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="c1"># Before</span>
-<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">LabeledDataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="n">store</span><span class="p">,</span> <span class="n">engine</span><span class="o">=</span><span class="s2">"zar"</span><span class="p">)</span>    <span class="c1"># typo silently ignored</span>
-<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>
-<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="c1"># After — valid: "zarr", "netcdf", "netcdf4", "hdf5", "h5netcdf", or None</span>
-<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">LabeledDataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="n">store</span><span class="p">,</span> <span class="n">engine</span><span class="o">=</span><span class="s2">"zarr"</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="c1"># Before</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">LabeledDataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="n">store</span><span class="p">,</span> <span class="n">engine</span><span class="o">=</span><span class="s2">"zar"</span><span class="p">)</span>    <span class="c1"># typo silently ignored</span>
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="c1"># After — valid: "zarr", "netcdf", "netcdf4", "hdf5", "h5netcdf", or None</span>
+<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">LabeledDataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="n">store</span><span class="p">,</span> <span class="n">engine</span><span class="o">=</span><span class="s2">"zarr"</span><span class="p">)</span>
 </code></pre></div>
 <h4 id="deprecations-old-still-works-warns-update-when-convenient"><a class="toclink" href="#deprecations-old-still-works-warns-update-when-convenient">Deprecations (old still works, warns — update when convenient)</a><a class="headerlink" href="#deprecations-old-still-works-warns-update-when-convenient" title="Permanent link">#</a></h4>
 <p><strong>5. Constructing the base <code>NetCDF(...)</code> directly is deprecated.</strong> Use the typed entry points.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="c1"># Before</span>
-<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="n">nc</span> <span class="o">=</span> <span class="n">NetCDF</span><span class="p">(</span><span class="n">gdal_dataset</span><span class="p">)</span>
-<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>
-<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="c1"># After</span>
-<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="n">nc</span>  <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">"cube.nc"</span><span class="p">)</span>     <span class="c1"># -&gt; Container</span>
-<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="n">var</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="s2">"t"</span><span class="p">)</span>            <span class="c1"># -&gt; Variable</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="c1"># Before</span>
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="n">nc</span> <span class="o">=</span> <span class="n">NetCDF</span><span class="p">(</span><span class="n">gdal_dataset</span><span class="p">)</span>
+<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>
+<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="c1"># After</span>
+<a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="n">nc</span>  <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">"cube.nc"</span><span class="p">)</span>     <span class="c1"># -&gt; Container</span>
+<a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a><span class="n">var</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="s2">"t"</span><span class="p">)</span>            <span class="c1"># -&gt; Variable</span>
 </code></pre></div>
 <p><strong>6. <code>get_variable_names()</code> -&gt; the <code>variable_names</code> property.</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="c1"># Before</span>
-<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="n">names</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">get_variable_names</span><span class="p">()</span>
-<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="c1"># After</span>
-<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="n">names</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">variable_names</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="c1"># Before</span>
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="n">names</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">get_variable_names</span><span class="p">()</span>
+<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="c1"># After</span>
+<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="n">names</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">variable_names</span>
 </code></pre></div>
 <p><strong>7. <code>NetCDF.plot</code> mirrors <code>Dataset.plot</code> — <code>colour=</code> is gone; colour is loose kwargs and coordinates group
 into <code>axes=CoordinateSpec(...)</code>.</strong> The <code>colour=</code> parameter and both the <code>ColorOpts</code> dataclass and its British
 alias <code>ColourOpts</code> have been removed from <code>pyramids.netcdf</code>. Pass the colour knobs (<code>cmap</code>, <code>vmin</code>, <code>vmax</code>,
 <code>robust</code>, <code>center</code>, <code>extend</code>, <code>levels</code>, <code>norm</code>) as loose keyword arguments, and group the curvilinear-coordinate
 parameters (<code>coords</code>, <code>x_dim</code>, <code>y_dim</code>) into the new frozen <code>CoordinateSpec</code> dataclass passed as <code>axes=</code>.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="c1"># Before</span>
-<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">ColourOpts</span>
-<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="n">nc</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="s2">"t2m"</span><span class="p">,</span> <span class="n">colour</span><span class="o">=</span><span class="n">ColourOpts</span><span class="p">(</span><span class="n">cmap</span><span class="o">=</span><span class="s2">"viridis"</span><span class="p">,</span> <span class="n">robust</span><span class="o">=</span><span class="kc">True</span><span class="p">),</span> <span class="n">x_dim</span><span class="o">=</span><span class="s2">"rlon"</span><span class="p">,</span> <span class="n">y_dim</span><span class="o">=</span><span class="s2">"rlat"</span><span class="p">)</span>
-<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="c1"># After</span>
-<a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">CoordinateSpec</span>
-<a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a><span class="n">nc</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="s2">"t2m"</span><span class="p">,</span> <span class="n">cmap</span><span class="o">=</span><span class="s2">"viridis"</span><span class="p">,</span> <span class="n">robust</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">axes</span><span class="o">=</span><span class="n">CoordinateSpec</span><span class="p">(</span><span class="n">x_dim</span><span class="o">=</span><span class="s2">"rlon"</span><span class="p">,</span> <span class="n">y_dim</span><span class="o">=</span><span class="s2">"rlat"</span><span class="p">))</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="c1"># Before</span>
+<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">ColourOpts</span>
+<a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="n">nc</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="s2">"t2m"</span><span class="p">,</span> <span class="n">colour</span><span class="o">=</span><span class="n">ColourOpts</span><span class="p">(</span><span class="n">cmap</span><span class="o">=</span><span class="s2">"viridis"</span><span class="p">,</span> <span class="n">robust</span><span class="o">=</span><span class="kc">True</span><span class="p">),</span> <span class="n">x_dim</span><span class="o">=</span><span class="s2">"rlon"</span><span class="p">,</span> <span class="n">y_dim</span><span class="o">=</span><span class="s2">"rlat"</span><span class="p">)</span>
+<a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="c1"># After</span>
+<a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">CoordinateSpec</span>
+<a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a><span class="n">nc</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="s2">"t2m"</span><span class="p">,</span> <span class="n">cmap</span><span class="o">=</span><span class="s2">"viridis"</span><span class="p">,</span> <span class="n">robust</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">axes</span><span class="o">=</span><span class="n">CoordinateSpec</span><span class="p">(</span><span class="n">x_dim</span><span class="o">=</span><span class="s2">"rlon"</span><span class="p">,</span> <span class="n">y_dim</span><span class="o">=</span><span class="s2">"rlat"</span><span class="p">))</span>
 </code></pre></div>
 <p>For colour-bar styling and data-style presets, pass the cleopatra bags exactly as <code>Dataset.plot</code> does —
 <code>colorbar=ColorBar(...)</code> (or <code>colorbar=False</code> to hide it) and <code>data_style=DataStyle(...)</code>.</p>
 <p><strong>8. Classic dimension models renamed.</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="c1"># Before</span>
-<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf.dimensions</span><span class="w"> </span><span class="kn">import</span> <span class="n">MetaData</span><span class="p">,</span> <span class="n">DimMetaData</span>
-<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="c1"># After</span>
-<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf.dimensions</span><span class="w"> </span><span class="kn">import</span> <span class="n">ClassicDimMetadata</span><span class="p">,</span> <span class="n">ClassicDimensionInfo</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="c1"># Before</span>
+<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf.dimensions</span><span class="w"> </span><span class="kn">import</span> <span class="n">MetaData</span><span class="p">,</span> <span class="n">DimMetaData</span>
+<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="c1"># After</span>
+<a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf.dimensions</span><span class="w"> </span><span class="kn">import</span> <span class="n">ClassicDimMetadata</span><span class="p">,</span> <span class="n">ClassicDimensionInfo</span>
 </code></pre></div>
 <p><strong>9. kerchunk <code>backend="kerchunk"</code> -&gt; <code>backend="legacy"</code>.</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="c1"># Before</span>
-<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="n">nc</span><span class="o">.</span><span class="n">to_kerchunk</span><span class="p">(</span><span class="s2">"refs.json"</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="s2">"kerchunk"</span><span class="p">)</span>
-<a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="c1"># After</span>
-<a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="n">nc</span><span class="o">.</span><span class="n">to_kerchunk</span><span class="p">(</span><span class="s2">"refs.json"</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="s2">"legacy"</span><span class="p">)</span>   <span class="c1"># or omit backend= for the native default</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="c1"># Before</span>
+<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="n">nc</span><span class="o">.</span><span class="n">to_kerchunk</span><span class="p">(</span><span class="s2">"refs.json"</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="s2">"kerchunk"</span><span class="p">)</span>
+<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="c1"># After</span>
+<a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="n">nc</span><span class="o">.</span><span class="n">to_kerchunk</span><span class="p">(</span><span class="s2">"refs.json"</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="s2">"legacy"</span><span class="p">)</span>   <span class="c1"># or omit backend= for the native default</span>
 </code></pre></div>
 <h4 id="renames-where-the-old-name-still-works-no-rush"><a class="toclink" href="#renames-where-the-old-name-still-works-no-rush">Renames where the old name still works (no rush)</a><a class="headerlink" href="#renames-where-the-old-name-still-works-no-rush" title="Permanent link">#</a></h4>
 <p><strong>10. Promoted internals (underscore aliases kept).</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="c1"># Before</span>
-<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf.labeled</span><span class="w"> </span><span class="kn">import</span> <span class="n">_LabeledArray</span>
-<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf._lazy</span><span class="w"> </span><span class="kn">import</span> <span class="n">_apply_unpack</span>
-<a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a><span class="c1"># After</span>
-<a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">LabeledArray</span>
-<a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf._lazy</span><span class="w"> </span><span class="kn">import</span> <span class="n">apply_unpack</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="c1"># Before</span>
+<a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf.labeled</span><span class="w"> </span><span class="kn">import</span> <span class="n">_LabeledArray</span>
+<a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf._lazy</span><span class="w"> </span><span class="kn">import</span> <span class="n">_apply_unpack</span>
+<a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="c1"># After</span>
+<a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">LabeledArray</span>
+<a id="__codelineno-19-6" name="__codelineno-19-6" href="#__codelineno-19-6"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf._lazy</span><span class="w"> </span><span class="kn">import</span> <span class="n">apply_unpack</span>
 </code></pre></div>
 <p>Also: the private modules <code>_kerchunk.py</code> -&gt; <code>_kerchunk_facade.py</code> and <code>_kerchunk_native.py</code> -&gt; <code>_kerchunk_builder.py</code>
 were renamed. They are internal — use <code>NetCDF.to_kerchunk</code> / <code>NetCDF.combine_kerchunk</code> rather than importing them.</p>
@@ -7196,7 +7259,7 @@ were renamed. They are internal — use <code>NetCDF.to_kerchunk</code> / <code>
 (<code>pyramids.netcdf.Container</code>). If you <code>from pyramids.netcdf import Variable</code> in a module that also uses a
 labeled-array library, the name collides conceptually with that library's own <code>Variable</code> type — prefer the
 namespace-qualified form, or alias on import:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">Variable</span> <span class="k">as</span> <span class="n">NcVariable</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">Variable</span> <span class="k">as</span> <span class="n">NcVariable</span>
 </code></pre></div>
 <h4 id="migration-checklist"><a class="toclink" href="#migration-checklist">Migration checklist</a><a class="headerlink" href="#migration-checklist" title="Permanent link">#</a></h4>
 <ol>
