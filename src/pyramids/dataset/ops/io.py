@@ -15,7 +15,7 @@ import numpy as np
 from osgeo import gdal
 
 from pyramids import _io
-from pyramids.base._artifacts import mint_vsimem
+from pyramids.base._artifacts import mint_vsimem, unregister_vsimem
 from pyramids.base._errors import (
     DtypeNarrowingWarning,
     FailedToSaveError,
@@ -381,6 +381,10 @@ def _driver_preserves_dtype(driver_name: str, gdal_dtype: int) -> bool | None:
                     # netCDF round-trip into "RuntimeError: unknown error
                     # occurred".
                     pass
+            # The path was registered when it was minted, so the exit sweep
+            # would otherwise hold one dead string per probe. Told here, beside
+            # the unlink that made it dead.
+            unregister_vsimem(probe_path)
     if result is None:
         # The probe could not answer -- the driver refused a 1x1 image, which
         # JP2OpenJPEG does. Fall back to what it advertises. The list is not

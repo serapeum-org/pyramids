@@ -1756,10 +1756,26 @@ class NetCDF(Dataset):
     def variable_names(self) -> list[str]:
         """Names of data variables (excluding dimension coordinate arrays).
 
+        **Order is the store's, not alphabetical.** This previously reported
+        the CF classification's own list, which is sorted, so every
+        multi-variable container came back alphabetically whatever order the
+        file declared -- a store declaring `z` then `q` reported
+        `["q", "z"]`. It now filters the declared list, so the answer is
+        `["z", "q"]`. The *set* of names is unchanged; only the order is, and
+        nothing warns.
+
+        It is worth knowing about because the order is load-bearing:
+        `_fan_out_eager` templates a container-wide result from the **first**
+        spatial variable, taking its geotransform, CRS, no-data and extra
+        dimensions, so a container-wide `to_crs` / `resample` now templates
+        from a possibly different variable -- and the order propagates into
+        `to_netcdf` and `to_xarray`. Call `sorted(nc.variable_names)` where the
+        old order matters. See `docs/migration.md`, netcdf / unreleased.
+
         Returns:
-            list[str]: Variable names. For MDIM mode these come from
-            `GetMDArrayNames()` minus dimension names; for classic mode
-            from `GetSubDatasets()`.
+            list[str]: Variable names, in the order the store declares them.
+            For MDIM mode these come from `GetMDArrayNames()` minus dimension
+            names; for classic mode from `GetSubDatasets()`.
         """
         return self._get_variable_names()
 

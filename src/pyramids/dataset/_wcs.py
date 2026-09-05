@@ -48,7 +48,7 @@ from xml.etree import ElementTree as ET  # nosec B405 - server XML; DoS accepted
 from osgeo import gdal
 from pyproj.exceptions import CRSError as _PyprojCRSError
 
-from pyramids.base._artifacts import mint_vsimem
+from pyramids.base._artifacts import mint_vsimem, unregister_vsimem
 from pyramids.base._coverage import native_projwin as _native_projwin
 from pyramids.base._coverage import native_resolution as _native_resolution
 from pyramids.base._coverage import open_network_dataset as _open_network_dataset
@@ -549,6 +549,10 @@ def _open_getcoverage_bytes(payload: bytes, coverage: str) -> gdal.Dataset:
         ) from exc
     finally:
         gdal.Unlink(vsipath)
+        # Minting registered it for the exit sweep; the unlink above is what
+        # makes that entry dead. A harvester pulling one coverage per request
+        # would otherwise grow the registry for the life of the process.
+        unregister_vsimem(vsipath)
     if mem is None:
         raise WCSError(f"WCS GetCoverage returned no raster for {coverage!r}")
     return mem

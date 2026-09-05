@@ -10,12 +10,13 @@ lives here once instead of being copied into each reader. The GDAL HTTP config
 
 from __future__ import annotations
 
+from math import isfinite
 from typing import TYPE_CHECKING, Any
 
 import geopandas as gpd
 from osgeo import gdal
 
-from pyramids.base._ogc_api import gdal_http_config
+from pyramids.base._ogc_api import gdal_http_config, not_advertised
 
 if TYPE_CHECKING:
     from pyramids.feature.collection import FeatureCollection
@@ -31,6 +32,13 @@ def require_advertised(
     not enumerate names, so the check is skipped and the driver read is left to
     fail if the name is truly unknown.
 
+    The message itself comes from :func:`pyramids.base._ogc_api.not_advertised`,
+    which the raster readers raise for the same mistake. The two were written
+    out separately -- the same sentence, the same sort, the same ten-name
+    preview and the same ellipsis, with a preview cap declared in each -- so
+    trimming the preview in one left the other listing ten. This decides only
+    *whether* to refuse; what the refusal says is settled in one place.
+
     Args:
         name: The requested feature type / collection identifier.
         advertised: The set the discovery document advertised.
@@ -42,12 +50,7 @@ def require_advertised(
         ValueError: ``advertised`` is non-empty and does not contain ``name``.
     """
     if advertised and name not in advertised:
-        available = sorted(advertised)
-        raise ValueError(
-            f"{noun} {name!r} is not advertised by {endpoint!r}. "
-            f"Available {noun}s: {available[:10]}"
-            + (" …" if len(available) > 10 else "")
-        )
+        raise not_advertised(noun, name, endpoint, advertised)
 
 
 def read_ogc_layer(
@@ -116,14 +119,22 @@ def read_kwargs(
     """Assemble the pyogrio / GDAL read filters (bbox, attribute filter, count).
 
     Raises:
-        ValueError: ``bbox`` is not a 4-tuple or is inverted, or ``max_features``
-            is less than 1.
+        ValueError: ``bbox`` is not a 4-tuple, holds a non-finite corner or is
+            inverted, or ``max_features`` is less than 1.
     """
     kwargs: dict[str, Any] = {}
     if bbox is not None:
         if len(bbox) != 4:
             raise ValueError(f"bbox must be (minx, miny, maxx, maxy), got {bbox!r}")
         minx, miny, maxx, maxy = (float(v) for v in bbox)
+        # Checked before the ordering test, exactly as `validate_bbox` does for
+        # the raster readers: every comparison against NaN is False, so
+        # `minx >= maxx` passes a NaN corner straight through, and an infinite
+        # one compares as a legitimately huge box. Both then reach the OGR
+        # driver as a spatial filter no feature can fall inside, where an empty
+        # result reads as "the service has nothing there".
+        if not all(isfinite(v) for v in (minx, miny, maxx, maxy)):
+            raise ValueError(f"bbox must be four finite numbers, got {bbox!r}")
         if minx >= maxx or miny >= maxy:
             raise ValueError(
                 f"bbox must have minx < maxx and miny < maxy, got {bbox!r}"

@@ -165,6 +165,34 @@ that leaked out of an empty table lookup. Only affects code catching the old typ
 
 ### unreleased
 
+**`Dataset.no_data_value` can report a numpy scalar where it reported a Python `int`.** Hard change, silent —
+the number is the same, only its type differs. It affects one case: an **unsigned** band whose no-data is unset
+or `NaN`, where pyramids substitutes the dtype's maximum. That substituted sentinel is now built as a numpy
+scalar of the band's dtype instead of a Python `int`, so it agrees in type as well as value with the sentinel
+picked when a requested no-data overflows the band — previously the same answer read back as `255` from one path
+and `np.uint8(255)` from the other, and the `==` pinning their agreement could not see the difference.
+
+What a caller sees, for a `uint8` band with no usable no-data:
+
+```python
+# Before
+ds.no_data_value      # (255,)          <- builtin int
+
+# After
+ds.no_data_value      # (np.float64(255.0),)
+```
+
+`float64`, not `uint8`: GDAL's `SetNoDataValue` takes a C double and refuses a numpy `uint8`, so the value is
+round-tripped through a `float64`. Signed and floating bands are unaffected (nothing is substituted for them),
+and a band with a concrete no-data already reported a numpy scalar before this release.
+
+Anything comparing with `==`, or reading the value into numpy, needs no change. Change what needs a builtin:
+
+- `json.dumps(ds.no_data_value)` → `json.dumps([float(v) for v in ds.no_data_value])`
+- `"%d" % nodata` and `is`-comparisons against small ints
+- arithmetic where wrapping matters — a numpy *integer* scalar wraps at the dtype bound
+  (`np.uint8(255) + 1 == 0`) instead of promoting. `float(nodata)` first if you are doing arithmetic on it.
+
 **`create_from_array` is now `from_array`, and takes a `GeoReference`.** Hard change, no deprecation alias — the
 old name and the old flat keywords are gone. The same rename applies to `UgridDataset.create_from_arrays` ->
 `from_arrays` (still plural: it takes three arrays, not one).
@@ -430,6 +458,30 @@ stamp a default; set a CRS on the input first. `pyramids georeference` is unaffe
 replace the georeference wholesale.
 
 ## netcdf
+
+### unreleased
+
+**`NetCDF.variable_names` reports the store's declaration order, not alphabetical order.** Hard change, silent —
+the *set* of names is unchanged, only the order, so nothing raises and nothing warns. The property used to hand
+back the CF classification's own list, which is sorted; it now filters the declared list instead, keeping the
+order the file uses.
+
+```python
+# Before
+nc.variable_names     # ['q', 'z']   <- alphabetical
+
+# After
+nc.variable_names     # ['z', 'q']   <- the order the store declares
+```
+
+This matters beyond iteration order. `_fan_out_eager` templates a container-wide result from the **first**
+spatial variable — taking its geotransform, CRS, no-data and extra dimensions — so a container-wide `to_crs`,
+`resample` or `crop` can now template from a different variable than it did before, and the order propagates
+into `to_netcdf` and `to_xarray` output.
+
+The declared order is the intended answer: it is what the file says, it matches what `ncdump` and xarray show,
+and templating a fan-out from an alphabetically-first variable was arbitrary. If you depended on the sorted
+order, sort explicitly: `sorted(nc.variable_names)`.
 
 ### 0.37.0
 

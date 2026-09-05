@@ -11,6 +11,11 @@ unsigned" with `dtype[i].startswith("u")`, which `"byte"` failed -- so the one
 unsigned type most rasters actually use took the signed pass-through branch and
 a `None` no-data was left unset instead of becoming the dtype max. It now asks
 the dtype, like `_fallback_no_data` beside it already did.
+
+Building the substituted sentinel as a numpy scalar rather than a Python `int`
+is what makes the two paths agree on type as well as value -- and it is visible
+on `Dataset.no_data_value`, which is why the last class here pins what a caller
+now reads back.
 """
 
 from __future__ import annotations
@@ -147,6 +152,71 @@ class TestTheUnsignedNoDataDefault:
             f"same value, different types: {type(coerced)} vs {type(fallback)}"
         )
         assert np.dtype(type(coerced)) == np.uint8
+
+
+class TestTheSentinelOnThePublicProperty:
+    """The type change reaches `Dataset.no_data_value`, so it is pinned here.
+
+    `_coerce_band_no_data` builds the substituted maximum as a numpy scalar of
+    the band dtype, for type parity with `_fallback_no_data`. GDAL's
+    `SetNoDataValue` takes a C double and refuses a numpy `uint8`, so the value
+    is retried as `float64` and that is what the property reports: a uint8 band
+    that read back `(255,)` -- a Python `int` -- now reads back
+    `(np.float64(255.0),)`. Same number, different type, and nothing warns.
+    """
+
+    @staticmethod
+    def _unsigned_with_substituted_sentinel(dtype: str) -> Dataset:
+        """A raster whose no-data was substituted from the dtype maximum.
+
+        Args:
+            dtype: An unsigned band dtype name.
+
+        Returns:
+            Dataset: A 4x4 raster whose requested `NaN` sentinel was replaced.
+        """
+        return Dataset.create(
+            rows=4,
+            columns=4,
+            bands=1,
+            dtype=dtype,
+            no_data_value=np.nan,
+            geo_ref=GEO,
+        )
+
+    @pytest.mark.parametrize(("dtype", "expected"), [("uint8", 255), ("uint16", 65535)])
+    def test_the_value_is_still_the_dtype_maximum(self, dtype: str, expected: int):
+        """Only the type changed; the number a caller compares against did not.
+
+        Args:
+            dtype: An unsigned band dtype name.
+            expected: That dtype's maximum.
+
+        Test scenario:
+            Anything comparing with `==` is unaffected, which is why the change
+            is silent and why it is worth pinning rather than trusting.
+        """
+        (sentinel,) = self._unsigned_with_substituted_sentinel(dtype).no_data_value
+
+        assert sentinel == expected
+
+    def test_it_is_a_numpy_scalar_rather_than_a_builtin(self):
+        """The part a downstream can trip over.
+
+        Test scenario:
+            `json.dumps`, `%d` formatting and `is`-comparisons all behave
+            differently for a numpy scalar, and arithmetic on a numpy *integer*
+            scalar wraps at the dtype bound instead of promoting. Pinned so a
+            future change back to a builtin is a deliberate one.
+        """
+        (sentinel,) = self._unsigned_with_substituted_sentinel("uint8").no_data_value
+
+        assert isinstance(sentinel, np.generic), (
+            f"expected a numpy scalar, got {type(sentinel)}"
+        )
+        assert not isinstance(sentinel, int), (
+            f"expected the builtin int to be gone, got {type(sentinel)}"
+        )
 
 
 class TestHalfPrecisionRasters:

@@ -8,6 +8,11 @@ reads to the caller as a network problem rather than a bad argument.
 
 Coercion is deliberately kept: a bbox read out of JSON arrives as strings often
 enough that accepting them is worth more than refusing them.
+
+The vector readers take the same `bbox=` argument through
+`pyramids.feature._ogc.read_kwargs`, which duplicates the arity and ordering block
+word for word, so the finiteness check has to be made in both places or the
+refusal depends on which reader the caller reached for.
 """
 
 from __future__ import annotations
@@ -17,6 +22,7 @@ import math
 import pytest
 
 from pyramids.base._coverage import validate_bbox
+from pyramids.feature._ogc import read_kwargs
 
 pytestmark = pytest.mark.core
 
@@ -123,3 +129,63 @@ class TestWhatWasAlreadyAcceptedStillIs:
         """
         with pytest.raises(ValueError, match="minx < maxx"):
             validate_bbox(bbox)
+
+
+class TestTheVectorTwinRefusesItToo:
+    """`read_kwargs` assembles the same bbox for the OGR readers.
+
+    `validate_bbox` guards the raster readers (WCS, WMS/WMTS, OGC API –
+    Coverages); `pyramids.feature._ogc.read_kwargs` guards the vector ones
+    (WFS, OGC API – Features) and duplicates the same arity and ordering block
+    with verbatim identical messages. A finite check on one of the two leaves
+    `from_wfs(bbox=(1, 2, nan, 4))` handing `nan` to the OGR driver, which is
+    the same failure one module over.
+    """
+
+    @pytest.mark.parametrize(
+        ("label", "bbox"),
+        [
+            ("nan-maxx", (1.0, 2.0, math.nan, 4.0)),
+            ("nan-minx", (math.nan, 2.0, 3.0, 4.0)),
+            ("inf-maxx", (1.0, 2.0, math.inf, 4.0)),
+            ("neg-inf-minx", (-math.inf, 2.0, 3.0, 4.0)),
+        ],
+    )
+    def test_a_non_finite_corner_never_reaches_the_driver(self, label: str, bbox):
+        """Args: label: Which corner is bad. bbox: The box under test.
+
+        Test scenario:
+            Every comparison against NaN is False, so the ordering test passes
+            it through; an infinite corner passes honestly. Either way the
+            value ends up in the `bbox` read filter handed to pyogrio / OGR.
+        """
+        with pytest.raises(ValueError, match="four finite numbers"):
+            read_kwargs(bbox, None, None)
+
+    def test_the_two_validators_word_the_refusal_the_same_way(self):
+        """One sentence, whichever reader the caller reached for.
+
+        Test scenario:
+            The raster and vector readers take the same `bbox=` argument and
+            already share the arity and ordering wording. A caller who moves
+            from `Dataset.from_wcs` to `FeatureCollection.from_wfs` should not
+            have to learn a second spelling of the same complaint.
+        """
+        bad = (1.0, 2.0, math.nan, 4.0)
+        with pytest.raises(ValueError) as raster:
+            validate_bbox(bad)
+        with pytest.raises(ValueError) as vector:
+            read_kwargs(bad, None, None)
+
+        assert str(vector.value) == str(raster.value)
+
+    def test_an_ordinary_box_is_still_assembled(self):
+        """Tightening the check must not narrow what already worked."""
+        assert read_kwargs((1.0, 2.0, 3.0, 4.0), None, None) == {
+            "bbox": (1.0, 2.0, 3.0, 4.0)
+        }
+
+    def test_the_ordering_check_still_fires(self):
+        """The finiteness check runs first, so ordering keeps its own message."""
+        with pytest.raises(ValueError, match="minx < maxx"):
+            read_kwargs((3.0, 2.0, 1.0, 4.0), None, None)

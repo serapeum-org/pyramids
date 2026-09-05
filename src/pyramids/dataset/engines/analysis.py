@@ -2018,6 +2018,9 @@ class Analysis(_Engine["Dataset"]):
 
         arr = self._ds.read_array(band=band)
         no_data_value = self._ds.no_data_value[band]
+        # The list cleopatra masks with, which is not the same question as the
+        # one below. A NaN sentinel has no value to compare against, so it is
+        # left out and the NaN branch covers it.
         exclude: list = []
         if not is_nan_sentinel(no_data_value):
             exclude.append(no_data_value)
@@ -2026,8 +2029,16 @@ class Analysis(_Engine["Dataset"]):
         valid = np.ones(arr.shape, dtype=bool)
         if np.issubdtype(arr.dtype, np.floating):
             valid &= ~np.isnan(arr)
-        for excluded in exclude:
-            valid &= arr != excluded
+        # `is_no_data`, with the tolerance `plot_histogram` above and
+        # `_warn_if_nodata_absent` and `footprint` below all ask of the same
+        # band. These are two renderings of one raster, so a cell the histogram
+        # drops and the image draws is a disagreement a reader can see -- and
+        # this was the last site still asking in its own words, an exact `!=`
+        # over `exclude`. `exclude_value` stays an exact match: it is a value
+        # the caller named, not a sentinel the band declares.
+        valid &= ~is_no_data(arr, no_data_value, rtol=0.00001)
+        if exclude_value is not None:
+            valid &= arr != exclude_value
         if not valid.any():
             raise ValueError(
                 f"Band {band} has no valid (non-nodata) pixels to render to "

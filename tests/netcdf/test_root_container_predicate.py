@@ -10,15 +10,22 @@ The three conditions are not redundant. A classic-mode open has bands and is
 not multidimensional; a `get_variable(...)` subset is multidimensional *and*
 has bands; only the store itself is multidimensional, un-narrowed and bandless.
 Dropping any one of them would misclassify one of those three.
+
+Six of the seven sites moved onto the property; the plot engine kept its copy,
+which leaves exactly the drift the property exists to prevent -- a change to
+what counts as a container that reaches the operations but not the picture.
 """
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
 
+import pyramids
 from pyramids.netcdf import NetCDF
+from pyramids.netcdf._plot import NetCDFPlot
 
 pytestmark = pytest.mark.core
 
@@ -188,3 +195,65 @@ class TestTheCallSitesStillBehave:
 
         assert reprojected._is_root_container is False
         assert reprojected.band_count == variable.band_count
+
+
+class TestEveryAskerGoesThroughTheProperty:
+    """The point of naming it: one definition, consulted everywhere."""
+
+    def test_the_plot_engine_asks_the_property(self, container, monkeypatch):
+        """The seventh site, which wrote the conjunction out instead.
+
+        Args:
+            container: The store fixture.
+            monkeypatch: pytest fixture, used to observe the property and stop
+                the call before it renders anything.
+
+        Test scenario:
+            A copy of the conjunction answers the same way today, so no
+            rendered output can tell the two apart -- what distinguishes them
+            is whether the property is consulted at all. Recorded here by
+            replacing it with one that answers identically and counts.
+        """
+        asked: list[NetCDF] = []
+        original = NetCDF._is_root_container
+
+        def _recording(self):
+            asked.append(self)
+            return original.fget(self)
+
+        monkeypatch.setattr(NetCDF, "_is_root_container", property(_recording))
+        monkeypatch.setattr(
+            NetCDFPlot, "_delegate_to_variable", lambda *a, **k: "delegated"
+        )
+
+        result = container.plot(variable=VARIABLE)
+
+        assert result == "delegated", "the container path must still delegate"
+        assert asked, "the plot engine decided without asking the property"
+
+    def test_the_conjunction_is_written_in_exactly_one_place(self):
+        """A source scan, because a seventh copy is invisible to behaviour.
+
+        Test scenario:
+            Every copy agrees until the definition changes, and then the copies
+            are what disagree. The property body is the one place the three
+            terms may appear together.
+        """
+        package = Path(pyramids.__file__).parent
+        pattern = re.compile(
+            r"_is_md_array\s+and\s+not\s+[\w.]*_is_subset"
+            r"\s+and\s+[\w.]*band_count == 0"
+        )
+        spellings = [
+            f"{path.relative_to(package).as_posix()}:{number}"
+            for path in sorted(package.rglob("*.py"))
+            for number, line in enumerate(
+                path.read_text(encoding="utf-8").splitlines(), start=1
+            )
+            if pattern.search(line)
+        ]
+
+        assert len(spellings) == 1, f"the conjunction is written out at {spellings}"
+        assert spellings[0].startswith("netcdf/netcdf.py:"), (
+            f"the one spelling should be the property itself, found {spellings[0]}"
+        )

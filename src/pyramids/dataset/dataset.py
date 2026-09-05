@@ -2256,6 +2256,20 @@ class Dataset(RasterBase):
         contract explicit — assign through the setter to change
         values; mutating the returned object never propagates to
         the underlying state.
+
+        **The entries are numbers, not necessarily Python `int`s.** An
+        unsigned band whose no-data is unset or `NaN` takes the dtype maximum,
+        and that sentinel is now built as a numpy scalar of the band's dtype
+        rather than a Python `int`, so that it agrees in *type* as well as
+        value with the fallback used when a requested sentinel overflows the
+        band. A uint8 band that used to report `(255,)` reports
+        `(np.float64(255.0),)` — float64 because GDAL's `SetNoDataValue` takes
+        a C double and the value is round-tripped through it. Compare with
+        `==` rather than `is`, and call `float(...)` / `int(...)` before
+        anything that needs a builtin (JSON, `%` formatting of an `int`).
+        Beware in particular that arithmetic on a numpy integer scalar wraps at
+        the dtype bound instead of promoting. See `docs/migration.md`,
+        dataset / unreleased.
         """
         return tuple(self._no_data_value)
 

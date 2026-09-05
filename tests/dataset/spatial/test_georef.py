@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
+from pyramids.base import _artifacts
 from pyramids.base._errors import CRSError, ReadOnlyError
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
@@ -592,6 +593,66 @@ class TestStagedDemLifetime:
         assert self._vsimem_dems() == before, (
             "once the GDAL handle is collected the DEM must be unlinked; "
             f"leftover: {self._vsimem_dems() - before}"
+        )
+
+    def test_freeing_the_dem_also_drops_it_from_the_artefact_registry(
+        self, rpc_dataset, mem_dem, monkeypatch
+    ):
+        """Unlinking the file is only half of reclaiming it.
+
+        Args:
+            rpc_dataset: The RPC-carrying raster fixture.
+            mem_dem: The MEM-backed DEM fixture.
+            monkeypatch: pytest fixture, used to stub the warp.
+
+        Test scenario:
+            `mint_vsimem` registers the staged DEM for the exit sweep, so a
+            path unlinked here but never unregistered stays in the registry
+            pointing at a file that is gone -- one dead string per
+            `orthorectify` for the life of the process, and one more path for
+            the exit sweep to walk.
+        """
+        before = len(_artifacts._VSIMEM_PATHS)
+        self._stub_warp(
+            monkeypatch,
+            lambda: Dataset.from_array(
+                np.zeros((4, 4), "float32"),
+                geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0),
+            ),
+        )
+
+        for _ in range(3):
+            rpc_dataset.orthorectify(dem=mem_dem)
+
+        assert len(_artifacts._VSIMEM_PATHS) == before, (
+            f"entries left behind: {_artifacts._VSIMEM_PATHS[before:]}"
+        )
+
+    def test_a_failed_warp_also_drops_the_registry_entry(
+        self, rpc_dataset, mem_dem, monkeypatch
+    ):
+        """The error path reclaims the file, so it has to reclaim the entry.
+
+        Args:
+            rpc_dataset: The RPC-carrying raster fixture.
+            mem_dem: The MEM-backed DEM fixture.
+            monkeypatch: pytest fixture, used to stub the warp.
+
+        Test scenario:
+            A failing warp is the path most likely to run repeatedly against a
+            misconfigured DEM, so it is the one that accumulates fastest.
+        """
+        before = len(_artifacts._VSIMEM_PATHS)
+
+        def explode():
+            raise RuntimeError("synthetic warp failure")
+
+        self._stub_warp(monkeypatch, explode)
+        with pytest.raises(RuntimeError, match="synthetic warp failure"):
+            rpc_dataset.orthorectify(dem=mem_dem)
+
+        assert len(_artifacts._VSIMEM_PATHS) == before, (
+            f"entries left behind: {_artifacts._VSIMEM_PATHS[before:]}"
         )
 
     def test_an_unresolvable_crs_frees_the_staged_dem(self, rpc_dataset, mem_dem):

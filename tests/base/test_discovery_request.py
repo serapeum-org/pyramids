@@ -1,15 +1,15 @@
 """Tests for `discovery_request`, the one builder behind every pyramids HTTP discovery fetch.
 
-Three call sites used to assemble their own header dict and their own preemptive
+Four call sites used to assemble their own header dict and their own preemptive
 Basic credentials: the OGC API `/collections` pre-check, the ArcGIS
-VectorTileServer metadata/tile fetch, and the remote-GeoJSON staging download.
-Folding them into one builder is only safe while the *differences* between them
-survive — each declares a different `User-Agent`, and a service that filters on
-the agent string must keep seeing what it saw before.
+VectorTileServer metadata/tile fetch, the remote-GeoJSON staging download, and
+the WFS `GetCapabilities` fetch. Folding them into one builder is only safe
+while the *differences* between them survive — each declares a `User-Agent`, and
+a service that filters on the agent string must keep seeing what it saw before.
 
 These tests pin both halves: the builder's own contract (User-Agent default and
-override, JSON negotiation, preemptive Basic auth, target URL) and the three
-callers still sending exactly what they sent before the dedup.
+override, JSON negotiation, preemptive Basic auth, target URL) and the callers
+still sending exactly what they sent before the dedup.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from pyramids.base._ogc_api import (
     discovery_request,
     get_collections,
 )
-from pyramids.feature import _read
+from pyramids.feature import _read, _wfs
 from pyramids.feature.collection import FeatureCollection
 
 pytestmark = pytest.mark.core
@@ -394,3 +394,106 @@ class TestDiscoveryRequestCallers:
         assert len(set(agents)) == 3, (
             f"agent strings collapsed onto each other: {agents}"
         )
+
+
+_WFS_CAPABILITIES = (
+    b'<wfs:WFS_Capabilities version="2.0.0" xmlns:wfs="x">'
+    b"<FeatureType><Name>topp:states</Name></FeatureType></wfs:WFS_Capabilities>"
+)
+
+
+class TestTheWfsCapabilitiesFetchUsesTheBuilder:
+    """The fourth site, which kept its own copy of the header assembly.
+
+    `_get_capabilities` built `dict(DISCOVERY_HEADERS)` and appended its own
+    base64 preemptive-Basic block, carrying the same explanatory comment the
+    consolidation was supposed to have absorbed. Its `Accept` is a real
+    difference — a WFS capabilities document is XML, yet the fetch asks for
+    JSON — but a difference the builder takes as a parameter, not one that
+    needs a second implementation.
+    """
+
+    @staticmethod
+    def _capture(monkeypatch, auth):
+        """Run `_get_capabilities` against a stubbed transport and return the request.
+
+        Args:
+            monkeypatch: pytest fixture, used to stub the HTTP seam.
+            auth: `(user, password)` or `None`, passed straight through.
+
+        Returns:
+            urllib.request.Request: What the reader handed to the transport.
+        """
+        captured: list[Any] = []
+
+        def _fake_get(request, timeout):
+            captured.append(request)
+            return _WFS_CAPABILITIES
+
+        monkeypatch.setattr(_wfs, "http_get_with_retry", _fake_get)
+        _wfs._get_capabilities.cache_clear()
+        try:
+            _wfs._get_capabilities("https://host/wfs", None, auth, 30.0)
+        finally:
+            _wfs._get_capabilities.cache_clear()
+        return captured[0]
+
+    def test_the_request_is_built_by_the_shared_builder(self, monkeypatch):
+        """The site routes through `discovery_request` rather than rebuilding it.
+
+        Args:
+            monkeypatch: pytest fixture, used to stub the builder and the
+                transport.
+
+        Test scenario:
+            Patching the name the reader calls is what tells a hand-rolled
+            copy apart from a call: a module that assembles its own header
+            dict has no such name to patch, and one that has it but does not
+            call it records nothing.
+        """
+        calls: list[Any] = []
+        original = _wfs.discovery_request
+
+        def _spy(url, auth, **kwargs):
+            calls.append((url, auth, kwargs))
+            return original(url, auth, **kwargs)
+
+        monkeypatch.setattr(_wfs, "discovery_request", _spy)
+        self._capture(monkeypatch, ("ada", "s3cret"))
+
+        assert len(calls) == 1, f"expected one builder call, got {len(calls)}"
+        assert calls[0][0].startswith("https://host/wfs"), calls[0][0]
+        assert calls[0][1] == ("ada", "s3cret"), calls[0][1]
+
+    def test_the_headers_are_what_they_were_before(self, monkeypatch):
+        """Routing through the builder must not change what the server sees.
+
+        Args:
+            monkeypatch: pytest fixture, used to stub the transport.
+
+        Test scenario:
+            The OGC API client agent and the JSON `Accept` are both
+            pre-existing, quirks included; a consolidation that quietly
+            retuned either would change how a deployed WFS answers.
+        """
+        request = self._capture(monkeypatch, None)
+
+        assert request.get_header("User-agent") == DISCOVERY_HEADERS["User-Agent"]
+        assert request.get_header("Accept") == DISCOVERY_HEADERS["Accept"]
+        assert request.get_header("Authorization") is None
+
+    def test_credentials_still_go_out_preemptively(self, monkeypatch):
+        """A server that 403s without a 401 challenge still gets them.
+
+        Args:
+            monkeypatch: pytest fixture, used to stub the transport.
+
+        Test scenario:
+            The reactive `HTTPBasicAuthHandler` only reacts to a 401, so the
+            header has to be on the first request. This is the behaviour the
+            hand-rolled block existed for, and the builder is where it lives
+            now.
+        """
+        request = self._capture(monkeypatch, ("ada", "s3cret"))
+
+        assert request.get_header("Authorization") == _basic("ada", "s3cret")

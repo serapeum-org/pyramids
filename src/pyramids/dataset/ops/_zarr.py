@@ -16,18 +16,21 @@ Zarr and fsspec are imported lazily inside the helpers — pyramids'
 core import stays free of both even when the `[lazy]` extra is not
 installed.
 
-The no-data sentinel is written twice, in two spellings that are not
+The no-data sentinel is written three times, in spellings that are not
 redundant. `no_data_value` in the attributes is pyramids' own per-band list;
 :func:`read_dataset_from_zarr` recovers the whole list from it and nothing
-else reads it. `_FillValue` — mirrored into the array metadata's own
-`fill_value` — is the CF / GeoZarr spelling, and it is the one GDAL's Zarr
-driver looks for: without it a store opened through
-:meth:`Dataset.read_file` reports a no-data of `0.0`, an ordinary value of
-every numeric type, so masking a read taken that way blanks every
-genuinely-zero cell. One Zarr array holds every band, so `_FillValue` can
-only describe a sentinel the bands agree on; where they differ it is left
-off rather than written wrong, and the per-band list survives in
-`no_data_value` either way.
+else reads it. `_FillValue` in the attributes is the CF / GeoZarr spelling,
+for xarray and other CF-aware readers. Neither is what GDAL reads: its Zarr
+driver takes the no-data from the array metadata's own `fill_value` field, and
+that field is what the two attributes are mirrored into. Zarr defaults
+`fill_value` to 0, so leaving it unset had a store opened through
+:meth:`Dataset.read_file` report a no-data of `0.0`, an ordinary value of every
+numeric type, and masking a read taken that way blanked every genuinely-zero
+cell. One Zarr array holds every band, so `fill_value` can only describe a
+sentinel the bands agree on; where they differ it is left off -- which leaves
+GDAL reading 0.0 again, so the choice is between one wrong answer and another
+and the honest one is not to claim a shared sentinel. The per-band list
+survives in `no_data_value` either way, and `from_zarr` reads it.
 """
 
 from __future__ import annotations
@@ -264,12 +267,16 @@ def _metadata_dict(ds: Dataset) -> dict[str, Any]:
             the raster; `band_names`, `dtype` and `shape` describe it; and the
             no-data appears in up to two spellings. `no_data_value` is always
             present and always the full per-band list — pyramids' own key, and
-            what `from_zarr` reads back. `_FillValue` is added only when every
-            band names the same sentinel, because one Zarr array holds them all
-            and a single value cannot honestly stand for two: it is the CF /
-            GeoZarr key GDAL's Zarr driver looks for, and where the bands
-            disagree it is omitted rather than written wrong, leaving a GDAL
-            read of the store with no no-data instead of the wrong one.
+            what `from_zarr` reads back. `_FillValue` is the CF / GeoZarr key,
+            read by xarray and other CF-aware readers, and it is also what
+            :func:`write_dataset_to_zarr` copies into the array's own
+            `fill_value` — the field GDAL's Zarr driver actually reads. It is
+            added only when every band names the same sentinel, because one
+            Zarr array holds them all and a single value cannot honestly stand
+            for two. Where the bands disagree it is omitted, which leaves
+            `fill_value` at zarr's default of 0 and GDAL reporting `0.0`: not a
+            store with no no-data, but one whose no-data is a value the bands
+            never agreed on. `from_zarr` reads the per-band list regardless.
 
     Examples:
         - Bands that agree carry both spellings, so pyramids and GDAL read the
@@ -319,14 +326,15 @@ def _metadata_dict(ds: Dataset) -> dict[str, Any]:
     # value reaching zarr's own `fill_value`.
     no_data_list = [None if v is None else float(v) for v in nodata_tuple]
     # `no_data_value` is pyramids' own per-band list and only pyramids reads it.
-    # `_FillValue` is the CF/GeoZarr spelling, and it is what GDAL's Zarr driver
-    # looks for -- without it `Dataset.read_file(store.zarr)` opened the store
-    # through GDAL and reported **0.0**, an ordinary value of every numeric
-    # type, so masking a store read that way blanked every genuinely-zero cell.
-    # One array holds every band, so a single `_FillValue` can only describe a
-    # sentinel the bands agree on; where they differ it is left off rather than
-    # written wrong, and `from_zarr` still recovers the full list from
-    # `no_data_value` either way.
+    # `_FillValue` is the CF/GeoZarr spelling, for xarray and other CF-aware
+    # readers -- GDAL's Zarr driver ignores the attribute and reads the array
+    # metadata's own `fill_value`, which `write_dataset_to_zarr` sets from this
+    # key. Without it that field keeps zarr's default of 0, so
+    # `Dataset.read_file(store.zarr)` reported **0.0** -- an ordinary value of
+    # every numeric type -- and masking a store read that way blanked every
+    # genuinely-zero cell. One array holds every band, so a single sentinel can
+    # only describe one the bands agree on; where they differ it is left off,
+    # and `from_zarr` still recovers the full list from `no_data_value`.
     agreed = _agreed_sentinel(no_data_list)
     metadata = {
         "spatial_ref": crs_wkt,

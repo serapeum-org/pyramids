@@ -651,7 +651,14 @@ class NetCDFPlot:
         facet = facet or FacetSpec()
         axes = axes or CoordinateSpec()
 
-        if nc._is_md_array and not nc._is_subset and nc.band_count == 0:
+        if nc._is_root_container:
+            # `_is_root_container`, not the three conditions written out: the
+            # same conjunction decides which operations refuse a container and
+            # which fan out over one, and a copy here is a copy that answers the
+            # old way once the definition moves. The property is an expression,
+            # so it binds no local and the ``locals()`` filter below is
+            # unaffected.
+            #
             # Forward every plot kwarg verbatim to the variable subset.
             # At this point ``locals()`` is exactly ``{self, nc, variable,
             # kwargs}`` plus the named plot params (no other locals are

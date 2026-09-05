@@ -19,7 +19,7 @@ from osgeo import gdal
 from pyproj import Transformer
 
 from pyramids._io import read_vsi_bytes, silent_unlink
-from pyramids.base._artifacts import mint_vsimem
+from pyramids.base._artifacts import mint_vsimem, unregister_vsimem
 from pyramids.base._errors import FailedToSaveError, OutOfBoundsError
 from pyramids.base._utils import is_integer_gdal_dtype
 from pyramids.base.crs import crs_equal, crs_from_user_input, require_crs_spec
@@ -466,6 +466,11 @@ class COG(_Engine["Dataset"]):
             # the original exception. Sweep the PAM sidecar too.
             silent_unlink(vsi_path)
             silent_unlink(f"{vsi_path}.aux.xml")
+            # Minting registers the path for the exit sweep; reclaiming it here
+            # is what makes that entry dead. Saying so keeps the registry from
+            # growing one string per call for the life of the process -- a
+            # service encoding a COG per request would otherwise never stop.
+            unregister_vsimem(vsi_path)
         return data
 
     def _translate_with_statistics_retry(
