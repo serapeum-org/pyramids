@@ -122,3 +122,149 @@ class TestTheXarrayExportHandlesAGroupedStore:
 
         assert "temperature" in exported.data_vars
         assert not [w for w in caught if "skipped" in str(w.message)]
+
+
+class TestTheLazyExportResolvesTheSameNames:
+    """`to_xarray()`'s two arms must agree about which names exist.
+
+    The eager arm was taught the group walk and the lazy one was not, so
+    `to_xarray(chunks=...)` on a grouped store went from returning a Dataset to
+    raising `Array flight_03/CO does not exist` -- a regression against the base
+    commit, on a call the eager arm answers happily.
+    """
+
+    def test_a_chunked_export_of_a_grouped_store_returns_a_dataset(self):
+        """The lazy arm must resolve a sub-group name, not raise on it.
+
+        Test scenario:
+            `build_lazy_array` opened the enumerated name against the root
+            group, where a group-qualified name does not exist.
+        """
+        dataset = NetCDF.read_file(str(GROUPED))
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            exported = dataset.to_xarray(chunks="auto")
+
+        assert len(exported.data_vars) > 5
+
+    def test_the_two_arms_export_the_same_variables(self):
+        """One method, one answer -- `chunks=` is a memory strategy, not a filter.
+
+        Test scenario:
+            Comparing the arms against each other is what catches a name the
+            eager path resolves and the lazy path does not.
+        """
+        dataset = NetCDF.read_file(str(GROUPED))
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            eager = dataset.to_xarray()
+            lazy = dataset.to_xarray(chunks="auto")
+
+        assert sorted(lazy.data_vars) == sorted(eager.data_vars)
+
+
+class TestTheReadPathsResolveGroupQualifiedNames:
+    """The other consumers that still opened an enumerated name against the root."""
+
+    def test_read_variable_returns_the_sub_group_array(self):
+        """`_read_variable` swallowed the GDAL error and reported "not found".
+
+        Test scenario:
+            The MDArray branch catches `RuntimeError`, so a group-qualified
+            name fell through to the indexing-variable fallback and the read
+            came back as `None` -- a missing variable, silently.
+        """
+        dataset = NetCDF.read_file(str(GROUPED))
+        qualified = next(n for n in dataset.variable_names if "/" in n)
+
+        values = dataset._read_variable(qualified)
+
+        assert values is not None, f"{qualified} read back as missing"
+        assert values.size > 0
+
+    def test_the_streaming_fan_out_reads_a_sub_group_variables_attributes(self):
+        """`_add_aux_var_spec` treated the failed open as "nothing to carry".
+
+        Test scenario:
+            The streamed write would have produced a file missing the
+            variable entirely, with no warning -- the same defect as the lazy
+            arm's, only silent.
+        """
+        dataset = NetCDF.read_file(str(GROUPED))
+        rg = dataset._working_group()
+        qualified = next(n for n in dataset.variable_names if "/" in n)
+        dims: dict = {}
+        coords: dict = {}
+        var_specs: dict = {}
+        aux_data: dict = {}
+
+        dataset._add_aux_var_spec(qualified, rg, dims, coords, var_specs, aux_data)
+
+        assert qualified in var_specs, "the aux variable was skipped"
+        assert aux_data[qualified].size > 0
+
+
+class TestAddVariableFromAGroupedStore:
+    """The copy has to land under a name netCDF can actually write.
+
+    `add_variable` copies the source's *readable* names, which for a grouped
+    store are group-qualified. Creating root-level arrays under those literal
+    names built a container that `to_file` then refused with
+    `NetCDF: Name contains illegal characters` -- far from the call that caused
+    it, on an object the caller had been told was fine.
+    """
+
+    @staticmethod
+    def _merged() -> NetCDF:
+        """A flat container with a grouped store's variables copied into it."""
+        target = NetCDF.read_file(str(DATA / "cf__5v__1d4-3d1__geog__y-desc.nc"))
+        target.add_variable(NetCDF.read_file(str(GROUPED)))
+        return target
+
+    def test_no_copied_array_carries_a_group_separator(self):
+        """netCDF-4 forbids `/` in a variable name, so none may be created.
+
+        Test scenario:
+            The destination root group is flat; the source's path is not a
+            name there, it is a path that no longer means anything.
+        """
+        merged = self._merged()
+
+        names = merged._working_group().GetMDArrayNames() or []
+
+        assert [n for n in names if "/" in n] == []
+
+    def test_the_result_can_be_written(self, tmp_path):
+        """The failure surfaced at write time, so that is where it is pinned.
+
+        Args:
+            tmp_path: pytest's per-test temporary directory.
+
+        Test scenario:
+            `add_variable` returned successfully and left behind a container
+            that could not be serialised at all -- `to_file` wrote nothing.
+        """
+        merged = self._merged()
+        destination = tmp_path / "merged.nc"
+
+        merged.to_file(str(destination))
+
+        assert destination.exists()
+        written = NetCDF.read_file(str(destination))
+        assert len(written._readable_variable_names()) > 5
+
+    def test_the_source_variables_arrive(self):
+        """A copy that dropped everything would satisfy the name check alone.
+
+        Test scenario:
+            The leaf names of the grouped store's arrays have to be present,
+            alongside the destination's own.
+        """
+        merged = self._merged()
+
+        names = set(merged._working_group().GetMDArrayNames() or [])
+
+        assert "t2m" in names, "the destination's own variable went missing"
+        assert len(names) > 6, f"the grouped source's arrays were not copied: {names}"

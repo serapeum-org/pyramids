@@ -3074,6 +3074,75 @@ class NetCDF(Dataset):
         """
         return [n for n in self._readable_variable_names() if n not in spatial_vars]
 
+    def _aux_dimension_coordinate_names(
+        self, rg: Any, aux_vars: list[str], taken: set[str]
+    ) -> list[str]:
+        """Coordinate arrays the carried auxiliaries are indexed by, and the result lacks.
+
+        The name-resolution half of :meth:`_carry_aux_dimension_coordinates`,
+        which documents why they have to be carried at all. A coordinate the
+        result already holds is left alone: its `time` axis is the transformed
+        one, not the source's.
+
+        Args:
+            rg: The source store's root group, or ``None`` in classic mode.
+            aux_vars: The auxiliary variables being carried through.
+            taken: Array names the result already holds, which must not be
+                shadowed -- the result's own `time` axis is the transformed
+                one, not the source's.
+
+        Returns:
+            list[str]: Source coordinate-array names to carry in ahead of the
+            auxiliaries, in first-seen order and each named once.
+        """
+        names: list[str] = []
+        for var_name in aux_vars:
+            md_arr = open_mdarray(rg, var_name) if rg is not None else None
+            for dim in md_arr.GetDimensions() if md_arr is not None else []:
+                indexing = dim.GetIndexingVariable()
+                if indexing is None:
+                    continue
+                name = indexing.GetName()
+                if name in taken or name in names or name in aux_vars:
+                    continue
+                names.append(name)
+        return names
+
+    def _carry_aux_dimension_coordinates(
+        self, result: NetCDF, aux_vars: list[str], operation: str
+    ) -> None:
+        """Copy in the coordinate arrays the carried auxiliaries are indexed by.
+
+        A carried array brings its dimensions with it but not the coordinate
+        variables describing them, so a `lat_bnds(lat, bnds)` landed in a result
+        holding a bare `lat` dimension and no `lat` array. That is a loss on its
+        own, and it also split the two arms of one call: the streaming writer
+        *does* carry those coordinates (:meth:`_add_aux_var_spec`), so the CF
+        `bounds` attribute survived a ``crop(path=...)`` and not a ``crop()``,
+        and the same file then classified `lat_bnds` as a bounds array on one
+        arm and as a data variable on the other -- leaving `variable_names`
+        different between two spellings of one call (round-4 M4).
+
+        Args:
+            result: The container the fan-out built, mutated in place.
+            aux_vars: The auxiliary variables that were carried through.
+            operation: Operation name, for the warning message.
+
+        Returns:
+            None: ``result`` gains one array per missing coordinate. Copy
+            failures are reported the same way :meth:`_carry_aux_variables`
+            reports its own.
+        """
+        result_rg = result._working_group()
+        taken = (
+            set(result_rg.GetMDArrayNames() or []) if result_rg is not None else set()
+        )
+        names = self._aux_dimension_coordinate_names(
+            self._working_group(), aux_vars, taken
+        )
+        if names:
+            self._carry_aux_variables(result, names, operation)
+
     def _carry_aux_variables(
         self, result: NetCDF, aux_vars: list[str], operation: str
     ) -> None:
@@ -3083,6 +3152,10 @@ class NetCDF(Dataset):
         survive the op, so each is copied verbatim (dims / values / attrs) via
         :meth:`add_variable`. Best-effort: a copy failure for one variable warns
         rather than failing the whole operation.
+
+        The coordinate arrays those auxiliaries are indexed by are carried by
+        :meth:`_carry_aux_dimension_coordinates`, which the fan-out calls right
+        after this.
 
         Args:
             result: The container built from the spatial variables.
@@ -3231,7 +3304,9 @@ class NetCDF(Dataset):
             if len(spatial_var_objs[name]._band_dim_names) >= 2:
                 return False
         for name in aux_vars:
-            src_md = rg.OpenMDArray(name)
+            # Through the resolver: an aux name from the readable enumeration may
+            # be group-qualified, which `OpenMDArray` alone does not walk.
+            src_md = open_mdarray(rg, name)
             if (
                 src_md is not None
                 and src_md.GetDataType().GetClass() == gdal.GEDTC_STRING
@@ -3257,7 +3332,9 @@ class NetCDF(Dataset):
         this arm writes CF attributes because that is what the netCDF writer takes, and GDAL lifts
         them again on the next read.
         """
-        src_md = rg.OpenMDArray(name)
+        # A spatial name comes from the readable enumeration, so it may be
+        # group-qualified; the resolver walks the path, `OpenMDArray` does not.
+        src_md = open_mdarray(rg, name)
         attrs = _read_attributes(src_md) if src_md is not None else {}
         if getattr(var, "_scale", None) is not None:
             attrs["scale_factor"] = var._scale
@@ -3281,7 +3358,8 @@ class NetCDF(Dataset):
 
     def _add_aux_var_spec(self, name, rg, dims, coords, var_specs, aux_data) -> None:
         """Add one carried-through auxiliary variable's dims/coords/spec and cache its whole array."""
-        src_md = rg.OpenMDArray(name)
+        # As in `_add_spatial_var_spec`: the name may be group-qualified.
+        src_md = open_mdarray(rg, name)
         if src_md is None:
             return
         aux_dim_names = tuple(d.GetName() for d in src_md.GetDimensions() or [])
@@ -3547,6 +3625,9 @@ class NetCDF(Dataset):
                 NetCDF._carry_variable_attrs(result, var_name, var)
 
         self._carry_aux_variables(cast("NetCDF", result), aux_vars, operation)
+        self._carry_aux_dimension_coordinates(
+            cast("NetCDF", result), aux_vars, operation
+        )
         return cast("NetCDF", result)
 
     @staticmethod
@@ -4146,8 +4227,10 @@ class NetCDF(Dataset):
         if getattr(self, "_raster_diverged_from_source", False):
             return None
         x_index, y_index = spatial
+        md_arr = open_mdarray(rg, var)
+        if md_arr is None:
+            return None
         try:
-            md_arr = rg.OpenMDArray(var)
             sizes = [d.GetSize() for d in md_arr.GetDimensions()]
         except (RuntimeError, AttributeError):
             return None
@@ -4303,8 +4386,12 @@ class NetCDF(Dataset):
                 # end of that statement, leaving the view dangling for the CreateCopy below (segfault
                 # on Windows) -- the same trap _read_md_array documents. `raw_arr` stays referenced
                 # until the copy completes, so the view outlives every read from it.
-                raw_arr = rg.OpenMDArray(var)
-                raw_view = raw_arr.AsClassicDataset(x_index, y_index, rg)
+                raw_arr = open_mdarray(rg, var)
+                raw_view = (
+                    None
+                    if raw_arr is None
+                    else raw_arr.AsClassicDataset(x_index, y_index, rg)
+                )
             except (RuntimeError, AttributeError):
                 raw_view = None
             if raw_view is not None:
@@ -5086,14 +5173,15 @@ class NetCDF(Dataset):
         Note:
             This method raises nothing of its own but it does not catch
             everything. The MDArray branch swallows only ``RuntimeError`` /
-            ``ValueError`` (from ``OpenMDArray``, the read, or normalization), so
-            any other exception type propagates unchanged; and the
+            ``ValueError`` (from the read or the normalization -- the resolver
+            folds a missing array into ``None`` rather than raising), so any
+            other exception type propagates unchanged; and the
             indexing-variable fallback runs outside that guard, so any error it
             raises propagates too rather than being masked as a missing variable.
         """
         result: np.typing.NDArray | None = None
         try:
-            md_arr = rg.OpenMDArray(var)
+            md_arr = open_mdarray(rg, var)
             if md_arr is not None:
                 result = self._read_mdarray(md_arr, window)
                 # A full >=2-D read is normalized to raster convention (row 0 =
@@ -5639,15 +5727,24 @@ class NetCDF(Dataset):
         MDArray and root group; if the Python SWIG wrappers for those are
         garbage-collected the view becomes a dangling pointer (segfault on
         Windows).
+
+        Raises:
+            RuntimeError: When the container resolves to no working group.
+            ValueError: When `variable_name` names no array in the store. The
+                name is resolved through :func:`~pyramids.netcdf._mdim.open_mdarray`,
+                so a group-qualified name (`"flight_03/CO"`) is walked down to
+                its owning group first.
         """
         rg = self._working_group()
         # This MDIM read path is only reached for a multidim container, which
         # always resolves to a working group; guard explicitly (rather than
         # `assert`, which `python -O` would strip) so a None never reaches
-        # OpenMDArray as a bare AttributeError.
+        # the resolver as a bare AttributeError.
         if rg is None:
             raise RuntimeError("No working group resolved for the MDIM read.")
-        md_arr = rg.OpenMDArray(variable_name)
+        md_arr = open_mdarray(rg, variable_name)
+        if md_arr is None:
+            raise ValueError(f"{variable_name} is not an array of this store.")
         dims = md_arr.GetDimensions()
 
         if len(dims) == 1:
