@@ -24,6 +24,8 @@ Config.set_matplotlib_backend("agg")
 
 # Must follow the cleopatra importorskip above: matplotlib arrives via the [viz] extra, so
 # importing it at the top of the file would error instead of skipping on a no-viz install.
+from importlib.metadata import version as _pkg_version
+
 import matplotlib.pyplot as plt
 
 
@@ -36,6 +38,31 @@ def _close_matplotlib_figures():
     """
     yield
     plt.close("all")
+
+
+def _cleopatra_version() -> tuple[int, ...]:
+    """The installed cleopatra version as a comparable tuple, `(0,)` when absent.
+
+    The [viz] extra's floor is `>=0.31.0`, so a supported environment can carry a
+    cleopatra either side of a behaviour change. A test that pins such a change has to
+    ask which one it has rather than assume, or an upstream release turns into a failing
+    pipeline on `main`.
+
+    Returns:
+        tuple[int, ...]: The numeric release components, e.g. `(0, 36, 0)`.
+    """
+    try:
+        raw = _pkg_version("cleopatra")
+    except Exception:
+        return (0,)
+    parts: list[int] = []
+    for chunk in raw.split(".")[:3]:
+        digits = "".join(c for c in chunk if c.isdigit())
+        parts.append(int(digits) if digits else 0)
+    return tuple(parts)
+
+
+_CLEOPATRA_VERSION = _cleopatra_version()
 
 
 class TestDatasetPlotFacade:
@@ -378,21 +405,29 @@ class TestDatasetPlotFigAx:
 
     @pytest.mark.plot
     @pytest.mark.xfail(
+        _CLEOPATRA_VERSION < (0, 36, 0),
         strict=True,
         raises=AttributeError,
         reason=(
-            "serapeum-org/cleopatra#326: cleopatra never derives an axes from a bare "
-            "figure, so it writes the projection marker onto ax=None. Remove this pin "
-            "once that lands and assert the success path instead."
+            "serapeum-org/cleopatra#326: before 0.36.0 cleopatra never derived an axes "
+            "from a bare figure, so it wrote the projection marker onto ax=None. The "
+            "pin is strict and version-gated: on an older cleopatra it must still "
+            "raise, and on 0.36.0 or newer the success path below must hold."
         ),
     )
     def test_fig_alone_is_not_yet_supported(self, dataset):
-        """`fig` without `ax` raises inside cleopatra until #326 lands.
+        """`fig` without `ax` was unsupported until cleopatra 0.36.0.
 
         Test scenario:
-            An axes carries its figure but not the reverse, so cleopatra leaves `ax` as
-            `None` and then dereferences it. This pin is strict: when cleopatra starts
-            adding the subplot itself the test XPASSes and fails, prompting the update.
+            An axes carries its figure but not the reverse, so before the fix cleopatra
+            left `ax` as `None` and then dereferenced it. From 0.36.0 it adds the
+            subplot itself and adopts the caller's figure, which is what this asserts.
+
+            The `xfail` is gated on the installed version rather than removed outright:
+            the floor is still `>=0.31.0`, so a supported environment may legitimately
+            have either behaviour, and a bare `strict=True` pin turned the upstream
+            release into a red pipeline on `main` (serapeum-org/cleopatra#326 closed
+            2026-09-05; 0.36.0 published the next day).
         """
         fig, _ = plt.subplots()
 
