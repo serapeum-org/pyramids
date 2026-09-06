@@ -62,12 +62,33 @@ class TestIsCfTimeUnits:
 
         Args:
             units: A units string that is not a time axis.
+
+        Test scenario:
+            A false positive here is silent: the caller hands the array to
+            `decode_cf_time`, which turns metres or kelvin into timestamps and
+            reports no error. So the predicate has to answer `False` for every
+            unit a real store carries alongside a time axis, and `is False`
+            rather than a truthiness check, because a caller branching on it
+            must not be handed something merely falsy.
         """
-        assert is_cf_time_units(units) is False
+        assert is_cf_time_units(units) is False, (
+            f"{units!r} was taken for a time axis; decoding it would produce dates"
+        )
 
     def test_a_missing_unit_is_not_a_time_axis(self):
-        """`None` is the common case for a variable with no units at all."""
-        assert is_cf_time_units(None) is False
+        """`None` is the common case for a variable with no units at all.
+
+        Test scenario:
+            Most variables in a store carry no `units` attribute, so `None` is
+            what the reader passes far more often than any string. The
+            predicate has to answer it without raising -- an earlier version
+            raised `TypeError` on a non-string, which crashed the CF
+            compliance checker on exactly the malformed files it exists to
+            report on.
+        """
+        assert is_cf_time_units(None) is False, (
+            "a variable with no units was taken for a time axis"
+        )
 
     @pytest.mark.parametrize(
         "units",

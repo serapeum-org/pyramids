@@ -15,6 +15,9 @@ are asserted below so a later "cleanup" cannot quietly unify them.
 
 from __future__ import annotations
 
+from datetime import date
+
+import cftime
 import numpy as np
 import pytest
 
@@ -94,15 +97,47 @@ class TestTheSharedVocabulary:
         assert str(decoded[0]) == "1970-01-01T00:00:00.000000000"
 
     def test_the_calendar_is_proleptic_not_standard(self):
-        """`standard` switches to Julian before 1582; the epoch axis must not.
+        """The ten-day shift the calendar choice exists to avoid, measured.
 
         Test scenario:
-            Under the `standard` calendar cftime applies the Julian rules to
-            pre-Gregorian dates, so a negative offset would decode to a date
-            ten days off. The writers declare `proleptic_gregorian` for that
-            reason, and this pins the name they share.
+            Pinning `CF_EPOCH_CALENDAR == "proleptic_gregorian"` asserted the
+            constant against itself and said nothing about why that value
+            matters. Decoding one offset under both calendars shows it: the
+            Gregorian cutover of October 1582 is a real ten-day jump, so a
+            writer that drifted to `"standard"` would put every pre-1582 date
+            ten days out.
+
+            It goes through `cftime` rather than
+            :func:`pyramids.netcdf.utils.decode_cf_time` because the two
+            calendars only differ before 1582, and that is below
+            `datetime64[ns]`'s 1678 floor -- the decoder wraps there rather
+            than raising, so it cannot show the difference at all. That is a
+            separate defect, noted in the sibling test below.
         """
-        assert CF_EPOCH_CALENDAR == "proleptic_gregorian"
+        units = cf_epoch_units("days")
+        offset = -141428
+
+        proleptic = cftime.num2date(offset, units, calendar=CF_EPOCH_CALENDAR)
+        julian = cftime.num2date(offset, units, calendar="standard")
+
+        assert proleptic.isoformat().startswith("1582-10-14"), (
+            f"the declared calendar is not proleptic: {proleptic.isoformat()}"
+        )
+        assert julian.isoformat().startswith("1582-10-04"), (
+            f"'standard' no longer applies the Julian rules: {julian.isoformat()}"
+        )
+        # cftime refuses to subtract two dates on different calendars, which is
+        # the whole point -- they are not the same kind of date. The proleptic
+        # answer is compared as a plain civil date instead, which is what a
+        # reader ends up with.
+        shift = date.fromisoformat(proleptic.isoformat()[:10]) - date.fromisoformat(
+            julian.isoformat()[:10]
+        )
+
+        assert shift.days == 10, (
+            "the two calendars no longer diverge, so the declared value is "
+            f"arbitrary: {proleptic.isoformat()} vs {julian.isoformat()}"
+        )
 
     def test_a_negative_offset_decodes_to_a_date_before_the_epoch(self):
         """Offsets run both ways, and the sign must not be lost.
