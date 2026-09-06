@@ -1,6 +1,13 @@
 ﻿# Change log
 
 
+## 0.60.0 (2026-09-06)
+
+### Fix
+
+- **tests**: gate the xarray tests on the interop extra (#1108)
+- consolidate duplicated logic and repair the defects it exposed (#1084)
+
 ## 0.59.0 (2026-09-01)
 
 ### BREAKING CHANGE
