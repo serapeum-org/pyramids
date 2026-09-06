@@ -95,8 +95,16 @@ def _caller_stacklevel() -> int:
     return level
 
 
-def _flat_export_name(variable_name: str, taken: set[str]) -> tuple[str, bool]:
-    """Return the flat `xr.Dataset` key for a store variable, and whether it was disambiguated.
+#: Stamped on an exported variable whose key is not the store's name for it, so
+#: a caller holding the key can still reach `get_variable`. Only on the rewritten
+#: ones: on a flat store every key already *is* the store name, and stamping the
+#: whole export would put a pyramids-private attribute into files that have no
+#: use for it.
+_STORE_NAME_ATTR = "pyramids_store_name"
+
+
+def _flat_export_name(variable_name: str, taken: set[str]) -> str:
+    """Return the flat `xr.Dataset` key for a store variable.
 
     The group path is kept and only its separator substituted, so two groups'
     identically named leaves stay distinct (`flight_a/CO` and `flight_b/CO`
@@ -125,36 +133,38 @@ def _flat_export_name(variable_name: str, taken: set[str]) -> tuple[str, bool]:
             emitted so far plus the dimension coordinates.
 
     Returns:
-        tuple[str, bool]: The key to use, and True when a numeric suffix had to
-        be appended (i.e. the key is not mechanically derivable from the store
-        name, so the caller should say so).
+        str: The key to use. It used to be returned with a flag saying whether a
+        numeric suffix had been appended, which gated the caller's rename
+        warning -- so the far commoner plain `/`-to-`_` rewrite went unannounced
+        even though its key is just as unusable with `get_variable`. The caller
+        compares the key with the store name instead, which catches both.
 
     Examples:
         - A sub-group array keeps its group as a prefix:
             ```python
             >>> from pyramids.netcdf.engines.interop import _flat_export_name
             >>> _flat_export_name("flight_a/CO", set())
-            ('flight_a_CO', False)
+            'flight_a_CO'
 
             ```
         - A collision with a name already claimed is suffixed, and the
           sub-group array is the one that moves:
             ```python
             >>> _flat_export_name("flight_a/CO", {"flight_a_CO"})
-            ('flight_a_CO_2', True)
+            'flight_a_CO_2'
 
             ```
         - The root array of that name keeps it, whichever order they are
           enumerated in, because its own reservation is lifted before it asks:
             ```python
             >>> _flat_export_name("flight_a_CO", {"flight_a_CO_2"})
-            ('flight_a_CO', False)
+            'flight_a_CO'
 
             ```
         - A root-level name is handed back untouched:
             ```python
             >>> _flat_export_name("temperature", set())
-            ('temperature', False)
+            'temperature'
 
             ```
     """
@@ -164,7 +174,7 @@ def _flat_export_name(variable_name: str, taken: set[str]) -> tuple[str, bool]:
     while candidate in taken:
         suffix += 1
         candidate = f"{flattened}_{suffix}"
-    return candidate, candidate != flattened
+    return candidate
 
 
 if TYPE_CHECKING:
@@ -375,6 +385,16 @@ def _data_vars_from_arrays(
     depending on the engine (round-4 N5). The store name is still what
     `get_variable` takes, so the skip warning below keeps naming that.
 
+    Which leaves the user holding keys their own container refuses: on the
+    suite's grouped fixture eight of the nine exported data variables are keys
+    `get_variable` rejects. Every rewritten variable therefore both appears in
+    the warning below -- it used to fire only for the suffixed minority, so the
+    plain `/`-to-`_` rewrite, which is the case that actually happens, was
+    silent -- and carries the store's name for it as its `pyramids_store_name`
+    attribute. The attribute is the half that matters: a warning is text a
+    caller cannot look a name up in, and the flattening is not injective, so
+    the key cannot be inverted without it.
+
     Args:
         rg: The container's working (root) group.
         ds: The container being exported.
@@ -393,7 +413,7 @@ def _data_vars_from_arrays(
     export_names: dict[str, str] = {}
     dim_sizes: dict[str, int] = {}
     conflicted: list[str] = []
-    disambiguated: list[str] = []
+    renamed: list[str] = []
     taken: set[str] = set(reserved or ())
     readable = list(ds._readable_variable_names())
     # Reserve every unqualified store name before assigning any, so which of a
@@ -428,21 +448,30 @@ def _data_vars_from_arrays(
         # A root array is claiming the name it already holds, so its own
         # reservation must not read as a collision with itself.
         taken.discard(var_name)
-        export_name, suffixed = _flat_export_name(var_name, taken)
-        if suffixed:
-            disambiguated.append(f"{var_name} -> {export_name}")
+        export_name = _flat_export_name(var_name, taken)
+        if export_name != var_name:
+            renamed.append(f"{var_name} -> {export_name}")
+            # Every rewritten key, not just the suffixed ones: `get_variable`
+            # refuses the flattened form as flatly as the suffixed form, and the
+            # flattening is not invertible from the key alone (group `a_b` +
+            # array `c` and group `a` + array `b_c` both give `a_b_c`), so the
+            # pre-image has to travel with the variable. `export_names` is
+            # call-local and the warning is text, so neither is something a
+            # caller holding the returned Dataset can look a name up in.
+            var_attrs[_STORE_NAME_ATTR] = var_name
         taken.add(export_name)
         export_names[var_name] = export_name
         data_vars[export_name] = (arr_dim_names, arr_data, var_attrs)
         dim_sizes.update(sizes)
-    if disambiguated:
+    if renamed:
         warnings.warn(
-            f"to_xarray() renamed {len(disambiguated)} variable(s) whose flattened "
-            f"name is already in the dataset: {disambiguated}. An xarray Dataset is one "
-            "flat namespace and netCDF forbids '/' in a name, so a sub-group array's "
-            "path is flattened with '_', and where that lands on a name the store "
-            "already holds a numeric suffix breaks the tie. The name before the arrow "
-            "is the store's, and the one get_variable() takes.",
+            f"to_xarray() renamed {len(renamed)} variable(s): {renamed}. An xarray "
+            "Dataset is one flat namespace and netCDF forbids '/' in a name, so a "
+            "sub-group array's path is flattened with '_', and where that lands on a "
+            "name the store already holds a numeric suffix breaks the tie. The name "
+            "before the arrow is the store's, and the only one get_variable() takes; "
+            f"each renamed variable also carries it as its {_STORE_NAME_ATTR!r} "
+            "attribute, because the key alone cannot be turned back into it.",
             UserWarning,
             stacklevel=_caller_stacklevel(),
         )
@@ -926,6 +955,27 @@ def _crs_wkt_from_xarray(dataset: Any) -> str | None:
     return result
 
 
+def _without_store_name(attrs: Any) -> dict[str, Any]:
+    """An exported variable's attributes minus the export's own provenance note.
+
+    :func:`_data_vars_from_arrays` stamps `pyramids_store_name` on a variable
+    whose export key is not the store's name for it, so a caller can get from
+    the key back to the name `get_variable` takes. That names the *source*
+    store: in the file being written the variable really is called what the key
+    says, so carrying the note across would leave a flat file asserting a group
+    path it does not have, and a second export of that file would repeat it.
+
+    Args:
+        attrs: An xarray variable's or coordinate's attribute mapping.
+
+    Returns:
+        dict[str, Any]: A plain dict of the attributes, without that key.
+    """
+    return {
+        name: value for name, value in dict(attrs).items() if name != _STORE_NAME_ATTR
+    }
+
+
 def _build_multidim_from_xarray(dataset: Any) -> gdal.Dataset:
     """Build an in-memory GDAL multidim container from an xarray Dataset.
 
@@ -951,7 +1001,7 @@ def _build_multidim_from_xarray(dataset: Any) -> gdal.Dataset:
     crs_wkt = _crs_wkt_from_xarray(dataset)
     dims = {name: int(size) for name, size in dataset.sizes.items()}
     coords = {
-        name: (np.asarray(coord.values), dict(coord.attrs))
+        name: (np.asarray(coord.values), _without_store_name(coord.attrs))
         for name, coord in dataset.coords.items()
         if name in dims
     }
@@ -968,7 +1018,7 @@ def _build_multidim_from_xarray(dataset: Any) -> gdal.Dataset:
     # array ("Illegal numpy array rank 1"), and pyramids' own enumeration drops
     # 0-dimensional MDArrays anyway, so no `to_xarray` export can carry one in.
     aux_vars = {
-        name: (tuple(coord.dims), coord.data, dict(coord.attrs))
+        name: (tuple(coord.dims), coord.data, _without_store_name(coord.attrs))
         for name, coord in dataset.coords.items()
         if name not in dims and coord.ndim > 0
     }
@@ -976,7 +1026,7 @@ def _build_multidim_from_xarray(dataset: Any) -> gdal.Dataset:
         # `var.data` hands the underlying array through WITHOUT computing it, so a
         # dask-backed variable stays lazy and `_build_multidim` can stream it block by
         # block (ARC-48); `.values` would force a full materialisation up front.
-        name: (tuple(var.dims), var.data, dict(var.attrs))
+        name: (tuple(var.dims), var.data, _without_store_name(var.attrs))
         for name, var in dataset.data_vars.items()
         if not (name in skip and var.ndim == 0)
     }

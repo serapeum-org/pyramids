@@ -70,20 +70,25 @@ def cf_epoch_units(resolution: str) -> str:
         str: `"<resolution> since <epoch>"`.
 
     Note:
-        Not every string this builds is readable by
-        :func:`pyramids.netcdf.utils.decode_cf_time`. That reader delegates to
-        `cftime`, whose finest unit is microseconds, so it raises `ValueError`
-        on `"nanoseconds since ..."` -- which is exactly what
-        `DatasetCollection.to_netcdf` writes, because an `int64` count of
-        nanoseconds is what round-trips `datetime64[ns]` without loss. The
-        reader that handles every resolution this produces is
-        :func:`pyramids.netcdf.utils.create_time_conversion_func`.
+        Both readers now parse every resolution this builds, and they preserve
+        different amounts of it. :func:`pyramids.netcdf.utils.decode_cf_time`
+        scales the offsets to `datetime64[ns]` in integer nanoseconds, so the
+        `"nanoseconds since ..."` axis `DatasetCollection.to_netcdf` writes
+        comes back exact -- which is the point of writing at that resolution.
+        :func:`pyramids.netcdf.utils.create_time_conversion_func` formats
+        through `datetime`, whose finest unit is the microsecond, so a
+        nanosecond axis is rounded there; the residual is visible only in a
+        `%f` format.
 
-        The docstring used to claim `decode_cf_time` parses all of them. It
-        was never true, and the test that should have caught it asserted
-        `cf_epoch_units(r) == f"{r} since {CF_EPOCH}"` against a function whose
-        body is that f-string -- so it could not fail, whatever the string was
-        for.
+        This is worth stating because it was wrong twice. The docstring first
+        claimed `decode_cf_time` parsed all of them (it raised on
+        `nanoseconds`, because it handed the string to `cftime`); the
+        correction then recorded that gap as if it were the design. It was a
+        defect: `is_cf_time_units` accepted the axis, so the writer produced a
+        file the reader refused. The test that should have caught either
+        version asserted `cf_epoch_units(r) == f"{r} since {CF_EPOCH}"` against
+        a function whose body is that f-string -- so it could not fail,
+        whatever the string was for.
 
     Examples:
         - The collection axis counts in nanoseconds:
@@ -115,10 +120,10 @@ def cf_epoch_units(resolution: str) -> str:
             ```
 
     See Also:
-        pyramids.netcdf.utils.create_time_conversion_func: Reads any of these
-            strings back, nanoseconds included.
-        pyramids.netcdf.utils.decode_cf_time: Reads them back through `cftime`,
-            which stops at microsecond resolution -- see the note above.
+        pyramids.netcdf.utils.create_time_conversion_func: Formats any of these
+            strings back to text, at microsecond resolution.
+        pyramids.netcdf.utils.decode_cf_time: Decodes them to `datetime64[ns]`,
+            at the full nanosecond resolution -- see the note above.
     """
     return f"{resolution} since {CF_EPOCH}"
 

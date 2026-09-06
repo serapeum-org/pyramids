@@ -18,6 +18,14 @@ a hard-coded `4`, counted along
 That is not the only chain: `nc.interop.to_xarray()` is one frame shorter, and a
 counted constant blamed pytest's internals rather than the caller's own line
 (round-4 N7).
+
+The third is what a caller can do with a key once they have one. Flattening
+makes the exported key a name `get_variable` refuses -- for eight of the nine
+data variables of the fixture below -- and it is not injective, so the key
+cannot be turned back into the store's name for the array. Every rewritten
+variable therefore carries that name as its `pyramids_store_name` attribute, and
+the warning that announces the rewrite covers all of them rather than only the
+suffixed few (round-5 S1/N2).
 """
 
 from __future__ import annotations
@@ -255,17 +263,27 @@ class TestTheGroupPathSurvivesTheFlattening:
         )
         assert float(exported["rec_Num_2"].values[0]) == STORE_VALUES["rec/Num"]
 
-    def test_the_disambiguation_is_announced(self, grouped_store):
-        """A numeric suffix is not derivable from the store name, so it is said aloud.
+    def test_every_rewritten_name_is_announced(self, grouped_store):
+        """Not only the suffixed ones -- which was the minority that never happens.
+
+        This test used to be `test_the_disambiguation_is_announced` and only
+        required the two suffixed entries. That expectation was wrong: the
+        warning fired on `suffixed`, so the plain `/`-to-`_` rewrite -- the case
+        that actually occurs, eight of the nine exported data variables on the
+        suite's own `GROUPED` fixture -- was applied in silence, even though
+        `get_variable` refuses a flattened key exactly as flatly as a suffixed
+        one. Requiring only a subset of the rewrites let that stand.
 
         Args:
             grouped_store: The synthetic grouped `.nc` fixture.
 
         Test scenario:
-            `flight_a/CO -> flight_a_CO_2` cannot be guessed from either name
-            on its own, and the store name is still the one `get_variable`
-            takes. Renaming silently would leave a user unable to tell which
-            of two `flight_a_CO*` columns came from where.
+            Every one of the store's three sub-group arrays is exported under a
+            key its own container will not take, so all three have to appear:
+            the two suffixed (`flight_a/CO`, `rec/Num`) and the one that is only
+            flattened (`flight_b/CO`). The store name is the one `get_variable`
+            takes, so the message has to carry it -- and it is still one
+            aggregated warning, not one per variable.
         """
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
@@ -273,9 +291,13 @@ class TestTheGroupPathSurvivesTheFlattening:
 
         renamed = [str(w.message) for w in caught if "renamed" in str(w.message)]
 
-        assert renamed, "the suffixed names were applied without a word"
-        assert "flight_a/CO -> flight_a_CO_2" in renamed[0], renamed[0]
-        assert "rec/Num -> rec_Num_2" in renamed[0], renamed[0]
+        assert len(renamed) == 1, f"expected one aggregated warning, got {len(renamed)}"
+        for rewrite in (
+            "flight_a/CO -> flight_a_CO_2",
+            "rec/Num -> rec_Num_2",
+            "flight_b/CO -> flight_b_CO",
+        ):
+            assert rewrite in renamed[0], f"{rewrite!r} went unannounced: {renamed[0]}"
 
     def test_a_flat_store_is_keyed_exactly_as_before(self):
         """The flattening must be invisible to a store that has no groups.
@@ -409,3 +431,154 @@ class TestTheCfPromotionSpeaksTheExportedNamespace:
         assert "flight_a_CO_bnds" in promoted.data_vars, (
             "the array moved without the export map, so the map is not load-bearing"
         )
+
+
+class TestAnExportedKeyLeadsBackToTheStoreName:
+    """The export handed out keys the container refuses, and recorded no way back.
+
+    `get_variable` takes the store's name (`flight_a/CO`); the exported Dataset
+    shows the flattened key (`flight_a_CO_2`). The obvious next call after
+    `to_xarray()` on a grouped store -- `get_variable(a_name_I_just_saw)` --
+    therefore failed for nearly every variable, and the flattening cannot be
+    inverted from the key: group `a_b` + array `c` and group `a` + array `b_c`
+    both flatten to `a_b_c`, and `export_names` never left the call.
+
+    The store name is now stamped on each rewritten variable as
+    `pyramids_store_name`. That, rather than the widened warning, is the half a
+    program can use: a warning is text, and it is gone by the time the caller
+    holds the Dataset.
+    """
+
+    def test_the_keys_the_container_refuses_are_the_common_case(self):
+        """The premise: this is not a corner, it is nearly every variable.
+
+        Test scenario:
+            On the suite's own grouped fixture eight of the nine exported data
+            variables are keyed by a name `get_variable` rejects. Asserting the
+            recovery below without first showing the keys really do fail would
+            leave the recovery testing nothing.
+        """
+        container = NetCDF.read_file(str(GROUPED))
+        exported = export(GROUPED)
+
+        refused = [
+            name for name in exported.data_vars if not _accepts(container, str(name))
+        ]
+
+        assert len(refused) == len(exported.data_vars) - 1, (
+            f"expected all but one key to be refused, {len(refused)} were: {refused}"
+        )
+
+    def test_every_exported_key_can_be_taken_back_to_a_readable_name(self):
+        """The property the fix owes the user, asserted over the whole export.
+
+        Test scenario:
+            For each exported data variable, `attrs['pyramids_store_name']` when
+            present and the key itself otherwise must be a name `get_variable`
+            accepts. That is the rule a caller can write once and apply to every
+            variable, without knowing which of them were rewritten.
+        """
+        container = NetCDF.read_file(str(GROUPED))
+        exported = export(GROUPED)
+
+        unreachable = [
+            name
+            for name, variable in exported.data_vars.items()
+            if not _accepts(
+                container, str(variable.attrs.get("pyramids_store_name", name))
+            )
+        ]
+
+        assert unreachable == [], (
+            f"these exported keys lead nowhere the container will read: {unreachable}"
+        )
+
+    def test_the_recorded_name_distinguishes_two_arrays_one_key_cannot(
+        self, grouped_store
+    ):
+        """The flattening is not injective, so the key alone is not an answer.
+
+        Args:
+            grouped_store: The synthetic grouped `.nc` fixture.
+
+        Test scenario:
+            `flight_a_CO` (the root array) and `flight_a_CO_2` (the group's)
+            differ only by a suffix the store never used, and `flight_b_CO` is a
+            flattened path that looks exactly like a root name. Reading the
+            recorded store name off each shows which is which -- and the root
+            array, whose key *is* its store name, is deliberately left unstamped
+            so a flat export carries no pyramids-private attribute at all.
+        """
+        exported = export(grouped_store)
+
+        recorded = {
+            str(name): variable.attrs.get("pyramids_store_name")
+            for name, variable in exported.data_vars.items()
+        }
+
+        assert recorded == {
+            "flight_a_CO": None,
+            "flight_a_CO_2": "flight_a/CO",
+            "flight_b_CO": "flight_b/CO",
+            "rec_Num_2": "rec/Num",
+        }, f"the exported keys cannot be inverted: {recorded}"
+
+    def test_a_flat_store_carries_no_provenance_attribute(self):
+        """The note must not leak into the case that has nothing to record.
+
+        Test scenario:
+            Every key in a flat store already is the store name, so stamping it
+            would put a pyramids-private attribute on every variable of every
+            ordinary file -- and `from_xarray` would then write it out.
+        """
+        exported = export(FLAT)
+
+        stamped = [
+            str(name)
+            for name, variable in exported.data_vars.items()
+            if "pyramids_store_name" in variable.attrs
+        ]
+
+        assert stamped == [], f"a flat export was annotated for no reason: {stamped}"
+
+    def test_the_note_is_not_written_into_the_file_it_describes(self, grouped_store):
+        """It names the source store, which the written file is not.
+
+        Args:
+            grouped_store: The synthetic grouped `.nc` fixture.
+
+        Test scenario:
+            In the file `from_xarray` writes, the variable really is called what
+            the key says -- it is flat, and it has no groups. Carrying
+            `pyramids_store_name` across would leave that file asserting a group
+            path it does not have, and a second export of it would repeat the
+            claim. So the attribute is dropped on the way in, and re-exporting
+            the written file produces no annotation.
+        """
+        destination = grouped_store.parent / "round_trip.nc"
+        NetCDF.from_xarray(export(grouped_store), path=str(destination))
+
+        re_exported = export(destination)
+
+        assert all(
+            "pyramids_store_name" not in variable.attrs
+            for variable in re_exported.data_vars.values()
+        ), "the source store's names were written into the flat file that replaced it"
+
+
+def _accepts(container: NetCDF, name: str) -> bool:
+    """Whether `get_variable` will read `name` from `container`.
+
+    Args:
+        container: The store the export came from.
+        name: A candidate variable name.
+
+    Returns:
+        bool: True when `get_variable(name)` returns rather than raising.
+    """
+    accepted = True
+    try:
+        container.get_variable(name)
+    except ValueError:
+        accepted = False
+    return accepted

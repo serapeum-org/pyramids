@@ -62,12 +62,16 @@ class TestTheSharedVocabulary:
             at the epoch, and put `one_day` a day after it. A drifted epoch
             fails the second, a different join word the first.
 
-            The reader used here is `create_time_conversion_func` rather than
-            `decode_cf_time` because it is the one that covers all three
-            resolutions: `decode_cf_time` hands the string to `cftime`, whose
-            finest unit is microseconds, so it rejects the `nanoseconds` axis
-            the collection writes. `decode_cf_time`'s half of the round trip is
-            the test below.
+            The reader used here is `create_time_conversion_func`, which
+            formats to text. It used to be described as the only one that
+            covered all three resolutions, because `decode_cf_time` handed the
+            string to `cftime` and so rejected the `nanoseconds` axis the
+            collection writes. That was a defect rather than a division of
+            labour -- `is_cf_time_units` admitted the axis, so pyramids wrote a
+            file its own labeled reader raised on -- and `decode_cf_time` now
+            scales the offsets itself. Its half is pinned in
+            `test_cf_time_nanosecond_axis.py`, which also checks the
+            sub-microsecond digits this reader necessarily rounds away.
         """
         units = cf_epoch_units(resolution)
 
