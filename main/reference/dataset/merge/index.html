@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6646,7 +6646,14 @@ write-by-copy-only format, for any <code>method</code>.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/dataset/merge.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-375">375</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-368">368</a></span>
+<span class="normal"><a href="#__codelineno-0-369">369</a></span>
+<span class="normal"><a href="#__codelineno-0-370">370</a></span>
+<span class="normal"><a href="#__codelineno-0-371">371</a></span>
+<span class="normal"><a href="#__codelineno-0-372">372</a></span>
+<span class="normal"><a href="#__codelineno-0-373">373</a></span>
+<span class="normal"><a href="#__codelineno-0-374">374</a></span>
+<span class="normal"><a href="#__codelineno-0-375">375</a></span>
 <span class="normal"><a href="#__codelineno-0-376">376</a></span>
 <span class="normal"><a href="#__codelineno-0-377">377</a></span>
 <span class="normal"><a href="#__codelineno-0-378">378</a></span>
@@ -6965,340 +6972,333 @@ write-by-copy-only format, for any <code>method</code>.</p>
 <span class="normal"><a href="#__codelineno-0-691">691</a></span>
 <span class="normal"><a href="#__codelineno-0-692">692</a></span>
 <span class="normal"><a href="#__codelineno-0-693">693</a></span>
-<span class="normal"><a href="#__codelineno-0-694">694</a></span>
-<span class="normal"><a href="#__codelineno-0-695">695</a></span>
-<span class="normal"><a href="#__codelineno-0-696">696</a></span>
-<span class="normal"><a href="#__codelineno-0-697">697</a></span>
-<span class="normal"><a href="#__codelineno-0-698">698</a></span>
-<span class="normal"><a href="#__codelineno-0-699">699</a></span>
-<span class="normal"><a href="#__codelineno-0-700">700</a></span>
-<span class="normal"><a href="#__codelineno-0-701">701</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-375" name="__codelineno-0-375"></a><span class="k">def</span><span class="w"> </span><span class="nf">merge_rasters</span><span class="p">(</span>
-<a id="__codelineno-0-376" name="__codelineno-0-376"></a>    <span class="n">src</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">],</span>
-<a id="__codelineno-0-377" name="__codelineno-0-377"></a>    <span class="n">dst</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
-<a id="__codelineno-0-378" name="__codelineno-0-378"></a>    <span class="n">no_data_value</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"0"</span><span class="p">,</span>
-<a id="__codelineno-0-379" name="__codelineno-0-379"></a>    <span class="n">init</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"nan"</span><span class="p">,</span>
-<a id="__codelineno-0-380" name="__codelineno-0-380"></a>    <span class="n">n</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"nan"</span><span class="p">,</span>
-<a id="__codelineno-0-381" name="__codelineno-0-381"></a>    <span class="n">method</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"last"</span><span class="p">,</span>
-<a id="__codelineno-0-382" name="__codelineno-0-382"></a>    <span class="n">dst_crs</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-383" name="__codelineno-0-383"></a>    <span class="n">resampling</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">DEFAULT_RESAMPLING</span><span class="p">,</span>
-<a id="__codelineno-0-384" name="__codelineno-0-384"></a>    <span class="n">signer</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-385" name="__codelineno-0-385"></a>    <span class="o">*</span><span class="p">,</span>
-<a id="__codelineno-0-386" name="__codelineno-0-386"></a>    <span class="n">bbox</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-387" name="__codelineno-0-387"></a>    <span class="n">bbox_crs</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-388" name="__codelineno-0-388"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-389" name="__codelineno-0-389"></a><span class="w">    </span><span class="sd">"""Merge a group of rasters into one raster, resolving overlaps by ``method``.</span>
-<a id="__codelineno-0-390" name="__codelineno-0-390"></a>
-<a id="__codelineno-0-391" name="__codelineno-0-391"></a><span class="sd">    The overlap-resolution ``method`` selects how overlapping pixels are</span>
-<a id="__codelineno-0-392" name="__codelineno-0-392"></a><span class="sd">    combined:</span>
-<a id="__codelineno-0-393" name="__codelineno-0-393"></a>
-<a id="__codelineno-0-394" name="__codelineno-0-394"></a><span class="sd">    * ``"last"`` (default) / ``"first"`` — z-order compositing: the last (or</span>
-<a id="__codelineno-0-395" name="__codelineno-0-395"></a><span class="sd">      first) source covering a pixel wins. Implemented cheaply with</span>
-<a id="__codelineno-0-396" name="__codelineno-0-396"></a><span class="sd">      :func:`gdal.BuildVRT` + :func:`gdal.Translate`.</span>
-<a id="__codelineno-0-397" name="__codelineno-0-397"></a><span class="sd">    * ``"min"`` / ``"max"`` / ``"sum"`` — per-pixel reduction across every</span>
-<a id="__codelineno-0-398" name="__codelineno-0-398"></a><span class="sd">      source overlapping that pixel, ignoring no-data. Each source is aligned</span>
-<a id="__codelineno-0-399" name="__codelineno-0-399"></a><span class="sd">      onto the union grid and the bands are stacked and reduced with NaN-aware</span>
-<a id="__codelineno-0-400" name="__codelineno-0-400"></a><span class="sd">      numpy.</span>
-<a id="__codelineno-0-401" name="__codelineno-0-401"></a>
-<a id="__codelineno-0-402" name="__codelineno-0-402"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-403" name="__codelineno-0-403"></a><span class="sd">        src (Sequence[str | Path]):</span>
-<a id="__codelineno-0-404" name="__codelineno-0-404"></a><span class="sd">            Paths to all input rasters.</span>
-<a id="__codelineno-0-405" name="__codelineno-0-405"></a><span class="sd">        dst (str | Path):</span>
-<a id="__codelineno-0-406" name="__codelineno-0-406"></a><span class="sd">            Path to the output raster. Its extension alone selects the output</span>
-<a id="__codelineno-0-407" name="__codelineno-0-407"></a><span class="sd">            driver (`.tif` -&gt; GTiff, `.nc` -&gt; netCDF, …) — the same</span>
-<a id="__codelineno-0-408" name="__codelineno-0-408"></a><span class="sd">            resolution every other write path in the package uses — so one</span>
-<a id="__codelineno-0-409" name="__codelineno-0-409"></a><span class="sd">            `dst` yields the same format for every `method`. `COMPRESS=LZW`</span>
-<a id="__codelineno-0-410" name="__codelineno-0-410"></a><span class="sd">            is a GTiff creation option and is applied only when the extension</span>
-<a id="__codelineno-0-411" name="__codelineno-0-411"></a><span class="sd">            resolves to GTiff; other formats are written with their driver</span>
-<a id="__codelineno-0-412" name="__codelineno-0-412"></a><span class="sd">            defaults. A write-by-copy-only format is refused for every</span>
-<a id="__codelineno-0-413" name="__codelineno-0-413"></a><span class="sd">            `method` -- that is `.png`, `.jpg` / `.jpeg`, `.jp2` / `.j2k` and</span>
-<a id="__codelineno-0-414" name="__codelineno-0-414"></a><span class="sd">            `.asc`, and `.vrt` on top (a VRT writes a reference, not a</span>
-<a id="__codelineno-0-415" name="__codelineno-0-415"></a><span class="sd">            raster). The z-order path could produce several of them, since it</span>
-<a id="__codelineno-0-416" name="__codelineno-0-416"></a><span class="sd">            writes via `gdal.Translate`, and the reduction path could not;</span>
-<a id="__codelineno-0-417" name="__codelineno-0-417"></a><span class="sd">            letting `method` decide what `dst` may be is the same defect as</span>
-<a id="__codelineno-0-418" name="__codelineno-0-418"></a><span class="sd">            letting it decide the format, so both take the stricter answer.</span>
-<a id="__codelineno-0-419" name="__codelineno-0-419"></a><span class="sd">            `.asc` is the one this costs: it was writable before, through the</span>
-<a id="__codelineno-0-420" name="__codelineno-0-420"></a><span class="sd">            z-order path only. Write a GTiff and convert.</span>
-<a id="__codelineno-0-421" name="__codelineno-0-421"></a><span class="sd">        no_data_value (float | int | str):</span>
-<a id="__codelineno-0-422" name="__codelineno-0-422"></a><span class="sd">            Stamped on the output bands as the nodata marker. For the reduction</span>
-<a id="__codelineno-0-423" name="__codelineno-0-423"></a><span class="sd">            methods it also fills pixels with no source coverage.</span>
-<a id="__codelineno-0-424" name="__codelineno-0-424"></a><span class="sd">        init (float | int | str):</span>
-<a id="__codelineno-0-425" name="__codelineno-0-425"></a><span class="sd">            Reported value for pixels with no source coverage in the VRT (z-order</span>
-<a id="__codelineno-0-426" name="__codelineno-0-426"></a><span class="sd">            methods only). Maps to :func:`gdal.BuildVRTOptions` ``VRTNodata``.</span>
-<a id="__codelineno-0-427" name="__codelineno-0-427"></a><span class="sd">        n (float | int | str):</span>
-<a id="__codelineno-0-428" name="__codelineno-0-428"></a><span class="sd">            Source pixels matching this value are ignored — both when building</span>
-<a id="__codelineno-0-429" name="__codelineno-0-429"></a><span class="sd">            the VRT mosaic (z-order) and when reducing (the value is treated as</span>
-<a id="__codelineno-0-430" name="__codelineno-0-430"></a><span class="sd">            source no-data).</span>
-<a id="__codelineno-0-431" name="__codelineno-0-431"></a><span class="sd">        method (str):</span>
-<a id="__codelineno-0-432" name="__codelineno-0-432"></a><span class="sd">            Overlap-resolution rule: one of ``"first"``, ``"last"`` (default),</span>
-<a id="__codelineno-0-433" name="__codelineno-0-433"></a><span class="sd">            ``"min"``, ``"max"``, ``"sum"``.</span>
-<a id="__codelineno-0-434" name="__codelineno-0-434"></a><span class="sd">        dst_crs (int | str | None):</span>
-<a id="__codelineno-0-435" name="__codelineno-0-435"></a><span class="sd">            Target CRS for the mosaic, as an EPSG code (``32632``) or any</span>
-<a id="__codelineno-0-436" name="__codelineno-0-436"></a><span class="sd">            GDAL-parseable CRS string (``"EPSG:32632"``, a WKT, a PROJ string).</span>
-<a id="__codelineno-0-437" name="__codelineno-0-437"></a><span class="sd">            Each source whose CRS differs from the target is reprojected onto it</span>
-<a id="__codelineno-0-438" name="__codelineno-0-438"></a><span class="sd">            (via :func:`gdal.Warp`) **before** compositing, so tiles in different</span>
-<a id="__codelineno-0-439" name="__codelineno-0-439"></a><span class="sd">            CRSs — e.g. a Sentinel-2 AOI straddling two UTM zones — mosaic</span>
-<a id="__codelineno-0-440" name="__codelineno-0-440"></a><span class="sd">            correctly. ``None`` (default) keeps the previous behaviour: sources</span>
-<a id="__codelineno-0-441" name="__codelineno-0-441"></a><span class="sd">            are assumed to share a CRS and are composited as-is, *except* when</span>
-<a id="__codelineno-0-442" name="__codelineno-0-442"></a><span class="sd">            they are found to disagree, in which case they are reprojected onto</span>
-<a id="__codelineno-0-443" name="__codelineno-0-443"></a><span class="sd">            the first source's CRS. Reprojection always happens before the</span>
-<a id="__codelineno-0-444" name="__codelineno-0-444"></a><span class="sd">            ``BuildVRT``/``Warp`` compositing step because that step has no</span>
-<a id="__codelineno-0-445" name="__codelineno-0-445"></a><span class="sd">            reprojection capability and assumes a single shared grid.</span>
-<a id="__codelineno-0-446" name="__codelineno-0-446"></a><span class="sd">        resampling (str):</span>
-<a id="__codelineno-0-447" name="__codelineno-0-447"></a><span class="sd">            Resampling method used when a source is reprojected to ``dst_crs``</span>
-<a id="__codelineno-0-448" name="__codelineno-0-448"></a><span class="sd">            (or to the common CRS on auto-detect). Case-insensitive; any key</span>
-<a id="__codelineno-0-449" name="__codelineno-0-449"></a><span class="sd">            of :data:`pyramids.base._utils.INTERPOLATION_METHODS`: ``"nearest"``</span>
-<a id="__codelineno-0-450" name="__codelineno-0-450"></a><span class="sd">            (alias ``"nearest neighbor"``, the default), ``"bilinear"``,</span>
-<a id="__codelineno-0-451" name="__codelineno-0-451"></a><span class="sd">            ``"cubic"``, ``"cubic_spline"``, ``"lanczos"``, ``"average"``,</span>
-<a id="__codelineno-0-452" name="__codelineno-0-452"></a><span class="sd">            ``"mode"``, ``"max"``, ``"min"``, ``"med"``, ``"q1"``, ``"q3"``,</span>
-<a id="__codelineno-0-453" name="__codelineno-0-453"></a><span class="sd">            ``"sum"``, and ``"rms"``.</span>
-<a id="__codelineno-0-454" name="__codelineno-0-454"></a><span class="sd">            Prefer ``"bilinear"``/``"cubic"`` for continuous data (reflectance,</span>
-<a id="__codelineno-0-455" name="__codelineno-0-455"></a><span class="sd">            DEM) to avoid the blockiness nearest introduces across reprojection.</span>
-<a id="__codelineno-0-456" name="__codelineno-0-456"></a><span class="sd">            Ignored when no source is reprojected.</span>
-<a id="__codelineno-0-457" name="__codelineno-0-457"></a><span class="sd">        signer (Any):</span>
-<a id="__codelineno-0-458" name="__codelineno-0-458"></a><span class="sd">            Optional signer exposing ``sign_href(str) -&gt; str`` and</span>
-<a id="__codelineno-0-459" name="__codelineno-0-459"></a><span class="sd">            ``gdal_env() -&gt; dict[str, str]`` (e.g. a</span>
-<a id="__codelineno-0-460" name="__codelineno-0-460"></a><span class="sd">            :class:`pyramids.stac.signers.Signer`). When given, **both** hooks</span>
-<a id="__codelineno-0-461" name="__codelineno-0-461"></a><span class="sd">            are applied — exactly as :func:`pyramids.stac.load_asset` does:</span>
-<a id="__codelineno-0-462" name="__codelineno-0-462"></a><span class="sd">            ``signer.sign_href`` rewrites every source path first (e.g. grafting</span>
-<a id="__codelineno-0-463" name="__codelineno-0-463"></a><span class="sd">            a SAS token onto a blob URL), then ``signer.gdal_env()`` is installed</span>
-<a id="__codelineno-0-464" name="__codelineno-0-464"></a><span class="sd">            via :class:`~pyramids.base.remote.CloudConfig` for the duration of</span>
-<a id="__codelineno-0-465" name="__codelineno-0-465"></a><span class="sd">            the merge. This means URL-signing signers (Planetary Computer SAS,</span>
-<a id="__codelineno-0-466" name="__codelineno-0-466"></a><span class="sd">            whose credential rides the href and whose ``gdal_env()`` is empty)</span>
-<a id="__codelineno-0-467" name="__codelineno-0-467"></a><span class="sd">            and env-based signers (Requester-Pays, bearer) both authenticate</span>
-<a id="__codelineno-0-468" name="__codelineno-0-468"></a><span class="sd">            without wrapping the call in a ``with CloudConfig(...)`` block.</span>
-<a id="__codelineno-0-469" name="__codelineno-0-469"></a><span class="sd">            ``None`` (default) leaves source hrefs untouched and installs no</span>
-<a id="__codelineno-0-470" name="__codelineno-0-470"></a><span class="sd">            extra config.</span>
-<a id="__codelineno-0-471" name="__codelineno-0-471"></a><span class="sd">        bbox (Sequence[float] | None):</span>
-<a id="__codelineno-0-472" name="__codelineno-0-472"></a><span class="sd">            Optional ``(west, south, east, north)`` window to restrict the merge</span>
-<a id="__codelineno-0-473" name="__codelineno-0-473"></a><span class="sd">            to. ``None`` (default) merges the full extent of every source, which</span>
-<a id="__codelineno-0-474" name="__codelineno-0-474"></a><span class="sd">            is what the function has always done.</span>
-<a id="__codelineno-0-475" name="__codelineno-0-475"></a>
-<a id="__codelineno-0-476" name="__codelineno-0-476"></a><span class="sd">            This is not a convenience for cropping afterwards: without it GDAL is</span>
-<a id="__codelineno-0-477" name="__codelineno-0-477"></a><span class="sd">            given no reason to read less, so a mosaic of remote sources pulls the</span>
-<a id="__codelineno-0-478" name="__codelineno-0-478"></a><span class="sd">            **entire** source extent through ``/vsicurl`` even when the caller</span>
-<a id="__codelineno-0-479" name="__codelineno-0-479"></a><span class="sd">            wants a fraction of it. A full Sentinel-2 tile is 10980x10980 px</span>
-<a id="__codelineno-0-480" name="__codelineno-0-480"></a><span class="sd">            (verified against a public Earth Search COG), so an area of interest</span>
-<a id="__codelineno-0-481" name="__codelineno-0-481"></a><span class="sd">            covering a fraction of one tile still costs the whole tile without a</span>
-<a id="__codelineno-0-482" name="__codelineno-0-482"></a><span class="sd">            window. How much that saves depends on the ratio between the source</span>
-<a id="__codelineno-0-483" name="__codelineno-0-483"></a><span class="sd">            footprint and the window.</span>
+<span class="normal"><a href="#__codelineno-0-694">694</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-368" name="__codelineno-0-368"></a><span class="k">def</span><span class="w"> </span><span class="nf">merge_rasters</span><span class="p">(</span>
+<a id="__codelineno-0-369" name="__codelineno-0-369"></a>    <span class="n">src</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">],</span>
+<a id="__codelineno-0-370" name="__codelineno-0-370"></a>    <span class="n">dst</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
+<a id="__codelineno-0-371" name="__codelineno-0-371"></a>    <span class="n">no_data_value</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"0"</span><span class="p">,</span>
+<a id="__codelineno-0-372" name="__codelineno-0-372"></a>    <span class="n">init</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"nan"</span><span class="p">,</span>
+<a id="__codelineno-0-373" name="__codelineno-0-373"></a>    <span class="n">n</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"nan"</span><span class="p">,</span>
+<a id="__codelineno-0-374" name="__codelineno-0-374"></a>    <span class="n">method</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"last"</span><span class="p">,</span>
+<a id="__codelineno-0-375" name="__codelineno-0-375"></a>    <span class="n">dst_crs</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-376" name="__codelineno-0-376"></a>    <span class="n">resampling</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">DEFAULT_RESAMPLING</span><span class="p">,</span>
+<a id="__codelineno-0-377" name="__codelineno-0-377"></a>    <span class="n">signer</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-378" name="__codelineno-0-378"></a>    <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-0-379" name="__codelineno-0-379"></a>    <span class="n">bbox</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-380" name="__codelineno-0-380"></a>    <span class="n">bbox_crs</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-381" name="__codelineno-0-381"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-382" name="__codelineno-0-382"></a><span class="w">    </span><span class="sd">"""Merge a group of rasters into one raster, resolving overlaps by ``method``.</span>
+<a id="__codelineno-0-383" name="__codelineno-0-383"></a>
+<a id="__codelineno-0-384" name="__codelineno-0-384"></a><span class="sd">    The overlap-resolution ``method`` selects how overlapping pixels are</span>
+<a id="__codelineno-0-385" name="__codelineno-0-385"></a><span class="sd">    combined:</span>
+<a id="__codelineno-0-386" name="__codelineno-0-386"></a>
+<a id="__codelineno-0-387" name="__codelineno-0-387"></a><span class="sd">    * ``"last"`` (default) / ``"first"`` — z-order compositing: the last (or</span>
+<a id="__codelineno-0-388" name="__codelineno-0-388"></a><span class="sd">      first) source covering a pixel wins. Implemented cheaply with</span>
+<a id="__codelineno-0-389" name="__codelineno-0-389"></a><span class="sd">      :func:`gdal.BuildVRT` + :func:`gdal.Translate`.</span>
+<a id="__codelineno-0-390" name="__codelineno-0-390"></a><span class="sd">    * ``"min"`` / ``"max"`` / ``"sum"`` — per-pixel reduction across every</span>
+<a id="__codelineno-0-391" name="__codelineno-0-391"></a><span class="sd">      source overlapping that pixel, ignoring no-data. Each source is aligned</span>
+<a id="__codelineno-0-392" name="__codelineno-0-392"></a><span class="sd">      onto the union grid and the bands are stacked and reduced with NaN-aware</span>
+<a id="__codelineno-0-393" name="__codelineno-0-393"></a><span class="sd">      numpy.</span>
+<a id="__codelineno-0-394" name="__codelineno-0-394"></a>
+<a id="__codelineno-0-395" name="__codelineno-0-395"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-396" name="__codelineno-0-396"></a><span class="sd">        src (Sequence[str | Path]):</span>
+<a id="__codelineno-0-397" name="__codelineno-0-397"></a><span class="sd">            Paths to all input rasters.</span>
+<a id="__codelineno-0-398" name="__codelineno-0-398"></a><span class="sd">        dst (str | Path):</span>
+<a id="__codelineno-0-399" name="__codelineno-0-399"></a><span class="sd">            Path to the output raster. Its extension alone selects the output</span>
+<a id="__codelineno-0-400" name="__codelineno-0-400"></a><span class="sd">            driver (`.tif` -&gt; GTiff, `.nc` -&gt; netCDF, …) — the same</span>
+<a id="__codelineno-0-401" name="__codelineno-0-401"></a><span class="sd">            resolution every other write path in the package uses — so one</span>
+<a id="__codelineno-0-402" name="__codelineno-0-402"></a><span class="sd">            `dst` yields the same format for every `method`. `COMPRESS=LZW`</span>
+<a id="__codelineno-0-403" name="__codelineno-0-403"></a><span class="sd">            is a GTiff creation option and is applied only when the extension</span>
+<a id="__codelineno-0-404" name="__codelineno-0-404"></a><span class="sd">            resolves to GTiff; other formats are written with their driver</span>
+<a id="__codelineno-0-405" name="__codelineno-0-405"></a><span class="sd">            defaults. A write-by-copy-only format is refused for every</span>
+<a id="__codelineno-0-406" name="__codelineno-0-406"></a><span class="sd">            `method` -- that is `.png`, `.jpg` / `.jpeg`, `.jp2` / `.j2k` and</span>
+<a id="__codelineno-0-407" name="__codelineno-0-407"></a><span class="sd">            `.asc`, and `.vrt` on top (a VRT writes a reference, not a</span>
+<a id="__codelineno-0-408" name="__codelineno-0-408"></a><span class="sd">            raster). The z-order path could produce several of them, since it</span>
+<a id="__codelineno-0-409" name="__codelineno-0-409"></a><span class="sd">            writes via `gdal.Translate`, and the reduction path could not;</span>
+<a id="__codelineno-0-410" name="__codelineno-0-410"></a><span class="sd">            letting `method` decide what `dst` may be is the same defect as</span>
+<a id="__codelineno-0-411" name="__codelineno-0-411"></a><span class="sd">            letting it decide the format, so both take the stricter answer.</span>
+<a id="__codelineno-0-412" name="__codelineno-0-412"></a><span class="sd">            `.asc` is the one this costs: it was writable before, through the</span>
+<a id="__codelineno-0-413" name="__codelineno-0-413"></a><span class="sd">            z-order path only. Write a GTiff and convert.</span>
+<a id="__codelineno-0-414" name="__codelineno-0-414"></a><span class="sd">        no_data_value (float | int | str):</span>
+<a id="__codelineno-0-415" name="__codelineno-0-415"></a><span class="sd">            Stamped on the output bands as the nodata marker. For the reduction</span>
+<a id="__codelineno-0-416" name="__codelineno-0-416"></a><span class="sd">            methods it also fills pixels with no source coverage.</span>
+<a id="__codelineno-0-417" name="__codelineno-0-417"></a><span class="sd">        init (float | int | str):</span>
+<a id="__codelineno-0-418" name="__codelineno-0-418"></a><span class="sd">            Reported value for pixels with no source coverage in the VRT (z-order</span>
+<a id="__codelineno-0-419" name="__codelineno-0-419"></a><span class="sd">            methods only). Maps to :func:`gdal.BuildVRTOptions` ``VRTNodata``.</span>
+<a id="__codelineno-0-420" name="__codelineno-0-420"></a><span class="sd">        n (float | int | str):</span>
+<a id="__codelineno-0-421" name="__codelineno-0-421"></a><span class="sd">            Source pixels matching this value are ignored — both when building</span>
+<a id="__codelineno-0-422" name="__codelineno-0-422"></a><span class="sd">            the VRT mosaic (z-order) and when reducing (the value is treated as</span>
+<a id="__codelineno-0-423" name="__codelineno-0-423"></a><span class="sd">            source no-data).</span>
+<a id="__codelineno-0-424" name="__codelineno-0-424"></a><span class="sd">        method (str):</span>
+<a id="__codelineno-0-425" name="__codelineno-0-425"></a><span class="sd">            Overlap-resolution rule: one of ``"first"``, ``"last"`` (default),</span>
+<a id="__codelineno-0-426" name="__codelineno-0-426"></a><span class="sd">            ``"min"``, ``"max"``, ``"sum"``.</span>
+<a id="__codelineno-0-427" name="__codelineno-0-427"></a><span class="sd">        dst_crs (int | str | None):</span>
+<a id="__codelineno-0-428" name="__codelineno-0-428"></a><span class="sd">            Target CRS for the mosaic, as an EPSG code (``32632``) or any</span>
+<a id="__codelineno-0-429" name="__codelineno-0-429"></a><span class="sd">            GDAL-parseable CRS string (``"EPSG:32632"``, a WKT, a PROJ string).</span>
+<a id="__codelineno-0-430" name="__codelineno-0-430"></a><span class="sd">            Each source whose CRS differs from the target is reprojected onto it</span>
+<a id="__codelineno-0-431" name="__codelineno-0-431"></a><span class="sd">            (via :func:`gdal.Warp`) **before** compositing, so tiles in different</span>
+<a id="__codelineno-0-432" name="__codelineno-0-432"></a><span class="sd">            CRSs — e.g. a Sentinel-2 AOI straddling two UTM zones — mosaic</span>
+<a id="__codelineno-0-433" name="__codelineno-0-433"></a><span class="sd">            correctly. ``None`` (default) keeps the previous behaviour: sources</span>
+<a id="__codelineno-0-434" name="__codelineno-0-434"></a><span class="sd">            are assumed to share a CRS and are composited as-is, *except* when</span>
+<a id="__codelineno-0-435" name="__codelineno-0-435"></a><span class="sd">            they are found to disagree, in which case they are reprojected onto</span>
+<a id="__codelineno-0-436" name="__codelineno-0-436"></a><span class="sd">            the first source's CRS. Reprojection always happens before the</span>
+<a id="__codelineno-0-437" name="__codelineno-0-437"></a><span class="sd">            ``BuildVRT``/``Warp`` compositing step because that step has no</span>
+<a id="__codelineno-0-438" name="__codelineno-0-438"></a><span class="sd">            reprojection capability and assumes a single shared grid.</span>
+<a id="__codelineno-0-439" name="__codelineno-0-439"></a><span class="sd">        resampling (str):</span>
+<a id="__codelineno-0-440" name="__codelineno-0-440"></a><span class="sd">            Resampling method used when a source is reprojected to ``dst_crs``</span>
+<a id="__codelineno-0-441" name="__codelineno-0-441"></a><span class="sd">            (or to the common CRS on auto-detect). Case-insensitive; any key</span>
+<a id="__codelineno-0-442" name="__codelineno-0-442"></a><span class="sd">            of :data:`pyramids.base._utils.INTERPOLATION_METHODS`: ``"nearest"``</span>
+<a id="__codelineno-0-443" name="__codelineno-0-443"></a><span class="sd">            (alias ``"nearest neighbor"``, the default), ``"bilinear"``,</span>
+<a id="__codelineno-0-444" name="__codelineno-0-444"></a><span class="sd">            ``"cubic"``, ``"cubic_spline"``, ``"lanczos"``, ``"average"``,</span>
+<a id="__codelineno-0-445" name="__codelineno-0-445"></a><span class="sd">            ``"mode"``, ``"max"``, ``"min"``, ``"med"``, ``"q1"``, ``"q3"``,</span>
+<a id="__codelineno-0-446" name="__codelineno-0-446"></a><span class="sd">            ``"sum"``, and ``"rms"``.</span>
+<a id="__codelineno-0-447" name="__codelineno-0-447"></a><span class="sd">            Prefer ``"bilinear"``/``"cubic"`` for continuous data (reflectance,</span>
+<a id="__codelineno-0-448" name="__codelineno-0-448"></a><span class="sd">            DEM) to avoid the blockiness nearest introduces across reprojection.</span>
+<a id="__codelineno-0-449" name="__codelineno-0-449"></a><span class="sd">            Ignored when no source is reprojected.</span>
+<a id="__codelineno-0-450" name="__codelineno-0-450"></a><span class="sd">        signer (Any):</span>
+<a id="__codelineno-0-451" name="__codelineno-0-451"></a><span class="sd">            Optional signer exposing ``sign_href(str) -&gt; str`` and</span>
+<a id="__codelineno-0-452" name="__codelineno-0-452"></a><span class="sd">            ``gdal_env() -&gt; dict[str, str]`` (e.g. a</span>
+<a id="__codelineno-0-453" name="__codelineno-0-453"></a><span class="sd">            :class:`pyramids.stac.signers.Signer`). When given, **both** hooks</span>
+<a id="__codelineno-0-454" name="__codelineno-0-454"></a><span class="sd">            are applied — exactly as :func:`pyramids.stac.load_asset` does:</span>
+<a id="__codelineno-0-455" name="__codelineno-0-455"></a><span class="sd">            ``signer.sign_href`` rewrites every source path first (e.g. grafting</span>
+<a id="__codelineno-0-456" name="__codelineno-0-456"></a><span class="sd">            a SAS token onto a blob URL), then ``signer.gdal_env()`` is installed</span>
+<a id="__codelineno-0-457" name="__codelineno-0-457"></a><span class="sd">            via :class:`~pyramids.base.remote.CloudConfig` for the duration of</span>
+<a id="__codelineno-0-458" name="__codelineno-0-458"></a><span class="sd">            the merge. This means URL-signing signers (Planetary Computer SAS,</span>
+<a id="__codelineno-0-459" name="__codelineno-0-459"></a><span class="sd">            whose credential rides the href and whose ``gdal_env()`` is empty)</span>
+<a id="__codelineno-0-460" name="__codelineno-0-460"></a><span class="sd">            and env-based signers (Requester-Pays, bearer) both authenticate</span>
+<a id="__codelineno-0-461" name="__codelineno-0-461"></a><span class="sd">            without wrapping the call in a ``with CloudConfig(...)`` block.</span>
+<a id="__codelineno-0-462" name="__codelineno-0-462"></a><span class="sd">            ``None`` (default) leaves source hrefs untouched and installs no</span>
+<a id="__codelineno-0-463" name="__codelineno-0-463"></a><span class="sd">            extra config.</span>
+<a id="__codelineno-0-464" name="__codelineno-0-464"></a><span class="sd">        bbox (Sequence[float] | None):</span>
+<a id="__codelineno-0-465" name="__codelineno-0-465"></a><span class="sd">            Optional ``(west, south, east, north)`` window to restrict the merge</span>
+<a id="__codelineno-0-466" name="__codelineno-0-466"></a><span class="sd">            to. ``None`` (default) merges the full extent of every source, which</span>
+<a id="__codelineno-0-467" name="__codelineno-0-467"></a><span class="sd">            is what the function has always done.</span>
+<a id="__codelineno-0-468" name="__codelineno-0-468"></a>
+<a id="__codelineno-0-469" name="__codelineno-0-469"></a><span class="sd">            This is not a convenience for cropping afterwards: without it GDAL is</span>
+<a id="__codelineno-0-470" name="__codelineno-0-470"></a><span class="sd">            given no reason to read less, so a mosaic of remote sources pulls the</span>
+<a id="__codelineno-0-471" name="__codelineno-0-471"></a><span class="sd">            **entire** source extent through ``/vsicurl`` even when the caller</span>
+<a id="__codelineno-0-472" name="__codelineno-0-472"></a><span class="sd">            wants a fraction of it. A full Sentinel-2 tile is 10980x10980 px</span>
+<a id="__codelineno-0-473" name="__codelineno-0-473"></a><span class="sd">            (verified against a public Earth Search COG), so an area of interest</span>
+<a id="__codelineno-0-474" name="__codelineno-0-474"></a><span class="sd">            covering a fraction of one tile still costs the whole tile without a</span>
+<a id="__codelineno-0-475" name="__codelineno-0-475"></a><span class="sd">            window. How much that saves depends on the ratio between the source</span>
+<a id="__codelineno-0-476" name="__codelineno-0-476"></a><span class="sd">            footprint and the window.</span>
+<a id="__codelineno-0-477" name="__codelineno-0-477"></a>
+<a id="__codelineno-0-478" name="__codelineno-0-478"></a><span class="sd">            The window is resolved once, onto the mosaic's own pixel grid, and</span>
+<a id="__codelineno-0-479" name="__codelineno-0-479"></a><span class="sd">            used by both methods: z-order passes it to :func:`gdal.Translate` as</span>
+<a id="__codelineno-0-480" name="__codelineno-0-480"></a><span class="sd">            ``projWin``, so only the byte ranges the window touches are requested;</span>
+<a id="__codelineno-0-481" name="__codelineno-0-481"></a><span class="sd">            the reduction methods clip the union grid to it. Snapping outward onto</span>
+<a id="__codelineno-0-482" name="__codelineno-0-482"></a><span class="sd">            whole pixels keeps the result a strict sub-grid, and resolving it once</span>
+<a id="__codelineno-0-483" name="__codelineno-0-483"></a><span class="sd">            means both methods return the same grid for the same arguments.</span>
 <a id="__codelineno-0-484" name="__codelineno-0-484"></a>
-<a id="__codelineno-0-485" name="__codelineno-0-485"></a><span class="sd">            The window is resolved once, onto the mosaic's own pixel grid, and</span>
-<a id="__codelineno-0-486" name="__codelineno-0-486"></a><span class="sd">            used by both methods: z-order passes it to :func:`gdal.Translate` as</span>
-<a id="__codelineno-0-487" name="__codelineno-0-487"></a><span class="sd">            ``projWin``, so only the byte ranges the window touches are requested;</span>
-<a id="__codelineno-0-488" name="__codelineno-0-488"></a><span class="sd">            the reduction methods clip the union grid to it. Snapping outward onto</span>
-<a id="__codelineno-0-489" name="__codelineno-0-489"></a><span class="sd">            whole pixels keeps the result a strict sub-grid, and resolving it once</span>
-<a id="__codelineno-0-490" name="__codelineno-0-490"></a><span class="sd">            means both methods return the same grid for the same arguments.</span>
+<a id="__codelineno-0-485" name="__codelineno-0-485"></a><span class="sd">            A bbox must be ordered ``west &lt; east`` and ``south &lt; north``. A window</span>
+<a id="__codelineno-0-486" name="__codelineno-0-486"></a><span class="sd">            crossing the antimeridian (``west &gt; east``) is rejected rather than</span>
+<a id="__codelineno-0-487" name="__codelineno-0-487"></a><span class="sd">            silently reinterpreted as its own complement; split it and merge the</span>
+<a id="__codelineno-0-488" name="__codelineno-0-488"></a><span class="sd">            two halves. :meth:`pyramids.dataset.Dataset.crop` handles the seam</span>
+<a id="__codelineno-0-489" name="__codelineno-0-489"></a><span class="sd">            directly, but a mosaic is composited on one grid, which a seam-crossing</span>
+<a id="__codelineno-0-490" name="__codelineno-0-490"></a><span class="sd">            window would not have.</span>
 <a id="__codelineno-0-491" name="__codelineno-0-491"></a>
-<a id="__codelineno-0-492" name="__codelineno-0-492"></a><span class="sd">            A bbox must be ordered ``west &lt; east`` and ``south &lt; north``. A window</span>
-<a id="__codelineno-0-493" name="__codelineno-0-493"></a><span class="sd">            crossing the antimeridian (``west &gt; east``) is rejected rather than</span>
-<a id="__codelineno-0-494" name="__codelineno-0-494"></a><span class="sd">            silently reinterpreted as its own complement; split it and merge the</span>
-<a id="__codelineno-0-495" name="__codelineno-0-495"></a><span class="sd">            two halves. :meth:`pyramids.dataset.Dataset.crop` handles the seam</span>
-<a id="__codelineno-0-496" name="__codelineno-0-496"></a><span class="sd">            directly, but a mosaic is composited on one grid, which a seam-crossing</span>
-<a id="__codelineno-0-497" name="__codelineno-0-497"></a><span class="sd">            window would not have.</span>
-<a id="__codelineno-0-498" name="__codelineno-0-498"></a>
-<a id="__codelineno-0-499" name="__codelineno-0-499"></a><span class="sd">            For a lon/lat mosaic the window is rewritten into the mosaic's own</span>
-<a id="__codelineno-0-500" name="__codelineno-0-500"></a><span class="sd">            longitude convention first, so a ``-180..180`` bbox reads correctly</span>
-<a id="__codelineno-0-501" name="__codelineno-0-501"></a><span class="sd">            against a ``0..360`` grid (and the reverse). A window that ends up</span>
-<a id="__codelineno-0-502" name="__codelineno-0-502"></a><span class="sd">            spanning that convention's seam is rejected on the same grounds as an</span>
-<a id="__codelineno-0-503" name="__codelineno-0-503"></a><span class="sd">            antimeridian one. A window extending past the mosaic is clipped to it;</span>
-<a id="__codelineno-0-504" name="__codelineno-0-504"></a><span class="sd">            one that misses it entirely raises.</span>
-<a id="__codelineno-0-505" name="__codelineno-0-505"></a><span class="sd">        bbox_crs (int | str | None):</span>
-<a id="__codelineno-0-506" name="__codelineno-0-506"></a><span class="sd">            CRS that ``bbox`` is expressed in — an EPSG code (``4326``), an</span>
-<a id="__codelineno-0-507" name="__codelineno-0-507"></a><span class="sd">            authority string (``"EPSG:4326"``), a WKT, or anything</span>
-<a id="__codelineno-0-508" name="__codelineno-0-508"></a><span class="sd">            :meth:`pyproj.CRS.from_user_input` accepts. ``None`` (default) means</span>
-<a id="__codelineno-0-509" name="__codelineno-0-509"></a><span class="sd">            ``bbox`` is already in the mosaic's own CRS — which, when ``dst_crs``</span>
-<a id="__codelineno-0-510" name="__codelineno-0-510"></a><span class="sd">            is given, is ``dst_crs``, since sources are reprojected before the</span>
-<a id="__codelineno-0-511" name="__codelineno-0-511"></a><span class="sd">            window is applied. Ignored when ``bbox`` is ``None``. Named to match</span>
-<a id="__codelineno-0-512" name="__codelineno-0-512"></a><span class="sd">            :meth:`pyramids.dataset.engines.cog.COG.read_part`.</span>
-<a id="__codelineno-0-513" name="__codelineno-0-513"></a>
-<a id="__codelineno-0-514" name="__codelineno-0-514"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-515" name="__codelineno-0-515"></a><span class="sd">        None</span>
-<a id="__codelineno-0-516" name="__codelineno-0-516"></a>
-<a id="__codelineno-0-517" name="__codelineno-0-517"></a><span class="sd">    Note:</span>
-<a id="__codelineno-0-518" name="__codelineno-0-518"></a><span class="sd">        The z-order methods (``"first"``/``"last"``) preserve each source's data</span>
-<a id="__codelineno-0-519" name="__codelineno-0-519"></a><span class="sd">        type via ``BuildVRT`` + ``Translate``. The reduction methods</span>
-<a id="__codelineno-0-520" name="__codelineno-0-520"></a><span class="sd">        (``"min"``/``"max"``/``"sum"``) align every source onto the union grid</span>
-<a id="__codelineno-0-521" name="__codelineno-0-521"></a><span class="sd">        with ``gdal.Warp`` (nearest resampling — exact for already-aligned tiles)</span>
-<a id="__codelineno-0-522" name="__codelineno-0-522"></a><span class="sd">        and write a single-precision-safe **Float64** output regardless of the</span>
-<a id="__codelineno-0-523" name="__codelineno-0-523"></a><span class="sd">        source dtype, so they may differ in dtype from a z-order merge of the</span>
-<a id="__codelineno-0-524" name="__codelineno-0-524"></a><span class="sd">        same integer inputs.</span>
-<a id="__codelineno-0-525" name="__codelineno-0-525"></a>
-<a id="__codelineno-0-526" name="__codelineno-0-526"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-527" name="__codelineno-0-527"></a><span class="sd">        TypeError: ``resampling`` is not a string, or ``bbox`` is not four numbers</span>
-<a id="__codelineno-0-528" name="__codelineno-0-528"></a><span class="sd">            (a string, a scalar, or a sequence holding a non-numeric element).</span>
-<a id="__codelineno-0-529" name="__codelineno-0-529"></a><span class="sd">        ValueError: ``method``/``resampling`` is not a supported value,</span>
-<a id="__codelineno-0-530" name="__codelineno-0-530"></a><span class="sd">            ``dst_crs`` cannot be parsed as a CRS, a source carries no CRS, or</span>
-<a id="__codelineno-0-531" name="__codelineno-0-531"></a><span class="sd">            ``bbox`` is malformed (wrong length, non-finite, inverted, zero-area),</span>
-<a id="__codelineno-0-532" name="__codelineno-0-532"></a><span class="sd">            crosses the antimeridian or the mosaic's longitude seam once</span>
-<a id="__codelineno-0-533" name="__codelineno-0-533"></a><span class="sd">            reprojected, selects no whole pixel, does not overlap the mosaic, or</span>
-<a id="__codelineno-0-534" name="__codelineno-0-534"></a><span class="sd">            cannot be projected into its CRS.</span>
-<a id="__codelineno-0-535" name="__codelineno-0-535"></a><span class="sd">        RuntimeError: GDAL failed to open a source, reproject it, or build the</span>
-<a id="__codelineno-0-536" name="__codelineno-0-536"></a><span class="sd">            source mosaic.</span>
-<a id="__codelineno-0-537" name="__codelineno-0-537"></a><span class="sd">        DriverNotExistError: `dst` has no extension, or one the driver catalog</span>
-<a id="__codelineno-0-538" name="__codelineno-0-538"></a><span class="sd">            does not know.</span>
-<a id="__codelineno-0-539" name="__codelineno-0-539"></a><span class="sd">        FileFormatNotSupportedError: `dst`'s extension maps to a</span>
-<a id="__codelineno-0-540" name="__codelineno-0-540"></a><span class="sd">            write-by-copy-only format, for any `method`.</span>
-<a id="__codelineno-0-541" name="__codelineno-0-541"></a>
-<a id="__codelineno-0-542" name="__codelineno-0-542"></a><span class="sd">    Examples:</span>
-<a id="__codelineno-0-543" name="__codelineno-0-543"></a><span class="sd">        - Mosaic two tiles, keeping the larger value wherever they overlap:</span>
-<a id="__codelineno-0-544" name="__codelineno-0-544"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-545" name="__codelineno-0-545"></a><span class="sd">            &gt;&gt;&gt; from pyramids.dataset.merge import merge_rasters</span>
-<a id="__codelineno-0-546" name="__codelineno-0-546"></a><span class="sd">            &gt;&gt;&gt; merge_rasters(  # doctest: +SKIP</span>
-<a id="__codelineno-0-547" name="__codelineno-0-547"></a><span class="sd">            ...     ["tile_a.tif", "tile_b.tif"],</span>
-<a id="__codelineno-0-548" name="__codelineno-0-548"></a><span class="sd">            ...     "mosaic_max.tif",</span>
-<a id="__codelineno-0-549" name="__codelineno-0-549"></a><span class="sd">            ...     no_data_value=-9999.0,</span>
-<a id="__codelineno-0-550" name="__codelineno-0-550"></a><span class="sd">            ...     method="max",</span>
-<a id="__codelineno-0-551" name="__codelineno-0-551"></a><span class="sd">            ... )</span>
-<a id="__codelineno-0-552" name="__codelineno-0-552"></a>
-<a id="__codelineno-0-553" name="__codelineno-0-553"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-554" name="__codelineno-0-554"></a><span class="sd">        - Default last-wins compositing (unchanged from the previous behaviour):</span>
-<a id="__codelineno-0-555" name="__codelineno-0-555"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-556" name="__codelineno-0-556"></a><span class="sd">            &gt;&gt;&gt; merge_rasters(["tile_a.tif", "tile_b.tif"], "mosaic.tif")  # doctest: +SKIP</span>
-<a id="__codelineno-0-557" name="__codelineno-0-557"></a>
-<a id="__codelineno-0-558" name="__codelineno-0-558"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-559" name="__codelineno-0-559"></a><span class="sd">        - Mosaic tiles from two UTM zones into a single CRS:</span>
-<a id="__codelineno-0-560" name="__codelineno-0-560"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-561" name="__codelineno-0-561"></a><span class="sd">            &gt;&gt;&gt; merge_rasters(  # doctest: +SKIP</span>
-<a id="__codelineno-0-562" name="__codelineno-0-562"></a><span class="sd">            ...     ["utm32_tile.tif", "utm33_tile.tif"],</span>
-<a id="__codelineno-0-563" name="__codelineno-0-563"></a><span class="sd">            ...     "mosaic_utm32.tif",</span>
-<a id="__codelineno-0-564" name="__codelineno-0-564"></a><span class="sd">            ...     dst_crs=32632,</span>
-<a id="__codelineno-0-565" name="__codelineno-0-565"></a><span class="sd">            ... )</span>
-<a id="__codelineno-0-566" name="__codelineno-0-566"></a>
-<a id="__codelineno-0-567" name="__codelineno-0-567"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-568" name="__codelineno-0-568"></a><span class="sd">        - Mosaic Requester-Pays S3 tiles by passing a signer (no ``with`` block):</span>
-<a id="__codelineno-0-569" name="__codelineno-0-569"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-570" name="__codelineno-0-570"></a><span class="sd">            &gt;&gt;&gt; from pyramids.stac import AWSRequesterPaysSigner  # doctest: +SKIP</span>
-<a id="__codelineno-0-571" name="__codelineno-0-571"></a><span class="sd">            &gt;&gt;&gt; merge_rasters(  # doctest: +SKIP</span>
-<a id="__codelineno-0-572" name="__codelineno-0-572"></a><span class="sd">            ...     ["s3://bucket/a.tif", "s3://bucket/b.tif"],</span>
-<a id="__codelineno-0-573" name="__codelineno-0-573"></a><span class="sd">            ...     "mosaic.tif",</span>
-<a id="__codelineno-0-574" name="__codelineno-0-574"></a><span class="sd">            ...     signer=AWSRequesterPaysSigner(region="us-west-2"),</span>
-<a id="__codelineno-0-575" name="__codelineno-0-575"></a><span class="sd">            ... )</span>
-<a id="__codelineno-0-576" name="__codelineno-0-576"></a>
-<a id="__codelineno-0-577" name="__codelineno-0-577"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-578" name="__codelineno-0-578"></a><span class="sd">    """</span>
-<a id="__codelineno-0-579" name="__codelineno-0-579"></a>    <span class="k">if</span> <span class="n">method</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_MERGE_METHODS</span><span class="p">:</span>
-<a id="__codelineno-0-580" name="__codelineno-0-580"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-581" name="__codelineno-0-581"></a>            <span class="sa">f</span><span class="s2">"method must be one of </span><span class="si">{</span><span class="nb">list</span><span class="p">(</span><span class="n">_MERGE_METHODS</span><span class="p">)</span><span class="si">}</span><span class="s2">, got </span><span class="si">{</span><span class="n">method</span><span class="si">!r}</span><span class="s2">."</span>
-<a id="__codelineno-0-582" name="__codelineno-0-582"></a>        <span class="p">)</span>
-<a id="__codelineno-0-583" name="__codelineno-0-583"></a>    <span class="c1"># Resolve `dst` here, before anything is opened. Both write paths resolve it</span>
-<a id="__codelineno-0-584" name="__codelineno-0-584"></a>    <span class="c1"># again where they need the driver name, but a destination the catalog</span>
-<a id="__codelineno-0-585" name="__codelineno-0-585"></a>    <span class="c1"># cannot answer for is a pure argument error -- and it used to be reported</span>
-<a id="__codelineno-0-586" name="__codelineno-0-586"></a>    <span class="c1"># only after every source had been opened and possibly reprojected, which</span>
-<a id="__codelineno-0-587" name="__codelineno-0-587"></a>    <span class="c1"># for /vsicurl/ inputs is network work spent to reach a typo. It also</span>
-<a id="__codelineno-0-588" name="__codelineno-0-588"></a>    <span class="c1"># reported at two different points depending on `method`.</span>
-<a id="__codelineno-0-589" name="__codelineno-0-589"></a>    <span class="c1"># Resolved here so a destination the catalog cannot answer for fails</span>
-<a id="__codelineno-0-590" name="__codelineno-0-590"></a>    <span class="c1"># before any source is opened, and so both write paths below agree. They</span>
-<a id="__codelineno-0-591" name="__codelineno-0-591"></a>    <span class="c1"># call it again where they need the name; it is a cached catalog lookup, so</span>
-<a id="__codelineno-0-592" name="__codelineno-0-592"></a>    <span class="c1"># the repeat is free and keeps each path readable on its own.</span>
-<a id="__codelineno-0-593" name="__codelineno-0-593"></a>    <span class="n">resolve_output_driver</span><span class="p">(</span><span class="n">dst</span><span class="p">)</span>
-<a id="__codelineno-0-594" name="__codelineno-0-594"></a>
-<a id="__codelineno-0-595" name="__codelineno-0-595"></a>    <span class="c1"># SMELL: `init` and `n` default to the string `"nan"`, which</span>
-<a id="__codelineno-0-596" name="__codelineno-0-596"></a>    <span class="c1"># round-trips through GDAL as float NaN. For integer-typed</span>
-<a id="__codelineno-0-597" name="__codelineno-0-597"></a>    <span class="c1"># rasters (e.g. UInt16) GDAL emits a warning per band:</span>
-<a id="__codelineno-0-598" name="__codelineno-0-598"></a>    <span class="c1"># `Band data type of &lt;T&gt; cannot represent the specified NoData</span>
-<a id="__codelineno-0-599" name="__codelineno-0-599"></a>    <span class="c1"># value of nan`. The defaults are kept for backwards-compat</span>
-<a id="__codelineno-0-600" name="__codelineno-0-600"></a>    <span class="c1"># with the previous gdal_merge.main-based signature; callers</span>
-<a id="__codelineno-0-601" name="__codelineno-0-601"></a>    <span class="c1"># that hit integer rasters should pass an explicit numeric</span>
-<a id="__codelineno-0-602" name="__codelineno-0-602"></a>    <span class="c1"># value instead of relying on the default.</span>
-<a id="__codelineno-0-603" name="__codelineno-0-603"></a>    <span class="n">src_paths</span> <span class="o">=</span> <span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">p</span><span class="p">)</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">src</span><span class="p">]</span>
-<a id="__codelineno-0-604" name="__codelineno-0-604"></a>    <span class="k">if</span> <span class="n">signer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-605" name="__codelineno-0-605"></a>        <span class="c1"># Apply the signer's href rewrite to every source (e.g. graft a SAS</span>
-<a id="__codelineno-0-606" name="__codelineno-0-606"></a>        <span class="c1"># token onto a blob URL) so URL-signing signers authenticate. A no-op</span>
-<a id="__codelineno-0-607" name="__codelineno-0-607"></a>        <span class="c1"># for signers that authenticate via gdal_env() only — the base</span>
-<a id="__codelineno-0-608" name="__codelineno-0-608"></a>        <span class="c1"># sign_href returns the href unchanged. This mirrors load_asset, which</span>
-<a id="__codelineno-0-609" name="__codelineno-0-609"></a>        <span class="c1"># applies BOTH signer hooks (sign_href + gdal_env); applying only the</span>
-<a id="__codelineno-0-610" name="__codelineno-0-610"></a>        <span class="c1"># env half here would silently read URL-signed sources unauthenticated.</span>
-<a id="__codelineno-0-611" name="__codelineno-0-611"></a>        <span class="n">src_paths</span> <span class="o">=</span> <span class="p">[</span><span class="n">signer</span><span class="o">.</span><span class="n">sign_href</span><span class="p">(</span><span class="n">p</span><span class="p">)</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">src_paths</span><span class="p">]</span>
-<a id="__codelineno-0-612" name="__codelineno-0-612"></a>
-<a id="__codelineno-0-613" name="__codelineno-0-613"></a>    <span class="c1"># All GDAL reads/writes run under the signer's cloud config (a no-op when</span>
-<a id="__codelineno-0-614" name="__codelineno-0-614"></a>    <span class="c1"># signer is None) so authenticated remote sources open with the right</span>
-<a id="__codelineno-0-615" name="__codelineno-0-615"></a>    <span class="c1"># credentials for the whole merge.</span>
-<a id="__codelineno-0-616" name="__codelineno-0-616"></a>    <span class="k">with</span> <span class="n">_cloud_config</span><span class="p">(</span><span class="n">signer</span><span class="p">,</span> <span class="n">path</span><span class="o">=</span><span class="n">src_paths</span><span class="p">):</span>
-<a id="__codelineno-0-617" name="__codelineno-0-617"></a>        <span class="c1"># Put every source on one CRS before compositing. The BuildVRT/Warp</span>
-<a id="__codelineno-0-618" name="__codelineno-0-618"></a>        <span class="c1"># mosaic below cannot reproject — it stitches pixel grids assuming a</span>
-<a id="__codelineno-0-619" name="__codelineno-0-619"></a>        <span class="c1"># shared CRS — so mismatched sources must be warped first or they would</span>
-<a id="__codelineno-0-620" name="__codelineno-0-620"></a>        <span class="c1"># mis-align silently. `_keepalive` holds the in-memory warped VRTs so</span>
-<a id="__codelineno-0-621" name="__codelineno-0-621"></a>        <span class="c1"># GDAL does not free them while the mosaic is built.</span>
-<a id="__codelineno-0-622" name="__codelineno-0-622"></a>        <span class="n">sources</span><span class="p">,</span> <span class="n">_keepalive</span> <span class="o">=</span> <span class="n">_prepare_sources</span><span class="p">(</span><span class="n">src_paths</span><span class="p">,</span> <span class="n">dst_crs</span><span class="p">,</span> <span class="n">resampling</span><span class="p">)</span>
-<a id="__codelineno-0-623" name="__codelineno-0-623"></a>
-<a id="__codelineno-0-624" name="__codelineno-0-624"></a>        <span class="k">if</span> <span class="n">method</span> <span class="ow">in</span> <span class="n">_REDUCE_METHODS</span><span class="p">:</span>
-<a id="__codelineno-0-625" name="__codelineno-0-625"></a>            <span class="n">_merge_reduce</span><span class="p">(</span><span class="n">sources</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">dst</span><span class="p">),</span> <span class="n">method</span><span class="p">,</span> <span class="n">no_data_value</span><span class="p">,</span> <span class="n">n</span><span class="p">,</span> <span class="n">bbox</span><span class="p">,</span> <span class="n">bbox_crs</span><span class="p">)</span>
-<a id="__codelineno-0-626" name="__codelineno-0-626"></a>            <span class="k">return</span>
-<a id="__codelineno-0-627" name="__codelineno-0-627"></a>
-<a id="__codelineno-0-628" name="__codelineno-0-628"></a>        <span class="c1"># z-order: "last" keeps natural order (last source wins); "first"</span>
-<a id="__codelineno-0-629" name="__codelineno-0-629"></a>        <span class="c1"># reverses so the original first source is placed last in the VRT and</span>
-<a id="__codelineno-0-630" name="__codelineno-0-630"></a>        <span class="c1"># therefore wins.</span>
-<a id="__codelineno-0-631" name="__codelineno-0-631"></a>        <span class="n">ordered</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="nb">reversed</span><span class="p">(</span><span class="n">sources</span><span class="p">))</span> <span class="k">if</span> <span class="n">method</span> <span class="o">==</span> <span class="s2">"first"</span> <span class="k">else</span> <span class="n">sources</span>
-<a id="__codelineno-0-632" name="__codelineno-0-632"></a>        <span class="n">vrt_opts</span> <span class="o">=</span> <span class="n">gdal</span><span class="o">.</span><span class="n">BuildVRTOptions</span><span class="p">(</span>
-<a id="__codelineno-0-633" name="__codelineno-0-633"></a>            <span class="n">srcNodata</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">n</span><span class="p">),</span>
-<a id="__codelineno-0-634" name="__codelineno-0-634"></a>            <span class="n">VRTNodata</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">init</span><span class="p">),</span>
-<a id="__codelineno-0-635" name="__codelineno-0-635"></a>        <span class="p">)</span>
-<a id="__codelineno-0-636" name="__codelineno-0-636"></a>        <span class="n">vrt_ds</span> <span class="o">=</span> <span class="n">gdal</span><span class="o">.</span><span class="n">BuildVRT</span><span class="p">(</span><span class="s2">""</span><span class="p">,</span> <span class="n">ordered</span><span class="p">,</span> <span class="n">options</span><span class="o">=</span><span class="n">vrt_opts</span><span class="p">)</span>
-<a id="__codelineno-0-637" name="__codelineno-0-637"></a>        <span class="k">if</span> <span class="n">vrt_ds</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-638" name="__codelineno-0-638"></a>            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span>
-<a id="__codelineno-0-639" name="__codelineno-0-639"></a>                <span class="sa">f</span><span class="s2">"gdal.BuildVRT returned None for sources </span><span class="si">{</span><span class="n">src_paths</span><span class="si">!r}</span><span class="s2">; "</span>
-<a id="__codelineno-0-640" name="__codelineno-0-640"></a>                <span class="s2">"check that all paths are readable rasters with consistent "</span>
-<a id="__codelineno-0-641" name="__codelineno-0-641"></a>                <span class="s2">"band counts and CRS."</span>
-<a id="__codelineno-0-642" name="__codelineno-0-642"></a>            <span class="p">)</span>
-<a id="__codelineno-0-643" name="__codelineno-0-643"></a>        <span class="n">proj_win</span> <span class="o">=</span> <span class="kc">None</span>
-<a id="__codelineno-0-644" name="__codelineno-0-644"></a>        <span class="k">if</span> <span class="n">bbox</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-645" name="__codelineno-0-645"></a>            <span class="c1"># Resolve the window here, in the mosaic's own CRS, and hand Translate a</span>
-<a id="__codelineno-0-646" name="__codelineno-0-646"></a>            <span class="c1"># `projWin` that already lies on the mosaic's pixel boundaries -- rather</span>
-<a id="__codelineno-0-647" name="__codelineno-0-647"></a>            <span class="c1"># than passing the caller's bbox with `projWinSRS` and letting GDAL</span>
-<a id="__codelineno-0-648" name="__codelineno-0-648"></a>            <span class="c1"># reproject it. Two independent reprojections of the same window round to</span>
-<a id="__codelineno-0-649" name="__codelineno-0-649"></a>            <span class="c1"># opposite sides of a pixel edge, and the two merge paths then return</span>
-<a id="__codelineno-0-650" name="__codelineno-0-650"></a>            <span class="c1"># different rasters for identical arguments (measured 3x3 at x=111364.8</span>
-<a id="__codelineno-0-651" name="__codelineno-0-651"></a>            <span class="c1"># against 4x3 at x=0.0 for `dst_crs=3857`). One resolver for both paths</span>
-<a id="__codelineno-0-652" name="__codelineno-0-652"></a>            <span class="c1"># makes them agree by construction, and `_restrict_grid` also rejects a</span>
-<a id="__codelineno-0-653" name="__codelineno-0-653"></a>            <span class="c1"># disjoint window, which GDAL does not: it writes a 1x1 no-data raster at</span>
-<a id="__codelineno-0-654" name="__codelineno-0-654"></a>            <span class="c1"># the window's origin, which reads back as a successful merge of nothing.</span>
-<a id="__codelineno-0-655" name="__codelineno-0-655"></a>            <span class="n">clipped</span><span class="p">,</span> <span class="n">window_x</span><span class="p">,</span> <span class="n">window_y</span> <span class="o">=</span> <span class="n">_restrict_grid</span><span class="p">(</span>
-<a id="__codelineno-0-656" name="__codelineno-0-656"></a>                <span class="n">vrt_ds</span><span class="o">.</span><span class="n">GetGeoTransform</span><span class="p">(),</span>
-<a id="__codelineno-0-657" name="__codelineno-0-657"></a>                <span class="n">vrt_ds</span><span class="o">.</span><span class="n">RasterXSize</span><span class="p">,</span>
-<a id="__codelineno-0-658" name="__codelineno-0-658"></a>                <span class="n">vrt_ds</span><span class="o">.</span><span class="n">RasterYSize</span><span class="p">,</span>
-<a id="__codelineno-0-659" name="__codelineno-0-659"></a>                <span class="n">vrt_ds</span><span class="o">.</span><span class="n">GetProjection</span><span class="p">(),</span>
-<a id="__codelineno-0-660" name="__codelineno-0-660"></a>                <span class="n">bbox</span><span class="p">,</span>
-<a id="__codelineno-0-661" name="__codelineno-0-661"></a>                <span class="n">bbox_crs</span><span class="p">,</span>
-<a id="__codelineno-0-662" name="__codelineno-0-662"></a>            <span class="p">)</span>
-<a id="__codelineno-0-663" name="__codelineno-0-663"></a>            <span class="c1"># (ulx, uly, lrx, lry) — already snapped, so GDAL's own rounding is a</span>
-<a id="__codelineno-0-664" name="__codelineno-0-664"></a>            <span class="c1"># no-op and the output grid matches the reduction path's exactly.</span>
-<a id="__codelineno-0-665" name="__codelineno-0-665"></a>            <span class="n">proj_win</span> <span class="o">=</span> <span class="p">[</span>
-<a id="__codelineno-0-666" name="__codelineno-0-666"></a>                <span class="n">clipped</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
-<a id="__codelineno-0-667" name="__codelineno-0-667"></a>                <span class="n">clipped</span><span class="p">[</span><span class="mi">3</span><span class="p">],</span>
-<a id="__codelineno-0-668" name="__codelineno-0-668"></a>                <span class="n">clipped</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="n">window_x</span> <span class="o">*</span> <span class="n">clipped</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
-<a id="__codelineno-0-669" name="__codelineno-0-669"></a>                <span class="n">clipped</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="o">+</span> <span class="n">window_y</span> <span class="o">*</span> <span class="n">clipped</span><span class="p">[</span><span class="mi">5</span><span class="p">],</span>
-<a id="__codelineno-0-670" name="__codelineno-0-670"></a>            <span class="p">]</span>
-<a id="__codelineno-0-671" name="__codelineno-0-671"></a>
-<a id="__codelineno-0-672" name="__codelineno-0-672"></a>        <span class="c1"># `projWin` is what stops the read at the window: without it GDAL has no</span>
-<a id="__codelineno-0-673" name="__codelineno-0-673"></a>        <span class="c1"># reason to restrict what it pulls through /vsicurl and materialises the</span>
-<a id="__codelineno-0-674" name="__codelineno-0-674"></a>        <span class="c1"># whole mosaic extent.</span>
-<a id="__codelineno-0-675" name="__codelineno-0-675"></a>        <span class="c1"># Hand gdal.Translate the driver the catalog resolved rather than</span>
-<a id="__codelineno-0-676" name="__codelineno-0-676"></a>        <span class="c1"># letting it re-infer from the extension. The two tables disagree: the</span>
-<a id="__codelineno-0-677" name="__codelineno-0-677"></a>        <span class="c1"># catalog knows `.nc4` as a netCDF alias, GDAL's netCDF driver</span>
-<a id="__codelineno-0-678" name="__codelineno-0-678"></a>        <span class="c1"># advertises only `nc`, so the same `dst` wrote a netCDF through the</span>
-<a id="__codelineno-0-679" name="__codelineno-0-679"></a>        <span class="c1"># reduction path and died with "Could not identify an output driver"</span>
-<a id="__codelineno-0-680" name="__codelineno-0-680"></a>        <span class="c1"># here -- the format depending on `method` again, which is exactly what</span>
-<a id="__codelineno-0-681" name="__codelineno-0-681"></a>        <span class="c1"># resolving once was meant to stop.</span>
-<a id="__codelineno-0-682" name="__codelineno-0-682"></a>        <span class="c1"># Strict gate, not `for_copy`: this method has two write paths and the</span>
-<a id="__codelineno-0-683" name="__codelineno-0-683"></a>        <span class="c1"># other builds with `Create`. Relaxing only this one would make `.png`</span>
-<a id="__codelineno-0-684" name="__codelineno-0-684"></a>        <span class="c1"># legal for method="last" and illegal for method="min" -- the very</span>
-<a id="__codelineno-0-685" name="__codelineno-0-685"></a>        <span class="c1"># asymmetry the shared resolution above exists to remove.</span>
-<a id="__codelineno-0-686" name="__codelineno-0-686"></a>        <span class="n">out_driver</span> <span class="o">=</span> <span class="n">resolve_output_driver</span><span class="p">(</span><span class="n">dst</span><span class="p">)</span>
-<a id="__codelineno-0-687" name="__codelineno-0-687"></a>        <span class="c1"># LZW is a GTiff creation option; other drivers reject it.</span>
-<a id="__codelineno-0-688" name="__codelineno-0-688"></a>        <span class="n">translate_opts</span> <span class="o">=</span> <span class="n">gdal</span><span class="o">.</span><span class="n">TranslateOptions</span><span class="p">(</span>
-<a id="__codelineno-0-689" name="__codelineno-0-689"></a>            <span class="nb">format</span><span class="o">=</span><span class="n">out_driver</span><span class="p">,</span>
-<a id="__codelineno-0-690" name="__codelineno-0-690"></a>            <span class="n">creationOptions</span><span class="o">=</span><span class="p">[</span><span class="s2">"COMPRESS=LZW"</span><span class="p">]</span> <span class="k">if</span> <span class="n">out_driver</span> <span class="o">==</span> <span class="s2">"GTiff"</span> <span class="k">else</span> <span class="p">[],</span>
-<a id="__codelineno-0-691" name="__codelineno-0-691"></a>            <span class="n">noData</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">no_data_value</span><span class="p">),</span>
-<a id="__codelineno-0-692" name="__codelineno-0-692"></a>            <span class="n">projWin</span><span class="o">=</span><span class="n">proj_win</span><span class="p">,</span>
-<a id="__codelineno-0-693" name="__codelineno-0-693"></a>        <span class="p">)</span>
-<a id="__codelineno-0-694" name="__codelineno-0-694"></a>        <span class="n">out_ds</span> <span class="o">=</span> <span class="n">gdal</span><span class="o">.</span><span class="n">Translate</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">dst</span><span class="p">),</span> <span class="n">vrt_ds</span><span class="p">,</span> <span class="n">options</span><span class="o">=</span><span class="n">translate_opts</span><span class="p">)</span>
-<a id="__codelineno-0-695" name="__codelineno-0-695"></a>        <span class="k">if</span> <span class="n">out_ds</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-696" name="__codelineno-0-696"></a>            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span>
-<a id="__codelineno-0-697" name="__codelineno-0-697"></a>                <span class="sa">f</span><span class="s2">"gdal.Translate returned None writing the mosaic to </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">dst</span><span class="p">)</span><span class="si">!r}</span><span class="s2">."</span>
-<a id="__codelineno-0-698" name="__codelineno-0-698"></a>            <span class="p">)</span>
-<a id="__codelineno-0-699" name="__codelineno-0-699"></a>        <span class="n">out_ds</span><span class="o">.</span><span class="n">FlushCache</span><span class="p">()</span>
-<a id="__codelineno-0-700" name="__codelineno-0-700"></a>        <span class="n">out_ds</span> <span class="o">=</span> <span class="kc">None</span>
-<a id="__codelineno-0-701" name="__codelineno-0-701"></a>        <span class="n">vrt_ds</span> <span class="o">=</span> <span class="kc">None</span>
+<a id="__codelineno-0-492" name="__codelineno-0-492"></a><span class="sd">            For a lon/lat mosaic the window is rewritten into the mosaic's own</span>
+<a id="__codelineno-0-493" name="__codelineno-0-493"></a><span class="sd">            longitude convention first, so a ``-180..180`` bbox reads correctly</span>
+<a id="__codelineno-0-494" name="__codelineno-0-494"></a><span class="sd">            against a ``0..360`` grid (and the reverse). A window that ends up</span>
+<a id="__codelineno-0-495" name="__codelineno-0-495"></a><span class="sd">            spanning that convention's seam is rejected on the same grounds as an</span>
+<a id="__codelineno-0-496" name="__codelineno-0-496"></a><span class="sd">            antimeridian one. A window extending past the mosaic is clipped to it;</span>
+<a id="__codelineno-0-497" name="__codelineno-0-497"></a><span class="sd">            one that misses it entirely raises.</span>
+<a id="__codelineno-0-498" name="__codelineno-0-498"></a><span class="sd">        bbox_crs (int | str | None):</span>
+<a id="__codelineno-0-499" name="__codelineno-0-499"></a><span class="sd">            CRS that ``bbox`` is expressed in — an EPSG code (``4326``), an</span>
+<a id="__codelineno-0-500" name="__codelineno-0-500"></a><span class="sd">            authority string (``"EPSG:4326"``), a WKT, or anything</span>
+<a id="__codelineno-0-501" name="__codelineno-0-501"></a><span class="sd">            :meth:`pyproj.CRS.from_user_input` accepts. ``None`` (default) means</span>
+<a id="__codelineno-0-502" name="__codelineno-0-502"></a><span class="sd">            ``bbox`` is already in the mosaic's own CRS — which, when ``dst_crs``</span>
+<a id="__codelineno-0-503" name="__codelineno-0-503"></a><span class="sd">            is given, is ``dst_crs``, since sources are reprojected before the</span>
+<a id="__codelineno-0-504" name="__codelineno-0-504"></a><span class="sd">            window is applied. Ignored when ``bbox`` is ``None``. Named to match</span>
+<a id="__codelineno-0-505" name="__codelineno-0-505"></a><span class="sd">            :meth:`pyramids.dataset.engines.cog.COG.read_part`.</span>
+<a id="__codelineno-0-506" name="__codelineno-0-506"></a>
+<a id="__codelineno-0-507" name="__codelineno-0-507"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-508" name="__codelineno-0-508"></a><span class="sd">        None</span>
+<a id="__codelineno-0-509" name="__codelineno-0-509"></a>
+<a id="__codelineno-0-510" name="__codelineno-0-510"></a><span class="sd">    Note:</span>
+<a id="__codelineno-0-511" name="__codelineno-0-511"></a><span class="sd">        The z-order methods (``"first"``/``"last"``) preserve each source's data</span>
+<a id="__codelineno-0-512" name="__codelineno-0-512"></a><span class="sd">        type via ``BuildVRT`` + ``Translate``. The reduction methods</span>
+<a id="__codelineno-0-513" name="__codelineno-0-513"></a><span class="sd">        (``"min"``/``"max"``/``"sum"``) align every source onto the union grid</span>
+<a id="__codelineno-0-514" name="__codelineno-0-514"></a><span class="sd">        with ``gdal.Warp`` (nearest resampling — exact for already-aligned tiles)</span>
+<a id="__codelineno-0-515" name="__codelineno-0-515"></a><span class="sd">        and write a single-precision-safe **Float64** output regardless of the</span>
+<a id="__codelineno-0-516" name="__codelineno-0-516"></a><span class="sd">        source dtype, so they may differ in dtype from a z-order merge of the</span>
+<a id="__codelineno-0-517" name="__codelineno-0-517"></a><span class="sd">        same integer inputs.</span>
+<a id="__codelineno-0-518" name="__codelineno-0-518"></a>
+<a id="__codelineno-0-519" name="__codelineno-0-519"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-520" name="__codelineno-0-520"></a><span class="sd">        TypeError: ``resampling`` is not a string, or ``bbox`` is not four numbers</span>
+<a id="__codelineno-0-521" name="__codelineno-0-521"></a><span class="sd">            (a string, a scalar, or a sequence holding a non-numeric element).</span>
+<a id="__codelineno-0-522" name="__codelineno-0-522"></a><span class="sd">        ValueError: ``method``/``resampling`` is not a supported value,</span>
+<a id="__codelineno-0-523" name="__codelineno-0-523"></a><span class="sd">            ``dst_crs`` cannot be parsed as a CRS, a source carries no CRS, or</span>
+<a id="__codelineno-0-524" name="__codelineno-0-524"></a><span class="sd">            ``bbox`` is malformed (wrong length, non-finite, inverted, zero-area),</span>
+<a id="__codelineno-0-525" name="__codelineno-0-525"></a><span class="sd">            crosses the antimeridian or the mosaic's longitude seam once</span>
+<a id="__codelineno-0-526" name="__codelineno-0-526"></a><span class="sd">            reprojected, selects no whole pixel, does not overlap the mosaic, or</span>
+<a id="__codelineno-0-527" name="__codelineno-0-527"></a><span class="sd">            cannot be projected into its CRS.</span>
+<a id="__codelineno-0-528" name="__codelineno-0-528"></a><span class="sd">        RuntimeError: GDAL failed to open a source, reproject it, or build the</span>
+<a id="__codelineno-0-529" name="__codelineno-0-529"></a><span class="sd">            source mosaic.</span>
+<a id="__codelineno-0-530" name="__codelineno-0-530"></a><span class="sd">        DriverNotExistError: `dst` has no extension, or one the driver catalog</span>
+<a id="__codelineno-0-531" name="__codelineno-0-531"></a><span class="sd">            does not know.</span>
+<a id="__codelineno-0-532" name="__codelineno-0-532"></a><span class="sd">        FileFormatNotSupportedError: `dst`'s extension maps to a</span>
+<a id="__codelineno-0-533" name="__codelineno-0-533"></a><span class="sd">            write-by-copy-only format, for any `method`.</span>
+<a id="__codelineno-0-534" name="__codelineno-0-534"></a>
+<a id="__codelineno-0-535" name="__codelineno-0-535"></a><span class="sd">    Examples:</span>
+<a id="__codelineno-0-536" name="__codelineno-0-536"></a><span class="sd">        - Mosaic two tiles, keeping the larger value wherever they overlap:</span>
+<a id="__codelineno-0-537" name="__codelineno-0-537"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-538" name="__codelineno-0-538"></a><span class="sd">            &gt;&gt;&gt; from pyramids.dataset.merge import merge_rasters</span>
+<a id="__codelineno-0-539" name="__codelineno-0-539"></a><span class="sd">            &gt;&gt;&gt; merge_rasters(  # doctest: +SKIP</span>
+<a id="__codelineno-0-540" name="__codelineno-0-540"></a><span class="sd">            ...     ["tile_a.tif", "tile_b.tif"],</span>
+<a id="__codelineno-0-541" name="__codelineno-0-541"></a><span class="sd">            ...     "mosaic_max.tif",</span>
+<a id="__codelineno-0-542" name="__codelineno-0-542"></a><span class="sd">            ...     no_data_value=-9999.0,</span>
+<a id="__codelineno-0-543" name="__codelineno-0-543"></a><span class="sd">            ...     method="max",</span>
+<a id="__codelineno-0-544" name="__codelineno-0-544"></a><span class="sd">            ... )</span>
+<a id="__codelineno-0-545" name="__codelineno-0-545"></a>
+<a id="__codelineno-0-546" name="__codelineno-0-546"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-547" name="__codelineno-0-547"></a><span class="sd">        - Default last-wins compositing (unchanged from the previous behaviour):</span>
+<a id="__codelineno-0-548" name="__codelineno-0-548"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-549" name="__codelineno-0-549"></a><span class="sd">            &gt;&gt;&gt; merge_rasters(["tile_a.tif", "tile_b.tif"], "mosaic.tif")  # doctest: +SKIP</span>
+<a id="__codelineno-0-550" name="__codelineno-0-550"></a>
+<a id="__codelineno-0-551" name="__codelineno-0-551"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-552" name="__codelineno-0-552"></a><span class="sd">        - Mosaic tiles from two UTM zones into a single CRS:</span>
+<a id="__codelineno-0-553" name="__codelineno-0-553"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-554" name="__codelineno-0-554"></a><span class="sd">            &gt;&gt;&gt; merge_rasters(  # doctest: +SKIP</span>
+<a id="__codelineno-0-555" name="__codelineno-0-555"></a><span class="sd">            ...     ["utm32_tile.tif", "utm33_tile.tif"],</span>
+<a id="__codelineno-0-556" name="__codelineno-0-556"></a><span class="sd">            ...     "mosaic_utm32.tif",</span>
+<a id="__codelineno-0-557" name="__codelineno-0-557"></a><span class="sd">            ...     dst_crs=32632,</span>
+<a id="__codelineno-0-558" name="__codelineno-0-558"></a><span class="sd">            ... )</span>
+<a id="__codelineno-0-559" name="__codelineno-0-559"></a>
+<a id="__codelineno-0-560" name="__codelineno-0-560"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-561" name="__codelineno-0-561"></a><span class="sd">        - Mosaic Requester-Pays S3 tiles by passing a signer (no ``with`` block):</span>
+<a id="__codelineno-0-562" name="__codelineno-0-562"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-563" name="__codelineno-0-563"></a><span class="sd">            &gt;&gt;&gt; from pyramids.stac import AWSRequesterPaysSigner  # doctest: +SKIP</span>
+<a id="__codelineno-0-564" name="__codelineno-0-564"></a><span class="sd">            &gt;&gt;&gt; merge_rasters(  # doctest: +SKIP</span>
+<a id="__codelineno-0-565" name="__codelineno-0-565"></a><span class="sd">            ...     ["s3://bucket/a.tif", "s3://bucket/b.tif"],</span>
+<a id="__codelineno-0-566" name="__codelineno-0-566"></a><span class="sd">            ...     "mosaic.tif",</span>
+<a id="__codelineno-0-567" name="__codelineno-0-567"></a><span class="sd">            ...     signer=AWSRequesterPaysSigner(region="us-west-2"),</span>
+<a id="__codelineno-0-568" name="__codelineno-0-568"></a><span class="sd">            ... )</span>
+<a id="__codelineno-0-569" name="__codelineno-0-569"></a>
+<a id="__codelineno-0-570" name="__codelineno-0-570"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-571" name="__codelineno-0-571"></a><span class="sd">    """</span>
+<a id="__codelineno-0-572" name="__codelineno-0-572"></a>    <span class="k">if</span> <span class="n">method</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_MERGE_METHODS</span><span class="p">:</span>
+<a id="__codelineno-0-573" name="__codelineno-0-573"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-574" name="__codelineno-0-574"></a>            <span class="sa">f</span><span class="s2">"method must be one of </span><span class="si">{</span><span class="nb">list</span><span class="p">(</span><span class="n">_MERGE_METHODS</span><span class="p">)</span><span class="si">}</span><span class="s2">, got </span><span class="si">{</span><span class="n">method</span><span class="si">!r}</span><span class="s2">."</span>
+<a id="__codelineno-0-575" name="__codelineno-0-575"></a>        <span class="p">)</span>
+<a id="__codelineno-0-576" name="__codelineno-0-576"></a>    <span class="c1"># Resolve `dst` here, before anything is opened. Both write paths resolve it</span>
+<a id="__codelineno-0-577" name="__codelineno-0-577"></a>    <span class="c1"># again where they need the driver name, but a destination the catalog</span>
+<a id="__codelineno-0-578" name="__codelineno-0-578"></a>    <span class="c1"># cannot answer for is a pure argument error -- and it used to be reported</span>
+<a id="__codelineno-0-579" name="__codelineno-0-579"></a>    <span class="c1"># only after every source had been opened and possibly reprojected, which</span>
+<a id="__codelineno-0-580" name="__codelineno-0-580"></a>    <span class="c1"># for /vsicurl/ inputs is network work spent to reach a typo. It also</span>
+<a id="__codelineno-0-581" name="__codelineno-0-581"></a>    <span class="c1"># reported at two different points depending on `method`.</span>
+<a id="__codelineno-0-582" name="__codelineno-0-582"></a>    <span class="c1"># Resolved here so a destination the catalog cannot answer for fails</span>
+<a id="__codelineno-0-583" name="__codelineno-0-583"></a>    <span class="c1"># before any source is opened, and so both write paths below agree. They</span>
+<a id="__codelineno-0-584" name="__codelineno-0-584"></a>    <span class="c1"># call it again where they need the name; it is a cached catalog lookup, so</span>
+<a id="__codelineno-0-585" name="__codelineno-0-585"></a>    <span class="c1"># the repeat is free and keeps each path readable on its own.</span>
+<a id="__codelineno-0-586" name="__codelineno-0-586"></a>    <span class="n">resolve_output_driver</span><span class="p">(</span><span class="n">dst</span><span class="p">)</span>
+<a id="__codelineno-0-587" name="__codelineno-0-587"></a>
+<a id="__codelineno-0-588" name="__codelineno-0-588"></a>    <span class="c1"># SMELL: `init` and `n` default to the string `"nan"`, which</span>
+<a id="__codelineno-0-589" name="__codelineno-0-589"></a>    <span class="c1"># round-trips through GDAL as float NaN. For integer-typed</span>
+<a id="__codelineno-0-590" name="__codelineno-0-590"></a>    <span class="c1"># rasters (e.g. UInt16) GDAL emits a warning per band:</span>
+<a id="__codelineno-0-591" name="__codelineno-0-591"></a>    <span class="c1"># `Band data type of &lt;T&gt; cannot represent the specified NoData</span>
+<a id="__codelineno-0-592" name="__codelineno-0-592"></a>    <span class="c1"># value of nan`. The defaults are kept for backwards-compat</span>
+<a id="__codelineno-0-593" name="__codelineno-0-593"></a>    <span class="c1"># with the previous gdal_merge.main-based signature; callers</span>
+<a id="__codelineno-0-594" name="__codelineno-0-594"></a>    <span class="c1"># that hit integer rasters should pass an explicit numeric</span>
+<a id="__codelineno-0-595" name="__codelineno-0-595"></a>    <span class="c1"># value instead of relying on the default.</span>
+<a id="__codelineno-0-596" name="__codelineno-0-596"></a>    <span class="n">src_paths</span> <span class="o">=</span> <span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">p</span><span class="p">)</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">src</span><span class="p">]</span>
+<a id="__codelineno-0-597" name="__codelineno-0-597"></a>    <span class="k">if</span> <span class="n">signer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-598" name="__codelineno-0-598"></a>        <span class="c1"># Apply the signer's href rewrite to every source (e.g. graft a SAS</span>
+<a id="__codelineno-0-599" name="__codelineno-0-599"></a>        <span class="c1"># token onto a blob URL) so URL-signing signers authenticate. A no-op</span>
+<a id="__codelineno-0-600" name="__codelineno-0-600"></a>        <span class="c1"># for signers that authenticate via gdal_env() only — the base</span>
+<a id="__codelineno-0-601" name="__codelineno-0-601"></a>        <span class="c1"># sign_href returns the href unchanged. This mirrors load_asset, which</span>
+<a id="__codelineno-0-602" name="__codelineno-0-602"></a>        <span class="c1"># applies BOTH signer hooks (sign_href + gdal_env); applying only the</span>
+<a id="__codelineno-0-603" name="__codelineno-0-603"></a>        <span class="c1"># env half here would silently read URL-signed sources unauthenticated.</span>
+<a id="__codelineno-0-604" name="__codelineno-0-604"></a>        <span class="n">src_paths</span> <span class="o">=</span> <span class="p">[</span><span class="n">signer</span><span class="o">.</span><span class="n">sign_href</span><span class="p">(</span><span class="n">p</span><span class="p">)</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">src_paths</span><span class="p">]</span>
+<a id="__codelineno-0-605" name="__codelineno-0-605"></a>
+<a id="__codelineno-0-606" name="__codelineno-0-606"></a>    <span class="c1"># All GDAL reads/writes run under the signer's cloud config (a no-op when</span>
+<a id="__codelineno-0-607" name="__codelineno-0-607"></a>    <span class="c1"># signer is None) so authenticated remote sources open with the right</span>
+<a id="__codelineno-0-608" name="__codelineno-0-608"></a>    <span class="c1"># credentials for the whole merge.</span>
+<a id="__codelineno-0-609" name="__codelineno-0-609"></a>    <span class="k">with</span> <span class="n">_cloud_config</span><span class="p">(</span><span class="n">signer</span><span class="p">,</span> <span class="n">path</span><span class="o">=</span><span class="n">src_paths</span><span class="p">):</span>
+<a id="__codelineno-0-610" name="__codelineno-0-610"></a>        <span class="c1"># Put every source on one CRS before compositing. The BuildVRT/Warp</span>
+<a id="__codelineno-0-611" name="__codelineno-0-611"></a>        <span class="c1"># mosaic below cannot reproject — it stitches pixel grids assuming a</span>
+<a id="__codelineno-0-612" name="__codelineno-0-612"></a>        <span class="c1"># shared CRS — so mismatched sources must be warped first or they would</span>
+<a id="__codelineno-0-613" name="__codelineno-0-613"></a>        <span class="c1"># mis-align silently. `_keepalive` holds the in-memory warped VRTs so</span>
+<a id="__codelineno-0-614" name="__codelineno-0-614"></a>        <span class="c1"># GDAL does not free them while the mosaic is built.</span>
+<a id="__codelineno-0-615" name="__codelineno-0-615"></a>        <span class="n">sources</span><span class="p">,</span> <span class="n">_keepalive</span> <span class="o">=</span> <span class="n">_prepare_sources</span><span class="p">(</span><span class="n">src_paths</span><span class="p">,</span> <span class="n">dst_crs</span><span class="p">,</span> <span class="n">resampling</span><span class="p">)</span>
+<a id="__codelineno-0-616" name="__codelineno-0-616"></a>
+<a id="__codelineno-0-617" name="__codelineno-0-617"></a>        <span class="k">if</span> <span class="n">method</span> <span class="ow">in</span> <span class="n">_REDUCE_METHODS</span><span class="p">:</span>
+<a id="__codelineno-0-618" name="__codelineno-0-618"></a>            <span class="n">_merge_reduce</span><span class="p">(</span><span class="n">sources</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">dst</span><span class="p">),</span> <span class="n">method</span><span class="p">,</span> <span class="n">no_data_value</span><span class="p">,</span> <span class="n">n</span><span class="p">,</span> <span class="n">bbox</span><span class="p">,</span> <span class="n">bbox_crs</span><span class="p">)</span>
+<a id="__codelineno-0-619" name="__codelineno-0-619"></a>            <span class="k">return</span>
+<a id="__codelineno-0-620" name="__codelineno-0-620"></a>
+<a id="__codelineno-0-621" name="__codelineno-0-621"></a>        <span class="c1"># z-order: "last" keeps natural order (last source wins); "first"</span>
+<a id="__codelineno-0-622" name="__codelineno-0-622"></a>        <span class="c1"># reverses so the original first source is placed last in the VRT and</span>
+<a id="__codelineno-0-623" name="__codelineno-0-623"></a>        <span class="c1"># therefore wins.</span>
+<a id="__codelineno-0-624" name="__codelineno-0-624"></a>        <span class="n">ordered</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="nb">reversed</span><span class="p">(</span><span class="n">sources</span><span class="p">))</span> <span class="k">if</span> <span class="n">method</span> <span class="o">==</span> <span class="s2">"first"</span> <span class="k">else</span> <span class="n">sources</span>
+<a id="__codelineno-0-625" name="__codelineno-0-625"></a>        <span class="n">vrt_opts</span> <span class="o">=</span> <span class="n">gdal</span><span class="o">.</span><span class="n">BuildVRTOptions</span><span class="p">(</span>
+<a id="__codelineno-0-626" name="__codelineno-0-626"></a>            <span class="n">srcNodata</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">n</span><span class="p">),</span>
+<a id="__codelineno-0-627" name="__codelineno-0-627"></a>            <span class="n">VRTNodata</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">init</span><span class="p">),</span>
+<a id="__codelineno-0-628" name="__codelineno-0-628"></a>        <span class="p">)</span>
+<a id="__codelineno-0-629" name="__codelineno-0-629"></a>        <span class="n">vrt_ds</span> <span class="o">=</span> <span class="n">gdal</span><span class="o">.</span><span class="n">BuildVRT</span><span class="p">(</span><span class="s2">""</span><span class="p">,</span> <span class="n">ordered</span><span class="p">,</span> <span class="n">options</span><span class="o">=</span><span class="n">vrt_opts</span><span class="p">)</span>
+<a id="__codelineno-0-630" name="__codelineno-0-630"></a>        <span class="k">if</span> <span class="n">vrt_ds</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-631" name="__codelineno-0-631"></a>            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span>
+<a id="__codelineno-0-632" name="__codelineno-0-632"></a>                <span class="sa">f</span><span class="s2">"gdal.BuildVRT returned None for sources </span><span class="si">{</span><span class="n">src_paths</span><span class="si">!r}</span><span class="s2">; "</span>
+<a id="__codelineno-0-633" name="__codelineno-0-633"></a>                <span class="s2">"check that all paths are readable rasters with consistent "</span>
+<a id="__codelineno-0-634" name="__codelineno-0-634"></a>                <span class="s2">"band counts and CRS."</span>
+<a id="__codelineno-0-635" name="__codelineno-0-635"></a>            <span class="p">)</span>
+<a id="__codelineno-0-636" name="__codelineno-0-636"></a>        <span class="n">proj_win</span> <span class="o">=</span> <span class="kc">None</span>
+<a id="__codelineno-0-637" name="__codelineno-0-637"></a>        <span class="k">if</span> <span class="n">bbox</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-638" name="__codelineno-0-638"></a>            <span class="c1"># Resolve the window here, in the mosaic's own CRS, and hand Translate a</span>
+<a id="__codelineno-0-639" name="__codelineno-0-639"></a>            <span class="c1"># `projWin` that already lies on the mosaic's pixel boundaries -- rather</span>
+<a id="__codelineno-0-640" name="__codelineno-0-640"></a>            <span class="c1"># than passing the caller's bbox with `projWinSRS` and letting GDAL</span>
+<a id="__codelineno-0-641" name="__codelineno-0-641"></a>            <span class="c1"># reproject it. Two independent reprojections of the same window round to</span>
+<a id="__codelineno-0-642" name="__codelineno-0-642"></a>            <span class="c1"># opposite sides of a pixel edge, and the two merge paths then return</span>
+<a id="__codelineno-0-643" name="__codelineno-0-643"></a>            <span class="c1"># different rasters for identical arguments (measured 3x3 at x=111364.8</span>
+<a id="__codelineno-0-644" name="__codelineno-0-644"></a>            <span class="c1"># against 4x3 at x=0.0 for `dst_crs=3857`). One resolver for both paths</span>
+<a id="__codelineno-0-645" name="__codelineno-0-645"></a>            <span class="c1"># makes them agree by construction, and `_restrict_grid` also rejects a</span>
+<a id="__codelineno-0-646" name="__codelineno-0-646"></a>            <span class="c1"># disjoint window, which GDAL does not: it writes a 1x1 no-data raster at</span>
+<a id="__codelineno-0-647" name="__codelineno-0-647"></a>            <span class="c1"># the window's origin, which reads back as a successful merge of nothing.</span>
+<a id="__codelineno-0-648" name="__codelineno-0-648"></a>            <span class="n">clipped</span><span class="p">,</span> <span class="n">window_x</span><span class="p">,</span> <span class="n">window_y</span> <span class="o">=</span> <span class="n">_restrict_grid</span><span class="p">(</span>
+<a id="__codelineno-0-649" name="__codelineno-0-649"></a>                <span class="n">vrt_ds</span><span class="o">.</span><span class="n">GetGeoTransform</span><span class="p">(),</span>
+<a id="__codelineno-0-650" name="__codelineno-0-650"></a>                <span class="n">vrt_ds</span><span class="o">.</span><span class="n">RasterXSize</span><span class="p">,</span>
+<a id="__codelineno-0-651" name="__codelineno-0-651"></a>                <span class="n">vrt_ds</span><span class="o">.</span><span class="n">RasterYSize</span><span class="p">,</span>
+<a id="__codelineno-0-652" name="__codelineno-0-652"></a>                <span class="n">vrt_ds</span><span class="o">.</span><span class="n">GetProjection</span><span class="p">(),</span>
+<a id="__codelineno-0-653" name="__codelineno-0-653"></a>                <span class="n">bbox</span><span class="p">,</span>
+<a id="__codelineno-0-654" name="__codelineno-0-654"></a>                <span class="n">bbox_crs</span><span class="p">,</span>
+<a id="__codelineno-0-655" name="__codelineno-0-655"></a>            <span class="p">)</span>
+<a id="__codelineno-0-656" name="__codelineno-0-656"></a>            <span class="c1"># (ulx, uly, lrx, lry) — already snapped, so GDAL's own rounding is a</span>
+<a id="__codelineno-0-657" name="__codelineno-0-657"></a>            <span class="c1"># no-op and the output grid matches the reduction path's exactly.</span>
+<a id="__codelineno-0-658" name="__codelineno-0-658"></a>            <span class="n">proj_win</span> <span class="o">=</span> <span class="p">[</span>
+<a id="__codelineno-0-659" name="__codelineno-0-659"></a>                <span class="n">clipped</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+<a id="__codelineno-0-660" name="__codelineno-0-660"></a>                <span class="n">clipped</span><span class="p">[</span><span class="mi">3</span><span class="p">],</span>
+<a id="__codelineno-0-661" name="__codelineno-0-661"></a>                <span class="n">clipped</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="n">window_x</span> <span class="o">*</span> <span class="n">clipped</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
+<a id="__codelineno-0-662" name="__codelineno-0-662"></a>                <span class="n">clipped</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="o">+</span> <span class="n">window_y</span> <span class="o">*</span> <span class="n">clipped</span><span class="p">[</span><span class="mi">5</span><span class="p">],</span>
+<a id="__codelineno-0-663" name="__codelineno-0-663"></a>            <span class="p">]</span>
+<a id="__codelineno-0-664" name="__codelineno-0-664"></a>
+<a id="__codelineno-0-665" name="__codelineno-0-665"></a>        <span class="c1"># `projWin` is what stops the read at the window: without it GDAL has no</span>
+<a id="__codelineno-0-666" name="__codelineno-0-666"></a>        <span class="c1"># reason to restrict what it pulls through /vsicurl and materialises the</span>
+<a id="__codelineno-0-667" name="__codelineno-0-667"></a>        <span class="c1"># whole mosaic extent.</span>
+<a id="__codelineno-0-668" name="__codelineno-0-668"></a>        <span class="c1"># Hand gdal.Translate the driver the catalog resolved rather than</span>
+<a id="__codelineno-0-669" name="__codelineno-0-669"></a>        <span class="c1"># letting it re-infer from the extension. The two tables disagree: the</span>
+<a id="__codelineno-0-670" name="__codelineno-0-670"></a>        <span class="c1"># catalog knows `.nc4` as a netCDF alias, GDAL's netCDF driver</span>
+<a id="__codelineno-0-671" name="__codelineno-0-671"></a>        <span class="c1"># advertises only `nc`, so the same `dst` wrote a netCDF through the</span>
+<a id="__codelineno-0-672" name="__codelineno-0-672"></a>        <span class="c1"># reduction path and died with "Could not identify an output driver"</span>
+<a id="__codelineno-0-673" name="__codelineno-0-673"></a>        <span class="c1"># here -- the format depending on `method` again, which is exactly what</span>
+<a id="__codelineno-0-674" name="__codelineno-0-674"></a>        <span class="c1"># resolving once was meant to stop.</span>
+<a id="__codelineno-0-675" name="__codelineno-0-675"></a>        <span class="c1"># Strict gate, not `for_copy`: this method has two write paths and the</span>
+<a id="__codelineno-0-676" name="__codelineno-0-676"></a>        <span class="c1"># other builds with `Create`. Relaxing only this one would make `.png`</span>
+<a id="__codelineno-0-677" name="__codelineno-0-677"></a>        <span class="c1"># legal for method="last" and illegal for method="min" -- the very</span>
+<a id="__codelineno-0-678" name="__codelineno-0-678"></a>        <span class="c1"># asymmetry the shared resolution above exists to remove.</span>
+<a id="__codelineno-0-679" name="__codelineno-0-679"></a>        <span class="n">out_driver</span> <span class="o">=</span> <span class="n">resolve_output_driver</span><span class="p">(</span><span class="n">dst</span><span class="p">)</span>
+<a id="__codelineno-0-680" name="__codelineno-0-680"></a>        <span class="c1"># LZW is a GTiff creation option; other drivers reject it.</span>
+<a id="__codelineno-0-681" name="__codelineno-0-681"></a>        <span class="n">translate_opts</span> <span class="o">=</span> <span class="n">gdal</span><span class="o">.</span><span class="n">TranslateOptions</span><span class="p">(</span>
+<a id="__codelineno-0-682" name="__codelineno-0-682"></a>            <span class="nb">format</span><span class="o">=</span><span class="n">out_driver</span><span class="p">,</span>
+<a id="__codelineno-0-683" name="__codelineno-0-683"></a>            <span class="n">creationOptions</span><span class="o">=</span><span class="p">[</span><span class="s2">"COMPRESS=LZW"</span><span class="p">]</span> <span class="k">if</span> <span class="n">out_driver</span> <span class="o">==</span> <span class="s2">"GTiff"</span> <span class="k">else</span> <span class="p">[],</span>
+<a id="__codelineno-0-684" name="__codelineno-0-684"></a>            <span class="n">noData</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">no_data_value</span><span class="p">),</span>
+<a id="__codelineno-0-685" name="__codelineno-0-685"></a>            <span class="n">projWin</span><span class="o">=</span><span class="n">proj_win</span><span class="p">,</span>
+<a id="__codelineno-0-686" name="__codelineno-0-686"></a>        <span class="p">)</span>
+<a id="__codelineno-0-687" name="__codelineno-0-687"></a>        <span class="n">out_ds</span> <span class="o">=</span> <span class="n">gdal</span><span class="o">.</span><span class="n">Translate</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">dst</span><span class="p">),</span> <span class="n">vrt_ds</span><span class="p">,</span> <span class="n">options</span><span class="o">=</span><span class="n">translate_opts</span><span class="p">)</span>
+<a id="__codelineno-0-688" name="__codelineno-0-688"></a>        <span class="k">if</span> <span class="n">out_ds</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-689" name="__codelineno-0-689"></a>            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span>
+<a id="__codelineno-0-690" name="__codelineno-0-690"></a>                <span class="sa">f</span><span class="s2">"gdal.Translate returned None writing the mosaic to </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">dst</span><span class="p">)</span><span class="si">!r}</span><span class="s2">."</span>
+<a id="__codelineno-0-691" name="__codelineno-0-691"></a>            <span class="p">)</span>
+<a id="__codelineno-0-692" name="__codelineno-0-692"></a>        <span class="n">out_ds</span><span class="o">.</span><span class="n">FlushCache</span><span class="p">()</span>
+<a id="__codelineno-0-693" name="__codelineno-0-693"></a>        <span class="n">out_ds</span> <span class="o">=</span> <span class="kc">None</span>
+<a id="__codelineno-0-694" name="__codelineno-0-694"></a>        <span class="n">vrt_ds</span> <span class="o">=</span> <span class="kc">None</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -7509,7 +7509,14 @@ write-by-copy-only format, whichever write path the inputs take.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/dataset/merge.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1092">1092</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1085">1085</a></span>
+<span class="normal"><a href="#__codelineno-0-1086">1086</a></span>
+<span class="normal"><a href="#__codelineno-0-1087">1087</a></span>
+<span class="normal"><a href="#__codelineno-0-1088">1088</a></span>
+<span class="normal"><a href="#__codelineno-0-1089">1089</a></span>
+<span class="normal"><a href="#__codelineno-0-1090">1090</a></span>
+<span class="normal"><a href="#__codelineno-0-1091">1091</a></span>
+<span class="normal"><a href="#__codelineno-0-1092">1092</a></span>
 <span class="normal"><a href="#__codelineno-0-1093">1093</a></span>
 <span class="normal"><a href="#__codelineno-0-1094">1094</a></span>
 <span class="normal"><a href="#__codelineno-0-1095">1095</a></span>
@@ -7560,72 +7567,65 @@ write-by-copy-only format, whichever write path the inputs take.</p>
 <span class="normal"><a href="#__codelineno-0-1140">1140</a></span>
 <span class="normal"><a href="#__codelineno-0-1141">1141</a></span>
 <span class="normal"><a href="#__codelineno-0-1142">1142</a></span>
-<span class="normal"><a href="#__codelineno-0-1143">1143</a></span>
-<span class="normal"><a href="#__codelineno-0-1144">1144</a></span>
-<span class="normal"><a href="#__codelineno-0-1145">1145</a></span>
-<span class="normal"><a href="#__codelineno-0-1146">1146</a></span>
-<span class="normal"><a href="#__codelineno-0-1147">1147</a></span>
-<span class="normal"><a href="#__codelineno-0-1148">1148</a></span>
-<span class="normal"><a href="#__codelineno-0-1149">1149</a></span>
-<span class="normal"><a href="#__codelineno-0-1150">1150</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1092" name="__codelineno-0-1092"></a><span class="k">def</span><span class="w"> </span><span class="nf">stack_bands</span><span class="p">(</span>
-<a id="__codelineno-0-1093" name="__codelineno-0-1093"></a>    <span class="n">files</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">],</span>
-<a id="__codelineno-0-1094" name="__codelineno-0-1094"></a>    <span class="o">*</span><span class="p">,</span>
-<a id="__codelineno-0-1095" name="__codelineno-0-1095"></a>    <span class="n">band_names</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-1096" name="__codelineno-0-1096"></a>    <span class="n">align</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
-<a id="__codelineno-0-1097" name="__codelineno-0-1097"></a>    <span class="n">no_data_value</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="n">_INHERIT_NO_DATA</span><span class="p">,</span>
-<a id="__codelineno-0-1098" name="__codelineno-0-1098"></a>    <span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-1099" name="__codelineno-0-1099"></a>    <span class="n">signer</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-1100" name="__codelineno-0-1100"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dataset</span><span class="p">:</span>
-<a id="__codelineno-0-1101" name="__codelineno-0-1101"></a><span class="w">    </span><span class="sd">"""Stack N single-band rasters into one multi-band :class:`Dataset`.</span>
-<a id="__codelineno-0-1102" name="__codelineno-0-1102"></a>
-<a id="__codelineno-0-1103" name="__codelineno-0-1103"></a><span class="sd">    Free-function alias for :meth:`pyramids.dataset.Dataset.from_band_files`</span>
-<a id="__codelineno-0-1104" name="__codelineno-0-1104"></a><span class="sd">    — see that method for the full contract, edge cases, and examples.</span>
-<a id="__codelineno-0-1105" name="__codelineno-0-1105"></a>
-<a id="__codelineno-0-1106" name="__codelineno-0-1106"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-1107" name="__codelineno-0-1107"></a><span class="sd">        files: Single-band raster paths/URLs to stack (order = band order).</span>
-<a id="__codelineno-0-1108" name="__codelineno-0-1108"></a><span class="sd">        band_names: Explicit per-band names; ``None`` derives them from the</span>
-<a id="__codelineno-0-1109" name="__codelineno-0-1109"></a><span class="sd">            file names.</span>
-<a id="__codelineno-0-1110" name="__codelineno-0-1110"></a><span class="sd">        align: When ``True``, resample mismatched inputs onto ``files[0]``'s</span>
-<a id="__codelineno-0-1111" name="__codelineno-0-1111"></a><span class="sd">            grid instead of raising :class:`~pyramids.base._errors.AlignmentError`.</span>
-<a id="__codelineno-0-1112" name="__codelineno-0-1112"></a><span class="sd">        no_data_value: No-data value for the output bands; omitted means</span>
-<a id="__codelineno-0-1113" name="__codelineno-0-1113"></a><span class="sd">            "inherit from the source rasters".</span>
-<a id="__codelineno-0-1114" name="__codelineno-0-1114"></a><span class="sd">        path: Output path, whose extension selects the driver (``.tif`` -&gt;</span>
-<a id="__codelineno-0-1115" name="__codelineno-0-1115"></a><span class="sd">            GTiff, ``.nc`` -&gt; netCDF, …); ``None`` keeps the result in memory.</span>
-<a id="__codelineno-0-1116" name="__codelineno-0-1116"></a><span class="sd">            `COMPRESS=LZW` is applied only when the extension resolves to</span>
-<a id="__codelineno-0-1117" name="__codelineno-0-1117"></a><span class="sd">            GTiff. A write-by-copy-only format such as PNG is refused — see</span>
-<a id="__codelineno-0-1118" name="__codelineno-0-1118"></a><span class="sd">            :meth:`pyramids.dataset.Dataset.from_band_files` for why both of</span>
-<a id="__codelineno-0-1119" name="__codelineno-0-1119"></a><span class="sd">            its write paths answer alike.</span>
-<a id="__codelineno-0-1120" name="__codelineno-0-1120"></a><span class="sd">        signer: Optional signer exposing ``sign_href(str) -&gt; str`` and</span>
-<a id="__codelineno-0-1121" name="__codelineno-0-1121"></a><span class="sd">            ``gdal_env() -&gt; dict[str, str]`` (e.g. a</span>
-<a id="__codelineno-0-1122" name="__codelineno-0-1122"></a><span class="sd">            :class:`pyramids.stac.signers.Signer`). When given, **both** hooks</span>
-<a id="__codelineno-0-1123" name="__codelineno-0-1123"></a><span class="sd">            are applied (as in :func:`pyramids.stac.load_asset`): every input</span>
-<a id="__codelineno-0-1124" name="__codelineno-0-1124"></a><span class="sd">            href is rewritten through ``signer.sign_href`` first, then</span>
-<a id="__codelineno-0-1125" name="__codelineno-0-1125"></a><span class="sd">            ``signer.gdal_env()`` is installed via</span>
-<a id="__codelineno-0-1126" name="__codelineno-0-1126"></a><span class="sd">            :class:`~pyramids.base.remote.CloudConfig` for the duration of the</span>
-<a id="__codelineno-0-1127" name="__codelineno-0-1127"></a><span class="sd">            stack, so authenticated cloud inputs (URL-signed or env-credentialed)</span>
-<a id="__codelineno-0-1128" name="__codelineno-0-1128"></a><span class="sd">            read with the right credentials. ``None`` (default) leaves behaviour</span>
-<a id="__codelineno-0-1129" name="__codelineno-0-1129"></a><span class="sd">            unchanged.</span>
-<a id="__codelineno-0-1130" name="__codelineno-0-1130"></a>
-<a id="__codelineno-0-1131" name="__codelineno-0-1131"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-1132" name="__codelineno-0-1132"></a><span class="sd">        Dataset: A multi-band dataset, one band per input file.</span>
-<a id="__codelineno-0-1133" name="__codelineno-0-1133"></a>
-<a id="__codelineno-0-1134" name="__codelineno-0-1134"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-1135" name="__codelineno-0-1135"></a><span class="sd">        DriverNotExistError: `path` has no extension, or one the driver</span>
-<a id="__codelineno-0-1136" name="__codelineno-0-1136"></a><span class="sd">            catalog does not know.</span>
-<a id="__codelineno-0-1137" name="__codelineno-0-1137"></a><span class="sd">        FileFormatNotSupportedError: `path`'s extension maps to a</span>
-<a id="__codelineno-0-1138" name="__codelineno-0-1138"></a><span class="sd">            write-by-copy-only format, whichever write path the inputs take.</span>
-<a id="__codelineno-0-1139" name="__codelineno-0-1139"></a><span class="sd">    """</span>
-<a id="__codelineno-0-1140" name="__codelineno-0-1140"></a>    <span class="k">if</span> <span class="n">signer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-1141" name="__codelineno-0-1141"></a>        <span class="n">files</span> <span class="o">=</span> <span class="p">[</span><span class="n">signer</span><span class="o">.</span><span class="n">sign_href</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">f</span><span class="p">))</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">files</span><span class="p">]</span>
-<a id="__codelineno-0-1142" name="__codelineno-0-1142"></a>    <span class="k">with</span> <span class="n">_cloud_config</span><span class="p">(</span><span class="n">signer</span><span class="p">,</span> <span class="n">path</span><span class="o">=</span><span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">f</span><span class="p">)</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">files</span><span class="p">]):</span>
-<a id="__codelineno-0-1143" name="__codelineno-0-1143"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_band_files</span><span class="p">(</span>
-<a id="__codelineno-0-1144" name="__codelineno-0-1144"></a>            <span class="n">files</span><span class="p">,</span>
-<a id="__codelineno-0-1145" name="__codelineno-0-1145"></a>            <span class="n">band_names</span><span class="o">=</span><span class="n">band_names</span><span class="p">,</span>
-<a id="__codelineno-0-1146" name="__codelineno-0-1146"></a>            <span class="n">align</span><span class="o">=</span><span class="n">align</span><span class="p">,</span>
-<a id="__codelineno-0-1147" name="__codelineno-0-1147"></a>            <span class="n">no_data_value</span><span class="o">=</span><span class="n">no_data_value</span><span class="p">,</span>
-<a id="__codelineno-0-1148" name="__codelineno-0-1148"></a>            <span class="n">path</span><span class="o">=</span><span class="n">path</span><span class="p">,</span>
-<a id="__codelineno-0-1149" name="__codelineno-0-1149"></a>        <span class="p">)</span>
-<a id="__codelineno-0-1150" name="__codelineno-0-1150"></a>    <span class="k">return</span> <span class="n">result</span>
+<span class="normal"><a href="#__codelineno-0-1143">1143</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1085" name="__codelineno-0-1085"></a><span class="k">def</span><span class="w"> </span><span class="nf">stack_bands</span><span class="p">(</span>
+<a id="__codelineno-0-1086" name="__codelineno-0-1086"></a>    <span class="n">files</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">],</span>
+<a id="__codelineno-0-1087" name="__codelineno-0-1087"></a>    <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-0-1088" name="__codelineno-0-1088"></a>    <span class="n">band_names</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-1089" name="__codelineno-0-1089"></a>    <span class="n">align</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-1090" name="__codelineno-0-1090"></a>    <span class="n">no_data_value</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="n">_INHERIT_NO_DATA</span><span class="p">,</span>
+<a id="__codelineno-0-1091" name="__codelineno-0-1091"></a>    <span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-1092" name="__codelineno-0-1092"></a>    <span class="n">signer</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-1093" name="__codelineno-0-1093"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dataset</span><span class="p">:</span>
+<a id="__codelineno-0-1094" name="__codelineno-0-1094"></a><span class="w">    </span><span class="sd">"""Stack N single-band rasters into one multi-band :class:`Dataset`.</span>
+<a id="__codelineno-0-1095" name="__codelineno-0-1095"></a>
+<a id="__codelineno-0-1096" name="__codelineno-0-1096"></a><span class="sd">    Free-function alias for :meth:`pyramids.dataset.Dataset.from_band_files`</span>
+<a id="__codelineno-0-1097" name="__codelineno-0-1097"></a><span class="sd">    — see that method for the full contract, edge cases, and examples.</span>
+<a id="__codelineno-0-1098" name="__codelineno-0-1098"></a>
+<a id="__codelineno-0-1099" name="__codelineno-0-1099"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-1100" name="__codelineno-0-1100"></a><span class="sd">        files: Single-band raster paths/URLs to stack (order = band order).</span>
+<a id="__codelineno-0-1101" name="__codelineno-0-1101"></a><span class="sd">        band_names: Explicit per-band names; ``None`` derives them from the</span>
+<a id="__codelineno-0-1102" name="__codelineno-0-1102"></a><span class="sd">            file names.</span>
+<a id="__codelineno-0-1103" name="__codelineno-0-1103"></a><span class="sd">        align: When ``True``, resample mismatched inputs onto ``files[0]``'s</span>
+<a id="__codelineno-0-1104" name="__codelineno-0-1104"></a><span class="sd">            grid instead of raising :class:`~pyramids.base._errors.AlignmentError`.</span>
+<a id="__codelineno-0-1105" name="__codelineno-0-1105"></a><span class="sd">        no_data_value: No-data value for the output bands; omitted means</span>
+<a id="__codelineno-0-1106" name="__codelineno-0-1106"></a><span class="sd">            "inherit from the source rasters".</span>
+<a id="__codelineno-0-1107" name="__codelineno-0-1107"></a><span class="sd">        path: Output path, whose extension selects the driver (``.tif`` -&gt;</span>
+<a id="__codelineno-0-1108" name="__codelineno-0-1108"></a><span class="sd">            GTiff, ``.nc`` -&gt; netCDF, …); ``None`` keeps the result in memory.</span>
+<a id="__codelineno-0-1109" name="__codelineno-0-1109"></a><span class="sd">            `COMPRESS=LZW` is applied only when the extension resolves to</span>
+<a id="__codelineno-0-1110" name="__codelineno-0-1110"></a><span class="sd">            GTiff. A write-by-copy-only format such as PNG is refused — see</span>
+<a id="__codelineno-0-1111" name="__codelineno-0-1111"></a><span class="sd">            :meth:`pyramids.dataset.Dataset.from_band_files` for why both of</span>
+<a id="__codelineno-0-1112" name="__codelineno-0-1112"></a><span class="sd">            its write paths answer alike.</span>
+<a id="__codelineno-0-1113" name="__codelineno-0-1113"></a><span class="sd">        signer: Optional signer exposing ``sign_href(str) -&gt; str`` and</span>
+<a id="__codelineno-0-1114" name="__codelineno-0-1114"></a><span class="sd">            ``gdal_env() -&gt; dict[str, str]`` (e.g. a</span>
+<a id="__codelineno-0-1115" name="__codelineno-0-1115"></a><span class="sd">            :class:`pyramids.stac.signers.Signer`). When given, **both** hooks</span>
+<a id="__codelineno-0-1116" name="__codelineno-0-1116"></a><span class="sd">            are applied (as in :func:`pyramids.stac.load_asset`): every input</span>
+<a id="__codelineno-0-1117" name="__codelineno-0-1117"></a><span class="sd">            href is rewritten through ``signer.sign_href`` first, then</span>
+<a id="__codelineno-0-1118" name="__codelineno-0-1118"></a><span class="sd">            ``signer.gdal_env()`` is installed via</span>
+<a id="__codelineno-0-1119" name="__codelineno-0-1119"></a><span class="sd">            :class:`~pyramids.base.remote.CloudConfig` for the duration of the</span>
+<a id="__codelineno-0-1120" name="__codelineno-0-1120"></a><span class="sd">            stack, so authenticated cloud inputs (URL-signed or env-credentialed)</span>
+<a id="__codelineno-0-1121" name="__codelineno-0-1121"></a><span class="sd">            read with the right credentials. ``None`` (default) leaves behaviour</span>
+<a id="__codelineno-0-1122" name="__codelineno-0-1122"></a><span class="sd">            unchanged.</span>
+<a id="__codelineno-0-1123" name="__codelineno-0-1123"></a>
+<a id="__codelineno-0-1124" name="__codelineno-0-1124"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-1125" name="__codelineno-0-1125"></a><span class="sd">        Dataset: A multi-band dataset, one band per input file.</span>
+<a id="__codelineno-0-1126" name="__codelineno-0-1126"></a>
+<a id="__codelineno-0-1127" name="__codelineno-0-1127"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-1128" name="__codelineno-0-1128"></a><span class="sd">        DriverNotExistError: `path` has no extension, or one the driver</span>
+<a id="__codelineno-0-1129" name="__codelineno-0-1129"></a><span class="sd">            catalog does not know.</span>
+<a id="__codelineno-0-1130" name="__codelineno-0-1130"></a><span class="sd">        FileFormatNotSupportedError: `path`'s extension maps to a</span>
+<a id="__codelineno-0-1131" name="__codelineno-0-1131"></a><span class="sd">            write-by-copy-only format, whichever write path the inputs take.</span>
+<a id="__codelineno-0-1132" name="__codelineno-0-1132"></a><span class="sd">    """</span>
+<a id="__codelineno-0-1133" name="__codelineno-0-1133"></a>    <span class="k">if</span> <span class="n">signer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1134" name="__codelineno-0-1134"></a>        <span class="n">files</span> <span class="o">=</span> <span class="p">[</span><span class="n">signer</span><span class="o">.</span><span class="n">sign_href</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">f</span><span class="p">))</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">files</span><span class="p">]</span>
+<a id="__codelineno-0-1135" name="__codelineno-0-1135"></a>    <span class="k">with</span> <span class="n">_cloud_config</span><span class="p">(</span><span class="n">signer</span><span class="p">,</span> <span class="n">path</span><span class="o">=</span><span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">f</span><span class="p">)</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">files</span><span class="p">]):</span>
+<a id="__codelineno-0-1136" name="__codelineno-0-1136"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_band_files</span><span class="p">(</span>
+<a id="__codelineno-0-1137" name="__codelineno-0-1137"></a>            <span class="n">files</span><span class="p">,</span>
+<a id="__codelineno-0-1138" name="__codelineno-0-1138"></a>            <span class="n">band_names</span><span class="o">=</span><span class="n">band_names</span><span class="p">,</span>
+<a id="__codelineno-0-1139" name="__codelineno-0-1139"></a>            <span class="n">align</span><span class="o">=</span><span class="n">align</span><span class="p">,</span>
+<a id="__codelineno-0-1140" name="__codelineno-0-1140"></a>            <span class="n">no_data_value</span><span class="o">=</span><span class="n">no_data_value</span><span class="p">,</span>
+<a id="__codelineno-0-1141" name="__codelineno-0-1141"></a>            <span class="n">path</span><span class="o">=</span><span class="n">path</span><span class="p">,</span>
+<a id="__codelineno-0-1142" name="__codelineno-0-1142"></a>        <span class="p">)</span>
+<a id="__codelineno-0-1143" name="__codelineno-0-1143"></a>    <span class="k">return</span> <span class="n">result</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>

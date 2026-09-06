@@ -60,7 +60,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -7342,7 +7342,7 @@ print('dimensions after reducing time:', dict(time_mean.dimension_sizes))</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>/tmp/ipykernel_4044/942131265.py:1: UserWarning: reduce() dropped auxiliary variable(s) ['time_bnds'] that span the reduced dimension 'time'; carrying them unchanged would leave an inconsistent 'time' length in the result.
+<pre>/tmp/ipykernel_3416/942131265.py:1: UserWarning: reduce() dropped auxiliary variable(s) ['time_bnds'] that span the reduced dimension 'time'; carrying them unchanged would leave an inconsistent 'time' length in the result.
   time_mean = nc.reduce('time', how='mean')
 </pre>
 </div>
@@ -7412,7 +7412,7 @@ print('variables after add:', nc.variable_names)</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>variables after add: ['lat_bnds', 'lon_bnds', 'time_bnds', 'tos', 'tos_slice0']
+<pre>variables after add: ['tos', 'tos_slice0']
 </pre>
 </div>
 </div>
@@ -7465,7 +7465,7 @@ print('variables after remove:', nc.variable_names)</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>variables after remove: ['lat_bnds', 'lon_bnds', 'time_bnds', 'tos']
+<pre>variables after remove: ['tos']
 </pre>
 </div>
 </div>
@@ -8160,7 +8160,15 @@ print('variables after add:', nc.variable_names)</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>variables after add: ['area', 'lat_bnds', 'lon_bnds', 'msk_rgn', 'pr', 'tas', 'time_bnds', 'ua', 'ua_slice0']
+<pre>variables after add: ['area', 'msk_rgn', 'pr', 'tas', 'ua', 'ua_slice0']
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>/home/runner/work/pyramids/pyramids/.pixi/envs/docs/lib/python3.14/site-packages/osgeo/gdal.py:8289: RuntimeWarning: Cannot find variable corresponding to coordinate height
+  return _gdal.MDArray_GetCoordinateVariables(self, *args)
 </pre>
 </div>
 </div>
@@ -8213,7 +8221,7 @@ print('variables after remove:', nc.variable_names)</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>variables after remove: ['area', 'lat_bnds', 'lon_bnds', 'msk_rgn', 'pr', 'tas', 'time_bnds', 'ua']
+<pre>variables after remove: ['area', 'msk_rgn', 'pr', 'tas', 'ua']
 </pre>
 </div>
 </div>

@@ -60,7 +60,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -7327,7 +7327,17 @@ print('variables after add:', nc.variable_names)</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>variables after add: ['Cs_r', 'h', 'lat_rho', 'lon_rho', 'salt', 'salt_slice0', 'zeta']
+<pre>variables after add: ['salt', 'salt_slice0', 'zeta']
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>/home/runner/work/pyramids/pyramids/.pixi/envs/docs/lib/python3.14/site-packages/osgeo/gdal.py:8289: RuntimeWarning: Cannot find variable corresponding to coordinate hc
+  return _gdal.MDArray_GetCoordinateVariables(self, *args)
+/home/runner/work/pyramids/pyramids/.pixi/envs/docs/lib/python3.14/site-packages/osgeo/gdal.py:8289: RuntimeWarning: Cannot find variable corresponding to coordinate Vtransform
+  return _gdal.MDArray_GetCoordinateVariables(self, *args)
 </pre>
 </div>
 </div>
@@ -7380,7 +7390,17 @@ print('variables after remove:', nc.variable_names)</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>variables after remove: ['Cs_r', 'h', 'lat_rho', 'lon_rho', 'salt', 'zeta']
+<pre>variables after remove: ['salt', 'zeta']
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>/home/runner/work/pyramids/pyramids/.pixi/envs/docs/lib/python3.14/site-packages/osgeo/gdal.py:8289: RuntimeWarning: Cannot find variable corresponding to coordinate hc
+  return _gdal.MDArray_GetCoordinateVariables(self, *args)
+/home/runner/work/pyramids/pyramids/.pixi/envs/docs/lib/python3.14/site-packages/osgeo/gdal.py:8289: RuntimeWarning: Cannot find variable corresponding to coordinate Vtransform
+  return _gdal.MDArray_GetCoordinateVariables(self, *args)
 </pre>
 </div>
 </div>
@@ -7961,7 +7981,7 @@ print('variables after add:', nc.variable_names)</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>variables after add: ['Tair', 'Tair_slice0', 'xc', 'yc']
+<pre>variables after add: ['Tair', 'Tair_slice0']
 </pre>
 </div>
 </div>
@@ -8014,7 +8034,7 @@ print('variables after remove:', nc.variable_names)</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>variables after remove: ['Tair', 'xc', 'yc']
+<pre>variables after remove: ['Tair']
 </pre>
 </div>
 </div>
@@ -8325,7 +8345,7 @@ print(meta)</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[22]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7ff58f050b00&gt;</pre>
+<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7f57cc1f5a70&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
