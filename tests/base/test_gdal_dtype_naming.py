@@ -143,5 +143,7 @@ class TestTheRoundTrip:
             spelling raised. Refusing is the honest outcome: the name does not
             identify a numpy type, so there is nothing to convert.
         """
+        reported = gdal_dtype_name(code)
+
         with pytest.raises(TypeError):
-            numpy_to_gdal_dtype(gdal_dtype_name(code))
+            numpy_to_gdal_dtype(reported)

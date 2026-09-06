@@ -174,7 +174,11 @@ def is_no_data(
             return np.isnan(arr)
     except (TypeError, ValueError):
         pass
-    if rtol == 0.0 and atol == 0.0:
+    # Both tolerances zero means the caller asked for no window at all.
+    # Tested by truthiness rather than `== 0.0`: it is exact for a float
+    # (`0.0` and `-0.0` are the only falsy ones) and it keeps a NaN tolerance,
+    # which is not a window either, on the `isclose` arm where it belongs.
+    if not rtol and not atol:
         return _exact_no_data(arr, no_data_value)
     return np.isclose(arr, no_data_value, rtol=rtol, atol=atol)
 

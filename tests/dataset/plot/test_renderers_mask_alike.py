@@ -81,8 +81,10 @@ class TestTheTwoRenderersMaskTheSameCells:
             Every cell is the sentinel, so after masking there is nothing to
             bin and the histogram says so.
         """
+        dataset = _band(_ALL_SENTINEL)
+
         with pytest.raises(ValueError, match="no valid samples"):
-            _band(_ALL_SENTINEL).plot_histogram(band=0)
+            dataset.plot_histogram(band=0)
 
     def test_to_image_refuses_it_too(self):
         """The regression: it rendered the band the histogram called empty.
@@ -91,8 +93,10 @@ class TestTheTwoRenderersMaskTheSameCells:
             The exact `!=` matched only the cell that is bit-for-bit -9999, so
             cells the sibling renderer had already dropped were still coloured.
         """
+        dataset = _band(_ALL_SENTINEL)
+
         with pytest.raises(ValueError, match=r"no valid \(non-nodata\) pixels"):
-            _band(_ALL_SENTINEL).to_image(band=0)
+            dataset.to_image(band=0)
 
     def test_the_two_refusals_are_about_the_same_thing(self):
         """Both name the band and say masking left nothing.
