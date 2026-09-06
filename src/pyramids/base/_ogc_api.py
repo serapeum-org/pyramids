@@ -32,7 +32,12 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     # `base` must not import `xml.etree` at runtime just to name a parameter
     # type; the annotation is a string under `from __future__ import
     # annotations`, so the import is only ever needed by a type checker.
-    import xml.etree.ElementTree as ET
+    #
+    # nosec B405: this import never executes -- it is inside `TYPE_CHECKING`,
+    # so no parser is constructed here and there is nothing to attack. The
+    # element itself is parsed by `dataset/_wcs.py`, which carries the same
+    # marker and the reasoning behind it (server XML; DoS accepted, no XXE).
+    import xml.etree.ElementTree as ET  # nosec B405
 
 logger = logging.getLogger(__name__)
 
