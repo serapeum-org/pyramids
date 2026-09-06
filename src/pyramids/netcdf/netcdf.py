@@ -5810,6 +5810,45 @@ class NetCDF(Dataset):
         return readable
 
     @staticmethod
+    def _group_data_array_names(rg, prefix: str) -> list[str]:
+        """The data arrays of one group, its sub-groups left alone.
+
+        Split out of :meth:`_mdim_data_variable_names`, which was doing two
+        jobs in one body: deciding what counts as data *here*, and walking
+        what lies below. The two share only the prefix, and separating them is
+        what keeps either readable.
+
+        An array is dropped when it is a coordinate variable -- its name
+        matches a dimension of its own group, or one it is indexed by -- or
+        when it has no dimensions at all, which is how a `grid_mapping` holder
+        and other scalar attribute carriers appear. An array that will not
+        open is kept: it is not this function's place to hide a name because
+        the driver would not hand back the array, and the caller's own error
+        is clearer than an absence.
+
+        Args:
+            rg: The :class:`osgeo.gdal.Group` to read.
+            prefix: Group path to prepend, empty at the root.
+
+        Returns:
+            list[str]: Prefixed names of the group's own data arrays, in the
+                order the driver lists them.
+        """
+        group_dim_names = {dim.GetName() for dim in rg.GetDimensions()}
+        names = []
+        for var in rg.GetMDArrayNames():
+            if var in group_dim_names:
+                continue
+            md_arr = rg.OpenMDArray(var)
+            if md_arr is None:
+                names.append(f"{prefix}{var}")
+                continue
+            own_dims = md_arr.GetDimensions()
+            if own_dims and var not in {dim.GetName() for dim in own_dims}:
+                names.append(f"{prefix}{var}")
+        return names
+
+    @staticmethod
     def _mdim_data_variable_names(rg, prefix: str = "", depth: int = 0) -> list[str]:
         """Data-variable names from an MDIM group and every group beneath it.
 
@@ -5855,21 +5894,7 @@ class NetCDF(Dataset):
                 listing, export and conversion built from this walk, and that
                 used to happen with no signal at all.
         """
-        group_dim_names = {dim.GetName() for dim in rg.GetDimensions()}
-        filtered = []
-        for var in rg.GetMDArrayNames():
-            if var in group_dim_names:
-                continue
-            md_arr = rg.OpenMDArray(var)
-            if md_arr is None:
-                filtered.append(f"{prefix}{var}")
-                continue
-            own_dims = md_arr.GetDimensions()
-            if len(own_dims) == 0:
-                continue
-            if var in {dim.GetName() for dim in own_dims}:
-                continue
-            filtered.append(f"{prefix}{var}")
+        filtered = NetCDF._group_data_array_names(rg, prefix)
         sub_group_names = rg.GetGroupNames() or []
         if depth < _MAX_GROUP_DEPTH:
             for group_name in sub_group_names:

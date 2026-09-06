@@ -130,8 +130,12 @@ class TestAnInheritedDimensionIsFilteredLikeAnOwnedOne:
             "an axis must not be advertised as readable when the root's is not"
         )
         values = dataset._read_variable("flight/recNum")
-        assert values is not None and list(values) == [0.0, 10.0, 20.0, 30.0], (
-            f"the axis must stay readable by name: {values}"
+
+        assert values is not None, (
+            "the axis must stay readable by name, but did not resolve at all"
+        )
+        assert list(values) == [0.0, 10.0, 20.0, 30.0], (
+            f"the axis resolved but read back the wrong values: {list(values)}"
         )
 
 

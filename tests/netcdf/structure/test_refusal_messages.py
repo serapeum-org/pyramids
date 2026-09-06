@@ -117,9 +117,10 @@ class TestTheRefusalNamesWhatTheGateAccepts:
             so the refusal names it rather than either of the other two lists.
         """
         dataset = NetCDF.read_file(str(GEOS))
+        plot = NetCDFPlot(dataset)
 
         with pytest.raises(ValueError) as excinfo:
-            NetCDFPlot(dataset).run()
+            plot.run()
 
         message = str(excinfo.value)
         assert "DQF" in message, f"a plottable variable was not offered: {message}"

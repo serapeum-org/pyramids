@@ -141,9 +141,10 @@ class TestAQualifiedNameIsRefusedRatherThanFailingInGdal:
         """
         dataset = NetCDF.read_file(str(GROUPED))
         before = list(dataset.variable_names)
+        qualified = _qualified_name(dataset)
 
         with pytest.raises(ValueError):
-            dataset.rename_variable(_qualified_name(dataset), "renamed_thing")
+            dataset.rename_variable(qualified, "renamed_thing")
 
         assert dataset.variable_names == before, "the refused rename changed the store"
         assert "renamed_thing" not in dataset._readable_variable_names(), (
