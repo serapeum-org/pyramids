@@ -36,7 +36,7 @@ from pyramids.dataset.engines.spatial import (
     _stitch_lon_halves,
 )
 from pyramids.feature import FeatureCollection
-from pyramids.netcdf._mdim import open_mdarray
+from pyramids.netcdf._mdim import open_mdarray, scalar_no_data
 from pyramids.netcdf._plot import NetCDFPlot
 from pyramids.netcdf.array_options import GeoReference
 
@@ -195,12 +195,12 @@ class Selection(_Engine["NetCDF"]):
               shared primitive that builds the one-row FC.
         """
         nc = self._ds
-        is_container = nc._is_md_array and not nc._is_subset and nc.band_count == 0
+        is_container = nc._is_root_container
         antimeridian = self._try_antimeridian(
             bbox, mask, epsg, is_container, touch, chunks
         )
         if antimeridian is not None:
-            return cast("NetCDF", self._finalize_crop_output(antimeridian, path))
+            return cast("NetCDF", antimeridian._persist_to(path))
         mask = self._resolve_crop_mask(mask, bbox, epsg)
         if is_container:
             # A container crops every variable; `chunks` is a curvilinear-only, per-variable knob
@@ -218,24 +218,8 @@ class Selection(_Engine["NetCDF"]):
                 "crop", {"mask": mask, "touch": touch}, path=path
             )
         else:
-            result = self._finalize_crop_output(
-                self._crop_one(mask, touch=touch, chunks=chunks), path
-            )
+            result = self._crop_one(mask, touch=touch, chunks=chunks)._persist_to(path)
         return cast("NetCDF", result)
-
-    @staticmethod
-    def _finalize_crop_output(result: NetCDF, path: str | Path | None) -> NetCDF:
-        """Persist a single-variable / antimeridian crop to ``path`` when requested.
-
-        The container fan-out already streams straight to ``path`` (bounded memory); the
-        non-container crop paths build an in-memory result, so honour ``path`` by writing it
-        out and re-opening a file-backed :class:`NetCDF`. ``path=None`` returns ``result`` as-is.
-        """
-        if path is None:
-            return result
-        result.to_file(str(path))
-        result.close()
-        return cast("NetCDF", type(result).read_file(str(path)))
 
     def _try_antimeridian(
         self,
@@ -839,7 +823,7 @@ class Selection(_Engine["NetCDF"]):
         ndv = nc.no_data_value
         # no_data_value is a TUPLE; the old `isinstance(ndv, list)` test never fired (ARC-29). Route
         # through the shared helper (handles list AND tuple) like the reduce path below.
-        ndv_scalar = nc._scalar_no_data_value(ndv)
+        ndv_scalar = scalar_no_data(ndv)
         ds_result = Dataset.from_array(
             selected,
             no_data_value=ndv_scalar,
@@ -1157,7 +1141,7 @@ class Selection(_Engine["NetCDF"]):
         # group once and reuse it for the spanning-aux probe further down.
         rg = nc._working_group()
         spatial_vars = nc._spatial_variable_names(rg)
-        aux_vars = [n for n in names if n not in spatial_vars]
+        aux_vars = nc._carryable_aux_names(rg, spatial_vars)
 
         result = None
         found = False
@@ -1165,7 +1149,7 @@ class Selection(_Engine["NetCDF"]):
             var = nc.get_variable(var_name)
             band_names = list(var._band_dim_names)
             values_map = dict(var._band_dim_values_map)
-            ndv = nc._scalar_no_data_value(var.no_data_value)
+            ndv = scalar_no_data(var.no_data_value)
 
             if dim in band_names:
                 found = True

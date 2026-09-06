@@ -12,7 +12,7 @@ CRS / EPSG / reprojection helpers live in :mod:`pyramids.base.crs`.
 """
 
 from pyramids.base._errors import OptionalPackageDoesNotExist
-from pyramids.base._utils import import_dask_geopandas
+from pyramids.base._utils import extra_hint, import_dask_geopandas
 from pyramids.feature.collection import FeatureCollection
 from pyramids.feature.geometry import (
     Coords,
@@ -31,11 +31,9 @@ from pyramids.feature.geometry import (
     polygon_wkt,
 )
 
-_LAZY_FC_INSTALL_HINT = (
-    "LazyFeatureCollection requires the optional 'dask-geopandas' "
-    "dependency. Install with one of:\n"
-    "  - PyPI:        pip install 'pyramids-gis[parquet]'\n"
-    "  - conda-forge: conda install -c conda-forge pyramids-parquet"
+_LAZY_FC_INSTALL_HINT = extra_hint(
+    "LazyFeatureCollection requires the optional 'dask-geopandas' dependency.",
+    "parquet",
 )
 
 # LazyFeatureCollection is only available when the [parquet] extra

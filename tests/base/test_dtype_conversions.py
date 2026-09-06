@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 from osgeo import gdal, gdalconst, ogr
@@ -6,12 +8,15 @@ from pyramids.base._errors import DriverNotExistError, OptionalPackageDoesNotExi
 from pyramids.base._utils import (
     _GDAL_TO_NUMPY,
     _GDAL_TO_OGR,
+    _HALF_GDAL,
     _NUMPY_TO_GDAL,
     DTYPE_CONVERSION_DF,
     GDAL_DTYPE,
     NUMPY_DTYPE,
     OGR_DTYPE,
     Catalog,
+    _first_wins,
+    _half_precision_columns,
     color_name_to_gdal_constant,
     gdal_constant_to_color_name,
     gdal_to_numpy_dtype,
@@ -416,8 +421,13 @@ class TestDtypeLookupTables:
             gdal_to_numpy_dtype(gdalconst.GDT_Unknown)
 
     def test_unmapped_numpy_dtype_raises_value_error(self):
-        """A numpy dtype with no GDAL counterpart raises, not `IndexError`."""
-        unmapped = np.dtype("float16")
+        """A numpy dtype with no GDAL counterpart raises, not `IndexError`.
+
+        `datetime64` rather than `float16`: GDAL 3.13 added the half-precision
+        types, so that example became a mapped dtype. A datetime has no GDAL
+        raster counterpart at all, which is what this is asserting.
+        """
+        unmapped = np.dtype("datetime64[ns]")
         with pytest.raises(ValueError, match="not supported"):
             numpy_to_gdal_dtype(unmapped)
 
@@ -467,3 +477,112 @@ class TestRequireOptional:
             assert isinstance(exc.__cause__, ImportError), (
                 f"expected a chained ImportError, got {exc.__cause__!r}"
             )
+
+
+def _tables_without_half_precision() -> tuple[dict, dict]:
+    """The numpy->GDAL and GDAL->numpy lookups the module builds on a GDAL predating RFC 100.
+
+    The half-precision tail this build produced is sliced off and replaced with whatever
+    `_half_precision_columns` yields for a GDAL that defines neither constant, then the pair of
+    lookups is composed exactly as `pyramids.base._utils` composes them at import. So the
+    reconstruction disagrees with the real construction about nothing but the running GDAL — if
+    the fallback ever went back to contributing placeholder rows, they would land here too.
+
+    Returns:
+        tuple[dict, dict]: `(numpy -> GDAL, GDAL -> numpy)`.
+    """
+    keep = len(GDAL_DTYPE) - len(_HALF_GDAL)
+    _, numpy_tail, gdal_tail, _ = _half_precision_columns(SimpleNamespace())
+    gdal_column = GDAL_DTYPE[:keep] + gdal_tail
+    numpy_column = NUMPY_DTYPE[:keep] + numpy_tail
+    numpy_to_gdal = _first_wins(
+        [None if dtype is None else np.dtype(dtype) for dtype in numpy_column],
+        gdal_column,
+    )
+    gdal_to_numpy = _first_wins(gdal_column, numpy_column)
+    return numpy_to_gdal, gdal_to_numpy
+
+
+class TestAGdalWithoutTheHalfPrecisionCodes:
+    """A build older than GDAL 3.11 loses the two rows; it never gains a placeholder code."""
+
+    def test_a_gdal_without_the_constants_contributes_no_row(self):
+        """The catalogue tail is empty rather than a pair of placeholder rows.
+
+        Test scenario:
+            The rows used to be appended unconditionally, as
+            `getattr(gdalconst, "GDT_Float16", -1)` / `-2`, so a build predating
+            GDAL 3.11 (RFC 100) still got two rows -- carrying `-1` and `-2` where a
+            GDAL type code belongs. Contributing no row at all is what keeps every
+            code in the catalogue one GDAL can actually name.
+        """
+        assert _half_precision_columns(SimpleNamespace()) == ([], [], [], []), (
+            "a GDAL without GDT_Float16/GDT_CFloat16 must contribute no catalogue row"
+        )
+
+    def test_float16_is_reported_unsupported_rather_than_answered_with_a_fake_code(
+        self, monkeypatch
+    ):
+        """On such a build the helper raises, instead of handing back a code GDAL rejects.
+
+        Args:
+            monkeypatch: Fixture used to swap in the lookup the module would build
+                on a GDAL that predates RFC 100.
+
+        Test scenario:
+            This is the user-visible consequence of the placeholder. With `-1` in the
+            table, `numpy_to_gdal_dtype(np.dtype("float16"))` *succeeded* on an old
+            GDAL and returned `-1`, which the caller then passed to
+            `Dataset.create(dtype=...)` / `driver.Create(..., -1)` and GDAL rejected
+            far from the cause. With the row dropped the helper raises the same
+            "not supported" `ValueError` it raises for every other dtype GDAL cannot
+            store. Only the lookup is swapped, not `DTYPE_CONVERSION_DF`: the
+            message's "available types" listing is not what is under test here.
+        """
+        numpy_to_gdal, _ = _tables_without_half_precision()
+        monkeypatch.setattr("pyramids.base._utils._NUMPY_TO_GDAL", numpy_to_gdal)
+
+        with pytest.raises(ValueError, match="not supported"):
+            numpy_to_gdal_dtype(np.dtype("float16"))
+
+    def test_no_gdal_keyed_lookup_answers_for_a_code_gdal_cannot_produce(self):
+        """Every GDAL-keyed lookup key is inside GDAL's own code range.
+
+        Test scenario:
+            The placeholders were *keys* as well as values: `gdal_to_numpy_dtype(-1)`
+            answered `float16` and `gdal_to_ogr_dtype` answered `OFTReal` for a band
+            type no GDAL can report, so a caller passing a nonsense code got an
+            answer instead of the "not supported" error. Real codes run from
+            `GDT_Unknown` (0) to `GDT_TypeCount`, so anything outside that range is a
+            placeholder. Checked on the live tables *and* on the ones an old GDAL
+            would build, because only the latter ever took the fallback.
+        """
+        _, gdal_to_numpy = _tables_without_half_precision()
+        strays = sorted(
+            {
+                code
+                for code in (*_GDAL_TO_NUMPY, *_GDAL_TO_OGR, *gdal_to_numpy)
+                if not 0 <= code <= gdalconst.GDT_TypeCount
+            }
+        )
+
+        assert not strays, (
+            f"lookup keys outside GDAL's own code range (0..{gdalconst.GDT_TypeCount}): "
+            f"{strays}"
+        )
+
+    def test_the_installed_gdal_still_maps_float16_both_ways(self):
+        """Dropping the rows on an old GDAL must not drop them on this one.
+
+        Test scenario:
+            The fallback is only a fallback. This build defines both constants, so
+            half-precision has to keep round-tripping through the catalogue exactly
+            as it did before -- otherwise the fix for the unsupported build would
+            have broken the supported one.
+        """
+        assert numpy_to_gdal_dtype(np.dtype("float16")) == gdalconst.GDT_Float16, (
+            "a GDAL that defines GDT_Float16 must still map numpy's float16 onto it"
+        )
+        assert gdal_to_numpy_dtype(gdalconst.GDT_Float16) == "float16", (
+            "GDT_Float16 must still report numpy's float16"
+        )

@@ -5,7 +5,8 @@ A single entry point, :func:`read_resource`, that takes a local file path
 ``.gz`` / ``.zip`` / ``.tar`` / ``.tar.gz`` containers, and returns the
 appropriate pyramids type:
 
-* raster  (``.tif`` / ``.tiff`` / ``.cog`` / ``.nc`` / ``.nc4`` / ``.vrt``)
+* raster  (``.tif`` / ``.tiff`` / ``.cog`` / ``.nc`` / ``.nc4`` / ``.vrt``) --
+  a ``.nc`` / ``.nc4`` is read by :class:`~pyramids.netcdf.NetCDF`, a ``Dataset`` subclass
   → :class:`pyramids.dataset.Dataset`
 * vector  (``.gpkg`` / ``.shp`` / ``.geojson`` / ``.gdb`` / ``.kml`` / …)
   → :class:`pyramids.feature.FeatureCollection`
@@ -27,7 +28,8 @@ tabular ``fmt``) explicitly.
 from __future__ import annotations
 
 import warnings
-from pathlib import Path
+from collections.abc import Callable
+from pathlib import Path, PurePosixPath
 from typing import Literal
 
 import pandas as pd
@@ -51,6 +53,13 @@ _ARCHIVE_SUFFIXES = {".zip", ".tar", ".tgz"}
 _TAR_GZ_SUFFIX = ".tar.gz"
 
 _RASTER_SUFFIXES = {".tif", ".tiff", ".cog", ".nc", ".nc4", ".vrt"}
+# Raster suffixes whose reader is `NetCDF`, not the plain `Dataset` reader.
+# `.cdf` belongs here even though `_RASTER_SUFFIXES` does not list it: a file
+# with an unlisted suffix falls through to `sniff_format`, which maps `.cdf`
+# to "nc" and so to the raster kind. Dropping it sent such a file to the
+# plain raster reader, which returns a band-less Dataset -- the same defect
+# `640b6b538` fixed for `.nc`.
+_NETCDF_SUFFIXES = {".nc", ".nc4", ".cdf"}
 _VECTOR_SUFFIXES = {
     ".gpkg",
     ".shp",
@@ -490,11 +499,25 @@ def _read_raster(path: Path) -> Dataset:
     container directory and fail.
     """
     source = str(path)
+    suffix = path.suffix.lower()
     if _is_archive(path):
         members = _archive_members_for_kind(path, "raster")
         if members:
             source = f"{path}/{members[0]}"
-    return Dataset.read_file(source)
+            # Recomputed from the member, not left as the container's suffix:
+            # otherwise a netCDF inside a .zip is read by the wrong reader.
+            suffix = PurePosixPath(members[0]).suffix.lower()
+    if suffix in _NETCDF_SUFFIXES:
+        # `Dataset.read_file` opens a netCDF as a plain raster, losing the
+        # variable and time dimensions the NetCDF reader recovers.
+        from pyramids.netcdf import (
+            NetCDF,  # noqa: PLC0415 - cycle: netcdf imports Dataset
+        )
+
+        reader: Callable[[str], Dataset] = NetCDF.read_file
+    else:
+        reader = Dataset.read_file
+    return reader(source)
 
 
 def _warn_if_multilayer(path: Path) -> None:

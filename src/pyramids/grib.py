@@ -25,6 +25,7 @@ from osgeo import gdal
 from pyramids.base._errors import DriverNotExistError
 from pyramids.dataset.cog import BandSelection, Tiling
 from pyramids.dataset.dataset import Dataset
+from pyramids.dataset.engines._validate import validate_one_based_band
 
 _GRIB_DRIVER = "GRIB"
 
@@ -220,8 +221,7 @@ def _select_grib_band(
             f"variable must be a band number, element name, or None; got {variable!r}."
         )
     if isinstance(variable, int):
-        if not 1 <= variable <= band_count:
-            raise ValueError(f"band number {variable} out of range 1..{band_count}.")
+        validate_one_based_band(variable, band_count, name="variable")
         selected = variable - 1
     elif variable is None:
         if band_count > 1:

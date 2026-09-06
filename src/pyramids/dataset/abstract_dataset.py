@@ -247,7 +247,7 @@ class RasterBase(ABC):
         self._geotransform: tuple[float, float, float, float, float, float] = (
             src.GetGeoTransform()
         )
-        self._cell_size = self._geotransform[1]
+        self._cell_size = GeoTransform(*self._geotransform).cell_size
         self._file_name: str = src.GetDescription()
         # the epsg property returns the value of the _epsg attribute, so if the projection changes in any function, the
         # function should also change the value of the _epsg attribute.
@@ -378,13 +378,18 @@ class RasterBase(ABC):
             secret, and prefer a short-lived token.
 
         Raises:
-            TypeError: The dataset has no on-disk path (empty
-                `_file_name` or a `/vsimem/` path). In-memory
+            TypeError: The dataset has no on-disk path -- an empty
+                `_file_name`, a `/vsimem/` path, or a `_vsimem_path`
+                backing store shadowed by a cosmetic `name=`. In-memory
                 datasets are not reconstructible from the recipe;
                 call :meth:`to_file` first to anchor them to disk.
         """
         path = self._file_name
-        if not path or path.startswith("/vsimem/"):
+        # `_vsimem_path` too: `from_bytes(data, name="x")` stages the bytes in
+        # /vsimem and sets a cosmetic `_file_name`, so the path test alone
+        # passed and produced a recipe that only failed on unpickle.
+        vsimem = getattr(self, "_vsimem_path", None)
+        if not path or path.startswith("/vsimem/") or vsimem:
             raise TypeError(
                 f"{type(self).__name__} has no on-disk path "
                 f"(file_name={path!r}); pickling an in-memory "
@@ -580,8 +585,16 @@ class RasterBase(ABC):
                 (2.0, 1.0)
 
                 ```
+
+        Note:
+            Reads :attr:`geotransform`, not the `_geotransform` cached at
+            construction. :class:`~pyramids.netcdf.NetCDF` overrides that
+            property to derive the affine from the file's CF coordinate
+            variables, and the cached value is GDAL's identity fallback for
+            every one of them. Reading the cache here made `transform` and
+            `geotransform` disagree on every netCDF container.
         """
-        return GeoTransform(*self._geotransform)
+        return GeoTransform(*self.geotransform)
 
     def xy(
         self,
@@ -646,20 +659,7 @@ class RasterBase(ABC):
         # np.ndim == 0 treats Python scalars, NumPy scalars, and 0-d arrays
         # alike; np.isscalar misses 0-d arrays (np.isscalar(np.array(5)) is False).
         scalar = np.ndim(rows) == 0 and np.ndim(cols) == 0
-        rows_arr = np.atleast_1d(np.asarray(rows, dtype=float))
-        cols_arr = np.atleast_1d(np.asarray(cols, dtype=float))
-        shift = 0.5 if center else 0.0
-        gt = self.transform
-        xs_arr = (
-            gt.x_origin
-            + (cols_arr + shift) * gt.pixel_width
-            + (rows_arr + shift) * gt.row_rotation
-        )
-        ys_arr = (
-            gt.y_origin
-            + (cols_arr + shift) * gt.column_rotation
-            + (rows_arr + shift) * gt.pixel_height
-        )
+        xs_arr, ys_arr = self.transform.apply(cols, rows, center=center)
         xs = [float(value) for value in xs_arr]
         ys = [float(value) for value in ys_arr]
         result = (xs[0], ys[0]) if scalar else (xs, ys)
@@ -726,9 +726,7 @@ class RasterBase(ABC):
         scalar = np.ndim(x) == 0 and np.ndim(y) == 0
         x_arr = np.atleast_1d(np.asarray(x, dtype=float))
         y_arr = np.atleast_1d(np.asarray(y, dtype=float))
-        inv = self.transform.inverse
-        cols_f = inv.x_origin + x_arr * inv.pixel_width + y_arr * inv.row_rotation
-        rows_f = inv.y_origin + x_arr * inv.column_rotation + y_arr * inv.pixel_height
+        cols_f, rows_f = self.transform.invert(x_arr, y_arr)
         rows_idx = np.floor(rows_f).astype(int)
         cols_idx = np.floor(cols_f).astype(int)
         result: tuple[Any, Any]
@@ -895,11 +893,15 @@ class RasterBase(ABC):
         Returns:
             np.ndarray: 1-D array of length *columns* with the
                 centre x coordinate of each column.
+
+        Note:
+            Vectorised via :meth:`GeoTransform.x_axis`; values may differ
+            from the previous element-wise accumulation in the last ULP.
         """
-        x_coords = np.array(
-            [pivot_x + i * cell_size + cell_size / 2 for i in range(columns)]
-        )
-        return x_coords
+        # A degenerate transform carrying only the x terms: this axis does not
+        # depend on the others, and `x_axis` reads the signed pixel width, which
+        # is the contract here (a positive `cell_size` ascends).
+        return GeoTransform(pivot_x, cell_size, 0.0, 0.0, 0.0, 0.0).x_axis(columns)
 
     @staticmethod
     def get_y_lat_dimension_array(pivot_y, cell_size, rows) -> FloatArray:
@@ -917,10 +919,10 @@ class RasterBase(ABC):
             np.ndarray: 1-D array of length *rows* with the
                 centre y coordinate of each row.
         """
-        y_coords = np.array(
-            [pivot_y - i * cell_size - cell_size / 2 for i in range(rows)]
-        )
-        return y_coords
+        # `-cell_size`, not `-abs(cell_size)`: this shim's documented contract
+        # is that `cell_size` is positive and the axis descends, so negating it
+        # is what makes `y_axis`'s signed step match.
+        return GeoTransform(0.0, 0.0, 0.0, pivot_y, 0.0, -cell_size).y_axis(rows)
 
     def _iloc(self, i: int) -> gdal.Band:
         """Access a GDAL Band by 0-based index.

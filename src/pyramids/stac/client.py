@@ -15,14 +15,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from pyramids.base._utils import import_pystac_client
+from pyramids.base._utils import extra_hint, import_pystac_client
 from pyramids.stac.signers import AnonymousSigner, Signer
 
-_STAC_INSTALL_HINT = (
-    "open_client requires the optional 'pystac-client' dependency. "
-    "Install with one of:\n"
-    "  - PyPI:        pip install 'pyramids-gis[stac]'\n"
-    "  - conda-forge: conda install -c conda-forge pyramids-stac"
+_STAC_INSTALL_HINT = extra_hint(
+    "open_client requires the optional 'pystac-client' dependency.",
+    "stac",
 )
 
 

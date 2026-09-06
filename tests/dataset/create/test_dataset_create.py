@@ -125,9 +125,11 @@ class TestCreateRasterObject:
         src = Dataset(src)
         dst = src.copy()
         assert isinstance(dst, Dataset)
-        # In-memory copy preserves the source's access mode. The
-        # default ``Dataset(src)`` constructor uses ``read_only``.
-        assert dst.access == src.access == "read_only"
+        # An in-memory copy is writable whatever the source was: it is a fresh
+        # MEM buffer nothing else references, and it exists precisely so a
+        # read-only file can be worked on.
+        assert src.access == "read_only"
+        assert dst.access == "write"
         assert id(dst) != id(src)
         assert dst.raster.GetGeoTransform() == src.raster.GetGeoTransform()
         assert dst.raster.GetProjection() == src.raster.GetProjection()

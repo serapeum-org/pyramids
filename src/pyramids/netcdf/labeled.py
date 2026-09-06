@@ -29,7 +29,7 @@ import numpy as np
 import pandas as pd
 from osgeo import gdal
 
-from pyramids.base._utils import import_pyarrow
+from pyramids.base._utils import extra_hint, import_pyarrow
 from pyramids.base.remote import (
     _DODS_SCHEME,
     URL_SCHEMES,
@@ -37,18 +37,26 @@ from pyramids.base.remote import (
     _to_vsi,
     resolve_s3_region,
 )
-from pyramids.netcdf.utils import decode_cf_time, encode_cf_time
+from pyramids.netcdf.utils import (
+    decode_cf_time,
+    encode_cf_time,
+    is_cf_time_units,
+)
 
 # Soft guard: realising a store this large into a DataFrame loads it all into
 # memory. Above this many bytes the write methods warn the caller to slice first
 # (the estimate is dtype x selected size — no data is read to compute it).
 _LARGE_REALISE_BYTES = 512 * 1024 * 1024
 
-_PARQUET_INSTALL_HINT = (
-    "Writing Parquet needs the optional 'pyarrow' dependency. Install it with "
-    "one of:\n"
-    "  - PyPI:  pip install 'pyramids-gis[parquet]'\n"
-    "  - conda: conda install -c conda-forge pyarrow"
+# The conda half of this hint names `pyramids-parquet`, not `pyarrow` as it once
+# did. That is a real conda-forge output of the pyramids feedstock (alongside
+# `pyramids`, `pyramids-viz`, `pyramids-lazy` and `pyramids-stac`), and it
+# depends on `pyarrow >=10.0.0` + `dask-geopandas >=0.5.0`, so it installs what
+# the `[parquet]` extra installs -- verified against the feedstock recipe and
+# anaconda.org before the message was switched over.
+_PARQUET_INSTALL_HINT = extra_hint(
+    "Writing Parquet needs the optional 'pyarrow' dependency.",
+    "parquet",
 )
 
 # URL schemes whose paths must go through `_to_vsi` before GDAL sees them.
@@ -685,7 +693,7 @@ class LabeledDataset:
             np.ndarray: Decoded datetimes for a time axis, else ``values``.
         """
         unit = arr.GetUnit()
-        if not unit or " since " not in unit:
+        if not is_cf_time_units(unit):
             return values
         cal_attr = _get_attr(arr, "calendar")
         calendar = cal_attr.ReadAsString() if cal_attr is not None else "standard"

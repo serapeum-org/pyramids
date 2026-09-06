@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 from osgeo import gdal
 
+from pyramids.base._domain import is_nan_sentinel
 from pyramids.base._errors import CRSError
 from pyramids.base.georeference import GeoReference
 from pyramids.feature import _ogr as _feature_ogr
@@ -118,12 +119,15 @@ def rasterize_features(
     # burn column's dtype is integer, fall back to the class default
     # sentinel so GDAL does not silently coerce NaN into an arbitrary
     # integer value.
-    if np.issubdtype(numpy_dtype, np.integer):
-        try:
-            if np.isnan(no_data_value):
-                no_data_value = dataset_cls.default_no_data_value
-        except (TypeError, ValueError):
-            pass
+    if np.issubdtype(numpy_dtype, np.integer) and is_nan_sentinel(no_data_value):
+        # Through the shared predicate rather than a local `np.isnan` in a
+        # try/except. The two agree on everything this call site can actually
+        # receive: `_resolve_raster_geometry` resolves the sentinel to `np.nan`
+        # or to the class default before it gets here, never to `None`. So this
+        # is defence in depth, not a behaviour change -- it matters only if that
+        # resolution ever starts passing `None` through, which the local
+        # `np.isnan` would have reported as "not NaN" because it raises on it.
+        no_data_value = dataset_cls.default_no_data_value
 
     bands_count = 1 if not isinstance(column_name, list) else len(column_name)
     dataset_n = dataset_cls.create(

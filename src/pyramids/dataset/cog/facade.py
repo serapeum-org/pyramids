@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 from osgeo import gdal
 
+from pyramids.base._axes import AXIS_NAME_FAMILIES
 from pyramids.base._errors import CRSError, ReadOnlyError
 from pyramids.base._utils import resolve_cog_predictor
 from pyramids.base.crs import epsg_from_user_input
@@ -176,6 +177,83 @@ def _array_to_dataset(
     return dataset
 
 
+def _first_1d_coord(da: Any, names: tuple[str, ...]) -> str | None:
+    """The DataArray's most preferred 1-D coordinate from `names`.
+
+    `names` is ordered, and the order is load-bearing: a projected grid with
+    `x` / `y` in metres commonly also carries auxiliary 1-D `lon` / `lat` in
+    degrees, and picking the wrong one builds a geotransform in degrees under a
+    projected CRS. Do not sort them.
+
+    Only a **1-D** coordinate qualifies. The geotransform is derived from the
+    first two values of each axis, which describes a grid only for a vector. A
+    curvilinear store's 2-D `nav_lon` / `nav_lat` carry known names but not that
+    shape, so they fall through to the caller's explicit error instead.
+
+    This reader kept its own three names per axis, `("x", "longitude", "lon")`,
+    and now takes the shared vocabulary, where the geographic family reads
+    `("lon", "long", "longitude", "nav_lon")`. An array carrying both `lon` and
+    `longitude` therefore resolves to `lon` where it used to resolve to
+    `longitude`. The two name one axis in one unit system, so the geotransform
+    is the same either way and only the reported coordinate name moves; the
+    ordering that does change a grid is the one *between* families, which the
+    shared list preserves.
+
+    Args:
+        da: The labeled `DataArray` being converted.
+        names: Candidate coordinate names in preference order.
+
+    Returns:
+        str | None: The coordinate's name, or `None` when the array carries no
+            1-D coordinate from `names`.
+
+    See Also:
+        _first_1d_coord_pair: Picks both axes from one family, which is what
+            callers building a geotransform need.
+    """
+    matched = None
+    for name in names:
+        coord = da.coords.get(name)
+        if coord is None:
+            continue
+        # `.values` rather than the coordinate itself: this reader accepts
+        # anything duck-typing as a DataArray, and a minimal stand-in exposes
+        # its array there without carrying xarray's own `ndim`.
+        if np.ndim(getattr(coord, "values", coord)) == 1:
+            matched = name
+            break
+    return matched
+
+
+def _first_1d_coord_pair(da: Any) -> tuple[str | None, str | None]:
+    """The array's spatial axes, both taken from the same naming family.
+
+    Choosing each axis independently is not enough. A projected grid whose row
+    axis is only labelled `lat` yields `x` for one axis and `lat` for the other,
+    and the resulting geotransform measures metres along x and degrees along y
+    under a single CRS -- the same failure an ordering alone was meant to
+    prevent, reached through the other axis.
+
+    The families are ordered most-specific first, so a grid carrying both its
+    own `x` / `y` and auxiliary `lon` / `lat` still resolves to the former.
+
+    Args:
+        da: The labeled `DataArray` being converted.
+
+    Returns:
+        tuple[str | None, str | None]: The `(x, y)` coordinate names, or
+            `(None, None)` when no family resolves both axes.
+    """
+    pair: tuple[str | None, str | None] = (None, None)
+    for x_names, y_names in AXIS_NAME_FAMILIES:
+        x_name = _first_1d_coord(da, x_names)
+        y_name = _first_1d_coord(da, y_names)
+        if x_name is not None and y_name is not None:
+            pair = (x_name, y_name)
+            break
+    return pair
+
+
 def _dataarray_to_dataset(
     da: Any,
     crs: Any | None,
@@ -202,18 +280,33 @@ def _dataarray_to_dataset(
     Raises:
         ValueError: When spatial coordinates or a CRS cannot be determined.
     """
-    x_name = next((c for c in ("x", "longitude", "lon") if c in da.coords), None)
-    y_name = next((c for c in ("y", "latitude", "lat") if c in da.coords), None)
+    x_name, y_name = _first_1d_coord_pair(da)
     if x_name is None or y_name is None:
         raise ValueError(
-            "Could not find longitude/latitude (or x/y) coordinates on the "
+            "Could not find 1-D longitude/latitude (or x/y) coordinates on the "
             "DataArray; build a Dataset explicitly and pass that instead."
         )
-
     x = np.asarray(da[x_name].values, dtype="float64")
     y = np.asarray(da[y_name].values, dtype="float64")
     if x.size < 2 or y.size < 2:
         raise ValueError("DataArray spatial coordinates need at least 2 cells.")
+    # The array's last two axes are its rows and columns, and the coordinates
+    # just looked up by name have to be those axes. Without this a
+    # `(y, x, time)` DataArray built a raster of its last two axes -- 6x3 for a
+    # 4x6x3 array, with 4 bands -- and georeferenced it from the 4- and 6-long
+    # coordinates it is not shaped by, which is silently wrong rather than
+    # refused. Compared by length rather than against `da.dims` so a
+    # duck-typed labeled array is checked too; a square grid handed over
+    # transposed is the one case lengths cannot separate.
+    shape = np.shape(da.values)
+    if len(shape) < 2 or (shape[-1], shape[-2]) != (x.size, y.size):
+        raise ValueError(
+            f"The DataArray's spatial coordinates {y_name!r} ({y.size}) / "
+            f"{x_name!r} ({x.size}) do not match its last two axes {shape[-2:]}, "
+            "so its rows and columns are not the axes they label. Transpose it "
+            "so the spatial axes come last, or build a Dataset explicitly and "
+            "pass that instead."
+        )
     cell_x = float(x[1] - x[0])
     cell_y = float(y[1] - y[0])
     transform = (

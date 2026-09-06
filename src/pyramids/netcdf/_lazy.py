@@ -39,15 +39,14 @@ import numpy as np
 
 from pyramids.base._file_manager import CachingFileManager, gdal_mdarray_open
 from pyramids.base._locks import DummyLock, default_lock
-from pyramids.base._utils import apply_unpack, import_dask
+from pyramids.base._utils import apply_unpack, extra_hint, import_dask
 from pyramids.base.remote import cloud_config_from_env
-from pyramids.netcdf._mdim import axis_flips
+from pyramids.netcdf._mdim import axis_flips, open_mdarray
 from pyramids.netcdf.utils import _dtype_to_str
 
-_DASK_MISSING_MESSAGE = (
-    "dask is required for lazy NetCDF reads. Install with one of:\n"
-    "  - PyPI:        pip install 'pyramids-gis[lazy]'\n"
-    "  - conda-forge: conda install -c conda-forge pyramids-lazy"
+_DASK_MISSING_MESSAGE = extra_hint(
+    "dask is required for lazy NetCDF reads.",
+    "lazy",
 )
 
 
@@ -100,7 +99,8 @@ def _mdarray_shape_and_dtype(
 
     Args:
         path: File path passed to the MDIM opener.
-        variable_name: Name of the MDArray in the root group.
+        variable_name: Name of the MDArray, group-qualified
+            (``"flight_03/CO"``) for a variable in a sub-group.
 
     Returns:
         tuple: `(shape, dtype, block_size, needs_y_flip, needs_x_flip)`.
@@ -119,7 +119,10 @@ def _mdarray_shape_and_dtype(
                 f"Dataset at {path!r} has no root group; lazy MDArray "
                 "reads require MDIM (NetCDF/HDF5/Zarr) inputs."
             )
-        md_arr = rg.OpenMDArray(variable_name)
+        # Through the resolver, not `OpenMDArray`: the variable enumeration
+        # emits group-qualified names ("flight_03/CO") for a store that nests
+        # its variables, and only the resolver walks down to the owning group.
+        md_arr = open_mdarray(rg, variable_name)
         if md_arr is None:
             raise ValueError(
                 f"Variable {variable_name!r} not found in root group of {path!r}."
@@ -326,7 +329,8 @@ def _read_mdarray_chunk(
         manager: Manager yielding a fresh / cached MDIM
             `gdal.Dataset` when entered via
             :meth:`CachingFileManager.acquire_context`.
-        variable_name: Name of the MDArray in the root group.
+        variable_name: Name of the MDArray, group-qualified
+            (``"flight_03/CO"``) for a variable in a sub-group.
         starts: Per-axis start indices.
         counts: Per-axis counts (shape of the returned block).
         expected_dtype: Dtype to cast the block to if the driver
@@ -344,7 +348,13 @@ def _read_mdarray_chunk(
         manager.acquire_context() as ds,
     ):
         rg = ds.GetRootGroup()
-        md_arr = rg.OpenMDArray(variable_name)
+        # Same resolver as the metadata probe, so both agree on which names
+        # exist in a grouped store.
+        md_arr = open_mdarray(rg, variable_name)
+        if md_arr is None:
+            raise ValueError(
+                f"Variable {variable_name!r} not found in {manager.path!r}."
+            )
         block = md_arr.ReadAsArray(
             array_start_idx=list(starts),
             count=list(counts),
@@ -598,7 +608,8 @@ def build_lazy_array(
 
     Args:
         path: On-disk path to the NetCDF / HDF5 / Zarr file.
-        variable_name: Name of the MDArray in the root group.
+        variable_name: Name of the MDArray, group-qualified
+            (``"flight_03/CO"``) for a variable in a sub-group.
         chunks: Raw user input — `int`, `tuple`, `dict`, or
             the string `"auto"`. See :func:`_normalize_chunks`.
         lock: Lock passed to :class:`CachingFileManager`; see

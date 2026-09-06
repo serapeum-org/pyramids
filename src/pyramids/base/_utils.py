@@ -17,6 +17,70 @@ from pandas import DataFrame
 from pyramids import __path__
 from pyramids.base._errors import DriverNotExistError, OptionalPackageDoesNotExist
 
+
+def _half_precision_columns(
+    constants: Any,
+) -> tuple[list[str], list[type], list[int], list[int | None]]:
+    """The dtype-catalogue rows for GDAL's half-precision types, empty when GDAL has none.
+
+    GDAL 3.11 added ``GDT_Float16`` and ``GDT_CFloat16`` (RFC 100) and the bundled
+    build writes rasters in them, so the catalogue has to carry them. Every
+    supported build is newer than that -- the conda pin is ``gdal >=3.13.3`` and the
+    oldest vendored wheel carries 3.12.4 -- but an sdist install against a system
+    GDAL can still predate it, and importing pyramids must keep working there.
+
+    The rows are therefore *omitted* on such a build rather than filled with a
+    placeholder code. :func:`_first_wins` keeps every pair whose halves are both
+    non-``None``, so a placeholder like ``-1`` would become the value
+    ``numpy_to_gdal_dtype(np.dtype("float16"))`` hands back -- and GDAL rejects it
+    as a band type downstream -- where dropping the row restores the "data type is
+    not supported" :class:`ValueError` that build used to raise. The placeholder
+    would equally become a *key* of the GDAL->numpy and GDAL->OGR tables, answering
+    for a code no GDAL can produce.
+
+    Args:
+        constants: The :mod:`osgeo.gdalconst` module, or any stand-in that carries
+            (or lacks) its ``GDT_Float16`` / ``GDT_CFloat16`` attributes.
+
+    Returns:
+        tuple[list[str], list[type], list[int], list[int | None]]: The
+        ``(names, numpy, gdal, ogr)`` column tails, all four empty when `constants`
+        does not define both half-precision codes.
+
+    Examples:
+        - The running GDAL defines them, so both rows are contributed:
+            ```python
+            >>> from osgeo import gdalconst
+            >>> from pyramids.base._utils import _half_precision_columns
+            >>> _half_precision_columns(gdalconst)[0]
+            ['float16', 'complex-float16']
+
+            ```
+        - A GDAL that predates RFC 100 contributes no row at all, rather than a
+          placeholder code:
+            ```python
+            >>> from types import SimpleNamespace
+            >>> from pyramids.base._utils import _half_precision_columns
+            >>> _half_precision_columns(SimpleNamespace())
+            ([], [], [], [])
+
+            ```
+    """
+    columns: tuple[list[str], list[type], list[int], list[int | None]]
+    if hasattr(constants, "GDT_Float16") and hasattr(constants, "GDT_CFloat16"):
+        columns = (
+            ["float16", "complex-float16"],
+            [np.float16, np.complex64],
+            [constants.GDT_Float16, constants.GDT_CFloat16],
+            [ogr.OFTReal, None],
+        )
+    else:
+        columns = ([], [], [], [])
+    return columns
+
+
+_HALF_NAMES, _HALF_NUMPY, _HALF_GDAL, _HALF_OGR = _half_precision_columns(gdalconst)
+
 DTYPE_NAMES = [
     None,
     "byte",
@@ -34,7 +98,7 @@ DTYPE_NAMES = [
     "int64",
     "int8",
     "count",
-]
+] + _HALF_NAMES
 
 GDAL_DTYPE = [
     gdalconst.GDT_Unknown,
@@ -53,9 +117,11 @@ GDAL_DTYPE = [
     gdalconst.GDT_Int64,
     gdalconst.GDT_Int8,
     gdalconst.GDT_TypeCount,
-]
+] + _HALF_GDAL
 
-GDAL_DTYPE_CODE = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+# Row ids, derived from the catalogue rather than listed, so a build without the
+# half-precision rows cannot end up with more ids than rows.
+GDAL_DTYPE_CODE = list(range(len(DTYPE_NAMES)))
 
 OGR_DTYPE = [
     None,
@@ -74,7 +140,7 @@ OGR_DTYPE = [
     ogr.OFTInteger64,
     ogr.OFTInteger,
     None,
-]
+] + _HALF_OGR
 
 NUMPY_DTYPE = [
     None,
@@ -93,7 +159,7 @@ NUMPY_DTYPE = [
     np.int64,
     np.int8,
     None,
-]
+] + _HALF_NUMPY
 
 DTYPE_CONVERSION_DF = DataFrame(
     columns=["id", "name", "numpy", "gdal", "ogr"],
@@ -536,6 +602,103 @@ def ogr_to_numpy_dtype(dtype_code: int):
     return result_dtype
 
 
+def _ambiguous_numpy_names() -> frozenset[str]:
+    """The numpy dtype names that more than one GDAL type maps onto.
+
+    Derived from the catalog rather than listed, so adding a row cannot make a
+    name ambiguous without this noticing. Today the only one is `complex64`:
+    `CInt16`, `CInt32`, `CFloat16` and `CFloat32` all share it, because numpy
+    has no complex type whose components are integers or half-floats.
+
+    Returns:
+        frozenset[str]: Names that cannot identify a GDAL type on their own.
+    """
+    counts: dict[str, int] = {}
+    for numpy_type in DTYPE_CONVERSION_DF["numpy"]:
+        name = getattr(numpy_type, "__name__", None)
+        if name is not None:
+            counts[name] = counts.get(name, 0) + 1
+    return frozenset(name for name, count in counts.items() if count > 1)
+
+
+# Names that do not identify a GDAL type on their own, so `gdal_dtype_name`
+# reports the catalog's spelling instead. Computed once, from the table.
+_AMBIGUOUS_NUMPY_NAMES = _ambiguous_numpy_names()
+
+
+def gdal_dtype_name(code: int) -> str:
+    """The reportable name of a GDAL band type, numpy's where numpy has one.
+
+    `Dataset.dtype` used to read the catalog's `name` column, which spells the
+    types GDAL's own way (`byte`, `complex-int16`). Moving it to
+    :func:`gdal_to_numpy_dtype` fixed a real problem -- `byte` is not a numpy
+    name, and `uint8` is what STAC's `raster:bands[].data_type` wants -- but it
+    flattened a divergence the `name` column existed to hold.
+
+    numpy has no complex type whose components are integers or half-floats, so
+    `CInt16`, `CInt32`, `CFloat16` and `CFloat32` all map onto `complex64`.
+    Reporting that name loses which of them the band actually is: `Dataset.dtype` could no
+    longer tell a `CInt16` raster from a `CFloat32` one, the STAC field it
+    feeds could not either, and feeding the answer back through
+    :func:`numpy_to_gdal_dtype` -- which accepts a string -- returned `CInt16`
+    for a `CFloat32` raster where it used to raise.
+
+    So numpy's name is used exactly where it is faithful, and the catalog's
+    where it is not.
+
+    Args:
+        code: A GDAL band type constant, as `Dataset.gdal_dtype` reports.
+
+    Returns:
+        str: The numpy dtype name for a type numpy can express, else the
+            catalog's own name for it.
+
+    Raises:
+        ValueError: `code` is not in the catalog.
+
+    Examples:
+        - An ordinary type reports its numpy name, which is the change this
+          branch made deliberately:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.base._utils import gdal_dtype_name
+            >>> gdal_dtype_name(gdal.GDT_Byte)
+            'uint8'
+
+            ```
+        - A complex type numpy can express reports numpy's name too:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.base._utils import gdal_dtype_name
+            >>> gdal_dtype_name(gdal.GDT_CFloat64)
+            'complex128'
+
+            ```
+        - The four GDAL types sharing numpy's `complex64` keep the names
+          that tell them apart:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.base._utils import gdal_dtype_name
+            >>> gdal_dtype_name(gdal.GDT_CInt16), gdal_dtype_name(gdal.GDT_CFloat32)
+            ('complex-int16', 'complex-float32')
+
+            ```
+    """
+    row = DTYPE_CONVERSION_DF.loc[DTYPE_CONVERSION_DF["gdal"] == code]
+    if row.empty:
+        # The same exception `gdal_to_numpy_dtype` raises for an unknown code,
+        # so a caller that already handles one handles both.
+        raise ValueError(f"GDAL data type {code} is not in the conversion catalog.")
+    numpy_name = gdal_to_numpy_dtype(code)
+    # An ambiguous numpy name does not say which GDAL type the band is, and
+    # feeding it back through `numpy_to_gdal_dtype` resolves to whichever row
+    # comes first -- `CInt16` for every one of the four sharing `complex64`.
+    # The catalog's own name is the only spelling that survives the round trip.
+    return (
+        str(row["name"].iloc[0]) if numpy_name in _AMBIGUOUS_NUMPY_NAMES else numpy_name
+    )
+
+
 def gdal_to_numpy_dtype(dtype: int) -> str:
     """Convert GDAL dtype into numpy dtype.
 
@@ -558,6 +721,65 @@ def gdal_to_numpy_dtype(dtype: int) -> str:
         )
     result_name = str(matched.__name__)
     return result_name
+
+
+def gdal_to_numpy_type(dtype: int) -> type:
+    """Convert a GDAL dtype code into the numpy *type*.
+
+    The sibling of :func:`gdal_to_numpy_dtype`, which returns the type's name.
+    Both read `_GDAL_TO_NUMPY`, so the two cannot drift.
+
+    Args:
+        dtype (int): GDAL data type code.
+
+    Returns:
+        type: The corresponding numpy scalar type.
+
+    Raises:
+        ValueError: If `dtype` has no numpy counterpart -- including the
+            placeholder codes ``GDT_Unknown`` and ``GDT_TypeCount``.
+
+    Examples:
+        - The returned type allocates an array of that dtype:
+            ```python
+            >>> import numpy as np
+            >>> from osgeo import gdal
+            >>> from pyramids.base._utils import gdal_to_numpy_type
+            >>> np.zeros(3, dtype=gdal_to_numpy_type(gdal.GDT_Float32)).dtype.name
+            'float32'
+
+            ```
+        - GDAL's ``Byte`` is numpy's ``uint8``, not a signed one:
+            ```python
+            >>> import numpy as np
+            >>> from osgeo import gdal
+            >>> from pyramids.base._utils import gdal_to_numpy_type
+            >>> np.dtype(gdal_to_numpy_type(gdal.GDT_Byte)).name
+            'uint8'
+
+            ```
+        - A placeholder code has no counterpart, and the error names it:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.base._utils import gdal_to_numpy_type
+            >>> try:
+            ...     gdal_to_numpy_type(gdal.GDT_Unknown)
+            ... except ValueError as exc:
+            ...     str(exc).startswith("unsupported GDAL data type: 0")
+            True
+
+            ```
+
+    See Also:
+        gdal_to_numpy_dtype: The same lookup returning the dtype's *name*.
+    """
+    matched = _GDAL_TO_NUMPY.get(dtype)
+    if matched is None:
+        raise ValueError(
+            f"unsupported GDAL data type: {dtype}. Supported types are: "
+            f"{DTYPE_CONVERSION_DF['gdal'].unique().tolist()}"
+        )
+    return cast("type", matched)
 
 
 def gdal_to_ogr_dtype(src: Dataset, band: int = 1):
@@ -880,6 +1102,58 @@ class Catalog:
         driver_data = self.get_driver(driver)
         return driver_data.get("extension")
 
+    def resolve_key(self, driver: str) -> str:
+        """Normalise a catalog key or a GDAL short name into a catalog key.
+
+        Callers accept both spellings -- `"geotiff"` and `"GTiff"` -- and each
+        had its own two-branch guard for it. The key is tried first, which is
+        unambiguous because no catalog key equals any GDAL short name.
+
+        Args:
+            driver: A catalog key or a GDAL short name.
+
+        Returns:
+            str: The catalog key.
+
+        Raises:
+            DriverNotExistError: `driver` is neither.
+
+        Examples:
+            - A catalog key passes through:
+                ```python
+                >>> from pyramids.base._utils import get_catalog
+                >>> get_catalog().resolve_key("geotiff")
+                'geotiff'
+
+                ```
+            - A GDAL short name resolves to its key:
+                ```python
+                >>> from pyramids.base._utils import get_catalog
+                >>> get_catalog().resolve_key("GTiff")
+                'geotiff'
+
+                ```
+
+        See Also:
+            get_driver_name: The short-name lookup this falls back to.
+            exists: The key membership test it tries first.
+        """
+        if self.exists(driver):
+            result = driver
+        else:
+            # Bound to its own name first: `get_driver_name` returns `str | None`
+            # and the guard below is what makes it a `str`, so assigning
+            # straight into `result` would widen the declared type of the
+            # single return.
+            looked_up = self.get_driver_name(driver)
+            if looked_up is None:
+                raise DriverNotExistError(
+                    f"The driver: {driver!r} is not in the driver catalog. Known "
+                    f"driver names: {sorted(self.drivers)}"
+                )
+            result = looked_up
+        return result
+
     def get_driver_name(self, gdal_name) -> str | None:
         """Get the catalog key for a GDAL short name.
 
@@ -1128,10 +1402,53 @@ def lazy_extra_hint(prefix: str) -> str:
 
             ```
     """
+    return extra_hint(prefix, "lazy")
+
+
+def extra_hint(lead: str, extra: str) -> str:
+    """Compose an install hint for one of the package's optional extras.
+
+    Every optional-dependency guard raises the same two-line install block with
+    only the extra's name changing, and each had written it out. The lead
+    sentence stays the caller's, because that is the part that says which
+    operation needed the dependency.
+
+    Args:
+        lead: The domain-specific lead sentence, ending in a period. Placed
+            verbatim at the start.
+        extra: The extra's name, e.g. `"lazy"`, `"stac"`, `"parquet"`.
+
+    Returns:
+        str: `lead`, then "Install with one of:", then the PyPI and
+            conda-forge install commands for `extra`.
+
+    Examples:
+        - The lead is preserved and the extra names both commands:
+            ```python
+            >>> from pyramids.base._utils import extra_hint
+            >>> hint = extra_hint("Zarr IO needs the 'zarr' dependency.", "lazy")
+            >>> hint.splitlines()[0]
+            "Zarr IO needs the 'zarr' dependency. Install with one of:"
+            >>> "pyramids-gis[lazy]" in hint
+            True
+
+            ```
+        - A different extra changes both commands:
+            ```python
+            >>> from pyramids.base._utils import extra_hint
+            >>> "pyramids-stac" in extra_hint("Needs pystac.", "stac")
+            True
+
+            ```
+
+    See Also:
+        lazy_extra_hint: The named case of this composer for the `[lazy]`
+            extra, kept because a dozen call sites read better with it.
+    """
     return (
-        f"{prefix} Install with one of:\n"
-        "  - PyPI:        pip install 'pyramids-gis[lazy]'\n"
-        "  - conda-forge: conda install -c conda-forge pyramids-lazy"
+        f"{lead} Install with one of:\n"
+        f"  - PyPI:        pip install 'pyramids-gis[{extra}]'\n"
+        f"  - conda-forge: conda install -c conda-forge pyramids-{extra}"
     )
 
 
@@ -1170,9 +1487,46 @@ def import_dask(message: str):
     return require_optional("dask", message, return_module=True)
 
 
-def import_kerchunk(message: str):
-    """Import kerchunk."""
-    return require_optional("kerchunk", message)
+def import_xarray(message: str):
+    """Import and return :mod:`xarray`.
+
+    Returned because both call sites need the live module -- one to build a
+    `Dataset`, the other to type-check the argument it was handed.
+
+    Args:
+        message: The install hint raised when xarray is missing. Passed through
+            untouched, so it keeps naming the operation that needed xarray.
+
+    Returns:
+        The imported `xarray` module.
+
+    Raises:
+        OptionalPackageDoesNotExist: xarray is not installed. The error carries
+            `message` verbatim.
+
+    Examples:
+        - The module comes back ready to use:
+            ```python
+            >>> from pyramids.base._utils import import_xarray
+            >>> xr = import_xarray("to_xarray() needs xarray.")
+            >>> xr.DataArray([1, 2, 3], dims="x").sizes["x"]
+            3
+
+            ```
+        - Repeated guards resolve to the one cached module, so a value built by
+          one call is recognised by another:
+            ```python
+            >>> from pyramids.base._utils import import_xarray
+            >>> import_xarray("first") is import_xarray("second")
+            True
+
+            ```
+
+    See Also:
+        require_optional: The one guard behind every `import_<package>` helper
+            here; this is its xarray case.
+    """
+    return require_optional("xarray", message, return_module=True)
 
 
 def import_h5py(message: str):

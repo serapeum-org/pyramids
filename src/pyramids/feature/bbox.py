@@ -24,15 +24,20 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 
-from pyproj import Transformer
 from shapely.affinity import translate
 from shapely.geometry import MultiPolygon, Polygon, box
 from shapely.ops import unary_union
 
-from pyramids.base.crs import crs_from_user_input
-
-Bbox = tuple[float, float, float, float]
-"""A `(west, south, east, north)` bounding box in degrees."""
+# `Bbox` and `transform` moved down to `base` so the coverage readers could stop
+# importing `feature` (and, with it, geopandas) for a bbox reprojection. Both are
+# re-exported here under the names callers already use, and both are the objects
+# `pyramids.base._bbox` defines rather than copies of them. What a `Bbox` is, is
+# stated in this module's docstring above; the one-line string that used to follow
+# `Bbox = tuple[...]` documented nothing once the assignment became an import, so
+# it is gone. The move also took `pyproj.Transformer` and `crs_from_user_input`
+# out of this module's namespace -- neither was ever advertised here (see
+# `__all__` below); their homes are `pyproj` and `pyramids.base.crs`.
+from pyramids.base._bbox import Bbox, transform
 
 _CONVENTIONS = ("-180..180", "0..360")
 
@@ -52,6 +57,20 @@ _BBOX_KEY_ALIASES: dict[str, tuple[str, ...]] = {
     "north": ("max_lat", "latmax", "maxlat", "maxy", "north"),
 }
 """Accepted key spellings per bbox edge (GeoJSON, eodag, shapely/geopandas, compass), matched case-insensitively."""
+
+
+__all__ = [
+    "MAX_METRES_PER_LAT_DEGREE",
+    "METRES_PER_DEGREE",
+    "Bbox",
+    "estimate_pixel_dims",
+    "normalise_longitude",
+    "read_bbox_dict",
+    "split_antimeridian",
+    "split_polygon_antimeridian",
+    "to_shapely",
+    "transform",
+]
 
 
 def split_antimeridian(bbox: Bbox) -> list[Bbox]:
@@ -151,65 +170,6 @@ def normalise_longitude(bbox: Bbox, convention: str = "-180..180") -> Bbox:
         west = west % 360.0
         east = east % 360.0
     return (west, south, east, north)
-
-
-def transform(
-    bbox: Bbox,
-    src_crs: object,
-    dst_crs: object,
-    densify_pts: int = 21,
-) -> Bbox:
-    """Reproject a bbox between two CRSes via :func:`pyproj.Transformer.transform_bounds`.
-
-    The four edges are densified to `densify_pts` interior points before
-    reprojecting, so curved CRS boundaries are not crudely axis-aligned. When
-    the destination CRS is geographic, the returned latitudes are clamped to
-    `[-90, 90]` to absorb floating-point overshoot at the poles.
-
-    Args:
-        bbox: A `(west, south, east, north)` / `(minx, miny, maxx, maxy)`
-            tuple in `src_crs` units.
-        src_crs: Source CRS — anything :meth:`pyproj.CRS.from_user_input`
-            accepts (EPSG int, `"EPSG:XXXX"`, WKT, or PROJ string).
-        dst_crs: Destination CRS, same accepted forms as `src_crs`.
-        densify_pts: Number of densification points per edge. Defaults to 21.
-
-    Returns:
-        The reprojected `(minx, miny, maxx, maxy)` bbox in `dst_crs` units.
-
-    Examples:
-        - A same-CRS transform is an identity (modulo float noise):
-            ```python
-            >>> [round(v, 1) for v in transform((-10.0, -5.0, 10.0, 5.0), 4326, 4326)]
-            [-10.0, -5.0, 10.0, 5.0]
-
-            ```
-        - Reproject WGS84 degrees to Web Mercator metres:
-            ```python
-            >>> west, south, east, north = transform((0.0, 0.0, 10.0, 10.0), 4326, 3857)
-            >>> round(east)
-            1113195
-
-            ```
-        - Authority strings are accepted for either CRS:
-            ```python
-            >>> result = transform((0.0, 0.0, 1.0, 1.0), "EPSG:4326", "EPSG:3857")
-            >>> round(result[2]) > 0
-            True
-
-            ```
-    """
-    src = crs_from_user_input(src_crs)
-    dst = crs_from_user_input(dst_crs)
-    transformer = Transformer.from_crs(src, dst, always_xy=True)
-    west, south, east, north = bbox
-    minx, miny, maxx, maxy = transformer.transform_bounds(
-        west, south, east, north, densify_pts=densify_pts
-    )
-    if dst.is_geographic:
-        miny = max(miny, -90.0)
-        maxy = min(maxy, 90.0)
-    return (minx, miny, maxx, maxy)
 
 
 def to_shapely(bbox: Bbox) -> Polygon:

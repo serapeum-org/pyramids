@@ -13,11 +13,11 @@ import weakref
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
-from uuid import uuid4
 
 from osgeo import gdal
 
 from pyramids._io import silent_unlink
+from pyramids.base._artifacts import mint_vsimem, unregister_vsimem
 from pyramids.base._errors import GeolocationArrayError, ReadOnlyError
 from pyramids.base._utils import DEFAULT_RESAMPLING, resolve_resampling
 from pyramids.base.crs import sr_from_user_input
@@ -65,6 +65,22 @@ def _is_staged_dem(dem_path: str | None) -> bool:
         bool: `True` only for a path `_resolve_dem_path` created.
     """
     return dem_path is not None and dem_path.startswith("/vsimem/orthorectify_dem_")
+
+
+def _release_staged_dem(dem_path: str) -> None:
+    """Free a staged `/vsimem` DEM: unlink the file, and drop the registry entry.
+
+    `mint_vsimem` registers what it mints for the exit sweep, so unlinking
+    alone leaves a dead path behind -- one per `orthorectify` for the life of
+    the process, and one more for the sweep to walk. The two halves belong
+    together, which is also why the lazy path's `weakref.finalize` names this
+    rather than `silent_unlink`.
+
+    Args:
+        dem_path: The `/vsimem` path `_resolve_dem_path` staged.
+    """
+    silent_unlink(dem_path)
+    unregister_vsimem(dem_path)
 
 
 class Georef(_Engine["Dataset"]):
@@ -299,10 +315,11 @@ class Georef(_Engine["Dataset"]):
             )
         except BaseException:
             # The failure paths returned without unlinking, leaving the staged copy
-            # in /vsimem for the lifetime of the process. `silent_unlink` so a VSI
-            # error here cannot replace the warp failure the caller needs to see.
+            # in /vsimem for the lifetime of the process. `silent_unlink` inside
+            # the release so a VSI error here cannot replace the warp failure the
+            # caller needs to see.
             if staged_dem is not None:
-                silent_unlink(staged_dem)
+                _release_staged_dem(staged_dem)
             raise
 
         if lazy and staged_dem is not None:
@@ -311,10 +328,10 @@ class Georef(_Engine["Dataset"]):
             # finalizer on the GDAL handle that actually reads the DEM, not on the
             # pyramids wrapper: the wrapper can be dropped while a derived view
             # keeps the handle (and the pin) alive.
-            weakref.finalize(result.raster, silent_unlink, staged_dem)
+            weakref.finalize(result.raster, _release_staged_dem, staged_dem)
         elif staged_dem is not None:
             # A materialised result no longer references the staged DEM.
-            silent_unlink(staged_dem)
+            _release_staged_dem(staged_dem)
         return result
 
     @staticmethod
@@ -337,7 +354,7 @@ class Georef(_Engine["Dataset"]):
             if description:
                 result = description
             else:
-                result = f"/vsimem/orthorectify_dem_{uuid4().hex}.tif"
+                result = mint_vsimem("orthorectify_dem")
                 gdal.Translate(result, dem.raster)
         return result
 

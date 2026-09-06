@@ -25,13 +25,12 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from pyramids.base._utils import import_pystac_client
+from pyramids.base._utils import extra_hint, import_pystac_client
 from pyramids.stac.client import open_client
 
-_STAC_INSTALL_HINT = (
-    "search requires the optional 'pystac-client' dependency. Install with one of:\n"
-    "  - PyPI:        pip install 'pyramids-gis[stac]'\n"
-    "  - conda-forge: conda install -c conda-forge pyramids-stac"
+_STAC_INSTALL_HINT = extra_hint(
+    "search requires the optional 'pystac-client' dependency.",
+    "stac",
 )
 
 

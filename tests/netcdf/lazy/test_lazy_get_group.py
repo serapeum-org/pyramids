@@ -88,12 +88,34 @@ class TestZeroCopyView:
         )
 
     def test_variable_names_stable_after_metadata_cache(self):
-        """Caching meta_data must not flip variable_names to full paths (review H1)."""
+        """Caching meta_data must not flip variable_names to full paths (review H1).
+
+        Test scenario:
+            The whole listing is named, not probed. Names stay *relative to the
+            view* -- which is not the same as flat: the view also holds a
+            `surface` sub-group, whose variable is listed by its path within
+            the view. What must never appear is the full store path
+            (`forecast/temperature`), which the metadata cache is keyed by. A
+            membership check plus two exclusions admits any number of extra
+            names; the exact list refuses them, and both names are then read
+            through the view to show the listing is not merely cosmetic.
+        """
         nc = _build_grouped_mem()
         view = nc.get_group("forecast")
+        before = list(view.variable_names)
         _ = view.meta_data  # cache metadata first (keyed by full store path)
-        assert view.variable_names == ["temperature"], (
-            f"variable_names must stay bare after caching, got {view.variable_names}"
+
+        assert view.variable_names == ["temperature", "surface/t2m"], (
+            f"the cache rewrote the view's listing, got {view.variable_names}"
+        )
+        assert view.variable_names == before, (
+            f"listing changed across the metadata cache: {before} -> "
+            f"{view.variable_names}"
+        )
+        assert_allclose(
+            np.asarray(view.get_variable("surface/t2m").read_array(band=0)),
+            np.full((5, 8), 288.0),
+            err_msg="a nested name the view lists must also resolve through it",
         )
         # get_variable validates against variable_names, so it must still resolve the bare name.
         assert_allclose(
@@ -107,13 +129,15 @@ class TestZeroCopyView:
         # The fixture defines x/y at the root; forecast/temperature references them.
         nc = _build_grouped_mem()
         view = nc.get_group("forecast")
-        assert set(view.dimension_names) >= {
-            "x",
-            "y",
-        }, f"view must report inherited root dims, got {view.dimension_names}"
-        assert (
-            view.dimension_sizes.get("x") == 8 and view.dimension_sizes.get("y") == 5
-        ), f"inherited dim sizes must be correct, got {view.dimension_sizes}"
+        # Equality, not a superset: the group declares no dimensions of its own,
+        # so the two inherited ones are the whole answer and a third would be a
+        # defect rather than something to tolerate.
+        assert sorted(view.dimension_names) == ["x", "y"], (
+            f"view must report exactly the inherited root dims, got {view.dimension_names}"
+        )
+        assert view.dimension_sizes == {"y": 5, "x": 8}, (
+            f"inherited dim sizes must be correct, got {view.dimension_sizes}"
+        )
 
     def test_view_metadata_is_group_scoped(self):
         """`meta_data` traversal is scoped to the sub-group."""

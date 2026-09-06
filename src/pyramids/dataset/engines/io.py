@@ -424,6 +424,58 @@ def _terrain_rgba_stack(
     return np.concatenate([rgb, alpha[np.newaxis, :, :]], axis=0)
 
 
+def _stack_bands(
+    read_band: Callable[[int], Any], band: int | None, count: int
+) -> np.typing.NDArray:
+    """Read one band, or every band into a ``(band, rows, cols)`` buffer.
+
+    Both read paths -- the plain windowed read and the decimated one -- spelled
+    this out: `band is None` on a multi-band raster means every band stacked on
+    a leading axis, and anything else is a single band read flat, with `None`
+    on a single-band raster meaning band 0. Two copies of one rule about what
+    `band=None` means, and the squeeze-or-stack decision is the part a caller
+    is most likely to get subtly wrong.
+
+    Args:
+        read_band: Reads one band by zero-based index. The caller closes over
+            its own window, decimation and resampling arguments, which is the
+            only thing that differed between the two sites.
+        band: The band asked for, or `None` for "all of them".
+        count: The raster's band count.
+
+    Returns:
+        np.typing.NDArray: The stacked 3-D array, or the single band's 2-D one.
+
+    Examples:
+        - `None` on a multi-band raster stacks, leading axis first:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.dataset.engines.io import _stack_bands
+            >>> _stack_bands(lambda i: np.full((2, 2), i), None, 3).shape
+            (3, 2, 2)
+
+            ```
+        - A named band is read flat, and so is `None` on a single-band raster
+          -- which is why the result is not always 3-D:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.dataset.engines.io import _stack_bands
+            >>> _stack_bands(lambda i: np.full((2, 2), i), 1, 3).tolist()
+            [[1, 1], [1, 1]]
+            >>> _stack_bands(lambda i: np.full((2, 2), i), None, 1).shape
+            (2, 2)
+
+            ```
+    """
+    if band is None and count > 1:
+        result = np.stack([read_band(index) for index in range(count)], axis=0)
+    else:
+        # `read_band` reaches GDAL's untyped `ReadAsArray`, so the single-band
+        # arm is `Any` where the stacked one is already an ndarray.
+        result = cast("np.typing.NDArray", read_band(0 if band is None else band))
+    return result
+
+
 class IO(_Engine["Dataset"]):
     @under_gdal_env
     def read_array(
@@ -1018,20 +1070,26 @@ class IO(_Engine["Dataset"]):
             np.ndarray: The requested pixels.
         """
         window_args = tuple(window) if window is not None else ()
-        if band is None and self._ds.band_count > 1:
-            if window is None:
-                arr = handle.ReadAsArray()
-            else:
-                arr = np.stack(
-                    [
-                        handle.GetRasterBand(i + 1).ReadAsArray(*window_args)
-                        for i in range(self._ds.band_count)
-                    ],
-                    axis=0,
-                )
+        if band is None and window is None and self._ds.band_count > 1:
+            # One GDAL call for the whole cube, which the per-band stack below
+            # cannot match, so it is kept as its own branch rather than folded
+            # into the helper.
+            #
+            # The two are not interchangeable, and not only in cost: on a
+            # dataset whose bands have *different* dtypes, `ReadAsArray()` picks
+            # one buffer type for all of them while the per-band stack promotes
+            # through numpy, so `Byte + Float64` comes back `float32` here and
+            # `float64` there -- and a value like `1234567890.1234567` reads
+            # back as `1234567936.0`. That divergence predates this helper and
+            # is unchanged by it; it is recorded here because the branch reads
+            # like a pure optimisation and is not one.
+            arr = handle.ReadAsArray()
         else:
-            effective_band = 0 if band is None else band
-            arr = handle.GetRasterBand(effective_band + 1).ReadAsArray(*window_args)
+            arr = _stack_bands(
+                lambda index: handle.GetRasterBand(index + 1).ReadAsArray(*window_args),
+                band,
+                self._ds.band_count,
+            )
         # arr comes from GDAL's untyped ReadAsArray/np.stack; this method's own
         # declared contract is a plain ndarray.
         return cast(np.typing.NDArray, arr)
@@ -1327,19 +1385,13 @@ class IO(_Engine["Dataset"]):
         else:
             window_args = ()
         validate_band_index(band, self._ds.band_count)
-        if band is None and self._ds.band_count > 1:
-            arr = np.stack(
-                [
-                    self._decimated_band_read(i, window_args, rows, cols, alg)
-                    for i in range(self._ds.band_count)
-                ],
-                axis=0,
-            )
-        else:
-            effective_band = 0 if band is None else band
-            arr = self._decimated_band_read(
-                effective_band, window_args, rows, cols, alg
-            )
+        arr = _stack_bands(
+            lambda index: self._decimated_band_read(
+                index, window_args, rows, cols, alg
+            ),
+            band,
+            self._ds.band_count,
+        )
         return arr
 
     def _decimated_band_read(
@@ -4200,18 +4252,12 @@ class IO(_Engine["Dataset"]):
         ]
         arr = planes[0] if band is not None else np.stack(planes, axis=0)
         rows, columns = planes[0].shape
-        geo = self._ds.geotransform
-        # Scale all four resolution/rotation terms, as GDALOverviewDataset does: leaving
-        # the rotation terms unscaled shears every pixel but the origin on a skewed grid.
-        x_ratio = self._ds.columns / columns
-        y_ratio = self._ds.rows / rows
-        scaled_geo = (
-            geo[0],
-            geo[1] * x_ratio,
-            geo[2] * y_ratio,
-            geo[3],
-            geo[4] * x_ratio,
-            geo[5] * y_ratio,
+        # `GeoTransform.scaled` carries the rationale: all four resolution and
+        # rotation terms scale, as GDALOverviewDataset does.
+        scaled_geo = tuple(
+            self._ds.transform.rescaled_to(
+                (self._ds.rows, self._ds.columns), (rows, columns)
+            )
         )
         parent_no_data = [self._ds.no_data_value[index] for index in selection]
         # Build with no no-data at all, then declare it only for the bands that actually
@@ -4223,7 +4269,8 @@ class IO(_Engine["Dataset"]):
         overview = _Dataset.from_array(
             arr,
             geo_ref=GeoReference(
-                geo=scaled_geo, epsg=crs_spec(self._ds.epsg, self._ds.crs)
+                geo=cast("tuple[float, float, float, float, float, float]", scaled_geo),
+                epsg=crs_spec(self._ds.epsg, self._ds.crs),
             ),
             no_data_value=None,
         )

@@ -298,6 +298,58 @@ class Window:
             math.ceil(rows),
         )
 
+    def buffer(self, cells: int) -> Window:
+        """Grow the window by ``cells`` pixels on every side.
+
+        The margin a "touch" read needs: a window covering a shape's envelope
+        still misses a cell the shape merely grazes, because the grazed cell's
+        centre lies outside the envelope. One cell of margin per side covers
+        every such cell.
+
+        Growing is unbounded -- the result may start at a negative offset or
+        run past the raster. Follow it with :meth:`crop` to clamp it back.
+
+        Args:
+            cells: Pixels to add on each side. Must not be negative.
+
+        Returns:
+            Window: the grown window.
+
+        Raises:
+            ValueError: ``cells`` is negative.
+
+        Examples:
+            - One cell of margin adds two to each dimension:
+                ```python
+                >>> from pyramids.dataset.window import Window
+                >>> Window(5, 5, 10, 10).buffer(1)
+                Window(col_off=4, row_off=4, cols=12, rows=12)
+
+                ```
+            - A window at the origin grows to negative offsets, which
+              :meth:`crop` then clamps away:
+                ```python
+                >>> from pyramids.dataset.window import Window
+                >>> Window(0, 0, 4, 4).buffer(2)
+                Window(col_off=-2, row_off=-2, cols=8, rows=8)
+                >>> Window(0, 0, 4, 4).buffer(2).crop(rows=4, cols=4)
+                Window(col_off=0, row_off=0, cols=4, rows=4)
+
+                ```
+
+        See Also:
+            crop: Clamps a window back inside a raster, the usual next step.
+            from_bounds: Builds the covering window this one grows.
+        """
+        if cells < 0:
+            raise ValueError(f"cells must not be negative, got {cells}.")
+        return Window(
+            col_off=self.col_off - cells,
+            row_off=self.row_off - cells,
+            cols=self.cols + 2 * cells,
+            rows=self.rows + 2 * cells,
+        )
+
     def crop(self, rows: int, cols: int) -> Window | None:
         """Clamp the window to a raster's ``(rows, cols)`` pixel extent.
 

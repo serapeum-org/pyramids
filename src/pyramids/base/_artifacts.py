@@ -1,18 +1,24 @@
 """Process-scoped scratch artefacts for readers that must outlive their call.
 
-Several STAC readers must materialise intermediate rasters that have to outlive
-the call because the returned object is *file-backed* by them: multi-asset
-``from_stac`` and ``groupby="solar_day"`` write per-item / per-day GeoTIFFs, and
-``build_vrt_from_stac`` writes an in-memory ``/vsimem`` VRT. Previously each call
-made its own ``tempfile.mkdtemp`` (or a fresh ``/vsimem`` path) that was **never
-cleaned up**, so a long-running process leaked disk / memory indefinitely.
+Some readers must materialise an intermediate raster that has to outlive the
+call, because the object they return is *file-backed* by it. Multi-asset
+``from_stac`` and ``groupby="solar_day"`` write per-item / per-day GeoTIFFs;
+``build_vrt_from_stac`` writes an in-memory ``/vsimem`` VRT; the COG writer, the
+orthorectify DEM, the dtype probe and the WCS reader each mint a ``/vsimem``
+raster of their own. Previously each call made its own ``tempfile.mkdtemp`` (or
+a fresh ``/vsimem`` path) that was **never cleaned up**, so a long-running
+process leaked disk and memory indefinitely.
 
 This module centralises that scratch space:
 
 * :func:`artifact_dir` returns a fresh unique directory under **one** shared,
   process-level temp root (so N calls create N small subdirs under a single
   root, not N independent roots).
-* :func:`register_vsimem` tracks a ``/vsimem`` path for unlink.
+* :func:`mint_vsimem` names a ``/vsimem`` path and tracks it in one call, which
+  is what stops a new call site from forgetting the tracking -- four of them
+  had.
+* :func:`register_vsimem` tracks a path the caller named itself, and
+  :func:`unregister_vsimem` forgets one it has already unlinked.
 * both the root and the tracked ``/vsimem`` paths are removed by an ``atexit``
   hook, so everything is reclaimed at interpreter shutdown.
 
@@ -28,6 +34,7 @@ import os
 import shutil
 import tempfile
 import threading
+import uuid
 
 from osgeo import gdal
 
@@ -97,6 +104,85 @@ def artifact_dir() -> str:
             ```
     """
     return tempfile.mkdtemp(dir=_root())
+
+
+def mint_vsimem(purpose: str, suffix: str = ".tif") -> str:
+    """A unique ``/vsimem`` path for `purpose`, tracked for the exit sweep.
+
+    Four call sites minted these by hand -- the COG writer, the orthorectify
+    DEM, the dtype probe and the WCS reader -- with four naming conventions
+    between them (`{uuid}.tif`, `orthorectify_dem_{uuid}.tif`,
+    `_pyramids_dtype_probe_{uuid}`, `wcs_getcoverage_{uuid}.tif`), so a
+    `/vsimem` listing during debugging gave no consistent way to tell whose
+    artefact was whose. None of the four registered with
+    :func:`register_vsimem`, so anything they failed to unlink themselves --
+    on an exception path, say -- stayed in memory for the life of the process,
+    while the STAC reader's artefacts were reclaimed at exit.
+
+    Minting and tracking together is what makes the registration hard to
+    forget. Unlinking early is still the caller's job and still worth doing;
+    :func:`unregister_vsimem` is how they say so.
+
+    Args:
+        purpose: A short name for what the artefact is, used as the path
+            prefix so a listing is readable. Kept to identifier characters,
+            and checked -- the constraint was documented and unenforced, so
+            `mint_vsimem("../../escape")` composed
+            `/vsimem/../../escape_<uuid>.tif`. `/vsimem` is a flat namespace,
+            so that was inert; a documented constraint a caller may rely on
+            should not be one the code declines to hold.
+        suffix: File extension, including the dot. Defaults to `".tif"`;
+            pass `""` for a path GDAL should infer the format of.
+
+    Returns:
+        str: The minted path, already registered for cleanup at exit.
+
+    Raises:
+        ValueError: `purpose` is not a Python identifier, so it carries a path
+            separator, a traversal, whitespace, or nothing at all.
+
+    Examples:
+        - The purpose leads the name, so a listing says whose it is:
+            ```python
+            >>> from pyramids.base._artifacts import mint_vsimem, unregister_vsimem
+            >>> path = mint_vsimem("cog")
+            >>> path.startswith("/vsimem/cog_") and path.endswith(".tif")
+            True
+            >>> unregister_vsimem(path)
+
+            ```
+        - Two calls never collide, which is the whole point of minting rather
+          than naming:
+            ```python
+            >>> from pyramids.base._artifacts import mint_vsimem, unregister_vsimem
+            >>> first, second = mint_vsimem("probe", ""), mint_vsimem("probe", "")
+            >>> first == second
+            False
+            >>> unregister_vsimem(first), unregister_vsimem(second)
+            (None, None)
+
+            ```
+        - A purpose that is a path rather than a name is refused:
+            ```python
+            >>> from pyramids.base._artifacts import mint_vsimem
+            >>> mint_vsimem("../../escape")  # doctest: +NORMALIZE_WHITESPACE
+            Traceback (most recent call last):
+            ValueError: purpose must be an identifier so it cannot compose a
+            path, got '../../escape'
+
+            ```
+
+    See Also:
+        register_vsimem: Tracks a path this did not mint.
+        unregister_vsimem: Forgets one the caller has already unlinked.
+    """
+    if not purpose.isidentifier():
+        raise ValueError(
+            f"purpose must be an identifier so it cannot compose a path, got {purpose!r}"
+        )
+    path = f"/vsimem/{purpose}_{uuid.uuid4().hex}{suffix}"
+    register_vsimem(path)
+    return path
 
 
 def register_vsimem(path: str) -> None:

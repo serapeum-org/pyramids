@@ -102,8 +102,18 @@ def open_mdarray(rg: gdal.Group, name: str) -> gdal.MDArray | None:
 
             ```
     """
+    group, _, leaf = name.rpartition("/")
     try:
-        return rg.OpenMDArray(name)
+        # A group-qualified name ("forecast/temperature") is what the variable
+        # enumeration emits for a store that nests its variables, and
+        # `OpenMDArray` resolves names only within the group it is called on.
+        # Walking down to the owning group first is what makes every name the
+        # enumeration hands out openable.
+        for step in filter(None, group.split("/")):
+            rg = rg.OpenGroup(step)
+            if rg is None:
+                return None
+        return rg.OpenMDArray(leaf)
     except RuntimeError:
         return None
 

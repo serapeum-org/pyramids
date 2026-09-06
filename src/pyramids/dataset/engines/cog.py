@@ -8,7 +8,6 @@ Owns the COG family of operations on a Dataset. Accessed as
 from __future__ import annotations
 
 import math
-import uuid
 import warnings
 from collections.abc import Mapping
 from functools import lru_cache
@@ -20,6 +19,7 @@ from osgeo import gdal
 from pyproj import Transformer
 
 from pyramids._io import read_vsi_bytes, silent_unlink
+from pyramids.base._artifacts import mint_vsimem, unregister_vsimem
 from pyramids.base._errors import FailedToSaveError, OutOfBoundsError
 from pyramids.base._utils import is_integer_gdal_dtype
 from pyramids.base.crs import crs_equal, crs_from_user_input, require_crs_spec
@@ -451,7 +451,7 @@ class COG(_Engine["Dataset"]):
 
                 ```
         """
-        vsi_path = f"/vsimem/{uuid.uuid4().hex}.tif"
+        vsi_path = mint_vsimem("cog")
         try:
             self.to_cog(vsi_path, **kwargs)
             try:
@@ -466,6 +466,11 @@ class COG(_Engine["Dataset"]):
             # the original exception. Sweep the PAM sidecar too.
             silent_unlink(vsi_path)
             silent_unlink(f"{vsi_path}.aux.xml")
+            # Minting registers the path for the exit sweep; reclaiming it here
+            # is what makes that entry dead. Saying so keeps the registry from
+            # growing one string per call for the life of the process -- a
+            # service encoding a COG per request would otherwise never stop.
+            unregister_vsimem(vsi_path)
         return data
 
     def _translate_with_statistics_retry(
@@ -716,8 +721,17 @@ class COG(_Engine["Dataset"]):
             on-disk (or remote `/vsi*`, but not in-memory `/vsimem/`) file;
             `None` for MEM datasets, `/vsimem/` paths, and unsaved datasets.
         """
-        fn = self._ds.file_name
+        # `_vsimem_path` first, and the driver: a MEM container reports a
+        # placeholder `file_name` (a bare driver name such as "netcdf"), which
+        # is neither empty nor a /vsimem/ path, so the old test accepted it and
+        # `is_cog` went on to validate a file that does not exist.
+        fn = getattr(self._ds, "_vsimem_path", "") or self._ds.file_name
         if not fn or fn.startswith("/vsimem/"):
+            return None
+        # `driver_type` calls `_require_open()`, so it is asked only once the
+        # cheap tests have passed and only while the handle is open -- a closed
+        # dataset keeps returning None rather than raising out of `is_cog`.
+        if self._ds._raster is not None and self._ds.driver_type == "memory":
             return None
         return fn
 

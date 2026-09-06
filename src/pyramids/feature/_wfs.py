@@ -23,9 +23,7 @@ non-PROJ CRS — live in the downstream consumer (``earthlens``), which calls
 
 from __future__ import annotations
 
-import base64
 import urllib.error
-import urllib.request
 from functools import lru_cache
 from typing import TYPE_CHECKING
 from xml.etree import ElementTree as ET  # nosec B405 - server XML; DoS accepted, no XXE
@@ -33,8 +31,12 @@ from xml.etree import ElementTree as ET  # nosec B405 - server XML; DoS accepted
 from pyramids.base._errors import WFSError
 from pyramids.base._ogc_api import (
     DISCOVERY_HEADERS,
+    capabilities_url,
+    discovery_request,
+    exception_text,
     http_error_detail,
     http_get_with_retry,
+    localname,
 )
 from pyramids.feature._ogc import read_kwargs as _read_kwargs
 from pyramids.feature._ogc import read_ogc_layer as _read_ogc_layer
@@ -44,18 +46,16 @@ if TYPE_CHECKING:
     from pyramids.feature.collection import FeatureCollection
 
 
-def _localname(tag: str) -> str:
-    """Strip the XML namespace from an ElementTree tag (`{ns}Name` → `Name`)."""
-    return tag.rsplit("}", 1)[-1]
+# Imported under the module-private names the readers (and the tests that
+# reach through this module) already use. `SERVICE=WFS` is the only
+# thing that differed between the two copies of the URL builder.
+_localname = localname
+_exception_text = exception_text
 
 
 def _capabilities_url(endpoint: str, version: str | None) -> str:
     """Build the ``GetCapabilities`` URL for a WFS endpoint."""
-    sep = "&" if "?" in endpoint else "?"
-    url = f"{endpoint}{sep}SERVICE=WFS&REQUEST=GetCapabilities"
-    if version:
-        url += f"&VERSION={version}"
-    return url
+    return capabilities_url(endpoint, "WFS", version)
 
 
 @lru_cache(maxsize=32)
@@ -73,18 +73,20 @@ def _get_capabilities(
             answered with an ``<ows:ExceptionReport>`` / non-XML body.
     """
     url = _capabilities_url(endpoint, version)
-    headers = dict(DISCOVERY_HEADERS)
-    if auth is not None:
-        # Send Basic credentials preemptively (matching the GDAL WFS read's
-        # GDAL_HTTP_USERPWD), plus a real User-Agent: a server that 403s without a
-        # 401 challenge, or blocks the default urllib UA, still gets valid
-        # credentials. The old reactive HTTPBasicAuthHandler only reacted to a 401,
-        # so such servers failed the pre-check even with correct auth (ARC-34). The
-        # shared retry also rides out transient discovery faults, as OAPIF already
-        # does (ARC-64).
-        token = base64.b64encode(f"{auth[0]}:{auth[1]}".encode()).decode()
-        headers["Authorization"] = f"Basic {token}"
-    request = urllib.request.Request(url, headers=headers)
+    # The shared builder, not a fourth copy of the header assembly. It carries
+    # the preemptive Basic credentials (matching the GDAL WFS read's
+    # GDAL_HTTP_USERPWD) that a server 403ing without a 401 challenge needs,
+    # since the reactive HTTPBasicAuthHandler only reacts to a 401 (ARC-34).
+    #
+    # The two arguments are the real differences, not copies that drifted.
+    # `accept_json` stays True: a capabilities document is XML, but this fetch
+    # has always negotiated JSON and a deployed service may answer differently
+    # if that changes, so it is left as it was. The agent is the same one the
+    # OGC API pre-check declares, which is what a WFS endpoint filtering on it
+    # already sees.
+    request = discovery_request(
+        url, auth, accept_json=True, user_agent=DISCOVERY_HEADERS["User-Agent"]
+    )
     try:
         payload = http_get_with_retry(request, timeout)
     except urllib.error.HTTPError as exc:
@@ -132,14 +134,6 @@ def _extract_typenames(root: ET.Element) -> set[str]:
             if _localname(child.tag) == "Name" and child.text:
                 typenames.add(child.text.strip())
     return typenames
-
-
-def _exception_text(root: ET.Element) -> str:
-    """Extract the human-readable message from an OWS/WFS exception document."""
-    for el in root.iter():
-        if _localname(el.tag) in ("ExceptionText", "ServiceException") and el.text:
-            return el.text.strip()
-    return (root.text or "").strip() or "no message provided"
 
 
 def _wfs_connection(endpoint: str, version: str | None) -> str:

@@ -19,7 +19,7 @@ from typing import Any
 
 import geopandas as gpd
 
-from pyramids.base._utils import get_catalog, import_pyarrow
+from pyramids.base._utils import extra_hint, get_catalog, import_pyarrow
 
 _CATALOG = get_catalog(raster_driver=False)
 
@@ -63,9 +63,10 @@ def to_parquet(
 ) -> None:
     """Write `fc` to GeoParquet, raising a pyramids-branded ImportError if pyarrow is absent."""
     import_pyarrow(
-        "GeoParquet support requires the optional 'pyarrow' dependency. Install with one of:\n"
-        "  - PyPI:        pip install 'pyramids-gis[parquet]'\n"
-        "  - conda-forge: conda install -c conda-forge pyramids-parquet"
+        extra_hint(
+            "GeoParquet support requires the optional 'pyarrow' dependency.",
+            "parquet",
+        )
     )
     gpd.GeoDataFrame.to_parquet(
         fc, path, compression=compression, index=index, **kwargs

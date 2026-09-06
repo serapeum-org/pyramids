@@ -11,6 +11,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, cast
 
+from pyramids.base._utils import extra_hint
+
 _SUPPORTED_OPS = ("mean", "sum", "min", "max", "std", "var")
 _NAN_TABLE = {op: f"nan{op}" for op in _SUPPORTED_OPS}
 
@@ -43,10 +45,10 @@ def resolve_dask_op(op_name: str, *, skipna: bool) -> Callable[..., Any]:
         import dask.array as da
     except ImportError as exc:  # pragma: no cover
         raise ImportError(
-            "DatasetCollection reductions require the optional "
-            "'dask' dependency. Install with one of:\n"
-            "  - PyPI:        pip install 'pyramids-gis[lazy]'\n"
-            "  - conda-forge: conda install -c conda-forge pyramids-lazy"
+            extra_hint(
+                "DatasetCollection reductions require the optional 'dask' dependency.",
+                "lazy",
+            )
         ) from exc
     name = _NAN_TABLE[op_name] if skipna else op_name
     # getattr on a module is untyped; every name in _NAN_TABLE / _SUPPORTED_OPS

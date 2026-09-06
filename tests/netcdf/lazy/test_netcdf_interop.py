@@ -733,25 +733,29 @@ class TestInteropEngineBranches:
     ``test_netcdf_engines.py`` — these genuinely exercise the two interop
     methods, so they belong with the rest of the interop suite)."""
 
-    def test_from_xarray_skips_non_dimension_coord(self):
-        """A coordinate that is not also a dimension is skipped on write.
+    def test_from_xarray_skips_a_scalar_coord(self):
+        """A rank-0 coordinate is skipped on write, and does not fail the write.
 
         Test scenario:
-            The interop import only writes coords whose name matches
-            a dimension; a scalar/auxiliary coord is silently skipped, so the
-            round-trip drops it rather than crashing.
+            The rule used to be "every coordinate that is not also a dimension
+            is skipped", which silently dropped CF bounds and 2-D curvilinear
+            coordinate fields -- for a ROMS store, the only georeferencing it
+            had (round-4 M1). Those are written now; a *scalar* coordinate is
+            still skipped, because GDAL's multidim writer refuses a 0-d array
+            and pyramids' own enumeration drops 0-dimensional MDArrays anyway.
+            What must not happen is the write failing over one.
         """
         ds = xr.Dataset(
             data_vars={"t": (("y", "x"), np.arange(6.0).reshape(2, 3))},
             coords={
                 "y": ("y", [0.0, 1.0]),
                 "x": ("x", [0.0, 1.0, 2.0]),
-                "scalar_meta": 42.0,  # not a dimension -> skipped
+                "scalar_meta": 42.0,  # rank 0 -> skipped
             },
         )
         nc = NetCDF.from_xarray(ds)
         assert "t" in nc.variable_names, "data variable lost on round-trip"
-        assert "scalar_meta" not in nc.variable_names, "non-dim coord should be skipped"
+        assert "scalar_meta" not in nc._readable_variable_names()
 
     def test_units_survive_from_xarray_to_xarray_roundtrip(self):
         """A variable's ``units`` survive an interop import → export.

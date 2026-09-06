@@ -503,6 +503,57 @@ def _lazy_timestep(
     )
 
 
+def _delayed():
+    """The `dask.delayed` decorator, or a clear error naming the missing extra.
+
+    Every deferred per-timestep path needs it, and each used to import `dask`
+    inline at the point of use, so a missing extra surfaced differently
+    depending on which arm the caller reached.
+
+    Returns:
+        The `dask.delayed` callable.
+
+    Raises:
+        OptionalPackageDoesNotExist: `dask` is not installed.
+    """
+    try:
+        import dask
+    except ImportError as exc:
+        raise OptionalPackageDoesNotExist(
+            lazy_extra_hint(
+                "DatasetCollection deferred operations (compute=False) require "
+                "the optional 'dask' dependency."
+            )
+        ) from exc
+    return dask.delayed
+
+
+def _named_op(method_name: str, *args: Any, **kwargs: Any):
+    """A per-timestep callable that dispatches `Dataset.<method_name>`.
+
+    `_apply_operator` drives every per-timestep operation through a
+    `per_step(dataset, compute)` callable. Operations that simply forward to a
+    named `Dataset` method built that callable by hand, each with its own inline
+    `dask` import for the deferred arm.
+
+    Args:
+        method_name: Method to call on each timestep (`"crop"`, `"to_crs"`, ...).
+        *args: Positional arguments forwarded to the per-timestep call.
+        **kwargs: Keyword arguments forwarded to the per-timestep call.
+
+    Returns:
+        A `per_step(dataset, compute)` callable for :meth:`_apply_operator`.
+    """
+
+    def per_step(dataset: Dataset, do_compute: bool) -> Any:
+        bound = getattr(dataset, method_name)
+        if do_compute:
+            return bound(*args, **kwargs)
+        return _delayed()(bound)(*args, **kwargs)
+
+    return per_step
+
+
 def _target_epsg(to_epsg: int | str | Any) -> int | None:
     """Return the integer EPSG for ``to_epsg``, or ``None`` for a non-EPSG CRS.
 
@@ -558,7 +609,7 @@ class DatasetCollection:
           ``Dataset.from_array(...)`` per slice).
         * Per-timestep ops: ``crop``, ``to_crs``, ``align``,
           ``apply``, ``overlay``, ``to_file``, ``to_cog_stack``.
-          Each loops the handles via ``_apply_per_timestep`` and
+          Each loops the handles via ``_apply_operator`` and
           produces a new collection wrapping the per-timestep
           results.
         * Visualisation: ``plot`` materialises the cube on demand
@@ -2186,9 +2237,10 @@ class DatasetCollection:
         )
         if geobox["crs_wkt"]:
             template.crs = geobox["crs_wkt"]
-        band_names = cast("list | None", data_attrs.get("band_names")) or []
-        if band_names and len(band_names) == template.band_count:
-            template.band_names = list(band_names)
+        template.bands.apply_names(
+            cast("list | None", data_attrs.get("band_names")),
+            source="cube Zarr store",
+        )
         meta = RasterMeta.from_dataset(template)
         return cls(template, time_length, meta=meta, zarr_store=resolved)
 
@@ -2372,7 +2424,7 @@ class DatasetCollection:
             np.ndarray: A fresh ``(time_length, rows, cols)`` float
                 array each call.
         """
-        return np.stack([ds.read_array(band=0) for ds in self.datasets], axis=0)
+        return self._stack_timesteps(self.datasets)
 
     @values.setter
     def values(self, val: np.ndarray) -> None:
@@ -2513,21 +2565,53 @@ class DatasetCollection:
         for i in range(self._time_length):
             yield self._dataset_at(i).read_array(band=0)
 
-    def _stack_band0(self, datasets: list[Dataset]) -> np.typing.NDArray:
-        """Stack band 0 of each dataset into a ``(len, rows, cols)`` cube.
+    def _stack_timesteps(
+        self, datasets: list[Dataset], band: int | None = 0
+    ) -> np.typing.NDArray:
+        """Stack each dataset's array into a cube with time on the leading axis.
 
-        Empty-safe: an empty selection returns a ``(0, rows, cols)`` array rather
-        than tripping ``np.stack``'s "need at least one array" error. The empty
-        array carries the collection's own dtype (from :attr:`meta`), not NumPy's
-        default float64, so ``head(0)``/``tail(0)`` match the dtype of a non-empty
-        selection (N1). Lets :meth:`head`/:meth:`tail` read only the selected
-        timesteps instead of materialising the whole cube via :attr:`values`.
+        Four places did this -- :attr:`values`, `head`/`tail` through this
+        helper, and the two `RenderRequest` builds in :meth:`plot` -- and only
+        this one guarded the empty case. The other three tripped `np.stack`'s
+        "need at least one array to stack", which names neither the collection
+        nor the timestep that was missing.
+
+        The empty array carries the collection's own dtype (from :attr:`meta`)
+        rather than NumPy's default float64, so `head(0)` / `tail(0)` match the
+        dtype of a non-empty selection (N1). Taking the dataset list as an
+        argument is what lets `head` / `tail` read only the timesteps they
+        selected instead of materialising the whole cube via :attr:`values`.
+
+        An empty cube is a legitimate answer for a *read* -- `values`, `head`,
+        `tail` -- and not for a render, which has no frames to draw; `plot`
+        refuses one itself rather than handing a zero-length stack on to
+        cleopatra.
+
+        Args:
+            datasets: One `Dataset` per timestep to stack, in time order.
+            band: The band to read from each, or `None` for every band -- which
+                the RGB time-lapse needs, and which makes the result
+                `(time, bands, rows, cols)` rather than `(time, rows, cols)`.
+
+        Returns:
+            np.typing.NDArray: The stacked cube, or a `(0, rows, cols)` array
+                of the collection's dtype when `datasets` is empty.
         """
         if not datasets:
-            return np.empty(
-                (0, self.rows, self.columns), dtype=np.dtype(self._meta.dtype)
-            )
-        return np.stack([ds.read_array(band=0) for ds in datasets], axis=0)
+            # Shaped to match what a non-empty read of the same request would
+            # return, so a caller that branches on rank is not told its bands
+            # are wrong when its collection is merely empty: `band=None` on a
+            # multi-band collection produces `(time, bands, rows, cols)`, so the
+            # empty form of that is 4-D, not 3-D. The RGB animation used to
+            # report "got 3-D ... pass rgb only with a multi-band temporal
+            # stack" for an empty collection; :meth:`plot` now refuses one
+            # by name before it gets that far, so the shape here is only about
+            # rank.
+            shape: tuple[int, ...] = (0, self.rows, self.columns)
+            if band is None and self.base.band_count > 1:
+                shape = (0, self.base.band_count, self.rows, self.columns)
+            return np.empty(shape, dtype=np.dtype(self._meta.dtype))
+        return np.stack([ds.read_array(band=band) for ds in datasets], axis=0)
 
     def head(self, n: int = 5) -> np.typing.NDArray:
         """First ``n`` timestep arrays as a 3D numpy slice.
@@ -2542,7 +2626,7 @@ class DatasetCollection:
         Returns:
             np.ndarray: ``(min(n, time_length), rows, cols)`` array.
         """
-        return self._stack_band0(
+        return self._stack_timesteps(
             [self._dataset_at(j) for j in range(self._time_length)[:n]]
         )
 
@@ -2567,7 +2651,7 @@ class DatasetCollection:
         """
         keep = min(abs(n), self.time_length)
         indices = range(self.time_length - keep, self.time_length)
-        return self._stack_band0([self._dataset_at(j) for j in indices])
+        return self._stack_timesteps([self._dataset_at(j) for j in indices])
 
     def first(self) -> np.typing.NDArray:
         """First timestep array (2D).
@@ -2773,11 +2857,13 @@ class DatasetCollection:
                 ``(time, rows, cols, 3)`` stack and ``cbar`` is ``None``.
 
         Raises:
-            ValueError: When ``rgb`` does not list exactly 3 (RGB) or 4
-                (RGBA) band indices, when any index is negative, or when the
-                collection's datasets carry fewer than ``max(rgb) + 1`` bands.
-                Also raised (via ``_unpack_rgb_options``) for an unknown key
-                in ``rgb_options``.
+            ValueError: When the collection is empty (``time_length == 0``),
+                so there are no frames to animate; when ``rgb`` does not list
+                exactly 3 (RGB) or 4 (RGBA) band indices, when any index is
+                negative, or when the collection's datasets carry fewer than
+                ``max(rgb) + 1`` bands. Also raised (via
+                ``_unpack_rgb_options``) for an unknown key in
+                ``rgb_options``.
 
         Warns:
             UserWarning: When ``exclude_value`` is passed together with
@@ -2825,6 +2911,15 @@ class DatasetCollection:
               cleopatra dispatch that composites the true-colour frames for
               the animate path.
         """
+        # An empty collection has nothing to animate. Read accessors return an
+        # empty cube for it, which is a sensible answer for a read and not for
+        # a render: the zero-length stack used to reach cleopatra and come back
+        # as "zero-size array to reduction operation minimum which has no
+        # identity", naming neither the collection nor the reason.
+        if self.time_length == 0:
+            raise ValueError(
+                "plot: cannot render an empty collection (time_length == 0)."
+            )
         # Unpack the grouped ``rgb_options`` exactly as ``Dataset.plot`` does, so both
         # facades share one RGB-parameter contract.
         rgb, surface_reflectance, cutoff, percentile = Dataset._unpack_rgb_options(
@@ -2876,6 +2971,13 @@ class DatasetCollection:
         # Dataset's band into one stacked array is fine for a plot call
         # (the user explicitly asked to render). Delegates the cleopatra
         # call to :func:`render_array` (D-2 — shared with `Analysis.plot`).
+        # The stack's spatial domain, which every timestep shares -- the
+        # collection is co-registered by construction. `Analysis.plot` has
+        # always passed this, and the two `RenderRequest`s below did not, so a
+        # collection rendered on pixel indices where the identical single-raster
+        # call rendered on world coordinates. `basemap=` was accepted here all
+        # the same, with no extent to place it against.
+        extent = self.base.bbox
         if rgb is not None:
             # RGB time-lapse: read the FULL multi-band array per timestep and
             # stack to (time, bands, rows, cols); render_array composites the
@@ -2883,10 +2985,11 @@ class DatasetCollection:
             # misshapen ``rgb`` raises a clear error instead of cleopatra silently
             # collapsing the time axis into the colour channels (issue #538).
             self._validate_rgb_animation(rgb, exclude_value)
-            data = np.stack([ds.read_array(band=None) for ds in self.datasets], axis=0)
+            data = self._stack_timesteps(self.datasets, band=None)
             return render_array(
                 RenderRequest(
                     arr=data,
+                    extent=extent,
                     rgb=RgbSpec(
                         rgb=rgb,
                         surface_reflectance=surface_reflectance,
@@ -2902,7 +3005,7 @@ class DatasetCollection:
                 **animate_extras,
                 **kwargs,
             )
-        data = np.stack([ds.read_array(band=band) for ds in self.datasets], axis=0)
+        data = self._stack_timesteps(self.datasets, band=band)
         # Sanitise an unset no-data value (``None``) to ``np.nan`` before
         # building the exclusion list — mirrors ``Analysis.plot`` (the
         # ``Dataset.plot`` engine). A raw ``None`` would reach cleopatra as
@@ -2918,6 +3021,7 @@ class DatasetCollection:
         return render_array(
             RenderRequest(
                 arr=data,
+                extent=extent,
                 exclude_value=exclude_value,
                 mode=ModeSpec(mode="animate", animation_axis_values=axis_values),
                 ax=ax,
@@ -3049,14 +3153,7 @@ class DatasetCollection:
         # because `get_driver` returned None and was then dereferenced. A key
         # with no extension (e.g. "cog") is refused rather than building
         # filenames literally named "0.None".
-        if not CATALOG.exists(driver):
-            catalog_key = CATALOG.get_driver_name(driver)
-            if catalog_key is None:
-                raise DriverNotExistError(
-                    f"The driver: {driver!r} is not in the driver catalog. Known "
-                    f"driver names: {sorted(CATALOG.drivers)}"
-                )
-            driver = catalog_key
+        driver = CATALOG.resolve_key(driver)
 
         if isinstance(path, (str, Path)):
             # Only this branch derives file names from the driver, so only this
@@ -3196,33 +3293,6 @@ class DatasetCollection:
             paths.append(target)
         return paths
 
-    def _apply_per_timestep(
-        self, method_name: str, *args: Any, **kwargs: Any
-    ) -> list[Dataset]:
-        """Apply `Dataset.<method_name>(*args, **kwargs)` to each timestep.
-
-        Iterates over the per-timestep ``Dataset`` handles in
-        :attr:`datasets` and dispatches the named method. Each
-        per-timestep call returns a new ``Dataset`` (typically a
-        MEM-backed result of an internal :func:`gdal.Warp`); the
-        list of those results is wrapped in a new collection by
-        :meth:`_finalize_per_timestep_result`.
-
-        Nothing materialises the full cube as a numpy array — each
-        ``Dataset.<op>`` already streams blocks through GDAL.
-
-        Args:
-            method_name: Name of the method to call on each timestep
-                Dataset (e.g. ``"to_crs"``, ``"crop"``, ``"align"``).
-            *args, **kwargs: Forwarded to the per-timestep call.
-
-        Returns:
-            list[Dataset]: One ``Dataset`` per timestep — each is the
-                output of calling the named method on the corresponding
-                input handle.
-        """
-        return [getattr(ds, method_name)(*args, **kwargs) for ds in self.datasets]
-
     def to_crs(
         self,
         to_epsg: int | str | Any = 3857,
@@ -3270,6 +3340,13 @@ class DatasetCollection:
             `inplace=False`; `None` when `inplace=True`; a `Delayed` when
             `compute=False`.
 
+            The result carries this collection's time axis when it still
+            describes it -- one dataset out per dataset in, so the lengths
+            normally match. Previously the result's `time` was always
+            `None`, so anything branching on `collection.time is None`, or
+            writing the result with `to_netcdf` / `to_zarr`, sees a time
+            coordinate where it saw none before.
+
         Examples:
             - Reproject every timestep to EPSG:3857 and keep the result:
 
@@ -3298,16 +3375,12 @@ class DatasetCollection:
         else:
             # A target CRS with no EPSG code (orthographic / Robinson / …) cannot go
             # through Reprojector (int-EPSG only); reproject each timestep directly.
-            def per_step(ds: Dataset, do_compute: bool) -> Any:
-                if do_compute:
-                    return ds.to_crs(
-                        to_epsg, method=method, maintain_alignment=maintain_alignment
-                    )
-                import dask
-
-                return dask.delayed(ds.to_crs)(
-                    to_epsg, method=method, maintain_alignment=maintain_alignment
-                )
+            per_step = _named_op(
+                "to_crs",
+                to_epsg,
+                method=method,
+                maintain_alignment=maintain_alignment,
+            )
 
         return self._apply_operator(per_step, inplace=inplace, compute=compute)
 
@@ -3319,7 +3392,8 @@ class DatasetCollection:
         *,
         bbox: tuple[float, float, float, float] | list[float] | None = None,
         epsg: Any = None,
-    ) -> DatasetCollection | None:
+        compute: bool = True,
+    ) -> DatasetCollection | None | Delayed:
         """Crop every timestep against ``mask`` or a ``bbox``.
 
         Args:
@@ -3346,9 +3420,23 @@ class DatasetCollection:
                 CRS for ``bbox`` — anything ``geopandas`` accepts. Defaults to
                 the collection's own CRS.
 
+            compute: Whether to run the operation now. `True` (the default)
+                applies it immediately. `False` returns a dask `Delayed`
+                that produces the result when computed, so several
+                operations can be chained and run once; it needs the
+                optional `[lazy]` extra.
+
         Returns:
-            DatasetCollection | None: New collection when
-            `inplace=False`; `None` when `inplace=True`.
+            DatasetCollection | None | Delayed: A new collection when
+            `inplace=False`; `None` when `inplace=True`; or a dask
+            `Delayed` wrapping either of those when `compute=False`.
+
+            The result carries this collection's time axis when it still
+            describes it -- one dataset out per dataset in, so the lengths
+            normally match. Previously the result's `time` was always
+            `None`, so anything branching on `collection.time is None`, or
+            writing the result with `to_netcdf` / `to_zarr`, sees a time
+            coordinate where it saw none before.
 
         Examples:
             - Crop every timestep against another dataset used as a mask:
@@ -3404,8 +3492,9 @@ class DatasetCollection:
             raise TypeError(
                 "crop requires a `mask` or a `bbox` (west, south, east, north)"
             )
-        new_datasets = self._apply_per_timestep("crop", mask, touch=touch)
-        return self._finalize_per_timestep_result(new_datasets, inplace=inplace)
+        return self._apply_operator(
+            _named_op("crop", mask, touch=touch), inplace=inplace, compute=compute
+        )
 
     def align(
         self,
@@ -3442,6 +3531,13 @@ class DatasetCollection:
             DatasetCollection | None | dask.delayed.Delayed: A new collection when
             `inplace=False`; `None` when `inplace=True`; a `Delayed` when
             `compute=False`.
+
+            The result carries this collection's time axis when it still
+            describes it -- one dataset out per dataset in, so the lengths
+            normally match. Previously the result's `time` was always
+            `None`, so anything branching on `collection.time is None`, or
+            writing the result with `to_netcdf` / `to_zarr`, sees a time
+            coordinate where it saw none before.
 
         Raises:
             TypeError: `alignment_src` is not a `Dataset`, or `method` is not a string.
@@ -3480,12 +3576,7 @@ class DatasetCollection:
                 return op(ds, compute=do_compute)
         else:
             # A reference with no EPSG code can't go through Aligner; align directly.
-            def per_step(ds: Dataset, do_compute: bool) -> Any:
-                if do_compute:
-                    return ds.align(alignment_src, method=method)
-                import dask
-
-                return dask.delayed(ds.align)(alignment_src, method=method)
+            per_step = _named_op("align", alignment_src, method=method)
 
         return self._apply_operator(per_step, inplace=inplace, compute=compute)
 
@@ -3513,11 +3604,65 @@ class DatasetCollection:
             self._base = new_datasets[0]
             self._files = None  # In-memory results no longer correspond to disk paths.
             return None
-        return DatasetCollection(
-            new_datasets[0],
-            time_length=len(new_datasets),
-            datasets=new_datasets,
+        return DatasetCollection._wrap_datasets(
+            new_datasets, **self._derived_kwargs(len(new_datasets))
         )
+
+    def _derived_kwargs(self, length: int) -> dict[str, Any]:
+        """Collection metadata that survives a per-timestep operation.
+
+        Only the time axis, and only when it still describes the result. A
+        per-timestep op returns one dataset per input, so the lengths normally
+        match -- but the guard matters, because a stale `_time` (one that no
+        longer matches the handle count) would otherwise be stamped onto the
+        new collection and make the mismatch harder to find.
+
+        Deliberately narrow: `gdal_env`, `open_options` and `meta` are not
+        carried. Each has its own staleness question, and answering them here
+        would widen a structural change into a behavioural one.
+
+        Args:
+            length: Number of datasets in the result.
+
+        Returns:
+            dict[str, Any]: Keyword arguments for :meth:`_wrap_datasets`.
+        """
+        time = self._time
+        return {
+            "time": list(time) if (time is not None and len(time) == length) else None
+        }
+
+    @staticmethod
+    def _wrap_datasets(
+        datasets: list[Dataset], *, time: list | None = None
+    ) -> DatasetCollection:
+        """Wrap per-timestep Datasets into a collection.
+
+        Shared by the eager arm of :meth:`_finalize_per_timestep_result` and the
+        deferred arm of :meth:`_apply_operator`, which built the identical
+        collection separately. A staticmethod referenced by qualified name so
+        the ``compute=False`` :func:`dask.delayed` can pickle it.
+
+        Args:
+            datasets: One `Dataset` per timestep.
+            time: Time axis to carry onto the result, when it still describes it.
+
+        Returns:
+            DatasetCollection: A collection over `datasets`.
+        """
+        collection = DatasetCollection(
+            datasets[0], time_length=len(datasets), datasets=datasets
+        )
+        if time is not None:
+            # Assigned past the public `time` setter, which would re-validate
+            # the length. `_derived_kwargs` has already done that -- it is the
+            # only producer of this argument, and it passes `None` rather than
+            # a mismatched axis. Going through the setter here would re-run
+            # the same check on every wrap for no new information; if a second
+            # producer ever appears, it must make the same guarantee or this
+            # should become `collection.time = time`.
+            collection._time = time
+        return collection
 
     def _apply_operator(
         self, per_step: Any, *, inplace: bool, compute: bool
@@ -3540,30 +3685,14 @@ class DatasetCollection:
             return self._finalize_per_timestep_result(new_datasets, inplace=inplace)
         if inplace:
             raise ValueError("compute=False cannot be combined with inplace=True.")
-        try:
-            import dask
-        except ImportError as exc:
-            raise OptionalPackageDoesNotExist(
-                lazy_extra_hint(
-                    "DatasetCollection.to_crs / align (compute=False) requires the "
-                    "optional 'dask' dependency."
-                )
-            ) from exc
+        # Resolved before the loop, so a missing dask fails once and uniformly
+        # rather than from inside whichever per-timestep arm ran first.
+        delayed = _delayed()
         delayeds = [per_step(ds, False) for ds in self.datasets]
+        derived = self._derived_kwargs(len(delayeds))
         return cast(
             "Delayed",
-            dask.delayed(DatasetCollection._collection_from_datasets)(delayeds),
-        )
-
-    @staticmethod
-    def _collection_from_datasets(datasets: list[Dataset]) -> DatasetCollection:
-        """Wrap computed per-timestep Datasets into a collection (compute=False path).
-
-        A staticmethod so the ``compute=False`` reproject / align
-        :func:`dask.delayed` can pickle it by qualified name.
-        """
-        return DatasetCollection(
-            datasets[0], time_length=len(datasets), datasets=datasets
+            delayed(DatasetCollection._wrap_datasets)(delayeds, **derived),
         )
 
     def merge(
@@ -3664,8 +3793,8 @@ class DatasetCollection:
             )
 
     def apply(
-        self, ufunc: Callable, *, inplace: bool = False
-    ) -> DatasetCollection | None:
+        self, ufunc: Callable, *, inplace: bool = False, compute: bool = True
+    ) -> DatasetCollection | None | Delayed:
         """Apply a function to every timestep raster.
 
         Each timestep ``Dataset.apply(ufunc)`` runs over the
@@ -3690,9 +3819,23 @@ class DatasetCollection:
                 ``None``. When False (default), return a new
                 ``DatasetCollection`` wrapping the new outputs.
 
+            compute: Whether to run the operation now. `True` (the default)
+                applies it immediately. `False` returns a dask `Delayed`
+                that produces the result when computed, so several
+                operations can be chained and run once; it needs the
+                optional `[lazy]` extra.
+
         Returns:
-            DatasetCollection | None: New collection when
-            ``inplace=False``; ``None`` when ``inplace=True``.
+            DatasetCollection | None | Delayed: A new collection when
+            `inplace=False`; `None` when `inplace=True`; or a dask
+            `Delayed` wrapping either of those when `compute=False`.
+
+            The result carries this collection's time axis when it still
+            describes it -- one dataset out per dataset in, so the lengths
+            normally match. Previously the result's `time` was always
+            `None`, so anything branching on `collection.time is None`, or
+            writing the result with `to_netcdf` / `to_zarr`, sees a time
+            coordinate where it saw none before.
 
         Examples:
             - Apply a simple modulo operation to each value:
@@ -3707,8 +3850,9 @@ class DatasetCollection:
         """
         if not callable(ufunc):
             raise TypeError("The Second argument should be a function")
-        new_datasets = self._apply_per_timestep("apply", ufunc)
-        return self._finalize_per_timestep_result(new_datasets, inplace=inplace)
+        return self._apply_operator(
+            _named_op("apply", ufunc), inplace=inplace, compute=compute
+        )
 
     def overlay(
         self,

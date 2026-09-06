@@ -43,6 +43,7 @@ from pyramids.dataset.engines._base import _Engine
 from pyramids.dataset.engines._warp import carry_raster_metadata, warp_to_dataset
 from pyramids.dataset.engines._warp import dst_srs_arg as _dst_srs_arg
 from pyramids.dataset.engines.vectorize import Vectorize
+from pyramids.dataset.window import Window
 
 
 @overload
@@ -1026,7 +1027,8 @@ class Spatial(_Engine["Dataset"]):
         finally runs :func:`gdal.ReprojectImage` to fill it.
 
         Both source and destination spatial references are normalised to
-        ``OAMS_TRADITIONAL_GIS_ORDER`` before the identity check. This lets
+        ``OAMS_TRADITIONAL_GIS_ORDER`` before the identity check -- the
+        destination on a clone, so a caller's SRS is not mutated. This lets
         :meth:`osr.SpatialReference.IsSame` report semantic equality even when
         the two SRSes were built from different axis-order strategies (the
         common case: a ``sr_from_wkt(self._ds.crs)`` source + a
@@ -1040,10 +1042,11 @@ class Spatial(_Engine["Dataset"]):
 
         Args:
             dst_sr: Target spatial reference. Any axis-mapping strategy is
-                accepted; the function normalises only the *source* side.
-                Built from ``Spatial.to_crs(..., maintain_alignment=True)``
-                via :func:`pyramids.base.crs.sr_from_user_input`, but callers
-                may pass any pre-built SRS.
+                accepted: the function normalises both sides, on a clone, so
+                the object passed in is never mutated. Built from
+                ``Spatial.to_crs(..., maintain_alignment=True)`` via
+                :func:`pyramids.base.crs.sr_from_user_input`, but callers may
+                pass any pre-built SRS.
             method: GDAL resampling algorithm constant (e.g.
                 ``gdal.GRA_NearestNeighbour``, ``gdal.GRA_Bilinear``,
                 ``gdal.GRA_Cubic``). Resolve a method *name* through
@@ -1122,8 +1125,27 @@ class Spatial(_Engine["Dataset"]):
         # fails for two SRSes that differ only in axis-mapping strategy — #418)
         # and removes any axis-order surprise from downstream reprojection math.
         src_sr.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        # The destination too, on a clone so a caller's pre-built SRS is not
+        # mutated. `IsSame` *is* axis-mapping sensitive for a geographic CRS
+        # (`IGNORE_DATA_AXIS_TO_SRS_AXIS_MAPPING` defaults to `NO`), so
+        # normalising only the source left the identity check unable to fire
+        # for a `dst_sr` built any way other than `sr_from_user_input` --
+        # `sr_from_epsg(4326)` against a WGS 84 source reprojected the raster
+        # into its own CRS, which is #418 verbatim. The in-repo caller happens
+        # to use `sr_from_user_input`, so this was a promise the docstring made
+        # and the code kept only by luck.
+        dst_sr = dst_sr.Clone()
+        dst_sr.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
         src_wkt = src_sr.ExportToWkt()
         dst_wkt = dst_sr.ExportToWkt()
+        # Compared as live OSR objects rather than through `crs_equal`. Both
+        # operands are already normalised to traditional order above, which is
+        # the premise that would make the shared helper equivalent -- but it
+        # re-parses each side through pyproj and answers False when pyproj
+        # refuses one. A locally-defined PROJCS that GDAL accepts and pyproj
+        # does not would then compare unequal to itself, and this method would
+        # reproject a raster into its own CRS instead of taking the identity
+        # branch. GDAL has already parsed both; asking it again cannot fail.
         same_crs = bool(src_sr.IsSame(dst_sr))
 
         if not same_crs:
@@ -1267,9 +1289,27 @@ class Spatial(_Engine["Dataset"]):
                 "Two rasters have different number of columns or rows, please resample or match both rasters"
             )
         if isinstance(mask, RasterBase):
+            # `cell_size` is a magnitude by definition -- a size cannot be
+            # negative -- so on its own it no longer distinguishes a grid from
+            # its mirror. Two rasters sharing a top-left corner and a cell
+            # magnitude can run in opposite directions and cover disjoint
+            # ground, and this is a co-registration check, so the axis
+            # directions are compared as well.
+            #
+            # Only the directions, not the whole transform: the y resolutions
+            # of two co-registered rasters legitimately differ here (the
+            # Sentinel fixtures this guard has always accepted have the same
+            # pixel width and different pixel heights), and tightening that is
+            # a separate decision from catching a mirror.
+            source_gt = self._ds.geotransform
+            mask_gt = mask.geotransform
+            flipped = math.copysign(1.0, source_gt[1]) != math.copysign(
+                1.0, mask_gt[1]
+            ) or math.copysign(1.0, source_gt[5]) != math.copysign(1.0, mask_gt[5])
             if (
                 self._ds.top_left_corner != mask.top_left_corner
                 or self._ds.cell_size != mask.cell_size
+                or flipped
             ):
                 raise ValueError(
                     "the location of the upper left corner of both rasters is not the same or cell size is "
@@ -1755,10 +1795,18 @@ class Spatial(_Engine["Dataset"]):
         densification, so its edges stay straight in source coordinates and the polygon's
         `total_bounds` envelope is exact — for any polygon, not only axis-aligned ones.
 
+        The snapping itself is :class:`~pyramids.dataset.window.Window`'s: covering the
+        envelope is `from_bounds`, the touch margin is `buffer(1)`, clipping to the source
+        is `crop`, and the map-space window is `to_bounds`. Doing the same arithmetic by
+        hand here is how the two drifted apart.
+
         Returns `None`, falling back to the full-source warp, whenever the optimisation
         cannot be applied safely: a rotated, sheared or non-north-up geotransform; a
-        missing or differing CRS; a degenerate (non-finite) envelope; or a cutline that
-        does not overlap the source (left for the existing "no valid pixels" error).
+        missing or differing CRS; a degenerate (non-finite or zero-width) envelope; or a
+        cutline that does not overlap the source (left for the existing "no valid pixels"
+        error). A zero-width envelope means a point, line or collapsed-polygon cutline,
+        which GDAL rejects ("Cutline not of polygon type") on the full-source path too, so
+        declining the optimisation costs nothing.
 
         Args:
             src: The raster being cropped.
@@ -1769,7 +1817,8 @@ class Spatial(_Engine["Dataset"]):
                 The clipped window, or None to fall back.
         """
         window: tuple[float, float, float, float] | None = None
-        x0, dx, row_skew, y0, col_skew, dy = src._raster.GetGeoTransform()
+        geotransform = src._raster.GetGeoTransform()
+        _, dx, row_skew, _, col_skew, dy = geotransform
         source_crs = src.crs
         north_up = not row_skew and not col_skew and dx > 0 and dy < 0
         same_crs = (
@@ -1778,19 +1827,24 @@ class Spatial(_Engine["Dataset"]):
             and crs_equal(source_crs, feature.crs.to_wkt())
         )
         if north_up and same_crs:
-            minx, miny, maxx, maxy = (float(v) for v in feature.total_bounds)
-            if all(math.isfinite(v) for v in (minx, miny, maxx, maxy)):
-                src_west, src_east = x0, x0 + dx * src.columns
-                src_south, src_north = y0 + dy * src.rows, y0  # dy < 0
-                # Snap outward to whole pixels, then one cell of "touch" margin per side.
-                west = x0 + (math.floor((minx - x0) / dx) - 1) * dx
-                east = x0 + (math.ceil((maxx - x0) / dx) + 1) * dx
-                north = y0 + (math.floor((y0 - maxy) / -dy) - 1) * dy
-                south = y0 + (math.ceil((y0 - miny) / -dy) + 1) * dy
-                west, east = max(west, src_west), min(east, src_east)
-                south, north = max(south, src_south), min(north, src_north)
-                if west < east and south < north:
-                    window = (west, south, east, north)
+            envelope = tuple(float(v) for v in feature.total_bounds)
+            min_x, min_y, max_x, max_y = envelope
+            usable = (
+                all(math.isfinite(v) for v in envelope)
+                and min_x < max_x
+                and min_y < max_y
+            )
+            if usable:
+                clipped = (
+                    Window.from_bounds(
+                        cast("tuple[float, float, float, float]", envelope),
+                        geotransform,
+                    )
+                    .buffer(1)
+                    .crop(rows=src.rows, cols=src.columns)
+                )
+                if clipped is not None:
+                    window = clipped.to_bounds(geotransform)
         return window
 
     @staticmethod
@@ -1972,8 +2026,14 @@ class Spatial(_Engine["Dataset"]):
             y_far = min(max(math.ceil((y0 - south) / -dy - eps), 0), rows)
             x_size, y_size = x_far - xoff, y_far - yoff
             if x_size > 0 and y_size > 0:
-                array = self._ds.read_array(window=[xoff, yoff, x_size, y_size])
-                new_gt = (x0 + xoff * dx, dx, 0.0, y0 + yoff * dy, 0.0, dy)
+                window = Window(xoff, yoff, x_size, y_size)
+                array = self._ds.read_array(window=list(window.to_read_args()))
+                # `Window.transform` rather than the same arithmetic inline. On
+                # the north-up grid this branch is gated to, the two agree
+                # exactly; what the shared one adds is carrying the rotation
+                # terms through instead of writing zeros, so it stays correct
+                # by construction rather than by the gate above.
+                new_gt = window.transform(self._ds._raster.GetGeoTransform())
                 # Rebuild on the base Dataset class (never a subclass like NetCDF), whose
                 # from_array has the plain array->raster behaviour this path needs.
                 base_cls = Spatial._base_dataset_class(self._ds.__class__)

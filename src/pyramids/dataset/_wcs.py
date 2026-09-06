@@ -40,7 +40,6 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
-import uuid
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -49,14 +48,23 @@ from xml.etree import ElementTree as ET  # nosec B405 - server XML; DoS accepted
 from osgeo import gdal
 from pyproj.exceptions import CRSError as _PyprojCRSError
 
+from pyramids.base._artifacts import mint_vsimem, unregister_vsimem
 from pyramids.base._coverage import native_projwin as _native_projwin
 from pyramids.base._coverage import native_resolution as _native_resolution
+from pyramids.base._coverage import open_network_dataset as _open_network_dataset
 from pyramids.base._coverage import read_size as _read_size
 from pyramids.base._coverage import resolution_pair as _resolution_pair
 from pyramids.base._coverage import resolve_native_srs as _resolve_native_srs_neutral
+from pyramids.base._coverage import translate_to_mem as _translate_to_mem
 from pyramids.base._coverage import validate_bbox as _validate_bbox
 from pyramids.base._errors import CoverageError, WCSError
-from pyramids.base._ogc_api import HTTP_RETRY_ATTEMPTS
+from pyramids.base._ogc_api import (
+    HTTP_RETRY_ATTEMPTS,
+    capabilities_url,
+    exception_text,
+    localname,
+    not_advertised,
+)
 from pyramids.base._ogc_api import gdal_http_config as _gdal_http_config
 from pyramids.base._ogc_api import http_get_with_retry as _http_get_with_retry
 from pyramids.base._ogc_api import read_http_error as _read_http_error
@@ -262,18 +270,16 @@ def _resolve_native_srs(
         raise WCSError(str(exc)) from exc
 
 
-def _localname(tag: str) -> str:
-    """Strip the XML namespace from an ElementTree tag (`{ns}Name` → `Name`)."""
-    return tag.rsplit("}", 1)[-1]
+# Imported under the module-private names the readers (and the tests that
+# reach through this module) already use. `SERVICE=WCS` is the only
+# thing that differed between the two copies of the URL builder.
+_localname = localname
+_exception_text = exception_text
 
 
 def _capabilities_url(endpoint: str, version: str | None) -> str:
     """Build the ``GetCapabilities`` URL for a WCS endpoint."""
-    sep = "&" if "?" in endpoint else "?"
-    url = f"{endpoint}{sep}SERVICE=WCS&REQUEST=GetCapabilities"
-    if version:
-        url += f"&VERSION={version}"
-    return url
+    return capabilities_url(endpoint, "WCS", version)
 
 
 @lru_cache(maxsize=32)
@@ -351,14 +357,6 @@ def _extract_coverages(root: ET.Element) -> set[str]:
     return coverages
 
 
-def _exception_text(root: ET.Element) -> str:
-    """Extract the human-readable message from an OWS/WCS exception document."""
-    for el in root.iter():
-        if _localname(el.tag) in ("ExceptionText", "ServiceException") and el.text:
-            return el.text.strip()
-    return (root.text or "").strip() or "no message provided"
-
-
 def _service_descriptor(
     endpoint: str,
     coverage: str,
@@ -395,13 +393,9 @@ def _open_service(descriptor: str, coverage: str) -> gdal.Dataset:
         WCSError: GDAL could not open the coverage (server error, bad descriptor,
             unresolvable CRS, …).
     """
-    try:
-        src = gdal.Open(descriptor)
-    except RuntimeError as exc:
-        raise WCSError(f"could not open WCS coverage {coverage!r}: {exc}") from exc
-    if src is None:
-        raise WCSError(f"GDAL returned no dataset for WCS coverage {coverage!r}")
-    return src
+    return _open_network_dataset(
+        descriptor, error=WCSError, subject=f"WCS coverage {coverage!r}"
+    )
 
 
 def _default_subset_axes(crs: str) -> tuple[str, str]:
@@ -537,7 +531,7 @@ def _open_getcoverage_bytes(payload: bytes, coverage: str) -> gdal.Dataset:
             "mode cannot decode; request a plain binary raster via wcs_format=... "
             "(e.g. 'GEOTIFF')."
         )
-    vsipath = f"/vsimem/wcs_getcoverage_{uuid.uuid4().hex}.tif"
+    vsipath = mint_vsimem("wcs_getcoverage")
     gdal.FileFromMemBuffer(vsipath, payload)
     try:
         src = gdal.Open(vsipath)
@@ -555,6 +549,10 @@ def _open_getcoverage_bytes(payload: bytes, coverage: str) -> gdal.Dataset:
         ) from exc
     finally:
         gdal.Unlink(vsipath)
+        # Minting registered it for the exit sweep; the unlink above is what
+        # makes that entry dead. A harvester pulling one coverage per request
+        # would otherwise grow the registry for the life of the process.
+        unregister_vsimem(vsipath)
     if mem is None:
         raise WCSError(f"WCS GetCoverage returned no raster for {coverage!r}")
     return mem
@@ -702,11 +700,7 @@ def from_wcs(
     else:
         _, coverages = _get_capabilities(endpoint, version, auth, timeout)
         if coverages and coverage not in coverages:
-            raise ValueError(
-                f"coverage {coverage!r} is not advertised by {endpoint!r}. "
-                f"Available coverages: {sorted(coverages)[:10]}"
-                + (" …" if len(coverages) > 10 else "")
-            )
+            raise not_advertised("coverage", coverage, endpoint, coverages)
         descriptor = _service_descriptor(
             endpoint, coverage, version, wcs_format, extra_params
         )
@@ -753,11 +747,10 @@ def _translate_window(
     # returned (width, height) is intentionally discarded because Translate derives
     # the size from projWin at native resolution.
     _read_size(projwin, _native_resolution(src))
-    options = gdal.TranslateOptions(format="MEM", projWin=projwin)
-    try:
-        mem = gdal.Translate("", src, options=options)
-    except RuntimeError as exc:
-        raise WCSError(f"WCS GetCoverage failed for {coverage!r}: {exc}") from exc
-    if mem is None:
-        raise WCSError(f"WCS GetCoverage returned no raster for {coverage!r}")
-    return mem
+    return _translate_to_mem(
+        src,
+        error=WCSError,
+        action="WCS GetCoverage",
+        subject=repr(coverage),
+        projWin=projwin,
+    )

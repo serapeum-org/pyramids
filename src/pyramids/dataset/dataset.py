@@ -21,16 +21,24 @@ import numpy as np
 from osgeo import gdal
 
 from pyramids import _io
+from pyramids.base._axes import AXIS_NAMES, X_AXIS_NAMES, Y_AXIS_NAMES
 from pyramids.base._errors import AlignmentError, ContainerRasterWarning, CRSError
 from pyramids.base._utils import (
-    DTYPE_CONVERSION_DF,
+    # Re-exported, not used here. The dtype catalogue was defined in this module's
+    # import namespace before it moved down to `base`, and it is a public name in a
+    # public module, so `from pyramids.dataset.dataset import DTYPE_CONVERSION_DF`
+    # has to keep resolving for callers that already do it.
+    DTYPE_CONVERSION_DF,  # noqa: F401
     RGB_CHANNEL_INTERPS,
+    gdal_dtype_name,
+    gdal_to_numpy_type,
     numpy_to_gdal_dtype,
 )
 from pyramids.base.crs import (
     PROJECTED_AXIS_UNITS,
     VERTICAL_AXIS_NAMES,
     cf_geographic_wkt,
+    crs_equal,
     crs_spec,
     epsg_of_crs,
     sr_from_epsg,
@@ -340,7 +348,12 @@ def _same_grid(a: Dataset, b: Dataset) -> bool:
         same CRS.
     """
     return (
-        a.epsg == b.epsg
+        # `crs_equal(crs_spec(...))`, not `a.epsg == b.epsg`: `epsg` is None for
+        # any CRS without an EPSG authority, so two *different* such CRSes both
+        # reported None and compared equal. Two geostationary rasters at
+        # different sub-satellite longitudes were read as one grid, and the
+        # band stack silently dropped every band after the first.
+        crs_equal(crs_spec(a.epsg, a.crs), crs_spec(b.epsg, b.crs))
         and a.rows == b.rows
         and a.columns == b.columns
         and bool(
@@ -408,61 +421,12 @@ if TYPE_CHECKING:
 # The X-ish and Y-ish halves of `_AXIS_VARIABLE_NAMES`, used to require that a
 # veto comes from a PAIR of axes. Together they partition that list exactly, so
 # the pairing rule introduces no new vocabulary.
-_X_AXIS_NAMES = frozenset(
-    {
-        "x",
-        "xc",
-        "xdim",
-        "x_dim",
-        "lon",
-        "longitude",
-        "long",
-        "rlon",
-        "east",
-        "easting",
-        "nav_lon",
-    }
-)
-_Y_AXIS_NAMES = frozenset(
-    {
-        "y",
-        "yc",
-        "ydim",
-        "y_dim",
-        "lat",
-        "latitude",
-        "rlat",
-        "north",
-        "northing",
-        "nav_lat",
-    }
-)
-
-_AXIS_VARIABLE_NAMES = frozenset(
-    {
-        "x",
-        "y",
-        "xc",
-        "yc",
-        "xdim",
-        "ydim",
-        "x_dim",
-        "y_dim",
-        "lon",
-        "lat",
-        "longitude",
-        "latitude",
-        "long",
-        "rlon",
-        "rlat",
-        "east",
-        "north",
-        "easting",
-        "northing",
-        "nav_lon",
-        "nav_lat",
-    }
-)
+# The shared vocabulary, not a local copy: the Zarr reader tells a
+# coordinate from a data array with the same list, and its own shorter
+# one made it return a `nav_lat` field as the raster.
+_X_AXIS_NAMES = X_AXIS_NAMES
+_Y_AXIS_NAMES = Y_AXIS_NAMES
+_AXIS_VARIABLE_NAMES = AXIS_NAMES
 
 
 # Identity transform: one unit per pixel, origin at (0, 0), north-up. Used when a
@@ -1411,6 +1375,27 @@ class Dataset(RasterBase):
         """Facade — delegates to :meth:`IO.read_array <pyramids.dataset.engines.IO.read_array>`."""
         return self.io.read_array(*args, **kwargs)
 
+    @property
+    def _copy_source(self) -> gdal.Dataset:
+        """The backing raster, made window-readable first, for a `CreateCopy`.
+
+        `CreateCopy` reads the source block by block, so it hits the same
+        partial-window restriction every other eager read does: a NetCDF
+        variable subset backed by a reversed multidimensional view raises
+        `arrayStartIdx[...] + (count-1)*arrayStep >= <dim>` part-way through
+        the copy. Reading through this property instead of `self._raster`
+        materialises the view first, exactly as the windowed read paths do.
+
+        Note that materialisation mutates this dataset in place -- that is what
+        :meth:`_materialize_md_view` has always done -- so the caller's own
+        raster is the materialised one afterwards.
+
+        Returns:
+            gdal.Dataset: The backing raster, safe to hand to `CreateCopy`.
+        """
+        self._materialize_md_view()
+        return self._raster
+
     def _materialize_md_view(self) -> None:
         """Make the backing raster window-readable. No-op for an ordinary raster.
 
@@ -2276,6 +2261,28 @@ class Dataset(RasterBase):
         contract explicit — assign through the setter to change
         values; mutating the returned object never propagates to
         the underlying state.
+
+        **The entries are numbers, not necessarily Python `int`s.** An
+        unsigned band *wider than 8 bits* created with a `NaN` no-data takes
+        the dtype maximum, because `NaN` cannot be stored there, and that
+        substituted sentinel is now built as a numpy scalar rather than a
+        Python `int`, so that it agrees in *type* as well as value with the
+        fallback used when a requested sentinel overflows the band. A uint16
+        band that used to report `(65535,)` reports `(np.float64(65535.0),)`
+        — float64 because GDAL's `SetNoDataValue` takes a C double and the
+        value is round-tripped through it.
+
+        Two cases the example deliberately avoids, because neither
+        substitutes: a **Byte** band, which reports `(nan,)` (255 is ordinary
+        data in 8-bit imagery, see `bands._substitutes_dtype_max`), and an
+        **unset** no-data, which reports `(None,)` whatever the dtype.
+
+        Compare with `==` rather than `is`, and call `float(...)` /
+        `int(...)` before anything that needs a builtin (JSON, `%` formatting
+        of an `int`). Arithmetic wraps at the dtype bound instead of promoting
+        only on the one row that stays a numpy *integer*: `uint64`, whose
+        maximum has no exact float64, reports `np.uint64(2**64 - 1)`. See
+        `docs/migration.md`, dataset / unreleased.
         """
         return tuple(self._no_data_value)
 
@@ -2774,18 +2781,27 @@ class Dataset(RasterBase):
     @property
     def numpy_dtype(self) -> list[type]:
         """List of the numpy data Type of each band, the data type is a numpy function."""
-        return [
-            DTYPE_CONVERSION_DF.loc[DTYPE_CONVERSION_DF["gdal"] == i, "numpy"].values[0]
-            for i in self.gdal_dtype
-        ]
+        return [gdal_to_numpy_type(code) for code in self.gdal_dtype]
 
     @property
     def dtype(self) -> list[str]:
-        """List of the data Type of each band as strings."""
-        return [
-            DTYPE_CONVERSION_DF.loc[DTYPE_CONVERSION_DF["gdal"] == i, "name"].values[0]
-            for i in self.gdal_dtype
-        ]
+        """The data type of each band, as a string.
+
+        numpy's spelling wherever numpy has one -- so a Byte band reports
+        `uint8`, which is what STAC's `raster:bands[].data_type` wants and what
+        this branch changed it to. GDAL's complex-integer and complex-half
+        types have no numpy name (numpy's narrowest complex is a pair of
+        float32), so those keep the catalog's own spelling rather than all
+        collapsing onto `complex64` and losing which type the band is.
+
+        Returns:
+            list[str]: One name per band, in band order.
+
+        See Also:
+            gdal_dtype: The raw GDAL type constants these are derived from.
+            pyramids.base._utils.gdal_dtype_name: The per-code mapping.
+        """
+        return [gdal_dtype_name(code) for code in self.gdal_dtype]
 
     @classmethod
     def read_file(
@@ -2816,7 +2832,17 @@ class Dataset(RasterBase):
                 File mode; set to ``False`` to open in update mode.
             file_i (int):
                 Which member to open when ``path`` is (or is forced to be) a
-                multi-file archive. Default ``0``.
+                multi-file archive. Default ``0``. Counts *file* members only,
+                in archive order, so a directory entry does not consume an
+                index and a member inside a subdirectory has one. It counts
+                them the same way whether the archive was recognised by its
+                extension or forced with ``vsi=``: those two used to select
+                from differently built lists, so one index named two different
+                members of one archive. A negative index is refused rather
+                than given Python's from-the-end meaning: it names a member of
+                an archive the caller has not listed, so it is far more likely
+                a bug than an intent. Zip and tar used to answer ``-1`` with
+                the last member while gzip refused it.
             vsi (str | None):
                 Treat ``path`` as an archive of this kind and open member
                 ``file_i`` from inside it: ``"zip"``, ``"tar"`` (also
@@ -3563,11 +3589,14 @@ class Dataset(RasterBase):
             Dataset: An independent copy. Access mode of the returned
             Dataset:
 
-            * `path is None` (in-memory copy) → access mode of the
-              source is preserved. A `copy()` of a read-only source
-              stays read-only at the pyramids level (the underlying
-              MEM driver is always writable; pyramids enforces the
-              flag itself).
+            * `path is None` (in-memory copy) → `"write"`. The copy is a
+              fresh MEM raster that nothing else references, so refusing
+              writes on it protects nothing: the source file is untouched
+              either way. Propagating the source's mode instead meant a
+              `copy()` taken specifically to get a mutable working copy of
+              a read-only file could not be written to, and the resulting
+              `ReadOnlyError` advised reopening the *source* with
+              `read_only=False`, which is not what the caller wanted.
             * `path is not None` and the format supports `Create`
               (GTiff, netCDF, HFA, …) → `"write"`, because the caller
               has just made a new file they presumably want to
@@ -3622,7 +3651,11 @@ class Dataset(RasterBase):
         if path is None:
             path = ""
             driver = MEMORY_DRIVER
-            new_access = self._access
+            # A MEM copy is a fresh buffer nothing else holds, so it is always
+            # writable. Carrying the source's read-only flag over made the copy
+            # useless for the case it exists to serve: getting a mutable working
+            # copy of a read-only file.
+            new_access = "write"
         else:
             # From the extension, not hardcoded: `copy(path="x.nc")` produced a
             # GTiff carrying a netCDF name. `for_copy` because this writes

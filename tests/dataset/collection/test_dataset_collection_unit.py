@@ -19,6 +19,7 @@ import pickle
 import shutil
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -54,6 +55,39 @@ def _make_mem_dataset(
     arr = np.full((rows, cols), fill_value, dtype=np.float32)
     src.raster.GetRasterBand(1).WriteArray(arr)
     return src
+
+
+def _make_multiband_collection(
+    tmp_path, count: int = 2, bands: int = 3, rows: int = 4, cols: int = 5
+) -> tuple[DatasetCollection, np.ndarray]:
+    """Build a file-backed collection whose timesteps carry several bands.
+
+    Args:
+        tmp_path: pytest temp directory.
+        count: Number of timesteps to materialise.
+        bands: Bands per timestep.
+        rows: Raster height.
+        cols: Raster width.
+
+    Returns:
+        tuple[DatasetCollection, np.ndarray]: the collection plus the
+        ``(time, bands, rows, cols)`` source cube it was written from, so a
+        ``band=None`` stack can be compared against the values that went in.
+    """
+    source = np.arange(count * bands * rows * cols, dtype="float32").reshape(
+        count, bands, rows, cols
+    )
+    paths = []
+    for i in range(count):
+        path = str(tmp_path / f"multiband_t{i}.tif")
+        Dataset.from_array(
+            source[i],
+            no_data_value=-9999.0,
+            path=path,
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.05, epsg=4326),
+        ).close()
+        paths.append(path)
+    return DatasetCollection.from_files(paths), source
 
 
 @pytest.fixture()
@@ -1086,7 +1120,7 @@ class TestRequireFiles:
 
 
 class TestTailHeadRegression:
-    """Tests for the ARC-46 head/tail fix and empty-safe ``_stack_band0``."""
+    """Tests for the ARC-46 head/tail fix and empty-safe ``_stack_timesteps``."""
 
     @pytest.fixture()
     def expected(self) -> np.ndarray:
@@ -1169,27 +1203,372 @@ class TestTailHeadRegression:
             "non-empty head should be int16 too"
         )
 
-    def test_stack_band0_empty_selection(self, cube_with_values: DatasetCollection):
-        """_stack_band0([]) returns a (0, rows, cols) array (empty-safe).
+    def test_stack_timesteps_empty_selection(self, cube_with_values: DatasetCollection):
+        """_stack_timesteps([]) returns a (0, rows, cols) array (empty-safe).
 
         Test scenario:
             Stack an empty selection — expected: a (0, 5, 6) array instead of the
             ``np.stack`` "need at least one array" error.
         """
-        result = cube_with_values._stack_band0([])
+        result = cube_with_values._stack_timesteps([])
         assert result.shape == (0, 5, 6), f"expected (0,5,6), got {result.shape}"
 
-    def test_stack_band0_non_empty(
+    def test_stack_timesteps_non_empty(
         self, cube_with_values: DatasetCollection, expected: np.ndarray
     ):
-        """_stack_band0 over all datasets reproduces the full cube.
+        """_stack_timesteps over all datasets reproduces the full cube.
 
         Test scenario:
             Stack every timestep's band 0 — expected: the (3, 5, 6) source cube.
         """
-        result = cube_with_values._stack_band0(cube_with_values.datasets)
+        result = cube_with_values._stack_timesteps(cube_with_values.datasets)
+        every_band = cube_with_values._stack_timesteps(
+            cube_with_values.datasets, band=None
+        )
+
+        assert every_band.shape[0] == len(cube_with_values.datasets), (
+            "band=None must keep time on the leading axis, not collapse it -- "
+            "it is what the RGB time-lapse asks for, and the only caller that "
+            "passes anything but band 0"
+        )
         assert result.shape == (3, 5, 6), f"expected (3,5,6), got {result.shape}"
         np.testing.assert_array_equal(result, expected)
+
+    def test_stack_timesteps_band_none_keeps_the_band_axis(self, tmp_path):
+        """band=None stacks every band into ``(time, bands, rows, cols)``.
+
+        Test scenario:
+            The RGB time-lapse is the only caller that passes ``band=None``, and
+            it needs a 4-D cube whose leading axis is time and whose second axis
+            is the colour bands. If the helper collapsed the bands into time (or
+            kept reading band 0 regardless), cleopatra would composite frames out
+            of timesteps and the animation would render as a single smeared
+            image.
+        """
+        collection, source = _make_multiband_collection(tmp_path, count=2, bands=3)
+
+        result = collection._stack_timesteps(collection.datasets, band=None)
+
+        assert result.shape == (2, 3, 4, 5), (
+            f"expected (time=2, bands=3, 4, 5), got {result.shape}"
+        )
+        np.testing.assert_array_equal(
+            result, source, err_msg="band=None did not reproduce the per-band source"
+        )
+
+    def test_band_none_rank_is_unreachable_for_a_single_band_collection(
+        self, cube_with_values: DatasetCollection
+    ):
+        """A one-band collection squeezes under band=None, and the RGB path refuses it.
+
+        Test scenario:
+            ``Dataset.read_array(band=None)`` drops the band axis for a
+            single-band raster, so ``band=None`` yields ``(time, rows, cols)``
+            there rather than the ``(time, bands, rows, cols)`` the RGB
+            time-lapse needs. That rank ambiguity is only harmless while
+            ``_validate_rgb_animation`` keeps rejecting a collection with too few
+            bands — if that guard were relaxed, cleopatra would be handed a 3-D
+            array where it expects 4-D and composite time as colour.
+        """
+        stacked = cube_with_values._stack_timesteps(
+            cube_with_values.datasets, band=None
+        )
+
+        np.testing.assert_array_equal(
+            stacked,
+            cube_with_values._stack_timesteps(cube_with_values.datasets, band=0),
+            err_msg="a single-band collection should squeeze to the band-0 stack",
+        )
+        with pytest.raises(ValueError, match="needs at least 3 bands"):
+            cube_with_values.plot(rgb_options={"rgb": [0, 1, 2]})
+
+    def test_the_empty_band_none_cube_keeps_the_band_axis(self, tmp_path):
+        """The empty result has the rank a populated one of the same request has.
+
+        Args:
+            tmp_path: pytest temp directory for the multi-band GeoTIFFs.
+
+        Test scenario:
+            The empty guard returned `(0, rows, cols)` whatever `band` was, so
+            `band=None` on a multi-band collection gave a 3-D empty cube where a
+            populated one is 4-D. The RGB time-lapse branches on exactly that
+            rank, so an empty collection came back as "RGB animate requires a
+            4-D ... got 3-D. Pass rgb only with a multi-band temporal stack" --
+            telling the caller their bands are wrong when what is wrong is that
+            there are no timesteps at all.
+        """
+        collection, _ = _make_multiband_collection(tmp_path, count=2, bands=3)
+
+        empty = collection._stack_timesteps([], band=None)
+        populated = collection._stack_timesteps(collection.datasets, band=None)
+
+        assert empty.shape == (0, 3, 4, 5), (
+            f"expected (time=0, bands=3, 4, 5), got {empty.shape}"
+        )
+        assert empty.shape[1:] == populated.shape[1:], (
+            "the empty cube must differ from the populated one only in time: "
+            f"{empty.shape} vs {populated.shape}"
+        )
+
+    def test_the_empty_band_zero_cube_stays_three_dimensional(self, tmp_path):
+        """The extra axis belongs to `band=None`, not to a multi-band collection.
+
+        Args:
+            tmp_path: pytest temp directory for the multi-band GeoTIFFs.
+
+        Test scenario:
+            `values`, `head` and `tail` all read band 0 of the same multi-band
+            collection and are documented as `(time, rows, cols)`. Giving the
+            empty guard a band axis whenever the collection has bands would
+            change the shape those three return on an empty selection.
+        """
+        collection, _ = _make_multiband_collection(tmp_path, count=2, bands=3)
+
+        empty = collection._stack_timesteps([], band=0)
+
+        assert empty.shape == (0, 4, 5), f"expected (0, 4, 5), got {empty.shape}"
+
+    def test_a_single_band_collection_squeezes_under_band_none_when_empty_too(
+        self, cube_with_values: DatasetCollection
+    ):
+        """The guard's band-count test has to match what `read_array` does.
+
+        Args:
+            cube_with_values: A 3-timestep single-band 5x6 collection.
+
+        Test scenario:
+            `Dataset.read_array(band=None)` drops the band axis for a
+            single-band raster, so a populated `band=None` stack is 3-D there.
+            An empty one that added a length-1 band axis would be the same
+            rank mismatch in the other direction.
+        """
+        empty = cube_with_values._stack_timesteps([], band=None)
+        populated = cube_with_values._stack_timesteps(
+            cube_with_values.datasets, band=None
+        )
+
+        assert empty.shape == (0, 5, 6), f"expected (0, 5, 6), got {empty.shape}"
+        assert empty.shape[1:] == populated.shape[1:], (
+            "the empty cube must differ from the populated one only in time: "
+            f"{empty.shape} vs {populated.shape}"
+        )
+
+    def test_stack_timesteps_empty_carries_the_collection_dtype(self, tmp_path):
+        """The empty guard types the array from the collection, not float64 (N1).
+
+        Test scenario:
+            ``np.empty(shape)`` with no dtype yields float64. An int16 collection
+            whose ``head(0)`` came back float64 would change dtype under an empty
+            selection, so a caller concatenating an empty slice onto a real one
+            would silently upcast the whole stack.
+        """
+        collection, _ = make_int16_collection(tmp_path)
+
+        result = collection._stack_timesteps([])
+
+        assert result.dtype == np.int16, (
+            f"empty stack should carry the collection dtype int16, got {result.dtype}"
+        )
+        assert result.shape == (0, collection.rows, collection.columns), (
+            f"expected (0, rows, cols), got {result.shape}"
+        )
+
+    @pytest.mark.parametrize(
+        ("accessor", "expected_count"),
+        [("values", 3), ("head", 2), ("tail", 2)],
+        ids=["values", "head", "tail"],
+    )
+    def test_accessors_route_through_stack_timesteps(
+        self,
+        cube_with_values: DatasetCollection,
+        monkeypatch,
+        accessor: str,
+        expected_count: int,
+    ):
+        """``values``/``head``/``tail`` all materialise through the one helper.
+
+        Args:
+            cube_with_values: A three-timestep collection.
+            monkeypatch: pytest fixture, used to spy on the helper.
+            accessor: The public accessor under test.
+            expected_count: How many timesteps that accessor should stack.
+
+        Test scenario:
+            The helper is where the empty guard and the dtype choice live. An
+            accessor that went back to a bare ``np.stack`` would keep working on
+            a populated collection and only break on an empty selection, with
+            ``np.stack``'s "need at least one array" naming neither the
+            collection nor the timestep.
+        """
+        calls: list[tuple[int, int | None]] = []
+        original = DatasetCollection._stack_timesteps
+
+        def _spy(self, datasets, band=0):
+            calls.append((len(datasets), band))
+            return original(self, datasets, band=band)
+
+        monkeypatch.setattr(DatasetCollection, "_stack_timesteps", _spy)
+        if accessor == "values":
+            result = cube_with_values.values
+        else:
+            result = getattr(cube_with_values, accessor)(2)
+
+        assert len(calls) == 1, f"{accessor} should stack once, got {len(calls)} calls"
+        assert calls[0] == (expected_count, 0), (
+            f"{accessor} stacked {calls[0]}, expected ({expected_count}, band 0)"
+        )
+        assert result.shape == (expected_count, 5, 6), (
+            f"{accessor} returned {result.shape}, expected ({expected_count}, 5, 6)"
+        )
+
+    def test_plot_stacks_the_requested_band_through_the_helper(
+        self, cube_with_values: DatasetCollection, monkeypatch
+    ):
+        """``plot`` builds its animation cube with the shared helper, band first.
+
+        Args:
+            cube_with_values: A three-timestep collection.
+            monkeypatch: pytest fixture, used to spy on the helper and to stand in
+                for the cleopatra dispatch.
+
+        Test scenario:
+            ``plot`` used to inline its own ``np.stack``, which is the call that
+            raised an unattributable error on an empty collection. The render
+            seam is stubbed so this stays an offline unit test; what is pinned is
+            that the array handed to cleopatra is the helper's ``(time, rows,
+            cols)`` cube for the requested band.
+        """
+        calls: list[tuple[int, int | None]] = []
+        original = DatasetCollection._stack_timesteps
+        requests: list[Any] = []
+
+        def _spy(self, datasets, band=0):
+            calls.append((len(datasets), band))
+            return original(self, datasets, band=band)
+
+        def _fake_render(request, **kwargs):
+            requests.append(request)
+            return "glyph"
+
+        monkeypatch.setattr(DatasetCollection, "_stack_timesteps", _spy)
+        monkeypatch.setattr("pyramids.dataset.collection.render_array", _fake_render)
+        result = cube_with_values.plot(band=0)
+
+        assert result == "glyph", (
+            f"plot should return the render result, got {result!r}"
+        )
+        assert calls == [(3, 0)], f"plot stacked {calls}, expected one (3, band 0) call"
+        assert requests[0].arr.shape == (3, 5, 6), (
+            f"cleopatra received {requests[0].arr.shape}, expected (3, 5, 6)"
+        )
+
+    def test_rgb_plot_stacks_every_band_through_the_helper(self, tmp_path, monkeypatch):
+        """The RGB time-lapse asks the helper for every band, not just band 0.
+
+        Args:
+            tmp_path: pytest temp directory for the three-band fixture.
+            monkeypatch: pytest fixture, used to spy on the helper and to stand in
+                for the cleopatra dispatch.
+
+        Test scenario:
+            This is the second inline ``np.stack`` the helper replaced, and the
+            only one that passes ``band=None``. If it lost the argument the
+            true-colour composite would be fed one band repeated three times and
+            every frame would render greyscale.
+        """
+        collection, source = _make_multiband_collection(tmp_path, count=2, bands=3)
+        calls: list[tuple[int, int | None]] = []
+        original = DatasetCollection._stack_timesteps
+        requests: list[Any] = []
+
+        def _spy(self, datasets, band=0):
+            calls.append((len(datasets), band))
+            return original(self, datasets, band=band)
+
+        def _fake_render(request, **kwargs):
+            requests.append(request)
+            return "glyph"
+
+        monkeypatch.setattr(DatasetCollection, "_stack_timesteps", _spy)
+        monkeypatch.setattr("pyramids.dataset.collection.render_array", _fake_render)
+        result = collection.plot(rgb_options={"rgb": [0, 1, 2]})
+
+        assert result == "glyph", (
+            f"plot should return the render result, got {result!r}"
+        )
+        assert calls == [(2, None)], (
+            f"the RGB path stacked {calls}, expected one (2, band=None) call"
+        )
+        np.testing.assert_array_equal(
+            requests[0].arr,
+            source,
+            err_msg="the RGB animation cube is not the per-band source stack",
+        )
+
+
+class TestPlottingAnEmptyCollection:
+    """A render has no frames to draw, and the refusal has to say so."""
+
+    def test_plot_refuses_an_empty_collection_by_name(
+        self, base_dataset: Dataset, monkeypatch
+    ):
+        """The empty cube is a read's answer, not a render's.
+
+        Args:
+            base_dataset: A single 5x6 raster to build the collection from.
+            monkeypatch: pytest fixture, standing in for the cleopatra dispatch
+                so the refusal is what fails the call, not a missing extra.
+
+        Test scenario:
+            `_stack_timesteps` returns an empty `(0, rows, cols)` cube for an
+            empty collection, which is right for `values` / `head` / `tail` and
+            useless for an animation: the zero-length stack reached cleopatra
+            and came back as numpy's "zero-size array to reduction operation
+            minimum which has no identity", which names neither the collection
+            nor the reason.
+        """
+        collection = DatasetCollection.from_dataset(base_dataset, time_length=0)
+        monkeypatch.setattr(
+            "pyramids.dataset.collection.render_array", lambda request, **kw: "glyph"
+        )
+
+        with pytest.raises(ValueError, match="empty collection"):
+            collection.plot()
+
+    def test_the_rgb_path_refuses_it_too(self, base_dataset: Dataset, monkeypatch):
+        """Both render paths stack timesteps, so both need the guard.
+
+        Args:
+            base_dataset: A single 5x6 raster to build the collection from.
+            monkeypatch: pytest fixture, standing in for the cleopatra dispatch.
+
+        Test scenario:
+            The RGB time-lapse builds its own `(time, bands, rows, cols)` stack;
+            an empty collection makes that 4-D and empty rather than 3-D, so it
+            fails somewhere else again unless the refusal comes first.
+        """
+        collection = DatasetCollection.from_dataset(base_dataset, time_length=0)
+        monkeypatch.setattr(
+            "pyramids.dataset.collection.render_array", lambda request, **kw: "glyph"
+        )
+
+        with pytest.raises(ValueError, match="empty collection"):
+            collection.plot(rgb_options={"rgb": [0, 1, 2]})
+
+    def test_the_read_accessors_still_return_an_empty_cube(self, base_dataset: Dataset):
+        """Refusing the render must not turn a legitimate read into an error.
+
+        Test scenario:
+            `values` on an empty collection is `(0, rows, cols)` of the
+            collection's dtype -- the answer the empty-safe stack helper was
+            written for -- and the plot guard sits in `plot`, not in it.
+
+        Args:
+            base_dataset: A single 5x6 raster to build the collection from.
+        """
+        collection = DatasetCollection.from_dataset(base_dataset, time_length=0)
+
+        assert collection.values.shape == (0, 5, 6)
 
 
 class TestFromFilesValidate:

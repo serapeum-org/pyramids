@@ -21,22 +21,56 @@ import logging
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from functools import lru_cache
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import SplitResult, urlsplit, urlunsplit
 
 from pyramids.base._errors import OGCAPIError
 
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    # `base` must not import `xml.etree` at runtime just to name a parameter
+    # type; the annotation is a string under `from __future__ import
+    # annotations`, so the import is only ever needed by a type checker.
+    #
+    # nosec B405: this import never executes -- it is inside `TYPE_CHECKING`,
+    # so no parser is constructed here and there is nothing to attack. The
+    # element itself is parsed by `dataset/_wcs.py`, which carries the same
+    # marker and the reasoning behind it (server XML; DoS accepted, no XXE).
+    import xml.etree.ElementTree as ET  # nosec B405
+
 logger = logging.getLogger(__name__)
 
-# Headers for the urllib ``/collections`` pre-check. A real User-Agent avoids
-# services that block the default ``Python-urllib`` agent, and ``Accept`` adds
-# JSON content negotiation alongside the ``f=json`` query so the pre-check is no
-# stricter than the GDAL driver it guards.
+# The plain library name, for a request that is not part of a named protocol.
+# Callers that are -- the OGC API discovery read, the VectorTileServer fetch --
+# declare their own, because a service filtering on User-Agent must go on seeing
+# what it saw before.
+USER_AGENT = "pyramids-gis"
+
+# The media type every discovery read negotiates, whatever protocol it belongs
+# to. It has its own name because :func:`discovery_request` serves four fetches
+# -- OGC API, VectorTileServer, remote GeoJSON, WFS GetCapabilities -- and used
+# to take this value out of :data:`DISCOVERY_HEADERS`, the OGC-API-specific
+# pair. Editing that dict to change what OGC API asks for therefore changed what
+# the other three sent as well; reading a constant of its own means it does not.
+JSON_ACCEPT = "application/json"
+
+# The client the OGC API ``/collections`` pre-check declares. A real User-Agent
+# avoids services that block the default ``Python-urllib`` agent, and the string
+# is part of the wire contract: a service filtering on it must go on seeing what
+# it saw before.
+OGC_API_USER_AGENT = "pyramids-gis OGC API client"
+
+# The header pair for the OGC API ``/collections`` pre-check, assembled from the
+# two constants above. ``Accept`` adds JSON content negotiation alongside the
+# ``f=json`` query so the pre-check is no stricter than the GDAL driver it
+# guards. Nothing in this module reads the dict back -- :func:`discovery_request`
+# and :func:`get_collections` name the constants directly -- so it survives for
+# the WFS reader, which sends this same pair (its GetCapabilities body is XML,
+# but the ``Accept`` and the agent it has always sent are these).
 DISCOVERY_HEADERS = {
-    "User-Agent": "pyramids-gis OGC API client",
-    "Accept": "application/json",
+    "User-Agent": OGC_API_USER_AGENT,
+    "Accept": JSON_ACCEPT,
 }
 
 # Fallback when an OGC API error document / HTTP error carries no usable message.
@@ -279,6 +313,120 @@ def append_path(endpoint: str, suffix: str) -> tuple[SplitResult, str]:
     return parts, f"{parts.path.rstrip('/')}{suffix}"
 
 
+def discovery_request(
+    url: str,
+    auth: tuple[str, str] | None,
+    *,
+    accept_json: bool = True,
+    user_agent: str | None = None,
+) -> urllib.request.Request:
+    """Build a discovery request: a real User-Agent, and Basic auth up front.
+
+    Three places built one of these -- the OGC API `/collections` read, the
+    VectorTileServer fetch and the remote-GeoJSON stage -- each assembling the
+    header dict and the preemptive Basic credentials itself, and two of them
+    carrying the same six-line comment explaining why the credentials go on the
+    request rather than into a handler.
+
+    Preemptive Basic is the part worth stating once: a service that answers 403
+    without a 401 challenge never gets credentials out of a reactive
+    `HTTPBasicAuthHandler`, which only reacts to a 401. It matches what the GDAL
+    read does with `GDAL_HTTP_USERPWD`.
+
+    The User-Agent stays the caller's. The three declare different clients --
+    an OGC API one, a VectorTileServer one some ArcGIS deployments filter on,
+    and the plain library name for a bare GeoJSON fetch -- and those are real
+    differences, not copies that drifted, so unifying the string would change
+    what three services see.
+
+    Args:
+        url: The URL to request.
+        auth: `(user, password)` to send preemptively, or `None`.
+        accept_json: Send `Accept: application/json`. True for a discovery
+            document; pass False for a fetch whose body is not JSON, such as a
+            vector tile.
+        user_agent: The client to declare. `None` (the default) sends the plain
+            library name; pass a specific one where a service filters on it or
+            where the request is part of a named protocol.
+
+    Returns:
+        urllib.request.Request: Ready for :func:`http_get_with_retry`.
+
+    Raises:
+        ValueError: `user_agent` is empty or blank, in any spelling. The blank
+            forms used to part company on `user_agent or USER_AGENT`, because
+            only one of them is falsy: `""` fell through and silently became
+            the library name -- the one thing an explicit `""` cannot have
+            meant -- while `"   "` and `"\t"` are truthy, so they went on the
+            wire verbatim, as a `User-agent:` of nothing but whitespace. So the
+            two spellings of "blank" got two different answers, neither asked
+            for. Neither is usable either: honouring a blank puts an empty
+            ``User-agent:`` on the wire, because `urllib` substitutes its
+            default only for a header that is *absent*, and omitting the header
+            instead hands the service ``Python-urllib/3.x`` -- the agent this
+            header exists to avoid. So every blank spelling is refused by name
+            rather than reinterpreted.
+
+    Examples:
+        - The plain library User-Agent, and JSON asked for by default:
+            ```python
+            >>> from pyramids.base._ogc_api import discovery_request
+            >>> request = discovery_request("https://x/collections", None)
+            >>> request.get_header("User-agent")
+            'pyramids-gis'
+            >>> request.get_header("Accept")
+            'application/json'
+
+            ```
+        - Credentials go on the request itself, not into a handler that waits
+          for a challenge:
+            ```python
+            >>> from pyramids.base._ogc_api import discovery_request
+            >>> request = discovery_request("https://x", ("ada", "s3cret"))
+            >>> request.get_header("Authorization").startswith("Basic ")
+            True
+
+            ```
+        - A non-JSON fetch asks for no particular type:
+            ```python
+            >>> from pyramids.base._ogc_api import discovery_request
+            >>> discovery_request("https://x/1/2/3.pbf", None, accept_json=False
+            ...     ).get_header("Accept") is None
+            True
+
+            ```
+        - An empty client name is refused rather than read as "unset":
+            ```python
+            >>> from pyramids.base._ogc_api import discovery_request
+            >>> discovery_request("https://x", None, user_agent="")
+            Traceback (most recent call last):
+            ValueError: user_agent must name a client; pass None for 'pyramids-gis', not ''.
+
+            ```
+        - And so is a whitespace-only one, which is truthy and so used to reach
+          the service verbatim rather than fall back to the library name:
+            ```python
+            >>> from pyramids.base._ogc_api import discovery_request
+            >>> discovery_request("https://x", None, user_agent="   ")
+            Traceback (most recent call last):
+            ValueError: user_agent must name a client; pass None for 'pyramids-gis', not '   '.
+
+            ```
+    """
+    if user_agent is not None and not user_agent.strip():
+        raise ValueError(
+            f"user_agent must name a client; pass None for {USER_AGENT!r}, "
+            f"not {user_agent!r}."
+        )
+    headers = {"User-Agent": USER_AGENT if user_agent is None else user_agent}
+    if accept_json:
+        headers["Accept"] = JSON_ACCEPT
+    if auth is not None:
+        token = base64.b64encode(f"{auth[0]}:{auth[1]}".encode()).decode()
+        headers["Authorization"] = f"Basic {token}"
+    return urllib.request.Request(url, headers=headers)
+
+
 def collections_url(endpoint: str) -> str:
     """Build the ``/collections`` discovery URL for an OGC API landing page.
 
@@ -305,14 +453,9 @@ def get_collections(
             answered with a non-JSON body or an OGC API exception document.
     """
     url = collections_url(endpoint)
-    headers = dict(DISCOVERY_HEADERS)
-    if auth is not None:
-        # Send Basic credentials preemptively (matching the GDAL items read's
-        # GDAL_HTTP_USERPWD), so a service that 403s without a 401 challenge still
-        # gets them — a reactive HTTPBasicAuthHandler would only react to a 401.
-        token = base64.b64encode(f"{auth[0]}:{auth[1]}".encode()).decode()
-        headers["Authorization"] = f"Basic {token}"
-    request = urllib.request.Request(url, headers=headers)
+    request = discovery_request(
+        url, auth, accept_json=True, user_agent=OGC_API_USER_AGENT
+    )
     try:
         # urllib honours the raw float timeout (a sub-second value is a valid fast
         # timeout here); only the GDAL driver read clamps to >= 1s, because GDAL
@@ -409,3 +552,126 @@ def http_error_detail(exc: urllib.error.HTTPError) -> str:
     except (ValueError, TypeError):
         detail = text[:200] or NO_MESSAGE
     return detail
+
+
+def localname(tag: str) -> str:
+    """Strip the XML namespace from an ElementTree tag (`{ns}Name` -> `Name`).
+
+    Args:
+        tag: A namespaced ElementTree tag.
+
+    Returns:
+        str: The tag without its namespace.
+    """
+    return tag.rsplit("}", 1)[-1]
+
+
+def capabilities_url(endpoint: str, service: str, version: str | None) -> str:
+    """Build the `GetCapabilities` URL for an OWS endpoint.
+
+    Args:
+        endpoint: The service endpoint, with or without an existing query.
+        service: The OWS service token, e.g. `"WCS"` or `"WFS"`.
+        version: Version to pin, or `None` to let the server choose.
+
+    Returns:
+        str: The full `GetCapabilities` URL.
+    """
+    separator = "&" if "?" in endpoint else "?"
+    url = f"{endpoint}{separator}SERVICE={service}&REQUEST=GetCapabilities"
+    if version:
+        url += f"&VERSION={version}"
+    return url
+
+
+def exception_text(root: ET.Element) -> str:
+    """Extract the human-readable message from an OWS exception document.
+
+    Args:
+        root: The parsed exception document's root element. Both callers hand
+            over an `xml.etree.ElementTree.Element`, which is what the original
+            two copies of this function each annotated; the type is named here
+            under `TYPE_CHECKING` so consolidating them did not widen it to
+            `Any`.
+
+    Returns:
+        str: The message, or `"no message provided"` when the document
+            carries none.
+    """
+    message = ""
+    for element in root.iter():
+        if localname(element.tag) in ("ExceptionText", "ServiceException"):
+            # Only an element with real text ends the search. A whitespace-only
+            # one is skipped and the loop keeps going, which is what iterating
+            # the document is for -- taking the first element with *any* text
+            # discarded a real message that followed an empty one.
+            text = (element.text or "").strip()
+            if text:
+                message = text
+                break
+    return message or (root.text or "").strip() or NO_MESSAGE
+
+
+# How many advertised names an error message lists before trimming. A server can
+# advertise hundreds; the point is to show the caller the shape of what is there,
+# not to reproduce the capabilities document in a traceback.
+_ADVERTISED_PREVIEW = 10
+
+
+def not_advertised(
+    kind: str, name: str, endpoint: str, available: Iterable[str]
+) -> ValueError:
+    """The refusal for a coverage or layer the service does not advertise.
+
+    Written out three times -- once in the WCS reader, once in the WMTS one and
+    once for OGC API Coverages -- with the same wording, the same sort, the same
+    preview length and the same ellipsis. All three were already alphabetical
+    before this existed, so the duplication is the whole of what it removes; it
+    fixes no difference in what the three printed.
+
+    The sort still carries its weight, though, and is part of the contract
+    rather than a tidy-up: two of the three callers hand over a `frozenset` --
+    the WCS capabilities parse and the OGC API `/collections` read both return
+    one -- whose iteration order is neither the capabilities document's nor
+    stable between runs. Listing "the first ten" of that would name a different
+    ten each time the same mistake was made.
+
+    Returned rather than raised so a caller translating a service error can
+    chain it -- `raise not_advertised(...) from exc` -- which a helper that
+    raised internally could not express.
+
+    Args:
+        kind: What the service calls the thing, singular and lowercase
+            (`"coverage"`, `"layer"`).
+        name: The name that was asked for.
+        endpoint: The service URL, quoted into the message.
+        available: The names the service does advertise, in any order.
+
+    Returns:
+        ValueError: Ready to raise, naming what was asked for and listing what
+            is there, sorted and trimmed.
+
+    Examples:
+        - The message names the request, the endpoint and the alternatives:
+            ```python
+            >>> from pyramids.base._ogc_api import not_advertised
+            >>> raise not_advertised("coverage", "dem", "http://x/wcs", ["b", "a"])
+            Traceback (most recent call last):
+            ValueError: coverage 'dem' is not advertised by 'http://x/wcs'. Available coverages: ['a', 'b']
+
+            ```
+        - A long list is trimmed and marked, so a traceback stays readable:
+            ```python
+            >>> from pyramids.base._ogc_api import not_advertised
+            >>> error = not_advertised("layer", "z", "http://x", [str(i) for i in range(30)])
+            >>> str(error).endswith("…")
+            True
+
+            ```
+    """
+    names = sorted(available)
+    return ValueError(
+        f"{kind} {name!r} is not advertised by {endpoint!r}. "
+        f"Available {kind}s: {names[:_ADVERTISED_PREVIEW]}"
+        + (" …" if len(names) > _ADVERTISED_PREVIEW else "")
+    )

@@ -8,26 +8,81 @@ normalise a ``resolution``, resolve a coverage's native CRS (applying the
 here once — neither reader reaches into the other's internals — and the CRS
 resolver raises the protocol-neutral :class:`~pyramids.base._errors.CoverageError`,
 which each reader re-wraps into its own branded error (WCSError / OGCAPIError).
+
+The two GDAL calls those readers wrap around live here too. Every network reader
+— WCS, WMS / WMTS (:mod:`pyramids.dataset._wms`) and OGC API – Coverages — opens a
+connection string with GDAL and then materialises a window of it into a ``MEM``
+dataset, and each has to turn the same two failure shapes into its own branded
+error: a ``RuntimeError`` (GDAL raises under ``gdal.UseExceptions()``) and a
+``None`` return (a driver that declines the source without raising).
+:func:`open_network_dataset` and :func:`translate_to_mem` own that sequence and
+that classification; the readers pass in their own exception class and the words
+that name the request, so the messages stay branded per protocol.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from math import isfinite
+from typing import Any, cast
 
 from osgeo import gdal, osr
-from pyproj import CRS, Transformer
 
-from pyramids.base._errors import CoverageError
-from pyramids.base.crs import crs_from_user_input
+from pyramids.base._bbox import transform as bbox_transform
+from pyramids.base._errors import CoverageError, CRSError
+from pyramids.base._grid import grid_size
+from pyramids.base.crs import sr_from_user_input
 
 
 def validate_bbox(
     bbox: tuple[float, float, float, float],
 ) -> tuple[float, float, float, float]:
-    """Validate a ``(minx, miny, maxx, maxy)`` bbox."""
+    """Validate a ``(minx, miny, maxx, maxy)`` bbox.
+
+    Args:
+        bbox: Four numbers, or anything `float()` accepts for each of them --
+            a bbox read out of JSON arrives as strings often enough that
+            coercing is worth more than refusing.
+
+    Returns:
+        tuple[float, float, float, float]: The bbox as floats.
+
+    Raises:
+        ValueError: `bbox` is not four values, one of them is text `float()`
+            cannot read, any of them is not finite, or the box is empty or
+            inverted on either axis.
+        TypeError: One of the four is a value `float()` refuses outright, such
+            as `None` or a list. Raised by the coercion rather than by a check
+            here -- the message names the type, which is what the caller needs.
+
+    Examples:
+        - An ordinary box passes and comes back as floats:
+            ```python
+            >>> from pyramids.base._coverage import validate_bbox
+            >>> validate_bbox(("1", "2", "3", "4"))
+            (1.0, 2.0, 3.0, 4.0)
+
+            ```
+        - A non-finite corner is refused here rather than reaching a request
+          URL as the literal text `nan`:
+            ```python
+            >>> from pyramids.base._coverage import validate_bbox
+            >>> validate_bbox((1.0, 2.0, float("nan"), 4.0))
+            Traceback (most recent call last):
+            ValueError: bbox must be four finite numbers, got (1.0, 2.0, nan, 4.0)
+
+            ```
+    """
     if len(bbox) != 4:
         raise ValueError(f"bbox must be (minx, miny, maxx, maxy), got {bbox!r}")
     minx, miny, maxx, maxy = (float(v) for v in bbox)
+    # Checked before the ordering test, which cannot see them: every comparison
+    # against NaN is False, so `minx >= maxx` passes a NaN corner straight
+    # through, and an infinite one compares as a legitimately huge box. Both
+    # then reach a WCS / WMS request as the literal text `nan` / `inf`, where
+    # the failure is the server's and reads as a network problem.
+    if not all(isfinite(v) for v in (minx, miny, maxx, maxy)):
+        raise ValueError(f"bbox must be four finite numbers, got {bbox!r}")
     if minx >= maxx or miny >= maxy:
         raise ValueError(f"bbox must have minx < maxx and miny < maxy, got {bbox!r}")
     return minx, miny, maxx, maxy
@@ -64,6 +119,20 @@ def resolve_native_srs(
     GDAL reports no spatial reference when the server's advertised CRS is not in
     the PROJ database. The caller must then supply ``coverage_crs``.
 
+    Both branches return an SRS stamped with ``OAMS_TRADITIONAL_GIS_ORDER``, so a
+    caller reading ``.GetSpatialRef()`` off a WCS / WMS / OGC API result raster
+    gets lon/lat order whichever branch resolved it.
+
+    Note:
+        The ``coverage_crs`` branch resolves through
+        :func:`pyramids.base.crs.sr_from_user_input`, which round-trips the CRS
+        through pyproj. The resulting WKT keeps its root ``AUTHORITY`` node --
+        so ``GetAuthorityCode(None)``, and hence ``Dataset.epsg``, are unchanged
+        -- but loses the nested ones on the datum, spheroid, prime meridian and
+        unit. A read whose CRS came from an explicit ``coverage_crs`` therefore
+        reports a shorter ``.GetProjection()`` string than a raw
+        ``SetFromUserInput`` would have produced.
+
     Raises:
         CoverageError: The dataset has no CRS and no ``coverage_crs`` was given.
         ValueError: ``coverage_crs`` could not be interpreted.
@@ -71,6 +140,20 @@ def resolve_native_srs(
     srs = src.GetSpatialRef()
     if srs is not None:
         result = srs.Clone()
+        # Stamped here too, not only on the `coverage_crs` branch below. The
+        # clone carries whatever mapping the driver attached -- usually GDAL's
+        # authority-compliant default -- so leaving it made the two branches
+        # disagree, and the SRS on a WCS/WMS result raster then declared
+        # traditional order or authority order depending only on which branch
+        # resolved it.
+        #
+        # What consumes the stamp is `SetSpatialRef` on the result raster
+        # (`dataset/_wcs.py`), which carries the SRS *object* -- and with it the
+        # mapping -- onto what the caller gets back. It is not `native_projwin`:
+        # that sees the SRS only as `native_srs.ExportToWkt()`, and WKT does not
+        # encode the data-axis-to-SRS-axis mapping, so the stamp is invisible to
+        # it (a clone with the mapping flipped exports byte-identical WKT).
+        result.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
     elif coverage_crs is None:
         raise CoverageError(
             "the coverage has no resolvable spatial reference (the service likely "
@@ -78,11 +161,16 @@ def resolve_native_srs(
             "with the coverage's CRS, e.g. the proj4 string."
         )
     else:
-        result = osr.SpatialReference()
         try:
-            # GDAL exceptions are enabled package-wide, so a bad CRS raises here.
-            result.SetFromUserInput(coverage_crs)
-        except RuntimeError as exc:
+            # `sr_from_user_input` rather than a bare SetFromUserInput: it
+            # stamps traditional axis order, matching the clone branch above,
+            # so the SRS this hands to `SetSpatialRef` on the result raster
+            # declares lon/lat either way. Building it raw left a geographic
+            # `coverage_crs` in authority-compliant order. The cost is the WKT
+            # detail named in the docstring's Note: the nested AUTHORITY nodes
+            # do not survive the pyproj round-trip.
+            result = sr_from_user_input(coverage_crs)
+        except (RuntimeError, CRSError) as exc:
             raise ValueError(
                 f"coverage_crs could not be interpreted: {coverage_crs!r} ({exc})"
             ) from exc
@@ -104,14 +192,14 @@ def native_projwin(
             (``pyproj`` returns ``inf``/``nan`` when the bbox falls outside the
             native CRS's area of use).
     """
-    native = CRS.from_user_input(native_srs.ExportToWkt())
-    transformer = Transformer.from_crs(crs_from_user_input(crs), native, always_xy=True)
-    minx, miny, maxx, maxy = bbox
-    # Densify the edges (not just the corners) so the native-CRS window still
-    # covers the requested area under projection curvature / interruptions (e.g.
-    # the Interrupted Goode Homolosine), where the corner hull can bow inward.
-    left, bottom, right, top = transformer.transform_bounds(
-        minx, miny, maxx, maxy, densify_pts=21
+    # `base._bbox.transform` is the package's bbox reprojection: same
+    # densification (21 points per edge, so a curved or interrupted projection
+    # is not crudely axis-aligned), same always_xy convention, and it resolves a
+    # CRS whose code only GDAL's PROJ database carries (#943).
+    left, bottom, right, top = bbox_transform(
+        cast("tuple[float, float, float, float]", tuple(bbox)),
+        crs,
+        native_srs.ExportToWkt(),
     )
     projwin = [left, top, right, bottom]
     if not all(isfinite(v) for v in projwin):
@@ -160,8 +248,7 @@ def read_size(projwin: list[float], res: tuple[float, float] | None) -> tuple[in
                 f"resolution must be strictly positive on each axis to size a read, "
                 f"got {res!r}; pass an explicit positive resolution"
             )
-        width = max(1, round(span_x / x_res))
-        height = max(1, round(span_y / y_res))
+        width, height = grid_size(span_x, span_y, (x_res, y_res), max_px=None)
     elif span_x >= span_y:
         width = DEFAULT_MAX_PX
         height = (
@@ -189,3 +276,194 @@ def native_resolution(src: gdal.Dataset) -> tuple[float, float]:
     """Return the source raster's absolute native ``(x_res, y_res)`` from its geotransform."""
     gt = src.GetGeoTransform()
     return (abs(gt[1]), abs(gt[5]))
+
+
+def open_network_dataset(
+    connection: str,
+    *,
+    error: type[Exception],
+    subject: str,
+    open_options: Sequence[str] | None = None,
+) -> gdal.Dataset:
+    """Open a GDAL network connection, re-branding both failure shapes as `error`.
+
+    The WCS, WMS / WMTS and OGC API – Coverages readers each hand GDAL a connection
+    string — a ``<WCS_GDAL>`` or ``<GDAL_WMS>`` service descriptor, a ``WMTS:`` or
+    ``OGCAPI:`` connection — and each has to answer for two different failures: GDAL
+    raises ``RuntimeError`` under ``gdal.UseExceptions()``, but a driver that declines
+    the source without an error returns ``None`` instead. Handling only the first
+    leaks a ``None`` that fails an attribute access one frame later; handling neither
+    leaks a raw GDAL message with no idea which coverage or layer it was about.
+
+    Args:
+        connection: The GDAL connection string / service descriptor to open.
+        error: The reader's branded exception class (``WCSError``, ``WMSError``,
+            ``OGCAPIError``, ...), called with a single message argument.
+        subject: What is being opened, already worded for the message — e.g.
+            ``f"WCS coverage {coverage!r}"`` or ``f"WMTS layer {layer!r}"``. It is the
+            only reader-specific text in either message.
+        open_options: GDAL open options. ``None`` (the default) opens through
+            :func:`osgeo.gdal.Open`; a sequence opens through :func:`osgeo.gdal.OpenEx`
+            with ``gdal.OF_RASTER`` and these options, which is how the ``OGCAPI``
+            driver is told which API and image format to negotiate.
+
+    Returns:
+        gdal.Dataset: The opened dataset, never ``None``.
+
+    Raises:
+        error: GDAL raised while opening, or returned no dataset.
+
+    Examples:
+        - A connection GDAL can open comes back as a dataset (a ``/vsimem`` GeoTIFF
+          stands in here for the network source):
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.base._coverage import open_network_dataset
+            >>> writer = gdal.GetDriverByName("GTiff").Create("/vsimem/doc_cov.tif", 2, 3, 1)
+            >>> writer = None
+            >>> src = open_network_dataset(
+            ...     "/vsimem/doc_cov.tif", error=RuntimeError, subject="coverage 'demo'"
+            ... )
+            >>> (src.RasterXSize, src.RasterYSize)
+            (2, 3)
+            >>> src = None
+            >>> _ = gdal.Unlink("/vsimem/doc_cov.tif")
+
+            ```
+        - A source GDAL refuses raises the reader's own error class, naming the
+          subject and keeping GDAL's own message as the tail:
+            ```python
+            >>> from pyramids.base._coverage import open_network_dataset
+            >>> class DemoError(Exception):
+            ...     pass
+            >>> try:
+            ...     open_network_dataset(
+            ...         "/vsimem/absent.tif", error=DemoError, subject="coverage 'demo'"
+            ...     )
+            ... except DemoError as exc:
+            ...     print(str(exc).startswith("could not open coverage 'demo': "))
+            True
+
+            ```
+    """
+    try:
+        if open_options is None:
+            src = gdal.Open(connection)
+        else:
+            src = gdal.OpenEx(
+                connection, gdal.OF_RASTER, open_options=list(open_options)
+            )
+    except RuntimeError as exc:
+        raise error(f"could not open {subject}: {exc}") from exc
+    if src is None:
+        raise error(f"GDAL returned no dataset for {subject}")
+    return src
+
+
+def translate_to_mem(
+    src: gdal.Dataset,
+    *,
+    error: type[Exception],
+    action: str,
+    subject: str,
+    **options: Any,
+) -> gdal.Dataset:
+    """Materialise a window of `src` into a ``MEM`` dataset, re-branding failures as `error`.
+
+    Every network reader ends the same way: :func:`osgeo.gdal.Translate` into ``MEM``,
+    never straight to the caller's output path. That is what guarantees a service
+    answering with an ``<ows:ExceptionReport>`` (or an HTML error page, or a truncated
+    body) cannot be written to a ``.tif`` the caller then has to discover is not a
+    raster — the failure happens here, before any file exists. The two failure shapes
+    are the ones :func:`open_network_dataset` describes: a ``RuntimeError`` and a
+    ``None`` return.
+
+    The window itself is `options`: ``projWin`` bounds the area, ``width`` / ``height``
+    (or ``xRes`` / ``yRes``) bound the allocation, ``resampleAlg`` picks the kernel.
+    ``format="MEM"`` is set here, and passing it is refused rather than silently
+    colliding. Bounding the read is the **caller's** job, and the callers do not
+    all bound it the same way -- the WCS and OGC coverage reads size through
+    :func:`read_size`, while the WMS GetMap path sizes through its own
+    ``_output_size`` with no pixel ceiling, because the server has already been
+    told the size it should render. Where :func:`read_size` is used, it is
+    where the :data:`MAX_PX` ceiling is enforced.
+
+    Args:
+        src: The opened network dataset to read from.
+        error: The reader's branded exception class, called with one message.
+        action: What the read is, in the reader's own words — ``"WCS GetCoverage"``,
+            ``"WMS GetMap"``, ``"WMTS tile read"``, ``"OGC API coverage read"``. It
+            opens both messages.
+        subject: The request target as it should read in the message, normally
+            ``repr(coverage)`` / ``repr(layer)``.
+        **options: Extra :func:`osgeo.gdal.TranslateOptions` keywords describing the
+            window.
+
+    Returns:
+        gdal.Dataset: The in-memory window, never ``None``.
+
+    Raises:
+        error: GDAL raised while translating, or produced no raster.
+
+    Examples:
+        - The ``projWin`` window is materialised in memory at the source's own
+          resolution:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.base._coverage import translate_to_mem
+            >>> src = gdal.GetDriverByName("MEM").Create("", 8, 8, 1)
+            >>> _ = src.SetGeoTransform((0.0, 1.0, 0.0, 8.0, 0.0, -1.0))
+            >>> mem = translate_to_mem(
+            ...     src,
+            ...     error=RuntimeError,
+            ...     action="demo read",
+            ...     subject="'demo'",
+            ...     projWin=[2.0, 6.0, 6.0, 2.0],
+            ... )
+            >>> (mem.RasterXSize, mem.RasterYSize)
+            (4, 4)
+
+            ```
+        - A read GDAL cannot satisfy surfaces as the reader's own error, opened by the
+          action and naming the subject:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.base._coverage import translate_to_mem
+            >>> class DemoError(Exception):
+            ...     pass
+            >>> src = gdal.GetDriverByName("MEM").Create("", 8, 8, 1)
+            >>> try:
+            ...     translate_to_mem(
+            ...         src,
+            ...         error=DemoError,
+            ...         action="demo read",
+            ...         subject="'demo'",
+            ...         bandList=[5],
+            ...     )
+            ... except DemoError as exc:
+            ...     print(str(exc).startswith("demo read failed for 'demo': "))
+            True
+
+            ```
+    """
+    if "format" in options:
+        # Refused by name. It used to be a second `format=` on the same call, so
+        # a caller passing one got `TranslateOptions() got multiple values for
+        # keyword argument 'format'` -- a TypeError naming an internal call,
+        # where the docstring promised a refusal.
+        raise ValueError(
+            "format is fixed to 'MEM' by translate_to_mem; the result is an "
+            "in-memory dataset by construction. Write it out afterwards if you "
+            "need another format."
+        )
+    # Built outside the guard: a bad keyword here is the caller's mistake, and
+    # re-branding it as a service error would blame the server for it. Only the
+    # translate itself is guarded.
+    translate_options = gdal.TranslateOptions(format="MEM", **options)
+    try:
+        mem = gdal.Translate("", src, options=translate_options)
+    except RuntimeError as exc:
+        raise error(f"{action} failed for {subject}: {exc}") from exc
+    if mem is None:
+        raise error(f"{action} returned no raster for {subject}")
+    return mem

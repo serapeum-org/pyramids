@@ -12,6 +12,7 @@ from dataclasses import FrozenInstanceError
 
 import numpy as np
 import pytest
+from osgeo import gdal
 from pyproj import CRS
 
 from pyramids.base._raster_meta import RasterMeta
@@ -147,3 +148,41 @@ class TestFrozen:
     def test_cannot_mutate_fields(self, basic_meta):
         with pytest.raises(FrozenInstanceError):
             basic_meta.rows = 42  # type: ignore[misc]
+
+
+class TestABandlessDatasetIsRefusedByName:
+    """A metadata snapshot of a dataset with no bands has no dtype to report.
+
+    The dtype used to be read through a guarded fallback; folding it onto the
+    shared `Dataset.dtype` lookup removed the guard along with the duplication,
+    so the empty list was indexed and a bare `IndexError` escaped from inside
+    metadata construction, naming nothing about the cause.
+    """
+
+    def test_it_raises_a_named_error_rather_than_an_index_error(self):
+        """The message has to say what was wrong with the dataset.
+
+        Test scenario:
+            GDAL will happily create a 0-band raster. Building a `RasterMeta`
+            from one cannot work, and the caller needs to be told that rather
+            than shown an index error from a line they did not write.
+        """
+        dataset = Dataset(
+            gdal.GetDriverByName("MEM").Create("", 4, 4, 0, gdal.GDT_Float32)
+        )
+
+        with pytest.raises(ValueError, match="no bands"):
+            RasterMeta.from_dataset(dataset)
+
+    def test_a_banded_dataset_is_unaffected(self):
+        """The guard must not cost the ordinary case anything.
+
+        Test scenario:
+            A one-band raster still produces a snapshot carrying that band's
+            dtype, exactly as before.
+        """
+        dataset = Dataset(
+            gdal.GetDriverByName("MEM").Create("", 4, 4, 1, gdal.GDT_Float32)
+        )
+
+        assert RasterMeta.from_dataset(dataset).dtype == "float32"

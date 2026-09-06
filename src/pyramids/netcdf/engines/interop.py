@@ -11,9 +11,11 @@ types are unchanged by the extraction.
 
 from __future__ import annotations
 
+import inspect
 import os
 import tempfile
 import traceback
+import warnings
 import weakref
 from contextlib import contextmanager, suppress
 from pathlib import Path
@@ -22,19 +24,177 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 from osgeo import gdal, osr
 
-from pyramids.base._errors import OptionalPackageDoesNotExist
-from pyramids.base._utils import numpy_to_gdal_dtype
+from pyramids.base._utils import import_xarray, numpy_to_gdal_dtype
 from pyramids.base.remote import is_remote
 from pyramids.dataset.engines._base import _Engine
 from pyramids.netcdf._lazy import build_lazy_array
-from pyramids.netcdf._mdim import strip_netcdf_subdataset_prefix
+from pyramids.netcdf._mdim import open_mdarray, strip_netcdf_subdataset_prefix
 from pyramids.netcdf.cf import (
     build_coordinate_attrs,
     srs_from_wkt,
     write_attributes_to_md_array,
     write_global_attributes,
 )
-from pyramids.netcdf.utils import read_cf_attributes
+from pyramids.netcdf.utils import (
+    CF_EPOCH_CALENDAR,
+    cf_epoch_units,
+    read_cf_attributes,
+)
+
+_XARRAY_HINT = (
+    "xarray is required for {func}(). Install with one of:\n"
+    "  - PyPI:        pip install xarray\n"
+    "  - conda-forge: conda install -c conda-forge xarray"
+)
+
+# Everything under this directory is pyramids' own code, so a warning raised
+# from a frame inside it is never the frame the user wrote.
+_PACKAGE_DIR = os.path.normcase(
+    os.path.join(str(Path(__file__).resolve().parents[2]), "")
+)
+
+# netCDF reserves `/` as the group path separator and rejects it in a variable
+# name; zarr reads it as a hierarchy separator too. The flat `xr.Dataset`
+# namespace therefore cannot key a sub-group array by its store path, so the
+# separator is substituted rather than the path dropped -- reducing
+# `flight_a/CO` to `CO` would collide with every other group's `CO`, which is
+# the very thing the qualification exists to tell apart.
+_GROUP_PATH_SEPARATOR = "/"
+_FLAT_NAME_SEPARATOR = "_"
+
+
+def _caller_stacklevel() -> int:
+    """Return the ``warnings.warn`` stacklevel that lands on the caller outside pyramids.
+
+    A counted ``stacklevel=`` pins the warning to a frame by arithmetic over
+    the call chain that reaches it, so it silently starts pointing at the wrong
+    line the moment a façade, an engine hop, or a helper is added or removed --
+    and a warning that names a pyramids source line instead of the user's is
+    both useless to read and unfilterable by ``module=``. This walks the chain
+    instead: the first frame whose file is not under :data:`_PACKAGE_DIR` is
+    the caller, whichever spelling they used (``NetCDF.to_xarray`` and
+    ``NetCDF.interop.to_xarray`` sit at different depths).
+
+    Returns:
+        int: The ``stacklevel`` to pass to :func:`warnings.warn` from the frame
+        that calls this. ``1`` when the immediate caller is already outside the
+        package; the depth of the outermost pyramids frame when the whole stack
+        is pyramids' own.
+    """
+    level = 1
+    current = inspect.currentframe()
+    frame = None if current is None else current.f_back
+    while frame is not None and os.path.normcase(
+        os.path.abspath(frame.f_code.co_filename)
+    ).startswith(_PACKAGE_DIR):
+        parent = frame.f_back
+        if parent is None:
+            break
+        frame = parent
+        level += 1
+    return level
+
+
+#: Stamped on an exported variable whose key is not the store's name for it, so
+#: a caller holding the key can still reach `get_variable`. Only on the rewritten
+#: ones: on a flat store every key already *is* the store name, and stamping the
+#: whole export would put a pyramids-private attribute into files that have no
+#: use for it.
+_STORE_NAME_ATTR = "pyramids_store_name"
+
+
+def _flat_export_name(variable_name: str, taken: set[str]) -> str:
+    """Return the flat `xr.Dataset` key for a store variable.
+
+    The group path is kept and only its separator substituted, so two groups'
+    identically named leaves stay distinct (`flight_a/CO` and `flight_b/CO`
+    become `flight_a_CO` and `flight_b_CO`). Substitution can still land on a
+    name already in the dataset -- a root array literally called `flight_a_CO`,
+    a dimension coordinate of that name, or another group path that flattens
+    the same way -- and those are resolved by appending `_2`, `_3`, ...
+
+    The substitution is therefore **not injective**: `_` is a legal character
+    in a group name and in an array name, so group `a_b` + array `c` and group
+    `a` + array `b_c` both flatten to `a_b_c`, and no rule reads the store name
+    back out of the key. The suffix keeps the export legal but records nothing
+    -- it says only that *some* name was taken first. Recovering the pre-image
+    is the caller's job, and it does it by stamping the store name on the
+    variable as its :data:`_STORE_NAME_ATTR` attribute; a caller holding the
+    returned dataset reads it from there rather than trying to invert the key.
+
+    Which of the two keeps the plain name is **not** decided by enumeration
+    order. The caller reserves every unqualified store name before the loop
+    starts, so a name the store holds literally always wins it and a flattened
+    sub-group name is the one that moves. An earlier version of this docstring
+    claimed the order was safe "because the enumeration lists a group's own
+    arrays before it recurses" -- true of `_mdim_data_variable_names`, but the
+    export iterates `_readable_variable_names()`, which emits the CF-classified
+    data variables first and everything else after. A root array the
+    classification does not call `data` -- an auxiliary coordinate, an
+    ordinary CF construct -- therefore sorted *behind* a sub-group array that
+    flattens onto its name, and the sub-group array took it: the export handed
+    back one array's values under the other's name.
+
+    Args:
+        variable_name: The store's name for the variable, group-qualified with
+            `/` when it lives in a sub-group.
+        taken: Names already claimed in the dataset -- the data variables
+            emitted so far plus the dimension coordinates.
+
+    Returns:
+        str: The key to use. It used to be returned with a flag saying whether a
+        numeric suffix had been appended, which gated the caller's rename
+        warning -- so the far commoner plain `/`-to-`_` rewrite went unannounced
+        even though its key is just as unusable with `get_variable`. The caller
+        compares the key with the store name instead, which catches both.
+
+    Examples:
+        - A sub-group array keeps its group as a prefix:
+            ```python
+            >>> from pyramids.netcdf.engines.interop import _flat_export_name
+            >>> _flat_export_name("flight_a/CO", set())
+            'flight_a_CO'
+
+            ```
+        - A collision with a name already claimed is suffixed, and the
+          sub-group array is the one that moves:
+            ```python
+            >>> _flat_export_name("flight_a/CO", {"flight_a_CO"})
+            'flight_a_CO_2'
+
+            ```
+        - The root array of that name keeps it, whichever order they are
+          enumerated in, because its own reservation is lifted before it asks:
+            ```python
+            >>> _flat_export_name("flight_a_CO", {"flight_a_CO_2"})
+            'flight_a_CO'
+
+            ```
+        - Two different group paths can flatten onto one name, and the key
+          alone does not say which store name it came from -- only that this
+          one asked second:
+            ```python
+            >>> _flat_export_name("a_b/c", set())
+            'a_b_c'
+            >>> _flat_export_name("a/b_c", {"a_b_c"})
+            'a_b_c_2'
+
+            ```
+        - A root-level name is handed back untouched:
+            ```python
+            >>> _flat_export_name("temperature", set())
+            'temperature'
+
+            ```
+    """
+    flattened = variable_name.replace(_GROUP_PATH_SEPARATOR, _FLAT_NAME_SEPARATOR)
+    candidate = flattened
+    suffix = 1
+    while candidate in taken:
+        suffix += 1
+        candidate = f"{flattened}_{suffix}"
+    return candidate
+
 
 if TYPE_CHECKING:
     from pyramids.netcdf.netcdf import NetCDF
@@ -106,14 +266,7 @@ class Interop(_Engine["NetCDF"]):
                 lazy["temperature"].data  # dask.array.Array
         """
         ds = self._ds
-        try:
-            import xarray as xr
-        except ImportError:
-            raise OptionalPackageDoesNotExist(
-                "xarray is required for to_xarray(). Install with one of:\n"
-                "  - PyPI:        pip install xarray\n"
-                "  - conda-forge: conda install -c conda-forge xarray"
-            )
+        xr = import_xarray(_XARRAY_HINT.format(func="to_xarray"))
 
         rg = ds._working_group()
         if rg is None:
@@ -122,11 +275,94 @@ class Interop(_Engine["NetCDF"]):
                 "Open the file with open_as_multi_dimensional=True."
             )
 
-        return xr.Dataset(
-            data_vars=_data_vars_from_arrays(rg, ds, chunks),
-            coords=_coords_from_dimensions(rg, ds),
+        coords = _coords_from_dimensions(rg, ds)
+        data_vars, export_names = _data_vars_from_arrays(rg, ds, chunks, set(coords))
+        exported = xr.Dataset(
+            data_vars=data_vars,
+            coords=coords,
             attrs=ds.global_attributes,
         )
+        return _promote_cf_non_data_arrays(exported, ds, export_names)
+
+
+# The CF roles xarray represents as coordinates rather than data variables.
+# `ancillary` is deliberately absent: CF ancillary variables are quality flags
+# and uncertainty estimates, which xarray and cf-xarray both carry as ordinary
+# data variables, so promoting them would be the opposite correction.
+_COORDINATE_CF_ROLES = frozenset(
+    {
+        "bounds",
+        "coordinate",
+        "auxiliary_coordinate",
+        "cell_measure",
+        "grid_mapping",
+    }
+)
+
+
+def _promote_cf_non_data_arrays(
+    exported: Any, ds: NetCDF, export_names: dict[str, str]
+) -> Any:
+    """Move the exported CF non-data arrays from ``data_vars`` into ``coords``.
+
+    The export loop reads every *readable* variable, which is what stops an
+    aux array from vanishing -- but it hands `lat_bnds` and the 2-D
+    `lat_rho` / `lon_rho` to `xr.Dataset` as data variables. In xarray's
+    convention `lat_bnds` belongs under `lat`'s `bounds` attribute and the
+    `*_rho` pair are auxiliary coordinates; exported as data variables, a
+    `to_netcdf()` round-trip writes them back as ordinary variables and the CF
+    relationship is gone.
+
+    Which roles move is :data:`_COORDINATE_CF_ROLES`, whose own comment records
+    why `ancillary` is not one of them.
+
+    The CF classification is keyed by *store* names and the dataset by *export*
+    names, and :func:`_flat_export_name` makes those differ for a grouped store,
+    so the roles are translated through `export_names` before they are looked
+    up. The translation is the identity for every store the suite holds -- a
+    sub-group array that classifies as a coordinate is filtered out of the
+    enumeration, so it is never a data variable to begin with -- but the two
+    namespaces are joined here and nowhere else, and leaving that join implicit
+    is how it would quietly stop matching the next time the enumeration widens.
+
+    Args:
+        exported: The `xr.Dataset` just built from the container.
+        ds: The container it was built from, for its CF classification.
+        export_names: Store name to the key it was exported under, from
+            :func:`_data_vars_from_arrays`. A name absent from it is its own
+            key.
+
+    Returns:
+        xr.Dataset: The same dataset with those names promoted. Unchanged when
+            the store carries no CF classification, so a non-CF file is not
+            second-guessed.
+
+    Notes:
+        `exported` and the return are typed `Any` rather than `xr.Dataset`
+        because xarray is an optional extra -- naming the class would mean
+        importing it at module level.
+
+        There is no doctest here: reaching this needs a container with a real
+        CF classification, which means a file on disk. The behaviour is covered
+        by `tests/netcdf/test_round2_followups.py` and
+        `tests/netcdf/test_xarray_round_trip.py` against the suite's fixtures.
+
+    See Also:
+        _data_vars_from_arrays: Builds the mapping this reclassifies.
+        _coords_from_dimensions: The dimension coordinates it joins them to.
+    """
+    cf = ds.meta_data.cf
+    if cf is None:
+        result = exported
+    else:
+        candidates = (
+            export_names.get(name, name)
+            for name, role in cf.classifications.items()
+            if role in _COORDINATE_CF_ROLES
+        )
+        promote = [key for key in candidates if key in exported.data_vars]
+        result = exported.set_coords(promote) if promote else exported
+    return result
 
 
 def _coords_from_dimensions(rg: Any, ds: NetCDF) -> dict[str, Any]:
@@ -146,25 +382,128 @@ def _coords_from_dimensions(rg: Any, ds: NetCDF) -> dict[str, Any]:
     return coords
 
 
-def _data_vars_from_arrays(rg: Any, ds: NetCDF, chunks: Any = None) -> dict[str, Any]:
+def _data_vars_from_arrays(
+    rg: Any, ds: NetCDF, chunks: Any = None, reserved: set[str] | None = None
+) -> tuple[dict[str, Any], dict[str, str]]:
     """Build the ``xr.Dataset`` ``data_vars`` mapping from the container's variables.
 
     With ``chunks=None`` each variable is read eagerly; otherwise it is read lazily (dask) in the
     file's native axis order via :func:`_lazy_var_data` (ARC-48).
+
+    An `xr.Dataset` is one flat namespace with one size per dimension name, and
+    a grouped netCDF store is neither: two sub-groups may each declare their own
+    `air_press` at different lengths. Such a variable cannot be represented
+    alongside the one already taken, so it is skipped with a warning naming it
+    -- the alternative is `xarray` raising and the whole export failing.
+
+    The same flatness decides the *keys*: a sub-group variable is keyed by
+    :func:`_flat_export_name`, not by its store path, because netCDF rejects the
+    `/` a store path carries. Exporting the raw path produced a Dataset that
+    `NetCDF.from_xarray` could not write back (`NetCDF: Name contains illegal
+    characters`) and that `to_netcdf` either rejected or wrote as a group,
+    depending on the engine (round-4 N5). The store name is still what
+    `get_variable` takes, so the skip warning below keeps naming that.
+
+    Which leaves the user holding keys their own container refuses: on the
+    suite's grouped fixture eight of the nine exported data variables are keys
+    `get_variable` rejects. Every rewritten variable therefore both appears in
+    the warning below -- it used to fire only for the suffixed minority, so the
+    plain `/`-to-`_` rewrite, which is the case that actually happens, was
+    silent -- and carries the store's name for it as its `pyramids_store_name`
+    attribute. The attribute is the half that matters: a warning is text a
+    caller cannot look a name up in, and the flattening is not injective, so
+    the key cannot be inverted without it.
+
+    Args:
+        rg: The container's working (root) group.
+        ds: The container being exported.
+        chunks: Chunk spec per data variable; `None` reads eagerly.
+        reserved: Names already claimed in the dataset under construction --
+            the dimension coordinates, which share one namespace with the data
+            variables and so must not be collided with.
+
+    Returns:
+        tuple[dict[str, Any], dict[str, str]]: The `data_vars` mapping keyed by
+        export name, and the store name to export name map for the variables it
+        emitted -- which is what lets :func:`_promote_cf_non_data_arrays` look
+        the CF classification's store names up in the exported namespace.
     """
     data_vars: dict[str, Any] = {}
-    for var_name in ds.variable_names:
-        md_arr = rg.OpenMDArray(var_name)
+    export_names: dict[str, str] = {}
+    dim_sizes: dict[str, int] = {}
+    conflicted: list[str] = []
+    renamed: list[str] = []
+    taken: set[str] = set(reserved or ())
+    readable = list(ds._readable_variable_names())
+    # Reserve every unqualified store name before assigning any, so which of a
+    # root array and a sub-group array keeps the plain name does not depend on
+    # the order they are enumerated in. Without this the loser is whichever
+    # comes second, and `_readable_variable_names()` puts the CF-classified
+    # data variables first -- so a root auxiliary coordinate lost its own name
+    # to a sub-group array, and the export returned that array's values under
+    # it. Each root name's own reservation is lifted when its turn comes.
+    taken |= {name for name in readable if _GROUP_PATH_SEPARATOR not in name}
+    # Readable names, not the data-variable enumeration: an export that
+    # dropped the store's aux arrays (`expver`, bounds) would not round-trip.
+    for var_name in readable:
+        # Through the helper: a name from the variable enumeration may be
+        # group-qualified, which `OpenMDArray` alone does not resolve.
+        md_arr = open_mdarray(rg, var_name)
         if md_arr is None:
             continue
-        arr_dim_names = [ad.GetName() for ad in md_arr.GetDimensions() or []]
+        dims = md_arr.GetDimensions() or []
+        arr_dim_names = [ad.GetName() for ad in dims]
+        sizes = {ad.GetName(): ad.GetSize() for ad in dims}
+        if any(dim_sizes.get(n, size) != size for n, size in sizes.items()):
+            conflicted.append(var_name)
+            continue
         if chunks is None:
             arr_data = ds._md_array_to_numpy(md_arr)
         else:
+            # The store name, not the export name: the lazy reader reopens the
+            # file and resolves the path against it.
             arr_data = _lazy_var_data(ds, var_name, chunks, md_arr)
         var_attrs = read_cf_attributes(md_arr)
-        data_vars[var_name] = (arr_dim_names, arr_data, var_attrs)
-    return data_vars
+        # A root array is claiming the name it already holds, so its own
+        # reservation must not read as a collision with itself.
+        taken.discard(var_name)
+        export_name = _flat_export_name(var_name, taken)
+        if export_name != var_name:
+            renamed.append(f"{var_name} -> {export_name}")
+            # Every rewritten key, not just the suffixed ones: `get_variable`
+            # refuses the flattened form as flatly as the suffixed form, and the
+            # flattening is not invertible from the key alone (group `a_b` +
+            # array `c` and group `a` + array `b_c` both give `a_b_c`), so the
+            # pre-image has to travel with the variable. `export_names` is
+            # call-local and the warning is text, so neither is something a
+            # caller holding the returned Dataset can look a name up in.
+            var_attrs[_STORE_NAME_ATTR] = var_name
+        taken.add(export_name)
+        export_names[var_name] = export_name
+        data_vars[export_name] = (arr_dim_names, arr_data, var_attrs)
+        dim_sizes.update(sizes)
+    if renamed:
+        warnings.warn(
+            f"to_xarray() renamed {len(renamed)} variable(s): {renamed}. An xarray "
+            "Dataset is one flat namespace and netCDF forbids '/' in a name, so a "
+            "sub-group array's path is flattened with '_', and where that lands on a "
+            "name the store already holds a numeric suffix breaks the tie. The name "
+            "before the arrow is the store's, and the only one get_variable() takes; "
+            f"each renamed variable also carries it as its {_STORE_NAME_ATTR!r} "
+            "attribute, because the key alone cannot be turned back into it.",
+            UserWarning,
+            stacklevel=_caller_stacklevel(),
+        )
+    if conflicted:
+        warnings.warn(
+            f"to_xarray() skipped {len(conflicted)} variable(s) whose dimensions "
+            f"clash with one already exported: {conflicted}. An xarray Dataset has "
+            "one size per dimension name, which a grouped store need not honour; "
+            "read those variables individually with get_variable() instead.",
+            UserWarning,
+            stacklevel=_caller_stacklevel(),
+        )
+    return data_vars, export_names
 
 
 def _reopenable_path(ds: NetCDF) -> str | None:
@@ -250,14 +589,7 @@ def from_xarray(
             If `xarray` is not installed.
         TypeError: If *dataset* is not an `xarray.Dataset`.
     """
-    try:
-        import xarray as xr
-    except ImportError:
-        raise OptionalPackageDoesNotExist(
-            "xarray is required for from_xarray(). Install with one of:\n"
-            "  - PyPI:        pip install xarray\n"
-            "  - conda-forge: conda install -c conda-forge xarray"
-        )
+    xr = import_xarray(_XARRAY_HINT.format(func="from_xarray"))
 
     if not isinstance(dataset, xr.Dataset):
         raise TypeError(f"Expected xarray.Dataset, got {type(dataset).__name__}")
@@ -310,9 +642,14 @@ def _encode_temporal_array(values: np.ndarray) -> tuple[np.ndarray, dict[str, An
         # `np.where` keeps this scalar-safe: a 0-d input's `/ 1e9` is a NumPy scalar that does not
         # support in-place item assignment (review round-2 M1).
         seconds = np.where(np.isnat(as_ns), np.nan, seconds)
+        # Counting in *fractional* seconds is this path's own choice: it has to
+        # carry `NaT` as `NaN`, which an integer count cannot. Dividing the
+        # nanosecond count rather than casting to `datetime64[s]` is deliberate
+        # too -- the cast truncates, losing sub-second times. Only the epoch and
+        # calendar are shared, with the module that decodes them.
         return seconds, {
-            "units": "seconds since 1970-01-01 00:00:00",
-            "calendar": "proleptic_gregorian",
+            "units": cf_epoch_units("seconds"),
+            "calendar": CF_EPOCH_CALENDAR,
         }
     if np.issubdtype(values.dtype, np.timedelta64):
         as_ns = values.astype("timedelta64[ns]")
@@ -415,9 +752,20 @@ def _write_data_var(
             f"variable {var_name!r} has shape {shape} but its "
             f"dimensions {tuple(var_dims)} imply {expected}"
         )
-    ext = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(np.dtype(write_dtype)))
-    md_arr = root.CreateMDArray(var_name, [gdal_dims[d] for d in var_dims], ext)
-    _write_md_array_streamed(md_arr, values)
+    if np.dtype(write_dtype).kind in ("U", "S", "O"):
+        # `numpy_to_gdal_dtype` has no numeric code for a character column, and
+        # `ReadAsArray` / `Write` cannot carry one through SWIG. GDAL's string
+        # extended type plus the Python list `Write()` can -- the same channel
+        # `_add_md_array_to_group` uses to carry ERA5's `expver` through a
+        # container op (#565). Without it a CF label array is unwritable, so an
+        # export carrying one either raised or lost it.
+        ext = gdal.ExtendedDataType.CreateString()
+        md_arr = root.CreateMDArray(var_name, [gdal_dims[d] for d in var_dims], ext)
+        md_arr.Write(np.asarray(values).astype(str).tolist())
+    else:
+        ext = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(np.dtype(write_dtype)))
+        md_arr = root.CreateMDArray(var_name, [gdal_dims[d] for d in var_dims], ext)
+        _write_md_array_streamed(md_arr, values)
     merged = dict(var_attrs)
     merged.update(cf_attrs)
     _apply_md_array_attrs(md_arr, merged)
@@ -512,6 +860,7 @@ def _build_multidim(
     data_vars: dict[str, tuple[tuple[str, ...], Any, dict[str, Any]]],
     global_attrs: dict[str, Any],
     crs_wkt: str | None = None,
+    aux_vars: dict[str, tuple[tuple[str, ...], Any, dict[str, Any]]] | None = None,
 ) -> gdal.Dataset:
     """Build an in-memory GDAL multidim container from plain arrays and attrs.
 
@@ -538,6 +887,12 @@ def _build_multidim(
         global_attrs: Root-group (global) attributes.
         crs_wkt: The dataset CRS as a WKT string, or None. Drives the CF coordinate
             attributes and the `grid_mapping` variable.
+        aux_vars: Auxiliary arrays -- CF bounds, 2-D curvilinear coordinate
+            fields, label columns -- in the same `(dimension-name tuple, values,
+            attrs)` shape as `data_vars`. They are written as ordinary MDArrays
+            but are **not** linked to the grid mapping, because a coordinate
+            variable is not itself georeferenced by one. `coords` cannot carry
+            them: an entry there must name a dimension, and these do not.
 
     Returns:
         gdal.Dataset: An in-memory `MEM` multidimensional dataset ready to be
@@ -578,6 +933,11 @@ def _build_multidim(
             root, gdal_dims, dims, var_name, var_dims, var_values, var_attrs
         )
 
+    for var_name, (var_dims, var_values, var_attrs) in (aux_vars or {}).items():
+        _write_data_var(
+            root, gdal_dims, dims, var_name, var_dims, var_values, var_attrs
+        )
+
     if srs is not None:
         _apply_grid_mapping(srs, data_arrays)
 
@@ -614,15 +974,42 @@ def _crs_wkt_from_xarray(dataset: Any) -> str | None:
     return result
 
 
+def _without_store_name(attrs: Any) -> dict[str, Any]:
+    """An exported variable's attributes minus the export's own provenance note.
+
+    :func:`_data_vars_from_arrays` stamps `pyramids_store_name` on a variable
+    whose export key is not the store's name for it, so a caller can get from
+    the key back to the name `get_variable` takes. That names the *source*
+    store: in the file being written the variable really is called what the key
+    says, so carrying the note across would leave a flat file asserting a group
+    path it does not have, and a second export of that file would repeat it.
+
+    Args:
+        attrs: An xarray variable's or coordinate's attribute mapping.
+
+    Returns:
+        dict[str, Any]: A plain dict of the attributes, without that key.
+    """
+    return {
+        name: value for name, value in dict(attrs).items() if name != _STORE_NAME_ATTR
+    }
+
+
 def _build_multidim_from_xarray(dataset: Any) -> gdal.Dataset:
     """Build an in-memory GDAL multidim container from an xarray Dataset.
 
-    Extracts the plain `(dims, coords, data_vars, attrs)` spec from the
-    `xarray.Dataset` and delegates to `_build_multidim`, so the GDAL multidim
-    assembly lives in one place and this adapter only reads `.sizes` /
+    Extracts the plain `(dims, coords, aux_vars, data_vars, attrs)` spec from
+    the `xarray.Dataset` and delegates to `_build_multidim`, so the GDAL
+    multidim assembly lives in one place and this adapter only reads `.sizes` /
     `.coords` / `.data_vars` / `.attrs` off xarray. When the dataset carries a CRS,
     it is passed down so the x/y coordinates gain CF attributes and a `grid_mapping`
     variable is written (see :func:`_build_multidim`).
+
+    A coordinate that is not also a dimension is passed on as an auxiliary array
+    rather than dropped: xarray keeps CF bounds and 2-D curvilinear coordinate
+    fields in `coords`, and for a ROMS-style store that pair is the only
+    georeferencing the file has. A rank-0 (scalar) coordinate is the exception
+    and is still skipped -- GDAL's multidim writer cannot take one.
 
     Args:
         dataset: The source `xarray.Dataset`.
@@ -633,23 +1020,42 @@ def _build_multidim_from_xarray(dataset: Any) -> gdal.Dataset:
     crs_wkt = _crs_wkt_from_xarray(dataset)
     dims = {name: int(size) for name, size in dataset.sizes.items()}
     coords = {
-        name: (np.asarray(coord.values), dict(coord.attrs))
+        name: (np.asarray(coord.values), _without_store_name(coord.attrs))
         for name, coord in dataset.coords.items()
         if name in dims
     }
     # When we re-generate a grid_mapping from the resolved CRS, drop any pre-existing
     # scalar grid-mapping variable so the output carries a single one.
     skip = {"spatial_ref", "crs"} if crs_wkt is not None else set()
+    # A coordinate that is not a dimension -- a CF bounds array, a 2-D
+    # curvilinear `lat_rho`, a label column -- belongs to neither mapping above:
+    # `coords` takes only dimension coordinates, and xarray does not list it
+    # among `data_vars`. Left out of both it was written nowhere, so
+    # `to_xarray()` -> `from_xarray()` silently dropped exactly the arrays the
+    # export's CF promotion had just moved into `coords` (round-4 M1).
+    # A rank-0 coordinate stays out: GDAL's numpy write path refuses a 0-d
+    # array ("Illegal numpy array rank 1"), and pyramids' own enumeration drops
+    # 0-dimensional MDArrays anyway, so no `to_xarray` export can carry one in.
+    aux_vars = {
+        name: (tuple(coord.dims), coord.data, _without_store_name(coord.attrs))
+        for name, coord in dataset.coords.items()
+        if name not in dims and coord.ndim > 0
+    }
     data_vars = {
         # `var.data` hands the underlying array through WITHOUT computing it, so a
         # dask-backed variable stays lazy and `_build_multidim` can stream it block by
         # block (ARC-48); `.values` would force a full materialisation up front.
-        name: (tuple(var.dims), var.data, dict(var.attrs))
+        name: (tuple(var.dims), var.data, _without_store_name(var.attrs))
         for name, var in dataset.data_vars.items()
         if not (name in skip and var.ndim == 0)
     }
     return _build_multidim(
-        dims, coords, data_vars, dict(dataset.attrs), crs_wkt=crs_wkt
+        dims,
+        coords,
+        data_vars,
+        dict(dataset.attrs),
+        crs_wkt=crs_wkt,
+        aux_vars=aux_vars,
     )
 
 

@@ -34,7 +34,7 @@ from pyramids.base.georeference import GeoReference
 from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
 from pyramids.dataset._driver import MEMORY_DRIVER, resolve_output_driver
 from pyramids.dataset.engines._base import _Engine
-from pyramids.netcdf._mdim import scalar_no_data, unflatten_band_axes
+from pyramids.netcdf._mdim import open_mdarray, scalar_no_data, unflatten_band_axes
 from pyramids.netcdf.array_options import (
     CFAttributes,
     Encoding,
@@ -137,16 +137,17 @@ class Variables(_Engine["NetCDF"]):
             dataset, band_dim_name, band_dim_values, attrs
         )
 
-        # Delete existing variable if present
-        if variable_name in nc.variable_names:
+        # Delete existing variable if present. Existence is a question about
+        # the store, so an aux array under this name counts as a collision.
+        if variable_name in nc._readable_variable_names():
             rg.DeleteMDArray(variable_name)
 
         # Read data from the classic dataset
         arr = dataset.read_array()
         gt: tuple[float, float, float, float, float, float] = dataset.geotransform
         data_dtype = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(arr))
-        # Coordinate dimensions must always be float64 to avoid truncation
-        # when the data array is integer (e.g., classified rasters).
+        # Spatial coordinate dimensions must always be float64 to avoid
+        # truncation when the data array is integer (e.g., classified rasters).
         coord_dtype = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
 
         # Build spatial dimensions from the geotransform
@@ -209,9 +210,11 @@ class Variables(_Engine["NetCDF"]):
             dataset: Source NetCDF dataset whose variables will be copied.
                 Must have a root group (opened in MDIM mode).
             variable_name: Specific variable name(s) to copy. If None, all
-                variables from the source are copied. If a variable with
-                the same name already exists, it is renamed with a
-                `"-new"` suffix.
+                variables from the source are copied. A group-qualified source
+                name (`"flight_03/CO"`) is copied under its leaf name, because
+                this container's root group is flat and netCDF-4 forbids `/` in
+                a name; where that collides with a name already present the copy
+                is suffixed (`"-new"`, then numbered) rather than overwriting.
             copy: When True (the default) an in-memory container is copied
                 before mutation so a shared `gdal.Dataset` handle is not
                 corrupted — see #143. Pass False only from a caller that
@@ -221,13 +224,12 @@ class Variables(_Engine["NetCDF"]):
                 for a `get_group()` view. Defaults to True.
 
         Raises:
-            ValueError: If called on a dataset without a root group
-                (not opened in multidimensional mode).
+            ValueError: If called on a dataset without a root group (not
+                opened in multidimensional mode), or if a requested
+                `variable_name` does not resolve in the source. An unresolved
+                name used to be skipped, so a typo returned `None` and left
+                this container unchanged with nothing said.
         """
-        # Local import breaks the netcdf.py <-> engines.variables import cycle
-        # (netcdf.py imports this module at top level for wiring).
-        from pyramids.netcdf.netcdf import NetCDF
-
         nc = self._ds
         working_group = nc._working_group()
         if working_group is None:
@@ -242,13 +244,7 @@ class Variables(_Engine["NetCDF"]):
             if hasattr(dataset, "_working_group")
             else dataset._raster.GetRootGroup()
         )
-        names_to_copy: list[str]
-        if variable_name is not None:
-            names_to_copy = [variable_name]
-        elif isinstance(dataset, NetCDF):
-            names_to_copy = dataset.variable_names
-        else:
-            names_to_copy = []
+        names_to_copy = _names_to_copy(dataset, variable_name)
 
         # A file-backed root group is opened in netCDF "data mode", which forbids
         # CreateMDArray; and mutating an in-memory container in place would corrupt a
@@ -262,11 +258,15 @@ class Variables(_Engine["NetCDF"]):
             dst, dst_rg = nc._writable_root_group()
 
         for var in names_to_copy:
-            md_arr = var_rg.OpenMDArray(var)
+            # Group-qualified names reach here from the variable
+            # enumeration, so resolve through the helper that walks them.
+            md_arr = open_mdarray(var_rg, var)
+            if md_arr is None:
+                _refuse_unresolved_source(dataset, var_rg, var)
             # If the variable name already exists in the destination dataset,
             # use a suffixed name to avoid overwriting the original.
             existing = dst_rg.GetMDArrayNames() or []
-            target_name = f"{var}-new" if var in existing else var
+            target_name = _free_target_name(var, existing)
             nc._add_md_array_to_group(dst_rg, target_name, md_arr)
 
         if not in_place:
@@ -281,11 +281,35 @@ class Variables(_Engine["NetCDF"]):
         nor any handle sharing the in-memory raster is mutated in place (#143).
 
         Args:
-            variable_name: Name of the variable to remove.
+            variable_name: Name of the variable to remove, relative to the
+                container's working group. A group-qualified name is refused;
+                see `Raises`.
+
+        Raises:
+            ValueError: If `variable_name` is group-qualified (open the group
+                and remove the leaf name from the view instead), or if the
+                working group holds no array by that name. Note that the name
+                need not be in :attr:`variable_names` or the readable superset:
+                a dimension coordinate array (`lat`) is in neither and is
+                removable, so the guard resolves the array rather than
+                consulting an enumeration.
         """
         nc = self._ds
+        _refuse_group_qualified(variable_name, "remove_variable")
         dst, rg = nc._writable_root_group()
-        rg.DeleteMDArray(variable_name)
+        try:
+            rg.DeleteMDArray(variable_name)
+        except RuntimeError as exc:
+            # GDAL answers a missing name with "Array <name> is not an array of
+            # this group", which reads as an internal error rather than a typo.
+            # `rename_variable` already promised `ValueError` for the same
+            # mistake, so both mutators now agree.
+            raise ValueError(
+                f"Variable '{variable_name}' not found in this container's "
+                f"working group. Available: {nc._readable_variable_names()} "
+                "(a dimension coordinate array is removable too, though it is "
+                "not listed there)."
+            ) from exc
 
         nc._replace_raster(dst)
 
@@ -296,32 +320,274 @@ class Variables(_Engine["NetCDF"]):
         a new variable with the new name, and removes the old one.
 
         Args:
-            old_name: Current name of the variable.
-            new_name: Desired new name.
+            old_name: Current name of the variable, relative to the container's
+                working group.
+            new_name: Desired new name, in that same group.
 
         Raises:
-            ValueError: If `old_name` doesn't exist or `new_name`
-                already exists.
+            ValueError: If `old_name` does not resolve in the working group, if
+                it resolves to a **dimension coordinate array** (which cannot
+                be renamed — the dimension of that name would keep pointing at
+                the deleted array), if `new_name` already exists, or if either
+                name is group-qualified — a rename acts within one group, so
+                `"flight_03/CO"` is refused with a pointer at
+                `get_group("flight_03").rename_variable("CO", ...)`, which does
+                work.
+
+        Note:
+            Existence is decided by resolving the array, as
+            :meth:`remove_variable` decides it, not by consulting
+            :meth:`_readable_variable_names`. Gating on the enumeration made
+            the two mutators contradict each other: `remove_variable("lat")`
+            deleted the array while this method reported the same name "not
+            found".
         """
         nc = self._ds
-        if old_name not in nc.variable_names:
+        _refuse_group_qualified(old_name, "rename_variable", ", <new name>")
+        if "/" in new_name:
+            # A qualified target would create a root-level array literally named
+            # "group/leaf" -- netCDF-4 forbids `/` in a name, so the container
+            # would only fail at `to_file` with "Name contains illegal
+            # characters", long after the call that caused it (the same trap
+            # `_free_target_name` closes for `add_variable`).
             raise ValueError(
-                f"Variable '{old_name}' not found. Available: {nc.variable_names}"
+                f"rename_variable() cannot rename into a group: new_name "
+                f"{new_name!r} must not contain '/'. Open the destination "
+                "group with `get_group(...)` and rename within it."
             )
-        if new_name in nc.variable_names:
-            raise ValueError(f"Variable '{new_name}' already exists.")
-
-        if nc._working_group() is None:
+        # Both checks ask what the store holds: an aux array is renameable,
+        # and its name is equally taken.
+        readable = nc._readable_variable_names()
+        working_group = nc._working_group()
+        if working_group is None:
             raise ValueError("rename_variable requires a multidimensional container.")
+        source = open_mdarray(working_group, old_name)
+        if source is None:
+            # Existence is resolved against the store, the way
+            # `remove_variable` resolves it, so the two mutators cannot
+            # disagree about what the container holds. Gating on `readable`
+            # alone made them contradict each other in the user's face:
+            # `remove_variable("lat")` deleted the array while
+            # `rename_variable("lat", ...)` called the same name "not found"
+            # and offered a list that proved nothing of the sort.
+            raise ValueError(f"Variable '{old_name}' not found. Available: {readable}")
+        if _is_dimension_coordinate(working_group, old_name, source):
+            # The rename is a create-then-delete, and a dimension keeps
+            # pointing at its indexing variable: renaming `lat` left
+            # `latitude(lat)` beside a `lat` dimension whose indexing variable
+            # had been deleted, and the very next `geotransform` read died with
+            # GDAL's "This object has been deleted. No action on it is
+            # possible". So this is refused rather than gated out of existence
+            # -- the array *is* there, and saying otherwise is what was wrong.
+            raise ValueError(
+                f"Variable '{old_name}' is a dimension coordinate array and "
+                "cannot be renamed: the dimension of that name would keep "
+                "pointing at the deleted array. Rebuild the container with the "
+                "axis you want, or remove the array with remove_variable()."
+            )
+        if new_name in readable:
+            raise ValueError(f"Variable '{new_name}' already exists.")
 
         # CreateMDArray is rejected on a file-backed group (netCDF data mode);
         # work on a writable MEM copy and swap it in, like remove_variable.
         dst, rg = nc._writable_root_group()
-        md_arr = rg.OpenMDArray(old_name)
+        md_arr = open_mdarray(rg, old_name)
         nc._add_md_array_to_group(rg, new_name, md_arr)
         rg.DeleteMDArray(old_name)
         nc._replace_raster(dst)
         nc._invalidate_caches()
+
+
+def _is_dimension_coordinate(rg: Any, name: str, md_arr: Any) -> bool:
+    """Whether ``name`` is the coordinate variable of a dimension, not a variable of its own.
+
+    The same rule :meth:`NetCDF._group_data_array_names` uses to decide what
+    the enumeration leaves out: an array is a coordinate variable when its name
+    matches a dimension of its **own group** or a dimension **it is indexed
+    by**. Reading both is what makes a sub-group's axis answer the same as the
+    root's -- netCDF-4 dimensions are visible in every descendant group, so a
+    sub-group that declares none of its own still holds coordinate arrays for
+    its parents'.
+
+    Args:
+        rg: The group the array was resolved against.
+        name: The array's name, relative to that group.
+        md_arr: The resolved :class:`osgeo.gdal.MDArray`.
+
+    Returns:
+        bool: True when the array is a dimension coordinate.
+    """
+    leaf = name.rsplit("/", 1)[-1]
+    own = {d.GetName().rsplit("/", 1)[-1] for d in (md_arr.GetDimensions() or [])}
+    declared = {d.GetName().rsplit("/", 1)[-1] for d in (rg.GetDimensions() or [])}
+    return leaf in own or leaf in declared
+
+
+def _refuse_group_qualified(name: str, method: str, extra_args: str = "") -> None:
+    """Refuse a sub-group name, pointing at the group view where it works.
+
+    The variable enumeration walks sub-groups, so ``"flight_03/CO"`` is a name
+    the container reports and :meth:`NetCDF.get_variable` accepts. Both
+    mutators check existence against that same list, which let a qualified name
+    through to GDAL, where it failed with *"Array flight_03/CO is not an array
+    of this group"* -- a driver message from methods that document
+    :class:`ValueError`.
+
+    Refusing is the right answer rather than resolving the group, because these
+    methods mutate exactly one group: the container's working group. GDAL will
+    not delete another group's array from the root, and creating the renamed
+    copy at the root would *move* the variable rather than rename it.
+    ``get_group(...)`` already returns a writable view of the sub-group in
+    which the bare leaf name works, so the message names that call.
+
+    Args:
+        name: The variable name the caller passed.
+        method: The public method name, used in the message and the suggestion.
+        extra_args: Text appended inside the suggested call's parentheses, for
+            a method that takes more than the name.
+
+    Raises:
+        ValueError: When ``name`` carries a group path.
+
+    Examples:
+        - A bare name is accepted silently:
+            ```python
+            >>> _refuse_group_qualified("CO", "remove_variable") is None
+            True
+
+            ```
+        - A qualified one names the group and the call that works:
+            ```python
+            >>> try:
+            ...     _refuse_group_qualified("flight_03/CO", "remove_variable")
+            ... except ValueError as exc:
+            ...     print("flight_03" in str(exc), "get_group" in str(exc))
+            True True
+
+            ```
+    """
+    group, _, leaf = name.rpartition("/")
+    if group:
+        raise ValueError(
+            f"{method}() cannot act on {name!r}: it lives in the sub-group "
+            f"{group!r}, and this container mutates only its own working "
+            f"group. Open the group first: "
+            f"nc.get_group({group!r}).{method}({leaf!r}{extra_args})."
+        )
+
+
+def _names_to_copy(dataset: Any, variable_name: str | None) -> list[str]:
+    """Which of the source's variables `add_variable` should bring across.
+
+    Args:
+        dataset: The source container or raster.
+        variable_name: The single name the caller asked for, or `None` for all
+            of them.
+
+    Returns:
+        list[str]: The names to copy. A named variable is taken at its word --
+            it is resolved later, and refused there if it does not exist. With
+            no name, a `NetCDF` source gives everything it holds rather than
+            only its data variables, because a copy that dropped the auxiliary
+            arrays would not be a copy; a plain raster has no variables to
+            enumerate.
+    """
+    # Local import breaks the netcdf.py <-> engines.variables import cycle
+    # (netcdf.py imports this module at top level for wiring).
+    from pyramids.netcdf.netcdf import NetCDF
+
+    if variable_name is not None:
+        names = [variable_name]
+    elif isinstance(dataset, NetCDF):
+        names = list(dataset._readable_variable_names())
+    else:
+        names = []
+    return names
+
+
+def _refuse_unresolved_source(dataset: Any, var_rg: Any, name: str) -> None:
+    """Refuse a source variable that will not resolve, naming what is on offer.
+
+    Skipping it was added so the internal auxiliary carry could survive a name
+    that will not walk. It also turned a typo in the public
+    `add_variable(dataset, "does_not_exist")` into a silent no-op that returned
+    `None` and left the container untouched. The carry loop catches
+    `ValueError` and folds it into one warning naming every variable it could
+    not bring across, so the signal is kept on both paths.
+
+    Args:
+        dataset: The source container or raster.
+        var_rg: The source's working group, for a raster that cannot enumerate.
+        name: The name that did not resolve.
+
+    Raises:
+        ValueError: Always -- that is what this helper is for.
+    """
+    # Local import breaks the netcdf.py <-> engines.variables import cycle
+    # (netcdf.py imports this module at top level for wiring).
+    from pyramids.netcdf.netcdf import NetCDF
+
+    available = (
+        dataset._readable_variable_names()
+        if isinstance(dataset, NetCDF)
+        else list(var_rg.GetMDArrayNames() or [])
+    )
+    raise ValueError(
+        f"add_variable() could not resolve {name!r} in the source container. "
+        f"Available: {available}"
+    )
+
+
+def _free_target_name(source_name: str, existing: Sequence[str]) -> str:
+    """Pick the destination array name for a copied variable.
+
+    The destination root group is **flat**, and netCDF-4 forbids ``/`` in a
+    variable name, so a group-qualified source name (``"flight_03/CO"``) cannot
+    be used verbatim: creating an array under it built a container that
+    ``to_file`` later refused with *"NetCDF: Name contains illegal
+    characters"*, long after the ``add_variable`` call that caused it. The leaf
+    segment is the name, and collisions are resolved by suffixing rather than
+    overwriting -- ``"-new"`` first, as before, then numbered, so a store whose
+    sub-groups repeat a leaf name copies all of them instead of clobbering one
+    with the next.
+
+    Args:
+        source_name: The source array's name, possibly group-qualified.
+        existing: Names already present in the destination group.
+
+    Returns:
+        str: A name not already taken in ``existing``.
+
+    Examples:
+        - A free name is used unchanged:
+            ```python
+            >>> _free_target_name("CO", [])
+            'CO'
+
+            ```
+        - A group-qualified name is reduced to its leaf:
+            ```python
+            >>> _free_target_name("flight_03/CO", [])
+            'CO'
+
+            ```
+        - A taken name is suffixed rather than overwritten:
+            ```python
+            >>> _free_target_name("flight_03/CO", ["CO"])
+            'CO-new'
+            >>> _free_target_name("flight_04/CO", ["CO", "CO-new"])
+            'CO-new-2'
+
+            ```
+    """
+    leaf = source_name.rpartition("/")[2]
+    taken = set(existing)
+    candidate = leaf
+    suffix = 1
+    while candidate in taken:
+        suffix += 1
+        candidate = f"{leaf}-new" if suffix == 2 else f"{leaf}-new-{suffix - 1}"
+    return candidate
 
 
 def _resolve_band_metadata(
@@ -711,6 +977,32 @@ def _create_extra_dimensions(
     The first non-spatial dim is tagged ``DIM_TYPE_TEMPORAL`` (matching the
     legacy 3-D path); the rest are left untagged so the netCDF driver does not
     second-guess their semantics.
+
+    An **integer** axis keeps its own integer dtype; everything else is written
+    in ``dtype`` (float64). The float64 rule was written for the *spatial*
+    axes, where sharing the data array's integer type truncated a 2.5-degree
+    grid to whole degrees -- a real defect it fixes. Applied to a non-spatial
+    axis it costs the opposite: an `int64` nanosecond-epoch `time` handed in as
+    `1700000000123456789` came back `1700000000123456768`, because float64
+    carries 53 bits of mantissa. Nothing is lost by keeping the integer type,
+    and the streamed arm (`_add_aux_var_spec`) already copies the source dtype,
+    so the two arms of a fan-out now agree about `time` as well.
+
+    Visible consequence relative to `origin/main`: a band dim left to default is
+    `list(range(size))`, so it is integer too, and anything reading those values
+    back gets `0` where it used to get `0.0` -- facet panel labels most
+    noticeably (`NetCDFPlot._build_facet_stack`).
+
+    Args:
+        rg: The group to create the dimensions in.
+        extra_dims: ``(name, values)`` per non-spatial axis, in storage order.
+        dtype: The coordinate :class:`osgeo.gdal.ExtendedDataType` to use for
+            any axis that is not integer-valued.
+        use_set_indexing: Whether ``SetIndexingVariable`` is supported by the
+            driver being written to.
+
+    Returns:
+        list: The created :class:`osgeo.gdal.Dimension` objects, in order.
     """
     # Local import breaks the netcdf.py <-> engines.variables import cycle.
     from pyramids.netcdf.netcdf import NetCDF
@@ -718,9 +1010,15 @@ def _create_extra_dimensions(
     gdal_extra_dims = []
     for i, (dim_name, dim_values) in enumerate(extra_dims):
         dim_type = gdal.DIM_TYPE_TEMPORAL if i == 0 else None
+        values = np.asarray(dim_values)
+        dim_dtype = (
+            gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(values.dtype))
+            if np.issubdtype(values.dtype, np.integer)
+            else dtype
+        )
         gdal_extra_dims.append(
             NetCDF._create_dimension(
-                rg, dim_name, dtype, np.array(dim_values), dim_type, use_set_indexing
+                rg, dim_name, dim_dtype, values, dim_type, use_set_indexing
             )
         )
     return gdal_extra_dims
@@ -963,6 +1261,22 @@ def _create_netcdf_from_array(
     # `arr.dtype` is a `np.dtype` for both a NumPy array and a dask array, so the
     # GDAL type is derived without materialising a (possibly out-of-core) dask input.
     dtype = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(arr.dtype))
+    # Coordinate arrays are always float64, never the data array's dtype --
+    # exactly the rule `set_variable` already states. Sharing `dtype` truncated
+    # every axis of an integer-typed variable to whole units: a container-wide
+    # `to_crs` of the packed `Int16` ERA5 fixture wrote `x = [0, 3, 5, ...]` for
+    # a 2.5-degree grid, so the geotransform re-derived from those coordinates
+    # came back `(-1.5, 3.0, ..., -2.0)` against the true `(-1.25, 2.5, ...,
+    # -2.5)`, and a `UInt16` GOES granule collapsed to `(0.0, 0.0, ...)` -- a
+    # file that can no longer be placed on the earth. An epoch-valued `time`
+    # axis saturated at 32767. The streamed arm (`_stream_apply_to_file`) always
+    # wrote float64 here, so this also converges the two arms.
+    #
+    # This is the rule for the *spatial* axes, which is where truncation was the
+    # whole problem. `_create_extra_dimensions` narrows it for a non-spatial
+    # axis: an integer one keeps its own dtype, because float64 cannot hold an
+    # int64 nanosecond epoch exactly.
+    coord_dtype = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
     x_dim_values = NetCDF.get_x_lon_dimension_array(geo[0], geo[1], cols)
     # Y/lat pixel height comes from geo[5] (negative), not geo[1] — using the X cell here would
     # square a non-square grid (e.g. 2° lon, 1° lat). Pass the positive height abs(geo[5]).
@@ -991,7 +1305,7 @@ def _create_netcdf_from_array(
     dim_x = NetCDF._create_dimension(
         rg,
         "x",
-        dtype,
+        coord_dtype,
         np.array(x_dim_values),
         gdal.DIM_TYPE_HORIZONTAL_X,
         use_set_indexing,
@@ -1000,14 +1314,16 @@ def _create_netcdf_from_array(
     dim_y = NetCDF._create_dimension(
         rg,
         "y",
-        dtype,
+        coord_dtype,
         np.array(y_dim_values),
         gdal.DIM_TYPE_HORIZONTAL_Y,
         use_set_indexing,
         is_geographic=is_geographic,
     )
 
-    gdal_extra_dims = _create_extra_dimensions(rg, extra_dims, dtype, use_set_indexing)
+    gdal_extra_dims = _create_extra_dimensions(
+        rg, extra_dims, coord_dtype, use_set_indexing
+    )
     # For a dask input with no explicit on-disk chunking, align the netCDF storage
     # BLOCKSIZE with the dask block shape so the streamed windows map onto whole
     # storage chunks. An explicit `chunk_sizes` always wins.

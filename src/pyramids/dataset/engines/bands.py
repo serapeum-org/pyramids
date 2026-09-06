@@ -7,6 +7,7 @@ Owns the Bands family of operations on a Dataset. Accessed as
 
 from __future__ import annotations
 
+import logging
 import numbers
 import warnings
 from collections.abc import Iterable
@@ -38,7 +39,13 @@ if TYPE_CHECKING:
 from pyramids.base.crs import crs_spec
 from pyramids.dataset._driver import MEMORY_DRIVER, resolve_output_driver
 from pyramids.dataset.engines._base import _Engine
-from pyramids.dataset.engines._validate import validate_band_index
+from pyramids.dataset.engines._validate import (
+    validate_band_index,
+    validate_one_based_band,
+)
+
+logger = logging.getLogger(__name__)
+
 
 # Substring GDAL raises when a write is attempted on a read-only band; matched in
 # several no-data setters below to re-raise a friendly ReadOnlyError. Named once
@@ -73,8 +80,96 @@ def _is_read_only_error(error: BaseException) -> bool:
     return _GDAL_READ_ONLY_MESSAGE in str(error)
 
 
+def _substitutes_dtype_max(dtype: Any) -> bool:
+    """True when an unstorable `None` / NaN sentinel becomes this dtype's maximum.
+
+    Every unsigned integer type except `uint8`. NaN cannot be stored in any of
+    them, so something has to stand in -- but *what* stands in is only safe
+    when it is a value the data is unlikely to contain, and for 8-bit imagery
+    255 is white. Fabricating it as a sentinel on a raster that declares none
+    makes every white pixel out-of-domain, and `resample` / `align` then hand
+    it to `gdal.ReprojectImage`, which rewrites the real 255s to 254 to keep
+    them distinguishable.
+
+    That is not a new rule. It is what the code did before this branch, by
+    accident: the test was `dtype.startswith("u")` and Byte's dtype string is
+    `"byte"`, so Byte fell through to the pass-through branch. Replacing the
+    string test with an honest dtype test was right -- string-sniffing a type
+    name is not a check -- but it silently swept Byte in with the rest.
+    Restoring the exclusion keeps the better mechanism and the older, safer
+    answer.
+
+    Whether `uint16` and friends should also stop fabricating a maximum is a
+    real question, and the same one this branch answered "no sentinel" to for
+    the netCDF fan-out and the Zarr writer. It is a change to no-data policy
+    rather than to duplication, so it is not made here.
+
+    Args:
+        dtype: The band's numpy dtype, or its name.
+
+    Returns:
+        bool: True when the dtype maximum is the right stand-in.
+
+    Examples:
+        - The wider unsigned types substitute their maximum:
+            ```python
+            >>> from pyramids.dataset.engines.bands import _substitutes_dtype_max
+            >>> _substitutes_dtype_max("uint16"), _substitutes_dtype_max("uint32")
+            (True, True)
+
+            ```
+        - Byte does not, because 255 is ordinary data:
+            ```python
+            >>> from pyramids.dataset.engines.bands import _substitutes_dtype_max
+            >>> _substitutes_dtype_max("uint8")
+            False
+
+            ```
+        - Nor does anything signed or floating:
+            ```python
+            >>> from pyramids.dataset.engines.bands import _substitutes_dtype_max
+            >>> _substitutes_dtype_max("int16"), _substitutes_dtype_max("float32")
+            (False, False)
+
+            ```
+    """
+    as_dtype = np.dtype(dtype)
+    return np.issubdtype(as_dtype, np.unsignedinteger) and as_dtype != np.uint8
+
+
 class Bands(_Engine["Dataset"]):
     """Mixin providing band metadata, attribute table, and color table operations."""
+
+    def apply_names(self, names: list | None, *, source: str) -> bool:
+        """Apply band names from an external store, skipping a length mismatch.
+
+        Restoring names read back from a store is the same operation wherever
+        the store is, and the length check is the part worth having in one
+        place: silently applying a mismatched list renames the wrong bands.
+
+        Args:
+            names: The names read from the store, or `None`.
+            source: What produced them, for the warning message.
+
+        Returns:
+            bool: True when the names were applied.
+        """
+        band_names = list(names or [])
+        if not band_names:
+            applied = False
+        elif len(band_names) == self._ds.band_count:
+            self._ds.band_names = band_names
+            applied = True
+        else:
+            logger.warning(
+                "%s band_names (%d) do not match band count (%d); "
+                "keeping default band names.",
+                source,
+                len(band_names),
+                self._ds.band_count,
+            )
+            applied = False
+        return applied
 
     def _iloc(self, i: int) -> gdal.Band:
         """Access a GDAL Band by 0-based index.
@@ -565,11 +660,7 @@ class Bands(_Engine["Dataset"]):
         if isinstance(selector, numbers.Integral):
             # numbers.Integral admits numpy ints too; normalize to a plain int.
             one_based = int(selector)
-            if not 1 <= one_based <= count:
-                raise ValueError(
-                    f"band index {one_based} is out of range for a {count}-band "
-                    f"dataset (valid 1..{count})."
-                )
+            validate_one_based_band(one_based, count)
         elif isinstance(selector, str):
             if selector not in names:
                 raise ValueError(f"{selector!r} is not a band name; available: {names}")
@@ -1421,11 +1512,7 @@ class Bands(_Engine["Dataset"]):
             tuple[int, int]:
                 The coerced `(start_value, end_value)` integers.
         """
-        if not 1 <= band <= self._ds.band_count:
-            raise ValueError(
-                f"band {band} is out of range for a {self._ds.band_count}-band "
-                "dataset (bands are 1-based)"
-            )
+        validate_one_based_band(band, self._ds.band_count)
         for name, value in (("start_value", start_value), ("end_value", end_value)):
             # bool is an int subclass but not a meaningful colour index; reject it
             # (and any non-numeric type) with the documented TypeError rather than a
@@ -1588,10 +1675,25 @@ class Bands(_Engine["Dataset"]):
         if val is not None and not np.isnan(val):
             # cast to the band dtype (raises OverflowError when out of range)
             result = self._ds.numpy_dtype[i](val)
-        elif self._ds.dtype[i].startswith("u"):
-            # None/np.nan on an Unsigned integer band would misbehave; use the
-            # dtype max bound as the no_data_value.
-            result = np.iinfo(self._ds.dtype[i]).max
+        elif _substitutes_dtype_max(self._ds.numpy_dtype[i]):
+            # None/np.nan on an unsigned band would misbehave -- NaN is not
+            # storable there -- so the dtype max stands in. Asked of the dtype
+            # rather than of `dtype[i].startswith("u")`, which was a string
+            # test on a name; but Byte is deliberately excluded, see
+            # `_substitutes_dtype_max`.
+            #
+            # `_fallback_no_data` below asks the same way, and the two must
+            # agree on the *type* as well as the value, since both flow into
+            # `Dataset.no_data_value` and out to GDAL. A Python `int` here and
+            # a numpy scalar there made the same answer read back as `(255,)`
+            # from one path and a numpy scalar from the other, which the `==`
+            # pinning their agreement cannot see.
+            # Cast for the same reason `_fallback_no_data` casts: the
+            # `np.issubdtype` above narrows at runtime but the numpy stubs do
+            # not follow it.
+            np_dtype = np.dtype(self._ds.numpy_dtype[i])
+            unsigned_dtype = cast("np.dtype[np.unsignedinteger]", np_dtype)
+            result = np_dtype.type(np.iinfo(unsigned_dtype).max)
         else:
             # None/np.nan on any non-unsigned dtype: pass through unchanged.
             result = val
@@ -1607,6 +1709,10 @@ class Bands(_Engine["Dataset"]):
         np_dtype = np.dtype(self._ds.numpy_dtype[i])
         # np.issubdtype narrows at runtime but isn't recognised by the numpy
         # stubs, so cast to the exact integer family each branch just proved.
+        # Every unsigned type here, Byte included -- unlike the None/NaN branch
+        # above. This path is reached because the caller *asked* for a sentinel
+        # and it overflowed the band, so substituting one is what they wanted;
+        # the branch above fires when they asked for none.
         if np.issubdtype(np_dtype, np.unsignedinteger):
             unsigned_dtype = cast("np.dtype[np.unsignedinteger]", np_dtype)
             fallback = np_dtype.type(np.iinfo(unsigned_dtype).max)
@@ -1952,7 +2058,7 @@ class Bands(_Engine["Dataset"]):
         # format. The strict gate refuses it up front, with a message that does.
         driver = resolve_output_driver(path) if path else MEMORY_DRIVER
         target = str(path) if path is not None else ""
-        dst = gdal.GetDriverByName(driver).CreateCopy(target, self._ds.raster, 0)
+        dst = gdal.GetDriverByName(driver).CreateCopy(target, self._ds._copy_source, 0)
         new_dataset = self._ds.__class__(dst, "write")
         try:
             # _set_no_data_value may coerce new_value to each band's dtype; read it

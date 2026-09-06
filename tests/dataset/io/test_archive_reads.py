@@ -253,7 +253,12 @@ class TestReadFileVsi:
         """``vsi="zip"`` opens member 0 of the archive.
 
         Args:
-            band_zip: A ``.zip`` whose first (sorted) member is ``asset.B2.tif`` (=2).
+            band_zip: A ``.zip`` whose first member is ``asset.B2.tif`` (=2).
+                Members are counted in archive order — the order the writer
+                stored them, which is what ``zipfile.namelist()`` and
+                ``gdal.ReadDir`` both report and what the extension-sniffed
+                path has always used. This fixture stores them alphabetically,
+                so the two orders coincide here.
 
         Test scenario:
             ``Dataset.read_file(band_zip, vsi="zip")`` — expected: a dataset
@@ -268,7 +273,7 @@ class TestReadFileVsi:
         """``file_i`` selects which member to open.
 
         Args:
-            band_zip: A ``.zip`` whose member 2 (sorted) is ``asset.B4.tif`` (=4).
+            band_zip: A ``.zip`` whose member 2 is ``asset.B4.tif`` (=4).
 
         Test scenario:
             ``Dataset.read_file(band_zip, vsi="zip", file_i=2)`` — expected:
@@ -292,17 +297,31 @@ class TestReadFileVsi:
         assert int(ds.read_array().flat[0]) == 2, "auto-inferred zip, member 0"
 
     def test_file_index_out_of_range_raises(self, band_zip):
-        """An out-of-range ``file_i`` raises ``FileNotFoundError``.
+        """An out-of-range ``file_i`` raises ``FileFormatNotSupportedError``.
+
+        This test used to expect ``FileNotFoundError``. That expectation was
+        wrong: it pinned a *second* bounds check, written inside
+        ``_resolve_read_path`` for the ``vsi=`` path alone and worded
+        differently from the one ``_member_at`` raises for the same question
+        when the same archive is opened by extension sniffing. Two exception
+        types for one condition, chosen by which keyword the caller spelled,
+        is the divergence this branch exists to remove — so the check is now
+        ``_member_at``'s, for both doors.
 
         Args:
             band_zip: A 4-member archive.
 
         Test scenario:
             ``Dataset.read_file(band_zip, vsi="zip", file_i=99)`` — expected:
-            ``FileNotFoundError`` mentioning the member count.
+            ``FileFormatNotSupportedError`` naming the archive kind, the member
+            count and the index asked for.
         """
-        with pytest.raises(FileNotFoundError, match="out of range"):
+        with pytest.raises(FileFormatNotSupportedError) as excinfo:
             Dataset.read_file(band_zip, vsi="zip", file_i=99)
+
+        message = str(excinfo.value)
+        assert "holds 4 file(s)" in message, f"member count not reported: {message}"
+        assert "index 99" in message, f"the index asked for is not named: {message}"
 
     def test_extension_sniffing_still_works(self, band_zip):
         """Without ``vsi=``, a ``zip/member`` path still resolves (unchanged behaviour).

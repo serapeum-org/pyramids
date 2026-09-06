@@ -19,15 +19,34 @@ _SHAPE = (4, 5)  # (rows, cols)
 
 
 class _FakeParent:
-    """A duck-typed stand-in for a NetCDF container: name -> coord array (or None)."""
+    """A duck-typed stand-in for a NetCDF container: name -> coord array (or None).
 
-    def __init__(self, arrays):
-        """Store the name -> array mapping (``None`` values model unreadable vars)."""
+    The arrays it holds are auxiliary *coordinate* arrays, so — exactly like a real
+    container — they are readable by name while being absent from the data-variable
+    enumeration. ``variable_names`` therefore reports only ``data_names`` (nothing by
+    default) and ``_readable_variable_names`` reports every array. Keeping the two
+    genuinely different is what lets these tests notice a production revert from the
+    readable superset back to ``variable_names``.
+    """
+
+    def __init__(self, arrays, data_names=()):
+        """Store the name -> array mapping and which of those names are data variables.
+
+        Args:
+            arrays: Name -> coordinate array mapping (``None`` values model unreadable vars).
+            data_names: The subset of ``arrays`` a real container would enumerate as data
+                variables. Empty by default, because coordinate arrays never are.
+        """
         self._arrays = arrays
+        self._data_names = list(data_names)
 
     @property
     def variable_names(self):
-        """Return the declared variable names."""
+        """Return the data-variable enumeration, which excludes the coordinate arrays."""
+        return list(self._data_names)
+
+    def _readable_variable_names(self):
+        """Return every array name the container can read, coordinates included."""
         return list(self._arrays)
 
     def _read_variable(self, name):

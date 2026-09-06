@@ -111,6 +111,82 @@ class TestAddVariableFileBacked:
         _packed(reloaded.get_all_metadata().variables["rh"])
 
 
+class TestAddVariableRefusesANameItCannotResolve:
+    """A name that resolves nowhere is a mistake, and used to be a silent no-op.
+
+    The skip was added so the internal aux-variable carry could survive a
+    group-qualified name that would not walk. It also applied to the public
+    call: `add_variable(src, "does_not_exist")` returned `None`, raised
+    nothing, warned nothing and left the container exactly as it was, so a typo
+    in a variable name looked like a successful copy.
+    """
+
+    def test_an_unresolvable_name_raises(self, tmp_path):
+        """The refusal has to happen, and it has to name what went wrong.
+
+        Test scenario:
+            The rejected name shares no substring with anything in either
+            store, so a message that merely echoes the input cannot pass. The
+            source's readable names are listed because they are what the call
+            would have accepted.
+        """
+        _write_packed_nc(tmp_path / "packed.nc")
+        _write_simple_nc(tmp_path / "dst.nc")
+        src = NetCDF.read_file(str(tmp_path / "packed.nc"))
+        dst = NetCDF.read_file(str(tmp_path / "dst.nc"))
+
+        with pytest.raises(ValueError) as excinfo:
+            dst.add_variable(src, "zzz_not_here")
+
+        message = str(excinfo.value)
+        assert "zzz_not_here" in message, f"the refusal must echo the name: {message}"
+        assert "rh" in message, (
+            f"the source's readable names are not offered: {message}"
+        )
+
+    def test_a_refused_copy_leaves_the_destination_untouched(self, tmp_path):
+        """Refusing must not be half-done.
+
+        Test scenario:
+            The guard runs inside the copy loop, after `_writable_root_group`
+            has already made the MEM copy this method swaps in. Raising before
+            `_replace_raster` is what keeps the observable container identical,
+            and that is asserted rather than assumed.
+        """
+        _write_packed_nc(tmp_path / "packed.nc")
+        _write_simple_nc(tmp_path / "dst.nc")
+        src = NetCDF.read_file(str(tmp_path / "packed.nc"))
+        dst = NetCDF.read_file(str(tmp_path / "dst.nc"))
+        before = list(dst.variable_names)
+
+        with pytest.raises(ValueError):
+            dst.add_variable(src, "zzz_not_here")
+
+        assert dst.variable_names == before, (
+            f"the refused copy changed the container: {dst.variable_names}"
+        )
+
+    def test_the_carry_loop_still_survives_one_unresolvable_name(self, tmp_path):
+        """The reason the skip existed must keep working through the exception.
+
+        Test scenario:
+            `_carry_aux_variables` catches `ValueError` per variable and folds
+            the failures into one warning, so a name that will not walk still
+            costs a warning rather than the whole operation -- which is the
+            behaviour the silent skip was protecting, now with a signal.
+        """
+        _write_simple_nc(tmp_path / "dst.nc")
+        source = NetCDF.read_file(str(tmp_path / "dst.nc"))
+        result = NetCDF.read_file(str(tmp_path / "dst.nc"))
+
+        with pytest.warns(UserWarning, match="zzz_not_here"):
+            source._carry_aux_variables(result, ["zzz_not_here"], "crop")
+
+        assert "tas" in result.variable_names, (
+            f"the container did not survive the failed carry: {result.variable_names}"
+        )
+
+
 class TestRenameVariableFileBacked:
     """rename_variable must work on file-backed containers and keep packing/attributes (#580)."""
 

@@ -23,9 +23,17 @@ pytestmark = pytest.mark.core
 
 
 def _snapshot(nc):
-    """Materialise every variable's array, keyed by name, for a value comparison."""
+    """Materialise every array the store holds, keyed by name, for comparison.
+
+    Keyed on the readable names rather than `variables`, which is the narrower
+    CF-classified enumeration: comparing what each store *holds* covers the
+    bounds and ancillary arrays too, and those are exactly the ones a fan-out
+    is most likely to drop. The enumerations are compared separately, and must
+    also agree -- see :func:`_assert_same`.
+    """
     return {
-        name: np.asarray(nc.get_variable(name).read_array()) for name in nc.variables
+        name: np.asarray(nc.get_variable(name).read_array())
+        for name in nc._readable_variable_names()
     }
 
 
@@ -40,6 +48,17 @@ def _assert_same(mem, streamed):
     so they differ sub-pixel (~1e-5 of a cell) — still far tighter than any real CRS/affine
     regression, which flips units or collapses to identity.
     """
+    # Both lists, because they answer different questions and both have to
+    # match. `_readable_variable_names` is what each store *holds*, and
+    # `variables` is the CF-classified enumeration a user actually sees. The
+    # two arms once disagreed on the second: the streamed file round-trips the
+    # CF `bounds` attributes while the eager rebuild dropped the coordinate
+    # arrays carrying them, so `lat_bnds` was a bounds array on one arm and a
+    # data variable on the other. `path=` is a memory strategy, not a semantic
+    # switch, so the enumeration is pinned here rather than excused (round-4 M4).
+    assert sorted(mem._readable_variable_names()) == sorted(
+        streamed._readable_variable_names()
+    )
     assert sorted(mem.variables) == sorted(streamed.variables)
     left, right = _snapshot(mem), _snapshot(streamed)
     for name in left:

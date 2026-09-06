@@ -10,18 +10,18 @@ import warnings
 from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from uuid import uuid4
 
 import numpy as np
 from osgeo import gdal
 
 from pyramids import _io
+from pyramids.base._artifacts import mint_vsimem, unregister_vsimem
 from pyramids.base._errors import (
-    DriverNotExistError,
     DtypeNarrowingWarning,
     FailedToSaveError,
 )
 from pyramids.base._file_manager import CachingFileManager
+from pyramids.base._utils import extra_hint
 from pyramids.base.remote import cloud_config_from_env
 from pyramids.dataset._driver import copy_yields_writable, resolve_output_driver
 from pyramids.dataset.abstract_dataset import (
@@ -72,10 +72,9 @@ def _caller_stacklevel(default: int = 2) -> int:
 # race inside GDAL.
 _PROBE_LOCK = threading.Lock()
 
-_LAZY_IMPORT_ERROR = (
-    "Lazy reads require the optional 'dask' dependency. Install with one of:\n"
-    "  - PyPI:        pip install 'pyramids-gis[lazy]'\n"
-    "  - conda-forge: conda install -c conda-forge pyramids-lazy"
+_LAZY_IMPORT_ERROR = extra_hint(
+    "Lazy reads require the optional 'dask' dependency.",
+    "lazy",
 )
 
 
@@ -338,7 +337,7 @@ def _driver_preserves_dtype(driver_name: str, gdal_dtype: int) -> bool | None:
     # "cannot answer" for that driver/dtype. For a driver whose true answer is
     # False that silently disables the one guard against a lossy write, and
     # this package supports threaded and dask-delayed writes.
-    probe_path = f"/vsimem/_pyramids_dtype_probe_{uuid4().hex}"
+    probe_path = mint_vsimem("dtype_probe", "")
     with _PROBE_LOCK:
         source = gdal.GetDriverByName("MEM").Create("", 1, 1, 1, gdal_dtype)
         result: bool | None = None
@@ -382,6 +381,10 @@ def _driver_preserves_dtype(driver_name: str, gdal_dtype: int) -> bool | None:
                     # netCDF round-trip into "RuntimeError: unknown error
                     # occurred".
                     pass
+            # The path was registered when it was minted, so the exit sweep
+            # would otherwise hold one dead string per probe. Told here, beside
+            # the unlink that made it dead.
+            unregister_vsimem(probe_path)
     if result is None:
         # The probe could not answer -- the driver refused a 1x1 image, which
         # JP2OpenJPEG does. Fall back to what it advertises. The list is not
@@ -460,21 +463,9 @@ def _resolve_output_driver(driver: str | None, path: Path) -> tuple[str, str]:
         # copy of any of them drifts. `for_copy=True` because this writer uses
         # `CreateCopy`, so a copy-only format (PNG, JPEG) is legitimate here
         # even though the `Create`-based constructors refuse it.
-        gdal_name = resolve_output_driver(path, for_copy=True)
-        driver = CATALOG.get_driver_name(gdal_name)
-        if driver is None:
-            raise DriverNotExistError(
-                f"The driver: {gdal_name!r} is not in the driver catalog. Known "
-                f"driver names: {sorted(CATALOG.drivers)}"
-            )
-    elif not CATALOG.exists(driver):
-        catalog_key = CATALOG.get_driver_name(driver)
-        if catalog_key is None:
-            raise DriverNotExistError(
-                f"The driver: {driver!r} is not in the driver catalog. Known "
-                f"driver names: {sorted(CATALOG.drivers)}"
-            )
-        driver = catalog_key
+        driver = CATALOG.resolve_key(resolve_output_driver(path, for_copy=True))
+    else:
+        driver = CATALOG.resolve_key(driver)
     return driver, CATALOG.get_gdal_name(driver)
 
 

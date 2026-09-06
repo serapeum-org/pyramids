@@ -19,11 +19,13 @@ from typing import Any
 
 from osgeo import gdal
 
+from pyramids.base.crs import epsg_of_crs
 from pyramids.dataset.cog.validate import (
     _resolve_read_config,
     config_context,
     validate,
 )
+from pyramids.dataset.transform import GeoTransform
 
 
 @dataclass(frozen=True)
@@ -171,15 +173,15 @@ def _cog_info_impl(p: str) -> COGInfo:
         width, height = ds.RasterXSize, ds.RasterYSize
 
         gt = ds.GetGeoTransform()
-        min_x, max_y = gt[0], gt[3]
-        max_x = min_x + gt[1] * width
-        min_y = max_y + gt[5] * height
+        # Not the top-left/bottom-right pair: on a south-up raster that pair is
+        # already swapped, and this reported `min_y` above `max_y`.
+        min_x, min_y, max_x, max_y = GeoTransform(*gt).extent(width, height)
 
-        srs = ds.GetSpatialRef()
-        epsg: int | None = None
-        if srs is not None:
-            code = srs.GetAuthorityCode(None)
-            epsg = int(code) if code is not None else None
+        # `epsg_of_crs` is the package's answer to "what EPSG code does this
+        # CRS declare". Reading the authority code directly returned the ESRI
+        # number for an ESRI-authority CRS as though it were EPSG (#965), and
+        # raised on an OGC:CRS84 raster.
+        epsg = epsg_of_crs(ds.GetProjectionRef())
 
         overviews: list[OverviewLevel] = []
         for i in range(band0.GetOverviewCount()):

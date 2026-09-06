@@ -22,9 +22,14 @@ keep opening.
 from __future__ import annotations
 
 import warnings
+from collections.abc import Callable
+from functools import cache
 from typing import Any
 
 import numpy as np
+
+from pyramids.base._axes import AXIS_NAMES
+from pyramids.dataset.transform import GeoTransform
 
 ZARR_SCHEMA_VERSION = "2"
 GRID_MAPPING_VAR = "spatial_ref"
@@ -64,10 +69,10 @@ def pixel_centre_coords(
 
             ```
     """
-    gt = geotransform
-    x = gt[0] + (np.arange(cols, dtype="float64") + 0.5) * gt[1]
-    y = gt[3] + (np.arange(rows, dtype="float64") + 0.5) * gt[5]
-    return x, y
+    # Sliced to six: `_zarr.py` builds this tuple by splitting a string
+    # attribute, so its declared arity is `tuple[float, ...]`.
+    transform = GeoTransform(*geotransform[:6])
+    return transform.x_axis(cols), transform.y_axis(rows)
 
 
 def write_geobox(
@@ -262,7 +267,9 @@ def finalize_zarr_metadata(
         zarr.consolidate_metadata(resolved_store)
 
 
-_NON_DATA_ARRAYS = {
+# The names that are *almost always* coordinates, and were the only ones this
+# reader excluded before. Anything here is rejected outright.
+_ALWAYS_COORDS = {
     "x",
     "y",
     "lon",
@@ -274,6 +281,29 @@ _NON_DATA_ARRAYS = {
     GRID_MAPPING_VAR,
     "crs",
 }
+
+# Coordinate spellings that are *also* ordinary names for a data array: an
+# eastward wind or current component is `east`, and `long` could be anything.
+# Nobody names a variable `nav_lat`, `rlon` or `x_dim`, so those are not
+# here -- the `*dim` spellings in particular are dimension names, and a
+# store holding only those has no data array to return.
+_AMBIGUOUS_NAMES = {
+    "east",
+    "north",
+    "easting",
+    "northing",
+    "long",
+}
+
+# Every known coordinate spelling. The wider vocabulary is what lets a NEMO
+# store's 2-D `nav_lon` / `nav_lat` lose to the real variable.
+_NON_DATA_ARRAYS = AXIS_NAMES | _ALWAYS_COORDS
+
+# What a store must not fall back to. Excluding the ambiguous names outright
+# made a store whose only variable is called `east` raise "no data array found";
+# excluding nothing would let a store of only `nav_lon` / `nav_lat` return a
+# latitude field as its data.
+_NEVER_DATA_ARRAYS = _NON_DATA_ARRAYS - _AMBIGUOUS_NAMES
 
 
 def normalize_compressors(compressor: Any) -> dict[str, Any]:
@@ -292,26 +322,263 @@ def normalize_compressors(compressor: Any) -> dict[str, Any]:
     return {"compressors": [compressor]}
 
 
+# The CF attributes whose *value* names another array, and how many
+# whitespace-separated names that value carries. `cell_measures` is
+# `"area: cell_area"`, so its names are the odd-indexed tokens; the rest are a
+# plain list of names (`bounds` holds exactly one).
+_CF_REFERENCE_ATTRS = ("bounds", "ancillary_variables", "coordinates", "grid_mapping")
+
+
+def _attrs_reader(group: Any) -> Callable[[str], dict]:
+    """A reader that fetches each array's attributes at most once.
+
+    `dict(group[name].attrs)` is a metadata read, and against a remote store a
+    round trip. Two of `detect_data_var`'s rules ask the same question of the
+    same arrays -- rule 2 looks for a `grid_mapping`, rule 3 for every CF
+    reference -- so without a memo the fallback path pays `2N` reads before a
+    single chunk is touched. Memoising per group also keeps rule 2's
+    short-circuit: an array nobody asks about is still never opened.
+
+    Args:
+        group: An open `zarr` group.
+
+    Returns:
+        Callable[[str], dict]: Reads one array's attributes as a plain dict.
+
+    Examples:
+        - The second read of the same array costs nothing:
+            ```python
+            >>> import zarr
+            >>> from pyramids.dataset.ops._geobox_zarr import _attrs_reader
+            >>> group = zarr.open_group(store=zarr.storage.MemoryStore(), mode="w")
+            >>> group.create_array("tas", shape=(2, 3), dtype="f4").attrs.update(
+            ...     {"grid_mapping": "crs"}
+            ... )
+            >>> read = _attrs_reader(group)
+            >>> read("tas") == read("tas") == {"grid_mapping": "crs"}
+            True
+
+            ```
+    """
+
+    @cache
+    def read(name: str) -> dict:
+        """The array's attributes, read once and remembered.
+
+        Args:
+            name: The array's name in the group.
+
+        Returns:
+            dict: Its attributes.
+        """
+        return dict(group[name].attrs)
+
+    return read
+
+
+def _cf_referenced_names(
+    arrays: list[str], read_attrs: Callable[[str], dict]
+) -> set[str]:
+    """The arrays that some other array points at, so are not the data.
+
+    A CF store says which of its arrays are supporting cast: `lat` names its
+    `lat_bnds`, a data variable names its auxiliary `coordinates` and its
+    `grid_mapping`. The reader had no notion of a CF role, so an
+    `xarray.Dataset.to_zarr` of any CF dataset offered its 2-D `lat_bnds`
+    alongside the 2-D data variable and let the name tie-break decide -- which
+    `lat_bnds` usually wins, being early in the alphabet.
+
+    Args:
+        arrays: The group's array names, already listed by the caller.
+        read_attrs: Reads one array's attributes; memoised by the caller, so
+            the rule that ran before this one does not pay for the same reads
+            twice.
+
+    Returns:
+        set[str]: Names referenced by another array's CF attributes, plus the
+            `_bnds` / `_bounds` spellings, which are conventional enough to
+            exclude even in a store that forgot to declare them.
+
+    Examples:
+        - A coordinate naming its bounds array demotes it, whatever it is
+          called:
+            ```python
+            >>> import zarr
+            >>> from pyramids.dataset.ops._geobox_zarr import (
+            ...     _attrs_reader,
+            ...     _cf_referenced_names,
+            ... )
+            >>> group = zarr.open_group(store=zarr.storage.MemoryStore(), mode="w")
+            >>> group.create_array("tas", shape=(2, 3), dtype="f4").attrs.update({})
+            >>> group.create_array("lat", shape=(2,), dtype="f8").attrs.update(
+            ...     {"bounds": "edges"}
+            ... )
+            >>> group.create_array("edges", shape=(2, 2), dtype="f8").attrs.update({})
+            >>> names = sorted(group.array_keys())
+            >>> sorted(_cf_referenced_names(names, _attrs_reader(group)))
+            ['edges']
+
+            ```
+        - `cell_measures` is `"measure: name"` pairs, so only the odd tokens
+          are names -- reading it as a flat list would take `area:` for one
+          and leave `areacella` a candidate:
+            ```python
+            >>> import zarr
+            >>> from pyramids.dataset.ops._geobox_zarr import (
+            ...     _attrs_reader,
+            ...     _cf_referenced_names,
+            ... )
+            >>> group = zarr.open_group(store=zarr.storage.MemoryStore(), mode="w")
+            >>> group.create_array("tas", shape=(2, 3), dtype="f4").attrs.update(
+            ...     {"cell_measures": "area: areacella", "coordinates": "aux"}
+            ... )
+            >>> group.create_array("areacella", shape=(2, 3), dtype="f4").attrs.update({})
+            >>> group.create_array("aux", shape=(2, 3), dtype="f4").attrs.update({})
+            >>> names = sorted(group.array_keys())
+            >>> sorted(_cf_referenced_names(names, _attrs_reader(group)))
+            ['areacella', 'aux']
+
+            ```
+        - An array never demotes itself, so a store that lists its own name is
+          not left with nothing:
+            ```python
+            >>> import zarr
+            >>> from pyramids.dataset.ops._geobox_zarr import (
+            ...     _attrs_reader,
+            ...     _cf_referenced_names,
+            ... )
+            >>> group = zarr.open_group(store=zarr.storage.MemoryStore(), mode="w")
+            >>> group.create_array("tas", shape=(2, 3), dtype="f4").attrs.update(
+            ...     {"coordinates": "tas"}
+            ... )
+            >>> names = sorted(group.array_keys())
+            >>> _cf_referenced_names(names, _attrs_reader(group))
+            set()
+
+            ```
+
+    See Also:
+        detect_data_var: Applies this as rule 3, before ranking what is left.
+    """
+    referenced = {n for n in arrays if n.endswith(("_bnds", "_bounds"))}
+    for name in arrays:
+        attrs = read_attrs(name)
+        named: set[str] = set()
+        for attr in _CF_REFERENCE_ATTRS:
+            value = attrs.get(attr)
+            if isinstance(value, str):
+                named.update(value.split())
+        measures = attrs.get("cell_measures")
+        if isinstance(measures, str):
+            named.update(measures.split()[1::2])
+        # An array never demotes itself. A malformed store that lists its own
+        # name among its `coordinates` would otherwise erase the only
+        # candidate it has.
+        referenced.update(named - {name})
+    return referenced
+
+
 def detect_data_var(group: Any) -> str:
     """Pick the primary data array name in a (possibly foreign) GeoZarr group.
 
-    Prefers ``"data"`` (pyramids' own name); otherwise an array carrying a
-    ``grid_mapping`` attribute; otherwise the highest-dimension array that is
-    not an obvious coordinate (``x``/``y``/``spatial_ref``/…).
+        Four rules, in order. The first two are what the store itself says; the
+        rest are inference from names, so they run only when it says nothing.
 
-    Raises:
-        KeyError: When no candidate data array can be found.
+        1. An array literally named `data` -- what pyramids' own writer emits.
+        2. An array carrying a CF `grid_mapping` attribute, which is the store
+           declaring "this one is the georeferenced variable". This is the escape
+           hatch for a store whose data array happens to be named like an axis.
+           A CF store with more than one georeferenced variable is the normal
+           case, so this rule reads the names in sorted order too -- taking
+           whichever the store happened to list first made `pr` and `tas` resolve
+           differently from one run to the next.
+        3. Otherwise, arrays whose name is a known coordinate spelling are dropped,
+           and so are arrays some *other* array points at -- its `bounds`, its
+           auxiliary `coordinates`, its `ancillary_variables`, its `cell_measures`
+           or its `grid_mapping`. The first is what makes a NEMO store's 2-D
+           `nav_lon` / `nav_lat` lose to the real variable; the second is what
+           stops a CF store's 2-D `lat_bnds` from beating a 2-D data variable on
+           the name tie-break.
+        4. Of what remains, the highest-dimension array wins, preferring a name
+           that is not *only* ever a coordinate. `east`, `north` and `long` are
+           axis spellings and also ordinary names for a data array -- an eastward
+           wind component, say -- so a store holding nothing else is read rather
+           than refused. A name that is only ever a coordinate, like `nav_lat`,
+           `rlon` or `x_dim`, is excluded outright, so a store of only coordinates
+           still raises.
+
+    Every rule reads the array names in sorted order, because the store's own
+        key order is neither promised nor stable and the same data would otherwise
+        read back as a different variable from run to run. A store with two equally
+        ranked data variables -- `pr` and `tas`, say -- therefore reads back the
+        alphabetically first, whether they are ranked by rule 2's declaration or by
+        rule 4's dimension count, where it used to read back whichever key `zarr`
+        happened to list first. Name the array explicitly (`data_name=`) when a
+        store has more than one candidate and the choice matters.
+
+        Args:
+            group: An open `zarr` group.
+
+        Returns:
+            str: The name of the array to read as the raster's data.
+
+        Raises:
+            KeyError: No candidate data array could be found -- every array in the
+                group is either a name that is only ever a coordinate, or one some
+                other array points at as its bounds, coordinates, ancillary
+                variables, cell measures or grid mapping.
+
+        See Also:
+            pyramids.base._axes: The shared coordinate vocabulary rules 3 and 4
+                consult.
     """
+    # Sorted once, here, so that every rule below reads the same order.
+    # `array_keys()` does not promise one and does not give a stable one, so a
+    # store with two equally-ranked candidates otherwise resolves to a
+    # different array run to run -- for rule 2 just as much as for rule 4.
+    arrays = sorted(group.array_keys())
+    # One memo for every rule that reads an array's attributes: rule 2 asks for
+    # a `grid_mapping` and rule 3 for the CF references, over the same arrays.
+    read_attrs = _attrs_reader(group)
+    # `declared` is resolved inside the branch that needs it: reading every
+    # array's attributes costs a metadata read each, and the `data` case --
+    # what pyramids' own writer emits -- must not pay for it.
+    declared = (
+        None
+        if "data" in group
+        else next(
+            (name for name in arrays if "grid_mapping" in read_attrs(name)),
+            None,
+        )
+    )
     if "data" in group:
-        return "data"
-    arrays = list(group.array_keys())
-    for name in arrays:
-        if "grid_mapping" in dict(group[name].attrs):
-            return name
-    candidates = [n for n in arrays if n not in _NON_DATA_ARRAYS]
-    if not candidates:
-        raise KeyError(f"no data array found in zarr group; arrays={arrays}")
-    return max(candidates, key=lambda n: group[n].ndim)
+        chosen = "data"
+    elif declared is not None:
+        chosen = declared
+    else:
+        # Names that are only ever coordinates are out entirely; everything else
+        # competes. Dimensionality decides first, because a store's data array
+        # outranks its coordinates, and the name only breaks ties: preferring a
+        # non-coordinate name outright let a 1-D `depth` -- or a 0-D CF
+        # grid-mapping variable named for its projection -- beat a 3-D array that
+        # happened to be called `east`.
+        candidates = [n for n in arrays if n not in _NEVER_DATA_ARRAYS]
+        # Then what the store says about itself. A store left with nothing
+        # after this is a store of bounds and coordinates, which has no data
+        # array to return -- the same answer as a store of nothing but
+        # `nav_lat`, and the message names every array so the caller can see
+        # why.
+        referenced = _cf_referenced_names(arrays, read_attrs)
+        candidates = [n for n in candidates if n not in referenced]
+        if not candidates:
+            raise KeyError(f"no data array found in zarr group; arrays={arrays}")
+        # `candidates` inherits the sorted order of `arrays`, and `max` keeps
+        # the first of equal keys, so the final tie-break is by name.
+        chosen = max(
+            candidates,
+            key=lambda n: (group[n].ndim, n not in _NON_DATA_ARRAYS),
+        )
+    return chosen
 
 
 def _transform_from_xy(group: Any) -> tuple[float, ...]:
@@ -350,6 +617,7 @@ def read_geobox(group: Any, *, data_name: str | None = None) -> dict[str, Any]:
 
     Raises:
         KeyError: When no ``GeoTransform`` and no ``x``/``y`` coords are present.
+        ValueError: The ``GeoTransform`` attribute is not six numbers.
     """
     if data_name is None:
         data_name = detect_data_var(group)
@@ -383,6 +651,15 @@ def read_geobox(group: Any, *, data_name: str | None = None) -> dict[str, Any]:
     gt_str = attrs.get("GeoTransform")
     if gt_str:
         geotransform = tuple(float(v) for v in gt_str.split())
+        # Checked here rather than left to GDAL: a store whose GeoTransform is
+        # not six numbers otherwise reaches the SWIG layer and fails with a bare
+        # TypeError naming neither the store nor the attribute.
+        if len(geotransform) != 6:
+            raise ValueError(
+                f"the GeoTransform attribute of "
+                f"{getattr(group, 'name', group)!r} has {len(geotransform)} "
+                f"elements, expected 6: {gt_str!r}"
+            )
     else:
         geotransform = _transform_from_xy(group)
     return {

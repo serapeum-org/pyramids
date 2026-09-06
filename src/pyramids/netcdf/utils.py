@@ -10,6 +10,12 @@ import numpy as np
 import pandas as pd
 from osgeo import gdal, osr
 
+# Re-exported, not defined here. They moved down to `base` because
+# `dataset/_cube_time.py` is one of the two writers that stamps them, and
+# reaching into `netcdf` for them pointed `dataset` back up at a package
+# that imports it. `decode_cf_time` below is what reads them back, so the
+# names stay importable from here for every caller that already does.
+from pyramids.base._cf_epoch import CF_EPOCH, CF_EPOCH_CALENDAR, cf_epoch_units
 from pyramids.base._utils import gdal_to_numpy_dtype
 
 # Keep simple, JSON-serializable attribute values only
@@ -185,6 +191,9 @@ def _export_srs(srs: osr.SpatialReference | None) -> tuple[str | None, str | Non
     return wkt, projjson
 
 
+CF_NODATA_KEYS: tuple[str, ...] = ("_FillValue", "missing_value", "nodata")
+
+
 def _get_array_nodata(
     mdarr: gdal.MDArray, attrs: dict[str, AttributeValue]
 ) -> int | float | str | None:
@@ -202,8 +211,11 @@ def _get_array_nodata(
         The no-data value as an `int`, `float`, or
         `str`, or `None` if none is defined.
     """
-    # Precedence: CF _FillValue, then missing_value, then driver API
-    for key in ("_FillValue", "missing_value"):
+    # Precedence: CF _FillValue, then missing_value, then `nodata`, then the
+    # driver API. `nodata` is what `DatasetCollection.to_netcdf` writes, and it
+    # was known only to the MDArray reader -- so the attribute path returned
+    # None for a file whose only sentinel was written by pyramids itself.
+    for key in CF_NODATA_KEYS:
         if key in attrs:
             v = attrs[key]
             if isinstance(v, list):
@@ -506,6 +518,38 @@ def _is_standard_calendar(calendar: str | None) -> bool:
     )
 
 
+# Nanoseconds in one unit, keyed by the prefix a CF unit name starts with, so
+# `day`/`days`, `sec`/`second`/`seconds` and the rest all resolve. One table for
+# both readers below: keeping a scale factor each is how they came to accept
+# different sets of resolutions in the first place.
+_NS_PER_CF_UNIT: dict[str, int] = {
+    "day": 86_400_000_000_000,
+    "hour": 3_600_000_000_000,
+    "min": 60_000_000_000,
+    "sec": 1_000_000_000,
+    "millisecond": 1_000_000,
+    "microsecond": 1_000,
+    "nanosecond": 1,
+}
+
+
+def _ns_per_cf_unit(unit: str) -> int | None:
+    """Nanoseconds in one `unit`, or `None` when the name is not one we can scale.
+
+    Args:
+        unit: The lowercased period name from a CF `units` string, e.g. `"days"`.
+
+    Returns:
+        int | None: The exact nanosecond count, or `None` for a period this
+            package does not scale (`"months"`, `"common_years"`, …), which the
+            callers hand to `cftime` instead.
+    """
+    return next(
+        (ns for prefix, ns in _NS_PER_CF_UNIT.items() if unit.startswith(prefix)),
+        None,
+    )
+
+
 def create_time_conversion_func(
     units: str,
     out_format: str = "%Y-%m-%d %H:%M:%S",
@@ -588,27 +632,18 @@ def create_time_conversion_func(
     else:
         unit, origin = _parse_units_origin(units)
 
-        # Microseconds per CF unit. datetime/timedelta is microsecond-resolution, so the
-        # offset is resolved as ``origin + timedelta(microseconds=value * factor)``:
-        # day/hour/minute/second stay exact over any realistic date range, while the
-        # sub-second units (notably the ``nanoseconds`` axis DatasetCollection.to_netcdf
-        # writes) round to the nearest microsecond — exact for date/second output, with any
-        # residual only in the microsecond digit of a ``%f`` format.
-        micros_per_unit = {
-            "day": 86_400_000_000.0,
-            "hour": 3_600_000_000.0,
-            "min": 60_000_000.0,
-            "sec": 1_000_000.0,
-            "millisecond": 1_000.0,
-            "microsecond": 1.0,
-            "nanosecond": 0.001,
-        }
-        factor = next(
-            (m for prefix, m in micros_per_unit.items() if unit.startswith(prefix)),
-            None,
-        )
-        if factor is None:
+        # datetime/timedelta is microsecond-resolution, so the offset is resolved as
+        # ``origin + timedelta(microseconds=value * factor)``: day/hour/minute/second
+        # stay exact over any realistic date range, while the sub-second units (notably
+        # the ``nanoseconds`` axis DatasetCollection.to_netcdf writes) round to the
+        # nearest microsecond — exact for date/second output, with any residual only in
+        # the microsecond digit of a ``%f`` format. The scale comes from the shared
+        # nanosecond table so this reader and ``decode_cf_time`` cannot drift on which
+        # unit names they accept.
+        nanos = _ns_per_cf_unit(unit)
+        if nanos is None:
             raise ValueError(f"Unsupported time unit: {unit!r}")
+        factor = nanos / 1000.0
 
         def convert(value):
             dt = origin + timedelta(microseconds=float(value) * factor)
@@ -619,9 +654,300 @@ def create_time_conversion_func(
     return converter
 
 
+# CF's time form is "<period> since <timestamp>". Matched case-insensitively,
+# with `since` a whitespace-separated word carrying text on both sides, so a
+# unit that merely contains the letters (or that is only the word) is not one.
+_CF_TIME_UNITS = re.compile(r"\S\s+since\s+\S", re.IGNORECASE)
+
+
+def _epoch_units_round_trip() -> None:
+    """`cf_epoch_units` produces what `decode_cf_time` parses.
+
+    The two halves live in different packages now -- the writer's constants in
+    :mod:`pyramids.base._cf_epoch`, the reader here -- so the property that
+    made sharing them worthwhile is asserted where both are in scope. Named
+    with a leading underscore because it exists for its doctest.
+
+    Examples:
+        - A seconds axis written from the shared epoch decodes back to the
+          dates it was written from:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.netcdf.utils import cf_epoch_units, decode_cf_time
+            >>> units = cf_epoch_units("seconds")
+            >>> decode_cf_time(np.array([0.0, 86400.0]), units).astype(str).tolist()
+            ['1970-01-01T00:00:00.000000000', '1970-01-02T00:00:00.000000000']
+
+            ```
+        - And so does the nanosecond axis the collection writer emits, which
+          is the resolution that used to be produced and then not read:
+            ```python
+            >>> units = cf_epoch_units("nanoseconds")
+            >>> offsets = np.array([0, 86_400_000_000_000], dtype="int64")
+            >>> decode_cf_time(offsets, units).astype(str).tolist()
+            ['1970-01-01T00:00:00.000000000', '1970-01-02T00:00:00.000000000']
+
+            ```
+    """
+
+
+def cf_units_text(units: Any) -> str | None:
+    """The `units` attribute as text, or `None` when it is not text at all.
+
+    A `units` read straight out of an HDF5 / netCDF attribute can arrive as
+    `bytes`. That is the same unit, undecoded -- not a different kind of thing
+    -- so both the predicate below and the decoder that gates on it resolve it
+    here rather than each deciding for itself. Answering "not a time unit" for
+    bytes put them back in the hole the predicate exists to fill; decoding them
+    in the predicate alone would have let `decode_cf_time` hand the raw bytes
+    to `cftime`, which raises.
+
+    Args:
+        units: The CF `units` attribute -- a string, the bytes an undecoded
+            attribute arrives as, `None`, or whatever a malformed file put
+            there. GDAL normalises attributes into scalars *or lists*, so a
+            `units` written as a one-element array is a real input.
+
+    Returns:
+        str | None: The text, or `None` for a non-text value and for bytes
+            that are not valid UTF-8.
+
+    Examples:
+        - A string is itself, and bytes are decoded:
+            ```python
+            >>> from pyramids.netcdf.utils import cf_units_text
+            >>> cf_units_text("days since 1970-01-01")
+            'days since 1970-01-01'
+            >>> cf_units_text(b"days since 1970-01-01")
+            'days since 1970-01-01'
+
+            ```
+        - Anything that is not text at all answers `None`, rather than
+          raising the way a bare `" since " in unit` would:
+            ```python
+            >>> from pyramids.netcdf.utils import cf_units_text
+            >>> print(cf_units_text(None), cf_units_text(1), cf_units_text(["a"]))
+            None None None
+
+            ```
+
+    See Also:
+        is_cf_time_units: Asks whether that text names a CF time axis.
+    """
+    if isinstance(units, str):
+        text: str | None = units
+    elif isinstance(units, (bytes, bytearray)):
+        try:
+            text = bytes(units).decode("utf-8")
+        except UnicodeDecodeError:
+            text = None
+    else:
+        text = None
+    return text
+
+
+def is_cf_time_units(units: str | bytes | None) -> bool:
+    """True when `units` declares a CF time axis.
+
+    Four places asked this and answered differently. Axis *detection* matched a
+    bare lowercased `"since"` substring; *decoding* required a case-sensitive
+    `" since "`. A file whose units read `"Days SINCE 1970-01-01"` -- which
+    `cftime` parses perfectly well -- was therefore reported as a time axis and
+    then handed back as raw numbers, with nothing raised. This is the one rule
+    both questions now use.
+
+    Total: anything that is not a string is not a time unit. GDAL attributes
+    are normalised into scalars *or lists*, so a `units` written as a
+    one-element array is a real input, and the CF compliance checker exists to
+    *report* on malformed files rather than to crash on one.
+
+    Args:
+        units: The CF `units` attribute -- a string, the bytes an undecoded
+            attribute arrives as, `None`, or whatever a malformed file put
+            there.
+
+    Returns:
+        bool: True when `units` is a string with the `<period> since
+            <timestamp>` shape.
+
+    Examples:
+        - The ordinary form, and the uppercase one that used to decode wrong:
+            ```python
+            >>> from pyramids.netcdf.utils import is_cf_time_units
+            >>> is_cf_time_units("days since 1970-01-01")
+            True
+            >>> is_cf_time_units("Days SINCE 1970-01-01")
+            True
+
+            ```
+        - A spatial unit is not a time axis, nor is a missing one:
+            ```python
+            >>> from pyramids.netcdf.utils import is_cf_time_units
+            >>> is_cf_time_units("degrees_north"), is_cf_time_units(None)
+            (False, False)
+
+            ```
+        - Neither is a `units` a malformed file wrote as a list or a number:
+            ```python
+            >>> from pyramids.netcdf.utils import is_cf_time_units
+            >>> is_cf_time_units(["days since 1970-01-01"])
+            False
+            >>> is_cf_time_units(1)
+            False
+
+            ```
+        - `since` has to be a word with a period and an epoch around it, so a
+          unit that merely contains the letters is not matched:
+            ```python
+            >>> from pyramids.netcdf.utils import is_cf_time_units
+            >>> is_cf_time_units("sincerity"), is_cf_time_units("since")
+            (False, False)
+
+            ```
+        - Bytes are decoded first, so an attribute that arrived undecoded
+          still names the axis it names:
+            ```python
+            >>> from pyramids.netcdf.utils import is_cf_time_units
+            >>> is_cf_time_units(b"days since 1970-01-01")
+            True
+
+            ```
+
+    See Also:
+        decode_cf_time: Decodes the axes this identifies.
+    """
+    text = cf_units_text(units)
+    return text is not None and _CF_TIME_UNITS.search(text) is not None
+
+
+# The Gregorian reform. `standard` / `gregorian` count Julian days before this
+# instant and Gregorian days after it, while `proleptic_gregorian` -- and
+# `datetime`, and `datetime64` -- run the Gregorian rules all the way back. An
+# origin at or after it therefore puts every offset on the side where the two
+# agree, which is what makes the integer path below safe to take; an earlier
+# origin on a mixed calendar stays on `cftime`, which knows about the ten
+# missing days.
+_GREGORIAN_CUTOVER = datetime(1582, 10, 15)
+# Bound on the nanosecond magnitudes the integer path will handle. Deliberately
+# under `int64`'s 9.223e18 so the check -- made in float64, where the rounding
+# error at this scale is ~1e3 ns -- cannot pass a value that then overflows.
+_NS_LIMIT = 9.0e18
+
+
+def _gregorian_scale_and_origin(
+    units: str, calendar: str | None
+) -> tuple[int, int] | None:
+    """`(nanoseconds per unit, origin in nanoseconds since 1970)`, or `None`.
+
+    `None` means the exact integer decode does not apply and the caller should
+    fall back to `cftime`: an origin this package cannot parse (a `"1970-01-01
+    00:00:00 UTC"` suffix, say), a period it does not scale (`"months"`), or a
+    pre-1582 origin on a mixed Julian/Gregorian calendar, where `cftime`'s
+    answer and `datetime`'s differ by the reform's ten days.
+
+    Args:
+        units: A CF `"<period> since <origin>"` string.
+        calendar: The CF calendar name; `None` is read as `"standard"`.
+
+    Returns:
+        tuple[int, int] | None: The scale and origin, or `None` to fall back.
+    """
+    resolved: tuple[int, int] | None = None
+    try:
+        unit, origin = _parse_units_origin(units)
+    except ValueError:
+        unit, origin = "", None
+    nanos = _ns_per_cf_unit(unit) if origin is not None else None
+    if origin is not None and nanos is not None:
+        # An origin written with a zone (`...T00:00:00Z`) parses tz-aware; shift
+        # it to UTC so the arithmetic below stays naive, as `cftime` reads it.
+        utc_offset = origin.utcoffset()
+        if utc_offset is not None:
+            origin = origin.replace(tzinfo=None) - utc_offset
+        proleptic = (calendar or "standard").lower() == "proleptic_gregorian"
+        if proleptic or origin >= _GREGORIAN_CUTOVER:
+            elapsed = origin - datetime(1970, 1, 1)
+            resolved = (
+                nanos,
+                elapsed.days * 86_400_000_000_000
+                + elapsed.seconds * 1_000_000_000
+                + elapsed.microseconds * 1_000,
+            )
+    return resolved
+
+
+def _decode_gregorian_ns(
+    values: np.ndarray, units: str, calendar: str | None
+) -> np.typing.NDArray | None:
+    """Add CF offsets to their origin as `datetime64[ns]`, or `None` to fall back.
+
+    The scaling is done in integer nanoseconds rather than by handing the string
+    to `cftime`, whose finest unit is the microsecond. That is what lets a
+    `"nanoseconds since ..."` axis -- exactly what `DatasetCollection.to_netcdf`
+    writes -- decode at all, and it keeps the sub-microsecond digits that
+    resolution exists to preserve instead of rounding them away.
+
+    Args:
+        values: The numeric offsets read for the coordinate.
+        units: The CF `"<period> since <origin>"` string.
+        calendar: The CF calendar name; only the Gregorian family reaches here.
+
+    Returns:
+        np.ndarray | None: `datetime64[ns]` instants, or `None` when the offsets
+            are not numeric or do not fit the type, so the caller falls back.
+    """
+    decoded: np.typing.NDArray | None = None
+    scale = _gregorian_scale_and_origin(units, calendar)
+    array = np.asarray(values)
+    if scale is not None and array.dtype.kind in "iuf":
+        nanos, origin_ns = scale
+        # NaN is the interop writer's spelling of NaT, so it is a real offset
+        # rather than a malformed one; zero it for the range test and restore it
+        # as NaT below. An infinity is malformed, and fails `isfinite`.
+        missing = (
+            np.isnan(array)
+            if array.dtype.kind == "f"
+            else np.zeros_like(array, dtype=bool)
+        )
+        scaled = np.where(missing, 0.0, array.astype("float64") * float(nanos))
+        largest = float(np.max(np.abs(scaled))) if scaled.size else 0.0
+        if bool(np.all(np.isfinite(scaled))) and largest + abs(origin_ns) <= _NS_LIMIT:
+            offsets = _exact_ns_offsets(array, nanos, missing)
+            instants = (offsets + np.int64(origin_ns)).astype("datetime64[ns]")
+            # `"NaT"` with an explicit unit: the bare spelling is generic, which
+            # NumPy deprecates in arithmetic and comparison against a typed array.
+            decoded = np.where(missing, np.datetime64("NaT", "ns"), instants)
+    return decoded
+
+
+def _exact_ns_offsets(
+    array: np.typing.NDArray, nanos: int, missing: np.typing.NDArray
+) -> np.typing.NDArray:
+    """Scale `array` to integer nanoseconds, exactly where the input allows.
+
+    An integer axis is scaled in `int64`, so an `int64` count of nanoseconds --
+    the lossless encoding of `datetime64[ns]` -- survives untouched. A float axis
+    is scaled in `float64` and rounded to the nearest nanosecond, which is the
+    input's own precision limit rather than one this function imposes.
+
+    Args:
+        array: The numeric offsets, already known to fit the type.
+        nanos: Nanoseconds in one unit of `array`.
+        missing: Mask of `NaN` entries, zeroed before the float cast.
+
+    Returns:
+        np.ndarray: The offsets in `int64` nanoseconds.
+    """
+    if array.dtype.kind == "f":
+        offsets = np.rint(np.where(missing, 0.0, array) * float(nanos)).astype("int64")
+    else:
+        offsets = array.astype("int64") * np.int64(nanos)
+    return offsets
+
+
 def decode_cf_time(
     values: np.ndarray,
-    unit: str | None,
+    unit: str | bytes | None,
     calendar: str = "standard",
 ) -> np.typing.NDArray:
     """Decode numeric CF time offsets to datetimes.
@@ -631,25 +957,68 @@ def decode_cf_time(
     objects. Arrays whose ``unit`` is not a ``"<interval> since <origin>"`` string are
     returned unchanged.
 
+    A Gregorian-family axis is decoded by adding its offsets to the origin in integer
+    nanoseconds, rather than through ``cftime``. Behaviour differs from earlier releases
+    in two ways, both of them consequences of dropping ``cftime``'s microsecond floor:
+    a ``"nanoseconds since …"`` axis decodes instead of raising, and a ``NaN`` offset
+    decodes to ``NaT`` instead of to the origin. Anything the integer path cannot take
+    exactly -- an unparseable origin, a period such as ``"months"``, an instant outside
+    ``datetime64[ns]``'s 1678-2262 range, or a pre-1582 origin on a mixed
+    Julian/Gregorian calendar -- still goes to ``cftime``, unchanged.
+
     Args:
         values: The numeric values already read for the coordinate.
-        unit: The coordinate's CF unit string (e.g. ``"days since 1979-01-01"``).
+        unit: The coordinate's CF unit string (e.g. ``"days since 1979-01-01"``),
+            or the bytes an undecoded attribute arrives as.
         calendar: The CF calendar name. Defaults to ``"standard"``.
 
     Returns:
         np.ndarray: Decoded datetimes for a time axis, else ``values`` unchanged.
+
+    Examples:
+        - The resolution the collection writer counts in, read back with its
+          sub-microsecond digits intact:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.netcdf.utils import cf_epoch_units, decode_cf_time
+            >>> offsets = np.array([0, 1577836800123456789], dtype="int64")
+            >>> decoded = decode_cf_time(
+            ...     offsets, cf_epoch_units("nanoseconds"), "proleptic_gregorian"
+            ... )
+            >>> decoded.astype(str).tolist()
+            ['1970-01-01T00:00:00.000000000', '2020-01-01T00:00:00.123456789']
+
+            ```
+
+    See Also:
+        is_cf_time_units: The predicate this gates on. It accepts every
+            ``"<period> since <origin>"`` string, so a resolution it admits and
+            this cannot decode is a defect -- which is what a ``nanoseconds``
+            axis was, accepted by the predicate and refused by ``cftime``.
     """
-    if not unit or " since " not in unit:
-        return values
-    standard = _is_standard_calendar(calendar)
-    decoded = np.asarray(
-        cftime.num2date(values, unit, calendar, only_use_cftime_datetimes=not standard)
-    )
-    if standard:
-        try:
-            return decoded.astype("datetime64[ns]")
-        except (ValueError, TypeError):
-            return decoded
+    # Through the same normaliser the predicate uses: `cftime` needs `str`, and
+    # a `units` the predicate accepted as bytes would otherwise raise here.
+    text = cf_units_text(unit)
+    decoded: np.typing.NDArray
+    if not is_cf_time_units(text):
+        decoded = values
+    else:
+        standard = _is_standard_calendar(calendar)
+        text = cast("str", text)
+        exact = _decode_gregorian_ns(values, text, calendar) if standard else None
+        if exact is not None:
+            decoded = exact
+        else:
+            decoded = np.asarray(
+                cftime.num2date(
+                    values, text, calendar, only_use_cftime_datetimes=not standard
+                )
+            )
+            if standard:
+                try:
+                    decoded = decoded.astype("datetime64[ns]")
+                except (ValueError, TypeError):
+                    pass
     return decoded
 
 
@@ -1023,3 +1392,32 @@ def _read_dim_names(md_arr: Any) -> list[str]:
     except Exception:
         return []
     return dim_names
+
+
+# Every public name this module offers: the CF epoch constants and helpers it
+# re-exports from `base._cf_epoch`, plus every public function, type alias and
+# constant it defines itself. The list is the module's declared surface -- a
+# star-import and mkdocstrings' public-member detection both read it -- so a
+# name left out is a name withdrawn, not merely one that is undocumented.
+#
+# Measured, not assumed: griffe reports `mod.exports` for this module and calls
+# exactly those members public, so the docs page renders this list and nothing
+# else. The first version listed only functions, which silently dropped the
+# three attribute type aliases -- `AttributeValue` is in `NetCDFVariable`'s own
+# signature, via `netcdf/models.py` -- and `CF_NODATA_KEYS` from the page.
+__all__ = [
+    "AttributeScalar",
+    "AttributeValue",
+    "AttributeVector",
+    "CF_EPOCH",
+    "CF_EPOCH_CALENDAR",
+    "CF_NODATA_KEYS",
+    "cf_epoch_units",
+    "cf_units_text",
+    "create_time_conversion_func",
+    "decode_cf_time",
+    "encode_cf_time",
+    "is_cf_time_units",
+    "read_cf_attributes",
+    "resolve_full_name",
+]

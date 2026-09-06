@@ -171,8 +171,12 @@ class CFCoordinateCandidates:
             CFCoordinateCandidates: the classified x / y candidate lists.
         """
         arrays: dict[str, np.ndarray] = {}
+        # Readable names, not the data-variable enumeration: every array these
+        # candidates name is an auxiliary coordinate, which `variable_names`
+        # excludes by design.
+        readable = parent._readable_variable_names()
         for name in names:
-            if name in parent.variable_names:
+            if name in readable:
                 arr = parent._read_variable(name)
                 if arr is not None:
                     arrays[name] = _coord_match.squeeze_leading_axes(arr, data_shape)
@@ -475,10 +479,10 @@ class CurvilinearCoordResolver:
         axes). Shape validation against the slice is left to the caller.
         """
         result = None
-        present = (
-            x_name in self.parent.variable_names
-            and y_name in self.parent.variable_names
-        )
+        readable = self.parent._readable_variable_names()
+        # `lat_rho`, `XLAT`, `nav_lat`, `yc` are 2-D coordinate fields, so they
+        # are readable but never enumerated as data variables.
+        present = x_name in readable and y_name in readable
         if present and self.data_shape is not None:
             xv = self.parent._read_variable(x_name)
             yv = self.parent._read_variable(y_name)
@@ -506,14 +510,21 @@ class CurvilinearCoordResolver:
             np.ndarray: The resolved coordinate array.
 
         Raises:
-            ValueError: If a string name is absent from the parent's ``variable_names`` or
-                :meth:`NetCDF._read_variable` returns ``None``.
+            ValueError: If a string name is absent from the parent's
+                :meth:`NetCDF._readable_variable_names` -- the readable superset, not
+                the ``variable_names`` enumeration, because every array ``coords=`` is
+                given is a 2-D coordinate field that the enumeration leaves out by
+                design -- or if :meth:`NetCDF._read_variable` returns ``None``.
         """
         if isinstance(spec, str):
-            if spec not in self.parent.variable_names:
+            readable = self.parent._readable_variable_names()
+            if spec not in readable:
+                # The list offered is the one the check consults. Offering
+                # `variable_names` here could not name a single valid answer:
+                # a curvilinear `lat_rho` is never a data variable.
                 raise ValueError(
                     f"coords {axis_label}={spec!r} is not a variable of "
-                    f"the parent NetCDF. Available: {self.parent.variable_names}."
+                    f"the parent NetCDF. Available: {readable}."
                 )
             arr = self.parent._read_variable(spec)
             if arr is None:
@@ -647,7 +658,14 @@ class NetCDFPlot:
         facet = facet or FacetSpec()
         axes = axes or CoordinateSpec()
 
-        if nc._is_md_array and not nc._is_subset and nc.band_count == 0:
+        if nc._is_root_container:
+            # `_is_root_container`, not the three conditions written out: the
+            # same conjunction decides which operations refuse a container and
+            # which fan out over one, and a copy here is a copy that answers the
+            # old way once the definition moves. The property is an expression,
+            # so it binds no local and the ``locals()`` filter below is
+            # unaffected.
+            #
             # Forward every plot kwarg verbatim to the variable subset.
             # At this point ``locals()`` is exactly ``{self, nc, variable,
             # kwargs}`` plus the named plot params (no other locals are
@@ -816,13 +834,21 @@ class NetCDFPlot:
             ``FacetGrid`` from cleopatra).
 
         Raises:
-            ValueError: If ``variable`` is ``None`` — the message lists
-                the available variable names.
+            ValueError: If ``variable`` is ``None`` — the message lists the
+                **gridded** variable names, which is what this call can actually
+                plot. Neither of the other two lists is right here:
+                ``variable_names`` omits a gridded ancillary array (GOES ABI's
+                ``DQF`` plots fine and is not enumerated), while the readable
+                superset adds 1-D arrays (``time_bounds``, ``band_id``) that
+                ``get_variable`` hands back as a raw ``gdal.MDArray`` with no
+                ``plot`` at all. An empty list therefore means the container holds
+                nothing plottable, which is a true and useful answer.
         """
         if variable is None:
             raise ValueError(
                 "Plotting requires a `variable=` argument on a NetCDF "
-                f"container. Available: {nc.variable_names}. Or call "
+                f"container. Plottable (gridded) variables: "
+                f"{nc._spatial_variable_names()}. Or call "
                 "`nc.get_variable('name').plot(...)`."
             )
         axes = axes or CoordinateSpec()
@@ -1115,6 +1141,17 @@ class NetCDFPlot:
                 and the kwargs dict to forward to
                 :meth:`cleopatra.glyphs.gridded.array_glyph.ArrayGlyph.facet`.
 
+        Note:
+            The coord labels come back in the axis's own dtype, so an integer
+            band dim now labels its panels ``0`` / ``1000`` where it used to
+            label them ``0.0`` / ``1000.0``. `from_array` wrote every
+            coordinate array as float64, which is right for a spatial axis and
+            wrong for a wide integer one -- an `int64` nanosecond epoch lost
+            exactness above 2**53 -- so a non-spatial integer axis keeps its
+            own dtype (`_create_extra_dimensions`). A defaulted band dim is
+            `list(range(size))`, hence integer, which is what changes the
+            labels here.
+
         Examples:
             - Build a 3-D stack from a 3-D variable's single time dim
               (``col`` only). The stack has one slice per coord value
@@ -1141,7 +1178,7 @@ class NetCDFPlot:
                 >>> fkw["col"]
                 'time'
                 >>> fkw["col_coords"]
-                [0.0, 1.0, 2.0]
+                [0, 1, 2]
 
                 ```
 
@@ -1175,7 +1212,7 @@ class NetCDFPlot:
                 >>> fkw["row"]
                 'pressure_level'
                 >>> fkw["row_coords"]
-                [1000.0, 500.0]
+                [1000, 500]
 
                 ```
         """

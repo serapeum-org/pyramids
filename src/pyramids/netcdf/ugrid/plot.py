@@ -12,18 +12,18 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from pyramids.base._utils import require_cleopatra
+from pyramids.base._utils import extra_hint, require_cleopatra
 from pyramids.dataset._plot_helpers import _reject_replaced_cbar_kwargs
 from pyramids.netcdf.ugrid.mesh import Mesh2d
 
 if TYPE_CHECKING:
     from cleopatra.styling.colorbar import ColorBar
 
+# The upstream link is this guard's alone; the two install commands are not.
 _CLEOPATRA_MSG = (
-    "Mesh plotting requires the cleopatra package. Install with one of:\n"
-    "  - PyPI:        pip install 'pyramids-gis[viz]'\n"
-    "  - conda-forge: conda install -c conda-forge pyramids-viz\n"
-    "  - or see https://github.com/serapeum-org/cleopatra"
+    extra_hint("Mesh plotting requires the cleopatra package.", "viz")
+    + "\n"
+    + "  - or see https://github.com/serapeum-org/cleopatra"
 )
 
 

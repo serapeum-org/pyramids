@@ -176,6 +176,12 @@ src/pyramids/_data/
 # GDAL /vsigzip/ writes a .gz.properties sidecar caching the uncompressed size
 *.gz.properties
 
+# The overview tests build an external .ovr next to the committed era5 fixture. The
+# sweep in tests/conftest.py removes it best-effort -- on Windows a gdal.Dataset can
+# still hold it open -- so a lost race must not leave the checkout dirty. Generated,
+# never committed.
+tests/data/geotiff/era5_land_monthly_averaged.tif.ovr
+
 # Artifacts written by running the example notebooks (they write outputs next
 # to themselves); these are generated, not sources. Data lives in examples/data/.
 docs/examples/**/*.tif

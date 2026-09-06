@@ -94,7 +94,25 @@ dev = [
     "mypy>=1.10.0",
     "types-PyYAML>=6.0.0",
     "pytest-mock>=3.12.0",
-    "pytest-timeout>=2.3.0"
+    "pytest-timeout>=2.3.0",
+    # Parallel test execution. The suite is ~10k tests and runs for about
+    # twelve minutes serially; `-n auto` brings that down to a couple of
+    # minutes on a multi-core machine. Opt-in -- only the `test-fast` task
+    # passes `-n`, so `main`, `plot` and a plain `pytest` run are unchanged and
+    # stay deterministic for debugging.
+    #
+    # The floor is not about `-n` or `--dist loadfile`, both of which long
+    # predate it. 3.6.0 is the first release that requires `pytest>=7.0.0` and
+    # `execnet>=2.1.0` and that runs a worker's tests on its *main* thread
+    # (xdist #620/#1027) -- before that a test could land on a non-main thread,
+    # which matters here because GDAL and matplotlib both keep thread-affine
+    # state. 3.6.0 itself was yanked from PyPI for an execnet/pytest-cov
+    # deadlock (xdist #1071), and the three tasks that would run xdist beside
+    # coverage -- `main`, `plot` and `test-all` -- all pass `--cov`. (`notebooks`
+    # does not, and `test-fast` deliberately does not either; neither is what the
+    # floor is protecting.) So 3.6.1 is the first release this repo can actually
+    # use, and the floor names it rather than the yanked one.
+    "pytest-xdist>=3.6.1"
 ]
 docs = [
     "mkdocs >=1.5.3",
@@ -332,6 +350,14 @@ publish-pypi = { cmd = "twine upload --non-interactive --repository pypi dist/*"
 cz-changelog = { cmd = "cz changelog", description = "Generate changelog using Commitizen" }
 cz-bump = { cmd = "cz bump", description = "Bump version using Commitizen" }
 mypy = { cmd = "mypy", description = "Run mypy type checking" }
+
+# Declared as a sub-table so the lines fit the project's width; it must stay
+# after every inline entry above, since a sub-table header ends the parent.
+[tool.pixi.tasks.test-fast]
+# `--dist loadfile` keeps one module's tests on one worker, so fixtures that
+# build a shared GDAL handle per file are not raced across processes.
+cmd = "pytest -q -n auto --dist loadfile -m 'not plot and not interop'"
+description = "Run the main suite in parallel (pytest-xdist); no coverage"
 
 
 [tool.pixi.environments]

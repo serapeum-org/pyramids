@@ -22,7 +22,6 @@ here (the input engine owns it).
 
 from __future__ import annotations
 
-import base64
 import json
 import math
 import os
@@ -50,8 +49,12 @@ from shapely.geometry import box
 
 from pyramids import _io as _pyramids_io
 from pyramids.base._errors import FeatureError, VectorTileServerError
-from pyramids.base._ogc_api import http_error_detail, http_get_with_retry
-from pyramids.base._utils import import_pyarrow
+from pyramids.base._ogc_api import (
+    discovery_request,
+    http_error_detail,
+    http_get_with_retry,
+)
+from pyramids.base._utils import extra_hint, import_pyarrow
 from pyramids.base.crs import _pyproj_crs_via_gdal
 from pyramids.base.remote import _ARCHIVE_MARKER_RE, is_remote, to_fsspec_url
 
@@ -209,18 +212,16 @@ def _vts_base_and_query(url: str) -> tuple[str, str]:
 def _vts_request(
     url: str, auth: tuple[str, str] | None, *, accept_json: bool
 ) -> urllib.request.Request:
-    """Build the urllib request for a VectorTileServer fetch, sending Basic auth preemptively."""
-    headers = {
-        "User-Agent": _VTS_USER_AGENT
-    }  # one UA for the metadata and tile requests
-    if accept_json:
-        headers["Accept"] = "application/json"
-    if auth is not None:
-        # Preemptive Basic auth (matches from_wfs / from_ogc_features): a service that
-        # 403s without a 401 challenge, or blocks the default urllib UA, still authenticates.
-        token = base64.b64encode(f"{auth[0]}:{auth[1]}".encode()).decode()
-        headers["Authorization"] = f"Basic {token}"
-    return urllib.request.Request(url, headers=headers)
+    """Build the urllib request for a VectorTileServer fetch.
+
+    Through the shared builder: the header set and the preemptive Basic auth
+    were spelled out here as well, and the only thing this fetch actually needs
+    of its own is the User-Agent, which some ArcGIS deployments filter on. One
+    UA for both the metadata and the tile requests.
+    """
+    return discovery_request(
+        url, auth, accept_json=accept_json, user_agent=_VTS_USER_AGENT
+    )
 
 
 def fetch_vectortileserver_metadata(
@@ -592,10 +593,10 @@ def _resolve_lazy_partitioning(
 def _require_pyarrow() -> None:
     """Raise a pyramids-branded ImportError if pyarrow is absent."""
     import_pyarrow(
-        "GeoParquet support requires the optional 'pyarrow' "
-        "dependency. Install with one of:\n"
-        "  - PyPI:        pip install 'pyramids-gis[parquet]'\n"
-        "  - conda-forge: conda install -c conda-forge pyramids-parquet"
+        extra_hint(
+            "GeoParquet support requires the optional 'pyarrow' dependency.",
+            "parquet",
+        )
     )
 
 
@@ -610,10 +611,10 @@ def _import_dask_geopandas():
         import dask_geopandas
     except ImportError as exc:
         raise ImportError(
-            "backend='dask' requires the optional "
-            "'dask-geopandas' dependency. Install with one of:\n"
-            "  - PyPI:        pip install 'pyramids-gis[parquet]'\n"
-            "  - conda-forge: conda install -c conda-forge pyramids-parquet"
+            extra_hint(
+                "backend='dask' requires the optional 'dask-geopandas' dependency.",
+                "parquet",
+            )
         ) from exc
     return dask_geopandas
 
@@ -817,7 +818,10 @@ def _read_remote_geojson_staged(
         raise ValueError(
             f"remote GeoJSON staging requires an https:// URL, got {url!r}"
         )
-    request = urllib.request.Request(url, headers={"User-Agent": "pyramids-gis"})
+    # Through the shared builder rather than a bare UA of its own: this was the
+    # third spelling of the same request, declaring a different client from the
+    # other two and sending no credentials at all.
+    request = discovery_request(url, None, accept_json=False)
     with tempfile.TemporaryDirectory(prefix="pyramids_geojson_") as work_dir:
         local = os.path.join(work_dir, "remote.geojson")
         try:

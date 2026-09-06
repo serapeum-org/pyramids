@@ -15,11 +15,28 @@ chunk file. This module provides two helpers wrapped by
 Zarr and fsspec are imported lazily inside the helpers — pyramids'
 core import stays free of both even when the `[lazy]` extra is not
 installed.
+
+The no-data sentinel is written three times, in spellings that are not
+redundant. `no_data_value` in the attributes is pyramids' own per-band list;
+:func:`read_dataset_from_zarr` recovers the whole list from it and nothing
+else reads it. `_FillValue` in the attributes is the CF / GeoZarr spelling,
+for xarray and other CF-aware readers. Neither is what GDAL reads: its Zarr
+driver takes the no-data from the array metadata's own `fill_value` field, and
+that field is what the two attributes are mirrored into. Zarr defaults
+`fill_value` to 0, so leaving it unset had a store opened through
+:meth:`Dataset.read_file` report a no-data of `0.0`, an ordinary value of every
+numeric type, and masking a read taken that way blanked every genuinely-zero
+cell. One Zarr array holds every band, so `fill_value` can only describe a
+sentinel the bands agree on; where they differ it is left off -- which leaves
+GDAL reading 0.0 again, so the choice is between one wrong answer and another
+and the honest one is not to claim a shared sentinel. The per-band list
+survives in `no_data_value` either way, and `from_zarr` reads it.
 """
 
 from __future__ import annotations
 
 import logging
+import math
 import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -38,6 +55,7 @@ from pyramids.dataset.ops._geobox_zarr import (
     normalize_compressors,
     read_geobox,
 )
+from pyramids.dataset.transform import GeoTransform
 
 if TYPE_CHECKING:
     from pyramids.dataset import Dataset
@@ -63,8 +81,308 @@ def _require_zarr() -> Any:
     return zarr
 
 
+def _agreed_sentinel(no_data_list: list) -> float | None:
+    """The one no-data every band declares, or `None` when they do not agree.
+
+    One zarr array holds every band, so `fill_value` can only describe a
+    sentinel the bands share. Two ways of getting that wrong were both live:
+
+    * Filtering `None` out before comparing made `(5.0, None)` look unanimous.
+      GDAL then reported `5.0` as band 2's no-data, and masking a read of the
+      store blanked every genuine `5.0` in a band with no sentinel at all --
+      the exact failure declaring a shared sentinel is meant to avoid.
+    * Comparing through a `set` made NaN's answer depend on object identity.
+      `float("nan") != float("nan")`, but a `set` short-circuits on identity, so
+      one band's sentinel deduped to a single element and two *distinct* NaN
+      objects did not. A NaN sentinel survived on a one-band raster and vanished
+      on a two-band one.
+
+    Args:
+        no_data_list: One entry per band -- a float, or `None` for a band that
+            declares no sentinel.
+
+    Returns:
+        float | None: The shared sentinel, or `None` when the bands disagree,
+            when any band has none, or when there are no bands.
+
+    Examples:
+        - Bands that agree yield the value:
+            ```python
+            >>> from pyramids.dataset.ops._zarr import _agreed_sentinel
+            >>> _agreed_sentinel([-9999.0, -9999.0, -9999.0])
+            -9999.0
+
+            ```
+        - A band with no sentinel means no agreement, whatever the others say:
+            ```python
+            >>> from pyramids.dataset.ops._zarr import _agreed_sentinel
+            >>> print(_agreed_sentinel([5.0, None]))
+            None
+
+            ```
+        - NaN agrees with NaN, however the two were built:
+            ```python
+            >>> from pyramids.dataset.ops._zarr import _agreed_sentinel
+            >>> import math
+            >>> math.isnan(_agreed_sentinel([float("nan"), float("nan")]))
+            True
+
+            ```
+        - And disagrees with a number:
+            ```python
+            >>> from pyramids.dataset.ops._zarr import _agreed_sentinel
+            >>> print(_agreed_sentinel([float("nan"), 5.0]))
+            None
+
+            ```
+    """
+    agreed: float | None = None
+    if no_data_list and None not in no_data_list:
+        first = no_data_list[0]
+        if all(_same_sentinel(first, other) for other in no_data_list[1:]):
+            agreed = first
+    return agreed
+
+
+def _same_sentinel(left: float, right: float) -> bool:
+    """True when two no-data values mean the same thing, NaN included.
+
+    Args:
+        left: One band's sentinel.
+        right: Another band's sentinel.
+
+    Returns:
+        bool: True when they agree. Two NaNs agree, which `==` denies and a
+            `set` answers only when they happen to be the same object.
+
+    Examples:
+        - Equal numbers agree, different ones do not:
+            ```python
+            >>> from pyramids.dataset.ops._zarr import _same_sentinel
+            >>> _same_sentinel(-9999.0, -9999.0), _same_sentinel(-9999.0, 0.0)
+            (True, False)
+
+            ```
+        - Two separately built NaNs agree, where `==` would say otherwise:
+            ```python
+            >>> from pyramids.dataset.ops._zarr import _same_sentinel
+            >>> _same_sentinel(float("nan"), float("nan"))
+            True
+
+            ```
+    """
+    both_nan = _is_nan(left) and _is_nan(right)
+    return both_nan or left == right
+
+
+def _is_nan(value: float) -> bool:
+    """True when `value` is a float NaN, without raising on anything else.
+
+    Args:
+        value: Any no-data value.
+
+    Returns:
+        bool: True only for a float NaN.
+
+    Examples:
+        - NaN is, a number and `None` are not:
+            ```python
+            >>> from pyramids.dataset.ops._zarr import _is_nan
+            >>> _is_nan(float("nan")), _is_nan(0.0), _is_nan(None)
+            (True, False, False)
+
+            ```
+    """
+    return isinstance(value, float) and math.isnan(value)
+
+
+def _representable(sentinel: float, dtype: str) -> bool:
+    """True when `sentinel` survives the round trip into `dtype`.
+
+    A value the band's dtype cannot hold must not be declared as its no-data.
+    The limits are where that began: `_metadata_dict` used to carry the sentinel
+    as a `float`, and `float(2**63 - 1)` rounds *up* to `2**63`, which `int64`
+    cannot hold -- promoting it into zarr's `fill_value` raised `OverflowError`
+    and a store that used to be writable could not be written at all.
+
+    :func:`_json_sentinel` now keeps such a value an exact `int` instead of
+    rounding it, so the int64 limit reaches `fill_value` intact and this is no
+    longer the guard that catches it. What remains for it is a sentinel that
+    genuinely does not fit -- fractional on an integer band, or out of its range
+    -- including a `float` that arrives already rounded.
+
+    Args:
+        sentinel: The candidate no-data, as :func:`_json_sentinel` wrote it: a
+            `float`, or an `int` where `float` would have rounded.
+        dtype: The band's numpy dtype name.
+
+    Returns:
+        bool: True when the value can be stored in `dtype` unchanged, so it is
+            safe to declare as `fill_value`. False means the attribute still
+            carries it and only the zarr field is left off -- `from_zarr` reads
+            the attribute, so nothing is lost for pyramids' own reader.
+
+    Examples:
+        - An ordinary sentinel on a float band round-trips:
+            ```python
+            >>> from pyramids.dataset.ops._zarr import _representable
+            >>> _representable(-9999.0, "float32")
+            True
+
+            ```
+        - An already-rounded int64 maximum does not: the rounded value is out
+          of range:
+            ```python
+            >>> from pyramids.dataset.ops._zarr import _representable
+            >>> _representable(float(2**63 - 1), "int64")
+            False
+
+            ```
+        - The same limit kept exact does, which is how `_json_sentinel` hands
+          it over:
+            ```python
+            >>> from pyramids.dataset.ops._zarr import _representable
+            >>> _representable(2**63 - 1, "int64")
+            True
+
+            ```
+        - A sentinel an integer band can hold is fine:
+            ```python
+            >>> from pyramids.dataset.ops._zarr import _representable
+            >>> _representable(-9999.0, "int32")
+            True
+
+            ```
+    """
+    representable = True
+    try:
+        as_dtype = np.dtype(dtype)
+    except TypeError:
+        as_dtype = None
+    if as_dtype is not None and np.issubdtype(as_dtype, np.integer):
+        info = np.iinfo(as_dtype)
+        representable = (
+            float(sentinel).is_integer()
+            and info.min <= sentinel <= info.max
+            and int(sentinel) == sentinel
+        )
+    return representable
+
+
+def _json_sentinel(value: float) -> float | int:
+    """The sentinel as a JSON number, exact even where `float` cannot hold it.
+
+    The attributes are JSON, so the sentinel used to be coerced with `float()`
+    on the way in. Above 2**53 that is lossy for a 64-bit integer band, and the
+    coerced value is no longer only the attribute's: it is what reaches zarr's
+    own `fill_value`, which is what GDAL reads. An int64 sentinel of
+    `9007199254740993` therefore reached disk as `9007199254740992`, so every
+    reader -- GDAL, `from_zarr`, any CF-aware one -- was told the store's
+    no-data is a number one away from the one the source declares. Masking a
+    read of it blanks the genuine `9007199254740992` cells and leaves the real
+    sentinel unmasked.
+
+    JSON numbers are not floats, so an integer sentinel needs no coercion at
+    all. `float()` is still applied wherever it is lossless, which leaves every
+    ordinary sentinel (`-9999`, `255`, `65535`) spelled exactly as before; only
+    a value `float` would round is kept as an `int`.
+
+    Args:
+        value: One band's no-data, as `Dataset.no_data_value` reports it -- a
+            Python/NumPy integer for an integer band, a float otherwise.
+
+    Returns:
+        float | int: The same number, written the way JSON can hold it exactly.
+
+    Examples:
+        - An ordinary sentinel is a float, whichever type it arrived as:
+            ```python
+            >>> from pyramids.dataset.ops._zarr import _json_sentinel
+            >>> _json_sentinel(-9999), _json_sentinel(-9999.0)
+            (-9999.0, -9999.0)
+
+            ```
+        - One `float` cannot hold stays an exact integer:
+            ```python
+            >>> from pyramids.dataset.ops._zarr import _json_sentinel
+            >>> _json_sentinel(9007199254740993)
+            9007199254740993
+
+            ```
+        - Including the int64 maximum, which `float` rounds up out of range:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.dataset.ops._zarr import _json_sentinel
+            >>> _json_sentinel(np.int64(2**63 - 1)) == 2**63 - 1
+            True
+
+            ```
+    """
+    coerced: float | int = float(value)
+    if isinstance(value, (int, np.integer)) and int(coerced) != int(value):
+        coerced = int(value)
+    return coerced
+
+
 def _metadata_dict(ds: Dataset) -> dict[str, Any]:
-    """Return the standard CRS / GeoTransform geobox attr dict for the store."""
+    """Return the standard CRS / GeoTransform geobox attr dict for the store.
+
+    Args:
+        ds: The dataset about to be serialised, read for its CRS, geotransform,
+            per-band no-data, band names, dtype and shape.
+
+    Returns:
+        dict[str, Any]: The attributes to stamp on the store's root group and
+            on its `data` array. `spatial_ref`, `GeoTransform` and `epsg` place
+            the raster; `band_names`, `dtype` and `shape` describe it; and the
+            no-data appears in up to two spellings. `no_data_value` is always
+            present and always the full per-band list — pyramids' own key, and
+            what `from_zarr` reads back. `_FillValue` is the CF / GeoZarr key,
+            read by xarray and other CF-aware readers, and it is also what
+            :func:`write_dataset_to_zarr` copies into the array's own
+            `fill_value` — the field GDAL's Zarr driver actually reads. It is
+            added only when every band names the same sentinel, because one
+            Zarr array holds them all and a single value cannot honestly stand
+            for two. Where the bands disagree it is omitted, which leaves
+            `fill_value` at zarr's default of 0 and GDAL reporting `0.0`: not a
+            store with no no-data, but one whose no-data is a value the bands
+            never agreed on. `from_zarr` reads the per-band list regardless.
+
+    Examples:
+        - Bands that agree carry both spellings, so pyramids and GDAL read the
+          same sentinel out of the store:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base.georeference import GeoReference
+            >>> from pyramids.dataset import Dataset
+            >>> from pyramids.dataset.ops._zarr import _metadata_dict
+            >>> geo_ref = GeoReference(top_left_corner=(0, 0), cell_size=0.1, epsg=4326)
+            >>> agreed = Dataset.from_array(
+            ...     np.zeros((2, 4, 4), "float32"), geo_ref=geo_ref, no_data_value=-9999.0
+            ... )
+            >>> meta = _metadata_dict(agreed)
+            >>> meta["no_data_value"], meta["_FillValue"]
+            ([-9999.0, -9999.0], -9999.0)
+
+            ```
+        - Bands that disagree keep the per-band list and drop the single-valued
+          key, rather than promoting one band's sentinel over the other's:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base.georeference import GeoReference
+            >>> from pyramids.dataset import Dataset
+            >>> from pyramids.dataset.ops._zarr import _metadata_dict
+            >>> geo_ref = GeoReference(top_left_corner=(0, 0), cell_size=0.1, epsg=4326)
+            >>> mixed = Dataset.from_array(
+            ...     np.zeros((2, 4, 4), "float32"), geo_ref=geo_ref, no_data_value=[-9999.0, 0.0]
+            ... )
+            >>> _metadata_dict(mixed)["no_data_value"]
+            [-9999.0, 0.0]
+            >>> "_FillValue" in _metadata_dict(mixed)
+            False
+
+            ```
+    """
     # A geostationary (and other no-EPSG) CRS has `.epsg is None`; carry it
     # through the WKT `spatial_ref` and record epsg 0 (the geobox convention for
     # "no authority code") so `to_zarr` does not crash on `int(None)` (#706).
@@ -73,15 +391,36 @@ def _metadata_dict(ds: Dataset) -> dict[str, Any]:
     # (e.g. geostationary) carries its own `.crs` WKT so its `spatial_ref` is preserved.
     crs_wkt = sr_from_epsg(epsg_code).ExportToWkt() if ds.epsg else (ds.crs or "")
     nodata_tuple = ds.no_data_value
-    return {
+    # Written the way JSON can hold it exactly: `float` for everything it can
+    # represent, an `int` only where it would round. A plain `float()` here cost
+    # an int64 sentinel above 2**53 its last digit, and since this value is also
+    # what reaches zarr's `fill_value`, that rounded number became the one GDAL
+    # reports. `_representable` below is the remaining guard, for a sentinel the
+    # band's dtype genuinely cannot hold.
+    no_data_list = [None if v is None else _json_sentinel(v) for v in nodata_tuple]
+    # `no_data_value` is pyramids' own per-band list and only pyramids reads it.
+    # `_FillValue` is the CF/GeoZarr spelling, for xarray and other CF-aware
+    # readers -- GDAL's Zarr driver ignores the attribute and reads the array
+    # metadata's own `fill_value`, which `write_dataset_to_zarr` sets from this
+    # key. Without it that field keeps zarr's default of 0, so
+    # `Dataset.read_file(store.zarr)` reported **0.0** -- an ordinary value of
+    # every numeric type -- and masking a store read that way blanked every
+    # genuinely-zero cell. One array holds every band, so a single sentinel can
+    # only describe one the bands agree on; where they differ it is left off,
+    # and `from_zarr` still recovers the full list from `no_data_value`.
+    agreed = _agreed_sentinel(no_data_list)
+    metadata = {
         "spatial_ref": crs_wkt,
         "GeoTransform": " ".join(str(v) for v in ds.geotransform),
         "epsg": epsg_code,
-        "no_data_value": [None if v is None else float(v) for v in nodata_tuple],
+        "no_data_value": no_data_list,
         "band_names": list(ds.band_names) if ds.band_names else [],
         "dtype": str(np.dtype(ds.numpy_dtype[0])),
         "shape": [int(ds.band_count), int(ds.rows), int(ds.columns)],
     }
+    if agreed is not None and _representable(agreed, ds.numpy_dtype[0]):
+        metadata["_FillValue"] = agreed
+    return metadata
 
 
 def _build_dask_array(ds: Dataset, chunks: Any) -> Any:
@@ -207,12 +546,22 @@ def write_dataset_to_zarr(
     resolved_store = _resolve_store(store, storage_options)
 
     codec_kwargs = normalize_compressors(compressor)
+    # The sentinel goes in the array metadata's own `fill_value`, not only in
+    # the attributes. Zarr defaults it to 0, and 0 is an ordinary value of every
+    # numeric type -- GDAL's Zarr driver reads that field, so
+    # `Dataset.read_file(store.zarr)` reported a no-data of 0.0 and masking such
+    # a read blanked every genuinely-zero cell. `no_data_value` in the
+    # attributes is pyramids' own spelling and only `from_zarr` reads it.
+    fill_kwargs = (
+        {"fill_value": metadata["_FillValue"]} if "_FillValue" in metadata else {}
+    )
     write_result = arr.to_zarr(
         resolved_store,
         component="data",
         overwrite=(mode == "w"),
         compute=compute,
         **codec_kwargs,
+        **fill_kwargs,
     )
     if compute:
         _finalize_metadata(resolved_store, metadata)
@@ -279,6 +628,13 @@ def _write_overview_levels(
             dtype=level_arr.dtype,
             dimension_names=("band", "y", "x"),
             overwrite=True,
+            # Same reason as the base array: a level read through GDAL would
+            # otherwise report the zarr default of 0 as its no-data.
+            **(
+                {"fill_value": metadata["_FillValue"]}
+                if "_FillValue" in metadata
+                else {}
+            ),
         )
         za[...] = level_arr
         za.attrs["_ARRAY_DIMENSIONS"] = ["band", "y", "x"]
@@ -288,6 +644,8 @@ def _write_overview_levels(
         # read preserves them instead of falling back to defaults (M2).
         if "no_data_value" in metadata:
             za.attrs["no_data_value"] = metadata["no_data_value"]
+        if "_FillValue" in metadata:
+            za.attrs["_FillValue"] = metadata["_FillValue"]
         if "band_names" in metadata:
             za.attrs["band_names"] = metadata["band_names"]
         datasets_meta.append(
@@ -403,10 +761,20 @@ def _resolve_data_array_name(root: Any, level: int, data_name: str | None) -> st
 
 
 def _scale_geotransform(base_gt: tuple, level: int) -> tuple:
-    """Scale a base GeoTransform by a pyramid level (cell sizes only; origin fixed)."""
+    """Scale a base GeoTransform by a pyramid level (origin fixed).
+
+    The level applies equally to both axes, matching the single `scale` written
+    per level into the `multiscales` coordinateTransformations by
+    `_write_overview_levels`; the two must stay in step.
+
+    Rotation terms scale with their matching axis rather than being zeroed, so a
+    skewed grid survives the round-trip.
+    """
     if level == 1:
-        return base_gt
-    return (base_gt[0], base_gt[1] * level, 0.0, base_gt[3], 0.0, base_gt[5] * level)
+        scaled = base_gt
+    else:
+        scaled = tuple(GeoTransform(*base_gt).scaled(level, level))
+    return scaled
 
 
 def _normalize_no_data(attrs: dict[str, Any]) -> Any:
@@ -419,22 +787,6 @@ def _normalize_no_data(attrs: dict[str, Any]) -> Any:
     if no_data_list and any(v is not None for v in no_data_list):
         return list(no_data_list)
     return None
-
-
-def _apply_band_names(dataset: Dataset, attrs: dict[str, Any]) -> None:
-    """Restore band names from the store, warning (and skipping) on a length mismatch (Z-5)."""
-    band_names = attrs.get("band_names") or []
-    if not band_names:
-        return
-    if len(band_names) == dataset.band_count:
-        dataset.band_names = list(band_names)
-        return
-    logger.warning(
-        "Zarr store band_names (%d) do not match band count (%d); "
-        "keeping default band names.",
-        len(band_names),
-        dataset.band_count,
-    )
 
 
 def read_dataset_from_zarr(
@@ -518,9 +870,11 @@ def read_dataset_from_zarr(
     dataset = Dataset.from_array(
         arr_for_create,
         no_data_value=_normalize_no_data(attrs),
+        # The full six-element affine, not a top-left/cell-size pair: that pair
+        # cannot express rotation terms or a positive pixel height, so a rotated
+        # or south-up store came back silently re-gridded as north-up square.
         geo_ref=GeoReference(
-            top_left_corner=(geotransform[0], geotransform[3]),
-            cell_size=float(geotransform[1]),
+            geo=tuple(float(value) for value in geotransform),
             epsg=geobox_crs(geobox),
         ),
     )
@@ -528,7 +882,7 @@ def read_dataset_from_zarr(
     # the epsg above is only a fallback when no WKT was written (Z-3).
     if geobox["crs_wkt"]:
         dataset.crs = geobox["crs_wkt"]
-    _apply_band_names(dataset, attrs)
+    dataset.bands.apply_names(attrs.get("band_names"), source="Zarr store")
     return dataset
 
 

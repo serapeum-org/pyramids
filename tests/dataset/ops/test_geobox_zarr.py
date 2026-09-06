@@ -290,6 +290,21 @@ class TestReadGeobox:
         assert result["crs_wkt"] == _WKT_4326, "wkt not recovered"
         np.testing.assert_allclose(result["geotransform"], _GT)
 
+    def test_a_malformed_geotransform_names_the_store(self, tmp_path):
+        """A GeoTransform that is not six numbers fails with a useful message.
+
+        Test scenario:
+            A store whose ``GeoTransform`` attribute carries four values instead
+            of six reaches the SWIG layer as a bare ``TypeError`` naming neither
+            the store nor the attribute; the guard raises a ``ValueError`` that
+            names both.
+        """
+        group = self._written_group(tmp_path)
+        group["spatial_ref"].attrs["GeoTransform"] = "0 1 0 4"
+
+        with pytest.raises(ValueError, match="expected 6"):
+            read_geobox(group)
+
     def test_legacy_branch_warns(self, tmp_path):
         """Legacy flat-attr store reads with a DeprecationWarning.
 
