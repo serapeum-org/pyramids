@@ -113,7 +113,7 @@ class TestInit:
 
 
 class TestStr:
-    """Tests for NetCDF.__str__."""
+    """Tests for NetCDF.__str__, which dispatches on the container/variable identity."""
 
     def test_str_contains_variable_info(self, nc_3d):
         """Verify __str__ includes variable names and dimension info.
@@ -125,14 +125,58 @@ class TestStr:
         result = str(nc_3d)
         assert "temperature" in result, f"Variable name not in __str__: {result}"
 
-    def test_str_contains_cell_size(self, nc_3d):
-        """Verify __str__ includes cell size.
+    def test_container_str_omits_raster_fields(self, nc_3d):
+        """A container summary must not report raster fields it has no raster for.
 
         Test scenario:
-            The cell_size value should appear in the string output.
+            `nc_3d` is a `Container` (`band_count == 0`), so `rows` / `columns` /
+            `cell_size` fall through to GDAL's in-memory placeholder -- a 10x12 cube
+            reported itself as 512 x 512 at cell size 1.0. This assertion previously
+            required "Cell size" to be *present*, which pinned that defect (#1090).
+        """
+        assert nc_3d.band_count == 0, (
+            "fixture must be a container for this to mean anything"
+        )
+        result = str(nc_3d)
+        for field in ("Cell size", "Dimension:", "512"):
+            assert field not in result, (
+                f"container summary leaked a raster field: {result}"
+            )
+
+    def test_container_str_reports_the_cube(self, nc_3d):
+        """The container summary describes dimensions, CRS and variables.
+
+        Test scenario:
+            The truth is in `dimension_sizes` and `meta_data.variables`, which the old
+            summary never consulted.
         """
         result = str(nc_3d)
-        assert "Cell size" in result, f"Cell size label not in __str__: {result}"
+        assert result.startswith("<Container"), f"unexpected header: {result}"
+        assert "dimensions :" in result, f"no dimensions line: {result}"
+        assert "EPSG:4326" in result, f"no CRS label: {result}"
+
+    def test_variable_str_reports_the_grid(self, nc_3d):
+        """A variable *is* a raster, so its summary keeps the grid.
+
+        Test scenario:
+            The dispatch must not strip raster fields from the type that genuinely has
+            them; `get_variable` returns a `Variable` with `band_count >= 1`.
+        """
+        variable = nc_3d.get_variable("temperature")
+        result = str(variable)
+        assert result.startswith("<Variable"), f"unexpected header: {result}"
+        assert "grid    :" in result, f"no grid line: {result}"
+        assert "bands   :" in result, f"no bands line: {result}"
+
+    def test_str_never_dumps_raw_wkt(self, nc_3d):
+        """Neither summary dumps the projection WKT.
+
+        Test scenario:
+            The old summary interpolated `self.crs`, putting a multi-thousand-character
+            WKT on one line and drowning every other field.
+        """
+        for result in (str(nc_3d), str(nc_3d.get_variable("temperature"))):
+            assert "GEOGCS" not in result, f"raw WKT leaked into the summary: {result}"
 
 
 class TestRepr:

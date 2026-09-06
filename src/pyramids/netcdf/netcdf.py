@@ -82,7 +82,7 @@ from pyramids.netcdf.engines.interop import Interop
 from pyramids.netcdf.engines.selection import Selection
 from pyramids.netcdf.engines.variables import Variables
 from pyramids.netcdf.metadata import get_metadata
-from pyramids.netcdf.models import NetCDFMetadata
+from pyramids.netcdf.models import MAX_DISPLAY_VARIABLES, NetCDFMetadata
 from pyramids.netcdf.plot_options import CoordinateSpec, FacetSpec, Selectors
 from pyramids.netcdf.utils import (
     _read_attributes,
@@ -560,6 +560,134 @@ def _resolve_index_selector(selector: Any, size: int, dim_name: str) -> tuple[in
     return index, index + 1
 
 
+def _collapse_uniform(values: Any) -> Any:
+    """Collapse a per-band sequence to its single value when every band agrees.
+
+    A 12-band variable reports ``dtype`` as ``['float32'] * 12``, ``band_units`` as
+    ``[''] * 12`` and ``no_data_value`` as a 12-tuple of ``nan`` -- true, but unreadable
+    in a summary (#1090). One distinct value collapses to that value; a genuinely mixed
+    sequence is left alone, because there the per-band detail is the information.
+
+    ``nan`` is compared by identity as well as equality, since ``nan != nan`` would
+    otherwise make an all-``nan`` no-data tuple look mixed.
+
+    Args:
+        values: A per-band sequence, or any scalar (returned unchanged).
+
+    Returns:
+        Any: The single shared value, the original sequence when it varies, or
+        ``None`` when it is empty.
+    """
+    if not isinstance(values, (list, tuple)):
+        return values
+    if not values:
+        return None
+    first = values[0]
+    uniform = all(v is first or v == first or _both_nan(v, first) for v in values)
+    return first if uniform else list(values)
+
+
+def _both_nan(left: Any, right: Any) -> bool:
+    """Whether both values are float ``nan`` -- the one case ``==`` gets wrong."""
+    try:
+        return bool(np.isnan(left) and np.isnan(right))
+    except (TypeError, ValueError):
+        return False
+
+
+def _container_summary(nc: NetCDF) -> str:
+    """Describe the cube, never a raster.
+
+    Sourced from ``meta_data.variables`` -- a ``dict[str, VariableInfo]`` carrying
+    name / shape / dtype / unit for every array including the coordinates, costed once
+    for the whole store. Looping ``get_variable()`` instead would raise on every
+    non-raster variable and produce a wall of text (#1090).
+
+    Prints no ``rows`` / ``columns`` / ``cell_size`` / ``band_count``: a container has
+    no raster behind those, which is the whole defect this replaces.
+
+    Returns:
+        str: A short multi-line summary.
+    """
+    source = nc.file_name
+    lines = [f"<Container {Path(source).name if source else 'in-memory'}>"]
+
+    sizes = nc.dimension_sizes or {}
+    dims = ", ".join(f"{name}={size}" for name, size in sizes.items())
+    lines.append(f"  dimensions : {dims or 'none'}")
+
+    variables = nc.meta_data.variables or {}
+    if not variables:
+        lines.append("  variables  : none")
+    else:
+        lines.append("  variables  :")
+        shown = list(variables.values())[:MAX_DISPLAY_VARIABLES]
+        width = max(len(info.name) for info in shown)
+        for info in shown:
+            shape = "(" + ", ".join(str(n) for n in info.shape) + ")"
+            row = f"    {info.name:<{width}}  {shape}  {info.dtype}"
+            if info.unit:
+                row += f"  {info.unit}"
+            lines.append(row)
+        hidden = len(variables) - len(shown)
+        if hidden > 0:
+            lines.append(f"    ... {hidden} more")
+
+    groups = nc.group_names or []
+    lines.append(f"  groups     : {', '.join(groups) if groups else 'none'}")
+    lines.append(f"  CRS        : {nc._crs_label()}")
+    lines.append(f"  attributes : {len(nc.meta_data.global_attributes or {})} global")
+    return "\n".join(lines)
+
+
+def _variable_summary(nc: NetCDF) -> str:
+    """Describe the raster this variable genuinely is.
+
+    Per-band sequences are collapsed when uniform: a 12-band variable reports
+    ``float32`` rather than ``['float32'] * 12``. The band axis is named by its
+    dimension (``12 along time``) rather than ``Band_1 ... Band_12``, because the
+    raster vocabulary for a time axis is a standing source of confusion (#1090).
+
+    Stays cheap -- no band reads and no ``stats()`` -- since ``str()`` runs in
+    debuggers, logging and pytest introspection.
+
+    Returns:
+        str: A short multi-line summary.
+    """
+    name = nc._source_var_name or "?"
+    header = f"<Variable {name}"
+    # A variable subset's raster is an in-memory MDArray view, so it has no path of
+    # its own; the container it came from does.
+    parent = getattr(nc, '_parent_nc', None)
+    source = nc.file_name or (parent.file_name if parent is not None else '')
+    if source:
+        header += f" - {Path(source).name}"
+    lines = [header + ">"]
+
+    cell = nc.cell_size
+    cell_text = f"{cell:g}" if isinstance(cell, (int, float)) else str(cell)
+    lines.append(
+        f"  grid    : {nc.rows} x {nc.columns} @ {cell_text}, {nc._crs_label()}"
+    )
+
+    band_axis = nc._band_dim_name
+    bands = f"  bands   : {nc.band_count}"
+    if band_axis:
+        bands += f" along {band_axis}"
+    lines.append(bands)
+
+    units = _collapse_uniform(nc.band_units)
+    if units:
+        lines.append(f"  units   : {units}")
+    dtype = _collapse_uniform(nc.dtype)
+    if dtype:
+        lines.append(f"  dtype   : {dtype}")
+    nodata = _collapse_uniform(nc.no_data_value)
+    if nodata is not None:
+        lines.append(f"  no-data : {nodata}")
+    return "\n".join(lines)
+
+
 class NetCDF(Dataset):
     """NetCDF.
 
@@ -892,22 +1020,51 @@ class NetCDF(Dataset):
     def __str__(self):
         """Return a human-readable summary, or a `<Dataset: closed>` sentinel when closed.
 
+        Dispatches on the identity the class docstrings already use: a container is not a
+        raster (``band_count == 0``), a variable is (``band_count >= 1``). Defining one
+        summary here and letting both inherit it made the container describe raster fields
+        it does not have -- ``rows`` / ``columns`` / ``cell_size`` fell through to GDAL's
+        in-memory placeholder, so a 12x5x5 cube at 0.25 degrees reported itself as
+        512 x 512 at cell size 1.0 (#1090).
+
+        A bare ``NetCDF`` is never produced -- ``read_file`` returns a
+        :class:`Container` and ``get_variable`` a :class:`Variable` -- so this base
+        implementation only routes.
+
         Mirrors `Dataset.__str__`: a closed handle returns the sentinel rather than
         raising, so the repr/str stays total for debuggers and logging (`__repr__`
         already inherits this via `super()`).
         """
-        message = "<Dataset: closed>"
-        if self._raster is not None:
-            message = f"""
-            Cell size: {self.cell_size}
-            Dimension: {self.rows} * {self.columns}
-            EPSG: {self.epsg}
-            projection: {self.crs}
-            Variables: {self.variable_names}
-            Metadata: {self.meta_data}
-            File: {self.file_name}
-        """
+        if self._raster is None:
+            message = "<Dataset: closed>"
+        elif self.band_count == 0:
+            message = _container_summary(self)
+        else:
+            message = _variable_summary(self)
         return message
+
+    def _crs_label(self) -> str:
+        """The CRS as a short label -- ``EPSG:4326``, a CRS name, or ``unknown``.
+
+        Never the raw WKT: it is thousands of characters on one line and drowns every
+        other line of the summary (#1090).
+
+        Returns:
+            str: A one-line CRS label.
+        """
+        label = "unknown"
+        try:
+            epsg = self.epsg
+            if epsg:
+                label = f"EPSG:{epsg}"
+            else:
+                wkt = self.crs
+                if wkt:
+                    name = osr.SpatialReference(wkt=wkt).GetName()
+                    label = name or "unknown"
+        except Exception:
+            label = "unknown"
+        return label
 
     def __repr__(self):
         """__repr__."""
