@@ -1199,13 +1199,23 @@ def _read_dim_names(md_arr: Any) -> list[str]:
 
 
 # Every public name this module offers: the CF epoch constants and helpers it
-# re-exports from `base._cf_epoch`, plus every public function it defines
-# itself. The list is the module's declared surface -- a star-import and
-# mkdocstrings' public-member detection both read it -- so a helper left out is
-# a helper withdrawn, not merely one that is undocumented.
+# re-exports from `base._cf_epoch`, plus every public function, type alias and
+# constant it defines itself. The list is the module's declared surface -- a
+# star-import and mkdocstrings' public-member detection both read it -- so a
+# name left out is a name withdrawn, not merely one that is undocumented.
+#
+# Measured, not assumed: griffe reports `mod.exports` for this module and calls
+# exactly those members public, so the docs page renders this list and nothing
+# else. The first version listed only functions, which silently dropped the
+# three attribute type aliases -- `AttributeValue` is in `NetCDFVariable`'s own
+# signature, via `netcdf/models.py` -- and `CF_NODATA_KEYS` from the page.
 __all__ = [
+    "AttributeScalar",
+    "AttributeValue",
+    "AttributeVector",
     "CF_EPOCH",
     "CF_EPOCH_CALENDAR",
+    "CF_NODATA_KEYS",
     "cf_epoch_units",
     "cf_units_text",
     "create_time_conversion_func",

@@ -28,7 +28,38 @@ def _public_functions_defined_here(module) -> list[str]:
     )
 
 
-class TestNetCDFUtilsAdvertisesEveryPublicFunctionItDefines:
+def _public_names_defined_here(module) -> list[str]:
+    """Every public name ``module`` defines itself, whatever kind of object it is.
+
+    Functions are the obvious half and the easy half. A module's API is also its type
+    aliases and its constants, and neither is a function, so a function-only sweep reports
+    a complete ``__all__`` while the page it governs is missing them. That is exactly how
+    ``AttributeValue`` — which appears in ``NetCDFVariable``'s own signature — and
+    ``CF_NODATA_KEYS`` were dropped.
+
+    Anything imported from elsewhere is skipped: re-exporting is a decision, and this guard
+    is about names the module owns. Functions and classes carry ``__module__``; a bare
+    alias or constant does not, so it is taken as defined here — the safe direction, since
+    a false positive is a name to justify and a false negative is a name silently
+    withdrawn.
+
+    Args:
+        module: The module to inspect.
+
+    Returns:
+        list[str]: The public names, sorted.
+    """
+    names = []
+    for name, obj in vars(module).items():
+        if name.startswith("_") or inspect.ismodule(obj):
+            continue
+        owner = getattr(obj, "__module__", None)
+        if owner is None or owner == module.__name__:
+            names.append(name)
+    return sorted(names)
+
+
+class TestNetCDFUtilsAdvertisesEveryPublicNameItDefines:
     """``pyramids.netcdf.utils.__all__`` must not shrink the module's own API."""
 
     def test_all_lists_every_public_function_defined_in_the_module(self):
@@ -49,6 +80,27 @@ class TestNetCDFUtilsAdvertisesEveryPublicFunctionItDefines:
 
         assert not missing, (
             "public functions defined in pyramids.netcdf.utils but absent from its "
+            f"__all__: {missing}"
+        )
+
+    def test_all_lists_every_public_name_defined_in_the_module(self):
+        """A type alias and a constant are API too, and the first sweep missed both.
+
+        Test scenario:
+            The function-only check above passed while the module's three attribute type
+            aliases and ``CF_NODATA_KEYS`` were still absent from ``__all__`` — and
+            griffe, which mkdocstrings renders this module through, reports ``__all__``
+            as the module's exports and calls exactly those members public. So the docs
+            page silently lost four names, one of them (``AttributeValue``) part of
+            ``NetCDFVariable``'s published signature. Sweeping every public object the
+            module defines, not only its functions, is what catches that.
+        """
+        missing = sorted(
+            set(_public_names_defined_here(netcdf_utils)) - set(netcdf_utils.__all__)
+        )
+
+        assert not missing, (
+            "public names defined in pyramids.netcdf.utils but absent from its "
             f"__all__: {missing}"
         )
 
