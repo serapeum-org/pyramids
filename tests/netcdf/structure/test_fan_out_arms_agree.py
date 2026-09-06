@@ -275,12 +275,17 @@ class TestTheFillValueSurvivesBothArms:
         """The other half: neither arm may invent a sentinel.
 
         Test scenario:
-            This `Int16` store declares no fill at all. Carrying the warped
-            wrapper's no-data across instead of the source array's own would
-            stamp GDAL's uninitialised default here, and `0` is an ordinary
-            value of every integer type -- masking would blank real cells.
-            This is the assertion that makes the fill fix safe rather than
-            merely present.
+            This `Int16` store declares no fill at all, and neither arm may
+            invent one: `0` is an ordinary value of every integer type, so a
+            fabricated sentinel would blank real cells on the next mask.
+
+            What this does *not* pin is which of the two no-data sources the
+            writer reads. Substituting `res.no_data_value` for the source
+            array's own slot leaves every assertion here passing, because the
+            warped wrapper reports `None` for this fixture too -- measured, not
+            assumed. The choice between them is argued in
+            `_add_spatial_var_spec`'s comment and is not observable on any
+            fixture the suite carries.
         """
         eager, streamed = _both_arms(NO_FILL, tmp_path)
 

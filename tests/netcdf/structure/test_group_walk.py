@@ -61,6 +61,29 @@ def _write_deeply_nested_store(path: Path, depth: int) -> None:
     dataset.Close()
 
 
+def _depth_warning(record) -> object:
+    """The one depth-cap warning out of everything `record` caught.
+
+    `record[0]` is whichever warning happened to be raised first, so any
+    unrelated `UserWarning` from GDAL or the enumeration displaces the one
+    under test and the assertions below start reading someone else's message.
+    Selecting by content keeps them pointed at the right warning, and asserting
+    exactly one match keeps a duplicate from passing unnoticed.
+
+    Args:
+        record: pytest's `WarningsChecker`, after the block has run.
+
+    Returns:
+        object: The matching `warnings.WarningMessage`.
+    """
+    matches = [w for w in record if "Group nesting deeper than" in str(w.message)]
+    assert len(matches) == 1, (
+        f"expected exactly one depth-cap warning, got {len(matches)} of "
+        f"{[str(w.message)[:60] for w in record]}"
+    )
+    return matches[0]
+
+
 class TestAnInheritedDimensionIsFilteredLikeAnOwnedOne:
     """A sub-group's coordinate axis is not a data variable.
 
@@ -164,7 +187,7 @@ class TestTheDepthCapIsAnnouncedWhenItFires:
         with pytest.warns(UserWarning) as record:
             names = dataset.variable_names
 
-        message = str(record[0].message)
+        message = str(_depth_warning(record).message)
         assert str(_MAX_GROUP_DEPTH) in message, f"the cap is not named: {message}"
         assert f"g{_MAX_GROUP_DEPTH - 1}/" in message, (
             f"the group the walk stopped at is not named: {message}"
@@ -192,7 +215,7 @@ class TestTheDepthCapIsAnnouncedWhenItFires:
         with pytest.warns(UserWarning) as record:
             _ = dataset.variable_names
 
-        raised_at = Path(record[0].filename)
+        raised_at = Path(_depth_warning(record).filename)
         assert raised_at == Path(__file__), (
             f"the warning is attributed to {raised_at}, not to the caller"
         )

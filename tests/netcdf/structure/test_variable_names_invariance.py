@@ -30,6 +30,16 @@ pytestmark = pytest.mark.core
 DATA = Path(__file__).parents[2] / "data" / "netcdf"
 FIXTURES = sorted(Path(p).name for p in glob.glob(str(DATA / "*.nc")))
 
+# A glob that matches nothing parametrises zero cases, and a suite that runs no
+# test reports success. Renaming or moving the fixture directory would do it, so
+# the emptiness is an error at collection time rather than a silent pass.
+if not FIXTURES:
+    raise FileNotFoundError(
+        f"no netCDF fixtures found under {DATA}: this module parametrises over the "
+        "whole corpus, and an empty corpus would report success without testing "
+        "anything."
+    )
+
 
 @pytest.fixture(params=FIXTURES, ids=FIXTURES)
 def netcdf_path(request) -> str:
@@ -564,15 +574,21 @@ class TestCarryableAuxNames:
             is unaffected and must survive.
         """
         dataset = NetCDF.read_file(str(DATA / "cf__5v__1d4-3d1__geog__y-desc.nc"))
-        if "expver" not in dataset._readable_variable_names():
-            pytest.skip("fixture carries no non-spatial ancillary array")
+        # Asserted, not skipped: the fixture demonstrably carries `expver`, so a
+        # skip here could only mean the enumeration stopped reporting it -- which
+        # is the defect this test exists to catch, silently turned into a pass.
+        assert "expver" in dataset._readable_variable_names(), (
+            "the fixture no longer offers expver, so this test has no subject"
+        )
         rg = dataset._working_group()
 
         carryable = dataset._carryable_aux_names(
             rg, dataset._spatial_variable_names(rg)
         )
 
-        assert "expver" in carryable
+        assert "expver" in carryable, (
+            f"a non-spatial ancillary array was not carryable: {carryable}"
+        )
 
     def test_every_carried_name_is_one_the_reader_accepts(self):
         """Nothing may be carried that the store cannot hand back.

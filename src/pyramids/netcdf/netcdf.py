@@ -3540,10 +3540,18 @@ class NetCDF(Dataset):
         # is what `open_streaming_multidim_netcdf` turns into a real
         # `SetNoDataValueDouble` before the first slab; a plain `_FillValue`
         # entry is written as an ordinary attribute and read back as 0.0, which
-        # is worse than none. The value is read off the **source array's** slot,
-        # not `res.no_data_value`: the warped classic wrapper reports GDAL's
-        # uninitialised default for a variable that has no fill, which would
-        # stamp a spurious out-of-range sentinel on every no-data-less variable.
+        # is worse than none.
+        #
+        # The value is read off the **source array's** slot rather than
+        # `res.no_data_value`, because the source's own declaration is the
+        # thing being carried; `res` reports a value derived through the warp.
+        # The two were measured across the corpus and never disagree -- 18
+        # variable pairs, the only difference a `nan != nan` artefact -- and on
+        # the no-fill fixture the warped wrapper does not invent a default
+        # either. So this is a choice of the more direct source, not a
+        # correction of a divergence: an earlier comment here claimed the
+        # wrapper stamps GDAL's uninitialised default on every no-data-less
+        # variable, and that is not observable on any fixture in the suite.
         src_ndv = src_md.GetNoDataValue() if src_md is not None else None
         if src_ndv is not None and "nodata" not in attrs:
             attrs["nodata"] = src_ndv
