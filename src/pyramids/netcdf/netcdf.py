@@ -577,6 +577,28 @@ def _collapse_uniform(values: Any) -> Any:
     Returns:
         Any: The single shared value, the original sequence when it varies, or
         ``None`` when it is empty.
+
+    Examples:
+        - A uniform sequence reports the one value it holds:
+            ```python
+            >>> _collapse_uniform(["float32", "float32", "float32"])
+            'float32'
+
+            ```
+        - A sequence that genuinely varies keeps its per-band detail:
+            ```python
+            >>> _collapse_uniform(["float32", "int16"])
+            ['float32', 'int16']
+
+            ```
+        - An empty sequence has nothing to report, and a scalar is already collapsed:
+            ```python
+            >>> _collapse_uniform([]) is None
+            True
+            >>> _collapse_uniform("float32")
+            'float32'
+
+            ```
     """
     if not isinstance(values, (list, tuple)):
         return values
@@ -588,7 +610,33 @@ def _collapse_uniform(values: Any) -> Any:
 
 
 def _both_nan(left: Any, right: Any) -> bool:
-    """Whether both values are float ``nan`` -- the one case ``==`` gets wrong."""
+    """Whether both values are float ``nan`` -- the one case ``==`` gets wrong.
+
+    Args:
+        left: First value; any type, including a non-numeric one.
+        right: Second value.
+
+    Returns:
+        bool: ``True`` only when both are ``nan``.
+
+    Examples:
+        - Two ``nan``s count as equal, which ``==`` alone would deny:
+            ```python
+            >>> _both_nan(float("nan"), float("nan"))
+            True
+            >>> float("nan") == float("nan")
+            False
+
+            ```
+        - Anything else is False, including a value ``np.isnan`` cannot take:
+            ```python
+            >>> _both_nan(float("nan"), 1.0)
+            False
+            >>> _both_nan("K", "K")
+            False
+
+            ```
+    """
     try:
         return bool(np.isnan(left) and np.isnan(right))
     except (TypeError, ValueError):
