@@ -750,6 +750,47 @@ class TestCalc:
         assert rc == 0
         assert np.allclose(np.asarray(Dataset.read_file(out).read_array()), 1)
 
+    def test_mismatched_grid_is_refused(self, tmp_path):
+        """calc will not broadcast inputs from different grids onto the first one's.
+
+        Test scenario:
+            A second input at a different origin exits 1 and writes nothing, instead of
+            stamping the first input's georeferencing on an answer the inputs never
+            agreed on (#1111).
+        """
+        a = self._band(tmp_path, "a.tif", 4.0)
+        elsewhere = str(tmp_path / "b.tif")
+        Dataset.from_array(
+            np.full((2, 2), 2.0, "float32"),
+            geo_ref=GeoReference(top_left_corner=(50, 2), cell_size=1.0),
+        ).to_file(elsewhere)
+        out = str(tmp_path / "diff.tif")
+
+        rc = main(["calc", "A - B", a, elsewhere, out])
+
+        assert rc == 1, "a grid mismatch must exit 1"
+        assert not os.path.exists(out), "nothing is written on a grid mismatch"
+
+    def test_preserves_a_rotated_geotransform(self, tmp_path):
+        """The output copies the template's whole geotransform, skew included.
+
+        Test scenario:
+            A rotated, anisotropic input keeps all six geotransform terms; rebuilding
+            from top-left + cell size used to flatten them to a north-up square grid.
+        """
+        source = str(tmp_path / "rot.tif")
+        geotransform = (100.0, 2.0, 0.5, 200.0, 0.25, -3.0)
+        Dataset.from_array(
+            np.full((4, 4), 5.0, "float32"),
+            geo_ref=GeoReference(geo=geotransform, epsg=4326),
+        ).to_file(source)
+        out = str(tmp_path / "rot_out.tif")
+
+        rc = main(["calc", "A * 2", source, out])
+
+        assert rc == 0
+        assert Dataset.read_file(out).geotransform == geotransform
+
     def test_disallowed_expression_rejected(self, src_raster, tmp_path):
         """A hostile expression is rejected and writes nothing.
 

@@ -8,6 +8,7 @@ Owns the Analysis family of operations on a Dataset. Accessed as
 from __future__ import annotations
 
 import warnings
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -21,7 +22,11 @@ from pandas import DataFrame
 
 from pyramids.base._domain import is_nan_sentinel, is_stored_no_data
 from pyramids.base._errors import AlignmentError, OutOfBoundsError, ReadOnlyError
-from pyramids.base._utils import gdal_to_numpy_dtype, require_cleopatra
+from pyramids.base._utils import (
+    gdal_to_numpy_dtype,
+    numpy_to_gdal_dtype,
+    require_cleopatra,
+)
 from pyramids.dataset._mask import MaskFlags
 from pyramids.dataset._plot_helpers import (
     ModeSpec,
@@ -29,6 +34,7 @@ from pyramids.dataset._plot_helpers import (
     RgbSpec,
     render_array,
 )
+from pyramids.dataset.abstract_dataset import RasterBase
 from pyramids.dataset.window import Window
 from pyramids.feature import FeatureCollection
 
@@ -58,6 +64,40 @@ _POINT_WINDOW_MAX_WASTE = 16
 # at roughly 64 MB of float64 regardless of how many points asked for it; past
 # it, the per-point reads are the cheaper failure mode.
 _POINT_WINDOW_MAX_PIXELS = 8_000_000
+
+# `Analysis.combine`'s "derive the sentinel from the result dtype" default. A
+# distinct object because `None` is a meaningful value there -- it asks for a
+# result with no no-data sentinel at all.
+_DERIVE_NO_DATA = object()
+
+
+def _fits_dtype(value: Any, dtype: np.dtype) -> bool:
+    """Whether `value` survives a round-trip into `dtype` unchanged.
+
+    Decides whether a no-data sentinel can be stamped on a band of `dtype` --
+    `NaN` does not fit an integer band, and `-9999` does not fit a `uint8` one,
+    and stamping either anyway would mark real cells as no-data.
+
+    Args:
+        value: The candidate sentinel. `None` never fits, since a band either
+            declares a sentinel or does not.
+        dtype: The numpy dtype of the band the sentinel would be stored in.
+
+    Returns:
+        bool: `True` when the sentinel round-trips through `dtype` unchanged.
+    """
+    fits = False
+    if value is not None:
+        target = np.dtype(dtype)
+        if isinstance(value, float) and np.isnan(value):
+            fits = bool(np.issubdtype(target, np.floating))
+        else:
+            with np.errstate(invalid="ignore", over="ignore"):
+                try:
+                    fits = bool(np.asarray(value).astype(target) == value)
+                except (ValueError, OverflowError, TypeError):
+                    fits = False
+    return fits
 
 
 @dataclass(frozen=True)
@@ -324,7 +364,11 @@ class Analysis(_Engine["Dataset"]):
 
         Args:
             func (function):
-                Defined function that takes one input (the cell value).
+                Defined function taking one input: the band's domain values as a
+                flat array (one tile's, under `elementwise=True`). A callable
+                that only accepts scalars still works — it is lifted with
+                `np.vectorize` — but the whole array is what it is offered
+                first, not one cell at a time.
             band (int):
                 Band number.
             inplace (bool):
@@ -462,6 +506,248 @@ class Analysis(_Engine["Dataset"]):
             new_tile = np.full(tile.shape, no_data_value, dtype=tile.dtype)
             self._apply_func_to_domain(func, tile, new_tile, no_data_value)
             dst_band.WriteArray(new_tile, xoff, yoff)
+
+    def combine(
+        self,
+        other: Dataset,
+        func: Callable[[np.ndarray, np.ndarray], np.ndarray],
+        *,
+        band: int | None = None,
+        no_data_value: Any = _DERIVE_NO_DATA,
+    ) -> Dataset:
+        """Combine this dataset with a second one cell by cell, keeping the grid.
+
+        The binary counterpart of :meth:`apply`: `func` receives the two
+        rasters' matching cells and the result is wrapped back into a
+        :class:`~pyramids.dataset.Dataset` carrying this dataset's geotransform
+        and CRS — so a difference, a ratio or a per-cell maximum never leaves
+        the `Dataset` and the georeferencing cannot be rebuilt wrongly on the
+        way out.
+
+        The operands must already share a grid. `combine` does **not** resample:
+        :meth:`Dataset.align <pyramids.dataset.Dataset.align>` is the explicit
+        step for that, and applying it implicitly here would silently resample
+        data inside what reads as pure arithmetic.
+
+        Args:
+            other (Dataset):
+                The second operand. Must occupy this dataset's grid and CRS
+                (:meth:`Spatial.same_grid <pyramids.dataset.engines.Spatial.same_grid>`).
+            func (Callable):
+                Callable taking the two operands' cell values — as flat arrays,
+                the same contract :meth:`apply` uses — and returning one array
+                of the same length.
+            band (int, optional):
+                Zero-based band to combine, producing a single-band result. The
+                default `None` combines every band, which then requires both
+                rasters to carry the same band count. Note this differs from
+                :meth:`apply`, which defaults to band `0`.
+            no_data_value (Any, optional):
+                Sentinel for the result, one value across every band. Left unset
+                it is derived from the result's dtype: `NaN` for a floating-point
+                result, `255` for a predicate's Byte result, otherwise this
+                dataset's sentinel for the first band read — and a `ValueError`
+                naming this argument when that does not fit the dtype. Pass an
+                explicit value to choose it, or `None` for a result with no
+                sentinel — which also switches off the domain masking, so every
+                cell is handed to `func` including the ones the inputs marked as
+                no-data.
+
+        Returns:
+            Dataset:
+                A new in-memory dataset on this dataset's grid, holding the
+                combined values. Cells that are no-data in *either* operand are
+                no-data in the result.
+
+        Raises:
+            TypeError: `other` is not a Dataset, or `func` is not callable.
+            AlignmentError: The two rasters do not share a grid/CRS.
+            ValueError: `band` is `None` and the band counts differ, or the
+                derived no-data sentinel does not fit the result dtype.
+
+        Examples:
+            - Two aligned rasters, differenced without leaving the Dataset:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> surface = Dataset.from_array(np.full((20, 20), 30.0, "float32"), geo_ref=geo_ref)
+              >>> bare = Dataset.from_array(np.full((20, 20), 22.0, "float32"), geo_ref=geo_ref)
+              >>> canopy = surface.combine(bare, lambda a, b: a - b)
+              >>> canopy.epsg, canopy.geotransform == surface.geotransform
+              (4326, True)
+              >>> float(np.asarray(canopy.read_array()).mean())
+              8.0
+
+              ```
+
+            - The arithmetic operators are the same call:
+
+              ```python
+              >>> float(np.asarray((surface - bare).read_array()).mean())
+              8.0
+
+              ```
+        """
+        if not isinstance(other, RasterBase):
+            raise TypeError("The first argument should be a Dataset")
+        if not callable(func):
+            raise TypeError("The second argument should be a function")
+        if not self._ds.spatial.same_grid(other):
+            raise AlignmentError(
+                "the two rasters do not share a grid/CRS, so they cannot be "
+                "combined cell by cell; align them first "
+                "(`other = other.align(self)`) and combine the result"
+            )
+
+        left, left_sentinels = self._operand_arrays(self._ds, band)
+        right, right_sentinels = self._operand_arrays(other, band)
+        if left.shape != right.shape:
+            raise ValueError(
+                f"the operands carry a different number of bands "
+                f"({self._ds.band_count} and {other.band_count}); pass `band=` to "
+                "combine one band from each"
+            )
+
+        masked = no_data_value is not None
+        if masked:
+            domain = self._domain_mask(left, left_sentinels) & self._domain_mask(
+                right, right_sentinels
+            )
+        else:
+            domain = np.ones(left.shape, dtype=bool)
+
+        values = np.asarray(self._combine_domain(func, left[domain], right[domain]))
+        # GDAL has no boolean band, so a predicate `func` is stored as Byte --
+        # and 255 is the one value a 0/1 result leaves free for a sentinel.
+        boolean = values.dtype == np.bool_
+        if boolean:
+            values = values.astype("uint8")
+        if masked:
+            sentinel = self._resolve_combined_no_data(
+                no_data_value, values.dtype, 255 if boolean else left_sentinels[0]
+            )
+        else:
+            sentinel = None
+        out = np.full(
+            left.shape, 0 if sentinel is None else sentinel, dtype=values.dtype
+        )
+        out[domain] = values
+
+        return self._ds.__class__._build_dataset(
+            self._ds.columns,
+            self._ds.rows,
+            1 if out.ndim == 2 else out.shape[0],
+            numpy_to_gdal_dtype(out),
+            self._ds.geotransform,
+            self._ds.crs,
+            sentinel,
+            array=out,
+        )
+
+    @staticmethod
+    def _operand_arrays(
+        ds: Dataset, band: int | None
+    ) -> tuple[np.typing.NDArray, list[Any]]:
+        """Read one operand for :meth:`combine` with the sentinels of the bands read.
+
+        Args:
+            ds: The dataset to read.
+            band: Zero-based band to read, or `None` for every band.
+
+        Returns:
+            tuple: The array — 2-D for a single band, `(bands, rows, cols)`
+            otherwise — and the per-band no-data sentinels aligned to its bands.
+        """
+        # `band=` as a keyword, never positional: NetCDF.read_array puts
+        # `variable` first, so read_array(band) mis-binds on a variable view.
+        array = np.asarray(ds.read_array(band=band))
+        sentinels = (
+            [ds.no_data_value[band]] if band is not None else list(ds.no_data_value)
+        )
+        return array, sentinels
+
+    @staticmethod
+    def _domain_mask(array: np.ndarray, sentinels: Sequence[Any]) -> np.typing.NDArray:
+        """Boolean mask, True where a cell holds data rather than its band's sentinel.
+
+        Args:
+            array: A 2-D band or a 3-D `(bands, rows, cols)` stack.
+            sentinels: One no-data sentinel per band of `array`.
+
+        Returns:
+            np.ndarray: A boolean array shaped like `array`.
+        """
+        if array.ndim == 2:
+            mask = ~is_stored_no_data(array, sentinels[0])
+        else:
+            mask = np.stack(
+                [
+                    ~is_stored_no_data(array[index], sentinels[index])
+                    for index in range(array.shape[0])
+                ]
+            )
+        return mask
+
+    @staticmethod
+    def _combine_domain(
+        func: Callable[[np.ndarray, np.ndarray], np.ndarray],
+        left: np.ndarray,
+        right: np.ndarray,
+    ) -> np.ndarray:
+        """Apply a binary `func` to two aligned flat arrays of domain values.
+
+        Mirrors :meth:`_apply_func_to_domain`: a vectorized callable is used as
+        given, and a scalar-only one is lifted with `np.vectorize` rather than
+        rejected.
+
+        Args:
+            func: The binary callable to apply.
+            left: Domain values of the left operand.
+            right: Domain values of the right operand, aligned to `left`.
+
+        Returns:
+            np.ndarray: The combined values, aligned to `left`.
+        """
+        try:
+            values = func(left, right)
+        except (ValueError, TypeError):
+            values = np.vectorize(func)(left, right)
+        return values
+
+    @staticmethod
+    def _resolve_combined_no_data(
+        requested: Any, dtype: np.dtype, inherited: Any
+    ) -> Any:
+        """Pick the sentinel :meth:`combine` stamps on its result.
+
+        Args:
+            requested: The caller's `no_data_value`, or `_DERIVE_NO_DATA` when
+                it was left unset.
+            dtype: The dtype `func` produced.
+            inherited: The left operand's sentinel for the band(s) combined.
+
+        Returns:
+            Any: The sentinel to write into the result's bands.
+
+        Raises:
+            ValueError: The chosen sentinel cannot be stored in `dtype`.
+        """
+        if requested is not _DERIVE_NO_DATA:
+            sentinel = requested
+        elif np.issubdtype(dtype, np.floating):
+            sentinel = np.nan
+        else:
+            sentinel = inherited
+        if not _fits_dtype(sentinel, dtype):
+            raise ValueError(
+                f"the no-data value {sentinel!r} cannot be stored in the "
+                f"{np.dtype(dtype).name} result of `func`; pass an explicit "
+                "`no_data_value=` that fits it, or `no_data_value=None` for a "
+                "result with no sentinel"
+            )
+        return sentinel
 
     def fill(
         self, value: float | int, inplace: bool = False, path: str | Path | None = None

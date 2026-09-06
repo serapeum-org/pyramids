@@ -65,7 +65,11 @@ pyramids calc '(A - B) / (A + B)' nir.tif red.tif ndvi.tif --dtype float32
 ```
 
 - **`calc`** — evaluate an expression over inputs `A, B, …` (the operands, in order) into a new raster; the
-  **last** operand is the output path. `--dtype` sets the output NumPy dtype.
+  **last** operand is the output path. `--dtype` sets the output NumPy dtype. Every input must already sit on
+  the first one's grid and CRS — `calc` does not resample, and refuses a mismatch rather than writing the
+  answer on a grid the inputs never agreed on. Warp them onto a common grid first (`pyramids warp`). The
+  in-process equivalent is
+  [`Dataset.combine`](dataset/analysis.md#combining-two-rasters) and the `-` / `+` / `*` / `/` operators.
 
 ## Georeferencing
 

@@ -1,4 +1,4 @@
-"""`_same_grid` must compare CRSes, not just their EPSG codes.
+"""`Spatial.same_grid` must compare CRSes, not just their EPSG codes.
 
 It tested `a.epsg == b.epsg`. `epsg` is `None` for any CRS with no EPSG
 authority, so two *different* such CRSes both reported `None` and compared
@@ -16,7 +16,6 @@ import pytest
 
 from pyramids.base._errors import AlignmentError
 from pyramids.dataset import Dataset, GeoReference
-from pyramids.dataset.dataset import _same_grid
 
 pytestmark = pytest.mark.core
 
@@ -53,14 +52,14 @@ class TestSameGridComparesTheCrs:
         second = build(tmp_path / "b.tif", geostationary_wkt(140.0))
 
         assert first.epsg == second.epsg, "premise: neither carries an EPSG code"
-        assert _same_grid(first, second) is False
+        assert first.same_grid(second) is False
 
     def test_the_same_geostationary_crs_is_one_grid(self, tmp_path: Path):
         """The predicate stays true for genuinely identical grids."""
         first = build(tmp_path / "a.tif", geostationary_wkt(0.0))
         second = build(tmp_path / "b.tif", geostationary_wkt(0.0))
 
-        assert _same_grid(first, second) is True
+        assert first.same_grid(second) is True
 
     def test_stacking_mismatched_geostationary_bands_is_refused(self, tmp_path: Path):
         """`from_band_files` raises instead of silently dropping bands."""
@@ -97,4 +96,4 @@ class TestGeotransformToleranceUnchanged:
             ),
         )
 
-        assert _same_grid(first, second) is False
+        assert first.same_grid(second) is False

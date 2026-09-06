@@ -53,9 +53,9 @@ import numpy as np
 from osgeo import osr
 from pandas import DataFrame
 
-from pyramids.base._errors import _PyramidsError
+from pyramids.base._errors import AlignmentError, _PyramidsError
 from pyramids.base._utils import DEFAULT_RESAMPLING
-from pyramids.base.crs import crs_spec, sr_from_user_input, sr_from_wkt
+from pyramids.base.crs import sr_from_user_input, sr_from_wkt
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.dataset._gcp import GroundControlPoint
@@ -535,7 +535,10 @@ def _cmd_calc(args: argparse.Namespace) -> int:
     """Handle `pyramids calc` — evaluate a band expression into a new raster.
 
     The expression operates on the input rasters bound to ``A``, ``B``, ... in
-    order; it is evaluated by a small AST whitelist, never ``eval``.
+    order; it is evaluated by a small AST whitelist, never ``eval``. Every input
+    must already sit on the first one's grid — this is the shell-side twin of
+    :meth:`Dataset.combine <pyramids.dataset.Dataset.combine>`, and it does not
+    resample either.
 
     Args:
         args: Parsed args with `expr`, `operands` (inputs... + output), `dtype`,
@@ -548,6 +551,7 @@ def _cmd_calc(args: argparse.Namespace) -> int:
         ValueError: Fewer than one input + output, a disallowed expression, or
             the first input has no CRS — the result cannot be georeferenced and
             pyramids will not stamp a default (ARC-26).
+        AlignmentError: An input does not share the first input's grid/CRS.
     """
     if len(args.operands) < 2:
         raise ValueError("calc needs at least one input raster and an output path.")
@@ -567,19 +571,28 @@ def _cmd_calc(args: argparse.Namespace) -> int:
             "input does not have; set a CRS on the input first (e.g. "
             "gdal_edit.py -a_srs EPSG:<code> <file>) and re-run."
         )
+    # Same reason the CRS refusal above comes first: this needs only the
+    # headers, so a mismatched grid should not pay for reading every band.
+    # Without it the bound names broadcast against each other and the result is
+    # written on the first input's grid — a georeferenced answer to a question
+    # the inputs never agreed on.
+    for path, ds in zip(inputs[1:], datasets[1:]):
+        if not template.spatial.same_grid(ds):
+            raise AlignmentError(
+                f"{path!r} does not share the grid/CRS of {inputs[0]!r}, so the "
+                "expression cannot be evaluated cell by cell; align the inputs "
+                "first (`pyramids warp`) and re-run"
+            )
     names = [chr(ord("A") + index) for index in range(len(datasets))]
     variables = {name: np.asarray(ds.read_array()) for name, ds in zip(names, datasets)}
     result = np.asarray(_safe_calc_eval(ast.parse(args.expr, mode="eval"), variables))
     if args.dtype:
         result = result.astype(args.dtype)
-    Dataset.from_array(
-        result,
-        geo_ref=GeoReference(
-            top_left_corner=template.top_left_corner,
-            cell_size=template.cell_size,
-            epsg=crs_spec(template.epsg, template.crs),
-        ),
-    ).to_file(output)
+    # `dataset_like`, not a rebuilt GeoReference: it copies the template's whole
+    # geotransform, while `top_left_corner` + `cell_size` collapses to a
+    # north-up square-pixel grid and silently drops a rotation/skew or an
+    # anisotropic cell size.
+    Dataset.dataset_like(template, result).to_file(output)
     print(f"wrote {output}")
     return 0
 

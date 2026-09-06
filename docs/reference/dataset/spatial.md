@@ -2,10 +2,14 @@
 
 Crop, align, reproject, resample, CRS handling, and coordinate conversion.
 
+`ds.same_grid(other)` is the predicate behind them: it answers whether two rasters
+occupy one pixel grid in one CRS, and so can be combined cell by cell without
+resampling. `align` is what you call when the answer is no.
+
 ```mermaid
 flowchart LR
     SP(("Spatial<br/>ds.spatial"))
-    SP --> C["<b>clip / align</b><br/>crop · align"]
+    SP --> C["<b>clip / align</b><br/>crop · align · same_grid"]
     SP --> R["<b>reproject / resample</b><br/>to_crs · warped_view · resample"]
     SP --> M["<b>CRS & longitude</b><br/>set_crs · wrap_longitude"]
     SP --> G["<b>gap fill</b><br/>fill_gaps"]

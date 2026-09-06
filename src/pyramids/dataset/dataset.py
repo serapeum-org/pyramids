@@ -8,6 +8,7 @@ algebraic operation on cell's values.
 from __future__ import annotations
 
 import logging
+import operator
 import warnings
 import weakref
 from collections.abc import Callable, Sequence
@@ -38,7 +39,6 @@ from pyramids.base.crs import (
     PROJECTED_AXIS_UNITS,
     VERTICAL_AXIS_NAMES,
     cf_geographic_wkt,
-    crs_equal,
     crs_spec,
     epsg_of_crs,
     sr_from_epsg,
@@ -329,39 +329,6 @@ def _derive_band_names(paths: list[str]) -> list[str]:
             seen[name] = 0
             names.append(name)
     return names
-
-
-def _same_grid(a: Dataset, b: Dataset) -> bool:
-    """Return True if datasets ``a`` and ``b`` share CRS, size, and geotransform.
-
-    Geotransform components are compared with a small relative tolerance so
-    that byte-for-byte-identical grids (the normal case for per-band files of
-    one scene) compare equal even after the round-trip through GDAL's
-    floating-point geotransform.
-
-    Args:
-        a: Reference dataset.
-        b: Dataset to compare against ``a``.
-
-    Returns:
-        bool: ``True`` iff both rasters occupy the same pixel grid in the
-        same CRS.
-    """
-    return (
-        # `crs_equal(crs_spec(...))`, not `a.epsg == b.epsg`: `epsg` is None for
-        # any CRS without an EPSG authority, so two *different* such CRSes both
-        # reported None and compared equal. Two geostationary rasters at
-        # different sub-satellite longitudes were read as one grid, and the
-        # band stack silently dropped every band after the first.
-        crs_equal(crs_spec(a.epsg, a.crs), crs_spec(b.epsg, b.crs))
-        and a.rows == b.rows
-        and a.columns == b.columns
-        and bool(
-            np.allclose(
-                np.asarray(a.geotransform), np.asarray(b.geotransform), rtol=1e-7
-            )
-        )
-    )
 
 
 def _remap_nodata_to(arr: np.ndarray, src_nd: Any, dst_nd: Any) -> np.typing.NDArray:
@@ -757,6 +724,10 @@ class Dataset(RasterBase):
         """
         result = self.analysis.apply(*args, **kwargs)
         return self if result is None else result
+
+    def combine(self, *args, **kwargs):
+        """Facade — delegates to :meth:`Analysis.combine <pyramids.dataset.engines.Analysis.combine>`."""
+        return self.analysis.combine(*args, **kwargs)
 
     def fill(self, *args, **kwargs):
         """Facade — delegates to :meth:`Analysis.fill <pyramids.dataset.engines.Analysis.fill>`.
@@ -1366,6 +1337,10 @@ class Dataset(RasterBase):
     def align(self, *args, **kwargs):
         """Facade — delegates to :meth:`Spatial.align <pyramids.dataset.engines.Spatial.align>`."""
         return self.spatial.align(*args, **kwargs)
+
+    def same_grid(self, *args, **kwargs):
+        """Facade — delegates to :meth:`Spatial.same_grid <pyramids.dataset.engines.Spatial.same_grid>`."""
+        return self.spatial.same_grid(*args, **kwargs)
 
     def fill_gaps(self, *args, **kwargs):
         """Facade — delegates to :meth:`Spatial.fill_gaps <pyramids.dataset.engines.Spatial.fill_gaps>`."""
@@ -2007,6 +1982,45 @@ class Dataset(RasterBase):
         if self._raster is not None:
             info = redact_credentials(str(gdal.Info(self.raster)))
         return info
+
+    def _arithmetic(self, other: Any, op: Callable) -> Any:
+        """Route a binary operator to :meth:`combine`, or decline the operand.
+
+        Only a second raster is handled here. Scalar arithmetic stays with
+        :meth:`apply`, which keeps the source band's dtype — routing it here as
+        well would give ``ds * 2`` and ``ds.apply(lambda v: v * 2)`` different
+        dtypes for the same expression. Anything else yields
+        ``NotImplemented``, so Python raises its own ``TypeError`` naming both
+        operand types.
+
+        Args:
+            other: The right-hand operand.
+            op: The two-argument operator to apply cell by cell.
+
+        Returns:
+            Dataset | NotImplemented: The combined raster, or `NotImplemented`
+            when `other` is not a Dataset.
+        """
+        result = NotImplemented
+        if isinstance(other, RasterBase):
+            result = self.combine(other, op)
+        return result
+
+    def __add__(self, other: Any) -> Any:
+        """Add another raster cell by cell — see :meth:`combine`."""
+        return self._arithmetic(other, operator.add)
+
+    def __sub__(self, other: Any) -> Any:
+        """Subtract another raster cell by cell — see :meth:`combine`."""
+        return self._arithmetic(other, operator.sub)
+
+    def __mul__(self, other: Any) -> Any:
+        """Multiply by another raster cell by cell — see :meth:`combine`."""
+        return self._arithmetic(other, operator.mul)
+
+    def __truediv__(self, other: Any) -> Any:
+        """Divide by another raster cell by cell — see :meth:`combine`."""
+        return self._arithmetic(other, operator.truediv)
 
     @property
     def access(self) -> str:
@@ -4891,7 +4905,7 @@ class Dataset(RasterBase):
 
         if not align:
             for p, ds in zip(resolved_paths[1:], datasets[1:]):
-                if not _same_grid(template, ds):
+                if not template.spatial.same_grid(ds):
                     raise AlignmentError(
                         f"{p!r} does not share the grid/CRS of {resolved_paths[0]!r}; "
                         "pass align=True to resample mismatched rasters onto the first "
@@ -4942,7 +4956,7 @@ class Dataset(RasterBase):
                 array=None,
             )
             for band_i, ds_i in enumerate(datasets):
-                if align and not _same_grid(template, ds_i):
+                if align and not template.spatial.same_grid(ds_i):
                     arr = ds_i.align(grid_template).read_array(band=0)
                 else:
                     # Same grid (or the non-align mixed-dtype path): just cast to
