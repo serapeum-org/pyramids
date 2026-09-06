@@ -372,6 +372,10 @@ class TestTheClassificationFollowsDeclarations:
             "the declared non-data arrays should still be excluded"
         )
 
+    # Needs the [interop] extra: the assertion goes through `to_xarray`, which
+    # imports xarray. `tests/conftest.py` turns this marker into a skip when the
+    # extra is absent, so the pure-wheel job no longer fails on it.
+    @pytest.mark.interop
     def test_the_xarray_export_promotes_the_same_arrays_and_no_others(self):
         """The classification's other consumer, on the fixture nothing covered.
 

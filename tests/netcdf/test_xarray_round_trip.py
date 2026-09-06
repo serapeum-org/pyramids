@@ -22,7 +22,10 @@ from osgeo import gdal
 
 from pyramids.netcdf import NetCDF
 
-pytestmark = pytest.mark.core
+# Every test here goes through `to_xarray` / `from_xarray`, so the module is
+# gated on the [interop] extra rather than marked `core`: a bare wheel install
+# has no xarray, and `-m core` must not collect a test that cannot run there.
+pytestmark = pytest.mark.interop
 
 DATA = Path(__file__).parents[1] / "data" / "netcdf"
 BOUNDED = "cf__7v__1d3-2d3-3d1__y-asc.nc"
