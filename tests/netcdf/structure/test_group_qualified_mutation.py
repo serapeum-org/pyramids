@@ -249,8 +249,12 @@ class TestTheTwoMutatorsAgreeAboutWhatTheStoreHolds:
             f"the refusal does not give the reason: {message}"
         )
         arrays = dataset._working_group().GetMDArrayNames()
-        assert "lat" in arrays and "latitude" not in arrays, (
-            f"the refused rename touched the store: {arrays}"
+
+        assert "lat" in arrays, (
+            f"the refused rename removed the axis it was asked about: {arrays}"
+        )
+        assert "latitude" not in arrays, (
+            f"the refused rename created the new name anyway: {arrays}"
         )
 
     def test_an_absent_name_is_still_reported_as_absent(self):

@@ -230,10 +230,6 @@ class Variables(_Engine["NetCDF"]):
                 name used to be skipped, so a typo returned `None` and left
                 this container unchanged with nothing said.
         """
-        # Local import breaks the netcdf.py <-> engines.variables import cycle
-        # (netcdf.py imports this module at top level for wiring).
-        from pyramids.netcdf.netcdf import NetCDF
-
         nc = self._ds
         working_group = nc._working_group()
         if working_group is None:
@@ -248,15 +244,7 @@ class Variables(_Engine["NetCDF"]):
             if hasattr(dataset, "_working_group")
             else dataset._raster.GetRootGroup()
         )
-        names_to_copy: list[str]
-        if variable_name is not None:
-            names_to_copy = [variable_name]
-        elif isinstance(dataset, NetCDF):
-            # Everything the store holds, not just the data variables: a copy
-            # that dropped the aux arrays would not be a copy.
-            names_to_copy = dataset._readable_variable_names()
-        else:
-            names_to_copy = []
+        names_to_copy = _names_to_copy(dataset, variable_name)
 
         # A file-backed root group is opened in netCDF "data mode", which forbids
         # CreateMDArray; and mutating an in-memory container in place would corrupt a
@@ -274,22 +262,7 @@ class Variables(_Engine["NetCDF"]):
             # enumeration, so resolve through the helper that walks them.
             md_arr = open_mdarray(var_rg, var)
             if md_arr is None:
-                # Skipping was added so the internal aux-variable carry could
-                # survive a name that will not walk; it also turned a typo in
-                # the public `add_variable(dataset, "does_not_exist")` into a
-                # silent no-op that returned `None` and left the container
-                # untouched. The carry loop catches `ValueError` and folds it
-                # into one warning naming every variable it could not bring
-                # across, so the signal is kept on both paths.
-                available = (
-                    dataset._readable_variable_names()
-                    if isinstance(dataset, NetCDF)
-                    else list(var_rg.GetMDArrayNames() or [])
-                )
-                raise ValueError(
-                    f"add_variable() could not resolve {var!r} in the source "
-                    f"container. Available: {available}"
-                )
+                _refuse_unresolved_source(dataset, var_rg, var)
             # If the variable name already exists in the destination dataset,
             # use a suffixed name to avoid overwriting the original.
             existing = dst_rg.GetMDArrayNames() or []
@@ -501,6 +474,68 @@ def _refuse_group_qualified(name: str, method: str, extra_args: str = "") -> Non
             f"group. Open the group first: "
             f"nc.get_group({group!r}).{method}({leaf!r}{extra_args})."
         )
+
+
+def _names_to_copy(dataset: Any, variable_name: str | None) -> list[str]:
+    """Which of the source's variables `add_variable` should bring across.
+
+    Args:
+        dataset: The source container or raster.
+        variable_name: The single name the caller asked for, or `None` for all
+            of them.
+
+    Returns:
+        list[str]: The names to copy. A named variable is taken at its word --
+            it is resolved later, and refused there if it does not exist. With
+            no name, a `NetCDF` source gives everything it holds rather than
+            only its data variables, because a copy that dropped the auxiliary
+            arrays would not be a copy; a plain raster has no variables to
+            enumerate.
+    """
+    # Local import breaks the netcdf.py <-> engines.variables import cycle
+    # (netcdf.py imports this module at top level for wiring).
+    from pyramids.netcdf.netcdf import NetCDF
+
+    if variable_name is not None:
+        names = [variable_name]
+    elif isinstance(dataset, NetCDF):
+        names = list(dataset._readable_variable_names())
+    else:
+        names = []
+    return names
+
+
+def _refuse_unresolved_source(dataset: Any, var_rg: Any, name: str) -> None:
+    """Refuse a source variable that will not resolve, naming what is on offer.
+
+    Skipping it was added so the internal auxiliary carry could survive a name
+    that will not walk. It also turned a typo in the public
+    `add_variable(dataset, "does_not_exist")` into a silent no-op that returned
+    `None` and left the container untouched. The carry loop catches
+    `ValueError` and folds it into one warning naming every variable it could
+    not bring across, so the signal is kept on both paths.
+
+    Args:
+        dataset: The source container or raster.
+        var_rg: The source's working group, for a raster that cannot enumerate.
+        name: The name that did not resolve.
+
+    Raises:
+        ValueError: Always -- that is what this helper is for.
+    """
+    # Local import breaks the netcdf.py <-> engines.variables import cycle
+    # (netcdf.py imports this module at top level for wiring).
+    from pyramids.netcdf.netcdf import NetCDF
+
+    available = (
+        dataset._readable_variable_names()
+        if isinstance(dataset, NetCDF)
+        else list(var_rg.GetMDArrayNames() or [])
+    )
+    raise ValueError(
+        f"add_variable() could not resolve {name!r} in the source container. "
+        f"Available: {available}"
+    )
 
 
 def _free_target_name(source_name: str, existing: Sequence[str]) -> str:

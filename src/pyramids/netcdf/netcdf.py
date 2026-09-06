@@ -3241,26 +3241,53 @@ class NetCDF(Dataset):
         for var_name in aux_vars:
             md_arr = open_mdarray(rg, var_name) if rg is not None else None
             for dim in md_arr.GetDimensions() if md_arr is not None else []:
-                indexing = dim.GetIndexingVariable()
-                if indexing is None:
-                    continue
-                name = NetCDF._group_relative_name(rg, indexing)
-                leaf = name.rsplit("/", 1)[-1]
-                if leaf in taken or leaf in leaves or name in aux_vars:
-                    continue
-                # A spatial axis describes the *source* grid, and the result's
-                # grid is not the source's after a reprojection, a resample or
-                # a crop. Copying `lat`/`lon` across put the source's degrees
-                # into an EPSG:3857 container -- and `_compute_geotransform`
-                # prefers a lon/lat pair over the stored transform, so the
-                # container then reported a geotransform and a bbox in degrees
-                # while declaring metres. The result derives its own spatial
-                # axes; only the non-spatial ones are the source's to give.
-                if leaf.lower() in AXIS_NAMES:
-                    continue
-                names.append(name)
-                leaves.add(leaf)
+                name = NetCDF._carryable_axis_name(rg, dim, aux_vars, taken, leaves)
+                if name is not None:
+                    names.append(name)
+                    leaves.add(name.rsplit("/", 1)[-1])
         return names
+
+    @staticmethod
+    def _carryable_axis_name(
+        rg: Any,
+        dim: Any,
+        aux_vars: list[str],
+        taken: set[str],
+        leaves: set[str],
+    ) -> str | None:
+        """The name of the axis `dim` is indexed by, when the result should carry it.
+
+        Split out of the walk above, which was making this decision inline over
+        a nested loop and reading as one function doing two jobs.
+
+        Args:
+            rg: The source's working group, which `name` is made relative to.
+            dim: The dimension whose indexing variable is being considered.
+            aux_vars: The auxiliaries being carried; their own names are not
+                also carried as axes.
+            taken: Names the result already holds.
+            leaves: Leaf names already chosen on this walk.
+
+        Returns:
+            str | None: The group-relative name to carry, or `None` when the
+                dimension has no indexing variable, the name is already
+                accounted for, or it is a spatial axis.
+        """
+        indexing = dim.GetIndexingVariable()
+        if indexing is None:
+            return None
+        name = NetCDF._group_relative_name(rg, indexing)
+        leaf = name.rsplit("/", 1)[-1]
+        if leaf in taken or leaf in leaves or name in aux_vars:
+            return None
+        # A spatial axis describes the *source* grid, and the result's grid is
+        # not the source's after a reprojection, a resample or a crop. Copying
+        # `lat`/`lon` across put the source's degrees into an EPSG:3857
+        # container -- and `_compute_geotransform` prefers a lon/lat pair over
+        # the stored transform, so the container then reported a geotransform
+        # and a bbox in degrees while declaring metres. The result derives its
+        # own spatial axes; only the non-spatial ones are the source's to give.
+        return None if leaf.lower() in AXIS_NAMES else name
 
     def _carry_aux_dimension_coordinates(
         self, result: NetCDF, aux_vars: list[str], operation: str
