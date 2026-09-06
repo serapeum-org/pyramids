@@ -138,13 +138,24 @@ class TestNeitherRendererDropsCellsNearTheSentinel:
             The image is the other half of the agreement: had only one of the
             two been tightened, the pair would disagree again, in the opposite
             direction from the divergence this module was written for.
+
+            The colours are counted, not just the image's type and size. Both
+            of those are identical whether three cells are drawn or one, so
+            asserting them left the renderer free to mask everything and still
+            pass. No-data is rendered as a colour rather than as transparency
+            here -- every pixel is opaque -- so the signal is that four
+            distinct colours appear: masking the two near-sentinel cells would
+            render three of the four alike.
         """
-        from PIL import Image
-
         image = _band(_NEAR_SENTINEL).to_image(band=0)
+        pixels = list(image.convert("RGBA").getdata())
 
-        assert isinstance(image, Image.Image)
-        assert image.size == (2, 2)
+        assert image.size == (2, 2), f"the fixture changed shape: {image.size}"
+        assert len(set(pixels)) == 4, (
+            "one cell is the sentinel and three hold distinct data values, so "
+            "four colours should appear; masking the two near-sentinel cells "
+            f"would render three of them alike. Got {sorted(set(pixels))}"
+        )
 
 
 class TestRealDataIsStillDrawn:

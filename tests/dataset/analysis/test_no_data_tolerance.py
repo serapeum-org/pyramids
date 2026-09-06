@@ -200,6 +200,10 @@ class TestTheWarningAndTheFootprintReadTheSameCells:
 
         assert footprint is not None, "an all-no-data band was reported"
         covered = float(footprint.geometry.area.sum())
-        assert covered == pytest.approx(3.0), (
+        # An explicit absolute window: `approx`'s relative default is 1e-6 of
+        # 3.0, which is fine here but says nothing about what tolerance the
+        # geometry actually needs. One part in ten thousand of a single cell is
+        # far below the difference a wrongly-masked cell makes, which is 1.0.
+        assert covered == pytest.approx(3.0, abs=1e-4), (
             f"three 1x1 cells are data, but the footprint covers {covered}"
         )

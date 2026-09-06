@@ -265,11 +265,19 @@ class TestHalfPrecisionRasters:
             code_name: The `gdal.GDT_*` attribute to look up.
             expected: The numpy dtype name it must convert to.
         """
+        # Asserted rather than skipped. Every supported build has these -- the
+        # conda pin is `gdal >=3.13.3` and the oldest vendored wheel carries
+        # 3.12.4, both past RFC 100 (GDAL 3.11) -- so a missing constant means
+        # the environment is not one this package supports, which a silent skip
+        # would hide behind a green run.
         code = getattr(gdal, code_name, None)
-        if code is None:
-            pytest.skip("this GDAL predates the half-precision types")
 
-        assert gdal_to_numpy_dtype(code) == expected
+        assert code is not None, (
+            f"this GDAL has no {code_name}; the supported floor is 3.11 (RFC 100)"
+        )
+        assert gdal_to_numpy_dtype(code) == expected, (
+            f"{code_name} did not convert to {expected}"
+        )
 
     def test_a_float16_raster_can_be_printed(self, tmp_path):
         """The reachable symptom: `__str__` reads `dtype`.
