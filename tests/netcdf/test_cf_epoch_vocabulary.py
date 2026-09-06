@@ -21,34 +21,65 @@ import pytest
 from pyramids.dataset._cube_time import TimeAxis
 from pyramids.netcdf.engines.interop import _encode_temporal_array
 from pyramids.netcdf.utils import (
-    CF_EPOCH,
     CF_EPOCH_CALENDAR,
     cf_epoch_units,
+    create_time_conversion_func,
     decode_cf_time,
+    is_cf_time_units,
 )
 
 pytestmark = pytest.mark.core
+
+MICROSECONDS = "%Y-%m-%d %H:%M:%S.%f"
 
 
 class TestTheSharedVocabulary:
     """The half both writers must agree on."""
 
-    @pytest.mark.parametrize("resolution", ["nanoseconds", "seconds", "days"])
-    def test_the_units_string_is_in_the_form_the_decoder_parses(self, resolution: str):
-        """`decode_cf_time` keys on ' since '; a different join breaks it.
+    @pytest.mark.parametrize(
+        ("resolution", "one_day"),
+        [("nanoseconds", 86_400_000_000_000), ("seconds", 86_400), ("days", 1)],
+        ids=["nanoseconds", "seconds", "days"],
+    )
+    def test_the_units_string_reads_back_through_the_readers(
+        self, resolution: str, one_day: int
+    ):
+        """What a writer stamps on an axis, a reader has to parse off it again.
 
         Args:
             resolution: The CF time unit the writer counts in.
+            one_day: The offset that is one day at that resolution.
 
         Test scenario:
-            The decoder returns its input unchanged when the units string has
-            no ``" since "``, so a malformed string degrades silently into
-            "these are plain numbers" rather than raising.
+            Asserting the string equals `f"{resolution} since {CF_EPOCH}"`
+            restates the function's body and cannot fail. What a caller depends
+            on is the reading end: `is_cf_time_units` must recognise the axis as
+            time -- every decode gates on that predicate -- and
+            `create_time_conversion_func` must parse the string, put offset zero
+            at the epoch, and put `one_day` a day after it. A drifted epoch
+            fails the second, a different join word the first.
+
+            The reader used here is `create_time_conversion_func` rather than
+            `decode_cf_time` because it is the one that covers all three
+            resolutions: `decode_cf_time` hands the string to `cftime`, whose
+            finest unit is microseconds, so it rejects the `nanoseconds` axis
+            the collection writes. `decode_cf_time`'s half of the round trip is
+            the test below.
         """
         units = cf_epoch_units(resolution)
 
-        assert units == f"{resolution} since {CF_EPOCH}"
-        assert " since " in units
+        assert is_cf_time_units(units) is True, (
+            f"{units!r} is not recognised as a CF time axis at all"
+        )
+
+        convert = create_time_conversion_func(units, calendar=CF_EPOCH_CALENDAR)
+
+        assert convert(0) == "1970-01-01 00:00:00", (
+            f"offset zero of {units!r} is not the epoch"
+        )
+        assert convert(one_day) == "1970-01-02 00:00:00", (
+            f"offset {one_day} of {units!r} is not one day after the epoch"
+        )
 
     def test_what_it_produces_decodes_back_to_the_epoch(self):
         """The round-trip the shared definition exists to protect.
@@ -122,7 +153,10 @@ class TestEachWriterKeepsItsOwnResolution:
         Test scenario:
             A `NaT` becomes `NaN`, so the array has to be floating point. The
             sub-second component still survives, because the encoder divides a
-            nanosecond count rather than casting to `datetime64[s]`.
+            nanosecond count rather than casting to `datetime64[s]`. The
+            tolerance is absolute: `approx`'s default is relative, which at
+            epoch-second scale is ~1.6e3 seconds and would not notice the half
+            second going missing.
         """
         values = np.array(
             ["2020-01-01T00:00:00.500000000", "NaT"],
@@ -134,20 +168,42 @@ class TestEachWriterKeepsItsOwnResolution:
         assert attrs["units"] == cf_epoch_units("seconds")
         assert seconds.dtype == np.float64
         assert np.isnan(seconds[1]), "NaT must survive as NaN"
-        assert seconds[0] == pytest.approx(1577836800.5), "sub-second time lost"
+        assert seconds[0] == pytest.approx(1577836800.5, abs=1e-6), (
+            f"sub-second time lost: {seconds[0]!r}"
+        )
 
-    def test_the_two_resolutions_are_not_interchangeable(self):
-        """Why unifying the arithmetic would be a regression, not a cleanup.
+    def test_the_two_scales_name_the_same_instant(self):
+        """Different arithmetic, one timestamp -- which is what makes it safe.
 
         Test scenario:
-            Casting to `datetime64[s]` -- the obvious way to share a
-            resolution-parameterised encoder -- truncates. Half a second is
-            lost on a real timestamp, which is why only the vocabulary is
-            shared and each encoder keeps its own arithmetic.
+            Asserting that `astype("datetime64[s]")` truncates is a fact about
+            NumPy and touches nothing in this package. The property that is
+            actually at stake is that the two writers, counting at different
+            scales, still put the same instant on the wire: read each one back
+            through `create_time_conversion_func` with the units and calendar
+            it stamped, and the timestamps must agree down to the sub-second
+            half. Sharing one resolution-parameterised encoder by casting to
+            `datetime64[s]` -- the obvious "cleanup" -- drops that half on the
+            interop side and the two stop agreeing.
         """
         value = np.array(["2020-01-01T00:00:00.500000000"], dtype="datetime64[ns]")
 
-        divided = value.astype("int64").astype("float64") / 1e9
-        cast = value.astype("datetime64[s]").astype("int64").astype("float64")
+        axis = TimeAxis.resolve(value, length=1, collection_time=None)
+        seconds, attrs = _encode_temporal_array(value)
 
-        assert divided[0] - cast[0] == pytest.approx(0.5)
+        read_axis = create_time_conversion_func(
+            axis.attrs["units"],
+            out_format=MICROSECONDS,
+            calendar=axis.attrs["calendar"],
+        )
+        read_interop = create_time_conversion_func(
+            attrs["units"], out_format=MICROSECONDS, calendar=attrs["calendar"]
+        )
+
+        assert read_axis(axis.values[0]) == "2020-01-01 00:00:00.500000", (
+            f"the collection axis reads back as {read_axis(axis.values[0])!r}"
+        )
+        assert read_interop(seconds[0]) == read_axis(axis.values[0]), (
+            f"the two writers disagree: {read_interop(seconds[0])!r} vs "
+            f"{read_axis(axis.values[0])!r}"
+        )

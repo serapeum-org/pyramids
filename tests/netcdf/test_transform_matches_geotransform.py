@@ -15,7 +15,6 @@ returned -- which is a comparison the defect fails and the fix passes.
 
 from __future__ import annotations
 
-import glob
 from pathlib import Path
 
 import numpy as np
@@ -27,7 +26,28 @@ from pyramids.netcdf import NetCDF
 pytestmark = pytest.mark.core
 
 DATA = Path(__file__).parents[1] / "data" / "netcdf"
-FIXTURES = sorted(Path(p).name for p in glob.glob(str(DATA / "*.nc")))
+
+
+def _netcdf_fixtures() -> list[str]:
+    """Every netCDF fixture in the corpus, or a loud failure when there are none.
+
+    Returns:
+        list[str]: The fixture file names, sorted.
+
+    Raises:
+        FileNotFoundError: When the directory holds no `.nc` file. Discovering
+            the corpus is what keeps this test covering every shape of file in
+            it, but a rename or a move would otherwise parametrise over an
+            empty list -- zero tests collected, and a green run reporting that
+            nothing is wrong.
+    """
+    names = sorted(path.name for path in DATA.glob("*.nc"))
+    if not names:
+        raise FileNotFoundError(f"no netCDF fixtures found under {DATA}")
+    return names
+
+
+FIXTURES = _netcdf_fixtures()
 
 
 @pytest.mark.parametrize("fixture", FIXTURES, ids=FIXTURES)
@@ -43,19 +63,23 @@ def test_transform_is_not_the_geotransform_cached_at_construction(fixture: str):
         meant to catch is `transform` reading `_geotransform` instead -- GDAL's
         identity fallback, which every one of these fixtures reports and none
         of their derived affines equals. That comparison *can* fail, so it is
-        the one made here.
+        the one made here, together with the map coordinate the affine puts the
+        first pixel at: the defect placed it at the fallback's origin.
     """
-    try:
-        dataset = NetCDF.read_file(str(DATA / fixture))
-    except RuntimeError as exc:  # pragma: no cover - fixture-dependent
-        pytest.skip(f"fixture not readable: {exc}")
+    dataset = NetCDF.read_file(str(DATA / fixture))
 
     cached = tuple(dataset._geotransform)
+    derived = tuple(dataset.geotransform)
 
-    assert tuple(dataset.geotransform) != cached, (
+    assert derived != cached, (
         "the fixture no longer exercises the divergence this test is about"
     )
-    assert tuple(dataset.transform) != cached
+    assert tuple(dataset.transform) != cached, (
+        f"`transform` returned the construction-time cache {cached}"
+    )
+    assert dataset.transform * (0, 0) == (derived[0], derived[3]), (
+        f"`transform` does not map the first pixel onto the derived origin {derived}"
+    )
 
 
 def test_a_plain_raster_is_unaffected():
@@ -71,4 +95,9 @@ def test_a_plain_raster_is_unaffected():
         geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326),
     )
 
-    assert tuple(dataset.transform) == tuple(dataset._geotransform)
+    assert tuple(dataset.transform) == tuple(dataset._geotransform), (
+        "`transform` no longer reports the affine an ordinary raster was built with"
+    )
+    assert dataset.transform * (0, 0) == (0.0, 4.0), (
+        "`transform` does not map the first pixel onto the top-left corner"
+    )

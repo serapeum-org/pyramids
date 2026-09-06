@@ -37,6 +37,7 @@ NOT_TIME_UNITS = [
     "K",
     "",
 ]
+NOT_TIME_UNIT_IDS = ["degrees_north", "degrees_east", "m s-1", "K", "empty"]
 
 
 class TestIsCfTimeUnits:
@@ -122,7 +123,7 @@ class TestDetectionAndDecodingAgree:
         assert str(lower[0]) == str(upper[0])
         assert str(lower[0]).startswith("1970-01-02")
 
-    @pytest.mark.parametrize("units", NOT_TIME_UNITS[:4])
+    @pytest.mark.parametrize("units", NOT_TIME_UNITS, ids=NOT_TIME_UNIT_IDS)
     def test_a_non_time_axis_is_left_numeric(self, units: str):
         """The other half of the invariant, so the fix did not over-reach.
 
@@ -131,14 +132,22 @@ class TestDetectionAndDecodingAgree:
 
         Test scenario:
             Widening the predicate must not start decoding latitudes as dates.
-            These values have to come back exactly as passed.
+            These values have to come back exactly as passed: the same numbers,
+            still floating point, rather than instants counted from whatever
+            origin the string was mistaken for. Every string the predicate
+            rejects is exercised, the empty one included -- taking a slice of
+            the list here let a reordering silently change what was covered.
         """
         values = np.array([1.0, 2.0])
 
         decoded = decode_cf_time(values, units)
 
-        assert decoded is values or np.array_equal(decoded, values)
-        assert decoded.dtype.kind == "f"
+        assert np.array_equal(decoded, values), (
+            f"{units!r} came back as {decoded!r} rather than untouched"
+        )
+        assert decoded.dtype == values.dtype, (
+            f"{units!r} was decoded away from {values.dtype} to {decoded.dtype}"
+        )
 
 
 class TestThePredicateIsTotal:
