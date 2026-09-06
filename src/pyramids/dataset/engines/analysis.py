@@ -425,6 +425,10 @@ class Analysis(_Engine["Dataset"]):
                [0.34076174 0.53073014 0.18485789 0.40033474 0.38962938]]
 
               ```
+
+        See Also:
+            Analysis.combine: The two-raster counterpart, for a difference,
+                ratio or any other binary operation.
         """
         if not callable(func):
             raise TypeError("The second argument should be a function")
@@ -583,10 +587,68 @@ class Analysis(_Engine["Dataset"]):
             - The arithmetic operators are the same call:
 
               ```python
-              >>> float(np.asarray((surface - bare).read_array()).mean())
-              8.0
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> nir = Dataset.from_array(np.full((4, 4), 0.6, "float32"), geo_ref=geo_ref)
+              >>> red = Dataset.from_array(np.full((4, 4), 0.2, "float32"), geo_ref=geo_ref)
+              >>> ndvi = (nir - red) / (nir + red)
+              >>> round(float(np.asarray(ndvi.read_array()).mean()), 4)
+              0.5
+              >>> ndvi.shape
+              (1, 4, 4)
 
               ```
+
+            - A cell that is no-data on either side stays no-data, and a float
+              result declares `NaN`:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> values = np.full((3, 3), 10.0, "float32")
+              >>> values[0, 0] = -9999.0
+              >>> masked = Dataset.from_array(values, geo_ref=geo_ref)
+              >>> other = Dataset.from_array(np.full((3, 3), 4.0, "float32"), geo_ref=geo_ref)
+              >>> result = np.asarray((masked - other).read_array())
+              >>> bool(np.isnan(result[0, 0])), float(result[1, 1])
+              (True, 6.0)
+              >>> float((masked - other).no_data_value[0])
+              nan
+
+              ```
+
+            - A raster on a different grid is refused rather than resampled;
+              `align` is the explicit step that makes it combinable:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> fine = Dataset.from_array(
+              ...     np.full((8, 8), 10.0, "float32"),
+              ...     geo_ref=GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326),
+              ... )
+              >>> coarse = Dataset.from_array(
+              ...     np.full((4, 4), 4.0, "float32"),
+              ...     geo_ref=GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.5, epsg=4326),
+              ... )
+              >>> fine - coarse
+              Traceback (most recent call last):
+                  ...
+              pyramids.base._errors.AlignmentError: the two rasters do not share a grid/CRS, ...
+              >>> float(np.asarray((fine - coarse.align(fine)).read_array()).mean())
+              6.0
+
+              ```
+
+        See Also:
+            Analysis.apply: The one-raster counterpart — same domain-values
+                contract, one operand.
+            Spatial.same_grid: Whether two rasters can be combined without
+                resampling.
+            Spatial.align: Puts a mismatched raster onto this one's grid, which
+                is the explicit step `combine` refuses to take implicitly.
         """
         if not isinstance(other, RasterBase):
             raise TypeError("The first argument should be a Dataset")

@@ -1516,16 +1516,63 @@ class Spatial(_Engine["Dataset"]):
                 `True` iff both rasters occupy the same pixel grid in the same CRS.
 
         Examples:
-            ```python
-            >>> import numpy as np
-            >>> from pyramids.dataset import Dataset, GeoReference
-            >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
-            >>> a = Dataset.from_array(np.zeros((20, 20), "float32"), geo_ref=geo_ref)
-            >>> b = Dataset.from_array(np.ones((20, 20), "float32"), geo_ref=geo_ref)
-            >>> a.same_grid(b)
-            True
+            - Two rasters built on one grid can be combined cell by cell:
 
-            ```
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> a = Dataset.from_array(np.zeros((20, 20), "float32"), geo_ref=geo_ref)
+              >>> b = Dataset.from_array(np.ones((20, 20), "float32"), geo_ref=geo_ref)
+              >>> a.same_grid(b)
+              True
+
+              ```
+
+            - A different origin is a different grid, even at the same size and
+              CRS — `align` brings it onto this one:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> here = Dataset.from_array(
+              ...     np.zeros((8, 8), "float32"),
+              ...     geo_ref=GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326),
+              ... )
+              >>> coarse = Dataset.from_array(
+              ...     np.zeros((4, 4), "float32"),
+              ...     geo_ref=GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.5, epsg=4326),
+              ... )
+              >>> here.same_grid(coarse)
+              False
+              >>> here.same_grid(coarse.align(here))
+              True
+
+              ```
+
+            - Identical numbers in a different CRS describe a different grid:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> lonlat = Dataset.from_array(
+              ...     np.zeros((4, 4), "float32"),
+              ...     geo_ref=GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326),
+              ... )
+              >>> projected = Dataset.from_array(
+              ...     np.zeros((4, 4), "float32"),
+              ...     geo_ref=GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=3857),
+              ... )
+              >>> lonlat.same_grid(projected)
+              False
+
+              ```
+
+        See Also:
+            Spatial.align: Resamples a mismatched raster onto this one's grid,
+                so that `same_grid` then holds.
+            Analysis.combine: Combines two rasters cell by cell, and raises
+                unless this predicate holds.
         """
         ds = self._ds
         return (
