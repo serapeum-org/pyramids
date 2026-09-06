@@ -165,33 +165,102 @@ that leaked out of an empty table lookup. Only affects code catching the old typ
 
 ### unreleased
 
-**`Dataset.no_data_value` can report a numpy scalar where it reported a Python `int`.** Hard change, silent —
-the number is the same, only its type differs. It affects one case: an **unsigned** band whose no-data is unset
-or `NaN`, where pyramids substitutes the dtype's maximum. That substituted sentinel is now built as a numpy
-scalar of the band's dtype instead of a Python `int`, so it agrees in type as well as value with the sentinel
-picked when a requested no-data overflows the band — previously the same answer read back as `255` from one path
-and `np.uint8(255)` from the other, and the `==` pinning their agreement could not see the difference.
+**`Dataset.dtype` reports numpy's spelling, so a Byte raster reads `uint8` rather than `byte`.** Hard change,
+silent — the property still returns one string per band, but two of the catalog's names moved, two half-precision
+types became reachable, and one band type that used to return a value now raises. The names are numpy's wherever
+numpy has one, which is what STAC's `raster:bands[].data_type` wants; GDAL's complex-integer and complex-half
+types have no numpy name, so those keep the catalog's own spelling rather than all collapsing onto `complex64`.
 
-What a caller sees, for a `uint8` band with no usable no-data:
+| Band type | Before | After |
+|---|---|---|
+| `GDT_Byte` | `['byte']` | `['uint8']` |
+| `GDT_CFloat64` | `['complex-float64']` | `['complex128']` |
+| `GDT_Float16` | `IndexError` from the catalog lookup | `['float16']` |
+| `GDT_CFloat16` | `IndexError` from the catalog lookup | `['complex-float16']` |
+| `GDT_Unknown` | the catalog's empty name — a float `NaN`, not a `str` | `ValueError` naming the code |
+| everything else (`uint16`, `int32`, `float32`, `complex-int16`, `complex-float32`, …) | unchanged | unchanged |
+
+`byte` and `complex-float64` are the two that break working code: a `ds.dtype[0] == "byte"` branch stops
+matching, and anything that feeds `dtype` into STAC, a manifest or a filename emits a different string. Search
+for string comparisons against `"byte"` and `"complex-float64"` and update them.
+
+Feeding the value *back* is better off than it was. `numpy_to_gdal_dtype("byte")` returned `14` — `GDT_Int8`,
+a different band type — so `numpy_to_gdal_dtype(ds.dtype[0])` on a Byte raster silently produced the wrong
+code; `"uint8"` gives `1`, which is right. `"complex-float64"` raised `TypeError` there and `"complex128"`
+gives `11`. The two half-precision rows are an addition, not a break — they raised before. `GDT_Unknown` turns
+a value into an exception, but the value it returned was a `NaN` that violated the property's own `list[str]`
+contract, so nothing could have used it.
+
+**`Dataset.copy()` with no `path` returns a dataset in `"write"` mode, even when the source was read-only.**
+Hard change, silent — the copy used to inherit the source's access mode:
+
+```python
+ds = Dataset.read_file("raster.tif")     # read_only
+clone = ds.copy()
+
+# Before
+clone.access          # 'read_only'   <- a write raised ReadOnlyError
+# After
+clone.access          # 'write'
+```
+
+An in-memory copy is a fresh `MEM` raster that nothing else references, so refusing writes on it protected
+nothing — the source file is untouched either way — while a `copy()` taken specifically to get a mutable
+working copy of a read-only file could not be written to, and the `ReadOnlyError` advised reopening the
+*source* with `read_only=False`, which is not what the caller wanted. Copying **to a path** is unchanged in
+spirit: a format that supports `Create` gives `"write"`, and a write-by-copy-only format (`.png`, `.jpg` /
+`.jpeg`, `.jp2` / `.j2k`, `.asc`) still gives `"read_only"`, because `CreateCopy` hands back a read-only
+dataset for those. If you relied on the copy being read-only as a guard, guard it yourself — there is no
+parameter to ask for the old mode.
+
+**`Dataset.no_data_value` can report a numpy scalar where it reported a Python `int`.** Hard change, silent —
+the number is the same, only its type differs. It affects one case: an unsigned band **wider than 8 bits**
+(`uint16`, `uint32`, `uint64`) created with a `NaN` no-data, where pyramids substitutes the dtype's maximum
+because `NaN` cannot be stored there. That substituted sentinel is now built as a numpy scalar instead of a
+Python `int`, so it agrees in type as well as value with the sentinel picked when a *requested* no-data
+overflows the band — previously the same answer read back as `65535` from one path and a numpy scalar from the
+other, and the `==` pinning their agreement could not see the difference.
+
+What a caller sees, for a `uint16` band created with `no_data_value=np.nan`:
 
 ```python
 # Before
-ds.no_data_value      # (255,)          <- builtin int
+ds.no_data_value      # (65535,)                  <- builtin int
 
 # After
-ds.no_data_value      # (np.float64(255.0),)
+ds.no_data_value      # (np.float64(65535.0),)
 ```
 
-`float64`, not `uint8`: GDAL's `SetNoDataValue` takes a C double and refuses a numpy `uint8`, so the value is
-round-tripped through a `float64`. Signed and floating bands are unaffected (nothing is substituted for them),
-and a band with a concrete no-data already reported a numpy scalar before this release.
+Measured across the dtypes, with `Dataset.create(rows=3, columns=4, dtype=..., bands=1, no_data_value=...)`:
+
+| dtype and no-data | Before | After |
+|---|---|---|
+| `uint16` + `NaN` | `(65535,)` — `int` | `(np.float64(65535.0),)` |
+| `uint32` + `NaN` | `(4294967295,)` — `int` | `(np.float64(4294967295.0),)` |
+| `uint64` + `NaN` | `(18446744073709551615,)` — `int` | `(np.uint64(18446744073709551615),)` |
+| `uint8` + `NaN` | `(nan,)` | `(nan,)` — unchanged |
+| signed / floating + `NaN` | `(nan,)` | `(nan,)` — unchanged |
+| any dtype, `no_data_value=None` | `(None,)` | `(None,)` — unchanged |
+
+Two things the shape of that table decides for you:
+
+- **`uint8` is excluded.** A Byte band with a `NaN` no-data reports `(nan,)`, before and after — nothing is
+  substituted, because 255 is white in 8-bit imagery and fabricating it as a sentinel would put every white
+  pixel out of domain. Do not test this change on a Byte raster: it will not show there.
+- **Only `NaN` triggers it.** An *unset* no-data (`no_data_value=None`) reports `(None,)` on both sides. The
+  substitution is for a sentinel that cannot be stored, not for the absence of one.
+
+`float64`, not `uint16`: GDAL's `SetNoDataValue` takes a C double and the value is round-tripped through it. The
+one exception is `uint64`, whose maximum has no exact `float64`, so it stays a numpy `uint64`. A band with a
+concrete no-data already reported a numpy scalar before this release.
 
 Anything comparing with `==`, or reading the value into numpy, needs no change. Change what needs a builtin:
 
 - `json.dumps(ds.no_data_value)` → `json.dumps([float(v) for v in ds.no_data_value])`
 - `"%d" % nodata` and `is`-comparisons against small ints
-- arithmetic where wrapping matters — a numpy *integer* scalar wraps at the dtype bound
-  (`np.uint8(255) + 1 == 0`) instead of promoting. `float(nodata)` first if you are doing arithmetic on it.
+- arithmetic where wrapping matters — only on the `uint64` row, whose value is a numpy *integer* scalar and
+  wraps at the dtype bound (`np.uint64(2**64 - 1) + 1 == 0`) instead of promoting. The `uint16` / `uint32` rows
+  are `float64` and do not wrap. `float(nodata)` first if you are doing arithmetic on any of them.
 
 **`create_from_array` is now `from_array`, and takes a `GeoReference`.** Hard change, no deprecation alias — the
 old name and the old flat keywords are gone. The same rename applies to `UgridDataset.create_from_arrays` ->
@@ -395,6 +464,54 @@ itself open read-only. It is **not** a promise that reopening will succeed: a VR
 parent was opened. What has changed is that a dataset **already open for writing** never gets told to reopen —
 that shape now raises `OverviewTargetError` too, since the access mode demonstrably is not the blocker.
 
+**`file_i` counts only real files, refuses a negative index, and now works for a tar.** Hard change, silent for
+zip and loud for tar. `file_i` is public on `Dataset.read_file` and `NetCDF.read_file`, and it selects a member
+of a compressed archive. Three behaviours moved. Measured on a zip and a tar each holding a `sub/` directory
+entry, `sub/a.asc` and `b.asc`:
+
+| Call | Before | After |
+|---|---|---|
+| zip, `file_i=0` | `.../probe.zip/sub/` — the **directory** entry | `.../probe.zip/sub/a.asc` |
+| zip, `file_i=1` | `.../probe.zip/sub/a.asc` | `.../probe.zip/b.asc` |
+| zip, `file_i=2` | `.../probe.zip/b.asc` | `FileFormatNotSupportedError` naming the count and members |
+| zip, `file_i=-1` | `.../probe.zip/b.asc` — Python's from-the-end | `FileFormatNotSupportedError` |
+| zip, `file_i=-5` | `IndexError: list index out of range` | `FileFormatNotSupportedError` |
+| tar, any `file_i` | `/vsitar/<archive>` — the index was **ignored** | the member at that index |
+
+- **Directory entries no longer consume an index.** A zip written with explicit directory entries shifted every
+  member by one and made `file_i=0` name a directory GDAL cannot open. If you compensated by adding one, remove
+  the adjustment.
+- **A negative index is refused rather than counted from the end.** `file_i=-1` never meant "the last member" —
+  it happened to work through Python's list indexing while `-5` raised a bare `IndexError` from the same line.
+  Both now raise `FileFormatNotSupportedError`, which names how many members the archive holds and lists them.
+  To read the last member, pass its index: `len(members) - 1`.
+- **A tar now honours `file_i` at all.** Every index resolved to the bare `/vsitar/<archive>` path before, and
+  GDAL picked a member itself. A tar read that relied on that pick can now land on a different file — pass the
+  index you want, or open the member path directly.
+
+**`to_zarr` writes the band's sentinel as the array's `fill_value`.** Hard change, silent, and it changes bytes
+on disk. The store's array metadata carried `fill_value: 0.0` regardless of the raster's no-data, which was
+recorded only in a pyramids-specific `no_data_value` attribute. It now carries the real sentinel, in both the
+Zarr `fill_value` slot and a CF `_FillValue` attribute. Written from a `float32` raster whose no-data is
+`-9999.0`:
+
+```text
+# Before                                    # After
+data/zarr.json  fill_value = 0.0            data/zarr.json  fill_value = -9999.0
+attrs: no_data_value = [-9999.0]            attrs: _FillValue = -9999.0, no_data_value = [-9999.0]
+
+Dataset.read_file(store).no_data_value      Dataset.read_file(store).no_data_value
+  -> (0.0,)                                   -> (-9999.0,)
+```
+
+The cell values are untouched — only the declared sentinel moved — so pyramids reading its own store back is
+the fix: the raster's no-data survives the round trip instead of being replaced by `0.0`. The cost is borne by
+every other reader. Any consumer that honours the Zarr `fill_value` or the CF `_FillValue` — zarr-python and
+GDAL do, and so does anything layered on them — reads `-9999.0` from a store written by the new version where
+it read `0.0` from one written by the old, and masks accordingly. Stores already on disk are unaffected until
+they are rewritten. If a downstream pipeline depended on `0.0` being the fill value, rewrite the store or set
+the reader's fill explicitly.
+
 **No-data masking in the analysis engine now takes its tolerance from the band's dtype.** Hard change, silent.
 `count_domain_cells`, `apply`, `fill`, `footprint`, `plot_histogram` and `to_image` all ask one question — does this
 cell hold the band's no-data sentinel — and each asked it with a *relative* tolerance of its own: `rtol=1e-3` in
@@ -404,15 +521,29 @@ window scales with the sentinel: `rtol=1e-3` around `-9999` masks everything dow
 an `int32` sentinel of `2e9` masks everything within `20 000` of it.
 
 The tolerance is now the band's own — none at all for an integer or boolean band, whose sentinel is stored exactly,
-and for a floating band the wider of its dtype's `eps` and single precision's (about `1.2e-7` relative), which still
-matches a sentinel that has been through `float32` storage or a driver's decimal text. `numpy.isclose`'s default
+and single precision's `eps` (about `1.2e-7` relative) for a floating band of any width, which is the slack a
+sentinel picks up passing through `float32` storage or a driver's decimal text. `numpy.isclose`'s default
 `atol=1e-8` is dropped with it, so a sentinel of `0` no longer swallows genuinely small cells.
+
+Two consequences of "the band's own" worth stating, because the obvious reading of each is the wrong one:
+
+- **The float tolerance does not narrow further for a wide band, and does not widen for a narrow one.** It is
+  single precision's `eps` for `float16`, `float32` and `float64` alike. Taking each dtype's own `eps` would
+  make a `float16` band the loosest of the three — one ULP of half precision is `9.8e-4`, a window of `±9.8`
+  around a `-10000` sentinel, which swallows both of that sentinel's neighbouring representable values.
+- **An integer sentinel is compared as an exact integer, not through a `float`.** That matters only at the
+  64-bit limits, where it is the whole answer: `float(2**63 - 1)` rounds *up* past `int64`'s maximum, so a band
+  whose sentinel is its own dtype maximum would be judged unable to hold it and mask nothing at all — with
+  `fill` then overwriting the very cells it was told to leave alone. `int64` and `uint64` maxima are exactly
+  the sentinels pyramids fabricates for an unsigned band with an unstorable no-data, so this is the ordinary
+  path for a 64-bit raster rather than a corner of one.
 
 For a caller, a cell within ~0.1% of the sentinel that used to be no-data to `count_domain_cells` / `apply` is now
 data; nothing that was masked before is unmasked *less* accurately, the change only ever keeps cells. On the test
-suite's own rasters nothing moves at all — all 464 fixture bands carrying a concrete sentinel mask identically under
-the old rule and the new one — so this surfaces only on data that holds values close to its own sentinel. Ask
-`pyramids.base._domain.is_no_data(arr, nodata, rtol=...)` directly if you want the old, looser window.
+suite's own rasters nothing moves at all — all 473 fixture bands carrying a concrete sentinel (of 519 scanned)
+mask identically under the old rule and the new one — so this surfaces only on data that holds values close to its
+own sentinel. Ask `pyramids.base._domain.is_no_data(arr, nodata, rtol=...)` directly if you want the old, looser
+window.
 
 **Coordinate axis arrays can differ in the last ULP.** `RasterBase.get_x_lon_dimension_array` /
 `get_y_lat_dimension_array` moved from an element-wise accumulation to the shared `GeoTransform.x_axis` / `y_axis`,
@@ -503,27 +634,142 @@ replace the georeference wholesale.
 
 ### unreleased
 
-**`NetCDF.variable_names` reports the store's declaration order, not alphabetical order.** Hard change, silent —
-the *set* of names is unchanged, only the order, so nothing raises and nothing warns. The property used to hand
-back the CF classification's own list, which is sorted; it now filters the declared list instead, keeping the
-order the file uses.
+**`NetCDF.variable_names` answers a different question, so the set of names changes.** Hard change, silent —
+nothing raises and nothing warns, and both the membership and the order can move. The property used to hand
+back the CF classification's own list; it now filters the store's declared list, which means it walks sub-groups
+and it drops the arrays CF says are not data. `nc.variables` has the same keys, so it moves with it.
+
+Two things change, and they pull in opposite directions:
+
+- **Group-qualified names appear.** A grouped netCDF-4 store's sub-group arrays are enumerated now, named by
+  their path with `/` as the separator. On the repository's own `none__35v__1d35__groups-nc4.nc` fixture the
+  list goes from **1 name to 29**, 28 of which carry a `/`:
+
+  ```python
+  # Before
+  nc.variable_names     # ['UTC_time']
+
+  # After
+  nc.variable_names     # ['UTC_time',
+                        #  'mozaic_flight_2012030403540535_ascent/air_press',
+                        #  'mozaic_flight_2012030403540535_ascent/CO', ...]   <- 29 in all
+  ```
+
+- **CF's non-data arrays leave.** A bounds array, a 2-D curvilinear coordinate field, an ancillary variable is
+  still in the store and still readable, but it is no longer *enumerated* as a data variable. Measured over the
+  26 netCDF fixtures in the repository: 18 lists are byte-identical, 8 changed, and **none changed order
+  alone**. What left, by fixture: `lat_bnds` / `lon_bnds` / `time_bnds` (two fixtures), `lon_rho` / `lat_rho` /
+  `Cs_r` / `h` (a curvilinear ROMS grid, 6 names → 2), `xc` / `yc`, `DQF` / `band_id` / `band_wavelength`,
+  `expver`, and UGRID's `face_node_connectivity`.
+
+Nothing became unreachable. Every name that left is still accepted by `get_variable`, and asking `variables`
+for one says so rather than raising a bare `KeyError`:
+
+```python
+nc.variable_names                 # ['tos']            <- was ['lon_bnds', 'lat_bnds', 'time_bnds', 'tos']
+nc.get_variable("lat_bnds")       # still works, shape (170, 2)
+nc.variables["lat_bnds"]          # KeyError: "'lat_bnds' is not a data variable, so it is not a key of
+                                  #  `variables`; read it with `get_variable('lat_bnds')`."
+```
+
+A group-qualified name works the same way, and a group can also be opened on its own:
+
+```python
+nc.get_variable("mozaic_flight_2012030403540535_ascent/CO")        # shape (74,)
+nc.get_group("mozaic_flight_2012030403540535_ascent").variable_names
+# ['air_press', 'CO', 'O3', 'altitude']
+```
+
+The order within the list is the store's declaration order rather than the classification's. That matters
+beyond iteration: `_fan_out_eager` templates a container-wide result from the **first** spatial variable —
+taking its geotransform, CRS, no-data and extra dimensions — so a container-wide `to_crs`, `resample` or `crop`
+can template from a different variable than it did before, and the order propagates into `to_netcdf` and
+`to_xarray` output.
+
+What to do: if you iterated `variable_names` to convert, export or plot a whole store, re-measure what you get.
+A grouped store now hands you every group's arrays under `/`-qualified names — filter on `"/" not in name` if
+you want only the root's. A CF store hands you fewer names — name the bounds or ancillary arrays you need
+explicitly and read them with `get_variable`. If you depended on the sorted order, sort explicitly:
+`sorted(nc.variable_names)`.
+
+**`NetCDF.to_xarray()` on a grouped store exports every group's arrays, under flattened names.** Hard change,
+silent. It followed `variable_names`, so where that returned one name the export had one data variable. On the
+same grouped fixture:
 
 ```python
 # Before
-nc.variable_names     # ['q', 'z']   <- alphabetical
+list(nc.to_xarray().data_vars)    # ['UTC_time']
 
 # After
-nc.variable_names     # ['z', 'q']   <- the order the store declares
+list(nc.to_xarray().data_vars)    # ['UTC_time',
+                                  #  'mozaic_flight_2012030403540535_ascent_air_press',
+                                  #  'mozaic_flight_2012030403540535_ascent_CO', ...]   <- 9 in all
 ```
 
-This matters beyond iteration order. `_fan_out_eager` templates a container-wide result from the **first**
-spatial variable — taking its geotransform, CRS, no-data and extra dimensions — so a container-wide `to_crs`,
-`resample` or `crop` can now template from a different variable than it did before, and the order propagates
-into `to_netcdf` and `to_xarray` output.
+Three rules decide those keys, and they are worth knowing before you index the result:
 
-The declared order is the intended answer: it is what the file says, it matches what `ncdump` and xarray show,
-and templating a fan-out from an alphabetically-first variable was arbitrary. If you depended on the sorted
-order, sort explicitly: `sorted(nc.variable_names)`.
+- **The `/` becomes `_`.** An `xr.Dataset` is one flat namespace and netCDF forbids `/` in a variable name, so
+  a path is flattened with the group kept as a prefix — `flight_a/CO` and `flight_b/CO` stay apart as
+  `flight_a_CO` and `flight_b_CO`. Exporting the group path verbatim produced a Dataset that could not be
+  written back at all.
+- **The store's own name wins a collision.** Where a flattened sub-group name lands on a name the store really
+  holds — a root array literally called `flight_a_CO`, or a dimension coordinate of that name — the root array
+  keeps the plain key and the *sub-group* array takes `_2`, `_3`, …, whichever order the two happen to be
+  enumerated in. A `UserWarning` lists each rename as `store name -> export name`; the name before the arrow is
+  the one `get_variable` takes, and the renamed variable also carries it as a `pyramids_store_name` attribute,
+  since the suffixed key alone cannot be turned back into it.
+- **A variable whose dimensions clash is skipped, with a warning naming it.** An `xr.Dataset` has one size per
+  dimension name, which a grouped store need not honour: the fixture above holds 29 arrays across eight flight
+  groups that all declare a `recNum` of their own, so 9 are exported and the other 20 are named in a
+  `UserWarning` telling you to read them with `get_variable()` instead.
+
+If you keyed the exported Dataset, or round-tripped it through `to_netcdf`, re-derive the keys rather than
+hard-coding them — and catch the warnings if you need to know what was renamed or skipped.
+
+**A reprojected, resampled or cropped container reports its own grid, not the source's.** Hard change, silent.
+`to_crs`, `resample` and `crop` fan out over a container and build a new one, and the result's `x` / `y` axis
+arrays are what its georeference is read from — pyramids prefers a coordinate pair over the stored transform.
+Two things about those axes were wrong, in two different arms, and both are fixed.
+
+**The in-memory result's axes are `float64`.** They took the *data* variable's dtype, so reprojecting an
+`int16` raster into EPSG:3857 wrote metre coordinates into an `int16` axis, where every one of them saturated.
+`coards__4v__1d3-3d1__y-desc.nc` → `to_crs(3857)`:
+
+```text
+# Before                                          # After
+x  dtype int16,  [-32768, -32768, -32768, …]      x  dtype float64, [-17788309.8, -17464393.7, …]
+y  dtype int16,  [ 32767,  32767,  32767, …]      y  dtype float64, [ 13331117.2,  13007201.1, …]
+geotransform (-32768.0, 0.0, 0, 32767.0, 0, -0.0) geotransform (-17950267.9, 323916.1, 0,
+             <- a zero pixel size                              13493075.2, 0, -323916.1)
+```
+
+**The written file no longer carries the source's `lat` / `lon`.** `to_crs`, `resample` and `crop` with a
+`path=` argument stream the result to disk, and that writer copied the source's spatial coordinate arrays into
+the output beside the result's own `x` / `y`. Reopening such a file read the lon/lat pair in preference to the
+stored transform and reported the *source's* degrees under the result's CRS. Reprojecting
+`cf__7v__1d3-2d3-3d1__y-asc.nc` to EPSG:3857 and reading the file back:
+
+```text
+# Before                                          # After
+epsg          3857                                epsg          3857
+geotransform  (0.0, 2.0, 0, 90.0, 0, -1.0)        geotransform  (-20037477.8, 1054539.6, 0,
+              <- degrees, under a metre CRS                      242528680.9, 0, -1054817.1)
+arrays        […, 'lat', 'lat_bnds', 'lon',       arrays        […, 'lat_bnds', 'lon_bnds',
+               'lon_bnds', 'x', 'y']                             'x', 'y']
+```
+
+A spatial axis describes the grid it was written for, and every operation that reaches here has changed that
+grid, so the result derives its own `x` / `y` and no source axis is carried. Bounds arrays **are** still
+carried, verbatim and on a bare dimension — netCDF allows a dimension with no coordinate variable — so a
+`lat_bnds` in the output still holds the source's rows and no longer has a `lat` beside it to be read against.
+That is deliberate: stale metadata next to an array is the lesser of the two costs, against a file that is
+silently georeferenced wrong.
+
+If you read a written file's `lat` / `lon` arrays, read `x` / `y` instead, or take the coordinates from the
+container's `geotransform`. If you consumed the carried `lat_bnds` / `lon_bnds`, note that they describe the
+*source* grid and always did — they are unchanged, only the axis that used to sit beside them is gone. And if
+you compared a reprojected container's `geotransform` against a stored value, re-derive it: on a raster whose
+data dtype could not hold the new coordinates, the old number was not merely imprecise but degenerate.
 
 ### 0.37.0
 

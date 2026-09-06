@@ -2263,18 +2263,26 @@ class Dataset(RasterBase):
         the underlying state.
 
         **The entries are numbers, not necessarily Python `int`s.** An
-        unsigned band whose no-data is unset or `NaN` takes the dtype maximum,
-        and that sentinel is now built as a numpy scalar of the band's dtype
-        rather than a Python `int`, so that it agrees in *type* as well as
-        value with the fallback used when a requested sentinel overflows the
-        band. A uint8 band that used to report `(255,)` reports
-        `(np.float64(255.0),)` — float64 because GDAL's `SetNoDataValue` takes
-        a C double and the value is round-tripped through it. Compare with
-        `==` rather than `is`, and call `float(...)` / `int(...)` before
-        anything that needs a builtin (JSON, `%` formatting of an `int`).
-        Beware in particular that arithmetic on a numpy integer scalar wraps at
-        the dtype bound instead of promoting. See `docs/migration.md`,
-        dataset / unreleased.
+        unsigned band *wider than 8 bits* created with a `NaN` no-data takes
+        the dtype maximum, because `NaN` cannot be stored there, and that
+        substituted sentinel is now built as a numpy scalar rather than a
+        Python `int`, so that it agrees in *type* as well as value with the
+        fallback used when a requested sentinel overflows the band. A uint16
+        band that used to report `(65535,)` reports `(np.float64(65535.0),)`
+        — float64 because GDAL's `SetNoDataValue` takes a C double and the
+        value is round-tripped through it.
+
+        Two cases the example deliberately avoids, because neither
+        substitutes: a **Byte** band, which reports `(nan,)` (255 is ordinary
+        data in 8-bit imagery, see `bands._substitutes_dtype_max`), and an
+        **unset** no-data, which reports `(None,)` whatever the dtype.
+
+        Compare with `==` rather than `is`, and call `float(...)` /
+        `int(...)` before anything that needs a builtin (JSON, `%` formatting
+        of an `int`). Arithmetic wraps at the dtype bound instead of promoting
+        only on the one row that stays a numpy *integer*: `uint64`, whose
+        maximum has no exact float64, reports `np.uint64(2**64 - 1)`. See
+        `docs/migration.md`, dataset / unreleased.
         """
         return tuple(self._no_data_value)
 
