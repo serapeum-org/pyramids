@@ -103,8 +103,20 @@ def _flat_export_name(variable_name: str, taken: set[str]) -> tuple[str, bool]:
     become `flight_a_CO` and `flight_b_CO`). Substitution can still land on a
     name already in the dataset -- a root array literally called `flight_a_CO`,
     or a dimension coordinate of that name -- and those are resolved by
-    appending `_2`, `_3`, ... in enumeration order, which is deterministic
-    because the enumeration lists a group's own arrays before it recurses.
+    appending `_2`, `_3`, ...
+
+    Which of the two keeps the plain name is **not** decided by enumeration
+    order. The caller reserves every unqualified store name before the loop
+    starts, so a name the store holds literally always wins it and a flattened
+    sub-group name is the one that moves. An earlier version of this docstring
+    claimed the order was safe "because the enumeration lists a group's own
+    arrays before it recurses" -- true of `_mdim_data_variable_names`, but the
+    export iterates `_readable_variable_names()`, which emits the CF-classified
+    data variables first and everything else after. A root array the
+    classification does not call `data` -- an auxiliary coordinate, an
+    ordinary CF construct -- therefore sorted *behind* a sub-group array that
+    flattens onto its name, and the sub-group array took it: the export handed
+    back one array's values under the other's name.
 
     Args:
         variable_name: The store's name for the variable, group-qualified with
@@ -125,10 +137,18 @@ def _flat_export_name(variable_name: str, taken: set[str]) -> tuple[str, bool]:
             ('flight_a_CO', False)
 
             ```
-        - A collision with a name already claimed is suffixed:
+        - A collision with a name already claimed is suffixed, and the
+          sub-group array is the one that moves:
             ```python
             >>> _flat_export_name("flight_a/CO", {"flight_a_CO"})
             ('flight_a_CO_2', True)
+
+            ```
+        - The root array of that name keeps it, whichever order they are
+          enumerated in, because its own reservation is lifted before it asks:
+            ```python
+            >>> _flat_export_name("flight_a_CO", {"flight_a_CO_2"})
+            ('flight_a_CO', False)
 
             ```
         - A root-level name is handed back untouched:
@@ -375,9 +395,18 @@ def _data_vars_from_arrays(
     conflicted: list[str] = []
     disambiguated: list[str] = []
     taken: set[str] = set(reserved or ())
+    readable = list(ds._readable_variable_names())
+    # Reserve every unqualified store name before assigning any, so which of a
+    # root array and a sub-group array keeps the plain name does not depend on
+    # the order they are enumerated in. Without this the loser is whichever
+    # comes second, and `_readable_variable_names()` puts the CF-classified
+    # data variables first -- so a root auxiliary coordinate lost its own name
+    # to a sub-group array, and the export returned that array's values under
+    # it. Each root name's own reservation is lifted when its turn comes.
+    taken |= {name for name in readable if _GROUP_PATH_SEPARATOR not in name}
     # Readable names, not the data-variable enumeration: an export that
     # dropped the store's aux arrays (`expver`, bounds) would not round-trip.
-    for var_name in ds._readable_variable_names():
+    for var_name in readable:
         # Through the helper: a name from the variable enumeration may be
         # group-qualified, which `OpenMDArray` alone does not resolve.
         md_arr = open_mdarray(rg, var_name)
@@ -396,6 +425,9 @@ def _data_vars_from_arrays(
             # file and resolves the path against it.
             arr_data = _lazy_var_data(ds, var_name, chunks, md_arr)
         var_attrs = read_cf_attributes(md_arr)
+        # A root array is claiming the name it already holds, so its own
+        # reservation must not read as a collision with itself.
+        taken.discard(var_name)
         export_name, suffixed = _flat_export_name(var_name, taken)
         if suffixed:
             disambiguated.append(f"{var_name} -> {export_name}")
@@ -405,11 +437,12 @@ def _data_vars_from_arrays(
         dim_sizes.update(sizes)
     if disambiguated:
         warnings.warn(
-            f"to_xarray() renamed {len(disambiguated)} variable(s) whose group-qualified "
-            f"name flattens onto one already in the dataset: {disambiguated}. An "
-            "xarray Dataset is one flat namespace and netCDF forbids '/' in a name, so "
-            "the group path is flattened with '_' and a numeric suffix breaks the tie; "
-            "the name before the arrow is the one get_variable() takes.",
+            f"to_xarray() renamed {len(disambiguated)} variable(s) whose flattened "
+            f"name is already in the dataset: {disambiguated}. An xarray Dataset is one "
+            "flat namespace and netCDF forbids '/' in a name, so a sub-group array's "
+            "path is flattened with '_', and where that lands on a name the store "
+            "already holds a numeric suffix breaks the tie. The name before the arrow "
+            "is the store's, and the one get_variable() takes.",
             UserWarning,
             stacklevel=_caller_stacklevel(),
         )
