@@ -191,3 +191,98 @@ class TestRemoveVariableReportsAMissingNameAsValueError:
 
         arrays = dataset._working_group().GetMDArrayNames()
         assert "lat" not in arrays, f"the dimension coordinate survived: {arrays}"
+
+
+class TestTheTwoMutatorsAgreeAboutWhatTheStoreHolds:
+    """One store, one answer to "is this array here".
+
+    `remove_variable` resolves the array; `rename_variable` gated on
+    `_readable_variable_names`, which excludes dimension coordinates. So the
+    same name got two contradictory answers from two methods documented as
+    agreeing, and the refusal asserted something the other call disproves in
+    the next line: `remove_variable("lat")` deletes it, while
+    `rename_variable("lat", ...)` said "not found. Available: [...]".
+    """
+
+    def test_the_rename_refusal_does_not_claim_a_present_array_is_missing(self):
+        """ "Not found" must mean not found.
+
+        Test scenario:
+            `lat` is in neither `variable_names` nor the readable superset, and
+            it is unquestionably in the file -- `remove_variable` deletes it.
+            The rename still cannot go through (see the next test for why), but
+            it may not say the array is absent.
+        """
+        dataset = NetCDF.read_file(str(FLAT))
+        assert "lat" not in dataset._readable_variable_names(), (
+            "the fixture no longer models a dimension coordinate"
+        )
+
+        with pytest.raises(ValueError) as excinfo:
+            dataset.rename_variable("lat", "latitude")
+
+        message = str(excinfo.value)
+        assert "not found" not in message, (
+            f"a present array is reported as missing: {message}"
+        )
+        assert "lat" in message, f"the refusal must name the array: {message}"
+
+    def test_renaming_a_dimension_coordinate_is_refused_for_the_real_reason(self):
+        """The refusal is about the dimension, not about existence.
+
+        Test scenario:
+            A rename is a create-then-delete, and a netCDF dimension keeps
+            pointing at its indexing variable. Renaming `lat` produced
+            `latitude(lat)` beside a `lat` dimension whose indexing variable
+            had been deleted, and the very next read of the container died with
+            GDAL's "This object has been deleted. No action on it is possible".
+            So the array is left alone and the message says which fact stops
+            the call.
+        """
+        dataset = NetCDF.read_file(str(FLAT))
+
+        with pytest.raises(ValueError) as excinfo:
+            dataset.rename_variable("lat", "latitude")
+
+        message = str(excinfo.value)
+        assert "dimension coordinate" in message, (
+            f"the refusal does not give the reason: {message}"
+        )
+        arrays = dataset._working_group().GetMDArrayNames()
+        assert "lat" in arrays and "latitude" not in arrays, (
+            f"the refused rename touched the store: {arrays}"
+        )
+
+    def test_an_absent_name_is_still_reported_as_absent(self):
+        """The other branch, so the two refusals cannot collapse into one.
+
+        Test scenario:
+            Resolving the array rather than consulting the enumeration must not
+            cost the plain-typo message. The rejected name shares no substring
+            with anything in the fixture.
+        """
+        dataset = NetCDF.read_file(str(FLAT))
+
+        with pytest.raises(ValueError) as excinfo:
+            dataset.rename_variable("zzz_not_here", "whatever")
+
+        message = str(excinfo.value)
+        assert "not found" in message, f"a typo lost its message: {message}"
+        assert "zzz_not_here" in message, f"the refusal must echo the name: {message}"
+
+    def test_an_ordinary_auxiliary_is_still_renameable(self):
+        """The gate must not have become "nothing outside the enumeration".
+
+        Test scenario:
+            `lat_bnds` is readable but not enumerated, and it is not a
+            dimension coordinate -- nothing is indexed by it. Renaming it
+            worked before and must keep working, or the fix would have traded
+            one wrong refusal for another.
+        """
+        dataset = NetCDF.read_file(str(FLAT))
+
+        dataset.rename_variable("lat_bnds", "lat_bounds")
+
+        arrays = dataset._working_group().GetMDArrayNames()
+        assert "lat_bounds" in arrays, f"the rename did not happen: {arrays}"
+        assert "lat_bnds" not in arrays, f"the old name survived: {arrays}"

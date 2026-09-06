@@ -173,6 +173,30 @@ class TestTheDepthCapIsAnnouncedWhenItFires:
             f"the cap itself must still hold: {len(names)} names"
         )
 
+    def test_the_warning_points_at_the_call_that_read_the_store(self, tmp_path):
+        """A warning nobody can locate is only half a signal.
+
+        Test scenario:
+            The warning is raised `_MAX_GROUP_DEPTH` frames inside
+            `_mdim_data_variable_names`' own recursion, so `stacklevel=2`
+            attributed it to that function calling itself -- a file and line in
+            `netcdf.py`. Counting from `depth` instead would only move it to
+            `_get_variable_names`, one frame further in. What a user needs is
+            the line in *their* file, so the level is computed by walking out
+            of the package.
+        """
+        path = tmp_path / "deep.nc"
+        _write_deeply_nested_store(path, _MAX_GROUP_DEPTH + 1)
+        dataset = NetCDF.read_file(str(path))
+
+        with pytest.warns(UserWarning) as record:
+            _ = dataset.variable_names
+
+        raised_at = Path(record[0].filename)
+        assert raised_at == Path(__file__), (
+            f"the warning is attributed to {raised_at}, not to the caller"
+        )
+
     def test_a_store_within_the_cap_stays_quiet(self, tmp_path):
         """The cap never fires on a real store, so it must never warn on one.
 

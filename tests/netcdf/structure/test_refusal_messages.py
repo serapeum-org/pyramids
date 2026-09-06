@@ -1,11 +1,15 @@
 """A refusal must list the names the check it failed actually accepts.
 
-Four sites reject an unknown variable name, and every one of them gated on
+Five sites reject a variable name, and every one of them gated on
 :meth:`NetCDF._readable_variable_names` while printing :attr:`variable_names`
 in the message. Those two lists deliberately differ -- the property enumerates
 *data* variables, the gate asks what the store holds -- so a user who mistyped
 `lat_rho` on a curvilinear store was told the file contains only `salt` and
 `zeta`, and a user plotting a GOES granule was never told `DQF` was there.
+
+The fifth is the container-wide fan-out's "no spatial variable" refusal, which
+was missed when the other four were corrected: it scans the readable superset
+and printed the enumeration.
 
 The tests below assert the message *content*, not that a `ValueError` is
 raised: the raise was never in doubt, the list inside it was. The rejected
@@ -104,6 +108,32 @@ class TestTheRefusalNamesWhatTheGateAccepts:
         missing = [name for name in readable if name not in message]
         assert not missing, (
             f"accepted names absent from the refusal {missing}: {message}"
+        )
+
+    def test_the_fan_out_refusal_lists_every_name_it_scanned(self):
+        """The fifth site, missed when the other four were fixed.
+
+        Test scenario:
+            `_spatial_variable_names` scans the readable superset -- a gridded
+            ancillary such as GOES ABI's `DQF` is not enumerated and must still
+            be reprojected -- while the refusal printed `variable_names`. On
+            this staggered ROMS store that is two names out of six, so a user
+            was told `lat_rho` and `h` were never considered when both had been
+            tested and rejected.
+        """
+        dataset = NetCDF.read_file(str(CURVILINEAR))
+        readable = dataset._readable_variable_names()
+        assert not dataset._spatial_variable_names(), (
+            "the fixture must have no gridded variable for this refusal to fire"
+        )
+
+        with pytest.raises(ValueError) as excinfo:
+            dataset.to_crs(4326)
+
+        message = str(excinfo.value)
+        missing = [name for name in readable if name not in message]
+        assert not missing, (
+            f"scanned names absent from the refusal {missing}: {message}"
         )
 
     def test_the_container_plot_refusal_lists_the_plottable_variables(self):

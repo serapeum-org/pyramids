@@ -45,6 +45,7 @@ from pyramids.dataset.dataset import (
     _invalidate_cached_accessors,
 )
 from pyramids.dataset.engines._read_window import resolve_read_window
+from pyramids.dataset.engines.io import _caller_stacklevel
 from pyramids.dataset.transform import GeoTransform
 from pyramids.netcdf._axis import detect_axis_indices
 from pyramids.netcdf._kerchunk_facade import combine_kerchunk, to_kerchunk
@@ -3171,6 +3172,41 @@ class NetCDF(Dataset):
         """
         return [n for n in self._readable_variable_names(rg) if n not in spatial_vars]
 
+    @staticmethod
+    def _group_relative_name(rg: Any, md_arr: Any) -> str:
+        """An array's name as ``rg`` resolves it, group-qualified where it has to be.
+
+        ``MDArray.GetName()`` is the **leaf**, and every name that reaches
+        :func:`~pyramids.netcdf._mdim.open_mdarray` is read relative to the
+        group it is given. For an array in a sub-group the two differ, and the
+        leaf then resolves at the root -- to a *different* array whenever one
+        of that name exists there. That is what made a sub-group auxiliary's
+        dimension coordinate come back carrying the root's values: a store with
+        `n = [100, 200, 300]` at the root and `g/n = [1, 2, 3]` beside
+        `g/aux(n)` copied the root's `n` in next to `g/aux`, so the carried
+        array was labelled with another variable's axis. Where the root has no
+        array of that name the coordinate resolved to nothing instead and was
+        dropped without a word.
+
+        The full name is relative to the *file* root, so it is trimmed back to
+        ``rg`` -- a ``get_group(...)`` view resolves names inside the group it
+        opened, not from the file root. An array outside ``rg``'s subtree
+        (a dimension inherited from a parent group, seen from a group view)
+        cannot be named relative to it at all; the leaf is returned, which is
+        what this always answered and is the only name that has a chance.
+
+        Args:
+            rg: The group the returned name will be resolved against.
+            md_arr: The :class:`osgeo.gdal.MDArray` to name.
+
+        Returns:
+            str: The array's name relative to ``rg``.
+        """
+        leaf = str(md_arr.GetName())
+        full = str(md_arr.GetFullName() or leaf)
+        prefix = str(rg.GetFullName() or "/").rstrip("/") + "/"
+        return full[len(prefix) :] if full.startswith(prefix) else leaf
+
     def _aux_dimension_coordinate_names(
         self, rg: Any, aux_vars: list[str], taken: set[str]
     ) -> list[str]:
@@ -3180,6 +3216,10 @@ class NetCDF(Dataset):
         which documents why they have to be carried at all. A coordinate the
         result already holds is left alone: its `time` axis is the transformed
         one, not the source's.
+
+        Names are resolved through :meth:`_group_relative_name`, so a
+        sub-group's coordinate is named `g/n` rather than `n` -- the leaf
+        resolves at the root, against a different array.
 
         Args:
             rg: The source store's root group, or ``None`` in classic mode.
@@ -3193,14 +3233,20 @@ class NetCDF(Dataset):
             auxiliaries, in first-seen order and each named once.
         """
         names: list[str] = []
+        # The result's group is flat and `add_variable` copies under the leaf
+        # segment, so `taken` and the first-seen check are both decided on the
+        # leaf: two sub-groups' `n` axes cannot both land, and carrying the
+        # second as `n-new` would name an axis nothing is indexed by.
+        leaves: set[str] = set()
         for var_name in aux_vars:
             md_arr = open_mdarray(rg, var_name) if rg is not None else None
             for dim in md_arr.GetDimensions() if md_arr is not None else []:
                 indexing = dim.GetIndexingVariable()
                 if indexing is None:
                     continue
-                name = indexing.GetName()
-                if name in taken or name in names or name in aux_vars:
+                name = NetCDF._group_relative_name(rg, indexing)
+                leaf = name.rsplit("/", 1)[-1]
+                if leaf in taken or leaf in leaves or name in aux_vars:
                     continue
                 # A spatial axis describes the *source* grid, and the result's
                 # grid is not the source's after a reprojection, a resample or
@@ -3210,9 +3256,10 @@ class NetCDF(Dataset):
                 # container then reported a geotransform and a bbox in degrees
                 # while declaring metres. The result derives its own spatial
                 # axes; only the non-spatial ones are the source's to give.
-                if name.rsplit("/", 1)[-1].lower() in AXIS_NAMES:
+                if leaf.lower() in AXIS_NAMES:
                     continue
                 names.append(name)
+                leaves.add(leaf)
         return names
 
     def _carry_aux_dimension_coordinates(
@@ -3396,7 +3443,9 @@ class NetCDF(Dataset):
             )
         aux_data: dict[str, np.ndarray] = {}
         for name in aux_vars:
-            self._add_aux_var_spec(name, rg, dims, coords, var_specs, aux_data)
+            self._add_aux_var_spec(
+                name, rg, dims, coords, var_specs, aux_data, aux_vars
+            )
 
         root_attrs = self._stream_root_attrs(template)
 
@@ -3518,16 +3567,49 @@ class NetCDF(Dataset):
             )
         var_specs[name] = ((bd, "y", "x"), np.dtype(res.numpy_dtype[0]), attrs)
 
-    def _add_aux_var_spec(self, name, rg, dims, coords, var_specs, aux_data) -> None:
+    def _add_aux_var_spec(
+        self, name, rg, dims, coords, var_specs, aux_data, aux_vars=()
+    ) -> None:
         """Add one carried-through auxiliary variable's dims/coords/spec and cache its whole array.
 
         The dimension coordinates an auxiliary is indexed by are written
-        alongside it -- except the spatial ones, which describe the grid the
-        source had rather than the one being written. A streamed `to_crs(3857)`
-        used to write the source's `lat`/`lon` beside the result's own `x`/`y`,
-        and :meth:`_compute_geotransform` reads a lon/lat pair in preference to
-        the stored transform, so reopening that file reported a geotransform
-        and a bbox in degrees while the CRS said metres.
+        alongside it -- under exactly the rule the eager arm applies in
+        :meth:`_aux_dimension_coordinate_names`, so the two spellings of one
+        call produce the same set of arrays. Three cases are skipped, and a
+        netCDF dimension with no coordinate variable is what the skip leaves
+        behind, which is all a carried `lat_bnds` needs:
+
+        * a **spatial** axis, which describes the grid the source had rather
+          than the one being written. A streamed `to_crs(3857)` used to write
+          the source's `lat`/`lon` beside the result's own `x`/`y`, and
+          :meth:`_compute_geotransform` reads a lon/lat pair in preference to
+          the stored transform, so reopening that file reported a geotransform
+          and a bbox in degrees while the CRS said metres.
+        * a dimension with **no indexing variable**, which used to get
+          ``np.arange(size)``. That invents an axis the source does not have
+          and the eager arm does not write: a streamed `to_crs` of the CF
+          bounds fixture gained a `bnds = [0, 1]` array, and of the GOES
+          granule a `band`, `number_of_image_bounds` and
+          `number_of_time_bounds`.
+        * a dimension whose indexing variable is **itself one of the carried
+          auxiliaries**. GDAL reports `time_bounds` as the indexing variable of
+          `number_of_time_bounds`, so the file gained a second copy of that
+          array under the dimension's name beside the real one.
+
+        Args:
+            name: The auxiliary variable to write, possibly group-qualified.
+            rg: The source store's working group.
+            dims: Dimension sizes being accumulated for the output file.
+            coords: Coordinate arrays being accumulated, keyed by dimension.
+            var_specs: Variable specifications being accumulated.
+            aux_data: Whole arrays being cached for the write pass.
+            aux_vars: Every auxiliary this fan-out is carrying, so an indexing
+                variable that is one of them is not also written as a
+                coordinate. Defaults to empty.
+
+        Returns:
+            None: ``dims`` / ``coords`` / ``var_specs`` / ``aux_data`` are
+            mutated in place.
         """
         # As in `_add_spatial_var_spec`: the name may be group-qualified.
         src_md = open_mdarray(rg, name)
@@ -3539,19 +3621,13 @@ class NetCDF(Dataset):
             if dn not in dims:
                 iv = d.GetIndexingVariable()
                 dims[dn] = int(d.GetSize())
-                # The dimension is created either way; the coordinate *array*
-                # is not, for a spatial axis. Writing the source's `lat`/`lon`
-                # beside the result's own `x`/`y` is what made a reprojected
-                # file report degrees, and substituting an index range would
-                # be worse -- it reads as a real axis. netCDF is content with
-                # a dimension that has no coordinate variable, which is what a
-                # carried `lat_bnds` needs and all it needs.
-                if dn.rsplit("/", 1)[-1].lower() not in AXIS_NAMES:
-                    coords[dn] = (
-                        (self._md_array_to_numpy(iv), NetCDF._aux_attrs_with_unit(iv))
-                        if iv is not None
-                        else (np.arange(int(d.GetSize())), {})
-                    )
+                if iv is not None and dn.rsplit("/", 1)[-1].lower() not in AXIS_NAMES:
+                    iv_name = NetCDF._group_relative_name(rg, iv)
+                    if iv_name not in aux_vars:
+                        coords[dn] = (
+                            self._md_array_to_numpy(iv),
+                            NetCDF._aux_attrs_with_unit(iv),
+                        )
         arr = np.ascontiguousarray(self._md_array_to_numpy(src_md))
         var_specs[name] = (
             aux_dim_names,
@@ -3682,9 +3758,14 @@ class NetCDF(Dataset):
         spatial_vars = self._spatial_variable_names(rg)
         aux_vars = self._carryable_aux_names(rg, spatial_vars)
         if not spatial_vars:
+            # The readable superset, not `names`: that is the list
+            # `_spatial_variable_names` scanned, and printing the narrower
+            # enumeration told a user their `lat_rho` / `h` were never
+            # considered when in fact both were tested and rejected. On the
+            # suite's staggered ROMS fixture that is four of the six names.
             raise ValueError(
                 f"{operation}() needs at least one spatial (y, x) variable; none of "
-                f"{names} have both spatial axes."
+                f"{self._readable_variable_names(rg)} have both spatial axes."
             )
 
         self._warn_demoted_variables(rg, aux_vars, operation, warn_demoted)
@@ -5952,7 +6033,14 @@ class NetCDF(Dataset):
                 f"enumerated: the variables under {skipped} are missing from "
                 "`variable_names`, and from every export or conversion built "
                 "from it.",
-                stacklevel=2,
+                # Not a literal: this warning is raised `_MAX_GROUP_DEPTH`
+                # frames inside its own recursion, so *any* fixed level names a
+                # pyramids frame -- `stacklevel=2` named this function calling
+                # itself, and a level computed from `depth` would only reach
+                # `_get_variable_names`, one frame further in. The shared
+                # helper walks out of the package to the caller's own line,
+                # which is the only frame worth naming.
+                stacklevel=_caller_stacklevel(),
             )
         return filtered
 

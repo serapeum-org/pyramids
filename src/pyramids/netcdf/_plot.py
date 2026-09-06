@@ -1141,6 +1141,17 @@ class NetCDFPlot:
                 and the kwargs dict to forward to
                 :meth:`cleopatra.glyphs.gridded.array_glyph.ArrayGlyph.facet`.
 
+        Note:
+            The coord labels come back in the axis's own dtype, so an integer
+            band dim now labels its panels ``0`` / ``1000`` where it used to
+            label them ``0.0`` / ``1000.0``. `from_array` wrote every
+            coordinate array as float64, which is right for a spatial axis and
+            wrong for a wide integer one -- an `int64` nanosecond epoch lost
+            exactness above 2**53 -- so a non-spatial integer axis keeps its
+            own dtype (`_create_extra_dimensions`). A defaulted band dim is
+            `list(range(size))`, hence integer, which is what changes the
+            labels here.
+
         Examples:
             - Build a 3-D stack from a 3-D variable's single time dim
               (``col`` only). The stack has one slice per coord value
@@ -1167,7 +1178,7 @@ class NetCDFPlot:
                 >>> fkw["col"]
                 'time'
                 >>> fkw["col_coords"]
-                [0.0, 1.0, 2.0]
+                [0, 1, 2]
 
                 ```
 
@@ -1201,7 +1212,7 @@ class NetCDFPlot:
                 >>> fkw["row"]
                 'pressure_level'
                 >>> fkw["row_coords"]
-                [1000.0, 500.0]
+                [1000, 500]
 
                 ```
         """

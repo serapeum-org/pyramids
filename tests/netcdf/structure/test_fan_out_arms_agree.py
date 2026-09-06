@@ -17,14 +17,24 @@ cost the user was concrete:
 * The streamed arm declared no `_FillValue` for a variable whose source
   declares one, so masking the streamed result kept the fill cells as data.
 
+Round 5 closed two more:
+
+* The eager arm wrote **every** coordinate axis `Float64`, the non-spatial ones
+  included, so an `int64` nanosecond-epoch `time` handed to `from_array` came
+  back 21 ns out — float64 carries 53 bits of mantissa. The float64 rule was
+  written for the spatial axes, where truncation was the whole problem; an
+  integer axis now keeps its own dtype, which also converges the last dtype
+  difference between the arms.
+* The streamed arm materialised an index coordinate array (`np.arange(size)`)
+  for any auxiliary dimension with no indexing variable, so its file gained a
+  `bnds` on the CF bounds fixture and a `band`, `number_of_image_bounds` and
+  `number_of_time_bounds` on the GOES one — axes the source does not have and
+  the eager arm does not write.
+
 What still differs, measured after these fixes and deliberately not changed:
-the first band dimension's coordinate array is written `Float64` by the eager
-arm and in the source's own integer dtype by the streamed one. Both hold the
-same values, so nothing is lost; converging it would churn every streamed
-file's `time` dtype for no gain. The streamed file also keeps an extra
-per-variable `nodata` attribute beside the real `_FillValue` — that is the
-writer's own round-trip channel (#1061), and it is what carries the fill in the
-first place.
+the streamed file keeps an extra per-variable `nodata` attribute beside the
+real `_FillValue` — that is the writer's own round-trip channel (#1061), and it
+is what carries the fill in the first place.
 """
 
 from __future__ import annotations
@@ -35,7 +45,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
-from pyramids.netcdf import NetCDF
+from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
 
 pytestmark = pytest.mark.core
 
@@ -86,7 +96,12 @@ def _effective_units(container: NetCDF, name: str) -> str:
 
 
 class TestTheAxesSurviveAnIntegerVariable:
-    """A coordinate array is float64, whatever dtype the data happens to be."""
+    """A *spatial* coordinate array is float64, whatever dtype the data happens to be.
+
+    The rule is narrower than "every coordinate array is float64", which is how
+    it was first written. A non-spatial axis handed in as integers keeps its
+    own dtype — see `TestANonSpatialAxisKeepsItsOwnDtype`.
+    """
 
     @pytest.mark.parametrize(
         ("fixture", "variable"), [(PACKED, "blh"), (GEOS, "CMI")], ids=["era5", "goes"]
@@ -275,4 +290,151 @@ class TestTheFillValueSurvivesBothArms:
         assert set(eager_ndv) == {None}, f"the eager arm invented a fill: {eager_ndv}"
         assert set(streamed_ndv) == {None}, (
             f"the streamed arm invented a fill: {streamed_ndv}"
+        )
+
+
+class TestANonSpatialAxisKeepsItsOwnDtype:
+    """Float64 fixes a spatial axis and breaks a wide integer one.
+
+    A geotransform is re-derived from `x` / `y`, so writing them in the data
+    variable's `Int16` truncated a 2.5-degree grid to whole degrees — that is
+    the defect the float64 rule exists for, and it stays. A `time` axis is not
+    re-derived from anything; it is the values themselves that matter, and
+    float64 holds only 53 bits of mantissa. An `int64` nanosecond epoch is
+    exactly the case that does not fit.
+    """
+
+    def test_an_int64_epoch_axis_round_trips_exactly(self):
+        """The values are the whole point of a time axis.
+
+        Test scenario:
+            Nanosecond stamps past 2^53 are representable in `int64` and not in
+            `float64`. Written as float64 the axis came back 21 ns off — small,
+            silent, and enough to make two stamps compare equal that are not.
+        """
+        stamps = np.array(
+            [
+                1_700_000_000_123_456_789,
+                1_700_000_060_123_456_789,
+                1_700_000_120_123_456_789,
+            ],
+            dtype=np.int64,
+        )
+        container = NetCDF.from_array(
+            np.arange(3 * 4 * 5, dtype=np.int16).reshape(3, 4, 5),
+            geo_ref=GeoReference(
+                top_left_corner=(0.0, 10.0), cell_size=0.25, epsg=4326
+            ),
+            dims=ExtraDimensions(name="time", values=list(stamps)),
+        )
+
+        written = np.asarray(
+            container._working_group().OpenMDArray("time").ReadAsArray()
+        )
+
+        assert np.array_equal(written.astype(np.int64), stamps), (
+            f"the time axis lost exactness: {written.astype(np.int64)} vs {stamps}"
+        )
+
+    def test_the_spatial_axes_are_still_float64_beside_it(self):
+        """The narrowing must not reach the axes the rule was written for.
+
+        Test scenario:
+            The same call carries an `Int16` data array. If the narrowing
+            leaked into `x` / `y` they would take that dtype and the quarter-
+            degree grid would collapse to whole degrees — the exact regression
+            the float64 rule prevents.
+        """
+        container = NetCDF.from_array(
+            np.arange(3 * 4 * 5, dtype=np.int16).reshape(3, 4, 5),
+            geo_ref=GeoReference(
+                top_left_corner=(0.0, 10.0), cell_size=0.25, epsg=4326
+            ),
+            dims=ExtraDimensions(name="time", values=[0, 1, 2]),
+        )
+
+        x_dtype, _attrs, _unit = _array_info(container, "x")
+        x_values = np.asarray(container._working_group().OpenMDArray("x").ReadAsArray())
+
+        assert x_dtype == "Float64", f"a spatial axis lost float64: {x_dtype}"
+        assert not np.allclose(x_values, np.round(x_values)), (
+            f"the spatial axis lost its fractional part: {x_values}"
+        )
+
+
+class TestNeitherArmInventsACoordinateArray:
+    """A dimension with no coordinate variable stays that way on both arms."""
+
+    @pytest.mark.parametrize(
+        ("fixture", "invented"),
+        [
+            (BOUNDS, "bnds"),
+            (GEOS, "number_of_image_bounds"),
+            (GEOS, "band"),
+        ],
+        ids=["bounds", "image-bounds", "band"],
+    )
+    def test_the_streamed_file_does_not_gain_an_index_axis(
+        self, fixture, invented, tmp_path
+    ):
+        """`np.arange(size)` reads as a real axis; the source declares none.
+
+        Test scenario:
+            `lat_bnds(lat, bnds)` has no coordinate variable for `bnds`, and
+            netCDF is content with that — the eager arm writes nothing there.
+            The streamed arm filled the gap with an index range, so one
+            spelling of one call produced a file with an extra 1-D array a CF
+            reader can only read as a coordinate.
+
+        Args:
+            fixture: A store with an auxiliary on an uncoordinated dimension.
+            invented: The array name the streamed arm used to add.
+            tmp_path: pytest temporary directory.
+        """
+        eager, streamed = _both_arms(fixture, tmp_path)
+        streamed_names = set(streamed._working_group().GetMDArrayNames() or [])
+        eager_names = set(eager._working_group().GetMDArrayNames() or [])
+
+        assert invented not in eager_names, (
+            f"the fixture changed: {sorted(eager_names)}"
+        )
+        assert invented not in streamed_names, (
+            f"the streamed arm invented {invented!r}: {sorted(streamed_names)}"
+        )
+
+    def test_a_bounds_dimension_survives_without_its_coordinate(self, tmp_path):
+        """Not writing the axis must not cost the array that needs the dimension.
+
+        Test scenario:
+            The point of the skip is that netCDF allows a bare dimension, so
+            the carried `lat_bnds` still has to be there with its full shape.
+            Asserting only the absence would pass on a file that dropped the
+            bounds array along with the axis.
+        """
+        _eager, streamed = _both_arms(BOUNDS, tmp_path)
+        rg = streamed._working_group()
+
+        sizes = [d.GetSize() for d in rg.OpenMDArray("lat_bnds").GetDimensions()]
+
+        assert sizes[-1] == 2, f"the bounds array lost its bnds axis: {sizes}"
+
+    def test_the_arms_write_the_same_arrays(self, tmp_path):
+        """The invariant the three cases above are instances of.
+
+        Test scenario:
+            Comparing the two files' array names directly is what a user would
+            do to check the two spellings agree. It was three names apart on
+            the GOES granule.
+        """
+        eager, streamed = _both_arms(GEOS, tmp_path)
+        eager_path = tmp_path / "eager_geos.nc"
+        eager.to_file(str(eager_path))
+        written = NetCDF.read_file(str(eager_path))
+
+        eager_names = set(written._working_group().GetMDArrayNames() or [])
+        streamed_names = set(streamed._working_group().GetMDArrayNames() or [])
+
+        assert streamed_names == eager_names, (
+            f"stream-only={sorted(streamed_names - eager_names)} "
+            f"eager-only={sorted(eager_names - streamed_names)}"
         )
