@@ -47,6 +47,34 @@ DEFAULT_ATOL: float = 1e-8
 _SINGLE_EPS: float = float(np.finfo(np.float32).eps)
 
 
+def _integral_value(no_data_value: float) -> int | None:
+    """The sentinel as an exact `int`, or `None` when it does not name a whole number.
+
+    An integer band can only hold a whole number, so a fractional sentinel
+    matches nothing there. Getting the whole-number test right matters more
+    than it looks: routing the value through `float` first loses the two
+    largest integer sentinels, which are exactly the ones `_coerce_band_no_data`
+    and `_fallback_no_data` fabricate.
+
+    Args:
+        no_data_value: The declared sentinel, already known not to be NaN.
+
+    Returns:
+        int | None: The value as an exact integer, or `None` when it is
+            fractional or cannot be interpreted as a number at all.
+    """
+    result: int | None
+    if isinstance(no_data_value, (bool, np.bool_)):
+        result = int(no_data_value)
+    elif isinstance(no_data_value, (int, np.integer)):
+        # Already exact -- never widen it to a float on the way.
+        result = int(no_data_value)
+    else:
+        as_float = float(no_data_value)
+        result = int(as_float) if as_float.is_integer() else None
+    return result
+
+
 def _exact_no_data(
     arr: np.ndarray | float, no_data_value: float
 ) -> np.typing.NDArray | np.bool_:
@@ -59,11 +87,14 @@ def _exact_no_data(
     `==` -- 16x and 14x, on the path `plot_histogram` takes for a whole band by
     default.
 
-    Equality alone is not enough either: the sentinel arrives as a C double, so
-    `arr == np.float64(-9999.0)` promotes an int32 band to float64 under NEP 50
-    and pays the same cost. It is narrowed to the band's dtype first, and a
-    sentinel that dtype cannot hold matches nothing at all -- which is the
-    correct answer, not an approximation of one.
+    The sentinel is still narrowed to the band's dtype before the comparison.
+    Not for the reason first given here: `arr == np.float64(-9999.0)` does
+    *not* materialise a float64 copy of the band under NEP 50 -- numpy buffers
+    the cast, so the measured peak is 4.00 MB against 4.07 MB, and the win is
+    1.35x in time, not 16x in memory. The narrowing earns its place by keeping
+    the comparison in the band's own dtype, which is what lets a sentinel the
+    dtype cannot hold answer "nothing matches" rather than being compared as a
+    float.
 
     Args:
         arr: The band's cells, or a single value.
@@ -77,13 +108,19 @@ def _exact_no_data(
     if np.issubdtype(dtype, np.inexact):
         result = np.equal(arr, dtype.type(no_data_value))
     else:
-        integral = float(no_data_value).is_integer()
+        # Exactly, not through `float`. A 64-bit sentinel does not survive the
+        # trip: `float(2**63 - 1)` rounds *up* to 9223372036854775808.0, so the
+        # range test concluded an int64 band could not hold its own maximum and
+        # the mask came back all-False -- with `fill` then overwriting the very
+        # cells it was told to leave alone. `Dataset.no_data_value` reports a
+        # Python `int` for such a band, and `_coerce_band_no_data` fabricates
+        # `np.uint64(2**64 - 1)` itself, so this is the ordinary path for a
+        # 64-bit raster rather than a corner of one.
         info = np.iinfo(dtype) if np.issubdtype(dtype, np.integer) else None
-        holds = integral and (
-            info is None or info.min <= float(no_data_value) <= info.max
-        )
+        exact = _integral_value(no_data_value)
+        holds = exact is not None and (info is None or info.min <= exact <= info.max)
         if holds:
-            result = np.equal(arr, dtype.type(no_data_value))
+            result = np.equal(arr, dtype.type(exact))
         elif np.ndim(arr):
             result = np.zeros_like(arr, dtype=bool)
         else:
@@ -233,9 +270,10 @@ def is_stored_no_data(
 
     * integer and boolean bands get none at all -- such a sentinel is stored
       exactly, so whatever is not equal to it is data;
-    * floating bands get the wider of their own `eps` and single precision's,
-      single being the narrowest format a sentinel is likely to have passed
-      through and so the widest slack a round trip can leave;
+    * floating bands get single precision's `eps`, which is the slack a
+      sentinel picks up passing through float32 storage or a driver's decimal
+      text -- and is narrower than one ULP of a Float16 band, so neighbouring
+      representable values stay distinct;
     * the absolute tolerance is dropped (`atol=0.0`), so a sentinel of `0` --
       which has no representation slack at all -- matches only an exact `0`,
       where numpy's default would have swallowed every cell within `1e-8`.
@@ -285,7 +323,15 @@ def is_stored_no_data(
     """
     dtype = np.asarray(arr).dtype
     if np.issubdtype(dtype, np.inexact):
-        rtol = max(float(np.finfo(dtype).eps), _SINGLE_EPS)
+        # Single precision's eps for every floating width, not the band's
+        # own. `max(eps(dtype), _SINGLE_EPS)` reads as "the widest slack a
+        # round trip can leave", but a dtype's eps *is* one ULP: for Float16
+        # that is 9.77e-4, a window of +/-9.8 around a -10000 sentinel, which
+        # swallows both of its neighbouring representable values. The slack is
+        # there to absorb a sentinel that has been through float32 storage or a
+        # driver's decimal text, and that is a fixed 1e-7 relative however wide
+        # the band is.
+        rtol = _SINGLE_EPS
     else:
         rtol = 0.0
     return is_no_data(np.asarray(arr), no_data_value, rtol=rtol, atol=0.0)
