@@ -282,6 +282,60 @@ class TestCombine:
 
         assert np.allclose(np.asarray(result.read_array()), 5.0)
 
+    def test_operands_without_a_sentinel_give_a_result_without_one(self):
+        """A raster that declares no no-data value has a full domain; so does the result.
+
+        Test scenario:
+            Two sentinel-less int32 rasters subtract into a band declaring no no-data
+            value, rather than being refused for want of one that fits int32.
+        """
+        left = Dataset.from_array(
+            np.full((4, 4), 10, "int32"), geo_ref=GEO_REF, no_data_value=None
+        )
+        right = Dataset.from_array(
+            np.full((4, 4), 4, "int32"), geo_ref=GEO_REF, no_data_value=None
+        )
+
+        result = left - right
+
+        assert result.no_data_value[0] is None, "no operand had a sentinel to inherit"
+        assert (np.asarray(result.read_array()) == 6).all()
+
+    def test_a_sentinel_is_inherited_from_whichever_operand_has_one(self):
+        """The right operand supplies the sentinel when the left declares none.
+
+        Test scenario:
+            A sentinel-less left operand and a right one masking a cell: the result marks
+            that cell with the right operand's sentinel instead of writing a 0 into a
+            band that claims to have no no-data value.
+        """
+        masked = np.full((4, 4), 4, "int32")
+        masked[0, 0] = -9999
+        left = Dataset.from_array(
+            np.full((4, 4), 10, "int32"), geo_ref=GEO_REF, no_data_value=None
+        )
+        right = Dataset.from_array(masked, geo_ref=GEO_REF, no_data_value=-9999)
+
+        result = left - right
+
+        assert result.no_data_value[0] == -9999, "the right operand's sentinel is used"
+        assert np.asarray(result.read_array())[0, 0] == -9999
+        assert np.asarray(result.read_array())[1, 1] == 6
+
+    def test_a_sentinel_that_cannot_be_stored_is_refused(self):
+        """An unusable `no_data_value=` is named rather than silently coerced.
+
+        Test scenario:
+            A string sentinel against an int32 result raises ValueError naming the
+            argument to pass instead.
+        """
+        left = _raster(np.full((4, 4), 10, "int32"))
+
+        with pytest.raises(ValueError, match="cannot be stored in the int32"):
+            left.combine(
+                _raster(np.full((4, 4), 4, "int32")), np.subtract, no_data_value="abc"
+            )
+
     def test_the_result_dtype_follows_func_not_the_inputs(self):
         """Dividing two integer rasters yields a float result, not a truncated one.
 

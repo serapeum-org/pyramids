@@ -750,6 +750,38 @@ class TestCalc:
         assert rc == 0
         assert np.allclose(np.asarray(Dataset.read_file(out).read_array()), 1)
 
+    def test_operands_shorter_than_input_plus_output_are_refused(self, tmp_path):
+        """calc needs at least one input and an output path.
+
+        Test scenario:
+            A single operand exits 1 rather than treating the only path as both.
+        """
+        assert main(["calc", "A * 2", str(tmp_path / "only.tif")]) == 1
+
+    def test_more_than_twenty_six_inputs_are_refused(self, tmp_path):
+        """The expression binds A..Z, so 27 inputs have no name left.
+
+        Test scenario:
+            27 input paths exit 1 with the A..Z limit, before any file is opened.
+        """
+        inputs = [str(tmp_path / f"in{index}.tif") for index in range(27)]
+
+        assert main(["calc", "A * 2", *inputs, str(tmp_path / "out.tif")]) == 1
+
+    def test_a_crs_less_input_is_refused(self, tmp_path):
+        """A result that cannot be georeferenced is refused, not stamped with a default.
+
+        Test scenario:
+            An input with no CRS exits 1 and writes nothing (ARC-26).
+        """
+        source = _crsless_raster(tmp_path)
+        out = str(tmp_path / "out.tif")
+
+        rc = main(["calc", "A * 2", source, out])
+
+        assert rc == 1, "a CRS-less input must exit 1"
+        assert not os.path.exists(out), "nothing is written without a CRS"
+
     def test_mismatched_grid_is_refused(self, tmp_path):
         """calc will not broadcast inputs from different grids onto the first one's.
 

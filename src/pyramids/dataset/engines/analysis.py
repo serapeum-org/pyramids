@@ -79,24 +79,22 @@ def _fits_dtype(value: Any, dtype: np.dtype) -> bool:
     and stamping either anyway would mark real cells as no-data.
 
     Args:
-        value: The candidate sentinel. `None` never fits, since a band either
-            declares a sentinel or does not.
+        value: The candidate sentinel. Callers decide what a missing sentinel
+            means before asking; a `None` reaching here does not fit.
         dtype: The numpy dtype of the band the sentinel would be stored in.
 
     Returns:
         bool: `True` when the sentinel round-trips through `dtype` unchanged.
     """
-    fits = False
-    if value is not None:
-        target = np.dtype(dtype)
-        if isinstance(value, float) and np.isnan(value):
-            fits = bool(np.issubdtype(target, np.floating))
-        else:
-            with np.errstate(invalid="ignore", over="ignore"):
-                try:
-                    fits = bool(np.asarray(value).astype(target) == value)
-                except (ValueError, OverflowError, TypeError):
-                    fits = False
+    target = np.dtype(dtype)
+    if isinstance(value, float) and np.isnan(value):
+        fits = bool(np.issubdtype(target, np.floating))
+    else:
+        with np.errstate(invalid="ignore", over="ignore"):
+            try:
+                fits = bool(np.asarray(value).astype(target) == value)
+            except (ValueError, OverflowError, TypeError):
+                fits = False
     return fits
 
 
@@ -625,8 +623,19 @@ class Analysis(_Engine["Dataset"]):
         if boolean:
             values = values.astype("uint8")
         if masked:
+            # Left first, then right: whichever operand declares a sentinel
+            # supplies one that can mark the cells the other one masked out. If
+            # neither does, nothing was masked and the result needs none.
+            inherited = next(
+                (
+                    value
+                    for value in (left_sentinels[0], right_sentinels[0])
+                    if value is not None
+                ),
+                None,
+            )
             sentinel = self._resolve_combined_no_data(
-                no_data_value, values.dtype, 255 if boolean else left_sentinels[0]
+                no_data_value, values.dtype, 255 if boolean else inherited
             )
         else:
             sentinel = None
@@ -726,10 +735,12 @@ class Analysis(_Engine["Dataset"]):
             requested: The caller's `no_data_value`, or `_DERIVE_NO_DATA` when
                 it was left unset.
             dtype: The dtype `func` produced.
-            inherited: The left operand's sentinel for the band(s) combined.
+            inherited: The sentinel carried by the operands, or `None` when
+                neither declares one.
 
         Returns:
-            Any: The sentinel to write into the result's bands.
+            Any: The sentinel to write into the result's bands, or `None` for a
+            result that declares none.
 
         Raises:
             ValueError: The chosen sentinel cannot be stored in `dtype`.
@@ -740,7 +751,10 @@ class Analysis(_Engine["Dataset"]):
             sentinel = np.nan
         else:
             sentinel = inherited
-        if not _fits_dtype(sentinel, dtype):
+        # `None` here means neither operand declared a sentinel, so no cell was
+        # masked out and the result has nothing to mark -- not a value that
+        # failed to fit, which is what `_fits_dtype(None, ...)` reports.
+        if sentinel is not None and not _fits_dtype(sentinel, dtype):
             raise ValueError(
                 f"the no-data value {sentinel!r} cannot be stored in the "
                 f"{np.dtype(dtype).name} result of `func`; pass an explicit "
