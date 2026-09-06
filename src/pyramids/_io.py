@@ -70,6 +70,22 @@ _VSI_ARCHIVE_KINDS: dict[str, str] = {
     "gzip": _VSIGZIP,
 }
 
+# The reverse map, to the one spelling of each kind the refusals use. The
+# aliases above all collapse here (``"tgz"`` reports as ``"tar"``), so a
+# refusal raised on the ``vsi=`` path names its kind in the same word the
+# extension-sniffed handlers pass to :func:`_member_at` -- which is the point:
+# the two doors must not describe the same archive differently.
+_VSI_PREFIX_KINDS: dict[str, str] = {
+    _VSIZIP: "zip",
+    _VSITAR: "tar",
+    _VSIGZIP: "gzip",
+}
+
+# What :func:`_vsi_archive_members` asks of a ``/vsi*`` path: does it exist, and
+# does GDAL present it as a directory (an archive whose members can be listed)
+# or as a file (a single compressed stream, which a plain gzip is)?
+_VSI_STAT_FLAGS = gdal.VSI_STAT_EXISTS_FLAG | gdal.VSI_STAT_NATURE_FLAG
+
 # Process-wide monotonic counter guaranteeing `/vsimem/` path uniqueness.
 # `time.time_ns()` repeats within a clock tick (coarse on Windows), so a
 # strictly increasing counter — not entropy — is what makes successive
@@ -838,6 +854,61 @@ def _infer_archive_kind(path: str) -> str | None:
     return result
 
 
+def _archive_prefix(path: str, kind: str) -> str:
+    """The GDAL VSI handler prefix for `kind`, resolving ``"auto"`` from `path`.
+
+    Split out of :func:`_archive_dir_vsi` so the member-selecting path can name
+    the archive's kind in its refusals without re-deriving it -- one resolution,
+    read by both.
+
+    Args:
+        path: The archive, consulted only when `kind` is ``"auto"``.
+        kind: ``"zip"``, ``"tar"`` (also ``"tar.gz"`` / ``"tgz"``), ``"gzip"``
+            (also ``"gz"``), or ``"auto"``.
+
+    Returns:
+        str: One of ``/vsizip/``, ``/vsitar/``, ``/vsigzip/``; a key of
+            :data:`_VSI_PREFIX_KINDS`.
+
+    Raises:
+        FileFormatNotSupportedError: `kind` is ``"auto"`` and the extension is
+            not a recognised archive type.
+        ValueError: `kind` is not a recognised archive kind.
+
+    Examples:
+        - An explicit kind maps straight to its handler:
+            ```python
+            >>> _archive_prefix("x.dat", "zip")
+            '/vsizip/'
+
+            ```
+        - ``"auto"`` reads the extension, and the aliases collapse onto the
+          handler that serves them:
+            ```python
+            >>> _archive_prefix("x.tar.gz", "auto")
+            '/vsitar/'
+            >>> _archive_prefix("x.dat", "tgz")
+            '/vsitar/'
+
+            ```
+    """
+    if kind == "auto":
+        inferred = _infer_archive_kind(path)
+        if inferred is None:
+            raise FileFormatNotSupportedError(
+                f"could not infer the archive kind from {path!r}; pass kind='zip', "
+                "'tar', or 'gzip' explicitly (needed for extension-less URLs)"
+            )
+        kind = inferred
+    prefix = _VSI_ARCHIVE_KINDS.get(kind)
+    if prefix is None:
+        raise ValueError(
+            f"unknown archive kind {kind!r}; expected one of "
+            f"{sorted(_VSI_ARCHIVE_KINDS)} or 'auto'"
+        )
+    return prefix
+
+
 def _archive_dir_vsi(path: str | Path, kind: str = "auto") -> str:
     """Return the GDAL ``/vsizip|tar|gzip/`` *directory* path for an archive.
 
@@ -869,24 +940,35 @@ def _archive_dir_vsi(path: str | Path, kind: str = "auto") -> str:
         ValueError: ``kind`` is not a recognised archive kind.
     """
     path = str(path)
-    if kind == "auto":
-        inferred = _infer_archive_kind(path)
-        if inferred is None:
-            raise FileFormatNotSupportedError(
-                f"could not infer the archive kind from {path!r}; pass kind='zip', "
-                "'tar', or 'gzip' explicitly (needed for extension-less URLs)"
-            )
-        kind = inferred
-    prefix = _VSI_ARCHIVE_KINDS.get(kind)
-    if prefix is None:
-        raise ValueError(
-            f"unknown archive kind {kind!r}; expected one of "
-            f"{sorted(_VSI_ARCHIVE_KINDS)} or 'auto'"
-        )
+    prefix = _archive_prefix(path, kind)
     vsi_path = remote._to_vsi(path)
     if vsi_path.startswith((_VSIZIP, _VSITAR, _VSIGZIP)):
         return vsi_path
     return f"{prefix}{vsi_path}"
+
+
+def _raise_unlistable_archive(dir_vsi: str) -> NoReturn:
+    """Refuse an archive GDAL will not open as a directory of members.
+
+    Shared by the two callers that list an archive -- :func:`_archive_members`
+    (``from_archive``) and :func:`_vsi_archive_members` (``read_file(vsi=…)``)
+    -- so both name the same cause and the same workaround. An *empty* archive
+    reaches this too: GDAL's handlers do not present one as a directory, so
+    there is nothing to tell apart from a path they cannot parse at all.
+
+    Args:
+        dir_vsi: The ``/vsi*`` directory path that could not be listed.
+
+    Raises:
+        FileFormatNotSupportedError: Always.
+    """
+    raise FileFormatNotSupportedError(
+        f"could not list archive members at {dir_vsi!r}; GDAL's archive handlers "
+        "need a recognised extension (.zip / .tar / .tar.gz / .gz) on the file "
+        "name, and nested archives are not supported. See "
+        "DatasetCollection.from_archive's docstring for the extension-less-URL "
+        "workaround (write bytes to '/vsimem/<name>.zip' first)."
+    )
 
 
 def _archive_members(dir_vsi: str, member_glob: str = "*") -> list[str]:
@@ -911,13 +993,7 @@ def _archive_members(dir_vsi: str, member_glob: str = "*") -> list[str]:
     """
     entries = gdal.ReadDir(dir_vsi)
     if entries is None:
-        raise FileFormatNotSupportedError(
-            f"could not list archive members at {dir_vsi!r}; GDAL's archive handlers "
-            "need a recognised extension (.zip / .tar / .tar.gz / .gz) on the file "
-            "name, and nested archives are not supported. See "
-            "DatasetCollection.from_archive's docstring for the extension-less-URL "
-            "workaround (write bytes to '/vsimem/<name>.zip' first)."
-        )
+        _raise_unlistable_archive(dir_vsi)
     listed = sorted(e for e in entries if e not in (".", ".."))
     members = [e for e in listed if fnmatch.fnmatch(e, member_glob)]
     if not members:
@@ -963,22 +1039,162 @@ def extract_from_gz(input_file: str | Path, output_file: str | Path, delete=Fals
         input_file.unlink()
 
 
+def _vsi_archive_members(
+    dir_vsi: str, entries: list[str], prefix: str = ""
+) -> list[str]:
+    """The archive's *file* members, archive order, named from its root.
+
+    The same list :func:`_get_zip_path` builds from `zipfile.namelist()` and
+    :func:`_get_tar_path` from the tar headers, read instead through GDAL's
+    archive handler so it also works for the paths only ``vsi=`` reaches: a
+    remote archive, or one whose name carries no archive extension.
+
+    Two rules make it the same list, and both are the ones the sniffed handlers
+    already follow. Directory entries do not appear -- a zip records them with
+    a trailing slash, which `namelist()`-based selection drops -- so a member
+    inside a subdirectory is reachable by index and no index resolves to a
+    directory GDAL cannot open. And the entries come back in archive order,
+    which is what `gdal.ReadDir` reports and what `namelist()` reports, so the
+    same `file_i` names the same member through either door. (This is a change:
+    the ``vsi=`` path used to select from :func:`_archive_members`, which lists
+    only the top level, keeps directory entries, and sorts.)
+
+    Args:
+        dir_vsi: A ``/vsi*`` archive directory, from :func:`_archive_dir_vsi`.
+        entries: What :func:`osgeo.gdal.ReadDir` reports for `dir_vsi`. Passed
+            in rather than read here because the caller has already read it --
+            it is how the caller knows the archive *has* a member list.
+        prefix: The path already walked, ending in ``/``. Set by the recursion;
+            callers pass nothing.
+
+    Returns:
+        list[str]: Member names relative to the archive root, in archive order.
+            Empty when the archive lists nothing but directories.
+
+    Examples:
+        - A flat archive lists its members in the order it stores them:
+            ```python
+            >>> rdir = "tests/data/virtual-file-system"
+            >>> vsi_dir = f"/vsizip/{rdir}/multiple_compressed_files.zip"
+            >>> _vsi_archive_members(vsi_dir, gdal.ReadDir(vsi_dir))
+            ['1.asc', '2.asc']
+
+            ```
+    """
+    members: list[str] = []
+    for entry in entries:
+        if entry == ".":
+            # Not a member. GDAL normalises a `./`-prefixed member up to the
+            # archive root (a tar of `./a.asc` lists a root `a.asc`), so what
+            # is left under `.` is metadata: a pax tar -- Python's default
+            # format since 3.8 -- stores its extended header as
+            # `./@PaxHeader`, which `TarFile.getnames()` hides and GDAL
+            # refuses to open. Counting it would give it an index the
+            # extension-sniffed door does not count. `_archive_members` drops
+            # `.` for the same reason.
+            continue
+        if _UNSAFE_MEMBER_SEGMENT.search(entry):
+            # `..` is how GDAL's archive handlers surface a member whose name
+            # climbs out of the archive -- the zip-slip shape, which arrives
+            # here as a synthesised parent directory. It is listed, not
+            # descended into: descending would do the very traversal the guard
+            # exists to stop, while listing it lets it consume its index
+            # exactly as the escaping name does in `namelist()`, so both doors
+            # agree on which member every later index names -- and
+            # `_member_at` refuses it in the usual words when it is the one
+            # asked for.
+            members.append(f"{prefix}{entry}")
+            continue
+        child = f"{dir_vsi}/{entry}"
+        # `IsDirectory` is asked of the *member*, never of the archive root:
+        # GDAL resolves the root of a single-entry archive to that entry, so
+        # `/vsizip/one.zip` stats as a file while listing one member. Inside
+        # the archive there is no such collapse -- a subdirectory holding one
+        # file still stats as a directory, and an empty one stats as a
+        # directory that lists nothing, which is how it drops out here exactly
+        # as its trailing-slash `namelist()` entry does.
+        stat = gdal.VSIStatL(child, _VSI_STAT_FLAGS)
+        if stat is not None and stat.IsDirectory():
+            children = gdal.ReadDir(child) or []
+            members.extend(_vsi_archive_members(child, children, f"{prefix}{entry}/"))
+        else:
+            members.append(f"{prefix}{entry}")
+    return members
+
+
+def _vsi_member_path(path: str | Path, kind: str, file_i: int) -> str:
+    """The VSI path of member `file_i` of `path`, read as an archive of `kind`.
+
+    The ``vsi=`` door into :func:`read_file`. It answers the same question
+    :func:`_parse_path` answers for a path whose extension names an archive,
+    and it now answers it the same way: the member list comes from
+    :func:`_vsi_archive_members` (files only, archive order) and the index is
+    applied by :func:`_member_at`, the one refusal the three extension-sniffed
+    handlers share.
+
+    Before this, the two doors disagreed three ways on one archive -- the same
+    `file_i` named a different member, an index could resolve to a bare
+    directory GDAL then failed to open, and an out-of-range or negative index
+    raised :class:`FileNotFoundError` here against
+    :class:`FileFormatNotSupportedError` there. A caller who spelled
+    ``vsi="zip"`` on a path that would have been sniffed anyway got a different
+    answer for it.
+
+    Args:
+        path: The archive. Named in refusals, so they quote what the caller
+            passed rather than the ``/vsi*`` rewrite of it.
+        kind: ``"zip"``, ``"tar"`` (also ``"tar.gz"`` / ``"tgz"``), ``"gzip"``
+            (also ``"gz"``), or ``"auto"``.
+        file_i: Index of the file member to open.
+
+    Returns:
+        str: The ``/vsi*`` path of that member, for GDAL to open.
+
+    Raises:
+        FileFormatNotSupportedError: GDAL cannot list `path` as an archive of
+            that kind (from :func:`_raise_unlistable_archive`), or `file_i` is
+            not an index into its files, or the member it names would be read
+            from outside the archive (both from :func:`_member_at`), or the
+            archive is a single stream and `file_i` is not 0 (from
+            :func:`_only_member_suffix`).
+        ValueError: `kind` is not a recognised archive kind.
+    """
+    path_text = str(path)
+    kind_name = _VSI_PREFIX_KINDS[_archive_prefix(path_text, kind)]
+    dir_vsi = _archive_dir_vsi(path_text, kind)
+    entries = gdal.ReadDir(dir_vsi)
+    if entries is not None:
+        members = _vsi_archive_members(dir_vsi, entries)
+        resolved = f"{dir_vsi}/{_member_at(path_text, members, file_i, kind_name)}"
+    elif gdal.VSIStatL(dir_vsi, _VSI_STAT_FLAGS) is None:
+        # Nothing to list and nothing to stat: GDAL cannot read `path` as an
+        # archive of this kind at all. An empty archive lands here too -- its
+        # handlers do not present one as a directory, so there is no way to
+        # tell it apart from a path they cannot parse. (The sniffed path,
+        # holding a real member list, says "holds 0 file(s)" for that one.)
+        _raise_unlistable_archive(dir_vsi)
+    else:
+        # No member list, but the path is there: a single compressed stream,
+        # which a plain gzip is. That is the case `_only_member_suffix` was
+        # written for, and routing it here is what lets
+        # `read_file(x.asc.gz, vsi="gzip")` open the stream at all -- it used
+        # to be refused as an unlistable archive while the same path without
+        # `vsi=` opened.
+        resolved = f"{dir_vsi}{_only_member_suffix(path_text, file_i, kind_name)}"
+    return resolved
+
+
 def _resolve_read_path(path: str | Path, vsi: str | None, file_i: int) -> str:
     """Resolve ``path`` to the concrete path :func:`read_file` should open.
 
     When ``vsi`` is given, treat ``path`` as an archive of that kind and return
-    the VSI path of member ``file_i``; otherwise sniff/normalise the path as
-    usual via :func:`_parse_path`.
+    the VSI path of member ``file_i`` (:func:`_vsi_member_path`); otherwise
+    sniff/normalise the path as usual via :func:`_parse_path`. Both routes
+    select the member with :func:`_member_at`, so the two spell the same
+    behaviour for an archive either of them can open.
     """
     if vsi is not None:
-        dir_vsi = _archive_dir_vsi(path, vsi)
-        members = _archive_members(dir_vsi)
-        if not 0 <= file_i < len(members):
-            raise FileNotFoundError(
-                f"archive {path!r} has {len(members)} member(s); file_i={file_i} "
-                "is out of range"
-            )
-        resolved = f"{dir_vsi}/{members[file_i]}"
+        resolved = _vsi_member_path(path, vsi, file_i)
     else:
         resolved = _parse_path(path, file_i=file_i)
     return resolved
@@ -1106,15 +1322,18 @@ def read_file(
 
     Raises:
         TypeError: ``path`` is neither a :class:`str` nor a :class:`~pathlib.Path`.
-        FileNotFoundError: The path does not exist, or ``vsi`` was given and
-            ``file_i`` is out of range for the archive's member list.
+        FileNotFoundError: The path does not exist.
         FileFormatNotSupportedError: GDAL cannot open the format — notably a
             gzip archive holding several internal files, which has no addressable
-            single member.
+            single member — or ``file_i`` is not an index into the archive's
+            files. That refusal used to be a :class:`FileNotFoundError` when,
+            and only when, ``vsi`` was given; it is now the one
+            :func:`_member_at` raises for every archive and every door.
 
     See Also:
         bytes_to_gdal: Open an in-memory byte string through ``/vsimem/``.
         _archive_dir_vsi: Resolve the ``/vsi*`` directory path used when ``vsi`` is given.
+        _vsi_member_path: Select member ``file_i`` when ``vsi`` is given.
     """
     if not isinstance(path, (str, Path)):
         raise TypeError(

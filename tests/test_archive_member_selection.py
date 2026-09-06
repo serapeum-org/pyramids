@@ -23,6 +23,13 @@ the tar-slip / zip-slip shape lives: `/vsitar/x.tar/../../etc/passwd` is a path
 GDAL resolves outside the archive. `_member_at` therefore refuses any segment
 that navigates and rebuilds the result from the segments that cleared, rather
 than checking the name and passing the original string through.
+
+Three kinds was only half of it: there are also two *doors* into the same
+question -- `read_file(path)`, which sniffs the extension, and
+`read_file(path, vsi="zip")`, which forces the kind. They selected from
+differently built member lists, so the same `file_i` named a different member
+depending on which door the caller used. `TestBothDoorsNameTheSameMember`
+pins that they now answer the same way, refusals included.
 """
 
 from __future__ import annotations
@@ -34,7 +41,12 @@ from pathlib import Path
 
 import pytest
 
-from pyramids._io import _get_tar_path, _member_at, _only_member_suffix
+from pyramids._io import (
+    _get_tar_path,
+    _member_at,
+    _only_member_suffix,
+    _resolve_read_path,
+)
 from pyramids.base._errors import FileFormatNotSupportedError
 from pyramids.dataset import Dataset
 
@@ -919,4 +931,251 @@ class TestACompressedTarIsNotInflatedToNameItsFirstMember:
 
         assert "holds 2 file(s)" in str(excinfo.value), (
             f"the refusal did not report both members: {excinfo.value}"
+        )
+
+
+def _door(path: Path, vsi: str | None, file_i: int) -> str:
+    """What one door answers for `file_i`: the member it names, or its refusal.
+
+    Args:
+        path: The archive.
+        vsi: `None` for the extension-sniffed door, the archive kind for the
+            `vsi=` one.
+        file_i: The index to resolve.
+
+    Returns:
+        str: The resolved path from the archive name onward (so the temporary
+            directory does not enter the comparison), or
+            `"<ExceptionType>: <message>"` when the door refuses.
+    """
+    try:
+        answer = _resolve_read_path(path, vsi, file_i).split(path.name, 1)[1]
+    except Exception as exc:  # noqa: BLE001 - the refusal is the answer
+        answer = f"{type(exc).__name__}: {exc}"
+    return answer
+
+
+class TestBothDoorsNameTheSameMember:
+    """Two ways in, one member list.
+
+    `read_file(path)` sniffs the extension and selects with `_member_at`;
+    `read_file(path, vsi="zip")` used to select from `_archive_members`, a list
+    built by a different rule -- top level only, directory entries kept, sorted
+    alphabetically. On one zip holding `sub/`, `sub/a.asc` and `b.asc` that made
+    `file_i=0` mean `sub/a.asc` through one door and `b.asc` through the other,
+    `file_i=1` resolve to the bare directory `sub` (which GDAL then refused to
+    open), a member inside a subdirectory unreachable by index at all, and an
+    out-of-range or negative index raise `FileNotFoundError` on one side against
+    `FileFormatNotSupportedError` on the other.
+
+    Both doors now build the same list -- files only, in archive order -- and
+    apply the index with the same `_member_at`.
+    """
+
+    @pytest.fixture
+    def archives(self, tmp_path) -> dict[str, Path]:
+        """Three archives whose member order the two doors used to disagree on.
+
+        Args:
+            tmp_path: Fixture supplying a temporary directory.
+
+        Returns:
+            dict[str, Path]: `nested.zip` and `nested.tar` (a subdirectory
+                before a root file, so a directory entry sits at index 0 of a
+                naive listing), and `unsorted.zip` (stored in an order that is
+                not alphabetical, so sorting the members changes which one an
+                index names).
+        """
+        payload = tmp_path / "payload.asc"
+        payload.write_text(
+            "ncols 2\nnrows 2\nxllcorner 0\nyllcorner 0\ncellsize 1\n"
+            "NODATA_value -9999\n1 2\n3 4\n"
+        )
+        nested_zip = tmp_path / "nested.zip"
+        with zipfile.ZipFile(nested_zip, "w") as archive:
+            archive.writestr("sub/", "")
+            archive.write(payload, "sub/a.asc")
+            archive.write(payload, "b.asc")
+        nested_tar = tmp_path / "nested.tar"
+        with tarfile.open(nested_tar, "w") as archive:
+            archive.add(payload, arcname="sub/a.asc")
+            archive.add(payload, arcname="b.asc")
+        unsorted_zip = tmp_path / "unsorted.zip"
+        with zipfile.ZipFile(unsorted_zip, "w") as archive:
+            archive.write(payload, "z.asc")
+            archive.writestr("sub/", "")
+            archive.write(payload, "sub/m.asc")
+            archive.write(payload, "a.asc")
+        return {"zip": nested_zip, "tar": nested_tar, "unsorted": unsorted_zip}
+
+    @pytest.mark.parametrize("file_i", [0, 1, 2, -1])
+    @pytest.mark.parametrize(
+        ("archive", "kind"), [("zip", "zip"), ("tar", "tar"), ("unsorted", "zip")]
+    )
+    def test_the_same_index_names_the_same_member(
+        self, archives, archive: str, kind: str, file_i: int
+    ):
+        """Sniffing the extension and forcing `vsi=` must answer identically.
+
+        Args:
+            archives: The fixture archives.
+            archive: Which one to open.
+            kind: The kind to force through `vsi=`.
+            file_i: The index to resolve -- inside the archive, past its end,
+                and negative.
+
+        Test scenario:
+            The measured divergence on `nested.zip` was `file_i=0` ->
+            `sub/a.asc` sniffed against `b.asc` forced, `file_i=1` -> `b.asc`
+            against the directory `sub`, and `file_i=2` / `-1` ->
+            `FileFormatNotSupportedError` against `FileNotFoundError`. Whole
+            answers are compared, refusal text included, because the two doors
+            disagreeing about *how* they refuse is the same defect as
+            disagreeing about which member they name.
+        """
+        path = archives[archive]
+
+        sniffed = _door(path, None, file_i)
+        forced = _door(path, kind, file_i)
+
+        assert forced == sniffed, (
+            f"{path.name} file_i={file_i}: vsi={kind!r} answered {forced!r}, "
+            f"extension sniffing answered {sniffed!r}"
+        )
+
+    @pytest.mark.parametrize("file_i", [0, 1])
+    def test_every_index_the_vsi_door_accepts_opens(self, archives, file_i: int):
+        """No index may resolve to a directory GDAL cannot open.
+
+        Args:
+            archives: The fixture archives.
+            file_i: An index inside the archive.
+
+        Test scenario:
+            `vsi="zip"` with `file_i=1` used to resolve to `/vsizip/.../sub` --
+            a directory entry, which `Dataset.read_file` then failed on with a
+            raw GDAL `RuntimeError` naming the internal VSI path. Directory
+            entries no longer consume an index, so both indices open a raster.
+        """
+        dataset = Dataset.read_file(str(archives["zip"]), vsi="zip", file_i=file_i)
+
+        assert dataset.band_count == 1, (
+            f"file_i={file_i} through vsi='zip' did not open a raster"
+        )
+
+    def test_a_member_in_a_subdirectory_is_reachable(self, archives):
+        """The `vsi=` door listed only the top level, so `sub/a.asc` was lost.
+
+        Args:
+            archives: The fixture archives.
+
+        Test scenario:
+            `_archive_members` reads one `gdal.ReadDir` and does not recurse,
+            so a member inside a subdirectory had no index at all through
+            `vsi=`: the two members of `nested.zip` were reported as `b.asc`
+            and the directory `sub`. Index 0 is now `sub/a.asc`, the same
+            member the sniffed door names.
+        """
+        resolved = _resolve_read_path(archives["zip"], "zip", 0)
+
+        assert resolved.endswith("/sub/a.asc"), (
+            f"expected the nested member, got {resolved!r}"
+        )
+
+    @pytest.mark.parametrize("file_i", [2, -1])
+    def test_an_index_outside_the_archive_gets_the_shared_refusal(
+        self, archives, file_i: int
+    ):
+        """The refusal type used to depend on which door was used.
+
+        This rewrites the round-4 expectation that `read_file(..., vsi=...)`
+        raises `FileNotFoundError` for an out-of-range index (pinned by
+        `tests/dataset/io/test_archive_reads.py`). That expectation was wrong:
+        it described a second bounds check, written in `_resolve_read_path` and
+        worded differently from the one `_member_at` raises for the same
+        question on the sniffed path -- the divergence this branch exists to
+        remove. There is now one bounds check for both doors.
+
+        Args:
+            archives: The fixture archives.
+            file_i: An index past the end, and a negative one.
+
+        Test scenario:
+            `nested.zip` holds two files. The refusal names the kind, the count
+            and the member list, whichever door asked.
+        """
+        with pytest.raises(FileFormatNotSupportedError) as excinfo:
+            Dataset.read_file(str(archives["zip"]), vsi="zip", file_i=file_i)
+
+        message = str(excinfo.value)
+        assert "holds 2 file(s)" in message, f"the count is not reported: {message}"
+        assert f"index {file_i}" in message, f"the index is not named: {message}"
+        assert "'sub/a.asc', 'b.asc'" in message, (
+            f"the refusal does not list the members it counted: {message}"
+        )
+
+    def test_a_member_that_would_leave_the_archive_is_refused_through_both(
+        self, tmp_path
+    ):
+        """The zip-slip guard reached only the sniffed door.
+
+        Args:
+            tmp_path: Fixture supplying a temporary directory.
+
+        Test scenario:
+            A zip whose sole member is `../../etc/passwd`. The sniffed door
+            refused it through `_member_at`; the `vsi=` door raised
+            `FileNotFoundError: no members matching '*'` -- a different type,
+            and a diagnosis that says the archive is empty rather than that it
+            holds something climbing out of it. GDAL's listing surfaces the
+            escaping member as a `..` directory, so the two quote different
+            names for it; what has to match is that both refuse, with the same
+            type, for the same reason.
+        """
+        slip = tmp_path / "slip.zip"
+        with zipfile.ZipFile(slip, "w") as archive:
+            archive.writestr("../../etc/passwd", "root:x:0:0\n")
+
+        with pytest.raises(FileFormatNotSupportedError) as sniffed:
+            _resolve_read_path(slip, None, 0)
+        with pytest.raises(FileFormatNotSupportedError) as forced:
+            _resolve_read_path(slip, "zip", 0)
+
+        for door, excinfo in (("sniffed", sniffed), ("vsi='zip'", forced)):
+            assert "escapes it" in str(excinfo.value), (
+                f"{door}: the refusal does not say the member leaves the "
+                f"archive: {excinfo.value}"
+            )
+
+    def test_a_plain_gzip_opens_through_the_vsi_door(self, tmp_path):
+        """`vsi="gzip"` used to refuse the stream the sniffed door opens.
+
+        Args:
+            tmp_path: Fixture supplying a temporary directory.
+
+        Test scenario:
+            A plain gzip is one compressed stream, so GDAL presents
+            `/vsigzip/x.asc.gz` as a file and `gdal.ReadDir` returns nothing.
+            `_archive_members` read that as "cannot list this archive" and
+            refused, so `read_file(x.asc.gz, vsi="gzip")` failed on a file
+            `read_file(x.asc.gz)` opened. The member-less case now routes to
+            `_only_member_suffix`, which is what the sniffed door does with it:
+            index 0 is the stream, any other index is refused in the same words.
+        """
+        payload = (
+            "ncols 2\nnrows 2\nxllcorner 0\nyllcorner 0\ncellsize 1\n"
+            "NODATA_value -9999\n1 2\n3 4\n"
+        )
+        gz_path = tmp_path / "single.asc.gz"
+        with gzip.open(gz_path, "wb") as handle:
+            handle.write(payload.encode())
+
+        dataset = Dataset.read_file(str(gz_path), vsi="gzip")
+
+        assert dataset.band_count == 1, "vsi='gzip' did not open the single stream"
+        with pytest.raises(FileFormatNotSupportedError) as excinfo:
+            Dataset.read_file(str(gz_path), vsi="gzip", file_i=1)
+        assert "single stream" in str(excinfo.value), (
+            f"the second index was not refused as a member-less archive: "
+            f"{excinfo.value}"
         )

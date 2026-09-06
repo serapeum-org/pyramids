@@ -353,14 +353,19 @@ def discovery_request(
         urllib.request.Request: Ready for :func:`http_get_with_retry`.
 
     Raises:
-        ValueError: `user_agent` is empty or blank. It used to fall through
-            `user_agent or USER_AGENT` and silently become the library name,
-            which is the one thing an explicit `""` cannot have meant. Neither
-            reading of it is usable: honouring it puts a blank ``User-agent:``
-            on the wire, because `urllib` substitutes its default only for a
-            header that is *absent*, and omitting the header instead hands the
-            service ``Python-urllib/3.x`` -- the agent this header exists to
-            avoid. So it is refused by name rather than reinterpreted.
+        ValueError: `user_agent` is empty or blank, in any spelling. The blank
+            forms used to part company on `user_agent or USER_AGENT`, because
+            only one of them is falsy: `""` fell through and silently became
+            the library name -- the one thing an explicit `""` cannot have
+            meant -- while `"   "` and `"\t"` are truthy, so they went on the
+            wire verbatim, as a `User-agent:` of nothing but whitespace. So the
+            two spellings of "blank" got two different answers, neither asked
+            for. Neither is usable either: honouring a blank puts an empty
+            ``User-agent:`` on the wire, because `urllib` substitutes its
+            default only for a header that is *absent*, and omitting the header
+            instead hands the service ``Python-urllib/3.x`` -- the agent this
+            header exists to avoid. So every blank spelling is refused by name
+            rather than reinterpreted.
 
     Examples:
         - The plain library User-Agent, and JSON asked for by default:
@@ -396,6 +401,15 @@ def discovery_request(
             >>> discovery_request("https://x", None, user_agent="")
             Traceback (most recent call last):
             ValueError: user_agent must name a client; pass None for 'pyramids-gis', not ''.
+
+            ```
+        - And so is a whitespace-only one, which is truthy and so used to reach
+          the service verbatim rather than fall back to the library name:
+            ```python
+            >>> from pyramids.base._ogc_api import discovery_request
+            >>> discovery_request("https://x", None, user_agent="   ")
+            Traceback (most recent call last):
+            ValueError: user_agent must name a client; pass None for 'pyramids-gis', not '   '.
 
             ```
     """

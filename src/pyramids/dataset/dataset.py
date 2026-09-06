@@ -2833,12 +2833,16 @@ class Dataset(RasterBase):
             file_i (int):
                 Which member to open when ``path`` is (or is forced to be) a
                 multi-file archive. Default ``0``. Counts *file* members only,
-                so a directory entry does not consume an index. A negative
-                index is refused rather than given Python's from-the-end
-                meaning: it names a member of an archive the caller has not
-                listed, so it is far more likely a bug than an intent. Zip and
-                tar used to answer ``-1`` with the last member while gzip
-                refused it.
+                in archive order, so a directory entry does not consume an
+                index and a member inside a subdirectory has one. It counts
+                them the same way whether the archive was recognised by its
+                extension or forced with ``vsi=``: those two used to select
+                from differently built lists, so one index named two different
+                members of one archive. A negative index is refused rather
+                than given Python's from-the-end meaning: it names a member of
+                an archive the caller has not listed, so it is far more likely
+                a bug than an intent. Zip and tar used to answer ``-1`` with
+                the last member while gzip refused it.
             vsi (str | None):
                 Treat ``path`` as an archive of this kind and open member
                 ``file_i`` from inside it: ``"zip"``, ``"tar"`` (also

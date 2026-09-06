@@ -110,8 +110,17 @@ def _flat_export_name(variable_name: str, taken: set[str]) -> str:
     identically named leaves stay distinct (`flight_a/CO` and `flight_b/CO`
     become `flight_a_CO` and `flight_b_CO`). Substitution can still land on a
     name already in the dataset -- a root array literally called `flight_a_CO`,
-    or a dimension coordinate of that name -- and those are resolved by
-    appending `_2`, `_3`, ...
+    a dimension coordinate of that name, or another group path that flattens
+    the same way -- and those are resolved by appending `_2`, `_3`, ...
+
+    The substitution is therefore **not injective**: `_` is a legal character
+    in a group name and in an array name, so group `a_b` + array `c` and group
+    `a` + array `b_c` both flatten to `a_b_c`, and no rule reads the store name
+    back out of the key. The suffix keeps the export legal but records nothing
+    -- it says only that *some* name was taken first. Recovering the pre-image
+    is the caller's job, and it does it by stamping the store name on the
+    variable as its :data:`_STORE_NAME_ATTR` attribute; a caller holding the
+    returned dataset reads it from there rather than trying to invert the key.
 
     Which of the two keeps the plain name is **not** decided by enumeration
     order. The caller reserves every unqualified store name before the loop
@@ -159,6 +168,16 @@ def _flat_export_name(variable_name: str, taken: set[str]) -> str:
             ```python
             >>> _flat_export_name("flight_a_CO", {"flight_a_CO_2"})
             'flight_a_CO'
+
+            ```
+        - Two different group paths can flatten onto one name, and the key
+          alone does not say which store name it came from -- only that this
+          one asked second:
+            ```python
+            >>> _flat_export_name("a_b/c", set())
+            'a_b_c'
+            >>> _flat_export_name("a/b_c", {"a_b_c"})
+            'a_b_c_2'
 
             ```
         - A root-level name is handed back untouched:

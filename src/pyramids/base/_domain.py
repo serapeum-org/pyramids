@@ -75,6 +75,59 @@ def _integral_value(no_data_value: float) -> int | None:
     return result
 
 
+def _whole_number_bounds(dtype: np.dtype) -> tuple[int, int] | None:
+    """The whole numbers `dtype` can hold, or `None` when it bounds none.
+
+    Args:
+        dtype: The band's dtype, already known not to be a floating one.
+
+    Returns:
+        tuple[int, int] | None: The lowest and highest value the dtype stores,
+            as exact Python ints, or `None` for a dtype with no such range.
+
+    Examples:
+        - An integer band's own limits, exactly -- not through `float`, which
+          rounds the 64-bit ones past the bound they are:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base._domain import _whole_number_bounds
+            >>> _whole_number_bounds(np.dtype("int8"))
+            (-128, 127)
+            >>> _whole_number_bounds(np.dtype("int64"))[1] == 2**63 - 1
+            True
+
+            ```
+        - A boolean band holds two values and is bounded like any other:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base._domain import _whole_number_bounds
+            >>> _whole_number_bounds(np.dtype("bool"))
+            (0, 1)
+
+            ```
+    """
+    result: tuple[int, int] | None
+    if np.issubdtype(dtype, np.bool_):
+        # A boolean band holds 0 and 1 and nothing else, so it is an integer
+        # domain two values wide -- but `np.issubdtype(np.bool_, np.integer)`
+        # is False, so asking only that question left bool with no range test
+        # at all: every sentinel counted as one the dtype could hold, and
+        # `np.bool_(255)` is `True`, so a sentinel of 255 -- or -3, or any
+        # other non-zero -- marked every truthy cell as no-data instead of
+        # marking nothing. Naming the bounds is what makes a boolean band
+        # answer the way every other exact dtype does: a sentinel it cannot
+        # store matches no cell. It is also the answer `origin/main` gave,
+        # where `np.isclose(flags, 255, rtol=1e-5)` was all-False -- so this
+        # restores it rather than choosing something new.
+        result = (0, 1)
+    elif np.issubdtype(dtype, np.integer):
+        info = np.iinfo(dtype)
+        result = (int(info.min), int(info.max))
+    else:
+        result = None
+    return result
+
+
 def _exact_no_data(
     arr: np.ndarray | float, no_data_value: float
 ) -> np.typing.NDArray | np.bool_:
@@ -106,6 +159,16 @@ def _exact_no_data(
     dtype = np.asarray(arr).dtype
     result: np.typing.NDArray | np.bool_
     if np.issubdtype(dtype, np.inexact):
+        # Reached only through a direct `is_no_data(arr, v, rtol=0, atol=0)` on
+        # a floating band -- a documented public call, and the only door to it:
+        # `is_stored_no_data` gives every floating band `rtol = _SINGLE_EPS`,
+        # so it takes the `np.isclose` arm, and the two in-tree callers that
+        # pass `rtol=0.0` (`dataset/engines/io.py`, `dataset/ops/_focal.py`)
+        # leave `atol` at numpy's `1e-8` and take it too. Unreached is not
+        # unneeded: a floating band has no integer range to test against, and
+        # sending it down the arm below would put a fractional sentinel through
+        # `_integral_value`, which answers `None` for `0.5` and turns an exact
+        # comparison into an all-False mask.
         result = np.equal(arr, dtype.type(no_data_value))
     else:
         # Exactly, not through `float`. A 64-bit sentinel does not survive the
@@ -116,9 +179,11 @@ def _exact_no_data(
         # Python `int` for such a band, and `_coerce_band_no_data` fabricates
         # `np.uint64(2**64 - 1)` itself, so this is the ordinary path for a
         # 64-bit raster rather than a corner of one.
-        info = np.iinfo(dtype) if np.issubdtype(dtype, np.integer) else None
+        bounds = _whole_number_bounds(dtype)
         exact = _integral_value(no_data_value)
-        holds = exact is not None and (info is None or info.min <= exact <= info.max)
+        holds = exact is not None and (
+            bounds is None or bounds[0] <= exact <= bounds[1]
+        )
         if holds:
             result = np.equal(arr, dtype.type(exact))
         elif np.ndim(arr):
@@ -315,6 +380,19 @@ def is_stored_no_data(
             >>> arr = np.array([np.float32(1e30), np.float32(2.0)], dtype="float32")
             >>> is_stored_no_data(arr, np.float64(1e30)).tolist()
             [True, False]
+
+            ```
+        - A boolean band holds `0` and `1`, so a sentinel outside that range
+          marks no cell -- rather than every truthy one, which is what
+          `np.bool_(255) is True` used to do to it:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base._domain import is_stored_no_data
+            >>> flags = np.array([True, False, True])
+            >>> is_stored_no_data(flags, 255).tolist()
+            [False, False, False]
+            >>> is_stored_no_data(flags, 1).tolist()
+            [True, False, True]
 
             ```
 

@@ -266,3 +266,115 @@ class TestAFloatBandsSlackIsNarrowerThanItsOwnUlp:
             "a sentinel a few ULP off the stored value was not matched; the "
             "float slack has been removed"
         )
+
+
+class TestABooleanBandIsBoundedLikeEveryOtherExactDtype:
+    """`np.bool_` is not `np.integer`, so it used to get no range test at all."""
+
+    @pytest.mark.parametrize(
+        ("sentinel", "expected"),
+        [
+            (255.0, [False, False, False]),
+            (-3.0, [False, False, False]),
+            (2.0, [False, False, False]),
+            (1.5, [False, False, False]),
+            (1.0, [True, False, True]),
+            (0.0, [False, True, False]),
+        ],
+        ids=["byte-max", "negative", "just-above", "fractional", "true", "false"],
+    )
+    def test_a_sentinel_a_boolean_band_cannot_hold_matches_nothing(
+        self, sentinel: float, expected: list[bool]
+    ):
+        """The regression: any non-zero sentinel marked every truthy cell.
+
+        Args:
+            sentinel: The declared no-data value.
+            expected: The mask each cell should get.
+
+        Test scenario:
+            The range test asked `np.issubdtype(dtype, np.integer)`, which is
+            `False` for `np.bool_`, so a boolean band was left with no bounds
+            to check a sentinel against -- every sentinel counted as one the
+            dtype could hold. The comparison then narrowed it with
+            `np.bool_(255)`, which is `True`, so `is_stored_no_data(flags, 255)`
+            answered `[True, False, True]`: every truthy cell called no-data by
+            a sentinel the band has no way to store. A boolean band holds `0`
+            and `1`, so it is bounded like any other exact dtype and a sentinel
+            outside that range matches no cell.
+        """
+        flags = np.array([True, False, True])
+
+        assert is_stored_no_data(flags, sentinel).tolist() == expected, (
+            f"sentinel {sentinel!r} against a boolean band gave "
+            f"{is_stored_no_data(flags, sentinel).tolist()}"
+        )
+
+    def test_the_answer_matches_the_uint8_band_of_the_same_cells(self):
+        """A boolean band and the 0/1 band it stands for must agree.
+
+        Test scenario:
+            `[True, False, True]` and `[1, 0, 1]` hold the same values, so a
+            sentinel of `255` is equally absent from both. The boolean one used
+            to say all three cells matched while the `uint8` one said none did
+            -- the same question, two answers, decided by the container.
+        """
+        flags = np.array([True, False, True])
+        bytes_ = np.array([1, 0, 1], dtype="uint8")
+
+        assert (
+            is_stored_no_data(flags, 255.0).tolist()
+            == is_stored_no_data(bytes_, 255.0).tolist()
+        ), "a boolean band and its uint8 equivalent disagreed about a sentinel"
+
+
+class TestAFloatBandComparedWithNoToleranceAtAll:
+    """The exact branch's floating arm: no in-tree caller, still load-bearing.
+
+    `is_stored_no_data` gives every floating band `rtol = _SINGLE_EPS`, and the
+    two in-tree callers that pass `rtol=0.0` leave `atol` at numpy's `1e-8`, so
+    nothing inside `src/` reaches the arm. It is reached by the documented
+    public call `is_no_data(arr, value, rtol=0, atol=0)`, which is what these
+    tests exercise -- and it is what keeps a fractional sentinel right, because
+    the integer arm below it answers through `_integral_value`, which has no
+    whole number to offer for `0.5`.
+    """
+
+    def test_a_fractional_sentinel_is_found_exactly(self):
+        """The arm the integer path cannot stand in for.
+
+        Test scenario:
+            `0.5` is representable in `float32` and stored exactly, so an
+            untolerant comparison must find it. Sending a floating band down
+            the integer arm instead would put `0.5` through `_integral_value`,
+            get `None` -- "not a whole number, so no cell holds it" -- and
+            answer an all-False mask for a sentinel that is right there in the
+            band.
+        """
+        band = np.array([0.5, 1.0, 0.25], dtype="float32")
+
+        mask = is_no_data(band, 0.5, rtol=0, atol=0)
+
+        assert mask.tolist() == [True, False, False], (
+            f"an exact fractional sentinel was not found: {mask.tolist()}"
+        )
+
+    def test_a_cell_one_ulp_away_is_not_the_sentinel(self):
+        """No tolerance means none, on a floating band as on an integer one.
+
+        Test scenario:
+            `np.nextafter` gives the very next representable `float32`. With
+            both tolerances at zero it is a different value, and the mask has
+            to say so -- otherwise the "exact" branch is not exact and the
+            callers that ask for it are getting a window they did not request.
+        """
+        sentinel = np.float32(-9999.0)
+        band = np.array(
+            [sentinel, np.nextafter(sentinel, np.float32(0.0))], dtype="float32"
+        )
+
+        mask = is_no_data(band, float(sentinel), rtol=0, atol=0)
+
+        assert mask.tolist() == [True, False], (
+            f"the neighbouring float32 was read as the sentinel: {mask.tolist()}"
+        )

@@ -123,20 +123,23 @@ class TestDiscoveryRequest:
 
     @pytest.mark.parametrize("blank", ["", "   ", "\t"], ids=["empty", "spaces", "tab"])
     def test_a_blank_user_agent_is_refused_rather_than_read_as_unset(self, blank: str):
-        """An explicit empty string used to become `pyramids-gis` silently.
+        """The two spellings of "blank" used to get two different answers.
 
         Args:
             blank: A client string with no content.
 
         Test scenario:
-            `user_agent or USER_AGENT` treats `""` as "not given", which is the
-            one thing an explicit empty string cannot have meant. Neither
-            reading of it is usable either: `urllib` substitutes its own default
-            only for a header that is *absent*, so honouring the empty string
-            would put a blank `User-agent:` on the wire, while omitting the
-            header hands the service `Python-urllib/3.x` -- the agent this
-            header exists to avoid. The caller is told, instead of being given a
-            third thing they did not ask for.
+            `user_agent or USER_AGENT` sorts blanks by truthiness, and only
+            `""` is falsy: it was treated as "not given" and silently became
+            `pyramids-gis`, which is the one thing an explicit empty string
+            cannot have meant, while `"   "` and `"\\t"` are truthy and went on
+            the wire verbatim as a `User-agent:` of nothing but whitespace.
+            Neither reading is usable either: `urllib` substitutes its own
+            default only for a header that is *absent*, so honouring a blank
+            puts a blank `User-agent:` on the wire, while omitting the header
+            hands the service `Python-urllib/3.x` -- the agent this header
+            exists to avoid. Every blank spelling is refused, so the caller is
+            told rather than given a third thing they did not ask for.
         """
         with pytest.raises(ValueError, match="user_agent must name a client"):
             discovery_request("https://host/x", None, user_agent=blank)
