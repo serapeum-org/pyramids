@@ -107,9 +107,11 @@ dev = [
     # (xdist #620/#1027) -- before that a test could land on a non-main thread,
     # which matters here because GDAL and matplotlib both keep thread-affine
     # state. 3.6.0 itself was yanked from PyPI for an execnet/pytest-cov
-    # deadlock (xdist #1071), and every pytest task below except `test-fast`
-    # runs under `--cov`, so 3.6.1 is the first release this repo can actually
-    # use and the floor names it rather than the yanked one.
+    # deadlock (xdist #1071), and the three tasks that would run xdist beside
+    # coverage -- `main`, `plot` and `test-all` -- all pass `--cov`. (`notebooks`
+    # does not, and `test-fast` deliberately does not either; neither is what the
+    # floor is protecting.) So 3.6.1 is the first release this repo can actually
+    # use, and the floor names it rather than the yanked one.
     "pytest-xdist>=3.6.1"
 ]
 docs = [
