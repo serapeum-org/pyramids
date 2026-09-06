@@ -185,8 +185,12 @@ class TestTheFanOutCarriesThePacking:
             name
         )
 
-        assert streamed._scale == expected._scale
-        assert streamed._offset == expected._offset
+        assert streamed._scale == expected._scale, (
+            f"{name}: streamed scale {streamed._scale}, expected {expected._scale}"
+        )
+        assert streamed._offset == expected._offset, (
+            f"{name}: streamed offset {streamed._offset}, expected {expected._offset}"
+        )
 
     @pytest.mark.parametrize("name", ["z", "q"])
     def test_the_stored_array_is_still_raw(self, packed, name: str):
@@ -200,16 +204,25 @@ class TestTheFanOutCarriesThePacking:
             The fan-out writes what `read_array()` returns, and that is raw
             because `unpack=False` is the default. If the rebuild ever started
             writing unpacked values, stamping the packing back on would scale
-            them a second time -- so the rawness of the stored array is the
-            precondition, and it is asserted rather than assumed.
+            them a second time. Comparing the two rebuild paths against *each
+            other* would pass just as well if both had started unpacking, so
+            the reference here is the untouched source variable's own raw read.
+            The crop covers the full extent, so the two are comparable cell by
+            cell, and the guard above it makes sure raw and unpacked are
+            distinguishable on this fixture at all.
         """
         mask = _full_extent_mask(packed, name)
+        source_raw = np.asarray(packed.get_variable(name).read_array())
+        source_unpacked = np.asarray(packed.get_variable(name).read_array(unpack=True))
+        assert not np.allclose(source_raw, source_unpacked), (
+            f"{name}: raw and unpacked reads agree, so 'still raw' asserts nothing"
+        )
 
-        per_variable = packed.get_variable(name).crop(mask).read_array()
-        via_container = packed.crop(mask).get_variable(name).read_array()
+        via_container = np.asarray(packed.crop(mask).get_variable(name).read_array())
 
-        assert np.array_equal(np.asarray(per_variable), np.asarray(via_container)), (
-            f"{name}: the rebuilt array is not the raw one the source held"
+        assert np.array_equal(via_container, source_raw), (
+            f"{name}: the rebuilt array is not the raw one the source held -- "
+            f"{via_container.ravel()[:4]} against {source_raw.ravel()[:4]}"
         )
 
     def test_unpacking_actually_changes_the_values(self, packed):
@@ -325,6 +338,10 @@ class TestTheFanOutInventsNoNoDataSentinel:
 
         cropped = container.crop(mask).get_variable("z")
 
-        assert all(np.isnan(value) for value in cropped.no_data_value), (
-            f"the float sentinel was dropped: {cropped.no_data_value}"
+        sentinels = cropped.no_data_value
+        assert sentinels, (
+            "the cropped variable declares no bands, so this proves nothing"
         )
+        assert all(
+            isinstance(value, float) and np.isnan(value) for value in sentinels
+        ), f"the float sentinel was dropped: {sentinels}"

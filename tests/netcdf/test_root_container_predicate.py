@@ -11,9 +11,13 @@ not multidimensional; a `get_variable(...)` subset is multidimensional *and*
 has bands; only the store itself is multidimensional, un-narrowed and bandless.
 Dropping any one of them would misclassify one of those three.
 
-Six of the seven sites moved onto the property; the plot engine kept its copy,
-which leaves exactly the drift the property exists to prevent -- a change to
-what counts as a container that reaches the operations but not the picture.
+All seven sites read the property now, the plot engine included
+(`_plot.py:654`). That last one is the reason the scan at the bottom of this
+file exists: a copy of the conjunction answers the same way as the property
+until the definition changes, so no rendered output can tell a copy from the
+property, and only a source scan can. `TestEveryAskerGoesThroughTheProperty`
+pins both halves -- that the plot engine consults the property, and that the
+three terms are written out in exactly one place.
 """
 
 from __future__ import annotations
@@ -32,6 +36,71 @@ pytestmark = pytest.mark.core
 DATA = Path(__file__).parents[1] / "data" / "netcdf"
 STORE = DATA / "cf__5v__1d4-4d1__y-asc.nc"
 VARIABLE = "temperature"
+
+# `\s` spans newlines, so this matches the wrapped spelling black produces for a
+# three-term conjunction inside an `if` just as well as the one-line spelling.
+CONJUNCTION = re.compile(
+    r"_is_md_array\s+and\s+not\s+[\w.\s]*?_is_subset"
+    r"\s+and\s+[\w.\s]*?band_count\s*==\s*0"
+)
+
+
+class _RecordingPredicate:
+    """A `_is_root_container` stand-in that answers identically and counts the asks.
+
+    Installed over the real property, so a call site that reads the property is
+    recorded while one that writes the three conditions out by hand is not.
+    """
+
+    def __init__(self, original: property):
+        """Store the property being shadowed.
+
+        Args:
+            original: The real `_is_root_container` property object.
+        """
+        self.original = original
+        self.asked: list[NetCDF] = []
+
+    def __get__(self, instance, owner=None):
+        """Record the asker, then answer exactly as the real property would.
+
+        Args:
+            instance: The object the property is read on, or None on the class.
+            owner: The owning class, supplied by the descriptor protocol.
+
+        Returns:
+            The real property's answer, or this descriptor on a class access.
+        """
+        if instance is None:
+            result = self
+        else:
+            self.asked.append(instance)
+            result = self.original.fget(instance)
+        return result
+
+
+def conjunction_spellings(package: Path) -> list[str]:
+    """Every place in the package where the three-term conjunction is written out.
+
+    Scans each file's whole text rather than line by line: black wraps a
+    three-term conjunction across lines, which is the likely formatting for a
+    new copy of it and is exactly what a per-line scan cannot see.
+
+    Args:
+        package: Root directory of the imported `pyramids` package.
+
+    Returns:
+        list[str]: `relative/path.py:line` for every occurrence found.
+    """
+    found: list[str] = []
+    for path in sorted(package.rglob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        for match in CONJUNCTION.finditer(text):
+            found.append(
+                f"{path.relative_to(package).as_posix()}:"
+                f"{text.count(chr(10), 0, match.start()) + 1}"
+            )
+    return found
 
 
 @pytest.fixture
@@ -61,7 +130,10 @@ class TestThePredicate:
     """The three shapes it has to tell apart."""
 
     def test_a_multidimensional_store_is_a_root_container(self, container):
-        """Args: container: The store fixture.
+        """The store itself answers true on all three conditions.
+
+        Args:
+            container: The store fixture.
 
         Test scenario:
             Opened through the multidimensional API, never narrowed to a
@@ -74,7 +146,10 @@ class TestThePredicate:
         )
 
     def test_a_variable_subset_is_not(self, variable):
-        """Args: variable: The subset fixture.
+        """A variable of the store is not the store.
+
+        Args:
+            variable: The subset fixture.
 
         Test scenario:
             A subset is multidimensional too, so `_is_md_array` alone cannot
@@ -131,7 +206,10 @@ class TestTheCallSitesStillBehave:
     """Six places read it; the behaviour each gates must be unchanged."""
 
     def test_a_container_refuses_warped_view(self, container):
-        """Args: container: The store fixture.
+        """The store refuses to be warped as if it were one raster.
+
+        Args:
+            container: The store fixture.
 
         Test scenario:
             `warped_view` works on one variable. Asked of the store it has to
@@ -141,7 +219,10 @@ class TestTheCallSitesStillBehave:
             container.warped_view(3857)
 
     def test_a_variable_accepts_warped_view(self, variable):
-        """Args: variable: The subset fixture.
+        """A variable is warped, so the refusal above is a gate and not a wall.
+
+        Args:
+            variable: The subset fixture.
 
         Test scenario:
             The other side of the same gate -- a guard that fired for both
@@ -163,7 +244,10 @@ class TestTheCallSitesStillBehave:
             container._check_not_container("crop")
 
     def test_a_variable_passes_that_check(self, variable):
-        """Args: variable: The subset fixture.
+        """A variable passes the container check without raising.
+
+        Args:
+            variable: The subset fixture.
 
         Test scenario:
             `_check_not_container` returning quietly is what lets every
@@ -172,7 +256,10 @@ class TestTheCallSitesStillBehave:
         assert variable._check_not_container("crop") is None
 
     def test_a_container_fans_a_reprojection_out_over_its_variables(self, container):
-        """Args: container: The store fixture.
+        """A reprojected store comes back as a store, not as one warped plane.
+
+        Args:
+            container: The store fixture.
 
         Test scenario:
             `to_crs` reads the predicate to decide between fanning out and
@@ -185,7 +272,10 @@ class TestTheCallSitesStillBehave:
         assert set(reprojected.variable_names) == set(container.variable_names)
 
     def test_a_variable_reprojects_as_one_raster(self, variable):
-        """Args: variable: The subset fixture.
+        """A reprojected variable comes back as one raster with its bands.
+
+        Args:
+            variable: The subset fixture.
 
         Test scenario:
             The other branch of the same `if`. A variable comes back with
@@ -214,14 +304,8 @@ class TestEveryAskerGoesThroughTheProperty:
             is whether the property is consulted at all. Recorded here by
             replacing it with one that answers identically and counts.
         """
-        asked: list[NetCDF] = []
-        original = NetCDF._is_root_container
-
-        def _recording(self):
-            asked.append(self)
-            return original.fget(self)
-
-        monkeypatch.setattr(NetCDF, "_is_root_container", property(_recording))
+        recorder = _RecordingPredicate(NetCDF.__dict__["_is_root_container"])
+        monkeypatch.setattr(NetCDF, "_is_root_container", recorder)
         monkeypatch.setattr(
             NetCDFPlot, "_delegate_to_variable", lambda *a, **k: "delegated"
         )
@@ -229,7 +313,7 @@ class TestEveryAskerGoesThroughTheProperty:
         result = container.plot(variable=VARIABLE)
 
         assert result == "delegated", "the container path must still delegate"
-        assert asked, "the plot engine decided without asking the property"
+        assert recorder.asked, "the plot engine decided without asking the property"
 
     def test_the_conjunction_is_written_in_exactly_one_place(self):
         """A source scan, because a seventh copy is invisible to behaviour.
@@ -237,21 +321,11 @@ class TestEveryAskerGoesThroughTheProperty:
         Test scenario:
             Every copy agrees until the definition changes, and then the copies
             are what disagree. The property body is the one place the three
-            terms may appear together.
+            terms may appear together. The scan reads each file whole, because
+            black wraps a three-term conjunction over four lines and a per-line
+            scan would let exactly that copy through.
         """
-        package = Path(pyramids.__file__).parent
-        pattern = re.compile(
-            r"_is_md_array\s+and\s+not\s+[\w.]*_is_subset"
-            r"\s+and\s+[\w.]*band_count == 0"
-        )
-        spellings = [
-            f"{path.relative_to(package).as_posix()}:{number}"
-            for path in sorted(package.rglob("*.py"))
-            for number, line in enumerate(
-                path.read_text(encoding="utf-8").splitlines(), start=1
-            )
-            if pattern.search(line)
-        ]
+        spellings = conjunction_spellings(Path(pyramids.__file__).parent)
 
         assert len(spellings) == 1, f"the conjunction is written out at {spellings}"
         assert spellings[0].startswith("netcdf/netcdf.py:"), (

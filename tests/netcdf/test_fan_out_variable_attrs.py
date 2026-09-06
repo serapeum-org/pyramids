@@ -44,7 +44,17 @@ class TestFanOutPreservesVariableAttrs:
     def test_crop_keeps_the_attributes_the_single_variable_route_keeps(
         self, container: NetCDF
     ):
-        """A container-wide crop loses none of a variable's CF attributes."""
+        """A container-wide crop loses none of a variable's CF attributes.
+
+        Args:
+            container: A CF fixture whose first variable carries attributes.
+
+        Test scenario:
+            The single-variable route is the reference, so what it keeps is
+            what the container route has to keep. The guard below refuses a
+            fixture (or a renamed accessor) that would make the comparison
+            empty.
+        """
         name = container.variable_names[0]
         bounds = container.total_bounds
         bbox = (bounds[0], bounds[1], bounds[2], bounds[3])
@@ -58,7 +68,17 @@ class TestFanOutPreservesVariableAttrs:
         assert not missing, f"container route dropped {sorted(missing)}"
 
     def test_the_carried_attribute_values_are_unchanged(self, container: NetCDF):
-        """Carried attributes keep their values, not just their names."""
+        """Carried attributes keep their values, not just their names.
+
+        Args:
+            container: A CF fixture whose first variable carries attributes.
+
+        Test scenario:
+            `variable_attrs` is a defensive `getattr(..., {}) or {}`, so a
+            rename of `_variable_attrs` empties the mapping and leaves the loop
+            below with nothing to run -- passing while asserting nothing. The
+            guard its sibling already carries makes that the failure it is.
+        """
         name = container.variable_names[0]
         bounds = container.total_bounds
         bbox = (bounds[0], bounds[1], bounds[2], bounds[3])
@@ -66,8 +86,12 @@ class TestFanOutPreservesVariableAttrs:
         single = variable_attrs(container.get_variable(name).crop(bbox=bbox, epsg=4326))
         whole = variable_attrs(container.crop(bbox=bbox, epsg=4326).get_variable(name))
 
+        assert single, "fixture no longer carries per-variable attributes"
         for key, value in single.items():
-            assert whole.get(key) == value
+            assert whole.get(key) == value, (
+                f"{key}: container route carried {whole.get(key)!r}, "
+                f"single-variable route has {value!r}"
+            )
 
 
 class TestCarryVariableAttrsGuards:

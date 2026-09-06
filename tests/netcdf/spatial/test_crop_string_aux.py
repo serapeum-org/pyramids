@@ -32,18 +32,37 @@ class TestCropStringAux:
     """A string aux var is carried through ``crop`` (no warn-and-drop)."""
 
     def test_crop_carries_string_aux_without_warning(self):
-        """crop keeps ``expver`` with its values intact and emits no drop warning."""
+        """crop keeps ``expver`` with its values intact and emits no drop warning.
+
+        Test scenario:
+            #565 was a variable *disappearing from a listing*, so both listings
+            are pinned whole rather than probed for one name. `variable_names`
+            enumerates data variables, from which `expver` -- a CF auxiliary --
+            is deliberately absent on this branch; `_readable_variable_names`
+            is the set the array has to show up in. Naming each list exactly,
+            and asserting the crop leaves both unchanged, catches an array
+            silently gained or lost as well as one dropped, which a membership
+            check on the readable set alone does not.
+        """
         cube = NetCDF.read_file(ERA5)
         source_expver = _read_expver(cube)
+        assert cube.variable_names == ["t2m"], (
+            f"fixture changed: source data variables are {cube.variable_names}"
+        )
+        assert cube._readable_variable_names() == ["t2m", "expver"], (
+            f"fixture changed: source readable names are "
+            f"{cube._readable_variable_names()}"
+        )
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             masked = cube.crop(mask=_MASK, touch=True)
         try:
-            # Readability, not enumeration: `expver` is a CF aux variable, so
-            # `variable_names` (which lists data variables) excludes it by
-            # design. What this test is about is that the array survived.
-            assert "expver" in masked._readable_variable_names(), (
-                "string aux var must survive crop"
+            assert masked.variable_names == ["t2m"], (
+                f"crop changed the data-variable listing: {masked.variable_names}"
+            )
+            assert masked._readable_variable_names() == ["t2m", "expver"], (
+                f"string aux var must survive crop, got "
+                f"{masked._readable_variable_names()}"
             )
             assert _read_expver(masked) == source_expver, "carried values must match"
             dropped = [

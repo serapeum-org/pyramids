@@ -41,32 +41,50 @@ def _bad_2d():
 
 
 class _FakeNC:
-    """Minimal duck-typed NetCDF slice exposing only what ``_resolve_curvilinear_coords`` reads."""
+    """Minimal duck-typed NetCDF slice exposing only what ``_resolve_curvilinear_coords`` reads.
+
+    ``lat_rho``, ``XLAT``, ``xc``/``yc`` and friends are 2-D coordinate fields: a real
+    container reads them by name but never enumerates them as data variables. The stub
+    models that split — ``variable_names`` reports only ``data_names`` (nothing by
+    default) while ``_readable_variable_names`` reports every array — so a production
+    revert from the readable superset back to ``variable_names`` fails these tests
+    instead of passing them.
+    """
 
     def __init__(
-        self, arrays, shape=_SHAPE, variable_attrs=None, curvilinear_coords=None
+        self,
+        arrays,
+        shape=_SHAPE,
+        variable_attrs=None,
+        curvilinear_coords=None,
+        data_names=(),
     ):
-        """Store the name -> coord-array map plus the slice shape and optional CF / crop state."""
+        """Store the name -> coord-array map plus the slice shape and optional CF / crop state.
+
+        Args:
+            arrays: Name -> coordinate array mapping (``None`` values model unreadable vars).
+            shape: The data slice shape; ``()`` models an unknown shape.
+            variable_attrs: The slice's CF attribute dictionary.
+            curvilinear_coords: A stored ``(x, y)`` pair, as a crop leaves behind.
+            data_names: The subset of ``arrays`` a real container would enumerate as data
+                variables. Empty by default, because coordinate arrays never are.
+        """
         self._arrays = arrays
         self.shape = shape
         self._parent_nc = None
         self._variable_attrs = variable_attrs if variable_attrs is not None else {}
         self._source_var_name = "v"
+        self._data_names = list(data_names)
         if curvilinear_coords is not None:
             self._curvilinear_coords = curvilinear_coords
 
     @property
     def variable_names(self):
-        """Return the declared variable names."""
-        return list(self._arrays)
+        """Return the data-variable enumeration, which excludes the coordinate arrays."""
+        return list(self._data_names)
 
     def _readable_variable_names(self):
-        """Every name the container can read, which for a stub is all of them.
-
-        The real container distinguishes its *data* variables from the
-        coordinate arrays it can still read by name; a stub holding only
-        coordinate arrays has no such split.
-        """
+        """Return every array name the container can read, coordinates included."""
         return list(self._arrays)
 
     def _read_variable(self, name):
