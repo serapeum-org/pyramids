@@ -65,7 +65,9 @@ class TestAnIntegerBandIsComparedInItsOwnDtype:
             still failing on a float64 round trip, which is 16x.
         """
         exact = _peak_bytes(lambda: integer_band == -9999)
-        stored = _peak_bytes(lambda: is_stored_no_data(integer_band, np.float64(-9999.0)))
+        stored = _peak_bytes(
+            lambda: is_stored_no_data(integer_band, np.float64(-9999.0))
+        )
 
         assert stored <= 2 * exact, (
             f"is_stored_no_data peaked at {stored / 1e6:.1f} MB where equality peaks at "
@@ -85,7 +87,9 @@ class TestAnIntegerBandIsComparedInItsOwnDtype:
             such a scalar, so this is the ordinary case, not a corner.
         """
         weak = _peak_bytes(lambda: is_stored_no_data(integer_band, -9999.0))
-        strong = _peak_bytes(lambda: is_stored_no_data(integer_band, np.float64(-9999.0)))
+        strong = _peak_bytes(
+            lambda: is_stored_no_data(integer_band, np.float64(-9999.0))
+        )
 
         assert strong <= 2 * weak, (
             f"a np.float64 sentinel peaked at {strong / 1e6:.1f} MB against "
@@ -158,12 +162,16 @@ class TestTheExactBranchAnswersTheSameQuestion:
         """
         band = np.array([-9999.0, -9998.95, 1.0])
 
-        assert is_no_data(band, -9999.0, rtol=0.00001).tolist() == [True, True, False], (
-            "the tolerant branch stopped honouring rtol"
-        )
-        assert is_no_data(band, -9999.0, rtol=0.0, atol=0.0).tolist() == [True, False, False], (
-            "the exact branch admitted a cell that is merely near the sentinel"
-        )
+        assert is_no_data(band, -9999.0, rtol=0.00001).tolist() == [
+            True,
+            True,
+            False,
+        ], "the tolerant branch stopped honouring rtol"
+        assert is_no_data(band, -9999.0, rtol=0.0, atol=0.0).tolist() == [
+            True,
+            False,
+            False,
+        ], "the exact branch admitted a cell that is merely near the sentinel"
 
     def test_a_scalar_still_answers_as_a_boolean(self):
         """The scalar overload is part of the contract.
