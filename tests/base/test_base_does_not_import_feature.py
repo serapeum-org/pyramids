@@ -168,21 +168,37 @@ class TestTheCollectionTimeAxisStaysBelowNetcdf:
         assert cf_epoch_units("nanoseconds") == f"nanoseconds since {CF_EPOCH}"
         assert cf_epoch_units("seconds") == f"seconds since {CF_EPOCH}"
 
-    def test_the_seconds_axis_decodes_back_through_the_reader(self):
-        """One resolution round-trips end to end; the other cannot.
+    def test_both_resolutions_decode_back_through_the_reader(self):
+        """Either writer's axis reads back, which is what the shared epoch is for.
 
         Test scenario:
-            `decode_cf_time` goes through `cftime`, which accepts `seconds`
-            but not `nanoseconds` -- so the interop path's axis reads back
-            here and the collection's does not. That asymmetry predates this
-            move and is not changed by it; the test pins the half that does
-            work, so relocating the constants cannot break it unnoticed.
+            This used to pin only `seconds`, and said `nanoseconds` could not
+            read back because `decode_cf_time` goes through `cftime`, whose
+            finest unit is the microsecond. That was true, and it meant
+            `DatasetCollection.to_netcdf` -- which writes nanoseconds, to
+            round-trip a `datetime64[ns]` axis exactly -- produced files this
+            package raised on. The decoder takes the Gregorian-family case
+            itself now, so both spellings read back.
+
+            Both are asserted here because the point of relocating the epoch
+            constants was that the two writers share one origin: a move that
+            broke either resolution should fail, not just the one that
+            happened to work at the time.
         """
         import numpy as np
 
         from pyramids.base._cf_epoch import cf_epoch_units
         from pyramids.netcdf.utils import decode_cf_time
 
-        decoded = decode_cf_time(np.array([86400.0]), cf_epoch_units("seconds"))
+        from_seconds = decode_cf_time(np.array([86400.0]), cf_epoch_units("seconds"))
+        from_nanoseconds = decode_cf_time(
+            np.array([86_400_000_000_000], dtype="int64"),
+            cf_epoch_units("nanoseconds"),
+        )
 
-        assert "1970-01-02" in str(decoded[0])
+        assert "1970-01-02" in str(from_seconds[0]), (
+            f"the interop path's seconds axis did not decode: {from_seconds[0]}"
+        )
+        assert "1970-01-02" in str(from_nanoseconds[0]), (
+            f"the collection's nanosecond axis did not decode: {from_nanoseconds[0]}"
+        )
