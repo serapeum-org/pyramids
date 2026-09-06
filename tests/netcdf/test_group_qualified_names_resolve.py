@@ -75,6 +75,11 @@ class TestOpenMdarrayWalksGroupPaths:
         assert dataset._variable_dim_names(rg, qualified) != []
 
 
+# Needs the [interop] extra: `to_xarray` / `from_xarray` import xarray, which a
+# bare install does not have. The module-level `core` mark still selects these
+# under `-m core`, and `tests/conftest.py` turns this marker into the matching
+# skip when xarray is absent -- which is what the pure-wheel job needs.
+@pytest.mark.interop
 class TestTheXarrayExportHandlesAGroupedStore:
     """It raised outright; before that it silently exported one variable."""
 
@@ -124,6 +129,11 @@ class TestTheXarrayExportHandlesAGroupedStore:
         assert not [w for w in caught if "skipped" in str(w.message)]
 
 
+# Needs the [interop] extra: `to_xarray` / `from_xarray` import xarray, which a
+# bare install does not have. The module-level `core` mark still selects these
+# under `-m core`, and `tests/conftest.py` turns this marker into the matching
+# skip when xarray is absent -- which is what the pure-wheel job needs.
+@pytest.mark.interop
 class TestTheLazyExportResolvesTheSameNames:
     """`to_xarray()`'s two arms must agree about which names exist.
 

@@ -100,6 +100,11 @@ class TestTheBboxIdentityCheckIgnoresAxisOrder:
         assert max_y > min_y, "the y axis came back inverted"
 
 
+# Needs the [interop] extra: `to_xarray` / `from_xarray` import xarray, which a
+# bare install does not have. The module-level `core` mark still selects these
+# under `-m core`, and `tests/conftest.py` turns this marker into the matching
+# skip when xarray is absent -- which is what the pure-wheel job needs.
+@pytest.mark.interop
 class TestToXarrayPutsCfNonDataArraysInCoords:
     """Reading every readable array must not relabel them all as data."""
 
