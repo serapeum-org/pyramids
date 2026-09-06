@@ -198,11 +198,12 @@ class TestTranslateToMem:
 
     def test_a_gdal_runtimeerror_becomes_the_readers_own_error(self, monkeypatch):
         """Test scenario: an error body reaches GDAL and the translate raises."""
+        source = _mem_source()
         monkeypatch.setattr(gdal, "Translate", _raise_runtime)
 
         with pytest.raises(_DemoError) as excinfo:
             translate_to_mem(
-                _mem_source(), error=_DemoError, action="demo read", subject="'demo'"
+                source, error=_DemoError, action="demo read", subject="'demo'"
             )
 
         message = str(excinfo.value)
@@ -215,17 +216,136 @@ class TestTranslateToMem:
 
     def test_a_none_return_becomes_the_readers_own_error(self, monkeypatch):
         """Test scenario: Translate answers None rather than raising."""
+        source = _mem_source()
         monkeypatch.setattr(gdal, "Translate", _return_none)
 
         with pytest.raises(_DemoError) as excinfo:
             translate_to_mem(
-                _mem_source(), error=_DemoError, action="demo read", subject="'demo'"
+                source, error=_DemoError, action="demo read", subject="'demo'"
             )
 
         message = str(excinfo.value)
         assert message == "demo read returned no raster for 'demo'", (
             f"the branded no-raster message changed: {message!r}"
         )
+
+
+class TestTheOutputFormatIsNotTheCallersToChoose:
+    """`format="MEM"` is what makes the guard a guard, so it is fixed."""
+
+    def test_a_caller_supplied_format_is_refused_by_name(self):
+        """The refusal the docstring promised, instead of an internal TypeError.
+
+        Test scenario:
+            `format="MEM"` was a literal keyword on the same call that receives
+            `**options`, so a caller passing their own `format=` got
+            `TranslateOptions() got multiple values for keyword argument
+            'format'` -- a `TypeError` naming a GDAL helper they never called,
+            from a function whose docstring said the keyword was not
+            overridable. They are now told which function fixed it, why, and
+            what to do instead.
+        """
+        source = _mem_source()
+
+        with pytest.raises(ValueError) as excinfo:
+            translate_to_mem(
+                source,
+                error=_DemoError,
+                action="demo read",
+                subject="'demo'",
+                format="GTiff",
+            )
+
+        message = str(excinfo.value)
+        assert "format is fixed to 'MEM' by translate_to_mem" in message, (
+            f"the refusal does not name the function that fixed it: {message!r}"
+        )
+        assert "Write it out afterwards" in message, (
+            f"the refusal does not say what to do instead: {message!r}"
+        )
+
+    def test_the_refusal_is_the_callers_error_not_the_services(self):
+        """A branded error would blame the server for the caller's keyword.
+
+        Test scenario:
+            Every other failure in this function is re-raised as the reader's
+            own `WCSError` / `WMSError` / `OGCAPIError`, which says the service
+            could not answer. Passing `format=` is a programming mistake in
+            pyramids' own caller, so it must stay a plain `ValueError` and not
+            be attributed to the endpoint.
+        """
+        source = _mem_source()
+
+        with pytest.raises(ValueError) as excinfo:
+            translate_to_mem(
+                source,
+                error=_DemoError,
+                action="demo read",
+                subject="'demo'",
+                format="MEM",
+            )
+
+        assert not isinstance(excinfo.value, _DemoError), (
+            "a caller's own keyword must not surface as a service error"
+        )
+
+
+class TestOptionsConstructionSitsOutsideTheGuard:
+    """Only the translate is a service failure; building the options is not."""
+
+    def test_a_runtimeerror_from_the_options_is_not_rebranded(self, monkeypatch):
+        """The window keywords are the caller's, so their failure is too.
+
+        Args:
+            monkeypatch: pytest fixture, used to make the options constructor
+                raise the way GDAL raises under `UseExceptions()`.
+
+        Test scenario:
+            `gdal.TranslateOptions` was built *inside* the guarded block at the
+            WCS and OGC sites, so a `RuntimeError` from constructing the window
+            came back as `WCSError` / `OGCAPIError` -- telling the caller the
+            service failed when what failed was the arguments pyramids handed
+            GDAL. Nothing has been requested of the endpoint at that point.
+        """
+        source = _mem_source()
+        monkeypatch.setattr(gdal, "TranslateOptions", _raise_runtime)
+        monkeypatch.setattr(gdal, "Translate", _refuse)
+
+        with pytest.raises(RuntimeError) as excinfo:
+            translate_to_mem(
+                source,
+                error=_DemoError,
+                action="demo read",
+                subject="'demo'",
+                projWin=[0.0, 8.0, 8.0, 0.0],
+            )
+
+        assert not isinstance(excinfo.value, _DemoError), (
+            f"an options failure was branded as a service error: {excinfo.value!r}"
+        )
+        assert str(excinfo.value) == "service said no", (
+            f"GDAL's own message was rewritten: {str(excinfo.value)!r}"
+        )
+
+    def test_an_unknown_window_keyword_reaches_the_caller_verbatim(self):
+        """The same rule with no stubbing: real GDAL rejects the keyword itself.
+
+        Test scenario:
+            A typo in a window keyword is the shape this actually takes in
+            practice. GDAL answers with a `TypeError` naming the keyword, which
+            is the message that tells the caller what to fix; a branded error
+            would replace it with "the service could not answer".
+        """
+        source = _mem_source()
+
+        with pytest.raises(TypeError, match="not_a_translate_keyword"):
+            translate_to_mem(
+                source,
+                error=_DemoError,
+                action="demo read",
+                subject="'demo'",
+                not_a_translate_keyword=1,
+            )
 
 
 class TestEachReaderKeepsItsOwnWording:

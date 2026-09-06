@@ -42,16 +42,30 @@ logger = logging.getLogger(__name__)
 # what it saw before.
 USER_AGENT = "pyramids-gis"
 
-# Headers for the urllib ``/collections`` pre-check. A real User-Agent avoids
-# services that block the default ``Python-urllib`` agent, and ``Accept`` adds
-# JSON content negotiation alongside the ``f=json`` query so the pre-check is no
-# stricter than the GDAL driver it guards. Both entries are read back by
-# :func:`discovery_request`: the ``Accept`` value is the JSON default it sends
-# for every discovery read, and the ``User-Agent`` is what the OGC API caller
-# passes as its own override of :data:`USER_AGENT`.
+# The media type every discovery read negotiates, whatever protocol it belongs
+# to. It has its own name because :func:`discovery_request` serves four fetches
+# -- OGC API, VectorTileServer, remote GeoJSON, WFS GetCapabilities -- and used
+# to take this value out of :data:`DISCOVERY_HEADERS`, the OGC-API-specific
+# pair. Editing that dict to change what OGC API asks for therefore changed what
+# the other three sent as well; reading a constant of its own means it does not.
+JSON_ACCEPT = "application/json"
+
+# The client the OGC API ``/collections`` pre-check declares. A real User-Agent
+# avoids services that block the default ``Python-urllib`` agent, and the string
+# is part of the wire contract: a service filtering on it must go on seeing what
+# it saw before.
+OGC_API_USER_AGENT = "pyramids-gis OGC API client"
+
+# The header pair for the OGC API ``/collections`` pre-check, assembled from the
+# two constants above. ``Accept`` adds JSON content negotiation alongside the
+# ``f=json`` query so the pre-check is no stricter than the GDAL driver it
+# guards. Nothing in this module reads the dict back -- :func:`discovery_request`
+# and :func:`get_collections` name the constants directly -- so it survives for
+# the WFS reader, which sends this same pair (its GetCapabilities body is XML,
+# but the ``Accept`` and the agent it has always sent are these).
 DISCOVERY_HEADERS = {
-    "User-Agent": "pyramids-gis OGC API client",
-    "Accept": "application/json",
+    "User-Agent": OGC_API_USER_AGENT,
+    "Accept": JSON_ACCEPT,
 }
 
 # Fallback when an OGC API error document / HTTP error carries no usable message.
@@ -326,12 +340,22 @@ def discovery_request(
         accept_json: Send `Accept: application/json`. True for a discovery
             document; pass False for a fetch whose body is not JSON, such as a
             vector tile.
-        user_agent: The client to declare. Defaults to the plain library name;
-            pass a specific one where a service filters on it or where the
-            request is part of a named protocol.
+        user_agent: The client to declare. `None` (the default) sends the plain
+            library name; pass a specific one where a service filters on it or
+            where the request is part of a named protocol.
 
     Returns:
         urllib.request.Request: Ready for :func:`http_get_with_retry`.
+
+    Raises:
+        ValueError: `user_agent` is empty or blank. It used to fall through
+            `user_agent or USER_AGENT` and silently become the library name,
+            which is the one thing an explicit `""` cannot have meant. Neither
+            reading of it is usable: honouring it puts a blank ``User-agent:``
+            on the wire, because `urllib` substitutes its default only for a
+            header that is *absent*, and omitting the header instead hands the
+            service ``Python-urllib/3.x`` -- the agent this header exists to
+            avoid. So it is refused by name rather than reinterpreted.
 
     Examples:
         - The plain library User-Agent, and JSON asked for by default:
@@ -361,10 +385,23 @@ def discovery_request(
             True
 
             ```
+        - An empty client name is refused rather than read as "unset":
+            ```python
+            >>> from pyramids.base._ogc_api import discovery_request
+            >>> discovery_request("https://x", None, user_agent="")
+            Traceback (most recent call last):
+            ValueError: user_agent must name a client; pass None for 'pyramids-gis', not ''.
+
+            ```
     """
-    headers = {"User-Agent": user_agent or USER_AGENT}
+    if user_agent is not None and not user_agent.strip():
+        raise ValueError(
+            f"user_agent must name a client; pass None for {USER_AGENT!r}, "
+            f"not {user_agent!r}."
+        )
+    headers = {"User-Agent": USER_AGENT if user_agent is None else user_agent}
     if accept_json:
-        headers["Accept"] = DISCOVERY_HEADERS["Accept"]
+        headers["Accept"] = JSON_ACCEPT
     if auth is not None:
         token = base64.b64encode(f"{auth[0]}:{auth[1]}".encode()).decode()
         headers["Authorization"] = f"Basic {token}"
@@ -398,7 +435,7 @@ def get_collections(
     """
     url = collections_url(endpoint)
     request = discovery_request(
-        url, auth, accept_json=True, user_agent=DISCOVERY_HEADERS["User-Agent"]
+        url, auth, accept_json=True, user_agent=OGC_API_USER_AGENT
     )
     try:
         # urllib honours the raw float timeout (a sub-second value is a valid fast
@@ -568,11 +605,17 @@ def not_advertised(
     """The refusal for a coverage or layer the service does not advertise.
 
     Written out three times -- once in the WCS reader, once in the WMTS one and
-    once for OGC API Coverages -- with the same wording, the same preview length
-    and the same ellipsis. Two of them sorted the names and the third listed
-    them in whatever order the capabilities document happened to use, so the
-    same kind of mistake against a WMTS endpoint produced an arbitrary ten names
-    while against a WCS endpoint it produced the first ten alphabetically.
+    once for OGC API Coverages -- with the same wording, the same sort, the same
+    preview length and the same ellipsis. All three were already alphabetical
+    before this existed, so the duplication is the whole of what it removes; it
+    fixes no difference in what the three printed.
+
+    The sort still carries its weight, though, and is part of the contract
+    rather than a tidy-up: two of the three callers hand over a `frozenset` --
+    the WCS capabilities parse and the OGC API `/collections` read both return
+    one -- whose iteration order is neither the capabilities document's nor
+    stable between runs. Listing "the first ten" of that would name a different
+    ten each time the same mistake was made.
 
     Returned rather than raised so a caller translating a service error can
     chain it -- `raise not_advertised(...) from exc` -- which a helper that

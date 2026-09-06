@@ -11,10 +11,19 @@ Two ways of deciding that were both wrong, and both shipped:
   element while two separately-built NaNs did not: a NaN sentinel survived on a
   one-band raster and vanished on a two-band one.
 
-Separately, the attribute is carried as a `float` because it is written to
-JSON, and `float(2**63 - 1)` rounds *up* past what `int64` can hold -- so
-promoting it into zarr's `fill_value` raised `OverflowError` and a store that
-used to be writable could not be written at all.
+Separately, the attributes were carried as `float` because they are written to
+JSON, and `float()` is lossy for a 64-bit integer band above 2**53. Two failures
+came out of that one coercion, and the coerced value is not only the
+attribute's: it is what reaches zarr's own `fill_value`, the field GDAL reads.
+
+- `float(2**63 - 1)` rounds *up* past what `int64` can hold, so promoting it
+  into `fill_value` raised `OverflowError` and a store that used to be writable
+  could not be written at all.
+- An int64 sentinel of `9007199254740993` lost its last digit and the store
+  declared `9007199254740992` -- a plausible-looking wrong sentinel that GDAL,
+  `from_zarr` and every CF reader then believed. Masking a read of that store
+  blanks the genuine `9007199254740992` cells and leaves the real sentinel
+  unmasked.
 """
 
 from __future__ import annotations
@@ -33,6 +42,8 @@ from pyramids.dataset import Dataset
 from pyramids.dataset.ops._zarr import (
     _agreed_sentinel,
     _is_nan,
+    _json_sentinel,
+    _metadata_dict,
     _representable,
     _same_sentinel,
 )
@@ -51,6 +62,10 @@ needs_zarr = pytest.mark.skipif(zarr is None, reason="requires the [lazy] extra"
 pytestmark = pytest.mark.core
 
 GEO = GeoReference(top_left_corner=(0.0, 10.0), cell_size=1.0, epsg=4326)
+
+# 2**53 + 1: the smallest integer `float` cannot represent, and an ordinary
+# int64 no-data. `float(_UNROUNDABLE)` is `_UNROUNDABLE - 1`.
+_UNROUNDABLE = 9007199254740993
 
 
 def _on_disk(array: np.ndarray, no_data, tmp_path: Path) -> Dataset:
@@ -205,6 +220,62 @@ class TestRepresentableInTheBandDtype:
         assert _representable(300.0, "uint8") is False
 
 
+class TestASentinelFloatCannotHold:
+    """`float()` on the way into JSON silently retuned a 64-bit sentinel."""
+
+    def test_an_integer_above_two_to_the_53_keeps_its_last_digit(self):
+        """The rounding, at the smallest value where it bites.
+
+        Test scenario:
+            `float(9007199254740993)` is `9007199254740992`. JSON numbers are
+            not floats, so nothing about the format required the coercion --
+            and the coerced value is what reaches `fill_value`, so the loss
+            became the store's declared no-data rather than a cosmetic one.
+        """
+        assert _json_sentinel(_UNROUNDABLE) == _UNROUNDABLE, (
+            f"{_UNROUNDABLE} was retuned to {_json_sentinel(_UNROUNDABLE)}"
+        )
+
+    @pytest.mark.parametrize(
+        "sentinel", [-9999, -9999.0, 255, 0.0, np.int32(-9999), np.float32(1.5)]
+    )
+    def test_an_ordinary_sentinel_is_still_written_as_a_float(self, sentinel):
+        """Args: sentinel: A value every real raster uses.
+
+        Test scenario:
+            Keeping the exact spelling for the values `float` cannot hold must
+            not change the ones it can. Every sentinel in the repo's own
+            fixtures round-trips through `float` unharmed, and each must keep
+            being written as one so no store's metadata changes type.
+        """
+        result = _json_sentinel(sentinel)
+
+        assert isinstance(result, float), f"{sentinel!r} became {result!r}"
+        assert result == float(sentinel), f"{sentinel!r} was retuned to {result!r}"
+
+    def test_the_metadata_carries_the_exact_value_for_both_spellings(self):
+        """The per-band list and the CF key must agree with the source.
+
+        Test scenario:
+            `no_data_value` is what `from_zarr` reads and `_FillValue` is what
+            `write_dataset_to_zarr` copies into `fill_value`. Rounding on the
+            way in put the same wrong number in both, so no reader of the store
+            had a way of recovering the sentinel the source declared.
+        """
+        source = Dataset.from_array(
+            np.zeros((4, 4), "int64"), geo_ref=GEO, no_data_value=_UNROUNDABLE
+        )
+
+        metadata = _metadata_dict(source)
+
+        assert metadata["no_data_value"] == [_UNROUNDABLE], (
+            f"per-band list was retuned: {metadata['no_data_value']}"
+        )
+        assert metadata["_FillValue"] == _UNROUNDABLE, (
+            f"the CF sentinel was retuned: {metadata['_FillValue']}"
+        )
+
+
 class TestEndToEndThroughAWrittenStore:
     """The property that matters: what a reader sees on disk."""
 
@@ -224,6 +295,40 @@ class TestEndToEndThroughAWrittenStore:
         source.to_zarr(str(tmp_path / "limit.zarr"))
 
         assert (tmp_path / "limit.zarr").exists(), "the store was not written"
+
+    @pytest.mark.lazy
+    @needs_zarr
+    def test_a_64_bit_sentinel_reaches_disk_undamaged(self, tmp_path):
+        """Args: tmp_path: Fixture supplying a temporary directory.
+
+        Test scenario:
+            `9007199254740993` used to be written as `9007199254740992` --
+            in `fill_value`, in `_FillValue` and in the per-band list, so every
+            reader of the store agreed on the wrong number and none could
+            recover the right one. Masking a read of that store blanks the
+            genuine `9007199254740992` cells and leaves the declared sentinel
+            unmasked, which is the whole failure the sentinel is written for.
+        """
+        source = _on_disk(np.ones((4, 5), dtype="int64"), _UNROUNDABLE, tmp_path)
+        store = tmp_path / "wide.zarr"
+
+        source.to_zarr(str(store))
+
+        metadata = json.loads((store / "data" / "zarr.json").read_text())
+        assert metadata["fill_value"] == _UNROUNDABLE, (
+            f"zarr fill_value was retuned to {metadata['fill_value']}"
+        )
+        attributes = metadata.get("attributes", {})
+        assert attributes.get("_FillValue") == _UNROUNDABLE, (
+            f"the CF attribute was retuned to {attributes.get('_FillValue')}"
+        )
+        assert tuple(Dataset.read_file(str(store)).no_data_value) == (_UNROUNDABLE,), (
+            "GDAL reads the store's no-data out of fill_value, and it must be "
+            "the sentinel the source declared"
+        )
+        assert tuple(Dataset.from_zarr(str(store)).no_data_value) == (_UNROUNDABLE,), (
+            "from_zarr recovers the per-band list, which must agree too"
+        )
 
     @pytest.mark.lazy
     @needs_zarr

@@ -199,14 +199,21 @@ def _is_nan(value: float) -> bool:
 def _representable(sentinel: float, dtype: str) -> bool:
     """True when `sentinel` survives the round trip into `dtype`.
 
-    `_metadata_dict` carries the no-data as a `float`, because the attribute it
-    writes is JSON. For a 64-bit integer band that is lossy at the limits:
-    `float(2**63 - 1)` rounds *up* to `2**63`, which `int64` cannot hold, so
-    promoting it into zarr's `fill_value` raised `OverflowError` and a store
-    that used to be writable could not be written at all.
+    A value the band's dtype cannot hold must not be declared as its no-data.
+    The limits are where that began: `_metadata_dict` used to carry the sentinel
+    as a `float`, and `float(2**63 - 1)` rounds *up* to `2**63`, which `int64`
+    cannot hold -- promoting it into zarr's `fill_value` raised `OverflowError`
+    and a store that used to be writable could not be written at all.
+
+    :func:`_json_sentinel` now keeps such a value an exact `int` instead of
+    rounding it, so the int64 limit reaches `fill_value` intact and this is no
+    longer the guard that catches it. What remains for it is a sentinel that
+    genuinely does not fit -- fractional on an integer band, or out of its range
+    -- including a `float` that arrives already rounded.
 
     Args:
-        sentinel: The candidate no-data, already coerced to `float`.
+        sentinel: The candidate no-data, as :func:`_json_sentinel` wrote it: a
+            `float`, or an `int` where `float` would have rounded.
         dtype: The band's numpy dtype name.
 
     Returns:
@@ -223,12 +230,20 @@ def _representable(sentinel: float, dtype: str) -> bool:
             True
 
             ```
-        - The int64 maximum does not: `float` cannot hold it exactly, and the
-          rounded value is out of range:
+        - An already-rounded int64 maximum does not: the rounded value is out
+          of range:
             ```python
             >>> from pyramids.dataset.ops._zarr import _representable
             >>> _representable(float(2**63 - 1), "int64")
             False
+
+            ```
+        - The same limit kept exact does, which is how `_json_sentinel` hands
+          it over:
+            ```python
+            >>> from pyramids.dataset.ops._zarr import _representable
+            >>> _representable(2**63 - 1, "int64")
+            True
 
             ```
         - A sentinel an integer band can hold is fine:
@@ -252,6 +267,61 @@ def _representable(sentinel: float, dtype: str) -> bool:
             and int(sentinel) == sentinel
         )
     return representable
+
+
+def _json_sentinel(value: float) -> float | int:
+    """The sentinel as a JSON number, exact even where `float` cannot hold it.
+
+    The attributes are JSON, so the sentinel used to be coerced with `float()`
+    on the way in. Above 2**53 that is lossy for a 64-bit integer band, and the
+    coerced value is no longer only the attribute's: it is what reaches zarr's
+    own `fill_value`, which is what GDAL reads. An int64 sentinel of
+    `9007199254740993` therefore reached disk as `9007199254740992`, so every
+    reader -- GDAL, `from_zarr`, any CF-aware one -- was told the store's
+    no-data is a number one away from the one the source declares. Masking a
+    read of it blanks the genuine `9007199254740992` cells and leaves the real
+    sentinel unmasked.
+
+    JSON numbers are not floats, so an integer sentinel needs no coercion at
+    all. `float()` is still applied wherever it is lossless, which leaves every
+    ordinary sentinel (`-9999`, `255`, `65535`) spelled exactly as before; only
+    a value `float` would round is kept as an `int`.
+
+    Args:
+        value: One band's no-data, as `Dataset.no_data_value` reports it -- a
+            Python/NumPy integer for an integer band, a float otherwise.
+
+    Returns:
+        float | int: The same number, written the way JSON can hold it exactly.
+
+    Examples:
+        - An ordinary sentinel is a float, whichever type it arrived as:
+            ```python
+            >>> from pyramids.dataset.ops._zarr import _json_sentinel
+            >>> _json_sentinel(-9999), _json_sentinel(-9999.0)
+            (-9999.0, -9999.0)
+
+            ```
+        - One `float` cannot hold stays an exact integer:
+            ```python
+            >>> from pyramids.dataset.ops._zarr import _json_sentinel
+            >>> _json_sentinel(9007199254740993)
+            9007199254740993
+
+            ```
+        - Including the int64 maximum, which `float` rounds up out of range:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.dataset.ops._zarr import _json_sentinel
+            >>> _json_sentinel(np.int64(2**63 - 1)) == 2**63 - 1
+            True
+
+            ```
+    """
+    coerced: float | int = float(value)
+    if isinstance(value, (int, np.integer)) and int(coerced) != int(value):
+        coerced = int(value)
+    return coerced
 
 
 def _metadata_dict(ds: Dataset) -> dict[str, Any]:
@@ -321,10 +391,13 @@ def _metadata_dict(ds: Dataset) -> dict[str, Any]:
     # (e.g. geostationary) carries its own `.crs` WKT so its `spatial_ref` is preserved.
     crs_wkt = sr_from_epsg(epsg_code).ExportToWkt() if ds.epsg else (ds.crs or "")
     nodata_tuple = ds.no_data_value
-    # Kept as `float` for the attribute, which is JSON and has no integer
-    # sentinel to preserve; `_representable` below is what stops the rounded
-    # value reaching zarr's own `fill_value`.
-    no_data_list = [None if v is None else float(v) for v in nodata_tuple]
+    # Written the way JSON can hold it exactly: `float` for everything it can
+    # represent, an `int` only where it would round. A plain `float()` here cost
+    # an int64 sentinel above 2**53 its last digit, and since this value is also
+    # what reaches zarr's `fill_value`, that rounded number became the one GDAL
+    # reports. `_representable` below is the remaining guard, for a sentinel the
+    # band's dtype genuinely cannot hold.
+    no_data_list = [None if v is None else _json_sentinel(v) for v in nodata_tuple]
     # `no_data_value` is pyramids' own per-band list and only pyramids reads it.
     # `_FillValue` is the CF/GeoZarr spelling, for xarray and other CF-aware
     # readers -- GDAL's Zarr driver ignores the attribute and reads the array

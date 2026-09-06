@@ -24,6 +24,8 @@ import pytest
 
 from pyramids.base._ogc_api import (
     DISCOVERY_HEADERS,
+    JSON_ACCEPT,
+    OGC_API_USER_AGENT,
     USER_AGENT,
     discovery_request,
     get_collections,
@@ -118,6 +120,26 @@ class TestDiscoveryRequest:
         assert request.get_header("User-agent") == user_agent, (
             f"expected {user_agent!r}, got {request.get_header('User-agent')!r}"
         )
+
+    @pytest.mark.parametrize("blank", ["", "   ", "\t"], ids=["empty", "spaces", "tab"])
+    def test_a_blank_user_agent_is_refused_rather_than_read_as_unset(self, blank: str):
+        """An explicit empty string used to become `pyramids-gis` silently.
+
+        Args:
+            blank: A client string with no content.
+
+        Test scenario:
+            `user_agent or USER_AGENT` treats `""` as "not given", which is the
+            one thing an explicit empty string cannot have meant. Neither
+            reading of it is usable either: `urllib` substitutes its own default
+            only for a header that is *absent*, so honouring the empty string
+            would put a blank `User-agent:` on the wire, while omitting the
+            header hands the service `Python-urllib/3.x` -- the agent this
+            header exists to avoid. The caller is told, instead of being given a
+            third thing they did not ask for.
+        """
+        with pytest.raises(ValueError, match="user_agent must name a client"):
+            discovery_request("https://host/x", None, user_agent=blank)
 
     def test_accept_json_default_negotiates_json(self):
         """`accept_json` defaults to True and sets `Accept: application/json`.
@@ -400,6 +422,94 @@ _WFS_CAPABILITIES = (
     b'<wfs:WFS_Capabilities version="2.0.0" xmlns:wfs="x">'
     b"<FeatureType><Name>topp:states</Name></FeatureType></wfs:WFS_Capabilities>"
 )
+
+
+class TestTheOgcApiHeaderPairIsNotTheGenericSource:
+    """`DISCOVERY_HEADERS` describes one protocol; the builder serves four.
+
+    The generic builder used to take its JSON `Accept` out of the
+    OGC-API-specific dict, and the `/collections` read took its agent from the
+    same dict — so retuning either entry for OGC API silently retuned the
+    VectorTileServer fetch, the remote-GeoJSON stage and the WFS
+    `GetCapabilities` fetch with it. Both now read constants of their own, and
+    these tests are what keeps them reading them.
+    """
+
+    def test_the_builders_json_accept_survives_an_edit_to_the_ogc_api_dict(
+        self, monkeypatch
+    ):
+        """A VectorTileServer metadata fetch must not follow an OGC API edit.
+
+        Args:
+            monkeypatch: pytest fixture, used to retune the OGC API dict for the
+                duration of the test.
+
+        Test scenario:
+            Retune `DISCOVERY_HEADERS["Accept"]` the way someone tightening OGC
+            API content negotiation would. The three other protocols routed
+            through the same builder must go on asking for `application/json`.
+        """
+        monkeypatch.setitem(DISCOVERY_HEADERS, "Accept", "application/geo+json")
+
+        request = discovery_request("https://host/vts", None, user_agent="vts client")
+
+        assert request.get_header("Accept") == JSON_ACCEPT, (
+            "the builder must read its own JSON media type, got "
+            f"{request.get_header('Accept')!r}"
+        )
+        assert JSON_ACCEPT == "application/json", (
+            f"the negotiated media type is wire contract, got {JSON_ACCEPT!r}"
+        )
+
+    def test_the_collections_agent_survives_an_edit_to_the_dict(self, monkeypatch):
+        """The `/collections` agent is a named constant, not a dict lookup.
+
+        Args:
+            monkeypatch: pytest fixture, used to retune the dict and to stub the
+                network seam.
+
+        Test scenario:
+            An edit to `DISCOVERY_HEADERS["User-Agent"]` reached the OGC API
+            pre-check *and* the WFS `GetCapabilities` fetch, which imports the
+            same dict. Only one of the two is an OGC API request, so the agent
+            the pre-check declares has to come from somewhere that says so.
+        """
+        captured: list[Any] = []
+
+        def _fake_get(request, timeout, **kwargs):
+            captured.append(request)
+            return b'{"collections": []}'
+
+        monkeypatch.setattr("pyramids.base._ogc_api.http_get_with_retry", _fake_get)
+        monkeypatch.setitem(DISCOVERY_HEADERS, "User-Agent", "retuned-for-ogc-api")
+        get_collections.cache_clear()
+        try:
+            get_collections("https://host/ogc-decoupled", None, 30.0)
+        finally:
+            get_collections.cache_clear()
+
+        assert len(captured) == 1, f"expected one fetch, got {len(captured)}"
+        assert captured[0].get_header("User-agent") == OGC_API_USER_AGENT, (
+            "the pre-check must declare its own named agent, got "
+            f"{captured[0].get_header('User-agent')!r}"
+        )
+        assert OGC_API_USER_AGENT == _OGC_USER_AGENT, (
+            f"the OGC API agent string is wire contract, got {OGC_API_USER_AGENT!r}"
+        )
+
+    def test_the_dict_still_carries_the_pair_the_wfs_reader_sends(self):
+        """Naming the two values must not change what the dict holds.
+
+        Test scenario:
+            `pyramids.feature._wfs` imports `DISCOVERY_HEADERS` for the agent it
+            has always sent on `GetCapabilities`. Decoupling the builder from
+            the dict is only safe while the dict itself still spells the same
+            pair, so nothing changes on that wire.
+        """
+        assert DISCOVERY_HEADERS == {
+            "User-Agent": OGC_API_USER_AGENT,
+            "Accept": JSON_ACCEPT,
+        }, f"the OGC API header pair changed: {DISCOVERY_HEADERS}"
 
 
 class TestTheWfsCapabilitiesFetchUsesTheBuilder:

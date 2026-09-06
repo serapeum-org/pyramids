@@ -1,11 +1,16 @@
 """One refusal for a name the service does not advertise.
 
 The WCS reader, the WMTS reader and the OGC API Coverages reader each wrote
-this message out, with the same wording, the same ten-name preview and the same
-ellipsis. Two of them sorted the advertised names and the third listed them in
-whatever order the capabilities document used -- so the same mistake against a
-WMTS endpoint showed an arbitrary ten names where a WCS endpoint showed the
-first ten alphabetically.
+this message out, with the same wording, the same sort, the same ten-name
+preview and the same ellipsis. All three sorted, so the duplication is the whole
+of what consolidating them removed -- there was no WMTS-versus-WCS difference to
+fix, and the tests below do not claim one.
+
+The sort is still worth pinning, for a different reason: two of the three
+callers hand the helper a `frozenset` -- the WCS capabilities parse and the OGC
+API `/collections` read both return one -- whose iteration order is neither the
+capabilities document's nor stable between runs. Sorting is what makes "the
+first ten" the same ten every time.
 
 The vector readers already had a shared helper for the same refusal --
 `pyramids.feature._ogc.require_advertised`, used by WFS and OGC API Features --
@@ -52,17 +57,37 @@ class TestTheMessage:
             not_advertised("coverage", "z", "u", ["a"])
         )
 
-    def test_the_names_are_sorted_whatever_order_they_arrive_in(self):
-        """The regression: one caller listed them in server order.
+    @pytest.mark.parametrize(
+        ("label", "available"),
+        [
+            ("list in reverse", ["c", "b", "a"]),
+            ("frozenset", frozenset({"a", "b", "c"})),
+        ],
+        ids=["reverse-list", "frozenset"],
+    )
+    def test_the_preview_is_alphabetical_whatever_the_caller_hands_over(
+        self, label: str, available
+    ):
+        """The sort is a contract of the helper, not a fix for one caller.
+
+        Args:
+            label: How the names were handed over, for the failure message.
+            available: The advertised names, in that form.
 
         Test scenario:
-            A capabilities document has no meaningful order, so listing the
-            first ten as they appear shows an arbitrary subset. Sorting makes
-            the preview the same list every time and easy to scan.
+            All three readers already sorted before this helper existed, so this
+            pins no WMTS-versus-WCS difference. What the sort buys is a stable
+            preview: the WCS capabilities parse and the OGC API `/collections`
+            read both hand over a `frozenset`, whose iteration order is neither
+            the capabilities document's nor stable between runs, so listing "the
+            first ten" of it unsorted would name a different ten each time the
+            same mistake was made.
         """
-        error = not_advertised("coverage", "z", "u", ["c", "a", "b"])
+        error = not_advertised("coverage", "z", "u", available)
 
-        assert "['a', 'b', 'c']" in str(error)
+        assert "['a', 'b', 'c']" in str(error), (
+            f"a {label} should still be listed alphabetically, got: {error}"
+        )
 
     def test_a_long_list_is_trimmed_and_marked(self):
         """A service can advertise hundreds; a traceback should stay readable.
@@ -111,13 +136,15 @@ class TestTheVectorHelperRaisesTheSameRefusal:
             advertised. Written out twice they agreed only until one of them
             was edited.
         """
-        with pytest.raises(ValueError) as raised:
-            require_advertised(
-                "c1", frozenset({"a", "b"}), noun="collection", endpoint="http://x"
-            )
+        advertised = frozenset({"a", "b"})
         expected = not_advertised("collection", "c1", "http://x", ["a", "b"])
 
-        assert str(raised.value) == str(expected)
+        with pytest.raises(ValueError) as raised:
+            require_advertised("c1", advertised, noun="collection", endpoint="http://x")
+
+        assert str(raised.value) == str(expected), (
+            f"the two helpers disagree: {raised.value} != {expected}"
+        )
 
     def test_one_preview_cap_governs_both(self):
         """The cap is a constant, not a literal repeated per helper.

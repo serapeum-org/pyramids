@@ -864,7 +864,11 @@ class TestACompressedTarIsNotInflatedToNameItsFirstMember:
             the stream.
         """
         archive = _tar_gz_with_a_large_second_member(tmp_path)
-        _CountingGzipFile.reached = 0
+        # Both through monkeypatch, so the counter is restored on teardown along
+        # with the substituted reader: the class attribute is module-global, and
+        # a test that zeroed it by hand left whatever the last run reached in
+        # place for the next reader of it.
+        monkeypatch.setattr(_CountingGzipFile, "reached", 0)
         monkeypatch.setattr(gzip, "GzipFile", _CountingGzipFile)
 
         resolved = _get_tar_path(str(archive))

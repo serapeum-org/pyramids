@@ -1282,6 +1282,77 @@ class TestTailHeadRegression:
         with pytest.raises(ValueError, match="needs at least 3 bands"):
             cube_with_values.plot(rgb_options={"rgb": [0, 1, 2]})
 
+    def test_the_empty_band_none_cube_keeps_the_band_axis(self, tmp_path):
+        """The empty result has the rank a populated one of the same request has.
+
+        Args:
+            tmp_path: pytest temp directory for the multi-band GeoTIFFs.
+
+        Test scenario:
+            The empty guard returned `(0, rows, cols)` whatever `band` was, so
+            `band=None` on a multi-band collection gave a 3-D empty cube where a
+            populated one is 4-D. The RGB time-lapse branches on exactly that
+            rank, so an empty collection came back as "RGB animate requires a
+            4-D ... got 3-D. Pass rgb only with a multi-band temporal stack" --
+            telling the caller their bands are wrong when what is wrong is that
+            there are no timesteps at all.
+        """
+        collection, _ = _make_multiband_collection(tmp_path, count=2, bands=3)
+
+        empty = collection._stack_timesteps([], band=None)
+        populated = collection._stack_timesteps(collection.datasets, band=None)
+
+        assert empty.shape == (0, 3, 4, 5), (
+            f"expected (time=0, bands=3, 4, 5), got {empty.shape}"
+        )
+        assert empty.shape[1:] == populated.shape[1:], (
+            "the empty cube must differ from the populated one only in time: "
+            f"{empty.shape} vs {populated.shape}"
+        )
+
+    def test_the_empty_band_zero_cube_stays_three_dimensional(self, tmp_path):
+        """The extra axis belongs to `band=None`, not to a multi-band collection.
+
+        Args:
+            tmp_path: pytest temp directory for the multi-band GeoTIFFs.
+
+        Test scenario:
+            `values`, `head` and `tail` all read band 0 of the same multi-band
+            collection and are documented as `(time, rows, cols)`. Giving the
+            empty guard a band axis whenever the collection has bands would
+            change the shape those three return on an empty selection.
+        """
+        collection, _ = _make_multiband_collection(tmp_path, count=2, bands=3)
+
+        empty = collection._stack_timesteps([], band=0)
+
+        assert empty.shape == (0, 4, 5), f"expected (0, 4, 5), got {empty.shape}"
+
+    def test_a_single_band_collection_squeezes_under_band_none_when_empty_too(
+        self, cube_with_values: DatasetCollection
+    ):
+        """The guard's band-count test has to match what `read_array` does.
+
+        Args:
+            cube_with_values: A 3-timestep single-band 5x6 collection.
+
+        Test scenario:
+            `Dataset.read_array(band=None)` drops the band axis for a
+            single-band raster, so a populated `band=None` stack is 3-D there.
+            An empty one that added a length-1 band axis would be the same
+            rank mismatch in the other direction.
+        """
+        empty = cube_with_values._stack_timesteps([], band=None)
+        populated = cube_with_values._stack_timesteps(
+            cube_with_values.datasets, band=None
+        )
+
+        assert empty.shape == (0, 5, 6), f"expected (0, 5, 6), got {empty.shape}"
+        assert empty.shape[1:] == populated.shape[1:], (
+            "the empty cube must differ from the populated one only in time: "
+            f"{empty.shape} vs {populated.shape}"
+        )
+
     def test_stack_timesteps_empty_carries_the_collection_dtype(self, tmp_path):
         """The empty guard types the array from the collection, not float64 (N1).
 
