@@ -466,8 +466,11 @@ class GeoTransform(NamedTuple):
             - Halve the resolution of a north-up grid:
                 ```python
                 >>> from pyramids.dataset.transform import GeoTransform
-                >>> GeoTransform(0.0, 1.0, 0.0, 4.0, 0.0, -1.0).scaled(2, 2)
-                GeoTransform(x_origin=0.0, pixel_width=2.0, row_rotation=0.0, y_origin=4.0, column_rotation=0.0, pixel_height=-2.0)
+                >>> halved = GeoTransform(0.0, 1.0, 0.0, 4.0, 0.0, -1.0).scaled(2, 2)
+                >>> halved.pixel_width, halved.pixel_height
+                (2.0, -2.0)
+                >>> halved.x_origin, halved.y_origin
+                (0.0, 4.0)
 
                 ```
             - A rotated grid keeps its shear, scaled on the matching axis:
