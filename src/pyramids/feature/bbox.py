@@ -28,12 +28,16 @@ from shapely.affinity import translate
 from shapely.geometry import MultiPolygon, Polygon, box
 from shapely.ops import unary_union
 
-# `transform` moved down to `base` so the coverage readers could stop
-# importing `feature` (and, with it, geopandas) for a bbox reprojection.
-# Re-exported here because that is the name callers already use.
+# `Bbox` and `transform` moved down to `base` so the coverage readers could stop
+# importing `feature` (and, with it, geopandas) for a bbox reprojection. Both are
+# re-exported here under the names callers already use, and both are the objects
+# `pyramids.base._bbox` defines rather than copies of them. What a `Bbox` is, is
+# stated in this module's docstring above; the one-line string that used to follow
+# `Bbox = tuple[...]` documented nothing once the assignment became an import, so
+# it is gone. The move also took `pyproj.Transformer` and `crs_from_user_input`
+# out of this module's namespace -- neither was ever advertised here (see
+# `__all__` below); their homes are `pyproj` and `pyramids.base.crs`.
 from pyramids.base._bbox import Bbox, transform
-
-"""A `(west, south, east, north)` bounding box in degrees."""
 
 _CONVENTIONS = ("-180..180", "0..360")
 

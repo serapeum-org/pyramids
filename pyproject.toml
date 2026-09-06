@@ -97,9 +97,20 @@ dev = [
     "pytest-timeout>=2.3.0",
     # Parallel test execution. The suite is ~10k tests and runs for about
     # twelve minutes serially; `-n auto` brings that down to a couple of
-    # minutes on a multi-core machine. Opt-in -- no task below passes `-n`, so
-    # a plain `pytest` run is unchanged and stays deterministic for debugging.
-    "pytest-xdist>=3.6.0"
+    # minutes on a multi-core machine. Opt-in -- only the `test-fast` task
+    # passes `-n`, so `main`, `plot` and a plain `pytest` run are unchanged and
+    # stay deterministic for debugging.
+    #
+    # The floor is not about `-n` or `--dist loadfile`, both of which long
+    # predate it. 3.6.0 is the first release that requires `pytest>=7.0.0` and
+    # `execnet>=2.1.0` and that runs a worker's tests on its *main* thread
+    # (xdist #620/#1027) -- before that a test could land on a non-main thread,
+    # which matters here because GDAL and matplotlib both keep thread-affine
+    # state. 3.6.0 itself was yanked from PyPI for an execnet/pytest-cov
+    # deadlock (xdist #1071), and every pytest task below except `test-fast`
+    # runs under `--cov`, so 3.6.1 is the first release this repo can actually
+    # use and the floor names it rather than the yanked one.
+    "pytest-xdist>=3.6.1"
 ]
 docs = [
     "mkdocs >=1.5.3",

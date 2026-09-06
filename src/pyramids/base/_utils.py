@@ -17,6 +17,70 @@ from pandas import DataFrame
 from pyramids import __path__
 from pyramids.base._errors import DriverNotExistError, OptionalPackageDoesNotExist
 
+
+def _half_precision_columns(
+    constants: Any,
+) -> tuple[list[str], list[type], list[int], list[int | None]]:
+    """The dtype-catalogue rows for GDAL's half-precision types, empty when GDAL has none.
+
+    GDAL 3.11 added ``GDT_Float16`` and ``GDT_CFloat16`` (RFC 100) and the bundled
+    build writes rasters in them, so the catalogue has to carry them. Every
+    supported build is newer than that -- the conda pin is ``gdal >=3.13.3`` and the
+    oldest vendored wheel carries 3.12.4 -- but an sdist install against a system
+    GDAL can still predate it, and importing pyramids must keep working there.
+
+    The rows are therefore *omitted* on such a build rather than filled with a
+    placeholder code. :func:`_first_wins` keeps every pair whose halves are both
+    non-``None``, so a placeholder like ``-1`` would become the value
+    ``numpy_to_gdal_dtype(np.dtype("float16"))`` hands back -- and GDAL rejects it
+    as a band type downstream -- where dropping the row restores the "data type is
+    not supported" :class:`ValueError` that build used to raise. The placeholder
+    would equally become a *key* of the GDAL->numpy and GDAL->OGR tables, answering
+    for a code no GDAL can produce.
+
+    Args:
+        constants: The :mod:`osgeo.gdalconst` module, or any stand-in that carries
+            (or lacks) its ``GDT_Float16`` / ``GDT_CFloat16`` attributes.
+
+    Returns:
+        tuple[list[str], list[type], list[int], list[int | None]]: The
+        ``(names, numpy, gdal, ogr)`` column tails, all four empty when `constants`
+        does not define both half-precision codes.
+
+    Examples:
+        - The running GDAL defines them, so both rows are contributed:
+            ```python
+            >>> from osgeo import gdalconst
+            >>> from pyramids.base._utils import _half_precision_columns
+            >>> _half_precision_columns(gdalconst)[0]
+            ['float16', 'complex-float16']
+
+            ```
+        - A GDAL that predates RFC 100 contributes no row at all, rather than a
+          placeholder code:
+            ```python
+            >>> from types import SimpleNamespace
+            >>> from pyramids.base._utils import _half_precision_columns
+            >>> _half_precision_columns(SimpleNamespace())
+            ([], [], [], [])
+
+            ```
+    """
+    columns: tuple[list[str], list[type], list[int], list[int | None]]
+    if hasattr(constants, "GDT_Float16") and hasattr(constants, "GDT_CFloat16"):
+        columns = (
+            ["float16", "complex-float16"],
+            [np.float16, np.complex64],
+            [constants.GDT_Float16, constants.GDT_CFloat16],
+            [ogr.OFTReal, None],
+        )
+    else:
+        columns = ([], [], [], [])
+    return columns
+
+
+_HALF_NAMES, _HALF_NUMPY, _HALF_GDAL, _HALF_OGR = _half_precision_columns(gdalconst)
+
 DTYPE_NAMES = [
     None,
     "byte",
@@ -34,9 +98,7 @@ DTYPE_NAMES = [
     "int64",
     "int8",
     "count",
-    "float16",
-    "complex-float16",
-]
+] + _HALF_NAMES
 
 GDAL_DTYPE = [
     gdalconst.GDT_Unknown,
@@ -55,14 +117,11 @@ GDAL_DTYPE = [
     gdalconst.GDT_Int64,
     gdalconst.GDT_Int8,
     gdalconst.GDT_TypeCount,
-    # GDAL 3.13 added the half-precision codes, and the bundled build
-    # creates rasters in them. Guarded so importing pyramids still works
-    # against an older GDAL, where the attributes are absent.
-    getattr(gdalconst, "GDT_Float16", -1),
-    getattr(gdalconst, "GDT_CFloat16", -2),
-]
+] + _HALF_GDAL
 
-GDAL_DTYPE_CODE = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
+# Row ids, derived from the catalogue rather than listed, so a build without the
+# half-precision rows cannot end up with more ids than rows.
+GDAL_DTYPE_CODE = list(range(len(DTYPE_NAMES)))
 
 OGR_DTYPE = [
     None,
@@ -81,9 +140,7 @@ OGR_DTYPE = [
     ogr.OFTInteger64,
     ogr.OFTInteger,
     None,
-    ogr.OFTReal,
-    None,
-]
+] + _HALF_OGR
 
 NUMPY_DTYPE = [
     None,
@@ -102,9 +159,7 @@ NUMPY_DTYPE = [
     np.int64,
     np.int8,
     None,
-    np.float16,
-    np.complex64,
-]
+] + _HALF_NUMPY
 
 DTYPE_CONVERSION_DF = DataFrame(
     columns=["id", "name", "numpy", "gdal", "ogr"],

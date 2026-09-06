@@ -1,14 +1,18 @@
-"""Guard two public-surface promises the consolidation is easy to break by accident.
+"""Guard the public-surface promises the consolidation is easy to break by accident.
 
 Moving a helper down into ``pyramids.base`` is invisible to callers only while the name it used to
-live under keeps resolving, and adding an ``__all__`` to a module that never had one silently
-*narrows* its star-import and its mkdocstrings page. Neither shows up in a test that exercises
-behaviour, because both are about which names a module offers, not what they do.
+live under keeps resolving *and still names the same object*, and adding an ``__all__`` to a module
+that never had one silently *narrows* its star-import and its mkdocstrings page. Neither shows up in
+a test that exercises behaviour, because both are about which names a module offers, not what they
+do.
 """
 
 import inspect
 
+import pyramids.base._bbox as base_bbox
 import pyramids.dataset.dataset as dataset_module
+import pyramids.feature as feature_package
+import pyramids.feature.bbox as feature_bbox
 import pyramids.netcdf.utils as netcdf_utils
 from pyramids.base._utils import DTYPE_CONVERSION_DF
 
@@ -90,4 +94,97 @@ class TestTheDtypeTableStaysImportableFromItsOldHome:
         """
         assert dataset_module.DTYPE_CONVERSION_DF is DTYPE_CONVERSION_DF, (
             "the re-export must alias pyramids.base._utils.DTYPE_CONVERSION_DF"
+        )
+
+
+class TestFeatureBboxStillOffersWhatMovedDownToBase:
+    """``Bbox`` and ``transform`` left ``pyramids.feature.bbox``; the names must not have.
+
+    The reprojection moved to ``pyramids.base._bbox`` so ``pyramids.base`` could stop importing
+    ``pyramids.feature`` (and, with it, geopandas). ``pyramids.feature.bbox`` re-exports both names,
+    which is the whole reason the move was safe for callers.
+
+    The move also took ``pyproj.Transformer`` and ``pyramids.base.crs.crs_from_user_input`` out of
+    that module's namespace. Both were incidental -- names imported to implement ``transform``,
+    never listed in ``__all__`` and never documented -- so the removal is intended and is recorded
+    in ``docs/migration.md`` rather than reverted. Their homes are ``pyproj`` and
+    ``pyramids.base.crs``.
+    """
+
+    def test_the_re_exports_are_the_definitions_themselves(self):
+        """``feature.bbox`` hands out ``base._bbox``'s objects, not lookalikes.
+
+        Test scenario:
+            A re-export that resolved to a *copy* would pass a plain ``hasattr`` check and
+            still break callers: a second ``Bbox`` alias fails an ``is`` comparison, and a
+            second ``transform`` would drift from the one ``base._coverage`` calls. Identity
+            is the property that makes the move invisible.
+        """
+        assert feature_bbox.Bbox is base_bbox.Bbox, (
+            "pyramids.feature.bbox.Bbox must be the alias pyramids.base._bbox defines"
+        )
+        assert feature_bbox.transform is base_bbox.transform, (
+            "pyramids.feature.bbox.transform must be the function pyramids.base._bbox defines"
+        )
+
+    def test_every_advertised_name_resolves(self):
+        """Nothing in ``feature.bbox.__all__`` is a dangling name.
+
+        Test scenario:
+            ``__all__`` gained ``Bbox`` and ``transform`` as re-exports of names the module no
+            longer defines, so the list is now the only thing tying the advertised surface to
+            the imports at the top of the file. Dropping one of those imports would leave a
+            star-import raising ``AttributeError``.
+        """
+        dangling = [
+            name for name in feature_bbox.__all__ if not hasattr(feature_bbox, name)
+        ]
+
+        assert not dangling, f"names in __all__ with no attribute: {dangling}"
+
+    def test_all_lists_every_public_function_defined_in_the_module(self):
+        """A public helper defined here is part of the module's API, so ``__all__`` names it.
+
+        Test scenario:
+            The same failure mode the netcdf ``__all__`` had: a hand-maintained list that
+            silently narrows the module when a new public helper is added beside the ones
+            already on it.
+        """
+        missing = sorted(
+            set(_public_functions_defined_here(feature_bbox))
+            - set(feature_bbox.__all__)
+        )
+
+        assert not missing, (
+            "public functions defined in pyramids.feature.bbox but absent from its "
+            f"__all__: {missing}"
+        )
+
+
+class TestAnImplementationImportDoesNotWidenTheFeaturePackage:
+    """``pyramids.feature`` borrows helpers from ``base._utils``; none of them is feature API."""
+
+    def test_no_borrowed_helper_is_advertised_by_the_package(self):
+        """Nothing imported from ``pyramids.base._utils`` appears in ``pyramids.feature.__all__``.
+
+        Test scenario:
+            Composing the ``LazyFeatureCollection`` install hint through the shared
+            ``extra_hint`` helper put that name into ``dir(pyramids.feature)``, next to the
+            ``import_dask_geopandas`` that was already there. Neither is feature API. What
+            decides whether that matters is ``__all__``, which is what a star-import reads
+            and what mkdocstrings treats as the declared surface -- so the check that keeps
+            such an import harmless is that it never reaches the list.
+        """
+        borrowed = {
+            name
+            for name in dir(feature_package)
+            if not name.startswith("_")
+            and getattr(getattr(feature_package, name), "__module__", None)
+            == "pyramids.base._utils"
+        }
+        advertised = sorted(borrowed & set(feature_package.__all__))
+
+        assert not advertised, (
+            "pyramids.feature.__all__ advertises helpers it only imported from "
+            f"pyramids.base._utils: {advertised}"
         )

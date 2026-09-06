@@ -474,6 +474,23 @@ Neither method refuses a raster with no CRS, so a windowed read of an ungeorefer
 Passing an explicit `bbox_crs` / `point_crs` against a raster that has none raises `CRSError`, rather than being
 ignored: there is no frame to transform into.
 
+## feature
+
+### unreleased
+
+**`pyramids.feature.bbox` no longer carries `Transformer` and `crs_from_user_input`.** Both were incidental
+re-exports — names the module imported to implement `transform`, never advertised in its docs or `__all__`. The
+reprojection itself moved down to `pyramids.base._bbox` so `pyramids.base` could stop importing `pyramids.feature`
+(and, with it, geopandas), and its imports went with it. Nothing that the module documents changed:
+`from pyramids.feature.bbox import Bbox, transform` still works and returns the same objects as before.
+
+If you imported either name *through* `pyramids.feature.bbox`, import it from its own home instead:
+
+```python
+from pyproj import Transformer
+from pyramids.base.crs import crs_from_user_input
+```
+
 ## cli
 
 ### 0.47.0
