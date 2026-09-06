@@ -496,36 +496,63 @@ class TestCarryableAuxNames:
 
         assert "lat_bnds" in carryable
 
-    def test_the_carried_bounds_keeps_the_source_axis_and_the_axis_beside_it(self):
-        """What the trade costs the user, measured on the cropped result.
+    def test_the_carried_bounds_does_not_drag_the_source_grid_in_with_it(self):
+        """The carry stops at the spatial axes, and this is why.
 
         Test scenario:
-            The filter's removal is only defensible if the stale bounds array
-            is *visible* rather than orphaned, which is what
-            `_carry_aux_dimension_coordinates` provides. So the result is
-            inspected rather than the rule: `tos` is reshaped to the crop
-            (75 rows), `lat_bnds` still carries the source's 170 rows, and the
-            source `lat` axis it is indexed by is carried in beside it, so the
-            170 has something to be read against. Restoring the dimension
-            filter drops `lat_bnds` and fails the second assertion; dropping
-            the coordinate carry leaves `lat_bnds` on a bare dimension and
-            fails the third.
+            An earlier version of this test asserted the opposite -- that the
+            source `lat` axis is carried in beside its bounds array, so the
+            stale 170 rows have something to be read against. That is a real
+            benefit, and it cost far more than it was worth:
+            :meth:`NetCDF._compute_geotransform` reads a `lon`/`lat` pair in
+            preference to the stored transform, so a carried source axis made
+            the *result* report the source grid. On `to_crs(3857)` the
+            container answered a geotransform and a bbox in degrees while
+            declaring metres.
+
+            So the bounds array is still carried -- dropping it loses real data
+            -- and its spatial axis is not. `lat_bnds` sits on a bare `lat`
+            dimension, which netCDF allows, and the result's own `x`/`y`
+            describe the grid it actually has.
         """
         dataset = NetCDF.read_file(str(DATA / "cf__7v__1d3-2d3-3d1__y-asc.nc"))
 
         cropped = dataset.crop(bbox=[20, -40, 120, 40], epsg=4326)
         rg = cropped._working_group()
+        names = set(rg.GetMDArrayNames() or [])
         sizes = {
             name: [d.GetSize() for d in rg.OpenMDArray(name).GetDimensions()]
-            for name in rg.GetMDArrayNames()
+            for name in names
         }
 
         assert sizes["tos"][1] == 75, f"the crop should reshape tos: {sizes['tos']}"
         assert sizes["lat_bnds"] == [170, 2], (
             f"the bounds array is carried verbatim, on the source axis: {sizes}"
         )
-        assert sizes["lat"] == [170], (
-            f"the source lat axis must be carried beside its bounds: {sizes}"
+        assert "lat" not in names, (
+            "the source lat axis must not be carried: the container reads a "
+            f"lat/lon pair as its own grid. arrays: {sorted(names)}"
+        )
+
+    def test_the_result_reports_its_own_grid_after_a_reprojection(self):
+        """The consequence the carry had, stated where it can fail.
+
+        Test scenario:
+            `to_crs(3857)` returns a container declaring EPSG:3857. Its
+            geotransform must be in metres. Carrying the source's `lat`/`lon`
+            made it report the source's degrees -- silently, since the CRS said
+            metres and only the numbers disagreed. A metre-scale pixel width is
+            the cheapest thing to assert that a degrees answer cannot satisfy.
+        """
+        dataset = NetCDF.read_file(str(DATA / "cf__7v__1d3-2d3-3d1__y-asc.nc"))
+
+        reprojected = dataset.to_crs(3857)
+        pixel_width = abs(reprojected.geotransform[1])
+
+        assert reprojected.epsg == 3857, f"the fixture changed: {reprojected.epsg}"
+        assert pixel_width > 1000, (
+            f"an EPSG:3857 container reported a pixel width of {pixel_width}, "
+            "which is the source's degrees rather than metres"
         )
 
     def test_an_array_on_an_untouched_dimension_is_carried(self):

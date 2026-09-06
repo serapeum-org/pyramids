@@ -180,24 +180,57 @@ class TestTheAxesDescribeThemselvesOnBothArms:
                 f"the streamed {axis} declares no units"
             )
 
-    def test_a_carried_auxiliary_axis_keeps_its_units(self, tmp_path):
-        """GDAL lifts `units` out of the attributes, so copying them lost it.
+    def test_the_unit_lift_is_undone_when_a_carried_array_is_rebuilt(self):
+        """GDAL moves `units` out of the attribute dictionary, so copying it loses it.
 
         Test scenario:
-            `lat` and `lon` are carried into the result because the bounds
-            arrays that reference them are. The streamed arm copied their
-            attribute dictionaries, which no longer contain `units` -- GDAL
-            moved that into the array's own unit slot, the same lift that hides
-            `scale_factor`. The carried axis then described nothing.
+            `read_cf_attributes` returns what GDAL kept in the attribute
+            dictionary, and GDAL lifts `units` into the array's own unit slot --
+            the same lift that hides `scale_factor`. A carried array rebuilt from
+            that dictionary alone therefore described nothing.
+            `_aux_attrs_with_unit` puts it back.
+
+            This asserts on the helper rather than on a round trip because no
+            fixture in the corpus carries an auxiliary that has units: the axes
+            that did (`lat`, `lon`) are deliberately no longer carried at all,
+            since a carried spatial axis made the result report the source's
+            grid rather than its own.
+        """
+        source = NetCDF.read_file(str(BOUNDS))
+        rg = source._working_group()
+        axis = rg.OpenMDArray("time")
+
+        assert axis is not None, "the fixture no longer has a time axis"
+        assert axis.GetUnit(), (
+            "the fixture's time axis has no unit, so the lift cannot be observed"
+        )
+
+        attrs = NetCDF._aux_attrs_with_unit(axis)
+
+        assert attrs.get("units") == axis.GetUnit(), (
+            f"the lifted unit {axis.GetUnit()!r} was not restored to the "
+            f"attributes a rebuild reads: {attrs}"
+        )
+
+    def test_neither_arm_carries_the_source_spatial_axes(self, tmp_path):
+        """The two arms have to agree about *not* carrying them, too.
+
+        Test scenario:
+            The eager arm was taught to carry a carried auxiliary's dimension
+            coordinates so the two arms would report the same
+            `variable_names`. They did -- both wrong: a carried `lat`/`lon`
+            pair is read by `_compute_geotransform` in preference to the stored
+            transform, so both arms reported the source grid on a reprojected
+            result. Agreement is now on not carrying them, which this pins on
+            both sides so a future "fix" cannot restore one arm alone.
         """
         eager, streamed = _both_arms(BOUNDS, tmp_path)
 
-        for axis, expected in (("lat", "degrees_north"), ("lon", "degrees_east")):
-            eager_unit = _effective_units(eager, axis)
-            streamed_unit = _effective_units(streamed, axis)
-            assert eager_unit == expected, f"the fixture changed: {axis}={eager_unit!r}"
-            assert streamed_unit == eager_unit, (
-                f"{axis}: eager unit {eager_unit!r} vs streamed {streamed_unit!r}"
+        for label, result in (("eager", eager), ("streamed", streamed)):
+            rg = result._working_group()
+            names = set(rg.GetMDArrayNames() or [])
+            assert not ({"lat", "lon"} & names), (
+                f"the {label} arm carried a source spatial axis: {sorted(names)}"
             )
 
 

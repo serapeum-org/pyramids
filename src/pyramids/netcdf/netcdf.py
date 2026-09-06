@@ -21,6 +21,7 @@ import pandas as pd
 from osgeo import gdal, osr
 
 from pyramids import _io
+from pyramids.base._axes import AXIS_NAMES
 from pyramids.base._utils import DEFAULT_RESAMPLING, numpy_to_gdal_dtype
 from pyramids.base.crs import (
     VERTICAL_AXIS_NAMES,
@@ -3201,6 +3202,16 @@ class NetCDF(Dataset):
                 name = indexing.GetName()
                 if name in taken or name in names or name in aux_vars:
                     continue
+                # A spatial axis describes the *source* grid, and the result's
+                # grid is not the source's after a reprojection, a resample or
+                # a crop. Copying `lat`/`lon` across put the source's degrees
+                # into an EPSG:3857 container -- and `_compute_geotransform`
+                # prefers a lon/lat pair over the stored transform, so the
+                # container then reported a geotransform and a bbox in degrees
+                # while declaring metres. The result derives its own spatial
+                # axes; only the non-spatial ones are the source's to give.
+                if name.rsplit("/", 1)[-1].lower() in AXIS_NAMES:
+                    continue
                 names.append(name)
         return names
 
@@ -3218,6 +3229,18 @@ class NetCDF(Dataset):
         and the same file then classified `lat_bnds` as a bounds array on one
         arm and as a data variable on the other -- leaving `variable_names`
         different between two spellings of one call (round-4 M4).
+
+        Spatial axes are deliberately *not* carried, which is the one place
+        this stops short of what the streaming writer does. A `lat`/`lon` pair
+        describes the grid it was written for, and every operation that reaches
+        here has changed that grid; carrying them made a reprojected container
+        report the source CRS's geotransform and bbox, because
+        :meth:`_compute_geotransform` reads a lon/lat pair in preference to the
+        stored transform. A `lat_bnds` whose `lat` is therefore missing is the
+        lesser of the two: stale metadata beside the array, against silently
+        wrong georeferencing on the container itself. The arms-agree test did
+        not catch it because it compares `get_variable(...).geotransform`, not
+        the container's.
 
         Args:
             result: The container the fan-out built, mutated in place.
@@ -3496,7 +3519,16 @@ class NetCDF(Dataset):
         var_specs[name] = ((bd, "y", "x"), np.dtype(res.numpy_dtype[0]), attrs)
 
     def _add_aux_var_spec(self, name, rg, dims, coords, var_specs, aux_data) -> None:
-        """Add one carried-through auxiliary variable's dims/coords/spec and cache its whole array."""
+        """Add one carried-through auxiliary variable's dims/coords/spec and cache its whole array.
+
+        The dimension coordinates an auxiliary is indexed by are written
+        alongside it -- except the spatial ones, which describe the grid the
+        source had rather than the one being written. A streamed `to_crs(3857)`
+        used to write the source's `lat`/`lon` beside the result's own `x`/`y`,
+        and :meth:`_compute_geotransform` reads a lon/lat pair in preference to
+        the stored transform, so reopening that file reported a geotransform
+        and a bbox in degrees while the CRS said metres.
+        """
         # As in `_add_spatial_var_spec`: the name may be group-qualified.
         src_md = open_mdarray(rg, name)
         if src_md is None:
@@ -3507,11 +3539,19 @@ class NetCDF(Dataset):
             if dn not in dims:
                 iv = d.GetIndexingVariable()
                 dims[dn] = int(d.GetSize())
-                coords[dn] = (
-                    (self._md_array_to_numpy(iv), NetCDF._aux_attrs_with_unit(iv))
-                    if iv is not None
-                    else (np.arange(int(d.GetSize())), {})
-                )
+                # The dimension is created either way; the coordinate *array*
+                # is not, for a spatial axis. Writing the source's `lat`/`lon`
+                # beside the result's own `x`/`y` is what made a reprojected
+                # file report degrees, and substituting an index range would
+                # be worse -- it reads as a real axis. netCDF is content with
+                # a dimension that has no coordinate variable, which is what a
+                # carried `lat_bnds` needs and all it needs.
+                if dn.rsplit("/", 1)[-1].lower() not in AXIS_NAMES:
+                    coords[dn] = (
+                        (self._md_array_to_numpy(iv), NetCDF._aux_attrs_with_unit(iv))
+                        if iv is not None
+                        else (np.arange(int(d.GetSize())), {})
+                    )
         arr = np.ascontiguousarray(self._md_array_to_numpy(src_md))
         var_specs[name] = (
             aux_dim_names,
