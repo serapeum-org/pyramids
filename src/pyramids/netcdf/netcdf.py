@@ -2597,7 +2597,21 @@ class NetCDF(Dataset):
         if is_container:
             if variable is None:
                 self._check_not_container("read_array")
-            return self.get_variable(cast("str", variable)).read_array(
+            subset = self.get_variable(cast("str", variable))
+            if not isinstance(subset, NetCDF):
+                # `get_variable` hands back a raw `gdal.MDArray` for anything
+                # GDAL cannot expose as a raster -- a 1-D array (`time_bounds`,
+                # `band_id`, a grouped store's `flight_03/CO`) or a non-numeric
+                # one. `variable_names` enumerates several such arrays on the
+                # GOES fixture, so this is a name the container advertises;
+                # delegating blindly answered it with
+                # `AttributeError: 'MDArray' object has no attribute
+                # 'read_array'`, which reads as a pyramids bug rather than a
+                # shape mismatch.
+                return self._read_non_raster_variable(
+                    cast("str", variable), band, read_window, chunks, masked, unpack
+                )
+            return subset.read_array(
                 band=band,
                 window=read_window,
                 unpack=unpack,
@@ -2622,6 +2636,75 @@ class NetCDF(Dataset):
                 result,
                 getattr(self, "_scale", None),
                 getattr(self, "_offset", None),
+            )
+        return cast(ArrayLike, result)
+
+    def _read_non_raster_variable(
+        self,
+        variable: str,
+        band: int | None,
+        window: Any,
+        chunks: Any,
+        masked: bool,
+        unpack: bool,
+    ) -> ArrayLike:
+        """Read a variable GDAL exposes only as a raw ``MDArray``, not a raster.
+
+        A 1-D array (a coordinate axis, a data series, a bounds array) or a
+        non-numeric one has no raster plane, so :meth:`get_variable` returns the
+        MDArray itself. Several such names are *enumerated* -- GOES ABI declares
+        ``time_bounds`` / ``x_image_bounds`` / ``y_image_bounds`` as data
+        variables and a grouped store enumerates ``"flight_03/CO"`` -- so they
+        reach :meth:`read_array` through the ordinary container route and used
+        to fail there with ``AttributeError: 'MDArray' object has no attribute
+        'read_array'``.
+
+        The read itself goes through :meth:`_read_variable`, the same resolver
+        the plot engine and the carry paths use, so a group-qualified name is
+        walked down to its owning group.
+
+        Args:
+            variable: The array name, already known to resolve to an MDArray.
+            band: Rejected — a raw array has no bands.
+            window: Rejected — a raw array has no raster window to clip.
+            chunks: Rejected — the lazy path builds a raster plane.
+            masked: Rejected — masking is defined against a band's no-data.
+            unpack: Applied from the array's own CF ``scale_factor`` /
+                ``add_offset``, since there is no band to carry them.
+
+        Returns:
+            np.ndarray: The array's values, in storage order.
+
+        Raises:
+            ValueError: If any raster-only argument is supplied, or if the
+                array cannot be read back.
+        """
+        rejected = [
+            name
+            for name, value in (
+                ("band", band),
+                ("window/bbox", window),
+                ("chunks", chunks),
+                ("masked", masked or None),
+            )
+            if value is not None
+        ]
+        if rejected:
+            raise ValueError(
+                f"read_array({', '.join(rejected)}) is not supported for "
+                f"{variable!r}: GDAL exposes it as a plain array, not a raster "
+                "(it is 1-D or non-numeric), so there is no band, window or "
+                "chunk plane to apply. Read it without those arguments."
+            )
+        result = self._read_variable(variable)
+        if result is None:
+            raise ValueError(f"Could not read variable {variable!r} from the store.")
+        if unpack:
+            md_arr = open_mdarray(self._working_group(), variable)
+            result = apply_unpack(
+                result,
+                None if md_arr is None else md_arr.GetScale(),
+                None if md_arr is None else md_arr.GetOffset(),
             )
         return cast(ArrayLike, result)
 
@@ -3019,12 +3102,13 @@ class NetCDF(Dataset):
             # arrays -- GOES ABI's `DQF` quality flags, an uncertainty layer, a
             # `status_flag` -- sit on the same y/x grid as the data they qualify.
             # Filtering the narrow enumeration left them in neither list: not
-            # transformed here, and rejected by `_carryable_aux_names` for
-            # sharing the reshaped dimensions, so a container-wide `to_crs` or
-            # `crop` dropped them from the output entirely, without a warning.
+            # transformed here, and -- under the dimension filter
+            # `_carryable_aux_names` carried at the time, since removed -- not
+            # carried either, so a container-wide `to_crs` or `crop` dropped
+            # them from the output entirely, without a warning.
             names = [
                 n
-                for n in self._readable_variable_names()
+                for n in self._readable_variable_names(rg)
                 if self._variable_is_spatial(rg, n)
             ]
         return names
@@ -3049,30 +3133,42 @@ class NetCDF(Dataset):
         """Arrays an operation must carry through untouched.
 
         Everything readable that is not one of the `spatial_vars` being
-        transformed, minus anything that shares a dimension with them.
+        transformed. There is no second filter: every array the store can hand
+        back is either rewritten by the operation or copied through it, and the
+        two lists partition the readable set between them.
 
-        Both halves matter. The readable set is used rather than
-        :attr:`variable_names` because the CF non-data arrays that property
-        leaves out -- an ancillary `expver`, a scalar flag -- still have to
-        survive a crop; dropping them would make the operation lossy.
+        The readable set is used rather than :attr:`variable_names` because the
+        CF non-data arrays that property leaves out -- an ancillary `expver`, a
+        scalar flag, a `lat_bnds` -- still have to survive a crop; dropping them
+        would make the operation lossy.
 
-        The spatial-dimension filter is what keeps that from going too far. A
-        CF bounds array like `lat_bnds(lat, nv)` is not spatial by the
-        `(y, x)` test, so it would otherwise be carried *verbatim* into a
-        cropped result -- describing the axis the source had, not the one the
-        result has. Only the **y / x** dimensions disqualify an array, because
-        those are the ones these operations reshape: an `expver(valid_time)`
-        shares its dimension with the gridded variables and is still carried
-        through untouched, exactly as it should be.
+        An earlier rule *did* filter further, excluding anything indexed by a
+        dimension the operation reshapes. Its purpose was to stop a
+        `lat_bnds(lat, nv)` being copied verbatim into a cropped result, where
+        it still describes the **source's** latitude axis rather than the
+        result's. Commit `0c6aa32b5` removed that filter deliberately, because
+        it was over-broad: a WRF store's staggered `U` / `V` and a CAM store's
+        `gw` share a reshaped dimension with the gridded variables and vanished
+        from the output with no warning. The trade is made knowingly -- a stale
+        bounds array is visible and correctable, a silently missing variable is
+        neither -- and the result now also carries in the source coordinate
+        axes those bounds are indexed by
+        (:meth:`_carry_aux_dimension_coordinates`), so a carried `lat_bnds`
+        lands beside the `lat` it describes instead of on a bare dimension.
+        Both halves of that trade are pinned by
+        `tests/netcdf/structure/test_variable_names_invariance.py`.
 
         Args:
-            rg: The store's root :class:`osgeo.gdal.Group`.
+            rg: The store's root :class:`osgeo.gdal.Group`. The readable set is
+                taken against this group rather than a freshly resolved one, so
+                the split is decided against the same group the caller resolved
+                `spatial_vars` against.
             spatial_vars: The gridded variables the operation transforms.
 
         Returns:
             list[str]: Names to copy through unchanged.
         """
-        return [n for n in self._readable_variable_names() if n not in spatial_vars]
+        return [n for n in self._readable_variable_names(rg) if n not in spatial_vars]
 
     def _aux_dimension_coordinate_names(
         self, rg: Any, aux_vars: list[str], taken: set[str]
@@ -3259,9 +3355,16 @@ class NetCDF(Dataset):
                 return None
 
         dims: dict[str, int] = {"y": int(y_coord.shape[0]), "x": int(x_coord.shape[0])}
+        # The same CF attributes the eager arm stamps on its axes through
+        # `_create_dimension`. Written as empty dicts, the streamed file's `x`
+        # and `y` carried no `units`, `axis`, `standard_name` or `long_name` at
+        # all, so `to_crs(4326)` and `to_crs(4326, path=...)` produced one file
+        # whose longitudes said `degrees_east` and one that said nothing --
+        # and a CF reader has no way to tell degrees from metres on the second.
+        is_geographic = self._axes_are_geographic(template)
         coords: dict[str, tuple[np.ndarray, dict[str, Any]]] = {
-            "y": (y_coord, {}),
-            "x": (x_coord, {}),
+            "y": (y_coord, build_coordinate_attrs("y", is_geographic)),
+            "x": (x_coord, build_coordinate_attrs("x", is_geographic)),
         }
         var_specs: dict[str, tuple[tuple[str, ...], Any, dict[str, Any]]] = {}
         for name in spatial_vars:
@@ -3318,11 +3421,12 @@ class NetCDF(Dataset):
     def _add_spatial_var_spec(name, var, res, rg, dims, coords, var_specs) -> None:
         """Add one spatial variable's band dimension / coordinate and its var-spec to the builders.
 
-        `attrs` carries the source variable's own `_FillValue` (when it declared one), so a variable
-        that actually has no-data keeps it per-variable; the template's no-data is additionally
-        recorded as the global `nodata`. (Writing `scalar_no_data(res.no_data_value)` unconditionally
-        was rejected — it surfaces GDAL's uninitialised default as a spurious out-of-range
-        `_FillValue` for no-data-less vars.)
+        `attrs` carries the source variable's own no-data sentinel (when it declared one), so a
+        variable that actually has no-data keeps it per-variable; the template's no-data is
+        additionally recorded as the global `nodata`. (Writing `scalar_no_data(res.no_data_value)`
+        unconditionally was rejected — it surfaces GDAL's uninitialised default as a spurious
+        out-of-range `_FillValue` for no-data-less vars, so the value is read off the *source
+        array's* own slot instead.)
 
         The packing is added back by hand. GDAL lifts `scale_factor` / `add_offset` out of the
         attribute dictionary into the MDArray's own scale and offset slots, so `_read_attributes`
@@ -3330,7 +3434,22 @@ class NetCDF(Dataset):
         by default. Without them the file declares no packing and every value reads back shifted by
         the packing factor. The eager fan-out carries the same two through `SetScale` / `SetOffset`;
         this arm writes CF attributes because that is what the netCDF writer takes, and GDAL lifts
-        them again on the next read.
+        them again on the next read. The no-data sentinel is lifted the same way, which is why it
+        is put back here too.
+
+        **How far the two arms actually agree.** Measured over `to_crs(4326)` taken both ways on
+        six fixtures: no-data, coordinate dtype, coordinate CF attributes, the carried auxiliary
+        axes' units, packing and per-variable attributes all match, and both arms place the result
+        on the same grid. Two differences remain, deliberately:
+
+        * the first band dimension's coordinate array is written `Float64` by the eager arm and in
+          the source's own integer dtype here — the values are identical, so nothing is lost;
+        * the streamed file keeps an extra per-variable `nodata` attribute beside the real
+          `_FillValue`, because that key is the writer's own round-trip channel (#1061) and is what
+          makes it call `SetNoDataValueDouble` at all.
+
+        `tests/netcdf/structure/test_fan_out_arms_agree.py` pins the agreements and records both
+        remaining differences.
         """
         # A spatial name comes from the readable enumeration, so it may be
         # group-qualified; the resolver walks the path, `OpenMDArray` does not.
@@ -3340,6 +3459,22 @@ class NetCDF(Dataset):
             attrs["scale_factor"] = var._scale
         if getattr(var, "_offset", None) is not None:
             attrs["add_offset"] = var._offset
+        # The no-data sentinel is lifted out of the attribute dictionary into
+        # the MDArray's own slot, exactly like `scale_factor` / `add_offset`
+        # above, so `_read_attributes` never returns it -- and the streamed file
+        # then declared no fill at all for a variable whose source declares one
+        # (20 of the 22 eager/stream divergences measured in review round 4:
+        # every ERA5 variable, `tos`, `CMI`, `DQF`). The key is `nodata`, which
+        # is what `open_streaming_multidim_netcdf` turns into a real
+        # `SetNoDataValueDouble` before the first slab; a plain `_FillValue`
+        # entry is written as an ordinary attribute and read back as 0.0, which
+        # is worse than none. The value is read off the **source array's** slot,
+        # not `res.no_data_value`: the warped classic wrapper reports GDAL's
+        # uninitialised default for a variable that has no fill, which would
+        # stamp a spurious out-of-range sentinel on every no-data-less variable.
+        src_ndv = src_md.GetNoDataValue() if src_md is not None else None
+        if src_ndv is not None and "nodata" not in attrs:
+            attrs["nodata"] = src_ndv
         band_dims = var._band_dim_names
         if not band_dims:
             var_specs[name] = (("y", "x"), np.dtype(res.numpy_dtype[0]), attrs)
@@ -3352,7 +3487,11 @@ class NetCDF(Dataset):
                 np.asarray(bd_values)
                 if bd_values is not None
                 else np.arange(int(var._band_dim_sizes[0])),
-                {},
+                # The eager arm stamps the same generic CF attributes on this
+                # axis through `_create_dimension`; writing nothing here left
+                # the two spellings of one call disagreeing about whether the
+                # streamed file's `time` axis declares itself a time axis.
+                build_coordinate_attrs(bd),
             )
         var_specs[name] = ((bd, "y", "x"), np.dtype(res.numpy_dtype[0]), attrs)
 
@@ -3369,13 +3508,71 @@ class NetCDF(Dataset):
                 iv = d.GetIndexingVariable()
                 dims[dn] = int(d.GetSize())
                 coords[dn] = (
-                    (self._md_array_to_numpy(iv), _read_attributes(iv))
+                    (self._md_array_to_numpy(iv), NetCDF._aux_attrs_with_unit(iv))
                     if iv is not None
                     else (np.arange(int(d.GetSize())), {})
                 )
         arr = np.ascontiguousarray(self._md_array_to_numpy(src_md))
-        var_specs[name] = (aux_dim_names, arr.dtype, _read_attributes(src_md))
+        var_specs[name] = (
+            aux_dim_names,
+            arr.dtype,
+            NetCDF._aux_attrs_with_unit(src_md),
+        )
         aux_data[name] = arr
+
+    @staticmethod
+    def _aux_attrs_with_unit(md_arr) -> dict[str, Any]:
+        """A carried array's attributes, with the `units` GDAL lifted out put back.
+
+        GDAL moves `units` out of the attribute dictionary into the MDArray's own
+        unit slot -- the same lift that hides `scale_factor` / `add_offset` from
+        :func:`~pyramids.netcdf.utils._read_attributes`. The eager arm copies the
+        slot across (:meth:`_add_md_array_to_group` calls ``SetUnit``), so
+        without this the streamed file's carried `lat` / `lon` / `band_id` came
+        back with no units at all while the eager one said `degrees_north` --
+        the difference between an axis a CF reader can interpret and one it
+        cannot.
+
+        Args:
+            md_arr: The source :class:`osgeo.gdal.MDArray`.
+
+        Returns:
+            dict: The array's attributes plus `units`, when it declares one and
+            the attributes do not already carry it.
+        """
+        attrs = _read_attributes(md_arr)
+        unit = md_arr.GetUnit()
+        if unit and "units" not in attrs:
+            attrs["units"] = unit
+        return attrs
+
+    @staticmethod
+    def _axes_are_geographic(template) -> bool | None:
+        """Whether the streamed result's axes are degrees, metres, or unknown.
+
+        Mirrors :func:`~pyramids.netcdf.engines.variables._resolve_write_crs`,
+        which the eager arm reaches through ``from_array``: ``True`` for a
+        geographic CRS, ``False`` for a projected one, and ``None`` when the
+        result has no CRS at all -- the third state, where only the axis role is
+        written, because claiming degrees or metres would assert a georeference
+        the data does not have.
+
+        Args:
+            template: The transformed :class:`~pyramids.dataset.Dataset` the
+                streamed file's grid is taken from.
+
+        Returns:
+            bool | None: The ``is_geographic`` value for
+            :func:`~pyramids.netcdf.cf.build_coordinate_attrs`.
+        """
+        spec = crs_spec(template.epsg, template.crs)
+        result: bool | None = None
+        if spec:
+            try:
+                result = sr_from_user_input(spec).IsGeographic() == 1
+            except (RuntimeError, TypeError, ValueError):
+                result = None
+        return result
 
     def _stream_root_attrs(self, template) -> dict[str, Any]:
         """Build the streamed file's root attributes (Conventions + CRS + GeoTransform + nodata)."""
@@ -5491,7 +5688,7 @@ class NetCDF(Dataset):
         )
         return self.variable_names
 
-    def _get_variable_names(self) -> list[str]:
+    def _get_variable_names(self, declared: list[str] | None = None) -> list[str]:
         """Return names of data variables, excluding dimension coordinates.
 
         Queries `GetMDArrayNames()` and filters out dimension arrays and
@@ -5520,35 +5717,49 @@ class NetCDF(Dataset):
           store path (`"forecast/temperature"`) while the view's own API uses
           names relative to its group (ARC-12 review H1).
 
+        Args:
+            declared: The store's own array list, when the caller has already
+                walked for it. :meth:`_readable_variable_names` needs both that
+                list and this one, and used to get them from two separate walks
+                -- so every readability check opened every MDArray in the store
+                twice, and :meth:`get_variable` makes one such check per call,
+                which put the second walk inside the fan-out's per-variable
+                loop. Passing it in removes the second walk. ``None`` (the
+                default) walks here, which is what :attr:`variable_names` does.
+                Ignored in classic mode, which has no MDIM group to walk.
+
         Returns:
             list[str]: Variable names (e.g., `["temperature", "precipitation"]`).
         """
         rg = self._working_group()
         if rg is None:
             names = self._classic_subdataset_variable_names()
-        elif self._group_path is not None:
-            names = self._mdim_data_variable_names(rg)
         else:
-            cf = self.meta_data.cf
-            classified = set(cf.data_variable_names) if cf is not None else set()
-            declared = self._mdim_data_variable_names(rg)
-            # The classification says *which* names are data variables; the
-            # store says in what order. Reporting the classification's own
-            # order (it is sorted) reordered every container: `_fan_out_eager`
-            # templates the result from the *first* spatial variable, taking
-            # its geotransform, CRS, no-data and extra dimensions, so a
-            # different first name silently changes the output container --
-            # and the variable order propagates on into `to_netcdf` and
-            # `to_xarray`. Filtering the declared list keeps both.
-            filtered = [n for n in declared if n in classified]
-            # An empty classification means the store declares no CF roles at
-            # all, not that it holds no data -- fall back rather than report
-            # nothing. Same for a classification naming nothing the store
-            # declares at this level.
-            names = filtered or declared
+            if declared is None:
+                declared = self._mdim_data_variable_names(rg)
+            if self._group_path is not None:
+                names = declared
+            else:
+                cf = self.meta_data.cf
+                classified = set(cf.data_variable_names) if cf is not None else set()
+                # The classification says *which* names are data variables; the
+                # store says in what order. Reporting the classification's own
+                # order (it is sorted) reordered every container:
+                # `_fan_out_eager` templates the result from the *first*
+                # spatial variable, taking its geotransform, CRS, no-data and
+                # extra dimensions, so a different first name silently changes
+                # the output container -- and the variable order propagates on
+                # into `to_netcdf` and `to_xarray`. Filtering the declared list
+                # keeps both.
+                filtered = [n for n in declared if n in classified]
+                # An empty classification means the store declares no CF roles
+                # at all, not that it holds no data -- fall back rather than
+                # report nothing. Same for a classification naming nothing the
+                # store declares at this level.
+                names = filtered or declared
         return names
 
-    def _readable_variable_names(self) -> list[str]:
+    def _readable_variable_names(self, rg: Any = None) -> list[str]:
         """Every array name :meth:`get_variable` will accept.
 
         A superset of :attr:`variable_names`. That property *enumerates* data
@@ -5558,16 +5769,44 @@ class NetCDF(Dataset):
         thing to do, so reachability is decided against the store rather than
         against the enumeration.
 
+        "Accept" means :meth:`get_variable` resolves the name instead of
+        raising. It does **not** promise a uniform return type: a name here
+        that GDAL cannot expose as a raster -- a 1-D array (`band_id`,
+        `time_bounds`, a coordinate axis) or a non-numeric one -- comes back as
+        a raw :class:`osgeo.gdal.MDArray` rather than a
+        :class:`~pyramids.netcdf.NetCDF` variable, as documented on
+        :meth:`get_variable`. :meth:`read_array` handles both.
+
+        Args:
+            rg: An already-resolved working :class:`osgeo.gdal.Group`. When
+                ``None`` (the default) it is resolved here; callers that
+                already hold one pass it in so the answer is taken against the
+                same group they are working from.
+
         Returns:
             list[str]: Names readable through :meth:`get_variable` -- the
                 enumerated ones first, then anything else the store holds.
         """
-        readable = list(self.variable_names)
-        rg = self._working_group()
-        if rg is not None:
-            for name in self._mdim_data_variable_names(rg):
-                if name not in readable:
-                    readable.append(name)
+        if rg is None:
+            rg = self._working_group()
+        declared: list[str] = [] if rg is None else self._mdim_data_variable_names(rg)
+        # One walk, used twice: `_get_variable_names` filters this same list by
+        # the CF classification, so handing it over removes the second walk this
+        # method used to cost -- and `get_variable` pays that cost once per call.
+        #
+        # The hand-over is only valid when :attr:`variable_names` is the
+        # inherited property, because then it *is* `_get_variable_names`. A
+        # subclass that overrides the property answers a different question
+        # (splicing names in, or narrowing the list), and its answer is not this
+        # walk's, so it is asked directly and the walk is simply paid twice --
+        # the correctness of the override outranks the saving.
+        if type(self).variable_names is NetCDF.variable_names:
+            readable = list(self._get_variable_names(declared=declared))
+        else:
+            readable = list(self.variable_names)
+        for name in declared:
+            if name not in readable:
+                readable.append(name)
         return readable
 
     @staticmethod
@@ -5585,6 +5824,20 @@ class NetCDF(Dataset):
         so anything iterating this to convert, export or plot such a file
         silently processed a single variable.
 
+        An array counts as a coordinate variable when its name matches a
+        dimension of its **own group** *or* a dimension **it is indexed by**.
+        The second half matters only below the root: netCDF-4 dimensions are
+        visible in every descendant group, and a sub-group that declares none
+        of its own still holds coordinate arrays for its parents' -- which the
+        group-declared test alone could not see, so a sub-group's axis was
+        enumerated as data while the root's identical axis was not. It also
+        made a `get_group(...)` view disagree with its own container about one
+        group, because the view resolves the sub-group as its working group and
+        finds no declared dimensions there either. Reading the array's own
+        dimensions gives both the same answer, and costs one `OpenMDArray` per
+        coordinate array. Measured identical to the group-declared test alone
+        on all 27 netCDF fixtures in the suite.
+
         Args:
             rg: The :class:`osgeo.gdal.Group` to enumerate.
             prefix: Group path to prepend, used by the recursion. Empty at the
@@ -5595,18 +5848,31 @@ class NetCDF(Dataset):
         Returns:
             list[str]: Names of the data variables in `rg` and its sub-groups,
                 the group's own first.
+
+        Warns:
+            UserWarning: When :data:`_MAX_GROUP_DEPTH` is reached and `rg`
+                still has sub-groups. Their variables are left out of every
+                listing, export and conversion built from this walk, and that
+                used to happen with no signal at all.
         """
-        dim_names = {dim.GetName() for dim in rg.GetDimensions()}
+        group_dim_names = {dim.GetName() for dim in rg.GetDimensions()}
         filtered = []
         for var in rg.GetMDArrayNames():
-            if var in dim_names:
+            if var in group_dim_names:
                 continue
             md_arr = rg.OpenMDArray(var)
-            if md_arr is not None and len(md_arr.GetDimensions()) == 0:
+            if md_arr is None:
+                filtered.append(f"{prefix}{var}")
+                continue
+            own_dims = md_arr.GetDimensions()
+            if len(own_dims) == 0:
+                continue
+            if var in {dim.GetName() for dim in own_dims}:
                 continue
             filtered.append(f"{prefix}{var}")
+        sub_group_names = rg.GetGroupNames() or []
         if depth < _MAX_GROUP_DEPTH:
-            for group_name in rg.GetGroupNames() or []:
+            for group_name in sub_group_names:
                 sub = rg.OpenGroup(group_name)
                 if sub is not None:
                     filtered.extend(
@@ -5614,6 +5880,15 @@ class NetCDF(Dataset):
                             sub, f"{prefix}{group_name}/", depth + 1
                         )
                     )
+        elif sub_group_names:
+            skipped = ", ".join(f"{prefix}{name}/" for name in sub_group_names)
+            warnings.warn(
+                f"Group nesting deeper than {_MAX_GROUP_DEPTH} is not "
+                f"enumerated: the variables under {skipped} are missing from "
+                "`variable_names`, and from every export or conversion built "
+                "from it.",
+                stacklevel=2,
+            )
         return filtered
 
     def _classic_subdataset_variable_names(self) -> list[str]:
@@ -5881,9 +6156,14 @@ class NetCDF(Dataset):
         # fields -- are deliberately absent from it, yet reading one by name is
         # legitimate. Gating on the enumeration made `get_variable("xc")` fail
         # on a curvilinear store while the array sat right there.
-        if variable_name not in self._readable_variable_names():
+        readable = self._readable_variable_names()
+        if variable_name not in readable:
+            # The list shown is the list the check above consults, not
+            # `variable_names`. Printing the narrow enumeration told a user who
+            # mistyped `lat_rho` that the store held only `['salt', 'zeta']` --
+            # a refusal that names none of the accepted answers.
             raise ValueError(
-                f"{variable_name} is not a valid variable name in {self.variable_names}"
+                f"{variable_name} is not a valid variable name in {readable}"
             )
 
         prefix = self.driver_type.upper()

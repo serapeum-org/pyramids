@@ -510,14 +510,21 @@ class CurvilinearCoordResolver:
             np.ndarray: The resolved coordinate array.
 
         Raises:
-            ValueError: If a string name is absent from the parent's ``variable_names`` or
-                :meth:`NetCDF._read_variable` returns ``None``.
+            ValueError: If a string name is absent from the parent's
+                :meth:`NetCDF._readable_variable_names` -- the readable superset, not
+                the ``variable_names`` enumeration, because every array ``coords=`` is
+                given is a 2-D coordinate field that the enumeration leaves out by
+                design -- or if :meth:`NetCDF._read_variable` returns ``None``.
         """
         if isinstance(spec, str):
-            if spec not in self.parent._readable_variable_names():
+            readable = self.parent._readable_variable_names()
+            if spec not in readable:
+                # The list offered is the one the check consults. Offering
+                # `variable_names` here could not name a single valid answer:
+                # a curvilinear `lat_rho` is never a data variable.
                 raise ValueError(
                     f"coords {axis_label}={spec!r} is not a variable of "
-                    f"the parent NetCDF. Available: {self.parent.variable_names}."
+                    f"the parent NetCDF. Available: {readable}."
                 )
             arr = self.parent._read_variable(spec)
             if arr is None:
@@ -827,13 +834,21 @@ class NetCDFPlot:
             ``FacetGrid`` from cleopatra).
 
         Raises:
-            ValueError: If ``variable`` is ``None`` — the message lists
-                the available variable names.
+            ValueError: If ``variable`` is ``None`` — the message lists the
+                **gridded** variable names, which is what this call can actually
+                plot. Neither of the other two lists is right here:
+                ``variable_names`` omits a gridded ancillary array (GOES ABI's
+                ``DQF`` plots fine and is not enumerated), while the readable
+                superset adds 1-D arrays (``time_bounds``, ``band_id``) that
+                ``get_variable`` hands back as a raw ``gdal.MDArray`` with no
+                ``plot`` at all. An empty list therefore means the container holds
+                nothing plottable, which is a true and useful answer.
         """
         if variable is None:
             raise ValueError(
                 "Plotting requires a `variable=` argument on a NetCDF "
-                f"container. Available: {nc.variable_names}. Or call "
+                f"container. Plottable (gridded) variables: "
+                f"{nc._spatial_variable_names()}. Or call "
                 "`nc.get_variable('name').plot(...)`."
             )
         axes = axes or CoordinateSpec()

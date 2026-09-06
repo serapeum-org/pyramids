@@ -177,6 +177,14 @@ class TestTheCfClassificationIsApplied:
     bounds, ancillary variables and 2-D curvilinear coordinate fields. Only the
     CF roles distinguish those, which is why the classification runs on every
     call rather than only when the metadata cache happens to be warm.
+
+    What the classification reads is what the *file declares*, never what an
+    array is called. That is why the GEOS row below excludes only `DQF` and
+    `band_id`, and not its three `*_bounds` arrays: nothing in that store
+    declares `bounds`, so they are data there while `cf__7v`'s `lat_bnds` --
+    named by `lat:bounds` -- is not. `TestTheClassificationFollowsDeclarations`
+    pins that difference with the declarations behind it, so the two rows do not
+    read as the classification contradicting itself.
     """
 
     @pytest.mark.parametrize(
@@ -268,6 +276,120 @@ class TestTheCfClassificationIsApplied:
         assert dataset.variable_names, "classic mode reported no variables"
 
 
+class TestTheClassificationFollowsDeclarations:
+    """Two fixtures, opposite answers about a `*_bounds` array, one rule.
+
+    `tests/netcdf/test_variable_names_order.py` asserts the GEOS fixture
+    enumerates `["CMI", "time_bounds", "y_image_bounds", "x_image_bounds"]`,
+    while `TestTheCfClassificationIsApplied` above asserts `cf__7v` leaves
+    `lat_bnds` / `lon_bnds` / `time_bnds` out. Read side by side those look like
+    the classification contradicting itself. They are the same rule applied to
+    two files that declare different things, and the declarations are asserted
+    here so a reader does not have to take that on trust.
+
+    It also records a real property of these fixtures: `cf__9v` is a shrunken
+    GOES granule whose scalar `t` coordinate -- the variable a full granule
+    gives `bounds = "time_bounds"` -- is not in the store at all. A future
+    fixture refresh that restores `t` would move `time_bounds` out of
+    `variable_names`, and this test says so before the order test fails
+    mysteriously.
+    """
+
+    GEOS = "cf__9v__1d7-2d2__geos__y-desc.nc"
+    CF_BOUNDS = "cf__7v__1d3-2d3-3d1__y-asc.nc"
+
+    @staticmethod
+    def _bounds_declarations(dataset: NetCDF) -> dict[str, str]:
+        """Map each array that declares a CF `bounds` attribute to its value."""
+        rg = dataset._working_group()
+        declared = {}
+        for name in rg.GetMDArrayNames():
+            attrs = {
+                a.GetName(): a.ReadAsString()
+                for a in rg.OpenMDArray(name).GetAttributes()
+            }
+            if "bounds" in attrs:
+                declared[name] = attrs["bounds"]
+        return declared
+
+    def test_a_declared_bounds_array_is_not_data(self):
+        """`lat:bounds = "lat_bnds"` is the reason `lat_bnds` is excluded.
+
+        Test scenario:
+            The declaration is asserted alongside the outcome, so the test
+            fails loudly if a fixture edit removes the attribute rather than
+            silently passing for the wrong reason.
+        """
+        dataset = NetCDF.read_file(str(DATA / self.CF_BOUNDS))
+
+        declared = self._bounds_declarations(dataset)
+
+        assert declared == {
+            "lat": "lat_bnds",
+            "lon": "lon_bnds",
+            "time": "time_bnds",
+        }, f"the fixture no longer declares its bounds: {declared}"
+        assert dataset.variable_names == ["tos"], (
+            f"a declared bounds array was enumerated: {dataset.variable_names}"
+        )
+
+    def test_an_undeclared_bounds_shaped_array_is_data(self):
+        """Nothing in the GEOS store says `time_bounds` bounds anything.
+
+        Test scenario:
+            The name ends in `_bounds` and the array is not data in any
+            physical sense, but CF is a declaration language: with no
+            `bounds` attribute pointing at it, the only defensible answer is
+            to treat it as data rather than guess from the spelling. The
+            arrays that *are* declared -- `DQF` via `ancillary_variables`,
+            `band_id` / `band_wavelength` via `coordinates` -- are excluded on
+            the same fixture, which is what makes this a rule and not a gap.
+        """
+        dataset = NetCDF.read_file(str(DATA / self.GEOS))
+
+        declared = self._bounds_declarations(dataset)
+
+        assert declared == {}, f"the fixture now declares bounds: {declared}"
+        assert dataset.variable_names == [
+            "CMI",
+            "time_bounds",
+            "y_image_bounds",
+            "x_image_bounds",
+        ], f"the undeclared bounds arrays changed status: {dataset.variable_names}"
+        assert {"DQF", "band_id", "band_wavelength"} <= set(
+            dataset._readable_variable_names()
+        ) - set(dataset.variable_names), (
+            "the declared non-data arrays should still be excluded"
+        )
+
+    def test_the_xarray_export_promotes_the_same_arrays_and_no_others(self):
+        """The classification's other consumer, on the fixture nothing covered.
+
+        Test scenario:
+            `to_xarray` promotes CF non-data arrays out of `data_vars` into
+            `coords`, and that promotion was only ever checked on `cf__7v`,
+            where all three candidates are declared bounds. On GEOS the split
+            runs the other way for three of the five, so this is where a
+            promotion keyed on the *name* rather than the declaration would
+            show up: `band_id` and `band_wavelength` are declared coordinates
+            and must move, the three `*_bounds` are declared nothing and must
+            stay.
+        """
+        dataset = NetCDF.read_file(str(DATA / self.GEOS))
+
+        exported = dataset.to_xarray()
+
+        assert {"band_id", "band_wavelength"} <= set(exported.coords), (
+            f"declared coordinates were not promoted: {sorted(exported.coords)}"
+        )
+        assert {"time_bounds", "x_image_bounds", "y_image_bounds"} <= set(
+            exported.data_vars
+        ), f"undeclared arrays were promoted: {sorted(exported.data_vars)}"
+        assert {"CMI", "DQF"} <= set(exported.data_vars), (
+            f"a gridded array went missing: {sorted(exported.data_vars)}"
+        )
+
+
 class TestOperationsCarryTheArraysTheyDoNotTransform:
     """Leaving an array out of the enumeration must not make an op lossy.
 
@@ -322,11 +444,15 @@ class TestOperationsCarryTheArraysTheyDoNotTransform:
 class TestCarryableAuxNames:
     """The rule an operation uses to decide what to copy through untouched.
 
-    Two conditions, and both are load-bearing. The candidate set is the
-    *readable* names, so an array the enumeration leaves out still survives the
-    operation. The filter then drops anything indexed by a dimension the
-    operation reshapes, because such an array would describe the source's grid
-    rather than the result's.
+    One condition, not two. The candidate set is the *readable* names, so an
+    array the enumeration leaves out still survives the operation, and the only
+    thing removed from it is what the operation is itself transforming. There
+    is no second, dimension-based filter: an earlier one dropped anything
+    indexed by a dimension the operation reshapes, and commit `0c6aa32b5`
+    removed it because it took real data with it (see
+    `test_a_bounds_array_is_carried_rather_than_dropped` below, and
+    `TestOperationsCarryTheArraysTheyDoNotTransform` above, for the two halves
+    of that trade).
     """
 
     def test_the_two_lists_split_the_store_the_way_they_claim(self):
@@ -369,6 +495,38 @@ class TestCarryableAuxNames:
         carryable = dataset._carryable_aux_names(rg, spatial)
 
         assert "lat_bnds" in carryable
+
+    def test_the_carried_bounds_keeps_the_source_axis_and_the_axis_beside_it(self):
+        """What the trade costs the user, measured on the cropped result.
+
+        Test scenario:
+            The filter's removal is only defensible if the stale bounds array
+            is *visible* rather than orphaned, which is what
+            `_carry_aux_dimension_coordinates` provides. So the result is
+            inspected rather than the rule: `tos` is reshaped to the crop
+            (75 rows), `lat_bnds` still carries the source's 170 rows, and the
+            source `lat` axis it is indexed by is carried in beside it, so the
+            170 has something to be read against. Restoring the dimension
+            filter drops `lat_bnds` and fails the second assertion; dropping
+            the coordinate carry leaves `lat_bnds` on a bare dimension and
+            fails the third.
+        """
+        dataset = NetCDF.read_file(str(DATA / "cf__7v__1d3-2d3-3d1__y-asc.nc"))
+
+        cropped = dataset.crop(bbox=[20, -40, 120, 40], epsg=4326)
+        rg = cropped._working_group()
+        sizes = {
+            name: [d.GetSize() for d in rg.OpenMDArray(name).GetDimensions()]
+            for name in rg.GetMDArrayNames()
+        }
+
+        assert sizes["tos"][1] == 75, f"the crop should reshape tos: {sizes['tos']}"
+        assert sizes["lat_bnds"] == [170, 2], (
+            f"the bounds array is carried verbatim, on the source axis: {sizes}"
+        )
+        assert sizes["lat"] == [170], (
+            f"the source lat axis must be carried beside its bounds: {sizes}"
+        )
 
     def test_an_array_on_an_untouched_dimension_is_carried(self):
         """Sharing *any* dimension is too strict; only y / x count.
@@ -419,9 +577,9 @@ class TestAncillaryArraysSurviveAnOperation:
     have to be reprojected like any other gridded array.
 
     Deciding spatial-ness from the narrow enumeration left them in neither
-    list: not transformed, and rejected by the carry rule for sharing the
-    reshaped dimensions. A container-wide `to_crs` dropped them from the output
-    entirely, with no warning.
+    list: not transformed, and -- under the dimension filter the carry rule
+    applied at the time, since removed -- not carried either. A container-wide
+    `to_crs` dropped them from the output entirely, with no warning.
     """
 
     GEOS = "cf__9v__1d7-2d2__geos__y-desc.nc"

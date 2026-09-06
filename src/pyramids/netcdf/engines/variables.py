@@ -290,11 +290,35 @@ class Variables(_Engine["NetCDF"]):
         nor any handle sharing the in-memory raster is mutated in place (#143).
 
         Args:
-            variable_name: Name of the variable to remove.
+            variable_name: Name of the variable to remove, relative to the
+                container's working group. A group-qualified name is refused;
+                see `Raises`.
+
+        Raises:
+            ValueError: If `variable_name` is group-qualified (open the group
+                and remove the leaf name from the view instead), or if the
+                working group holds no array by that name. Note that the name
+                need not be in :attr:`variable_names` or the readable superset:
+                a dimension coordinate array (`lat`) is in neither and is
+                removable, so the guard resolves the array rather than
+                consulting an enumeration.
         """
         nc = self._ds
+        _refuse_group_qualified(variable_name, "remove_variable")
         dst, rg = nc._writable_root_group()
-        rg.DeleteMDArray(variable_name)
+        try:
+            rg.DeleteMDArray(variable_name)
+        except RuntimeError as exc:
+            # GDAL answers a missing name with "Array <name> is not an array of
+            # this group", which reads as an internal error rather than a typo.
+            # `rename_variable` already promised `ValueError` for the same
+            # mistake, so both mutators now agree.
+            raise ValueError(
+                f"Variable '{variable_name}' not found in this container's "
+                f"working group. Available: {nc._readable_variable_names()} "
+                "(a dimension coordinate array is removable too, though it is "
+                "not listed there)."
+            ) from exc
 
         nc._replace_raster(dst)
 
@@ -305,21 +329,38 @@ class Variables(_Engine["NetCDF"]):
         a new variable with the new name, and removes the old one.
 
         Args:
-            old_name: Current name of the variable.
-            new_name: Desired new name.
+            old_name: Current name of the variable, relative to the container's
+                working group.
+            new_name: Desired new name, in that same group.
 
         Raises:
-            ValueError: If `old_name` doesn't exist or `new_name`
-                already exists.
+            ValueError: If `old_name` doesn't exist, if `new_name` already
+                exists, or if either name is group-qualified — a rename acts
+                within one group, so `"flight_03/CO"` is refused with a pointer
+                at `get_group("flight_03").rename_variable("CO", ...)`, which
+                does work.
         """
         nc = self._ds
+        _refuse_group_qualified(old_name, "rename_variable", ", <new name>")
+        if "/" in new_name:
+            # A qualified target would create a root-level array literally named
+            # "group/leaf" -- netCDF-4 forbids `/` in a name, so the container
+            # would only fail at `to_file` with "Name contains illegal
+            # characters", long after the call that caused it (the same trap
+            # `_free_target_name` closes for `add_variable`).
+            raise ValueError(
+                f"rename_variable() cannot rename into a group: new_name "
+                f"{new_name!r} must not contain '/'. Open the destination "
+                "group with `get_group(...)` and rename within it."
+            )
         # Both checks ask what the store holds: an aux array is renameable,
         # and its name is equally taken.
         readable = nc._readable_variable_names()
         if old_name not in readable:
-            raise ValueError(
-                f"Variable '{old_name}' not found. Available: {nc.variable_names}"
-            )
+            # `readable`, not `nc.variable_names`: the list offered must be the
+            # one this check consults, or the refusal names none of the answers
+            # it would have accepted.
+            raise ValueError(f"Variable '{old_name}' not found. Available: {readable}")
         if new_name in readable:
             raise ValueError(f"Variable '{new_name}' already exists.")
 
@@ -334,6 +375,59 @@ class Variables(_Engine["NetCDF"]):
         rg.DeleteMDArray(old_name)
         nc._replace_raster(dst)
         nc._invalidate_caches()
+
+
+def _refuse_group_qualified(name: str, method: str, extra_args: str = "") -> None:
+    """Refuse a sub-group name, pointing at the group view where it works.
+
+    The variable enumeration walks sub-groups, so ``"flight_03/CO"`` is a name
+    the container reports and :meth:`NetCDF.get_variable` accepts. Both
+    mutators check existence against that same list, which let a qualified name
+    through to GDAL, where it failed with *"Array flight_03/CO is not an array
+    of this group"* -- a driver message from methods that document
+    :class:`ValueError`.
+
+    Refusing is the right answer rather than resolving the group, because these
+    methods mutate exactly one group: the container's working group. GDAL will
+    not delete another group's array from the root, and creating the renamed
+    copy at the root would *move* the variable rather than rename it.
+    ``get_group(...)`` already returns a writable view of the sub-group in
+    which the bare leaf name works, so the message names that call.
+
+    Args:
+        name: The variable name the caller passed.
+        method: The public method name, used in the message and the suggestion.
+        extra_args: Text appended inside the suggested call's parentheses, for
+            a method that takes more than the name.
+
+    Raises:
+        ValueError: When ``name`` carries a group path.
+
+    Examples:
+        - A bare name is accepted silently:
+            ```python
+            >>> _refuse_group_qualified("CO", "remove_variable") is None
+            True
+
+            ```
+        - A qualified one names the group and the call that works:
+            ```python
+            >>> try:
+            ...     _refuse_group_qualified("flight_03/CO", "remove_variable")
+            ... except ValueError as exc:
+            ...     print("flight_03" in str(exc), "get_group" in str(exc))
+            True True
+
+            ```
+    """
+    group, _, leaf = name.rpartition("/")
+    if group:
+        raise ValueError(
+            f"{method}() cannot act on {name!r}: it lives in the sub-group "
+            f"{group!r}, and this container mutates only its own working "
+            f"group. Open the group first: "
+            f"nc.get_group({group!r}).{method}({leaf!r}{extra_args})."
+        )
 
 
 def _free_target_name(source_name: str, existing: Sequence[str]) -> str:
@@ -1027,6 +1121,17 @@ def _create_netcdf_from_array(
     # `arr.dtype` is a `np.dtype` for both a NumPy array and a dask array, so the
     # GDAL type is derived without materialising a (possibly out-of-core) dask input.
     dtype = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(arr.dtype))
+    # Coordinate arrays are always float64, never the data array's dtype --
+    # exactly the rule `set_variable` already states. Sharing `dtype` truncated
+    # every axis of an integer-typed variable to whole units: a container-wide
+    # `to_crs` of the packed `Int16` ERA5 fixture wrote `x = [0, 3, 5, ...]` for
+    # a 2.5-degree grid, so the geotransform re-derived from those coordinates
+    # came back `(-1.5, 3.0, ..., -2.0)` against the true `(-1.25, 2.5, ...,
+    # -2.5)`, and a `UInt16` GOES granule collapsed to `(0.0, 0.0, ...)` -- a
+    # file that can no longer be placed on the earth. An epoch-valued `time`
+    # axis saturated at 32767. The streamed arm (`_stream_apply_to_file`) always
+    # wrote float64 here, so this also converges the two arms.
+    coord_dtype = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
     x_dim_values = NetCDF.get_x_lon_dimension_array(geo[0], geo[1], cols)
     # Y/lat pixel height comes from geo[5] (negative), not geo[1] — using the X cell here would
     # square a non-square grid (e.g. 2° lon, 1° lat). Pass the positive height abs(geo[5]).
@@ -1055,7 +1160,7 @@ def _create_netcdf_from_array(
     dim_x = NetCDF._create_dimension(
         rg,
         "x",
-        dtype,
+        coord_dtype,
         np.array(x_dim_values),
         gdal.DIM_TYPE_HORIZONTAL_X,
         use_set_indexing,
@@ -1064,14 +1169,16 @@ def _create_netcdf_from_array(
     dim_y = NetCDF._create_dimension(
         rg,
         "y",
-        dtype,
+        coord_dtype,
         np.array(y_dim_values),
         gdal.DIM_TYPE_HORIZONTAL_Y,
         use_set_indexing,
         is_geographic=is_geographic,
     )
 
-    gdal_extra_dims = _create_extra_dimensions(rg, extra_dims, dtype, use_set_indexing)
+    gdal_extra_dims = _create_extra_dimensions(
+        rg, extra_dims, coord_dtype, use_set_indexing
+    )
     # For a dask input with no explicit on-disk chunking, align the netCDF storage
     # BLOCKSIZE with the dask block shape so the streamed windows map onto whole
     # storage chunks. An explicit `chunk_sizes` always wins.

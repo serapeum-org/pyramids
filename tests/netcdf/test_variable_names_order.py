@@ -30,7 +30,13 @@ DATA = Path(__file__).parents[1] / "data" / "netcdf"
 # which is what makes this file able to tell the two orders apart at all.
 PACKED = DATA / "coards__4v__1d2-2d2__scaleoffset__y-asc.nc"
 
-# Four, declared with `y_image_bounds` ahead of `x_image_bounds`.
+# Four, declared with `y_image_bounds` ahead of `x_image_bounds`. Three of the
+# four are named `*_bounds` and are still data variables here, which looks like
+# it contradicts `tests/netcdf/structure/test_variable_names_invariance.py`
+# excluding `cf__7v`'s `lat_bnds`. It does not: no array in this store carries a
+# CF `bounds` attribute pointing at them, while `cf__7v`'s `lat` declares
+# `bounds = "lat_bnds"`. `TestTheClassificationFollowsDeclarations` in that file
+# asserts both declarations, so the difference is pinned rather than implied.
 GEOS = DATA / "cf__9v__1d7-2d2__geos__y-desc.nc"
 
 
