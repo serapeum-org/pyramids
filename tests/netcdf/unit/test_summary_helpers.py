@@ -23,8 +23,8 @@ from pyramids.netcdf import NetCDF
 from pyramids.netcdf.models import MAX_DISPLAY_VARIABLES
 from pyramids.netcdf.netcdf import (
     _both_nan,
-    _collapse_uniform,
     _capped_join,
+    _collapse_uniform,
     _container_summary,
     _has_georeference,
     _store_label,
