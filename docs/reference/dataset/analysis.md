@@ -82,16 +82,86 @@ cell reaches `func`, including the ones the inputs marked as no-data.
 
 ### Summing more than two
 
-`sum(rasters)` does not work: it starts at the integer `0`, and a scalar operand is
-declined. Give it a raster to start from, or fold explicitly:
+`sum(rasters)` works. It seeds its accumulator with the integer `0`, which
+`__radd__` absorbs as the additive identity — returning a *copy*, so summing a
+one-element list never aliases its input:
 
 ```python
 from functools import reduce
 import operator
 
-total = sum(rasters[1:], start=rasters[0])
-total = reduce(operator.add, rasters)
+total = sum(rasters)                       # a fresh Dataset
+total = sum(rasters[1:], start=rasters[0]) # equivalent
+total = reduce(operator.add, rasters)      # equivalent
 ```
+
+`math.prod(rasters)` folds the same way, absorbing the integer `1`.
+
+A real numeric zero (or one) is the only scalar the operators accept, and only
+from the left: `1 + ds`, `False + ds`, `0j + ds` and `ds + 0` all raise, so this
+is not a back door into scalar arithmetic. "Real" is `numbers.Real`, so
+`Fraction(0)` and every numpy float or int zero are absorbed while `Decimal(0)`
+— which registers as `Number` but not `Real` — is not.
+
+!!! warning "Three things to know before folding with `sum()`"
+
+    * **`sum([])` is the integer `0`,** not a raster. A fold over a glob that
+      matched nothing fails later, wherever the result is first used as a raster.
+    * **One raster is not like several.** A one-element fold never reaches
+      `combine`, so it keeps the source's own no-data value; two or more take
+      `combine`'s derived sentinel (`NaN` for a floating result). `sum()` has no
+      way to pass `no_data_value=` through, so if the sentinel must be stable
+      whatever the file count, fold with
+      `reduce(partial(Dataset.combine, func=operator.add, no_data_value=...), rasters)`
+      instead of `sum()`.
+    * **`sum()` costs one extra raster copy** that `reduce(operator.add, ...)`
+      does not — the identity step duplicates the first operand. That matters
+      near the memory limit described below.
+
+### Comparing two rasters
+
+`<`, `<=`, `>` and `>=` between two rasters give a mask, since a comparison
+between rasters is itself a raster:
+
+```python
+taller = surface >= bare        # Dataset, uint8: 1 where it holds, 0 where not
+```
+
+GDAL has no boolean band type, so the mask is stored as Byte and declares `255`
+as its no-data value — a cell that was no-data in *either* operand comes back
+`255` rather than a `0` that would read as "the test failed here".
+
+`==` and `!=` are deliberately **not** overridden. They stay identity-based, so
+`Dataset` keeps working in `assert a == b`, in sets and as a dict key — ask for
+`a.combine(b, np.equal)` when you want the mask.
+
+### A raster has no truth value
+
+`bool(ds)` raises, for every raster — the same choice numpy, pandas and xarray
+make for their array types:
+
+```python
+if surface >= bare:          # ValueError — a comparison is a raster, not a yes/no
+if ds:                       # ValueError — use `ds is not None`
+if bool(np.asarray((surface >= bare).read_array()).all()):   # the actual question
+```
+
+`sorted`, `min` and `max` over **two or more** rasters raise for the same reason:
+they compare internally, then reduce the result. (A one-element sequence compares
+nothing and still succeeds, and a misaligned pair raises `AlignmentError` from
+the comparison before truthiness is ever reached.)
+
+A narrower rule — refuse only for rasters a comparison produced — was tried and
+withdrawn. The marker could not be carried correctly: it was lost by `copy`,
+`crop`, `to_crs`, `align`, `resample`, a `to_file`/`read_file` round trip and by
+pickling, so the hazard returned after one operation; and it survived
+`apply(inplace=True)` and `write_array`, so a raster holding ordinary
+measurements began refusing. A property that cannot be propagated correctly is
+worse than no property.
+
+`Dataset` is deliberately **not an ordered type**: `a < b` yields a raster while
+`a == b` yields a `bool`, so `not (a < b)` raises where `a >= b` does not. Use
+the operators to build masks, never to order rasters.
 
 ### The shell equivalent
 

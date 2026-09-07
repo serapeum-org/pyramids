@@ -180,8 +180,19 @@ inputs and wrapping the result with `from_array` — the step where georeferenci
   it, and one that masked nothing declares **no** sentinel at all. A **floating** result always declares `NaN`:
   a cell `func` computed as `NaN` (`0/0` in a normalised difference) has no value, so it is a gap and the result
   says so. Pass `no_data_value=` to choose one, or `no_data_value=None` for no masking.
-- `sum(rasters)` does not work — it starts at the integer `0`, and a scalar operand is declined. Use
-  `sum(rest, start=first)` or `functools.reduce(operator.add, rasters)`.
+- `sum(rasters)` works: `__radd__` absorbs the integer `0` that `sum()` seeds with, returning a copy so a
+  one-element sum never aliases its input. `0` is the only scalar accepted anywhere in the operators, and only
+  from the left — `1 + ds` still raises.
+- `<`, `<=`, `>` and `>=` between two rasters return a Byte mask (`1`/`0`, and `255` wherever either operand was
+  no-data). `==` and `!=` are **not** overridden — they stay identity-based, so `Dataset` remains usable in
+  `assert`, in sets and as a dict key; use `a.combine(b, np.equal)` for the mask.
+- `math.prod(rasters)` folds like `sum(rasters)`; both absorb their identity scalar from the left only.
+
+**`bool(ds)` now raises — replace `if ds:` with `if ds is not None:`.** Hard change, and the only breaking one
+here. A raster holds one value per cell, and a comparison between two rasters is itself a raster, so there is no
+honest single truth value: `if a >= b:` used to take the branch for every input, and `sorted`, `min` and `max`
+used to return the wrong raster silently. numpy, pandas and xarray all refuse a truth value for the same reason.
+Reduce explicitly — `bool(np.asarray((a >= b).read_array()).all())` — and use `is not None` for presence checks.
 - `combine` is whole-array: both operands are read in full. For rasters near the memory limit use
   `apply(elementwise=True)` or `read_array(chunks=)`.
 - The module-private `_same_grid` helper in `pyramids.dataset.dataset` moved to `Spatial.same_grid`, faced on

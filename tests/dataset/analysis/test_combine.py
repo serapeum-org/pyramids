@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 import operator
+from functools import reduce
 
 import numpy as np
 import pytest
@@ -752,6 +753,385 @@ class TestCombine:
         array = np.asarray(result.read_array())
         assert np.issubdtype(array.dtype, np.floating), "division must not truncate"
         assert np.allclose(array, 2.5)
+
+
+class TestSummingRasters:
+    """`__radd__` exists so a list of aligned rasters can be `sum()`-ed."""
+
+    @staticmethod
+    def _rasters() -> list[Dataset]:
+        """Three aligned single-band rasters holding 1, 2 and 3.
+
+        Returns:
+            list[Dataset]: The operands, in order.
+        """
+        return [_raster(np.full((4, 4), value, "float32")) for value in (1.0, 2.0, 3.0)]
+
+    def test_sum_folds_a_list_of_rasters(self):
+        """`sum()` seeds with the integer 0, which `__radd__` absorbs.
+
+        Test scenario:
+            Three rasters of 1, 2 and 3 sum to 6 everywhere, on the same grid.
+        """
+        rasters = self._rasters()
+
+        total = sum(rasters)
+
+        assert isinstance(total, Dataset), "sum must fold into a Dataset"
+        assert np.allclose(np.asarray(total.read_array()), 6.0)
+        assert total.geotransform == rasters[0].geotransform
+
+    def test_summing_one_raster_does_not_alias_it(self):
+        """`sum([one])` must not hand back the very raster it was given.
+
+        Test scenario:
+            The result is a distinct object, so an in-place write to "the total" cannot
+            reach into the input — the same choice numpy makes for `sum([arr])`.
+        """
+        rasters = self._rasters()
+
+        total = sum(rasters[:1])
+
+        assert total is not rasters[0], "the identity step must copy"
+        assert np.allclose(np.asarray(total.read_array()), 1.0)
+
+    def test_sum_agrees_with_an_explicit_fold(self):
+        """The `sum()` route and the documented alternatives give one answer.
+
+        Test scenario:
+            `sum`, `sum(..., start=)` and `functools.reduce` all produce 6.
+        """
+        rasters = self._rasters()
+
+        summed = np.asarray(sum(rasters).read_array())
+        seeded = np.asarray(sum(rasters[1:], start=rasters[0]).read_array())
+        folded = np.asarray(reduce(operator.add, rasters).read_array())
+
+        np.testing.assert_array_equal(summed, seeded)
+        np.testing.assert_array_equal(summed, folded)
+
+    @pytest.mark.parametrize(
+        "zero",
+        [0, 0.0, np.float64(0), np.int32(0)],
+        ids=["int", "float", "np64", "np32"],
+    )
+    def test_any_spelling_of_zero_is_absorbed(self, zero):
+        """`sum()` seeds with `int` 0, but a caller may fold with any numeric zero.
+
+        Args:
+            zero: The additive identity, spelled four ways.
+
+        Test scenario:
+            Each is absorbed and yields the dataset's own values, so a hand-written fold
+            starting from a numpy zero behaves like `sum()`.
+        """
+        raster = _raster(np.full((4, 4), 2.0, "float32"))
+
+        result = zero + raster
+
+        assert isinstance(result, Dataset), f"{zero!r} should be absorbed"
+        assert np.allclose(np.asarray(result.read_array()), 2.0)
+
+    def test_false_is_not_treated_as_the_additive_identity(self):
+        """`False` is a Number equal to 0, but adding it is a caller's mistake.
+
+        Test scenario:
+            `False + ds` raises rather than quietly handing back a raster — `sum()` seeds
+            with the integer 0, never with a bool.
+        """
+        raster = _raster(np.full((4, 4), 2.0, "float32"))
+
+        with pytest.raises(TypeError, match="unsupported operand type"):
+            False + raster
+
+    def test_zero_is_absorbed_only_from_the_left(self):
+        """The identity exists for `sum()`, not as general scalar arithmetic.
+
+        Test scenario:
+            `ds + 0` raises even though `0 + ds` works. The asymmetry is deliberate:
+            accepting it on the right would make "adding zero is a no-op" a general rule
+            and invite `ds + 1`, which the operators refuse on dtype grounds.
+        """
+        raster = _raster(np.full((4, 4), 2.0, "float32"))
+
+        with pytest.raises(TypeError, match="unsupported operand type"):
+            raster + 0
+
+    def test_summing_rasters_off_one_grid_is_refused(self):
+        """A fold inherits `combine`'s grid rule rather than quietly broadcasting.
+
+        Test scenario:
+            One raster at a different origin makes `sum()` raise AlignmentError.
+        """
+        elsewhere = GeoReference(top_left_corner=(50.0, 5.0), cell_size=0.25, epsg=4326)
+        here = _raster(np.full((4, 4), 1.0, "float32"))
+        there = _raster(np.full((4, 4), 1.0, "float32"), geo_ref=elsewhere)
+
+        with pytest.raises(AlignmentError, match="do not share a grid"):
+            sum([here, there])
+
+    def test_math_prod_folds_rasters_too(self):
+        """`math.prod` seeds with the integer 1, the multiplicative identity.
+
+        Test scenario:
+            Rasters of 2 and 3 multiply to 6, so the reflected family is complete rather
+            than covering only `sum()`.
+        """
+        rasters = [_raster(np.full((4, 4), value, "float32")) for value in (2.0, 3.0)]
+
+        product = math.prod(rasters)
+
+        assert isinstance(product, Dataset), "math.prod must fold into a Dataset"
+        assert np.allclose(np.asarray(product.read_array()), 6.0)
+
+    def test_a_non_unit_scalar_on_the_left_is_declined_for_multiplication(self):
+        """Only the multiplicative identity is absorbed, not scalars in general.
+
+        Test scenario:
+            `2 * ds` raises, so `__rmul__` is no more a scalar back door than `__radd__`.
+        """
+        raster = _raster(np.full((4, 4), 1.0, "float32"))
+
+        with pytest.raises(TypeError, match="unsupported operand type"):
+            2 * raster
+
+    def test_a_non_zero_scalar_on_the_left_is_still_declined(self):
+        """Only the additive identity is absorbed, not scalars in general.
+
+        Test scenario:
+            `1 + ds` raises, so `__radd__` cannot be used as a back door to the scalar
+            arithmetic the operators deliberately refuse.
+        """
+        raster = _raster(np.full((4, 4), 1.0, "float32"))
+
+        with pytest.raises(TypeError, match="unsupported operand type"):
+            1 + raster
+
+
+class TestComparisonOperators:
+    """`<`, `<=`, `>` and `>=` between two rasters give a Byte mask."""
+
+    @pytest.mark.parametrize(
+        ("compare", "expected"),
+        [
+            (operator.ge, 1),
+            (operator.gt, 1),
+            (operator.le, 0),
+            (operator.lt, 0),
+        ],
+        ids=["ge", "gt", "le", "lt"],
+    )
+    def test_a_comparison_returns_a_byte_mask(self, compare, expected):
+        """A comparison between two rasters is itself a raster.
+
+        Args:
+            compare: The operator under test, applied through `operator` so the
+                binary-op protocol runs.
+            expected: The value every cell of the mask must hold.
+
+        Test scenario:
+            30 against 22 under each operator gives a uint8 band of 1s or 0s — GDAL has
+            no boolean band type — declaring 255, which neither can collide with.
+        """
+        higher = _raster(np.full((3, 3), 30.0, "float32"))
+        lower = _raster(np.full((3, 3), 22.0, "float32"))
+
+        mask = compare(higher, lower)
+
+        array = np.asarray(mask.read_array())
+        assert array.dtype == np.uint8, "a comparison is stored as Byte"
+        assert mask.no_data_value[0] == 255, "255 cannot collide with 0/1"
+        assert (array == expected).all()
+
+    def test_a_no_data_cell_is_neither_true_nor_false(self):
+        """A gap in either operand stays a gap in the mask.
+
+        Test scenario:
+            The left operand's no-data cell comes back as 255, not as a 0 that would read
+            as "the test failed here".
+        """
+        values = np.full((3, 3), 5.0, "float32")
+        values[0, 0] = -9999.0
+
+        mask = _raster(values) >= _raster(np.full((3, 3), 1.0, "float32"))
+
+        array = np.asarray(mask.read_array())
+        assert array[0, 0] == 255, "a gap must not become a 0"
+        assert array[1, 1] == 1, "a real cell still answers the question"
+
+    def test_every_band_is_compared(self):
+        """A multi-band comparison answers the question per band.
+
+        Test scenario:
+            Bands holding 1 and 9 against a threshold raster of 5 give a 2-band mask of
+            0 then 1, rather than collapsing to a single answer.
+        """
+        left = _raster(
+            np.stack([np.full((3, 3), value, "float32") for value in (1.0, 9.0)])
+        )
+        right = _raster(np.full((2, 3, 3), 5.0, "float32"))
+
+        mask = left >= right
+
+        assert mask.shape == (2, 3, 3), "the band count must be preserved"
+        np.testing.assert_array_equal(np.asarray(mask.read_array())[:, 0, 0], [0, 1])
+
+    def test_comparing_rasters_off_one_grid_is_refused(self):
+        """A comparison is a `combine`, so it inherits the grid rule.
+
+        Test scenario:
+            Two same-sized rasters at different origins raise AlignmentError instead of
+            comparing cells that do not describe the same place.
+        """
+        elsewhere = GeoReference(top_left_corner=(50.0, 5.0), cell_size=0.25, epsg=4326)
+        here = _raster(np.zeros((3, 3), "float32"))
+        there = _raster(np.zeros((3, 3), "float32"), geo_ref=elsewhere)
+
+        with pytest.raises(AlignmentError, match="do not share a grid"):
+            here >= there
+
+    def test_comparing_against_a_scalar_is_declined(self):
+        """Scalars are refused here for the same reason as in the arithmetic.
+
+        Test scenario:
+            `ds >= 5` raises rather than thresholding — `combine(other, func)` is the
+            spelling for that, and it keeps the dtype rules in one place.
+        """
+        raster = _raster(np.full((3, 3), 30.0, "float32"))
+
+        with pytest.raises(TypeError, match="not supported between instances"):
+            raster >= 5
+
+    def test_no_raster_has_a_truth_value(self):
+        """A raster holds one value per cell, so there is no honest yes/no to give.
+
+        Test scenario:
+            `bool()` raises for an ordinary raster and for a comparison alike. The
+            refusal is class-wide — numpy, pandas and xarray all make the same choice —
+            because a scoped version could not be carried correctly through `copy`,
+            `crop` or an in-place write.
+        """
+        left = _raster(np.full((3, 3), 3.0, "float32"))
+        right = _raster(np.full((3, 3), 1.0, "float32"))
+
+        for raster in (left, left - right, left >= right):
+            with pytest.raises(
+                ValueError, match="truth value of a Dataset is ambiguous"
+            ):
+                bool(raster)
+
+    def test_a_presence_check_uses_is_not_none(self):
+        """The supported way to ask "did I get a raster?".
+
+        Test scenario:
+            `is not None` answers without consulting `__bool__`, which is what internal
+            callers and downstream code should use in place of `if ds:`.
+        """
+        raster = _raster(np.full((3, 3), 1.0, "float32"))
+        missing = None
+
+        assert (raster is not None) is True
+        assert (missing is not None) is False
+
+    @pytest.mark.parametrize(
+        "derive",
+        [
+            lambda m, ref: m,
+            lambda m, ref: m.copy(),
+            lambda m, ref: sum([m]),
+            lambda m, ref: m.crop(ref),
+        ],
+        ids=["as-returned", "copied", "summed", "cropped"],
+    )
+    def test_a_comparison_stays_unusable_as_a_condition(self, derive):
+        """The refusal must not wear off after one operation.
+
+        Args:
+            derive: How the mask is carried before `bool()` is asked.
+
+        Test scenario:
+            A scoped marker was tried and lost by every one of these paths, so the
+            hazard came back after a single call. A class-wide refusal cannot be lost.
+        """
+        higher = _raster(np.full((3, 3), 3.0, "float32"))
+        lower = _raster(np.full((3, 3), 1.0, "float32"))
+
+        carried = derive(higher >= lower, higher)
+
+        with pytest.raises(ValueError, match="truth value of a Dataset is ambiguous"):
+            bool(carried)
+
+    def test_a_boolean_combine_refuses_like_any_other_raster(self):
+        """`combine` with a boolean callable is not a special case.
+
+        Test scenario:
+            A validity mask from `np.logical_and` refuses a truth value exactly as `>`
+            does — one rule, so no two spellings of a boolean product disagree.
+        """
+        left = _raster(np.full((3, 3), 3.0, "float32"))
+        right = _raster(np.full((3, 3), 1.0, "float32"))
+
+        with pytest.raises(ValueError, match="truth value of a Dataset is ambiguous"):
+            bool(left.combine(right, np.logical_and))
+
+    @pytest.mark.parametrize("fold", [sorted, max, min], ids=["sorted", "max", "min"])
+    def test_ordering_two_or_more_rasters_is_refused(self, fold):
+        """These raised TypeError before comparisons existed; they must not go quiet.
+
+        Args:
+            fold: The builtin under test, each comparing with `<` or `>` internally and
+                then reducing the result with `bool()`.
+
+        Test scenario:
+            Without a guard `sorted` returned [5, 1, 9] and both `max` and `min`
+            returned 5 — every answer wrong, nothing raised. A one-element sequence
+            performs no comparison and so still succeeds.
+        """
+        rasters = [_raster(np.full((3, 3), v, "float32")) for v in (9.0, 1.0, 5.0)]
+
+        with pytest.raises(ValueError, match="truth value of a Dataset is ambiguous"):
+            fold(rasters)
+
+        assert fold(rasters[:1]) is not None, "one element compares nothing"
+
+    @pytest.mark.parametrize(
+        "expression",
+        [
+            lambda ds: np.array([0.0]) + ds,
+            lambda ds: ds + np.array([1.0]),
+            lambda ds: np.add(ds, ds),
+        ],
+        ids=["array-left", "array-right", "ufunc"],
+    )
+    def test_numpy_defers_instead_of_broadcasting_over_a_raster(self, expression):
+        """`__array_ufunc__ = None` keeps numpy from treating a raster as an object.
+
+        Args:
+            expression: A numpy-side expression that must refuse.
+
+        Test scenario:
+            Without the attribute, `np.array([0.0]) + ds` returned an object array
+            holding a raster copy — a silent wrong answer. It became reachable only
+            once `__radd__` existed, so the two are tested together.
+        """
+        raster = _raster(np.full((3, 3), 2.0, "float32"))
+
+        with pytest.raises(TypeError):
+            expression(raster)
+
+    def test_equality_is_left_alone(self):
+        """`==` stays identity-based, so `Dataset` keeps working in sets and asserts.
+
+        Test scenario:
+            A raster equals itself and not another, and is still hashable — replacing
+            `__eq__` with a mask would have broken all three.
+        """
+        left = _raster(np.full((3, 3), 1.0, "float32"))
+        right = _raster(np.full((3, 3), 1.0, "float32"))
+
+        assert left == left
+        assert left != right
+        assert isinstance(hash(left), int), "Dataset must stay hashable"
 
 
 class TestSameGrid:

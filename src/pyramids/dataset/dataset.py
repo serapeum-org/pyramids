@@ -13,7 +13,7 @@ import warnings
 import weakref
 from collections.abc import Callable, Sequence
 from dataclasses import replace
-from numbers import Number
+from numbers import Number, Real
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Unpack, cast
 
@@ -2026,8 +2026,46 @@ class Dataset(RasterBase):
             info = redact_credentials(str(gdal.Info(self.raster)))
         return info
 
+    # numpy would otherwise treat a Dataset as an opaque object and broadcast
+    # over it, so `np.array([0.0]) + ds` came back as an object array of raster
+    # copies instead of refusing. `None` tells numpy this type has no ufunc
+    # protocol, so every such expression is a TypeError. The two sides word it
+    # differently: `ds + np.array([1.0])` says "operand 'Dataset' does not
+    # support ufuncs", while `np.array([1.0]) + ds` comes out of numpy's own
+    # dispatch as "Concatenation operation is not implemented for NumPy
+    # arrays" -- unhelpful, but an error rather than a silent wrong answer.
+    __array_ufunc__ = None
+
+    def __rmul__(self, other: Any) -> Any:
+        """Multiply from the right, so `math.prod()` folds a list of rasters.
+
+        The multiplicative twin of :meth:`__radd__`: `math.prod` seeds its
+        accumulator with the integer `1`, so `1 * ds` has to succeed for a list
+        of rasters to be multipliable at all. One is the multiplicative
+        identity, so the answer is this dataset's values, as a copy — for the
+        aliasing reason :meth:`__radd__` gives.
+
+        Args:
+            other: The left-hand operand, which reached here because its own
+                `__mul__` declined this dataset.
+
+        Returns:
+            Dataset | NotImplemented: A copy of this dataset when `other` is a
+            real numeric one, else `NotImplemented`.
+        """
+        result: Any = NotImplemented
+        if isinstance(other, Real) and not isinstance(other, bool) and other == 1:
+            result = self.copy()
+        return result
+
     def _arithmetic(self, other: Any, op: Callable) -> Any:
         """Route a binary operator to :meth:`combine`, or decline the operand.
+
+        Shared by the arithmetic operators and the comparisons — a comparison
+        is just a `combine` whose `func` returns booleans, which GDAL has no
+        band type for, so the result is stored as Byte: `1` where the test
+        holds, `0` where it does not, `255` wherever either operand was
+        no-data.
 
         Only a second raster is handled here. Scalar arithmetic stays with
         :meth:`apply`, which keeps the source band's dtype — routing it here as
@@ -2035,6 +2073,12 @@ class Dataset(RasterBase):
         dtypes for the same expression. Anything else yields
         ``NotImplemented``, so Python raises its own ``TypeError`` naming both
         operand types.
+
+        `__eq__` and `__ne__` are deliberately *not* routed through here.
+        Python gives every object a working identity-based equality, the
+        codebase and its tests rely on it, and replacing it with something that
+        returns a raster would break `in`, `dict`, `assert a == b` and hashing
+        all at once. Ask for `a.combine(b, np.equal)` when you want that mask.
 
         Args:
             other: The right-hand operand.
@@ -2068,6 +2112,176 @@ class Dataset(RasterBase):
     def __truediv__(self, other: Any) -> Any:
         """Divide by another raster cell by cell — see :meth:`combine`."""
         return self._arithmetic(other, operator.truediv)
+
+    def __radd__(self, other: Any) -> Any:
+        """Add from the right, so a list of rasters can be `sum()`-ed.
+
+        `sum()` seeds its accumulator with the integer `0` and only then
+        starts adding, so `0 + ds` has to succeed for a list of rasters to be
+        summable at all. Zero is the additive identity, so the answer is this
+        dataset's values — returned as a copy, not as `self`. Otherwise
+        `sum([one])` would hand back the very raster it was given while
+        `sum([a, b])` hands back a fresh one, and an in-place write to "the
+        total" would reach into the input in the one-element case only. numpy
+        makes the same choice: `sum([arr]) is arr` is `False`.
+
+        It is the one scalar the operators accept, and only when it is a real
+        number equal to zero — `0`, `0.0`, `np.int32(0)`, `np.float64(0)`. Any
+        other scalar would reopen the dtype disagreement :meth:`_arithmetic`
+        declines them to avoid, so `1 + ds` raises; so do `False + ds` (a bool
+        is not a numeric seed), `0j + ds` (no band holds an imaginary part) and
+        `ds + 0` — the identity is absorbed only on the left, where `sum()`
+        puts it.
+
+        Two wrinkles worth knowing. `sum()` of a **single** raster never reaches
+        :meth:`combine`, so it returns that raster's values and sentinel
+        verbatim, while `sum()` of two or more goes through `combine` and takes
+        `combine`'s derived sentinel (`NaN` for a floating result) — a fold over
+        a glob can therefore report a different no-data value depending on how
+        many files matched. And the one-element answer is a :meth:`copy`, so it
+        carries whatever `copy` carries: the grid, CRS, band names and sentinel,
+        but not derived products such as overviews. Pass `no_data_value=` to
+        :meth:`combine <pyramids.dataset.engines.Analysis.combine>` and rebuild
+        overviews explicitly when either matters.
+
+        Args:
+            other: The left-hand operand, which reached here because its own
+                `__add__` declined this dataset.
+
+        Returns:
+            Dataset | NotImplemented: A copy of this dataset when `other` is
+            zero, else `NotImplemented` so Python raises its own `TypeError`.
+
+        Examples:
+            - Fold a list of aligned rasters into their total:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> rasters = [
+              ...     Dataset.from_array(np.full((4, 4), value, "float32"), geo_ref=geo_ref)
+              ...     for value in (1.0, 2.0, 3.0)
+              ... ]
+              >>> float(np.asarray(sum(rasters).read_array()).mean())
+              6.0
+
+              ```
+        """
+        result: Any = NotImplemented
+        # `Real`, not `Number`: it admits `int`, `float` and their numpy
+        # equivalents -- what a fold actually starts from -- while turning away
+        # `0j`, whose imaginary part no raster band can hold. `bool` is excluded
+        # explicitly because `False` is a `Real` equal to `0`, and `False + ds`
+        # handing back a raster reads as the caller's bug quietly succeeding;
+        # `sum()` seeds with the integer `0`, never with `False`.
+        if isinstance(other, Real) and not isinstance(other, bool) and other == 0:
+            result = self.copy()
+        return result
+
+    def __lt__(self, other: Any) -> Any:
+        """Cell-by-cell `<` against another raster, as a Byte mask."""
+        return self._arithmetic(other, operator.lt)
+
+    def __le__(self, other: Any) -> Any:
+        """Cell-by-cell `<=` against another raster, as a Byte mask."""
+        return self._arithmetic(other, operator.le)
+
+    def __gt__(self, other: Any) -> Any:
+        """Cell-by-cell `>` against another raster, as a Byte mask."""
+        return self._arithmetic(other, operator.gt)
+
+    def __bool__(self) -> bool:
+        """Refuse to collapse a raster into a single true/false.
+
+        `if surface >= bare:` reads like a question, but a comparison between
+        two rasters is a *raster* — one answer per cell — so there is no honest
+        single truth value to give back. `sorted`, `min`, `max` and `bisect`
+        compare and then reduce the same way, and before the comparison
+        operators existed they raised `TypeError` on a list of rasters. Letting
+        them quietly return the wrong element instead would be strictly worse
+        than raising.
+
+        The refusal is class-wide rather than scoped to comparison results,
+        which is the choice numpy, pandas and xarray all make. A scoped version
+        was tried: mark the raster a comparison produced and refuse only that.
+        It fails in both directions — the mark is lost by `copy`, `crop`,
+        `to_crs`, `align`, `resample`, a `to_file`/`read_file` round trip and
+        pickling, so the hazard returns after one operation; and it survives
+        `apply(inplace=True)` and `write_array`, so a raster holding ordinary
+        measurements starts refusing. A property that cannot be carried
+        correctly is not worth carrying.
+
+        Use `ds is not None` for a presence check, and reduce a comparison
+        explicitly — `bool(np.asarray((a >= b).read_array()).all())` — for a
+        yes/no.
+
+        Returns:
+            bool: Never returns; the annotation is what `__bool__` must declare.
+
+        Raises:
+            ValueError: Always.
+
+        Examples:
+            - A comparison has to be reduced before it can be a condition:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> a = Dataset.from_array(np.ones((3, 3), "float32"), geo_ref=geo_ref)
+              >>> b = Dataset.from_array(np.zeros((3, 3), "float32"), geo_ref=geo_ref)
+              >>> bool(a >= b)
+              Traceback (most recent call last):
+                  ...
+              ValueError: the truth value of a Dataset is ambiguous ...
+              >>> bool(np.asarray((a >= b).read_array()).all())
+              True
+
+              ```
+        """
+        raise ValueError(
+            "the truth value of a Dataset is ambiguous — a raster holds one "
+            "value per cell, and a comparison between two rasters is itself a "
+            "raster. Reduce it, e.g. "
+            "`bool(np.asarray((a >= b).read_array()).all())`; use "
+            "`ds is not None` for a presence check. This is also why `sorted`, "
+            "`min` and `max` refuse a list of rasters"
+        )
+
+    def __ge__(self, other: Any) -> Any:
+        """Cell-by-cell `>=` against another raster, as a Byte mask.
+
+        The mask always declares `255` as its no-data value, whether or not any
+        cell was masked: `255` cannot collide with the `0`/`1` a predicate
+        produces, so declaring it costs nothing and leaves a marker for a later
+        crop or warp fringe to land on.
+
+        A cell holding `NaN` is compared, not excluded, unless `NaN` is the
+        band's declared sentinel — `NaN >= x` is `False`, so it reads as `0`
+        rather than as a gap. That is :meth:`combine`'s domain rule, which
+        asks whether a cell holds *the declared sentinel*, and it applies
+        equally to :meth:`apply`. Declare `no_data_value=np.nan` on the operand
+        when NaN should mean "missing".
+
+        Examples:
+            - Where does the surface stand at least as high as the bare earth:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> surface = Dataset.from_array(np.full((3, 3), 30.0, "float32"), geo_ref=geo_ref)
+              >>> bare = Dataset.from_array(np.full((3, 3), 22.0, "float32"), geo_ref=geo_ref)
+              >>> mask = surface >= bare
+              >>> np.asarray(mask.read_array()).dtype.name, int(mask.no_data_value[0])
+              ('uint8', 255)
+              >>> bool((np.asarray(mask.read_array()) == 1).all())
+              True
+
+              ```
+        """
+        return self._arithmetic(other, operator.ge)
 
     @property
     def access(self) -> str:
