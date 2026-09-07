@@ -546,6 +546,19 @@ class Analysis(_Engine["Dataset"]):
         step for that, and applying it implicitly here would silently resample
         data inside what reads as pure arithmetic.
 
+        It is a whole-array operation: both operands are read in full and peak
+        memory runs to several times one band, with no tiled or lazy path of its
+        own. For rasters near the memory limit, reach for
+        :meth:`apply(elementwise=True) <Analysis.apply>`, which streams a single
+        raster tile by tile, or `read_array(chunks=)` and dask.
+
+        A `NetCDF` variable view combines like any other raster, and the result
+        is built with the operand's own class -- the same rule
+        :meth:`apply` follows -- so it comes back as a `Variable` wrapping a
+        plain in-memory raster. Write it with `.nc`, or read the array out and
+        wrap it with :meth:`Dataset.from_array`; a `.tif` destination is refused
+        by the NetCDF writer.
+
         Args:
             other (Dataset):
                 The second operand. Must occupy this dataset's grid and CRS
