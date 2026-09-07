@@ -1193,7 +1193,12 @@ class NetCDF(Dataset):
         # A materialised view's own `_raster` is a MEM dataset with no root
         # group, so fall back to the container it was carved from.
         for candidate in (self, getattr(self, "_parent_nc", None)):
-            raster = getattr(candidate, "_raster", None) if candidate else None
+            # `is not None`, not truthiness: this asks whether a candidate
+            # exists, and `Dataset.__bool__` refuses to answer a yes/no about a
+            # raster at all.
+            raster = (
+                getattr(candidate, "_raster", None) if candidate is not None else None
+            )
             if raster is None:
                 continue
             try:
