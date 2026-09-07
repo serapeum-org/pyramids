@@ -1453,19 +1453,29 @@ class Spatial(_Engine["Dataset"]):
         `None` means the warp is left exactly as it was, and it covers two
         cases. A band declaring something storable needs nothing: GDAL's own
         source-to-destination no-data propagation already does the right thing.
-        A band declaring *nothing* is deliberately left alone too, and this is
-        where the cutline path parts company with the raster-mask one.
+        A band declaring *nothing* is left alone too, and that is where this
+        path parts company with the raster-mask one.
 
-        The difference is who writes the cells. :meth:`_crop_fill_values`
-        derives for an undeclared band because that path writes the excluded
-        cells itself and must put a number in them, so it can say truthfully
-        what it wrote. Here GDAL fills them, and stamping `-dstnodata` on a
-        raster whose file declares no no-data would put a sentinel on the
-        output that the source never had -- which the netCDF fan-out then
-        carries onto a rebuilt variable, the invention
-        `NetCDF._storable_no_data` exists to refuse. A mixed raster (one band
-        unstorable, another undeclared) is left alone for the same reason,
-        `-dstnodata` taking a value per band with no spelling for "none".
+        The difference is what each path is forced to decide.
+        :meth:`_crop_fill_values` writes the excluded cells itself, into a
+        numpy array that has no way to hold "absent", so it must put a number
+        there -- and having written one it declares it, because the alternative
+        is cells that read back as measurements. Here GDAL fills them, so
+        nothing forces the question, and the conservative answer is to leave
+        the source's own declaration alone.
+
+        What this is *not* is a guard for the netCDF fan-out. The fan-out
+        rebuilds a variable from whatever the crop declares
+        (`NetCDF._storable_no_data`), and it reads that from both paths alike
+        -- so a raster-mask crop of a variable whose file declares no no-data
+        already hands it a derived sentinel. Whether the two paths should be
+        made to agree, in which direction, is a question about that contract
+        rather than about this function; `tests/netcdf` pins what each does
+        today.
+
+        A mixed raster -- one band unstorable, another undeclared -- is left
+        alone as well, `-dstnodata` taking one value per band with no spelling
+        for "none".
 
         Returns:
             list | None: One fill per band, or `None` when none is needed.
