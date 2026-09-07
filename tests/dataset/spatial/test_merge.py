@@ -658,19 +658,29 @@ class TestMergeRastersDstCrs:
         with pytest.raises(RuntimeError, match="gdal.Open returned None"):
             merge_rasters([pa, pb], tmp_path / "x.tif")
 
+    @pytest.mark.parametrize(
+        "failing_index, expected_position", [(0, "1/2"), (1, "2/2")]
+    )
     def test_raising_open_names_the_source_and_its_position(
-        self, shared_crs_pair, monkeypatch
+        self, shared_crs_pair, monkeypatch, failing_index, expected_position
     ):
         """A raising ``gdal.Open`` names the failing source and how far the open got.
 
+        Args:
+            failing_index: Position of the unopenable remote source in ``src_paths``.
+            expected_position: The ``n/total`` marker the message must carry.
+
         Test scenario:
-            The second of two sources is a remote tile whose open raises a bare
+            One of two sources is a remote tile whose open raises a bare
             ``HTTP response code: 403`` -- GDAL names no source for a
             ``/vsicurl/`` path. ``_prepare_sources`` must report the URL, its
-            ``2/2`` position in ``src_paths``, and chain GDAL's message (#1107).
+            position in ``src_paths``, and chain GDAL's message (#1107). Both
+            positions are exercised so the reported index tracks the real one.
         """
         pa, _pb = shared_crs_pair
         remote = "/vsicurl/https://example.invalid/tile_B04_0042.tif"
+        paths = [pa, pa]
+        paths[failing_index] = remote
         real_open = merge_mod.gdal.Open
 
         def _raise_for_remote(path, *args, **kwargs):
@@ -680,10 +690,10 @@ class TestMergeRastersDstCrs:
 
         monkeypatch.setattr(merge_mod.gdal, "Open", _raise_for_remote)
         with pytest.raises(RuntimeError) as excinfo:
-            _prepare_sources([pa, remote], None)
+            _prepare_sources(paths, None)
         message = str(excinfo.value)
         assert "tile_B04_0042.tif" in message, f"source not named: {message}"
-        assert "2/2" in message, f"source position not reported: {message}"
+        assert expected_position in message, f"wrong position marker: {message}"
         assert "403" in message, f"GDAL's own message not preserved: {message}"
         assert isinstance(excinfo.value.__cause__, RuntimeError), (
             "GDAL's error should be chained as __cause__, not replaced"
@@ -751,6 +761,20 @@ class TestSourceBounds:
         assert isinstance(excinfo.value.__cause__, RuntimeError), (
             "GDAL's error should be chained as __cause__, not replaced"
         )
+
+    def test_open_returning_none_raises(self, monkeypatch):
+        """A ``None`` from ``gdal.Open`` still raises, for exceptions-disabled callers.
+
+        Test scenario:
+            A caller running with ``gdal.DontUseExceptions()`` gets ``None`` from a
+            failed open rather than an exception, so the ``is None`` guard is the
+            branch that fires. It is kept alongside the raising path (#1107).
+        """
+        monkeypatch.setattr(merge_mod.gdal, "Open", lambda *a, **k: None)
+        with pytest.raises(
+            RuntimeError, match="gdal.Open returned None for merge source"
+        ):
+            _source_bounds("/no/such/raster/does-not-exist.tif")
 
 
 class TestPrepareSources:
