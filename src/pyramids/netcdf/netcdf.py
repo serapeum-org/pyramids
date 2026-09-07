@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import gc
 import itertools
+import logging
 import math
 import os
 import threading
@@ -35,7 +36,7 @@ from pyramids.base.crs import (
 )
 from pyramids.base.georeference import GeoReference
 from pyramids.base.protocols import ArrayLike
-from pyramids.base.remote import is_remote
+from pyramids.base.remote import is_remote, redact_credentials
 from pyramids.dataset import Dataset
 from pyramids.dataset._plot_helpers import nonnull_group_kwargs
 from pyramids.dataset.abstract_dataset import DEFAULT_NO_DATA_VALUE
@@ -82,7 +83,11 @@ from pyramids.netcdf.engines.interop import Interop
 from pyramids.netcdf.engines.selection import Selection
 from pyramids.netcdf.engines.variables import Variables
 from pyramids.netcdf.metadata import get_metadata
-from pyramids.netcdf.models import NetCDFMetadata
+from pyramids.netcdf.models import (
+    MAX_DISPLAY_VARIABLES,
+    NetCDFMetadata,
+    VariableInfo,
+)
 from pyramids.netcdf.plot_options import CoordinateSpec, FacetSpec, Selectors
 from pyramids.netcdf.utils import (
     _read_attributes,
@@ -134,6 +139,12 @@ _RESERVED_ACCESSOR_NAMES.update(_NETCDF_COLLABORATOR_ATTRS)
 # it is here so a malformed or hostile one cannot turn enumeration into an
 # unbounded walk.
 _MAX_GROUP_DEPTH = 32
+
+
+# Module-level logger, matching `pyramids.netcdf.metadata`: the summary helpers swallow
+# every exception so `str()` stays total for debuggers and logging, and a swallowed error
+# that logs nothing is one nobody can diagnose. Both handlers report through this at DEBUG.
+logger = logging.getLogger(__name__)
 
 
 class _LazyVariableDict(dict):
@@ -560,6 +571,591 @@ def _resolve_index_selector(selector: Any, size: int, dim_name: str) -> tuple[in
     return index, index + 1
 
 
+def _collapse_uniform(values: Any) -> Any:
+    """Collapse a per-band sequence to its single value when every band agrees.
+
+    A 12-band variable reports `dtype` as `['float32'] * 12`, `band_units` as
+    `[''] * 12` and `no_data_value` as a 12-tuple of `nan` -- true, but unreadable
+    in a summary (#1090). One distinct value collapses to that value; a genuinely mixed
+    sequence is left alone, because there the per-band detail is the information.
+
+    Bands are compared through `_same_value` rather than `==`, so an all-`nan` no-data
+    tuple collapses too: `nan != nan` would otherwise make it look mixed.
+
+    Args:
+        values: A per-band sequence, or any scalar (returned unchanged).
+
+    Returns:
+        Any: The single shared value when every band agrees, the per-band values as a
+            list when they do not, `None` for an empty sequence, and the argument
+            unchanged when it is neither a list nor a tuple.
+
+    Examples:
+        - A uniform sequence reports the one value it holds:
+            ```python
+            >>> _collapse_uniform(["float32", "float32", "float32"])
+            'float32'
+
+            ```
+        - A sequence that genuinely varies keeps its per-band detail:
+            ```python
+            >>> _collapse_uniform(["float32", "int16"])
+            ['float32', 'int16']
+
+            ```
+        - An empty sequence has nothing to report, and a scalar is already collapsed:
+            ```python
+            >>> _collapse_uniform([]) is None
+            True
+            >>> _collapse_uniform("float32")
+            'float32'
+
+            ```
+    """
+    if not isinstance(values, (list, tuple)):
+        return values
+    if not values:
+        return None
+    first = values[0]
+    uniform = all(_same_value(v, first) for v in values)
+    return first if uniform else list(values)
+
+
+def _store_label(nc: NetCDF) -> tuple[str, bool]:
+    """A short name for the store behind `nc`, for a summary header.
+
+    `file_name` is not always a path. An in-memory result built by an operation such as
+    `to_crs` carries the driver name (`"netcdf"`), which would read as a filename in the
+    header. The reliable signal is the driver, not the path -- `abstract_dataset.py` states
+    the same rule for `_require_writable`: in-memory means the `memory` driver, a `/vsimem/`
+    path, or no path at all. Testing the path for a suffix instead would call a real
+    extensionless file -- `mkstemp` output, an OPeNDAP endpoint, a content-typed download --
+    `in-memory`, which is a false claim about where the data came from.
+
+    A `get_group()` view shares its root's path, so the group path is appended to keep the
+    two distinguishable. The in-memory verdict is returned alongside the label rather than
+    recovered by comparing it to `"in-memory"`, because that suffix defeats the comparison.
+
+    The base name goes through `redact_credentials` first. `file_name` is the dataset's GDAL
+    description, so a remote open keeps its query string, and the base name of
+    `/vsis3/bucket/cube.nc?X-Amz-Signature=...` still carries the signature. `str()` reaches
+    every log handler and pytest's assertion output, which is why `Dataset.__repr__` redacts
+    too.
+
+    Args:
+        nc: The container or variable to label.
+
+    Returns:
+        tuple[str, bool]: The label -- a file name, optionally with a group path, or
+            `"in-memory"` -- and whether the store is in memory.
+
+    Examples:
+        - A plain filename is reduced to its base name:
+            ```python
+            >>> class _Store:
+            ...     file_name = "/data/archive/cube.nc"
+            ...     driver_type = "netcdf"
+            >>> _store_label(_Store())
+            ('cube.nc', False)
+
+            ```
+        - An extensionless path is still a real file:
+            ```python
+            >>> class _NoSuffix:
+            ...     file_name = "/tmp/tmpab12cd/cube"
+            ...     driver_type = "netcdf"
+            >>> _store_label(_NoSuffix())
+            ('cube', False)
+
+            ```
+        - The `memory` driver is what makes a store in-memory, whatever its `file_name` says:
+            ```python
+            >>> class _InMemory:
+            ...     file_name = "netcdf"
+            ...     driver_type = "memory"
+            >>> _store_label(_InMemory())
+            ('in-memory', True)
+
+            ```
+        - A signed remote path keeps its name and loses its credentials:
+            ```python
+            >>> class _Signed:
+            ...     file_name = "/vsis3/bucket/cube.nc?X-Amz-Signature=deadbeef"
+            ...     driver_type = "netcdf"
+            >>> _store_label(_Signed())
+            ('cube.nc?X-Amz-Signature=<redacted>', False)
+
+            ```
+    """
+    source = getattr(nc, "file_name", "") or ""
+    in_memory = (
+        not source
+        or source.startswith("/vsimem/")
+        or getattr(nc, "driver_type", None) == "memory"
+    )
+    label = "in-memory" if in_memory else redact_credentials(Path(source).name)
+    group = getattr(nc, "_group_path", None)
+    if group:
+        label = f"{label}:/{group}"
+    return label, in_memory
+
+
+def _same_value(left: Any, right: Any) -> bool:
+    """Whether two per-band entries are the same value, for any type a band can carry.
+
+    `==` alone is not enough twice over: it is False for two `nan`s, and for a numpy array
+    it returns an elementwise array that `all()` cannot take a truth value from. Identity is
+    tried first as a cheap short-circuit -- it settles the values a band shares by object,
+    such as `None` for an unset no-data or the interned empty unit string -- then a guarded
+    equality, then the `nan` special case. Values rebuilt per band (a dtype name, a `nan`
+    read back from GDAL) are distinct objects, so they fall through to those two.
+
+    Args:
+        left: One band's value.
+        right: The value being compared against.
+
+    Returns:
+        bool: `True` when the two should be treated as one value.
+
+    Examples:
+        - Equal scalars match, and two `nan`s do too:
+            ```python
+            >>> _same_value("float32", "float32")
+            True
+            >>> _same_value(float("nan"), float("nan"))
+            True
+
+            ```
+        - A value whose `==` is not a plain bool does not raise:
+            ```python
+            >>> import numpy as np
+            >>> _same_value(np.array([1, 2]), np.array([1, 2]))
+            False
+
+            ```
+    """
+    if left is right:
+        return True
+    try:
+        return bool(left == right) or _both_nan(left, right)
+    except (TypeError, ValueError):
+        return _both_nan(left, right)
+
+
+def _both_nan(left: Any, right: Any) -> bool:
+    """Whether both values are float `nan` -- the one case `==` gets wrong.
+
+    Args:
+        left: First value; any type, including a non-numeric one.
+        right: Second value.
+
+    Returns:
+        bool: `True` only when both are `nan`.
+
+    Examples:
+        - Two `nan`s count as equal, which `==` alone would deny:
+            ```python
+            >>> _both_nan(float("nan"), float("nan"))
+            True
+            >>> float("nan") == float("nan")
+            False
+
+            ```
+        - Anything else is False, including a value `np.isnan` cannot take:
+            ```python
+            >>> _both_nan(float("nan"), 1.0)
+            False
+            >>> _both_nan("K", "K")
+            False
+
+            ```
+    """
+    try:
+        return bool(np.isnan(left) and np.isnan(right))
+    except (TypeError, ValueError):
+        return False
+
+
+# How much of a one-line list a summary will print before it truncates. The point of the
+# summary is a line a debugger, a log handler or a notebook can show at a glance; a store with
+# 22 dimensions or seven flight-path group names blows well past that, so the list is cut by
+# width as well as by count -- ten names are still 316 characters when the names are long.
+_MAX_LIST_WIDTH = 96
+
+
+def _capped_join(items: list[str]) -> str:
+    """Join `items` with `", "`, truncating by both count and width.
+
+    Args:
+        items: The already-formatted entries to list.
+
+    Returns:
+        str: The joined text, with a `, ... N more` tail when anything was cut. Always shows
+            at least one entry, even one longer than the budget, so the line is never a bare
+            count.
+
+    Examples:
+        - A short list is joined whole:
+            ```python
+            >>> _capped_join(["time=12", "y=5", "x=5"])
+            'time=12, y=5, x=5'
+
+            ```
+        - A long one is cut, and says how much it cut:
+            ```python
+            >>> _capped_join([f"group_name_{n}" for n in range(9)])
+            'group_name_0, group_name_1, group_name_2, group_name_3, group_name_4, group_name_5, ... 3 more'
+
+            ```
+    """
+    shown: list[str] = []
+    used = 0
+    for item in items[:MAX_DISPLAY_VARIABLES]:
+        if shown and used + len(item) + 2 > _MAX_LIST_WIDTH:
+            break
+        used += len(item) + 2
+        shown.append(item)
+    listed = ", ".join(shown)
+    hidden = len(items) - len(shown)
+    if hidden > 0:
+        listed += f", ... {hidden} more"
+    return listed
+
+
+def _has_georeference(nc: NetCDF) -> bool:
+    """Whether the store carries a real affine mapping, so a cell size means something.
+
+    A curvilinear or unstructured store has none. `GetGeoTransform()` still answers for those --
+    with the identity `(0, 1, 0, 0, 0, 1)` -- so `cell_size` reads 1.0 by construction rather
+    than by measurement, the same class of placeholder as the 512 x 512 this summary exists to
+    stop printing. `can_return_null=True` is the signal that separates the two; comparing
+    against the identity tuple instead would also silence a genuine 1-unit grid at the origin.
+
+    Args:
+        nc: The container to test.
+
+    Returns:
+        bool: `True` when GDAL reports an affine transform for this store.
+    """
+    raster = getattr(nc, "_raster", None)
+    georeferenced = False
+    if raster is not None:
+        georeferenced = raster.GetGeoTransform(can_return_null=True) is not None
+    return georeferenced
+
+
+def _variable_table_lines(variables: dict[str, VariableInfo]) -> list[str]:
+    """Tabulate the store's arrays, one row each, capped at `MAX_DISPLAY_VARIABLES`.
+
+    Rows are labelled by the map's **key**, not by `info.name`. The map spans sub-groups and is
+    keyed by the full store path (`group/name`), while `info.name` is only the leaf: a grouped
+    store carries the same leaf in every group, so labelling by name printed `CO` and `air_press`
+    twice each and `UTC_time` three times, with nothing to tell the rows apart. The key spells a
+    name the way `variable_names` spells its own, so the two read alike -- though this map is the
+    wider one, covering the coordinates and bounds that the data-variable list leaves out.
+
+    The labels are padded to a common width so the shapes line up in a terminal. Only the
+    displayed labels take part in that width, so one very long path hidden behind the cap
+    cannot stretch the whole table.
+
+    Args:
+        variables: The store's arrays, keyed by full path -- `meta_data.variables`, which
+            includes coordinates and bounds, not just the data variables. Must not be empty.
+
+    Returns:
+        list[str]: The `variables  :` header followed by one indented row per array, and a
+            `... N more` line when the cap hid some.
+
+    Raises:
+        ValueError: `variables` is empty, so there is no label to size the column from.
+            The caller tests that first -- an empty map is the classic-mode case, which
+            falls back to `_variable_name_lines`.
+    """
+    lines = ["  variables  :"]
+    shown = list(variables.items())[:MAX_DISPLAY_VARIABLES]
+    width = max(len(path) for path, _ in shown)
+    for path, info in shown:
+        extent = ", ".join(str(n) for n in info.shape)
+        row = f"    {path:<{width}}  ({extent})  {info.dtype}"
+        if info.unit:
+            row += f"  {info.unit}"
+        lines.append(row)
+    hidden = len(variables) - len(shown)
+    if hidden > 0:
+        lines.append(f"    ... {hidden} more")
+    return lines
+
+
+def _variable_name_lines(names: list[str], published: bool) -> list[str]:
+    """Name the variables on one line, for a store that publishes no per-array metadata.
+
+    This is the classic-mode fallback: `meta_data.variables` is empty there, but
+    `variable_names` still answers, so the names are worth printing even without shapes
+    or dtypes.
+
+    Args:
+        names: The variable names to list.
+        published: Whether the store publishes its structure. Only then does an empty
+            list mean `none` rather than "not knowable", so only then is the line printed
+            at all -- see `_container_summary`.
+
+    Returns:
+        list[str]: A single `variables  :` line, or nothing when there is neither a name
+            to show nor the standing to call the store empty.
+    """
+    listed = _capped_join(list(names))
+    lines: list[str] = []
+    if listed or published:
+        lines.append(f"  variables  : {listed or 'none'}")
+    return lines
+
+
+def _global_attribute_count(nc: NetCDF, published: bool) -> int:
+    """How many global attributes the store carries.
+
+    In multidimensional mode `meta_data` is the source, and the summary is already paying for
+    it to list the variables. In classic mode it is the wrong source: the classic metadata
+    top-up leaves `global_attributes` empty on more than half the corpus -- reporting no
+    attributes for a store that has eighteen -- and disagrees with the multidimensional count
+    on the rest. The already-open handle's `NC_GLOBAL#`-prefixed keys match the
+    multidimensional count on 21 of the 22 classic-openable fixtures, so the handle answers.
+
+    This is an accuracy fix, not a speed one: in classic mode `meta_data` is cheap and this
+    function opens no file, reading `GetMetadata()` off the already-open handle. Whatever
+    opens a classic `print(nc)` does make come from the CRS lookup -- across the 22
+    classic-openable fixtures that is anywhere from 0 to 240 of them, and in every one of the
+    22 the count matches `_crs_label()` called alone -- and they pay for a line the summary
+    actually prints.
+
+    Args:
+        nc: The container to count for.
+        published: Whether the store publishes multidimensional metadata.
+
+    Returns:
+        int: The number of global attributes.
+    """
+    if published:
+        count = len(nc.meta_data.global_attributes or {})
+    else:
+        raster = getattr(nc, "_raster", None)
+        metadata = (raster.GetMetadata() if raster is not None else None) or {}
+        count = sum(1 for key in metadata if key.startswith("NC_GLOBAL#"))
+    return count
+
+
+def _summary_line(label: str, value: str) -> str:
+    """One `  label      : value` line, with the label padded to the shared column.
+
+    Args:
+        label: The field name, unpadded.
+        value: The rendered value.
+
+    Returns:
+        str: The formatted line.
+
+    Examples:
+        - Every label lands the colons in the same column:
+            ```python
+            >>> _summary_line("CRS", "EPSG:4326")
+            '  CRS        : EPSG:4326'
+            >>> _summary_line("dimensions", "time=12")
+            '  dimensions : time=12'
+
+            ```
+    """
+    return f"  {label:<11}: {value}"
+
+
+def _optional_line(label: str, value: str, published: bool) -> list[str]:
+    """One summary line, or nothing when the store cannot answer the question.
+
+    `none` is a positive claim, so it is printed only where it is a fact. A multidimensional
+    store publishes its structure, so an empty value there genuinely means none; a classic
+    store publishes nothing, so the line is omitted rather than asserting an absence.
+
+    Args:
+        label: The field name.
+        value: The rendered value, empty when there is nothing to show.
+        published: Whether the store publishes its structure.
+
+    Returns:
+        list[str]: One line, or an empty list.
+    """
+    lines: list[str] = []
+    if value or published:
+        lines.append(_summary_line(label, value or "none"))
+    return lines
+
+
+def _grid_lines(nc: NetCDF) -> list[str]:
+    """The raster block, for a container that carries bands.
+
+    An MDIM container has none -- that is the #1090 defect, where `rows` / `columns` /
+    `cell_size` returned GDAL's in-memory placeholder -- but a classic-mode container exposes
+    the store's bands directly, and there those numbers are the real grid.
+
+    The cell size is dropped when GDAL reports no geotransform: a curvilinear or unstructured
+    store has no affine mapping, so `cell_size` there is 1.0 by construction rather than by
+    measurement. The shape and band count are still real, so only the `@ ...` term goes.
+
+    Args:
+        nc: The container to describe.
+
+    Returns:
+        list[str]: The `grid` line, or an empty list when there are no bands.
+    """
+    lines: list[str] = []
+    if nc.band_count:
+        grid = f"{nc.rows} x {nc.columns}"
+        if _has_georeference(nc):
+            # `cell_size` is always a float, and `:g` trims the trailing zeros that make a
+            # summary unreadable -- at the cost of rounding to 6 significant digits, so read
+            # the value from `cell_size` rather than from this line when it matters.
+            grid += f" @ {nc.cell_size:g}"
+        lines.append(_summary_line("grid", f"{grid}, {nc.band_count} band(s)"))
+    return lines
+
+
+def _container_summary(nc: NetCDF) -> str:
+    """Describe the store, reporting only what this container can actually know.
+
+    Sourced from `meta_data.variables` -- a `dict[str, VariableInfo]` carrying
+    name / shape / dtype / unit for every array including the coordinates. Looping
+    `get_variable()` instead would raise on every non-raster variable and produce a wall of
+    text (#1090).
+
+    This is the summary that costs something. In multidimensional mode the first call builds
+    :attr:`meta_data`, which walks every array in the store: ~44 ms and one file open locally,
+    cached from then on, so a second `print(nc)` is ~0.5 ms. That is the same cost the
+    previous summary paid -- it interpolated `meta_data` too. The variable summary pays none
+    of it.
+
+    That list is deliberately **not** :attr:`variable_names`: it enumerates every array, so it
+    includes the coordinates and bounds that the data-variable list leaves out, and it is keyed
+    in metadata order rather than the store's declared one. A structural summary wants the whole
+    picture; a caller asking "what can I extract" wants :attr:`variable_names`.
+
+    `none` is printed only where it is a fact. In multidimensional mode the store
+    publishes its dimensions, variables and groups, so an empty one genuinely means there
+    are none. Classic (non-MDIM) mode publishes no such metadata at all, so the same word
+    there would be a positive false claim about a store that does have dimensions -- those
+    lines are omitted instead, and the variable list falls back to `variable_names`.
+
+    That fallback is thin: `variable_names` in classic mode parses subdataset metadata, and a
+    store whose bands GDAL exposes directly has no subdatasets, so it answers `[]` for nine
+    of the eleven banded classic fixtures in the corpus and the line is omitted for them. It
+    still earns its place for the subdataset-style stores, where it is the only variable
+    listing available.
+
+    The raster block appears only when the container carries bands. An MDIM container has
+    none -- that is the #1090 defect, where `rows` / `columns` / `cell_size` returned
+    GDAL's in-memory placeholder -- but a classic-mode container exposes the store's bands
+    directly, and there those numbers are the real grid.
+
+    The cell size within that block is dropped when GDAL reports no geotransform for the store.
+    A curvilinear or unstructured store has no affine mapping, so `cell_size` there is 1.0 by
+    construction rather than by measurement; the shape and band count are still real, so the
+    line stays and only the `@ ...` term goes.
+
+    Args:
+        nc: The container to describe.
+
+    Returns:
+        str: A short multi-line summary.
+    """
+    label, _ = _store_label(nc)
+    lines = [f"<Container {label}>"]
+    published = nc._is_md_array
+
+    sizes = nc.dimension_sizes or {}
+    dims = _capped_join([f"{name}={size}" for name, size in sizes.items()])
+    lines.extend(_optional_line("dimensions", dims, published))
+
+    # Classic mode never populates `meta_data.variables` -- true for all 22 classic-openable
+    # corpus fixtures -- so the table branch is unreachable there and the fallback is the
+    # only listing; skipping the lookup keeps that explicit rather than incidental.
+    variables = (nc.meta_data.variables or {}) if published else {}
+    if variables:
+        lines.extend(_variable_table_lines(variables))
+    else:
+        lines.extend(_variable_name_lines(nc.variable_names or [], published))
+
+    lines.extend(_grid_lines(nc))
+    groups = _capped_join(list(nc.group_names or []))
+    lines.extend(_optional_line("groups", groups, published))
+    lines.append(_summary_line("CRS", nc._crs_label()))
+    attributes = _global_attribute_count(nc, published)
+    if attributes or published:
+        # Not `_optional_line`: an MDIM store with no global attributes reports
+        # "0 global", which is a fact, where that helper would render "none".
+        lines.append(_summary_line("attributes", f"{attributes} global"))
+    return "\n".join(lines)
+
+
+def _variable_summary(nc: NetCDF) -> str:
+    """Describe the raster this variable genuinely is.
+
+    Per-band sequences are collapsed when uniform: a 12-band variable reports
+    `float32` rather than `['float32'] * 12`. The band axis is named by its
+    dimension (`12 along time`) rather than `Band_1 ... Band_12`, because the
+    raster vocabulary for a time axis is a standing source of confusion (#1090).
+
+    Reads no pixels, computes no statistics, and never builds :attr:`meta_data`: it reads
+    band-level properties off the open handle, so it opens no file. What it does cost is a
+    few milliseconds of per-band property reads -- most of it :attr:`dtype`, which resolves
+    each band through the dtype catalog -- not a walk of the store. That walk was paid by
+    :meth:`get_variable` before the caller could hold a variable at all (~36 ms locally,
+    one file open).
+
+    Note that `repr()` is a different contract and is unchanged -- it is still
+    `gdal.Info`, so the surfaces that auto-display an object (a notebook cell, a debugger's
+    variable pane, pytest's assertion output) still show GDAL's `Size is 512, 512`
+    placeholder for a container. Only `str()` / `print()` route here.
+
+    Args:
+        nc: The variable to describe.
+
+    Returns:
+        str: A short multi-line summary.
+    """
+    # `copy()` and some in-memory results carry no source name; "unnamed" says so rather than
+    # printing a bare "?" where a name belongs.
+    name = nc._source_var_name or "unnamed"
+    # A variable subset's raster is an in-memory MDArray view, so it has no path of its own;
+    # the container it came from does.
+    parent = getattr(nc, "_parent_nc", None)
+    label, in_memory = _store_label(nc)
+    if in_memory and parent is not None:
+        label, in_memory = _store_label(parent)
+    header = f"<Variable {name}" + ("" if in_memory else f" - {label}")
+    lines = [header + ">"]
+
+    # `cell_size` is always a float, and `:g` trims the trailing zeros that make a summary
+    # unreadable -- at the cost of rounding to 6 significant digits, so read the value from
+    # `cell_size` rather than from this line when it matters.
+    cell_text = f"{nc.cell_size:g}"
+    lines.append(
+        f"  grid    : {nc.rows} x {nc.columns} @ {cell_text}, {nc._crs_label()}"
+    )
+
+    band_axis = nc._band_dim_name
+    bands = f"  bands   : {nc.band_count}"
+    if band_axis:
+        bands += f" along {band_axis}"
+    lines.append(bands)
+
+    units = _collapse_uniform(nc.band_units)
+    if units:
+        lines.append(f"  units   : {units}")
+    dtype = _collapse_uniform(nc.dtype)
+    if dtype:
+        lines.append(f"  dtype   : {dtype}")
+    nodata = _collapse_uniform(nc.no_data_value)
+    if nodata is not None:
+        lines.append(f"  no-data : {nodata}")
+    return "\n".join(lines)
+
+
 class NetCDF(Dataset):
     """NetCDF.
 
@@ -892,22 +1488,91 @@ class NetCDF(Dataset):
     def __str__(self):
         """Return a human-readable summary, or a `<Dataset: closed>` sentinel when closed.
 
+        The summary is chosen by **type**, through :meth:`_summary_text`, which
+        :class:`Container` and :class:`Variable` override. Defining one summary here and
+        letting both inherit it made the container describe raster fields it does not have:
+        `rows` / `columns` / `cell_size` fell through to GDAL's in-memory placeholder,
+        so a 12x5x5 cube at 0.25 degrees reported itself as 512 x 512 at cell size 1.0
+        (#1090).
+
+        Type rather than `band_count`: a container opened in classic mode carries the
+        store's bands directly, so `band_count >= 1` there and a band-count test would
+        label it a variable. The classes already encode the distinction `read_file` and
+        `get_variable` established, so they are the discriminator.
+
         Mirrors `Dataset.__str__`: a closed handle returns the sentinel rather than
         raising, so the repr/str stays total for debuggers and logging (`__repr__`
         already inherits this via `super()`).
+
+        This changes `str()` / `print()` only. `__repr__` is a separate contract --
+        `gdal.Info` on the underlying raster -- and is deliberately unchanged, so the
+        surfaces that auto-display an object still report the placeholder: a bare `nc` in a
+        notebook cell, a debugger's variable pane and pytest's assertion output all call
+        `repr`, and a container still shows `Size is 512, 512` there. Reworking that is a
+        separate question about `Dataset.__repr__` and its `gdal.Info` contract.
+
+        Returns:
+            str: The type-specific summary; `<Dataset: closed>` when the handle is closed,
+                or `<Container: summary unavailable>` / `<Variable: summary unavailable>`
+                when building the summary raised.
         """
         message = "<Dataset: closed>"
         if self._raster is not None:
-            message = f"""
-            Cell size: {self.cell_size}
-            Dimension: {self.rows} * {self.columns}
-            EPSG: {self.epsg}
-            projection: {self.crs}
-            Variables: {self.variable_names}
-            Metadata: {self.meta_data}
-            File: {self.file_name}
-        """
+            try:
+                message = self._summary_text()
+            except Exception as error:
+                # Total by contract, not just for a closed handle. `str()` runs in debuggers,
+                # logging and pytest introspection, where a raising summary masks the error the
+                # caller was actually looking at. The summary walks a dozen properties, any of
+                # which can fail on a half-built or exotic store, so degrade to a sentinel that
+                # still says what this is -- and log what went wrong, so the failure is
+                # diagnosable rather than merely survivable.
+                logger.debug(
+                    "%s summary failed: %r", type(self).__name__, error, exc_info=True
+                )
+                message = f"<{type(self).__name__}: summary unavailable>"
         return message
+
+    def _summary_text(self) -> str:
+        """The summary body for a bare `NetCDF`, which neither factory produces.
+
+        :class:`Container` and :class:`Variable` override this; the base only has to cope
+        with an instance of the deprecated alias itself. It defers to
+        :attr:`_is_root_container` -- the predicate the package already owns for this
+        question -- rather than spelling the conjunction out again.
+
+        Returns:
+            str: A container or variable summary.
+        """
+        if self._is_root_container:
+            return _container_summary(self)
+        return _variable_summary(self)
+
+    def _crs_label(self) -> str:
+        """The CRS as a short label -- `EPSG:4326`, a CRS name, or `unknown`.
+
+        Never the raw WKT: it is thousands of characters on one line and drowns every
+        other line of the summary (#1090).
+
+        Returns:
+            str: A one-line CRS label.
+        """
+        label = "unknown"
+        try:
+            epsg = self.epsg
+            if epsg:
+                label = f"EPSG:{epsg}"
+            else:
+                wkt = self.crs
+                if wkt:
+                    name = osr.SpatialReference(wkt=wkt).GetName()
+                    label = name or "unknown"
+        except Exception as error:
+            # `unknown` is also what a store with no CRS reports, so a genuine `epsg` / `crs`
+            # bug would be indistinguishable from an honest absence without this line.
+            logger.debug("CRS label failed: %r", error, exc_info=True)
+            label = "unknown"
+        return label
 
     def __repr__(self):
         """__repr__."""
@@ -8491,6 +9156,14 @@ class Variable(NetCDF):
         """
         return None
 
+    def _summary_text(self) -> str:
+        """Describe the raster this variable is; see :func:`_variable_summary`.
+
+        Returns:
+            str: A short multi-line variable summary.
+        """
+        return _variable_summary(self)
+
 
 class Container(NetCDF):
     """A NetCDF container (the root MDIM group) holding variables, dimensions, attributes.
@@ -8518,3 +9191,11 @@ class Container(NetCDF):
 
             ```
     """
+
+    def _summary_text(self) -> str:
+        """Describe the cube this container is; see :func:`_container_summary`.
+
+        Returns:
+            str: A short multi-line container summary.
+        """
+        return _container_summary(self)
