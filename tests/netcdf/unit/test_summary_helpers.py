@@ -247,6 +247,58 @@ class TestCrsLabel:
             nc.close()
 
 
+class TestBaseDispatch:
+    """`NetCDF._summary_text` -- the fallback for a subclass that overrides neither."""
+
+    def test_a_container_reaches_the_container_summary(self):
+        """The base dispatch routes a root container to the container summary.
+
+        Test scenario:
+            `Container` and `Variable` override `_summary_text`, so the base is unreachable
+            through the public factories -- but it is live for any third-party subclass of
+            `NetCDF`, which the package supports. Its two arms are asserted directly.
+        """
+        path = "tests/data/netcdf/cf__5v__1d4-3d1__geog__y-desc.nc"
+        nc = NetCDF.read_file(path)
+        try:
+            assert nc._is_root_container, "fixture must be a root container"
+            assert NetCDF._summary_text(nc).startswith("<Container "), (
+                NetCDF._summary_text(nc)
+            )
+        finally:
+            nc.close()
+
+    def test_a_variable_reaches_the_variable_summary(self):
+        """The base dispatch routes a non-root object to the variable summary."""
+        path = "tests/data/netcdf/cf__5v__1d4-3d1__geog__y-desc.nc"
+        nc = NetCDF.read_file(path)
+        try:
+            variable = nc.get_variable("t2m")
+            assert not variable._is_root_container, "a variable is not a root container"
+            assert NetCDF._summary_text(variable).startswith("<Variable t2m"), (
+                NetCDF._summary_text(variable)
+            )
+        finally:
+            nc.close()
+
+    def test_a_group_view_names_its_group(self):
+        """A `get_group()` view is labelled by its group, not by its root's file name alone.
+
+        Test scenario:
+            A group view shares the root's open dataset and its `file_name`, so without the
+            `:/group` suffix the two print identically.
+        """
+        path = "tests/data/netcdf/none__35v__1d35__groups-nc4.nc"
+        nc = NetCDF.read_file(path)
+        try:
+            name = nc.group_names[0]
+            header = str(nc.get_group(name)).split("\n")[0]
+            assert f":/{name}" in header, f"group path missing from {header}"
+            assert str(nc).split("\n")[0] != header, "group view prints as its root"
+        finally:
+            nc.close()
+
+
 class TestSummaryLogging:
     """The summary swallows exceptions to stay total, and says so at DEBUG."""
 
