@@ -2036,28 +2036,6 @@ class Dataset(RasterBase):
     # arrays" -- unhelpful, but an error rather than a silent wrong answer.
     __array_ufunc__ = None
 
-    def __rmul__(self, other: Any) -> Any:
-        """Multiply from the right, so `math.prod()` folds a list of rasters.
-
-        The multiplicative twin of :meth:`__radd__`: `math.prod` seeds its
-        accumulator with the integer `1`, so `1 * ds` has to succeed for a list
-        of rasters to be multipliable at all. One is the multiplicative
-        identity, so the answer is this dataset's values, as a copy — for the
-        aliasing reason :meth:`__radd__` gives.
-
-        Args:
-            other: The left-hand operand, which reached here because its own
-                `__mul__` declined this dataset.
-
-        Returns:
-            Dataset | NotImplemented: A copy of this dataset when `other` is a
-            real numeric one, else `NotImplemented`.
-        """
-        result: Any = NotImplemented
-        if isinstance(other, Real) and not isinstance(other, bool) and other == 1:
-            result = self.copy()
-        return result
-
     def _arithmetic(self, other: Any, op: Callable) -> Any:
         """Route a binary operator to :meth:`combine`, or decline the operand.
 
@@ -2073,6 +2051,17 @@ class Dataset(RasterBase):
         dtypes for the same expression. Anything else yields
         ``NotImplemented``, so Python raises its own ``TypeError`` naming both
         operand types.
+
+        A comparison — `<`, `<=`, `>`, `>=` — is the same journey with a
+        callable that returns booleans. GDAL has no boolean band type, so the
+        result is stored as Byte: `1` where the test holds, `0` where it does
+        not, and `255` wherever either operand was no-data. The mask always
+        declares `255`, whether or not anything was masked; it cannot collide
+        with `0`/`1`, and it leaves a marker for a later crop or warp fringe.
+        A cell holding `NaN` is compared rather than excluded unless `NaN` is
+        that band's declared sentinel — `NaN >= x` is `False`, so it reads as
+        `0` rather than as a gap; declare `no_data_value=np.nan` on the operand
+        when NaN should mean "missing".
 
         `__eq__` and `__ne__` are deliberately *not* routed through here.
         Python gives every object a working identity-based equality, the
@@ -2179,17 +2168,63 @@ class Dataset(RasterBase):
             result = self.copy()
         return result
 
+    def __rmul__(self, other: Any) -> Any:
+        """Multiply from the right, so `math.prod()` folds a list of rasters.
+
+        The multiplicative twin of :meth:`__radd__`: `math.prod` seeds its
+        accumulator with the integer `1`, so `1 * ds` has to succeed for a list
+        of rasters to be multipliable at all. One is the multiplicative
+        identity, so the answer is this dataset's values, as a copy — for the
+        aliasing reason :meth:`__radd__` gives.
+
+        Args:
+            other: The left-hand operand, which reached here because its own
+                `__mul__` declined this dataset.
+
+        Returns:
+            Dataset | NotImplemented: A copy of this dataset when `other` is a
+            real numeric one, else `NotImplemented`.
+        """
+        result: Any = NotImplemented
+        if isinstance(other, Real) and not isinstance(other, bool) and other == 1:
+            result = self.copy()
+        return result
+
     def __lt__(self, other: Any) -> Any:
-        """Cell-by-cell `<` against another raster, as a Byte mask."""
+        """Cell-by-cell `<` against another raster — see :meth:`_arithmetic`."""
         return self._arithmetic(other, operator.lt)
 
     def __le__(self, other: Any) -> Any:
-        """Cell-by-cell `<=` against another raster, as a Byte mask."""
+        """Cell-by-cell `<=` against another raster — see :meth:`_arithmetic`."""
         return self._arithmetic(other, operator.le)
 
     def __gt__(self, other: Any) -> Any:
-        """Cell-by-cell `>` against another raster, as a Byte mask."""
+        """Cell-by-cell `>` against another raster — see :meth:`_arithmetic`."""
         return self._arithmetic(other, operator.gt)
+
+    def __ge__(self, other: Any) -> Any:
+        """Cell-by-cell `>=` against another raster, as a Byte mask.
+
+        See :meth:`_arithmetic` for the mask's dtype, sentinel and NaN rules.
+
+        Examples:
+            - Where does the surface stand at least as high as the bare earth:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> surface = Dataset.from_array(np.full((3, 3), 30.0, "float32"), geo_ref=geo_ref)
+              >>> bare = Dataset.from_array(np.full((3, 3), 22.0, "float32"), geo_ref=geo_ref)
+              >>> mask = surface >= bare
+              >>> np.asarray(mask.read_array()).dtype.name, int(mask.no_data_value[0])
+              ('uint8', 255)
+              >>> bool((np.asarray(mask.read_array()) == 1).all())
+              True
+
+              ```
+        """
+        return self._arithmetic(other, operator.ge)
 
     def __bool__(self) -> bool:
         """Refuse to collapse a raster into a single true/false.
@@ -2248,40 +2283,6 @@ class Dataset(RasterBase):
             "`ds is not None` for a presence check. This is also why `sorted`, "
             "`min` and `max` refuse a list of rasters"
         )
-
-    def __ge__(self, other: Any) -> Any:
-        """Cell-by-cell `>=` against another raster, as a Byte mask.
-
-        The mask always declares `255` as its no-data value, whether or not any
-        cell was masked: `255` cannot collide with the `0`/`1` a predicate
-        produces, so declaring it costs nothing and leaves a marker for a later
-        crop or warp fringe to land on.
-
-        A cell holding `NaN` is compared, not excluded, unless `NaN` is the
-        band's declared sentinel — `NaN >= x` is `False`, so it reads as `0`
-        rather than as a gap. That is :meth:`combine`'s domain rule, which
-        asks whether a cell holds *the declared sentinel*, and it applies
-        equally to :meth:`apply`. Declare `no_data_value=np.nan` on the operand
-        when NaN should mean "missing".
-
-        Examples:
-            - Where does the surface stand at least as high as the bare earth:
-
-              ```python
-              >>> import numpy as np
-              >>> from pyramids.dataset import Dataset, GeoReference
-              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
-              >>> surface = Dataset.from_array(np.full((3, 3), 30.0, "float32"), geo_ref=geo_ref)
-              >>> bare = Dataset.from_array(np.full((3, 3), 22.0, "float32"), geo_ref=geo_ref)
-              >>> mask = surface >= bare
-              >>> np.asarray(mask.read_array()).dtype.name, int(mask.no_data_value[0])
-              ('uint8', 255)
-              >>> bool((np.asarray(mask.read_array()) == 1).all())
-              True
-
-              ```
-        """
-        return self._arithmetic(other, operator.ge)
 
     @property
     def access(self) -> str:
