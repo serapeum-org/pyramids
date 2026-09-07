@@ -70,10 +70,29 @@ _POINT_WINDOW_MAX_WASTE = 16
 # it, the per-point reads are the cheaper failure mode.
 _POINT_WINDOW_MAX_PIXELS = 8_000_000
 
-# `Analysis.combine`'s "derive the sentinel from the result dtype" default. A
-# distinct object because `None` is a meaningful value there -- it asks for a
-# result with no no-data sentinel at all.
-_DERIVE_NO_DATA = object()
+
+class _DeriveNoData:
+    """Singleton marking `combine`'s "work the sentinel out for me" default.
+
+    A distinct object because `None` is already meaningful for `no_data_value`
+    -- it asks for a result with no sentinel at all. A named class rather than
+    a bare `object()` so the rendered signature reads
+    `no_data_value: Any = <derive>` instead of a memory address that changes on
+    every docs build.
+    """
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        """Render as `<derive>` in signatures, `help()` and the API docs.
+
+        Returns:
+            str: The stable placeholder shown wherever the default is printed.
+        """
+        return "<derive>"
+
+
+_DERIVE_NO_DATA = _DeriveNoData()
 
 
 def _fits_dtype(value: Any, dtype: np.dtype) -> bool:
@@ -747,6 +766,16 @@ class Analysis(_Engine["Dataset"]):
             sentinel,
             array=out,
         )
+        # Dataset-level tags travel for the same reason band names do: a result
+        # that has forgotten which sensor or scene it came from is harder to use
+        # than the arrays it was built from. Band-level scale, offset and units
+        # are deliberately not carried -- `func` can change what the numbers
+        # mean, and a ratio of two scaled bands is not on either input's scale.
+        # Assigned through, not `dict(...)`: `Dataset.meta_data` is a plain dict
+        # but `NetCDF.meta_data` is a `NetCDFMetadata`, which is not iterable --
+        # coercing it turned every operator on a NetCDF variable into a
+        # TypeError. Both setters accept their own type.
+        combined.meta_data = self._ds.meta_data
         # Band identity is half the reason to keep the operation inside the
         # Dataset: an NDVI or change-detection stack whose bands come back as
         # `Band_1`, `Band_2` has lost what told the caller which is which.
@@ -1017,9 +1046,11 @@ class Analysis(_Engine["Dataset"]):
                     NoDataCollisionWarning,
                     # 4 frames out is the caller of `Dataset.combine`: warn ->
                     # _resolve_combined_no_data -> Analysis.combine ->
-                    # Dataset.combine -> user. Reached through the engine
-                    # directly it is one frame short, which is still nearer the
-                    # caller than the private helper this used to fire from.
+                    # Dataset.combine -> user. Reached as `ds.analysis.combine`
+                    # the facade frame is absent, so the same count lands one
+                    # frame too far -- on whatever called the caller. A single
+                    # constant cannot serve both entry points; the facade is the
+                    # documented one, so it is the one that is right.
                     stacklevel=4,
                 )
         elif np.issubdtype(dtype, np.floating):
@@ -1046,6 +1077,14 @@ class Analysis(_Engine["Dataset"]):
         Raises:
             ValueError: `requested` cannot be stored in `dtype`.
         """
+        if isinstance(requested, bool):
+            # `True` fits every numeric dtype as `1`, so it would silently become
+            # a `1.0` sentinel. The operators already refuse a bool as the
+            # additive identity; refusing it here keeps one rule.
+            raise ValueError(
+                f"the no-data value {requested!r} is a bool; pass the number you "
+                "mean, or `None` for a result with no sentinel"
+            )
         if not _fits_dtype(requested, dtype):
             raise ValueError(
                 f"the no-data value {requested!r} cannot be stored in the "
@@ -1117,15 +1156,20 @@ class Analysis(_Engine["Dataset"]):
             # is otherwise ~27 full-size allocations. A sentinel outside the
             # result's range cannot occur in it, and the common candidates
             # (-9999, a dtype extreme) usually are.
+            #
+            # `nanmin`/`nanmax`, and a finiteness check on the bounds: plain
+            # `min`/`max` propagate a `NaN`, and every comparison against `NaN`
+            # is False, so a single `NaN` anywhere in the result -- `0/0` in a
+            # normalised difference is enough -- made the prefilter answer "no
+            # collision" for every finite sentinel and silenced the warning.
             with np.errstate(invalid="ignore"):
                 comparable = np.isfinite(np.asarray(sentinel, dtype="float64"))
-            if comparable:
-                low, high = array.min(), array.max()
-                occurs = bool(low <= sentinel <= high) and bool(
-                    is_stored_no_data(array, sentinel).any()
-                )
-            else:
-                occurs = bool(is_stored_no_data(array, sentinel).any())
+                low = np.nanmin(array) if array.size else np.nan
+                high = np.nanmax(array) if array.size else np.nan
+            in_range = not (
+                comparable and np.isfinite(low) and np.isfinite(high)
+            ) or bool(low <= sentinel <= high)
+            occurs = in_range and bool(is_stored_no_data(array, sentinel).any())
         return occurs
 
     def fill(

@@ -8,6 +8,8 @@ rather than something a user discovers when a write fails.
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pytest
 
@@ -54,6 +56,91 @@ class TestCombineNetCDFVariable:
         assert np.allclose(np.asarray(result.read_array()), 6.0)
         assert result.epsg == left.epsg
         assert result.geotransform == left.geotransform
+
+    @pytest.mark.parametrize(
+        ("expression", "expected"),
+        [
+            (lambda a, b: a - b, 6.0),
+            (lambda a, b: a + b, 14.0),
+            (lambda a, b: sum([a, b]), 14.0),
+            (lambda a, b: math.prod([a, b]), 40.0),
+            (lambda a, b: sum([a]), 10.0),
+        ],
+        ids=["sub", "add", "sum", "prod", "sum-one"],
+    )
+    def test_every_operator_works_on_a_variable_view(
+        self, tmp_path, expression, expected
+    ):
+        """`NetCDF` inherits the operators, so they must be exercised on it too.
+
+        Args:
+            tmp_path: pytest temp directory.
+            expression: The fold or operator under test.
+            expected: The mean every result cell must produce.
+
+        Test scenario:
+            10 and 4 through each operator. `sum`/`math.prod` matter most: they route
+            through `__radd__`/`__rmul__`, which copy the operand, and a plain `Dataset`
+            copy behaves differently from a variable view's.
+        """
+        left = _variable(tmp_path, "a.nc", 10.0)
+        right = _variable(tmp_path, "b.nc", 4.0)
+
+        result = expression(left, right)
+
+        assert np.asarray(result.read_array()).mean() == pytest.approx(expected)
+
+    def test_a_comparison_on_variables_gives_a_byte_mask(self, tmp_path):
+        """The comparison operators reach `NetCDF` through inheritance as well.
+
+        Test scenario:
+            `>=` on two variable views gives the same uint8/255 mask a plain raster does.
+        """
+        left = _variable(tmp_path, "a.nc", 10.0)
+        right = _variable(tmp_path, "b.nc", 4.0)
+
+        mask = left >= right
+
+        assert np.asarray(mask.read_array()).dtype == np.uint8
+        assert mask.no_data_value[0] == 255
+        assert (np.asarray(mask.read_array()) == 1).all()
+
+    def test_no_netcdf_object_has_a_truth_value(self, tmp_path):
+        """The class-wide refusal reaches every `Dataset` subclass.
+
+        Test scenario:
+            Both a variable view and the root container raise, so `if nc:` cannot be
+            silently true anywhere in the NetCDF hierarchy either. `is not None` is the
+            presence check.
+        """
+        path = str(tmp_path / "root.nc")
+        NetCDF.from_array(
+            np.full((4, 4), 1.0, "float32"), geo_ref=GEO_REF, variable_name="t"
+        ).to_file(path)
+        container = NetCDF.read_file(path)
+
+        for obj in (container, container.get_variable("t")):
+            with pytest.raises(
+                ValueError, match="truth value of a Dataset is ambiguous"
+            ):
+                bool(obj)
+        assert container is not None, "presence is asked with `is not None`"
+
+    def test_metadata_carries_without_coercing_the_netcdf_type(self, tmp_path):
+        """`NetCDF.meta_data` is a `NetCDFMetadata`, not a dict.
+
+        Test scenario:
+            Carrying dataset metadata through `combine` must assign it through rather
+            than rebuild it — coercing with `dict(...)` raised `TypeError:
+            'NetCDFMetadata' object is not iterable` and broke every operator on a
+            variable view.
+        """
+        left = _variable(tmp_path, "a.nc", 10.0)
+        right = _variable(tmp_path, "b.nc", 4.0)
+
+        result = left - right
+
+        assert result.meta_data is not None
 
     def test_the_result_matches_what_apply_returns(self, tmp_path):
         """`combine` inherits `apply`'s class rule rather than inventing its own.
