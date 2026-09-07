@@ -208,3 +208,72 @@ class TestFreeNoData:
         chosen = free_no_data(np.dtype("float32"), [], np.array([1.0, 2.0]))
 
         assert chosen == DEFAULT_NO_DATA_VALUE
+
+
+class TestTheSearchEdges:
+    """Branches the ordinary crop and combine calls do not reach."""
+
+    def test_a_value_that_cannot_be_cast_does_not_fit(self):
+        """`fits_dtype` answers rather than propagating numpy's error.
+
+        Test scenario:
+            `astype` raises for a value numpy cannot interpret as the target
+            dtype. The question asked is "can this dtype hold it", and the
+            answer is no -- letting `ValueError` out would make every caller
+            wrap the call.
+        """
+        assert fits_dtype("not a number", np.dtype("int32")) is False
+
+    def test_values_outside_the_dtype_range_are_ignored_by_the_scan(self):
+        """The scan indexes a mask sized to the dtype, so it must bound first.
+
+        Test scenario:
+            The values need not share the band's dtype -- a caller may hand in
+            a wider array. `300` has no `uint8` slot, and indexing the mask
+            with it would raise or wrap onto a value the data does not hold.
+            It is dropped, and the answer still avoids the 0 and 255 present.
+        """
+        values = np.array([300, 0, 255], dtype="int16")
+
+        chosen = free_no_data(np.dtype("uint8"), [], values)
+
+        assert chosen == 1
+
+    def test_a_signed_band_scans_from_its_own_minimum(self):
+        """The mask is offset by the dtype minimum, not by zero.
+
+        Test scenario:
+            `int8` runs from -128, so a scan that assumed a zero-based range
+            would index negatively and silently answer from the wrong end.
+        """
+        values = np.array([-128, 127, 1], dtype="int8")
+
+        chosen = free_no_data(np.dtype("int8"), [], values)
+
+        assert chosen not in set(values.tolist())
+        assert np.iinfo("int8").min <= chosen <= np.iinfo("int8").max
+
+    def test_a_nan_candidate_is_taken_on_a_float_band(self):
+        """`NaN` skips the range prefilter and is compared directly.
+
+        Test scenario:
+            The crop offers `NaN` first for a band that declares nothing. It
+            is not finite, so `occurs_in` cannot use its min/max shortcut and
+            falls through to the element-wise test.
+        """
+        chosen = free_no_data(np.dtype("float32"), [np.nan], np.array([1.0, 2.0]))
+
+        assert np.isnan(chosen)
+
+    def test_a_nan_candidate_the_data_holds_is_skipped(self):
+        """A band already carrying `NaN` cannot use it to mark a gap.
+
+        Test scenario:
+            Those cells are indistinguishable from the ones the caller wants
+            marked, so the search moves on to the package default.
+        """
+        values = np.array([1.0, np.nan, 2.0], dtype="float32")
+
+        chosen = free_no_data(np.dtype("float32"), [np.nan], values)
+
+        assert chosen == DEFAULT_NO_DATA_VALUE

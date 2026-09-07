@@ -1795,6 +1795,54 @@ class TestCropFillValues:
             f"a storable sentinel was invented for an undeclared band: {fill}"
         )
 
+    def test_a_mixed_raster_leaves_the_cutline_warp_alone(self):
+        """`-dstnodata` takes a value per band and cannot spell "none".
+
+        Test scenario:
+            One band declaring an unstorable sentinel and another declaring
+            nothing cannot be expressed in a single `-dstnodata`, and filling
+            the gap with a derived value for the undeclared band is the
+            invention the cutline path must not make. The warp is left exactly
+            as it was.
+        """
+        raster = gdal.GetDriverByName("MEM").Create("", 4, 4, 2, gdal.GDT_Byte)
+        raster.SetGeoTransform((0.0, 1.0, 0.0, 4.0, 0.0, -1.0))
+        raster.GetRasterBand(1).WriteArray(np.ones((4, 4), dtype="uint8"))
+        raster.GetRasterBand(2).WriteArray(np.ones((4, 4), dtype="uint8"))
+        # Band by band through GDAL: the `no_data_value` setter normalises the
+        # list, so a raster mixing a declared and an undeclared band -- which a
+        # file on disk can easily be -- cannot be built through it.
+        raster.GetRasterBand(1).SetNoDataValue(float("nan"))
+        source = Dataset(raster)
+        assert source.no_data_value[1] is None, "band 2 must declare nothing"
+
+        assert source.spatial._derived_crop_fills() is None
+
+    @pytest.mark.parametrize(
+        ("fills", "expected"),
+        [
+            ([np.uint8(255), np.uint8(0)], "255 0"),
+            ([np.float32("nan")], "nan"),
+            ([np.float32(1.5)], "1.5"),
+            ([np.uint64(2**64 - 1)], "18446744073709551615"),
+        ],
+    )
+    def test_the_warp_nodata_rendering(self, fills, expected: str):
+        """One value per band, and an integer rendered as an integer.
+
+        Args:
+            fills: The per-band fills to render.
+            expected: The `-dstnodata` argument GDAL should receive.
+
+        Test scenario:
+            The binding stringifies whatever it is handed, so a Python list
+            would arrive as `"[255, 0]"`. The `uint64` row is why integers do
+            not go through `float`: its maximum has no exact `float64`, and
+            the round trip would hand GDAL a value one larger than the dtype
+            can hold.
+        """
+        assert Spatial._warp_nodata(fills) == expected
+
     def test_a_band_holding_every_candidate_refuses(self):
         """The honest failure, rather than a colliding fill.
 
