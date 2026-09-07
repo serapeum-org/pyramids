@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -5775,6 +5775,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#unreleased_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        unreleased
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#0470_2" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5803,7 +5814,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#unreleased_3" class="md-nav__link">
+  <a href="#unreleased_4" class="md-nav__link">
     <span class="md-ellipsis">
       
         unreleased
@@ -6528,6 +6539,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#unreleased_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        unreleased
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#0470_2" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -6556,7 +6578,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#unreleased_3" class="md-nav__link">
+  <a href="#unreleased_4" class="md-nav__link">
     <span class="md-ellipsis">
       
         unreleased
@@ -6879,6 +6901,44 @@ that leaked out of an empty table lookup. Only affects code catching the old typ
 </table>
 <h2 id="dataset"><a class="toclink" href="#dataset">dataset</a><a class="headerlink" href="#dataset" title="Permanent link">#</a></h2>
 <h3 id="unreleased_1"><a class="toclink" href="#unreleased_1">unreleased</a><a class="headerlink" href="#unreleased_1" title="Permanent link">#</a></h3>
+<p><strong>Two rasters can now be combined directly, and <code>Dataset</code> gained arithmetic operators.</strong> Additive — nothing that
+worked before behaves differently. <code>ds.combine(other, func)</code> runs a binary function over two aligned rasters and
+returns a <code>Dataset</code> on the left operand's grid, and <code>-</code>, <code>+</code>, <code>*</code>, <code>/</code> between two rasters are thin wrappers over
+it. Previously this meant reading both bands into numpy, computing, rebuilding a <code>GeoReference</code> from one of the
+inputs and wrapping the result with <code>from_array</code> — the step where georeferencing gets lost.</p>
+<ul>
+<li>The operands must already share a grid; a mismatch raises <code>AlignmentError</code> rather than resampling. The new
+  <code>ds.same_grid(other)</code> predicate answers the question in advance, and <code>align()</code> is the explicit fix.</li>
+<li>A <strong>scalar</strong> operand is not accepted. <code>ds * 2</code> raises <code>TypeError</code>; scalar arithmetic stays with
+  <code>ds.apply(lambda v: v * 2)</code>, which preserves the band's dtype where <code>combine</code> takes whatever <code>func</code> returns.</li>
+<li>A cell that is no-data in either operand is no-data in the result. An <strong>integer</strong> result's sentinel is derived
+  against the values <code>func</code> computed, so no in-range number is claimed as a gap by the arithmetic that produced
+  it, and one that masked nothing declares <strong>no</strong> sentinel at all. A <strong>floating</strong> result always declares <code>NaN</code>:
+  a cell <code>func</code> computed as <code>NaN</code> (<code>0/0</code> in a normalised difference) has no value, so it is a gap and the result
+  says so. Pass <code>no_data_value=</code> to choose one, or <code>no_data_value=None</code> for no masking.</li>
+<li><code>sum(rasters)</code> works: <code>__radd__</code> absorbs the integer <code>0</code> that <code>sum()</code> seeds with, returning a copy so a
+  one-element sum never aliases its input. <code>0</code> is the only scalar accepted anywhere in the operators, and only
+  from the left — <code>1 + ds</code> still raises. That copy is a real cost: <code>sum()</code> and <code>math.prod()</code> each materialise one
+  extra full raster that <code>functools.reduce(operator.add, rasters)</code> does not, which matters near the memory limit.</li>
+<li><code>combine</code> is whole-array: both operands are read in full. For rasters near the memory limit use
+  <code>apply(elementwise=True)</code> or <code>read_array(chunks=)</code>.</li>
+<li>The module-private <code>_same_grid</code> helper in <code>pyramids.dataset.dataset</code> moved to <code>Spatial.same_grid</code>, faced on
+  <code>Dataset</code>. It was never public, but anyone importing it directly must switch to <code>a.same_grid(b)</code>.</li>
+<li><code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code> and <code>&gt;=</code> between two rasters return a Byte mask (<code>1</code>/<code>0</code>, and <code>255</code> wherever either operand was
+  no-data). <code>==</code> and <code>!=</code> are <strong>not</strong> overridden — they stay identity-based, so <code>Dataset</code> remains usable in
+  <code>assert</code>, in sets and as a dict key; use <code>a.combine(b, np.equal)</code> for the mask.</li>
+<li><code>math.prod(rasters)</code> folds like <code>sum(rasters)</code>; both absorb their identity scalar from the left only.</li>
+</ul>
+<p><strong><code>bool(ds)</code> now raises — replace <code>if ds:</code> with <code>if ds is not None:</code>.</strong> Hard change. A raster holds one value per
+cell, and a comparison between two rasters is itself a raster, so there is no honest single truth value. Reduce
+explicitly — <code>bool(np.asarray((a &gt;= b).read_array()).all())</code> — and use <code>is not None</code> for presence checks. numpy,
+pandas and xarray all refuse a truth value for the same reason.</p>
+<p>The refusal is what keeps the new comparison operators safe. Before this release <code>a &gt;= b</code> raised <code>TypeError</code>, so
+<code>if a &gt;= b:</code> and <code>sorted(rasters)</code> were errors; making them return a raster without also refusing a truth value
+would have turned those errors into silently wrong answers, which is why the two ship together.</p>
+<p><strong><code>np.&lt;ufunc&gt;(ds, ...)</code> now raises <code>TypeError</code>.</strong> Hard change. <code>Dataset</code> sets <code>__array_ufunc__ = None</code>, so numpy
+defers instead of treating a raster as an opaque object. Previously <code>np.array([0.0]) + ds</code> returned an object
+array holding a raster copy — a silent wrong answer rather than an error. Use the operators, or <code>combine</code>.</p>
 <p><strong><code>Dataset.dtype</code> reports numpy's spelling, so a Byte raster reads <code>uint8</code> rather than <code>byte</code>.</strong> Hard change,
 silent — the property still returns one string per band, but two of the catalog's names moved, two half-precision
 types became reachable, and one band type that used to return a value now raises. The names are numpy's wherever
@@ -7371,12 +7431,24 @@ reprojection itself moved down to <code>pyramids.base._bbox</code> so <code>pyra
 <a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.base.crs</span><span class="w"> </span><span class="kn">import</span> <span class="n">crs_from_user_input</span>
 </code></pre></div>
 <h2 id="cli"><a class="toclink" href="#cli">cli</a><a class="headerlink" href="#cli" title="Permanent link">#</a></h2>
+<h3 id="unreleased_3"><a class="toclink" href="#unreleased_3">unreleased</a><a class="headerlink" href="#unreleased_3" title="Permanent link">#</a></h3>
+<p><strong><code>pyramids calc</code> refuses inputs that do not share the first input's grid.</strong> Hard change — it used to let the
+bound names broadcast against each other and wrote the answer on the first input's grid, a georeferenced result
+to a question the inputs never agreed on. Warp them onto a common grid first (<code>pyramids warp</code>). An input carrying
+no CRS tag at all is compared on its pixel grid alone, so an untagged mask or QA layer sitting on the template's
+cells is still accepted.</p>
+<p><strong><code>pyramids calc</code> preserves a rotated or anisotropic geotransform.</strong> Bug fix, silent before. The output was
+rebuilt from the template's top-left corner and cell size, which collapses to a north-up square-pixel grid: an
+input at <code>(100, 2, 0.5, 200, 0.25, -3)</code> was written out as <code>(100, 2, 0, 200, 0, -2)</code>, with its skew zeroed and
+its y-resolution changed. The whole geotransform is now copied. The output's no-data value is unchanged — still
+<code>-9999</code> whatever the inputs declare, falling back per dtype exactly as before when <code>-9999</code> is out of range (<code>255</code>
+for <code>uint8</code>, <code>65535</code> for <code>uint16</code>).</p>
 <h3 id="0470_2"><a class="toclink" href="#0470_2">0.47.0</a><a class="headerlink" href="#0470_2" title="Permanent link">#</a></h3>
 <p><strong><code>pyramids calc</code> refuses a first input with no CRS.</strong> The result cannot be georeferenced and pyramids will not
 stamp a default; set a CRS on the input first. <code>pyramids georeference</code> is unaffected — its GCPs and <code>--gcp-crs</code>
 replace the georeference wholesale.</p>
 <h2 id="netcdf"><a class="toclink" href="#netcdf">netcdf</a><a class="headerlink" href="#netcdf" title="Permanent link">#</a></h2>
-<h3 id="unreleased_3"><a class="toclink" href="#unreleased_3">unreleased</a><a class="headerlink" href="#unreleased_3" title="Permanent link">#</a></h3>
+<h3 id="unreleased_4"><a class="toclink" href="#unreleased_4">unreleased</a><a class="headerlink" href="#unreleased_4" title="Permanent link">#</a></h3>
 <p><strong><code>str(nc)</code> is a different shape, and the summary now depends on whether you hold a container or a variable.</strong>
 Hard change, silent — nothing raises and nothing warns. Anything scraping the old text (log parsing, notebook
 snapshots, doctests) will stop matching.</p>
