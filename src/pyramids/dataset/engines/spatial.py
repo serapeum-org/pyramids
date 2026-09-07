@@ -1494,7 +1494,7 @@ class Spatial(_Engine["Dataset"]):
 
         return self._ds.rows == mask.rows and self._ds.columns == mask.columns
 
-    def same_grid(self, other: Dataset) -> bool:
+    def same_grid(self, other: Dataset, *, compare_crs: bool = True) -> bool:
         """Whether ``other`` occupies this dataset's pixel grid, in the same CRS.
 
         Size alone is not the question: this also requires the same CRS and the
@@ -1511,10 +1511,18 @@ class Spatial(_Engine["Dataset"]):
         Args:
             other (Dataset):
                 Dataset to compare against this one.
+            compare_crs (bool):
+                Whether the CRSes must agree too. Default `True`. Pass `False`
+                for the one case where a missing CRS is not a mismatch: an input
+                that carries no CRS tag at all still sits on this raster's cells
+                when its geotransform and size match, and inherits this one's
+                georeferencing downstream. `pyramids calc` uses it for exactly
+                that.
 
         Returns:
             bool:
-                `True` iff both rasters occupy the same pixel grid in the same CRS.
+                `True` iff both rasters occupy the same pixel grid — in the same
+                CRS unless `compare_crs=False`.
 
         Raises:
             TypeError:
@@ -1581,7 +1589,7 @@ class Spatial(_Engine["Dataset"]):
                 unless this predicate holds.
         """
         if not isinstance(other, RasterBase):
-            raise TypeError("The argument should be a Dataset")
+            raise TypeError(f"`other` must be a Dataset, got {type(other).__name__}")
         ds = self._ds
         return (
             # `crs_equal(crs_spec(...))`, not `a.epsg == b.epsg`: `epsg` is None
@@ -1590,7 +1598,10 @@ class Spatial(_Engine["Dataset"]):
             # rasters at different sub-satellite longitudes were read as one
             # grid, and the band stack silently dropped every band after the
             # first.
-            crs_equal(crs_spec(ds.epsg, ds.crs), crs_spec(other.epsg, other.crs))
+            (
+                not compare_crs
+                or crs_equal(crs_spec(ds.epsg, ds.crs), crs_spec(other.epsg, other.crs))
+            )
             and ds.rows == other.rows
             and ds.columns == other.columns
             and bool(

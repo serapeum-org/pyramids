@@ -531,35 +531,6 @@ def _safe_calc_eval(node: ast.AST, variables: dict) -> object:
     return result
 
 
-def _same_pixel_grid(template: Dataset, other: Dataset) -> bool:
-    """Whether two rasters occupy the same pixel grid, ignoring the CRS.
-
-    The CRS-blind half of
-    :meth:`Spatial.same_grid <pyramids.dataset.engines.Spatial.same_grid>`, for
-    the one case where a missing CRS is not a mismatch: an input that carries no
-    CRS tag at all still sits on the template's cells when its geotransform and
-    size match, and inherits the template's georeferencing on the way out.
-
-    Args:
-        template: The raster whose grid the others must match.
-        other: The raster to compare against `template`.
-
-    Returns:
-        bool: `True` when both rasters have the same size and geotransform.
-    """
-    return (
-        template.rows == other.rows
-        and template.columns == other.columns
-        and bool(
-            np.allclose(
-                np.asarray(template.geotransform),
-                np.asarray(other.geotransform),
-                rtol=1e-7,
-            )
-        )
-    )
-
-
 def _cmd_calc(args: argparse.Namespace) -> int:
     """Handle `pyramids calc` — evaluate a band expression into a new raster.
 
@@ -615,10 +586,9 @@ def _cmd_calc(args: argparse.Namespace) -> int:
         # its geotransform and size match, and `calc` accepted it before this
         # check existed. Comparing CRSes would reject it and send the user to
         # `pyramids warp`, which cannot warp a raster that has no source CRS.
-        matches = (
-            _same_pixel_grid(template, ds) if not ds.crs else template.same_grid(ds)
-        )
-        if not matches:
+        # `compare_crs=False` is the same predicate with that one clause off, so
+        # the two questions cannot drift apart.
+        if not template.same_grid(ds, compare_crs=bool(ds.crs)):
             raise AlignmentError(
                 f"{path!r} does not share the grid/CRS of {inputs[0]!r}, so the "
                 "expression cannot be evaluated cell by cell; align the inputs "
