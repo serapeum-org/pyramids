@@ -574,20 +574,21 @@ def _resolve_index_selector(selector: Any, size: int, dim_name: str) -> tuple[in
 def _collapse_uniform(values: Any) -> Any:
     """Collapse a per-band sequence to its single value when every band agrees.
 
-    A 12-band variable reports ``dtype`` as ``['float32'] * 12``, ``band_units`` as
-    ``[''] * 12`` and ``no_data_value`` as a 12-tuple of ``nan`` -- true, but unreadable
+    A 12-band variable reports `dtype` as `['float32'] * 12`, `band_units` as
+    `[''] * 12` and `no_data_value` as a 12-tuple of `nan` -- true, but unreadable
     in a summary (#1090). One distinct value collapses to that value; a genuinely mixed
     sequence is left alone, because there the per-band detail is the information.
 
-    ``nan`` is compared by identity as well as equality, since ``nan != nan`` would
-    otherwise make an all-``nan`` no-data tuple look mixed.
+    Bands are compared through `_same_value` rather than `==`, so an all-`nan` no-data
+    tuple collapses too: `nan != nan` would otherwise make it look mixed.
 
     Args:
         values: A per-band sequence, or any scalar (returned unchanged).
 
     Returns:
-        Any: The single shared value, the original sequence when it varies, or
-        ``None`` when it is empty.
+        Any: The single shared value when every band agrees, the per-band values as a
+            list when they do not, `None` for an empty sequence, and the argument
+            unchanged when it is neither a list nor a tuple.
 
     Examples:
         - A uniform sequence reports the one value it holds:
@@ -702,20 +703,22 @@ def _store_label(nc: NetCDF) -> tuple[str, bool]:
 def _same_value(left: Any, right: Any) -> bool:
     """Whether two per-band entries are the same value, for any type a band can carry.
 
-    ``==`` alone is not enough twice over: it is False for two ``nan``s, and for a numpy array
-    it returns an elementwise array that ``all()`` cannot take a truth value from. Identity is
-    tried first (the common case, since GDAL hands back the same object per band), then a
-    guarded equality, then the ``nan`` special case.
+    `==` alone is not enough twice over: it is False for two `nan`s, and for a numpy array
+    it returns an elementwise array that `all()` cannot take a truth value from. Identity is
+    tried first as a cheap short-circuit -- it settles the values a band shares by object,
+    such as `None` for an unset no-data or the interned empty unit string -- then a guarded
+    equality, then the `nan` special case. Values rebuilt per band (a dtype name, a `nan`
+    read back from GDAL) are distinct objects, so they fall through to those two.
 
     Args:
         left: One band's value.
         right: The value being compared against.
 
     Returns:
-        bool: ``True`` when the two should be treated as one value.
+        bool: `True` when the two should be treated as one value.
 
     Examples:
-        - Equal scalars match, and two ``nan``s do too:
+        - Equal scalars match, and two `nan`s do too:
             ```python
             >>> _same_value("float32", "float32")
             True
@@ -723,7 +726,7 @@ def _same_value(left: Any, right: Any) -> bool:
             True
 
             ```
-        - A value whose ``==`` is not a plain bool does not raise:
+        - A value whose `==` is not a plain bool does not raise:
             ```python
             >>> import numpy as np
             >>> _same_value(np.array([1, 2]), np.array([1, 2]))
@@ -740,17 +743,17 @@ def _same_value(left: Any, right: Any) -> bool:
 
 
 def _both_nan(left: Any, right: Any) -> bool:
-    """Whether both values are float ``nan`` -- the one case ``==`` gets wrong.
+    """Whether both values are float `nan` -- the one case `==` gets wrong.
 
     Args:
         left: First value; any type, including a non-numeric one.
         right: Second value.
 
     Returns:
-        bool: ``True`` only when both are ``nan``.
+        bool: `True` only when both are `nan`.
 
     Examples:
-        - Two ``nan``s count as equal, which ``==`` alone would deny:
+        - Two `nan`s count as equal, which `==` alone would deny:
             ```python
             >>> _both_nan(float("nan"), float("nan"))
             True
@@ -758,7 +761,7 @@ def _both_nan(left: Any, right: Any) -> bool:
             False
 
             ```
-        - Anything else is False, including a value ``np.isnan`` cannot take:
+        - Anything else is False, including a value `np.isnan` cannot take:
             ```python
             >>> _both_nan(float("nan"), 1.0)
             False
@@ -847,9 +850,9 @@ def _variable_table_lines(variables: dict[str, VariableInfo]) -> list[str]:
     Rows are labelled by the map's **key**, not by `info.name`. The map spans sub-groups and is
     keyed by the full store path (`group/name`), while `info.name` is only the leaf: a grouped
     store carries the same leaf in every group, so labelling by name printed `CO` and `air_press`
-    two and three times over with nothing to tell the rows apart. The key spells a name the way
-    `variable_names` spells its own, so the two read alike -- though this map is the wider one,
-    covering the coordinates and bounds that the data-variable list leaves out.
+    twice each and `UTC_time` three times, with nothing to tell the rows apart. The key spells a
+    name the way `variable_names` spells its own, so the two read alike -- though this map is the
+    wider one, covering the coordinates and bounds that the data-variable list leaves out.
 
     The labels are padded to a common width so the shapes line up in a terminal. Only the
     displayed labels take part in that width, so one very long path hidden behind the cap
@@ -857,11 +860,16 @@ def _variable_table_lines(variables: dict[str, VariableInfo]) -> list[str]:
 
     Args:
         variables: The store's arrays, keyed by full path -- `meta_data.variables`, which
-            includes coordinates and bounds, not just the data variables.
+            includes coordinates and bounds, not just the data variables. Must not be empty.
 
     Returns:
         list[str]: The `variables  :` header followed by one indented row per array, and a
             `... N more` line when the cap hid some.
+
+    Raises:
+        ValueError: `variables` is empty, so there is no label to size the column from.
+            The caller tests that first -- an empty map is the classic-mode case, which
+            falls back to `_variable_name_lines`.
     """
     lines = ["  variables  :"]
     shown = list(variables.items())[:MAX_DISPLAY_VARIABLES]
@@ -912,9 +920,12 @@ def _global_attribute_count(nc: NetCDF, published: bool) -> int:
     on the rest. The already-open handle's `NC_GLOBAL#`-prefixed keys match the
     multidimensional count on 21 of the 22 classic-openable fixtures, so the handle answers.
 
-    This is an accuracy fix, not a speed one: in classic mode `meta_data` costs about 0.4 ms
-    and opens no file. (The three `gdal.Open` calls a classic `print(nc)` does make come from
-    the CRS lookup, which pays for a line the summary actually prints.)
+    This is an accuracy fix, not a speed one: in classic mode `meta_data` is cheap and this
+    function opens no file, reading `GetMetadata()` off the already-open handle. Whatever
+    opens a classic `print(nc)` does make come from the CRS lookup -- across the 22
+    classic-openable fixtures that is anywhere from 0 to 240 of them, and in every one of the
+    22 the count matches `_crs_label()` called alone -- and they pay for a line the summary
+    actually prints.
 
     Args:
         nc: The container to count for.
@@ -1008,15 +1019,15 @@ def _grid_lines(nc: NetCDF) -> list[str]:
 def _container_summary(nc: NetCDF) -> str:
     """Describe the store, reporting only what this container can actually know.
 
-    Sourced from ``meta_data.variables`` -- a ``dict[str, VariableInfo]`` carrying
+    Sourced from `meta_data.variables` -- a `dict[str, VariableInfo]` carrying
     name / shape / dtype / unit for every array including the coordinates. Looping
-    ``get_variable()`` instead would raise on every non-raster variable and produce a wall of
+    `get_variable()` instead would raise on every non-raster variable and produce a wall of
     text (#1090).
 
     This is the summary that costs something. In multidimensional mode the first call builds
     :attr:`meta_data`, which walks every array in the store: ~44 ms and one file open locally,
-    cached from then on, so a second ``print(nc)`` is ~0.5 ms. That is the same cost the
-    previous summary paid -- it interpolated ``meta_data`` too. The variable summary pays none
+    cached from then on, so a second `print(nc)` is ~0.5 ms. That is the same cost the
+    previous summary paid -- it interpolated `meta_data` too. The variable summary pays none
     of it.
 
     That list is deliberately **not** :attr:`variable_names`: it enumerates every array, so it
@@ -1024,27 +1035,27 @@ def _container_summary(nc: NetCDF) -> str:
     in metadata order rather than the store's declared one. A structural summary wants the whole
     picture; a caller asking "what can I extract" wants :attr:`variable_names`.
 
-    ``none`` is printed only where it is a fact. In multidimensional mode the store
+    `none` is printed only where it is a fact. In multidimensional mode the store
     publishes its dimensions, variables and groups, so an empty one genuinely means there
     are none. Classic (non-MDIM) mode publishes no such metadata at all, so the same word
     there would be a positive false claim about a store that does have dimensions -- those
-    lines are omitted instead, and the variable list falls back to ``variable_names``.
+    lines are omitted instead, and the variable list falls back to `variable_names`.
 
-    That fallback is thin: ``variable_names`` in classic mode parses subdataset metadata, and a
-    store whose bands GDAL exposes directly has no subdatasets, so it answers ``[]`` for nine
+    That fallback is thin: `variable_names` in classic mode parses subdataset metadata, and a
+    store whose bands GDAL exposes directly has no subdatasets, so it answers `[]` for nine
     of the eleven banded classic fixtures in the corpus and the line is omitted for them. It
     still earns its place for the subdataset-style stores, where it is the only variable
     listing available.
 
     The raster block appears only when the container carries bands. An MDIM container has
-    none -- that is the #1090 defect, where ``rows`` / ``columns`` / ``cell_size`` returned
+    none -- that is the #1090 defect, where `rows` / `columns` / `cell_size` returned
     GDAL's in-memory placeholder -- but a classic-mode container exposes the store's bands
     directly, and there those numbers are the real grid.
 
     The cell size within that block is dropped when GDAL reports no geotransform for the store.
-    A curvilinear or unstructured store has no affine mapping, so ``cell_size`` there is 1.0 by
+    A curvilinear or unstructured store has no affine mapping, so `cell_size` there is 1.0 by
     construction rather than by measurement; the shape and band count are still real, so the
-    line stays and only the ``@ ...`` term goes.
+    line stays and only the `@ ...` term goes.
 
     Args:
         nc: The container to describe.
@@ -1085,19 +1096,21 @@ def _variable_summary(nc: NetCDF) -> str:
     """Describe the raster this variable genuinely is.
 
     Per-band sequences are collapsed when uniform: a 12-band variable reports
-    ``float32`` rather than ``['float32'] * 12``. The band axis is named by its
-    dimension (``12 along time``) rather than ``Band_1 ... Band_12``, because the
+    `float32` rather than `['float32'] * 12`. The band axis is named by its
+    dimension (`12 along time`) rather than `Band_1 ... Band_12`, because the
     raster vocabulary for a time axis is a standing source of confusion (#1090).
 
-    Reads no pixels, computes no statistics, and touches no metadata: it reads band-level
-    properties only, so it performs no I/O and costs about 0.0 ms on an already-extracted
-    variable. The walk of the store was paid by :meth:`get_variable` before the caller could
-    hold a variable at all (~36 ms locally, one file open).
+    Reads no pixels, computes no statistics, and never builds :attr:`meta_data`: it reads
+    band-level properties off the open handle, so it opens no file. What it does cost is a
+    few milliseconds of per-band property reads -- most of it :attr:`dtype`, which resolves
+    each band through the dtype catalog -- not a walk of the store. That walk was paid by
+    :meth:`get_variable` before the caller could hold a variable at all (~36 ms locally,
+    one file open).
 
-    Note that ``repr()`` is a different contract and is unchanged -- it is still
-    ``gdal.Info``, so the surfaces that auto-display an object (a notebook cell, a debugger's
-    variable pane, pytest's assertion output) still show GDAL's ``Size is 512, 512``
-    placeholder for a container. Only ``str()`` / ``print()`` route here.
+    Note that `repr()` is a different contract and is unchanged -- it is still
+    `gdal.Info`, so the surfaces that auto-display an object (a notebook cell, a debugger's
+    variable pane, pytest's assertion output) still show GDAL's `Size is 512, 512`
+    placeholder for a container. Only `str()` / `print()` route here.
 
     Args:
         nc: The variable to describe.
@@ -1478,14 +1491,14 @@ class NetCDF(Dataset):
         The summary is chosen by **type**, through :meth:`_summary_text`, which
         :class:`Container` and :class:`Variable` override. Defining one summary here and
         letting both inherit it made the container describe raster fields it does not have:
-        ``rows`` / ``columns`` / ``cell_size`` fell through to GDAL's in-memory placeholder,
+        `rows` / `columns` / `cell_size` fell through to GDAL's in-memory placeholder,
         so a 12x5x5 cube at 0.25 degrees reported itself as 512 x 512 at cell size 1.0
         (#1090).
 
-        Type rather than ``band_count``: a container opened in classic mode carries the
-        store's bands directly, so ``band_count >= 1`` there and a band-count test would
-        label it a variable. The classes already encode the distinction ``read_file`` and
-        ``get_variable`` established, so they are the discriminator.
+        Type rather than `band_count`: a container opened in classic mode carries the
+        store's bands directly, so `band_count >= 1` there and a band-count test would
+        label it a variable. The classes already encode the distinction `read_file` and
+        `get_variable` established, so they are the discriminator.
 
         Mirrors `Dataset.__str__`: a closed handle returns the sentinel rather than
         raising, so the repr/str stays total for debuggers and logging (`__repr__`
@@ -1497,6 +1510,11 @@ class NetCDF(Dataset):
         notebook cell, a debugger's variable pane and pytest's assertion output all call
         `repr`, and a container still shows `Size is 512, 512` there. Reworking that is a
         separate question about `Dataset.__repr__` and its `gdal.Info` contract.
+
+        Returns:
+            str: The type-specific summary; `<Dataset: closed>` when the handle is closed,
+                or `<Container: summary unavailable>` / `<Variable: summary unavailable>`
+                when building the summary raised.
         """
         message = "<Dataset: closed>"
         if self._raster is not None:
@@ -1516,7 +1534,7 @@ class NetCDF(Dataset):
         return message
 
     def _summary_text(self) -> str:
-        """The summary body for a bare ``NetCDF``, which neither factory produces.
+        """The summary body for a bare `NetCDF`, which neither factory produces.
 
         :class:`Container` and :class:`Variable` override this; the base only has to cope
         with an instance of the deprecated alias itself. It defers to
@@ -1531,7 +1549,7 @@ class NetCDF(Dataset):
         return _variable_summary(self)
 
     def _crs_label(self) -> str:
-        """The CRS as a short label -- ``EPSG:4326``, a CRS name, or ``unknown``.
+        """The CRS as a short label -- `EPSG:4326`, a CRS name, or `unknown`.
 
         Never the raw WKT: it is thousands of characters on one line and drowns every
         other line of the summary (#1090).
@@ -9139,7 +9157,11 @@ class Variable(NetCDF):
         return None
 
     def _summary_text(self) -> str:
-        """Describe the raster this variable is; see :func:`_variable_summary`."""
+        """Describe the raster this variable is; see :func:`_variable_summary`.
+
+        Returns:
+            str: A short multi-line variable summary.
+        """
         return _variable_summary(self)
 
 
@@ -9171,5 +9193,9 @@ class Container(NetCDF):
     """
 
     def _summary_text(self) -> str:
-        """Describe the cube this container is; see :func:`_container_summary`."""
+        """Describe the cube this container is; see :func:`_container_summary`.
+
+        Returns:
+            str: A short multi-line container summary.
+        """
         return _container_summary(self)
