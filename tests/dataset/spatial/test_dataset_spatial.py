@@ -1754,22 +1754,56 @@ class TestCropFillValues:
             f"masked cell {masked_cell} is not the declared fill {fill}"
         )
 
-    def test_a_float_band_that_declares_nothing_still_gets_nan(self):
-        """`NaN` is offered first, so the floating case is untouched.
+    @pytest.mark.parametrize(
+        "carries_its_own_gaps",
+        [False, True],
+        ids=["no NaN in the band", "a NaN already in the band"],
+    )
+    def test_a_float_band_that_declares_nothing_still_gets_nan(
+        self, carries_its_own_gaps: bool
+    ):
+        """`NaN`, whether or not the band already holds one.
+
+        Args:
+            carries_its_own_gaps: Whether the source already contains a `NaN`.
 
         Test scenario:
-            A float band can store `NaN`, which is both the conventional
-            "absent" and what this path already wrote there. Deriving `-9999`
-            instead would have been a gratuitous change to a case that was
-            already right.
+            A cell the crop excludes and a cell that was already `NaN` are
+            both "no measurement", so a band carrying its own gaps is not a
+            collision to route around. Treating it as one handed the band
+            `-9999` instead, which turned those pre-existing gaps into data on
+            the output -- and the earlier version of this test used a NaN-free
+            band, so it could not see that.
         """
-        source = Dataset.from_array(
-            np.full((4, 4), 7.0, dtype="float32"), geo_ref=self.GEO, no_data_value=None
-        )
+        values = np.full((4, 4), 7.0, dtype="float32")
+        if carries_its_own_gaps:
+            values[3, 3] = np.nan
+        source = Dataset.from_array(values, geo_ref=self.GEO, no_data_value=None)
 
         cropped = source.crop(self._mask("float32"))
 
         assert np.isnan(cropped.no_data_value[0])
+        assert np.isnan(np.asarray(cropped.read_array())[0, 0])
+
+    def test_a_float_band_holding_nan_and_the_default_still_crops(self):
+        """Two "taken" candidates used to exhaust the float search entirely.
+
+        Test scenario:
+            A raster carrying both `NaN` and a legacy `-9999` fill is an
+            ordinary artefact of a half-finished no-data conversion. Floating
+            dtypes have no extremes list and no bounded scan, so once both
+            candidates were ruled out the crop refused with `NoDataValueError`
+            -- a hard new failure where `main` succeeded.
+        """
+        values = np.full((4, 4), 5.0, dtype="float32")
+        values[3, 3] = np.nan
+        values[2, 2] = -9999.0
+        source = Dataset.from_array(values, geo_ref=self.GEO, no_data_value=None)
+
+        cropped = source.crop(self._mask("float32"))
+
+        assert np.isnan(cropped.no_data_value[0])
+        assert np.asarray(cropped.read_array()).shape == (4, 4)
 
     def test_a_polygon_crop_invents_nothing_for_an_undeclared_band(self):
         """Where GDAL writes the cells, no sentinel is claimed for them.

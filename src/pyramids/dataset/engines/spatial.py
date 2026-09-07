@@ -1369,12 +1369,19 @@ class Spatial(_Engine["Dataset"]):
             if fits_dtype(value, dtype):
                 fills.append(self._ds.numpy_dtype[band](value))
                 continue
+            if np.issubdtype(dtype, np.floating):
+                # `NaN`, always, and without asking whether the band already
+                # holds one. A cell the crop excludes and a cell that was
+                # already `NaN` are both "no measurement", so a band carrying
+                # its own gaps is not a collision to route around -- treating
+                # it as one hands the band `-9999` instead and turns those
+                # pre-existing gaps into data. `Analysis._resolve_no_data`
+                # settles the floating case the same way, and it is what this
+                # path wrote before the fill was derived at all.
+                fills.append(self._ds.numpy_dtype[band](np.nan))
+                continue
             values = self._ds.read_array(band=band)
-            # `NaN` first: it is the conventional "absent" for a floating
-            # band and the value this path already wrote there, so a float
-            # crop is unchanged. An integer dtype cannot hold it, so those
-            # fall through to the package default and the extremes.
-            fill = free_no_data(dtype, [np.nan], values)
+            fill = free_no_data(dtype, [], values)
             if fill is None:
                 raise NoDataValueError(
                     f"band {band + 1} is a {dtype.name} raster holding every "
