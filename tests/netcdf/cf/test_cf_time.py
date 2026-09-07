@@ -269,6 +269,38 @@ class TestDatetime64Range:
             warnings.simplefilter("error")
             decode_cf_time(np.array([0, 10_000], dtype="int64"), EPOCH_UNIT, "standard")
 
+    def test_a_multidimensional_axis_is_flattened_before_comparison(self):
+        """A 2-D array of in-range dates decodes, rather than raising on the range check.
+
+        Test scenario:
+            The check flattens before comparing. Iterating a 2-D object array yields rows, and
+            `floor <= row` is an elementwise array whose truth value raises `ValueError` -- not
+            the `TypeError` the guard catches, so it would escape `decode_cf_time` entirely.
+            The origin carries a zone suffix so the integer fast path declines and the values
+            reach the `cftime` branch under test.
+        """
+        values = np.array([[0, 10_000], [20_000, 15_000]], dtype="int64")
+        decoded = decode_cf_time(
+            values, "days since 1900-01-01 00:00:00 UTC", "standard"
+        )
+        assert decoded.shape == (2, 2), decoded.shape
+        assert decoded.dtype == np.dtype("datetime64[ns]"), decoded.dtype
+
+    def test_an_empty_axis_decodes_to_an_empty_datetime64(self):
+        """A zero-length time axis has nothing out of range, so it still casts.
+
+        Test scenario:
+            The range check is an `all()` over the values, which is vacuously true when there
+            are none. An empty axis must come back as empty `datetime64[ns]`, not as objects.
+        """
+        decoded = decode_cf_time(
+            np.array([], dtype="int64"),
+            "days since 1900-01-01 00:00:00 UTC",
+            "standard",
+        )
+        assert decoded.dtype == np.dtype("datetime64[ns]"), decoded.dtype
+        assert decoded.size == 0, decoded
+
     def test_a_non_standard_calendar_does_not_warn(self):
         """A `360_day` axis already returns `cftime`; that is not the #1087 condition.
 
