@@ -932,6 +932,79 @@ def _global_attribute_count(nc: NetCDF, published: bool) -> int:
     return count
 
 
+def _summary_line(label: str, value: str) -> str:
+    """One `  label      : value` line, with the label padded to the shared column.
+
+    Args:
+        label: The field name, unpadded.
+        value: The rendered value.
+
+    Returns:
+        str: The formatted line.
+
+    Examples:
+        - Every label lands the colons in the same column:
+            ```python
+            >>> _summary_line("CRS", "EPSG:4326")
+            '  CRS        : EPSG:4326'
+            >>> _summary_line("dimensions", "time=12")
+            '  dimensions : time=12'
+
+            ```
+    """
+    return f"  {label:<11}: {value}"
+
+
+def _optional_line(label: str, value: str, published: bool) -> list[str]:
+    """One summary line, or nothing when the store cannot answer the question.
+
+    `none` is a positive claim, so it is printed only where it is a fact. A multidimensional
+    store publishes its structure, so an empty value there genuinely means none; a classic
+    store publishes nothing, so the line is omitted rather than asserting an absence.
+
+    Args:
+        label: The field name.
+        value: The rendered value, empty when there is nothing to show.
+        published: Whether the store publishes its structure.
+
+    Returns:
+        list[str]: One line, or an empty list.
+    """
+    lines: list[str] = []
+    if value or published:
+        lines.append(_summary_line(label, value or "none"))
+    return lines
+
+
+def _grid_lines(nc: NetCDF) -> list[str]:
+    """The raster block, for a container that carries bands.
+
+    An MDIM container has none -- that is the #1090 defect, where `rows` / `columns` /
+    `cell_size` returned GDAL's in-memory placeholder -- but a classic-mode container exposes
+    the store's bands directly, and there those numbers are the real grid.
+
+    The cell size is dropped when GDAL reports no geotransform: a curvilinear or unstructured
+    store has no affine mapping, so `cell_size` there is 1.0 by construction rather than by
+    measurement. The shape and band count are still real, so only the `@ ...` term goes.
+
+    Args:
+        nc: The container to describe.
+
+    Returns:
+        list[str]: The `grid` line, or an empty list when there are no bands.
+    """
+    lines: list[str] = []
+    if nc.band_count:
+        grid = f"{nc.rows} x {nc.columns}"
+        if _has_georeference(nc):
+            # `cell_size` is always a float, and `:g` trims the trailing zeros that make a
+            # summary unreadable -- at the cost of rounding to 6 significant digits, so read
+            # the value from `cell_size` rather than from this line when it matters.
+            grid += f" @ {nc.cell_size:g}"
+        lines.append(_summary_line("grid", f"{grid}, {nc.band_count} band(s)"))
+    return lines
+
+
 def _container_summary(nc: NetCDF) -> str:
     """Describe the store, reporting only what this container can actually know.
 
@@ -984,9 +1057,8 @@ def _container_summary(nc: NetCDF) -> str:
     published = nc._is_md_array
 
     sizes = nc.dimension_sizes or {}
-    if sizes or published:
-        dims = _capped_join([f"{name}={size}" for name, size in sizes.items()])
-        lines.append(f"  dimensions : {dims or 'none'}")
+    dims = _capped_join([f"{name}={size}" for name, size in sizes.items()])
+    lines.extend(_optional_line("dimensions", dims, published))
 
     # Classic mode never populates `meta_data.variables` -- true for all 22 classic-openable
     # corpus fixtures -- so the table branch is unreachable there and the fallback is the
@@ -997,23 +1069,15 @@ def _container_summary(nc: NetCDF) -> str:
     else:
         lines.extend(_variable_name_lines(nc.variable_names or [], published))
 
-    if nc.band_count:
-        grid = f"  grid       : {nc.rows} x {nc.columns}"
-        if _has_georeference(nc):
-            # `cell_size` is always a float, and `:g` trims the trailing zeros that make a
-            # summary unreadable -- at the cost of rounding to 6 significant digits, so read
-            # the value from `cell_size` rather than from this line when it matters.
-            grid += f" @ {nc.cell_size:g}"
-        lines.append(f"{grid}, {nc.band_count} band(s)")
-
-    groups = nc.group_names or []
-    if groups or published:
-        joined = _capped_join(list(groups))
-        lines.append(f"  groups     : {joined or 'none'}")
-    lines.append(f"  CRS        : {nc._crs_label()}")
+    lines.extend(_grid_lines(nc))
+    groups = _capped_join(list(nc.group_names or []))
+    lines.extend(_optional_line("groups", groups, published))
+    lines.append(_summary_line("CRS", nc._crs_label()))
     attributes = _global_attribute_count(nc, published)
     if attributes or published:
-        lines.append(f"  attributes : {attributes} global")
+        # Not `_optional_line`: an MDIM store with no global attributes reports
+        # "0 global", which is a fact, where that helper would render "none".
+        lines.append(_summary_line("attributes", f"{attributes} global"))
     return "\n".join(lines)
 
 
