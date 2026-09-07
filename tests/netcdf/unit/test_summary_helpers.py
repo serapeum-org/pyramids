@@ -105,8 +105,9 @@ class TestCollapseUniform:
         # Distinct nan objects on purpose: `(float("nan"),) * 12` repeats one object, so the
         # identity check would collapse it even with the nan handling removed.
         result = _collapse_uniform(tuple(float("nan") for _ in range(12)))
-        assert isinstance(result, float) and np.isnan(result), (
-            f"expected a single nan, got {result!r}"
+        assert isinstance(result, float), f"expected a single float, got {result!r}"
+        assert np.isnan(result), (
+            f"expected the collapsed value to be nan, got {result!r}"
         )
 
     def test_empty_sequence_is_none(self):
@@ -241,8 +242,9 @@ class TestContainerSummary:
         )
         try:
             summary = _container_summary(nc)
-            assert "... " in summary and " more" in summary, (
-                f"expected a truncation line, got:\n{summary}"
+            assert "... " in summary, f"expected a truncation marker, got:\n{summary}"
+            assert " more" in summary, (
+                f"expected a hidden-count suffix, got:\n{summary}"
             )
             listed = sum(1 for line in summary.split("\n") if line.startswith("    v"))
             assert listed <= MAX_DISPLAY_VARIABLES, (
