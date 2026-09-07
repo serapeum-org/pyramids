@@ -786,8 +786,10 @@ def _container_summary(nc: NetCDF) -> str:
             lines.append(f"  variables  : {listed or 'none'}")
 
     if nc.band_count:
-        cell = nc.cell_size
-        cell_text = f"{cell:g}" if isinstance(cell, (int, float)) else str(cell)
+        # `cell_size` is always a float, and `:g` trims the trailing zeros that make a summary
+        # unreadable -- at the cost of rounding to 6 significant digits, so read the value from
+        # `cell_size` rather than from this line when it matters.
+        cell_text = f"{nc.cell_size:g}"
         lines.append(
             f"  grid       : {nc.rows} x {nc.columns} @ {cell_text}, "
             f"{nc.band_count} band(s)"
@@ -833,8 +835,10 @@ def _variable_summary(nc: NetCDF) -> str:
     header = f"<Variable {name}" + (f" - {label}" if label != "in-memory" else "")
     lines = [header + ">"]
 
-    cell = nc.cell_size
-    cell_text = f"{cell:g}" if isinstance(cell, (int, float)) else str(cell)
+    # `cell_size` is always a float, and `:g` trims the trailing zeros that make a summary
+    # unreadable -- at the cost of rounding to 6 significant digits, so read the value from
+    # `cell_size` rather than from this line when it matters.
+    cell_text = f"{nc.cell_size:g}"
     lines.append(
         f"  grid    : {nc.rows} x {nc.columns} @ {cell_text}, {nc._crs_label()}"
     )

@@ -138,7 +138,10 @@ class TestStr:
             "fixture must be a container for this to mean anything"
         )
         result = str(nc_3d)
-        for field in ("Cell size", "Dimension:", "512"):
+        # The labels carry the signal. Asserting on "512" would pin GDAL's current placeholder
+        # value instead: it would pass if that value changed while the defect returned, and fail
+        # spuriously on any fixture with a dimension of length 512.
+        for field in ("Cell size", "Dimension:"):
             assert field not in result, (
                 f"container summary leaked a raster field: {result}"
             )

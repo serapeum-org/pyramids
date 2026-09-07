@@ -634,6 +634,50 @@ replace the georeference wholesale.
 
 ### unreleased
 
+**`str(nc)` is a different shape, and the summary now depends on whether you hold a container or a variable.**
+Hard change, silent — nothing raises and nothing warns. Anything scraping the old text (log parsing, notebook
+snapshots, doctests) will stop matching.
+
+`__str__` was defined once on `NetCDF` and inherited by `Container` and `Variable` alike, so a container printed
+raster fields it has no raster for: for a 12x5x5 cube at 0.25 degrees it reported `Dimension: 512 * 512` at
+`Cell size: 1.0` — GDAL's in-memory placeholder for a multidimensional store. The summary is now chosen by type.
+
+Before, both types printed the same block — `Cell size`, `Dimension`, `EPSG`, `projection`,
+`Variables`, `Metadata`, `File` — every line indented by 12 spaces.
+
+After, a container describes the store:
+
+```
+<Container cube.nc>
+  dimensions : time=12, x=5, y=5
+  variables  :
+    t2m   (12, 5, 5)  float32  K
+  groups     : none
+  CRS        : EPSG:4326
+  attributes : 27 global
+```
+
+and a variable describes the raster it is:
+
+```
+<Variable t2m - cube.nc>
+  grid    : 5 x 5 @ 0.25, EPSG:4326
+  bands   : 12 along time
+  units   : K
+  dtype   : float32
+  no-data : nan
+```
+
+Three fields are gone from the text on purpose:
+
+- the raw **projection WKT**, which ran to thousands of characters on one line — the CRS now prints as
+  `EPSG:4326`, or the CRS name when there is no authority code;
+- the whole **`meta_data`** object, replaced by a count of global attributes;
+- the leading **12 spaces** on every line, which came from the f-string being indented inside the method.
+
+`repr()` is unchanged. If you were parsing `str()`, read the properties instead: `nc.cell_size`, `nc.rows`,
+`nc.columns`, `nc.epsg`, `nc.crs`, `nc.variable_names`, `nc.meta_data`.
+
 **`NetCDF.variable_names` answers a different question, so the set of names changes.** Hard change, silent —
 nothing raises and nothing warns, and both the membership and the order can move. The property used to hand
 back the CF classification's own list; it now filters the store's declared list, which means it walks sub-groups
