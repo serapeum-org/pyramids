@@ -7381,15 +7381,28 @@ replace the georeference wholesale.</p>
 Soft change, warned — a <code>RuntimeWarning</code> names the units. Only arrays that were previously <strong>wrong</strong> change:
 <code>decode_cf_time</code> cast to <code>datetime64[ns]</code> under a guard that cannot fire, because a date beyond the type's
 1677-09-21 to 2262-04-11 range does not raise on the cast, it wraps.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="n">decode_cf_time</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mi">400_000</span><span class="p">]),</span> <span class="s2">"days since 1970-01-01"</span><span class="p">,</span> <span class="s2">"standard"</span><span class="p">)</span>
-<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="c1"># before -&gt; np.datetime64('1896-01-21T00:50:52.580896768')   # the date is year 3065</span>
-<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="c1"># after  -&gt; cftime.DatetimeGregorian(3065, 3, 1)             # + RuntimeWarning</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">decode_cf_time</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="n">decode_cf_time</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mi">400_000</span><span class="p">]),</span> <span class="s2">"days since 1970-01-01"</span><span class="p">,</span> <span class="s2">"standard"</span><span class="p">)</span>
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="c1"># before -&gt; np.datetime64('1896-01-21T00:50:52.580896768')   # the date is year 3065</span>
+<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="c1"># after  -&gt; cftime.real_datetime(3065, 3, 1)                 # + UserWarning</span>
 </code></pre></div>
 <p>Both bounds are affected, and no large offset is needed to reach one: a store written against a
 <code>days since 0001-01-01</code> epoch is out of range at offset <strong>zero</strong>. Its in-range dates are unaffected — a
 20th-century date on that epoch still decodes to <code>datetime64[ns]</code> exactly as before.</p>
+<p><strong>Which object you get back is <code>cftime</code>'s choice, and it decides what still works downstream.</strong> For a date
+Python's <code>datetime</code> can represent — the common far-future case above — it is <code>cftime.real_datetime</code>, a
+<code>datetime</code> subclass, so <code>pandas</code> gives <code>datetime64[us]</code> and <code>to_dataframe</code> / <code>to_parquet</code> / <code>to_csv</code> all keep
+working and now carry the <em>correct</em> date. Only a date Python cannot represent, which in practice means a
+pre-1582 origin on a mixed calendar, yields a true <code>cftime</code> datetime.</p>
+<p><strong><code>LabeledDataset.to_parquet</code> raises on that second case</strong>, where it previously wrote a file full of wrapped
+dates. Parquet has no type for a <code>cftime</code> datetime, so the write now fails with a <code>FailedToSaveError</code> naming the
+offending columns rather than an <code>ArrowInvalid</code> from inside pyarrow. This was already the behaviour for a
+non-standard calendar (<code>360_day</code>, <code>noleap</code>), which has always produced <code>cftime</code> objects — the change is that the
+error explains itself. Use <code>to_csv</code>, which writes these stores unchanged, or select an in-range window first.</p>
 <p>If you need <code>datetime64</code> regardless, the values were never trustworthy in this range; convert deliberately from
-the <code>cftime</code> objects, or read the axis with a calendar-aware library. Everything inside the range is unchanged.</p>
+the returned objects, or read the axis with a calendar-aware library. Everything inside the range is unchanged.</p>
 <p><strong><code>str(nc)</code> is a different shape, and the summary now depends on whether you hold a container or a variable.</strong>
 Hard change, silent — nothing raises and nothing warns. Anything scraping the old text (log parsing, notebook
 snapshots, doctests) will stop matching.</p>
