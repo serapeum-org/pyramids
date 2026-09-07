@@ -5,13 +5,24 @@ resolution, the ``<GDAL_WMS>`` descriptor, the ``WMTS:`` connection string, the
 layers normalisation, and the ``from_wms`` "needs a size" guard — are covered
 offline; a live end-to-end against public OSM-WMS and NASA GIBS WMTS runs only
 under ``-m live``.
+
+The antimeridian split is covered offline too, against a stand-in server whose
+pixels carry their own centre longitude (``_longitude_raster``). That is what
+makes the *geometry* checkable without a network: the stitched raster is compared
+column-for-column against the same two regions fetched as ordinary non-wrapping
+requests, and its pixel values must step by exactly one cell across the seam. What
+it cannot prove is how a real service renders the two ``GetMap`` calls — styling,
+label placement and tile-cache seams either side of 180 are a live-server
+question, covered only by ``-m live``.
 """
 
 from __future__ import annotations
 
+import re
+
 import numpy as np
 import pytest
-from osgeo import gdal
+from osgeo import gdal, osr
 
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset, _wms
@@ -20,6 +31,8 @@ from pyramids.errors import WMSError
 pytestmark = pytest.mark.core
 
 BBOX = (5.0, 51.0, 6.0, 52.0)
+WRAP = (170.0, -10.0, -170.0, 10.0)
+ENDPOINT = "https://host/wms?"
 
 
 def _tiny_dataset(epsg: int = 4326) -> Dataset:
@@ -29,6 +42,81 @@ def _tiny_dataset(epsg: int = 4326) -> Dataset:
         arr,
         geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=0.1, epsg=epsg),
     )
+
+
+def _descriptor_values(descriptor: str) -> dict[str, str]:
+    """The simple text elements of a ``<GDAL_WMS>`` descriptor, by tag name."""
+    return dict(re.findall(r"<(\w+)>([^<]*)</\1>", descriptor))
+
+
+def _lonlat_srs() -> osr.SpatialReference:
+    """EPSG:4326 in lon/lat order, as the readers stamp it."""
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(4326)
+    srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+    return srs
+
+
+def _longitude_raster(
+    ulx: float,
+    uly: float,
+    x_res: float,
+    y_res: float,
+    size: tuple[int, int],
+    bands: int,
+) -> gdal.Dataset:
+    """A MEM raster whose every pixel carries its own centre longitude (folded to 0..360).
+
+    Encoding the geometry in the *pixel values* is what lets an offline test check a
+    stitch against the geometry it claims: a constant step between neighbouring
+    columns means one uniform ground resolution, and any jump at the seam means a
+    half landed in the wrong columns. Each band after the first is offset by a
+    further 1000, so a band mix-up cannot pass unnoticed either.
+    """
+    width, height = size
+    src = gdal.GetDriverByName("MEM").Create("", width, height, bands, gdal.GDT_Float64)
+    src.SetGeoTransform((ulx, x_res, 0.0, uly, 0.0, y_res))
+    src.SetSpatialRef(_lonlat_srs())
+    lon = np.mod(ulx + (np.arange(width) + 0.5) * x_res, 360.0)
+    for band in range(1, bands + 1):
+        src.GetRasterBand(band).WriteArray(
+            np.tile(lon, (height, 1)) + 1000.0 * (band - 1)
+        )
+    return src
+
+
+def _fake_wms_source(descriptor: str) -> gdal.Dataset:
+    """Render what a WMS would return for `descriptor`: the window it asked for."""
+    values = _descriptor_values(descriptor)
+    ulx, uly = float(values["UpperLeftX"]), float(values["UpperLeftY"])
+    lrx, lry = float(values["LowerRightX"]), float(values["LowerRightY"])
+    width, height = int(values["SizeX"]), int(values["SizeY"])
+    return _longitude_raster(
+        ulx,
+        uly,
+        (lrx - ulx) / width,
+        (lry - uly) / height,
+        (width, height),
+        int(values["BandsCount"]),
+    )
+
+
+@pytest.fixture
+def fake_wms(monkeypatch):
+    """Serve every ``GetMap`` offline, returning the list of descriptors requested."""
+    requests: list[str] = []
+
+    def _fake_open(descriptor, layer, hint):
+        requests.append(descriptor)
+        return _fake_wms_source(descriptor)
+
+    monkeypatch.setattr(_wms, "_open", _fake_open)
+    return requests
+
+
+def _bands_rows_columns(ds: Dataset) -> np.ndarray:
+    """`ds.read_array()` as ``(bands, rows, columns)`` whatever the band count."""
+    return np.asarray(ds.read_array()).reshape(-1, ds.rows, ds.columns)
 
 
 class TestOutputSize:
@@ -193,11 +281,16 @@ class TestFromWmsGuards:
             )
 
     def test_from_wms_rejects_malformed_bbox(self):
-        with pytest.raises(ValueError, match="minx < maxx"):
+        """An inverted *latitude* range is still refused.
+
+        Longitude no longer is: ``minx > maxx`` is now read as an antimeridian wrap
+        (see TestFromWmsAntimeridian), so only the y axis is still one-way.
+        """
+        with pytest.raises(ValueError, match="miny < maxy"):
             Dataset.from_wms(
                 "https://host/wms?",
                 layers="L",
-                bbox=(6.0, 51.0, 5.0, 52.0),
+                bbox=(5.0, 52.0, 6.0, 51.0),
                 size=(10, 10),
             )
 
@@ -276,6 +369,382 @@ class TestAvailableWmtsLayers:
         assert _wms._available_wmts_layers("https://x") == []
 
 
+class TestSeamBboxGuard:
+    """`_check_seam_bbox` refuses the wraps this reader cannot honestly serve."""
+
+    def test_ordinary_bbox_is_untouched_in_any_crs(self):
+        """A minx < maxx box is never a wrap, so the guard never looks at the CRS."""
+        assert _wms._check_seam_bbox((0.0, 0.0, 1e6, 1e6), "EPSG:3857") is None
+
+    def test_projected_crs_refuses_a_wrapping_bbox(self):
+        """There is no 180 degree seam in a projected CRS - minx > maxx is inverted."""
+        with pytest.raises(ValueError, match="not a geographic"):
+            Dataset.from_wms(
+                ENDPOINT, layers="L", bbox=WRAP, crs="EPSG:3857", size=(10, 10)
+            )
+
+    @pytest.mark.parametrize(
+        "bbox", [(200.0, -10.0, -170.0, 10.0), (170.0, -10.0, -200.0, 10.0)]
+    )
+    def test_corner_outside_the_lonlat_range_is_refused(self, bbox):
+        """A wrap needs both corners in -180..180; outside it, the split is guesswork."""
+        with pytest.raises(ValueError, match=r"-180\.\.180"):
+            Dataset.from_wms(ENDPOINT, layers="L", bbox=bbox, size=(10, 10))
+
+    def test_wmts_applies_the_same_guard(self):
+        with pytest.raises(ValueError, match="not a geographic"):
+            Dataset.from_wmts(
+                "https://c.xml", layer="L", bbox=WRAP, crs="EPSG:3857", resolution=0.5
+            )
+
+
+class TestSeamWindows:
+    """The pixel-width division rule (`_seam_windows`)."""
+
+    def test_ordinary_bbox_is_one_untouched_request(self):
+        assert _wms._seam_windows(BBOX, (512, 256)) == [(BBOX, (512, 256))]
+
+    @pytest.mark.parametrize("width", [400, 401, 333, 2, 4097])
+    def test_half_widths_always_sum_to_the_requested_width(self, width):
+        windows = _wms._seam_windows(WRAP, (width, 16))
+        assert sum(size[0] for _, size in windows) == width
+
+    @pytest.mark.parametrize(
+        "bbox, width",
+        [(WRAP, 400), ((175.0, -10.0, -170.0, 10.0), 400), (WRAP, 401)],
+    )
+    def test_every_half_is_rendered_at_the_one_shared_resolution(self, bbox, width):
+        """Each half's span / columns is the whole wrapping span / the whole width."""
+        expected = ((bbox[2] + 360.0) - bbox[0]) / width
+        for box, size in _wms._seam_windows(bbox, (width, 16)):
+            assert (box[2] - box[0]) / size[0] == pytest.approx(expected)
+
+    @pytest.mark.parametrize(
+        "bbox, width", [(WRAP, 400), ((175.0, -10.0, -170.0, 10.0), 400), (WRAP, 401)]
+    )
+    def test_snapping_moves_the_window_by_under_half_a_pixel(self, bbox, width):
+        """The seam is snapped to the nearest pixel edge, so nothing shifts further.
+
+        Half a pixel exactly is reachable — a seam landing on a column midpoint
+        (400 columns over 20 degrees split 10/10 at width 401) is the tie case.
+        """
+        res = ((bbox[2] + 360.0) - bbox[0]) / width
+        windows = _wms._seam_windows(bbox, (width, 16))
+        assert abs(windows[0][0][0] - bbox[0]) <= 0.5 * res + 1e-12
+
+    def test_uneven_halves_split_in_proportion_to_their_span(self):
+        """5 of 15 degrees is a third of the width, not half of it."""
+        windows = _wms._seam_windows((175.0, -10.0, -170.0, 10.0), (400, 16))
+        assert [size[0] for _, size in windows] == [133, 267]
+
+    def test_halves_meet_exactly_at_the_seam(self):
+        (west_box, _), (east_box, _) = _wms._seam_windows(WRAP, (401, 16))
+        assert west_box[2] == 180.0
+        assert east_box[0] == -180.0
+
+    def test_sub_half_pixel_west_sliver_collapses_to_one_request(self):
+        """A west side under half a pixel wide *is* the half-pixel snap: drop it."""
+        windows = _wms._seam_windows((179.999, -10.0, -170.0, 10.0), (2000, 16))
+        assert len(windows) == 1
+        assert windows[0][1][0] == 2000
+        assert windows[0][0][0] == -180.0
+
+    def test_sub_half_pixel_east_sliver_collapses_to_one_request(self):
+        windows = _wms._seam_windows((170.0, -10.0, -179.999, 10.0), (2000, 16))
+        assert len(windows) == 1
+        assert windows[0][1][0] == 2000
+        assert windows[0][0][2] == 180.0
+
+
+class TestFromWmsAntimeridian:
+    """`from_wms` splits, fetches and stitches a west > east bbox, like `crop`."""
+
+    def test_wrapping_bbox_is_no_longer_refused(self, fake_wms):
+        ds = Dataset.from_wms(ENDPOINT, layers="L", bbox=WRAP, size=(400, 200))
+        assert ds.shape == (3, 200, 400)
+
+    def test_two_getmap_requests_are_issued_either_side_of_the_seam(self, fake_wms):
+        Dataset.from_wms(ENDPOINT, layers="L", bbox=WRAP, size=(400, 200))
+        assert len(fake_wms) == 2
+        west, east = (_descriptor_values(d) for d in fake_wms)
+        assert float(west["UpperLeftX"]) == pytest.approx(170.0)
+        assert float(west["LowerRightX"]) == pytest.approx(180.0)
+        assert float(east["UpperLeftX"]) == pytest.approx(-180.0)
+        assert float(east["LowerRightX"]) == pytest.approx(-170.0)
+        assert (int(west["SizeX"]), int(east["SizeX"])) == (200, 200)
+        assert {west["SizeY"], east["SizeY"]} == {"200"}
+
+    @pytest.mark.parametrize("width", [400, 401, 333])
+    def test_output_width_is_exactly_what_was_requested(self, fake_wms, width):
+        ds = Dataset.from_wms(ENDPOINT, layers="L", bbox=WRAP, size=(width, 100))
+        assert ds.columns == width
+
+    def test_ground_resolution_is_uniform_across_the_seam(self, fake_wms):
+        """Neighbouring columns step by one cell everywhere, the seam column included."""
+        ds = Dataset.from_wms(ENDPOINT, layers="L", bbox=WRAP, size=(400, 200))
+        steps = np.diff(_bands_rows_columns(ds)[0, 0])
+        assert steps == pytest.approx(ds.geotransform[1])
+        assert steps[199] == pytest.approx(ds.geotransform[1])
+
+    def test_pixels_match_the_same_two_regions_fetched_separately(self, fake_wms):
+        """The stitched raster is the two non-wrapping requests, side by side."""
+        wrapped = _bands_rows_columns(
+            Dataset.from_wms(ENDPOINT, layers="L", bbox=WRAP, size=(400, 200))
+        )
+        west = _bands_rows_columns(
+            Dataset.from_wms(
+                ENDPOINT, layers="L", bbox=(170.0, -10.0, 180.0, 10.0), size=(200, 200)
+            )
+        )
+        east = _bands_rows_columns(
+            Dataset.from_wms(
+                ENDPOINT,
+                layers="L",
+                bbox=(-180.0, -10.0, -170.0, 10.0),
+                size=(200, 200),
+            )
+        )
+        assert wrapped[:, :, :200] == pytest.approx(west)
+        assert wrapped[:, :, 200:] == pytest.approx(east)
+
+    def test_longitude_continues_past_the_seam(self, fake_wms):
+        """The result keeps the west half's geotransform, as a stitched crop does."""
+        ds = Dataset.from_wms(ENDPOINT, layers="L", bbox=WRAP, size=(400, 200))
+        assert ds.geotransform[0] == pytest.approx(170.0)
+        assert ds.geotransform[1] == pytest.approx(0.05)
+        assert ds.bbox[0] == pytest.approx(170.0)
+        assert ds.bbox[2] == pytest.approx(190.0)
+
+    def test_uneven_split_keeps_one_resolution_and_the_full_width(self, fake_wms):
+        ds = Dataset.from_wms(
+            ENDPOINT, layers="L", bbox=(175.0, -10.0, -170.0, 10.0), size=(400, 200)
+        )
+        cell = 15.0 / 400
+        assert ds.columns == 400
+        assert ds.geotransform[1] == pytest.approx(cell)
+        assert [int(_descriptor_values(d)["SizeX"]) for d in fake_wms] == [133, 267]
+        assert abs(ds.geotransform[0] - 175.0) < 0.5 * cell
+        steps = np.diff(_bands_rows_columns(ds)[0, 0])
+        assert steps == pytest.approx(cell)
+
+    def test_resolution_sizes_the_wrapping_span(self, fake_wms):
+        """`resolution=` divides the 20 degree wrap, not the -340 the corners subtract to."""
+        ds = Dataset.from_wms(ENDPOINT, layers="L", bbox=WRAP, resolution=0.05)
+        assert ds.shape == (3, 400, 400)
+        assert ds.geotransform[1] == pytest.approx(0.05)
+
+    def test_sub_half_pixel_sliver_makes_one_request(self, fake_wms):
+        ds = Dataset.from_wms(
+            ENDPOINT, layers="L", bbox=(179.999, -10.0, -170.0, 10.0), size=(2000, 200)
+        )
+        assert len(fake_wms) == 1
+        assert ds.columns == 2000
+        assert abs(ds.geotransform[0] - (179.999 - 360.0)) < 0.5 * ds.geotransform[1]
+
+    def test_non_wrapping_bbox_still_makes_a_single_request(self, fake_wms):
+        ds = Dataset.from_wms(ENDPOINT, layers="L", bbox=BBOX, size=(512, 256))
+        assert len(fake_wms) == 1
+        assert ds.shape == (3, 256, 512)
+        assert ds.bbox == pytest.approx([5.0, 51.0, 6.0, 52.0])
+
+    def test_every_requested_band_survives_the_stitch(self, fake_wms):
+        """Band n of the fake source is offset by 1000n, so a mix-up cannot pass."""
+        ds = Dataset.from_wms(ENDPOINT, layers="L", bbox=WRAP, size=(400, 20), bands=4)
+        arr = _bands_rows_columns(ds)
+        assert arr.shape == (4, 20, 400)
+        for band in range(4):
+            assert arr[band, 0] - arr[0, 0] == pytest.approx(1000.0 * band)
+
+
+class TestSeamOffset:
+    def test_geographic_layer_spans_360_degrees(self):
+        assert _wms._seam_offset(WRAP, "EPSG:4326", _lonlat_srs()) == pytest.approx(
+            360.0
+        )
+
+    def test_web_mercator_layer_spans_the_world_width(self):
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(3857)
+        srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        assert _wms._seam_offset(WRAP, "EPSG:4326", srs) == pytest.approx(
+            40075016.6856, rel=1e-9
+        )
+
+
+class TestMergeLonHalves:
+    """The stitch and the invariant it refuses to stitch without."""
+
+    @staticmethod
+    def _half(ulx, width, *, x_res=0.5, y_res=-0.5, uly=10.0, rows=4, bands=2):
+        src = gdal.GetDriverByName("MEM").Create("", width, rows, bands, gdal.GDT_Int16)
+        src.SetGeoTransform((ulx, x_res, 0.0, uly, 0.0, y_res))
+        for band in range(1, bands + 1):
+            src.GetRasterBand(band).WriteArray(
+                np.full((rows, width), band * 10, dtype="int16")
+            )
+        return src
+
+    def test_places_each_half_in_its_own_columns(self):
+        west, east = self._half(170.0, 20), self._half(-180.0, 12)
+        merged = _wms._merge_lon_halves(west, east, 360.0)
+        assert merged.RasterXSize == 32
+        assert merged.RasterYSize == 4
+        assert merged.RasterCount == 2
+        assert merged.GetGeoTransform() == west.GetGeoTransform()
+
+    def test_keeps_the_data_type_and_band_metadata(self):
+        west, east = self._half(170.0, 20), self._half(-180.0, 20)
+        west.GetRasterBand(1).SetNoDataValue(-999.0)
+        west.GetRasterBand(1).SetColorInterpretation(gdal.GCI_RedBand)
+        merged = _wms._merge_lon_halves(west, east, 360.0)
+        assert merged.GetRasterBand(1).DataType == gdal.GDT_Int16
+        assert merged.GetRasterBand(1).GetNoDataValue() == -999.0
+        assert merged.GetRasterBand(1).GetColorInterpretation() == gdal.GCI_RedBand
+        assert merged.GetRasterBand(2).ReadAsArray().min() == 20
+
+    def test_refuses_mismatched_rows_or_bands(self):
+        with pytest.raises(ValueError, match="not concatenable"):
+            _wms._merge_lon_halves(
+                self._half(170.0, 20), self._half(-180.0, 20, rows=3), 360.0
+            )
+
+    def test_refuses_different_resolutions(self):
+        with pytest.raises(ValueError, match="different resolutions"):
+            _wms._merge_lon_halves(
+                self._half(170.0, 20), self._half(-180.0, 40, x_res=0.25), 360.0
+            )
+
+    def test_refuses_halves_that_do_not_share_a_top_edge(self):
+        with pytest.raises(ValueError, match="top edge"):
+            _wms._merge_lon_halves(
+                self._half(170.0, 20), self._half(-180.0, 20, uly=20.0), 360.0
+            )
+
+    def test_refuses_halves_that_do_not_meet_at_the_seam(self):
+        """A west half stopping a pixel short of 180 is not stitchable."""
+        with pytest.raises(ValueError, match="apart at the seam"):
+            _wms._merge_lon_halves(self._half(170.0, 18), self._half(-180.0, 18), 360.0)
+
+    def test_a_wrong_seam_offset_is_caught(self):
+        """A projected layer checked against 360 degrees fails rather than stitching."""
+        with pytest.raises(ValueError, match="apart at the seam"):
+            _wms._merge_lon_halves(self._half(170.0, 20), self._half(-180.0, 20), 1.0)
+
+
+class _Part:
+    """A stand-in for a fetched half that records whether it was closed."""
+
+    def __init__(self, name, closed):
+        self.name = name
+        self._closed = closed
+
+    def Close(self):  # noqa: N802 - mirrors gdal.Dataset.Close
+        self._closed.append(self.name)
+
+
+class TestCollectHalves:
+    """Ownership: what `_collect_halves` closes and what it hands back open."""
+
+    def test_a_single_window_is_handed_back_open(self):
+        closed: list[str] = []
+        part = _Part("only", closed)
+        assert _wms._collect_halves(lambda w: part, ["only"], 360.0) is part
+        assert closed == []
+
+    def test_both_halves_are_closed_once_merged(self, monkeypatch):
+        closed: list[str] = []
+        monkeypatch.setattr(_wms, "_merge_lon_halves", lambda w, e, off: "stitched")
+        result = _wms._collect_halves(
+            lambda w: _Part(w, closed), ["west", "east"], 360.0
+        )
+        assert result == "stitched"
+        assert closed == ["west", "east"]
+
+    def test_a_failed_second_fetch_closes_the_first(self):
+        closed: list[str] = []
+
+        def fetch(window):
+            if window == "east":
+                raise WMSError("GetMap failed")
+            return _Part(window, closed)
+
+        with pytest.raises(WMSError):
+            _wms._collect_halves(fetch, ["west", "east"], 360.0)
+        assert closed == ["west"]
+
+    def test_a_failed_merge_still_closes_both(self, monkeypatch):
+        closed: list[str] = []
+
+        def boom(*_a):
+            raise ValueError("not concatenable")
+
+        monkeypatch.setattr(_wms, "_merge_lon_halves", boom)
+        with pytest.raises(ValueError, match="not concatenable"):
+            _wms._collect_halves(lambda w: _Part(w, closed), ["west", "east"], 360.0)
+        assert closed == ["west", "east"]
+
+
+def _global_pyramid(res: float = 0.5) -> gdal.Dataset:
+    """A whole-world lon/lat raster standing in for an opened WMTS layer."""
+    return _longitude_raster(
+        -180.0, 90.0, res, -res, (int(360 / res), int(180 / res)), 1
+    )
+
+
+class TestFromWmtsAntimeridian:
+    """`from_wmts` windows the pyramid either side of the seam and stitches."""
+
+    @pytest.fixture
+    def fake_wmts(self, monkeypatch):
+        src = _global_pyramid()
+        monkeypatch.setattr(_wms, "_open", lambda *_a: src)
+        return src
+
+    def test_wrapping_bbox_is_stitched(self, fake_wmts):
+        ds = Dataset.from_wmts("https://c.xml", layer="L", bbox=WRAP, resolution=0.5)
+        assert ds.columns == 40
+        assert ds.geotransform[0] == pytest.approx(170.0)
+        assert ds.geotransform[1] == pytest.approx(0.5)
+        row = _bands_rows_columns(ds)[0, 0]
+        assert row == pytest.approx(170.0 + (np.arange(40) + 0.5) * 0.5)
+
+    def test_native_resolution_read_also_stitches(self, fake_wmts):
+        """`resolution=None` pins both halves to the layer's own grid before splitting."""
+        ds = Dataset.from_wmts("https://c.xml", layer="L", bbox=WRAP)
+        assert ds.columns == 40
+        assert ds.geotransform[1] == pytest.approx(0.5)
+
+    def test_non_wrapping_bbox_is_unchanged(self, fake_wmts):
+        ds = Dataset.from_wmts(
+            "https://c.xml", layer="L", bbox=(0.0, -10.0, 10.0, 10.0), resolution=0.5
+        )
+        assert ds.columns == 20
+        assert ds.geotransform[0] == pytest.approx(0.0)
+
+    def test_pixels_match_the_same_two_regions_fetched_separately(self, fake_wmts):
+        wrapped = _bands_rows_columns(
+            Dataset.from_wmts("https://c.xml", layer="L", bbox=WRAP, resolution=0.5)
+        )
+        west = _bands_rows_columns(
+            Dataset.from_wmts(
+                "https://c.xml",
+                layer="L",
+                bbox=(170.0, -10.0, 180.0, 10.0),
+                resolution=0.5,
+            )
+        )
+        east = _bands_rows_columns(
+            Dataset.from_wmts(
+                "https://c.xml",
+                layer="L",
+                bbox=(-180.0, -10.0, -170.0, 10.0),
+                resolution=0.5,
+            )
+        )
+        assert wrapped[:, :, :20] == pytest.approx(west)
+        assert wrapped[:, :, 20:] == pytest.approx(east)
+
+
 @pytest.mark.slow
 @pytest.mark.live
 class TestLiveWms:
@@ -316,3 +785,23 @@ class TestLiveWms:
                 bbox=BBOX,
                 resolution=0.1,
             )
+
+    # A real service is the only thing that can answer whether two GetMap calls
+    # either side of 180 come back consistently styled and cache-aligned - the
+    # offline suite proves the geometry, not the rendering.
+    FIJI = (179.0, -18.5, -179.0, -17.5)
+
+    def test_wms_across_the_antimeridian(self):
+        ds = Dataset.from_wms(
+            self.OSM, layers="OSM-WMS", bbox=self.FIJI, size=(512, 256)
+        )
+        assert ds.shape == (3, 256, 512)
+        assert ds.bbox[0] == pytest.approx(179.0, abs=0.01)
+        assert ds.bbox[2] == pytest.approx(181.0, abs=0.01)
+
+    def test_wmts_across_the_antimeridian(self):
+        ds = Dataset.from_wmts(
+            self.GIBS, layer=self.TRUECOLOR, bbox=self.FIJI, resolution=0.01
+        )
+        assert ds.shape[-2:] == (100, 200)
+        assert ds.bbox[0] == pytest.approx(179.0, abs=0.05)
