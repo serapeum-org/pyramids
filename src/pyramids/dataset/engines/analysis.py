@@ -759,13 +759,11 @@ class Analysis(_Engine["Dataset"]):
         # Band identity is half the reason to keep the operation inside the
         # Dataset: an NDVI or change-detection stack whose bands come back as
         # `Band_1`, `Band_2` has lost what told the caller which is which.
-        names = (
+        combined.band_names = (
             [self._ds.band_names[band]]
             if band is not None
             else list(self._ds.band_names)
         )
-        if len(names) == combined.band_count:
-            combined.band_names = names
         return combined
 
     @staticmethod
