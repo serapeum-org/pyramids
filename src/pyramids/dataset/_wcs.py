@@ -56,6 +56,7 @@ from osgeo import gdal
 from pyproj.exceptions import CRSError as _PyprojCRSError
 
 from pyramids.base._artifacts import mint_vsimem, unregister_vsimem
+from pyramids.base._coverage import check_seam_bbox as _check_seam_bbox
 from pyramids.base._coverage import native_projwin as _native_projwin
 from pyramids.base._coverage import native_resolution as _native_resolution
 from pyramids.base._coverage import open_network_dataset as _open_network_dataset
@@ -790,6 +791,9 @@ def from_wcs(
             non-raster body.
     """
     box = _validate_bbox(bbox, allow_antimeridian=True)
+    # A wrap only means anything in a lon/lat crs, and only inside -180..180.
+    # Without this the split cuts a projected bbox at +/-180 metres.
+    _check_seam_bbox(box, crs)
     res = _resolution_pair(resolution)
     # One window normally, two when the bbox wraps the seam. Splitting
     # unconditionally keeps the ordinary request on exactly the path it had.

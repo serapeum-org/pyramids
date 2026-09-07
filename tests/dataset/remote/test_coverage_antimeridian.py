@@ -24,7 +24,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
-from pyramids.base._coverage import window_overlaps
+from pyramids.base._coverage import check_seam_bbox, window_overlaps
 from pyramids.dataset import Dataset, _ogc_coverages, _wcs
 from tests.dataset.remote.test_ogc_coverages import GLOBAL_BOUNDS as OGC_GLOBAL_BOUNDS
 from tests.dataset.remote.test_ogc_coverages import _serving
@@ -173,6 +173,70 @@ class TestWindowOverlaps:
             "a window inside a west-positive raster should overlap; an unordered x "
             "extent makes every window miss"
         )
+
+
+class TestTheSeamGuardReachesEveryRasterReader:
+    """The refusals `from_wms` always had, now on the two coverage readers too.
+
+    A network reader has no grid to check a bbox against, so once a wrap is
+    accepted these two checks are the only thing standing between a transposed
+    bbox and a confidently wrong answer.
+    """
+
+    def test_wcs_refuses_a_wrapping_bbox_in_a_projected_crs(self):
+        """A projected CRS has no 180 degree meridian to split at.
+
+        Test scenario:
+            An ordinary transposed Web Mercator box. Split at +/-180 *metres* it
+            becomes two windows over central Europe -- nowhere near what was
+            asked for, and returned without an error. `from_wcs` takes an explicit
+            `crs`, so the caller can reach this.
+        """
+        box = (2_000_000.0, 6_000_000.0, 1_000_000.0, 6_100_000.0)
+        with pytest.raises(ValueError, match="not a geographic"):
+            check_seam_bbox(box, "EPSG:3857")
+
+    def test_a_wrapping_bbox_may_not_overhang_the_seam(self):
+        """A corner past 180 leaves "west of the seam" meaning nothing.
+
+        Test scenario:
+            `(190, -10, -170, 10)` splits into a `(190, ..., 180)` half whose
+            native projwin comes out inverted, which the overlap filter then
+            discards -- so 20 of the 30 requested degrees vanish silently. It is
+            refused instead.
+        """
+        with pytest.raises(ValueError, match="within -180..180"):
+            check_seam_bbox((190.0, -10.0, -170.0, 10.0), "EPSG:4326")
+
+    def test_an_ordinary_bbox_passes_in_any_crs(self):
+        """The guard is a no-op unless the box actually wraps."""
+        assert check_seam_bbox((0.0, 0.0, 1e6, 1e6), "EPSG:3857") is None
+        assert check_seam_bbox((5.0, 51.0, 6.0, 52.0), "EPSG:4326") is None
+
+    def test_the_wcs_reader_applies_it_before_any_request(self):
+        """The refusal happens client-side, so no request is issued.
+
+        Test scenario:
+            The mock server is never started -- an endpoint that cannot be reached
+            proves the guard fires before the network is touched.
+        """
+        with pytest.raises(ValueError, match="not a geographic"):
+            Dataset.from_wcs(
+                "http://127.0.0.1:1/wcs",
+                coverage="test_cov",
+                bbox=(2_000_000.0, 6_000_000.0, 1_000_000.0, 6_100_000.0),
+                crs="EPSG:3857",
+                version="1.0.0",
+            )
+
+    def test_the_coverages_reader_applies_the_range_check(self):
+        """Its bbox is contractually CRS84, so only the corner range can fire."""
+        with pytest.raises(ValueError, match="within -180..180"):
+            Dataset.from_ogc_coverages(
+                "http://127.0.0.1:1/ogcapi",
+                coverage="demo",
+                bbox=(190.0, -10.0, -170.0, 10.0),
+            )
 
 
 class TestWindowSizes:

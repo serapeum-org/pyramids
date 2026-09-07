@@ -111,6 +111,80 @@ def validate_bbox(
     return minx, miny, maxx, maxy
 
 
+def check_seam_bbox(bbox: tuple[float, float, float, float], crs: str) -> None:
+    """Refuse a ``minx > maxx`` bbox this reader cannot read as an antimeridian wrap.
+
+    A no-op for an ordinary box. For a wrapping one it asserts the two things the
+    seam split silently assumes, so a transposed or projected-CRS bbox fails with a
+    message naming the problem instead of producing a raster stitched at a seam
+    that is not there.
+
+    Every raster reader needs this, which is why it lives here rather than beside
+    one of them. Without it a wrapping bbox given in a projected CRS is cut at
+    ``+/-180`` *metres*: a transposed Web Mercator box around Scandinavia splits
+    into two windows over central Europe and comes back with no error at all,
+    where before the wrap was accepted it was a clean :class:`ValueError`. The
+    corner-range half matters just as much -- a half that overhangs ``180`` yields
+    an inverted window that :func:`window_overlaps` then discards, so the caller
+    silently receives a fraction of what they asked for.
+
+    Args:
+        bbox: The validated ``(minx, miny, maxx, maxy)``, possibly wrapping.
+        crs: The CRS ``bbox`` is expressed in (the WMS request CRS).
+
+    Raises:
+        ValueError: ``bbox`` wraps but ``crs`` is not geographic — the 180 degree
+            seam is a lon/lat feature, and in a projected CRS ``minx > maxx`` is
+            just an inverted box. Or it wraps but a corner lies outside
+            ``-180 .. 180``, where "west of the seam" and "east of it" stop
+            meaning anything.
+
+    Examples:
+        - An ordinary box passes in any CRS, projected included, because nothing
+          about it needs a seam:
+            ```python
+            >>> from pyramids.base._coverage import check_seam_bbox
+            >>> check_seam_bbox((5.0, 51.0, 6.0, 52.0), "EPSG:3857") is None
+            True
+
+            ```
+        - A wrapping box in a projected CRS is refused rather than stitched at a
+          seam that CRS does not have:
+            ```python
+            >>> from pyramids.base._coverage import check_seam_bbox
+            >>> box = (170.0, -10.0, -170.0, 10.0)
+            >>> check_seam_bbox(box, "EPSG:3857")  # doctest: +ELLIPSIS
+            Traceback (most recent call last):
+            ValueError: bbox (170.0, ...) has minx > maxx, ...it has no such seam...
+
+            ```
+        - So is a wrapping box reaching outside ``-180 .. 180``, where the two
+          sides of the seam stop being well defined:
+            ```python
+            >>> from pyramids.base._coverage import check_seam_bbox
+            >>> box = (190.0, -10.0, -170.0, 10.0)
+            >>> check_seam_bbox(box, "EPSG:4326")  # doctest: +ELLIPSIS
+            Traceback (most recent call last):
+            ValueError: an antimeridian bbox must have both corners within -18...
+
+            ```
+    """
+    minx, _, maxx, _ = bbox
+    if minx > maxx:
+        if not sr_from_user_input(crs).IsGeographic():
+            raise ValueError(
+                f"bbox {bbox!r} has minx > maxx, which reads as a box crossing the "
+                f"180 degree seam - but crs={crs!r} is not a geographic (lon/lat) "
+                "CRS, so it has no such seam. Pass the bbox in a lon/lat CRS, or "
+                "give it as minx < maxx."
+            )
+        if minx > 180.0 or maxx < -180.0:
+            raise ValueError(
+                "an antimeridian bbox must have both corners within -180..180 "
+                f"degrees, got {bbox!r}"
+            )
+
+
 def seam_halves(
     bbox: tuple[float, float, float, float],
 ) -> list[tuple[float, float, float, float]]:

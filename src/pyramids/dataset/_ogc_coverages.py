@@ -56,6 +56,7 @@ from urllib.parse import quote, urlunsplit
 
 from osgeo import gdal
 
+from pyramids.base._coverage import check_seam_bbox as _check_seam_bbox
 from pyramids.base._coverage import native_projwin as _native_projwin
 from pyramids.base._coverage import open_network_dataset as _open_network_dataset
 from pyramids.base._coverage import read_size as _read_size
@@ -347,6 +348,10 @@ def from_ogc_coverages(
             reached, or it returned an error / a non-raster body.
     """
     box = _validate_bbox(bbox, allow_antimeridian=True)
+    # This reader's bbox is contractually CRS84, so the projected half of the
+    # guard cannot fire -- the corner-range half can, and an overhanging half
+    # would otherwise be dropped without a word.
+    _check_seam_bbox(box, "EPSG:4326")
     res = _resolution_pair(resolution)
     # One window normally, two when the bbox wraps the seam. Splitting
     # unconditionally keeps the ordinary request on exactly the path it had.

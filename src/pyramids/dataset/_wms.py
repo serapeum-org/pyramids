@@ -46,6 +46,7 @@ from typing import TYPE_CHECKING, Any
 
 from osgeo import gdal
 
+from pyramids.base._coverage import check_seam_bbox as _check_seam_bbox
 from pyramids.base._coverage import native_projwin as _native_projwin
 from pyramids.base._coverage import native_resolution as _native_resolution
 from pyramids.base._coverage import open_network_dataset as _open_network_dataset
@@ -59,7 +60,6 @@ from pyramids.base._errors import CoverageError, WMSError
 from pyramids.base._grid import grid_size
 from pyramids.base._ogc_api import gdal_http_config as _gdal_http_config
 from pyramids.base._ogc_api import not_advertised
-from pyramids.base.crs import sr_from_user_input
 from pyramids.dataset._subdataset import subdatasets_of
 
 if TYPE_CHECKING:
@@ -160,71 +160,6 @@ def _output_size(
         # readers' HTTP-fetch ceiling, so no cap applies here.
         result = grid_size(span_x, maxy - miny, res, max_px=None)
     return result
-
-
-def _check_seam_bbox(bbox: tuple[float, float, float, float], crs: str) -> None:
-    """Refuse a ``minx > maxx`` bbox this reader cannot read as an antimeridian wrap.
-
-    A no-op for an ordinary box. For a wrapping one it asserts the two things the
-    seam split silently assumes, so a transposed or projected-CRS bbox fails with a
-    message naming the problem instead of producing a raster stitched at a seam
-    that is not there.
-
-    Args:
-        bbox: The validated ``(minx, miny, maxx, maxy)``, possibly wrapping.
-        crs: The CRS ``bbox`` is expressed in (the WMS request CRS).
-
-    Raises:
-        ValueError: ``bbox`` wraps but ``crs`` is not geographic — the 180 degree
-            seam is a lon/lat feature, and in a projected CRS ``minx > maxx`` is
-            just an inverted box. Or it wraps but a corner lies outside
-            ``-180 .. 180``, where "west of the seam" and "east of it" stop
-            meaning anything.
-
-    Examples:
-        - An ordinary box passes in any CRS, projected included, because nothing
-          about it needs a seam:
-            ```python
-            >>> from pyramids.dataset._wms import _check_seam_bbox
-            >>> _check_seam_bbox((5.0, 51.0, 6.0, 52.0), "EPSG:3857") is None
-            True
-
-            ```
-        - A wrapping box in a projected CRS is refused rather than stitched at a
-          seam that CRS does not have:
-            ```python
-            >>> from pyramids.dataset._wms import _check_seam_bbox
-            >>> box = (170.0, -10.0, -170.0, 10.0)
-            >>> _check_seam_bbox(box, "EPSG:3857")  # doctest: +ELLIPSIS
-            Traceback (most recent call last):
-            ValueError: bbox (170.0, ...) has minx > maxx, ...it has no such seam...
-
-            ```
-        - So is a wrapping box reaching outside ``-180 .. 180``, where the two
-          sides of the seam stop being well defined:
-            ```python
-            >>> from pyramids.dataset._wms import _check_seam_bbox
-            >>> box = (190.0, -10.0, -170.0, 10.0)
-            >>> _check_seam_bbox(box, "EPSG:4326")  # doctest: +ELLIPSIS
-            Traceback (most recent call last):
-            ValueError: an antimeridian bbox must have both corners within -18...
-
-            ```
-    """
-    minx, _, maxx, _ = bbox
-    if minx > maxx:
-        if not sr_from_user_input(crs).IsGeographic():
-            raise ValueError(
-                f"bbox {bbox!r} has minx > maxx, which reads as a box crossing the "
-                f"180 degree seam - but crs={crs!r} is not a geographic (lon/lat) "
-                "CRS, so it has no such seam. Pass the bbox in a lon/lat CRS, or "
-                "give it as minx < maxx."
-            )
-        if minx > 180.0 or maxx < -180.0:
-            raise ValueError(
-                "an antimeridian bbox must have both corners within -180..180 "
-                f"degrees, got {bbox!r}"
-            )
 
 
 def _seam_windows(
@@ -799,7 +734,7 @@ def from_wms(
     Raises:
         ValueError: ``bbox`` is malformed, ``layers`` is empty, ``size`` /
             ``resolution`` was not given exactly once, or ``bbox`` wraps but
-            ``crs`` is projected (see :func:`_check_seam_bbox`).
+            ``crs`` is projected (see :func:`~pyramids.base._coverage.check_seam_bbox`).
         WMSError: the server could not be reached or returned a non-raster body.
     """
     minx, miny, maxx, maxy = _validate_bbox(bbox, allow_antimeridian=True)
@@ -829,7 +764,7 @@ def from_wms(
         return rendered
 
     with gdal.config_options(config):
-        # 360.0: the seam offset is in degrees because `_check_seam_bbox` has
+        # 360.0: the seam offset is in degrees because `check_seam_bbox` has
         # already established that a wrapping request CRS is geographic, and a WMS
         # renders in the request CRS itself (no native-CRS detour, unlike WMTS).
         mem = _collect_halves(fetch, windows, 360.0)
@@ -873,7 +808,7 @@ def from_wmts(
 
     Raises:
         ValueError: ``bbox`` is malformed, ``layer_crs`` cannot be interpreted, or
-            ``bbox`` wraps but ``crs`` is projected (see :func:`_check_seam_bbox`).
+            ``bbox`` wraps but ``crs`` is projected (see :func:`~pyramids.base._coverage.check_seam_bbox`).
         WMSError: the server could not be reached, the layer is unknown, or the
             tile read failed.
     """
