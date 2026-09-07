@@ -71,6 +71,11 @@ from pyramids.dataset.engines import (
     Spatial,
     Vectorize,
 )
+
+# The engine's "derive the sentinel from the computed values" default. Imported
+# so the `combine` facade can declare it rather than hide it behind `**kwargs`;
+# the object itself is never constructed or compared outside the engine.
+from pyramids.dataset.engines.analysis import _DERIVE_NO_DATA
 from pyramids.dataset.ops._focal import (
     aspect,
     focal_apply,
@@ -731,27 +736,29 @@ class Dataset(RasterBase):
         func: Callable[[np.ndarray, np.ndarray], np.ndarray],
         *,
         band: int | None = None,
-        **kwargs: Any,
+        no_data_value: Any = _DERIVE_NO_DATA,
     ) -> Dataset:
         """Facade — delegates to :meth:`Analysis.combine <pyramids.dataset.engines.Analysis.combine>`.
 
         Spelled out rather than `*args, **kwargs` like its neighbours: `combine`
         has keyword-only options and a `no_data_value` default that is neither
         `None` nor a value, so a bare forwarding signature tells an IDE or mypy
-        user nothing. `no_data_value` stays inside `kwargs` because its default
-        is a private sentinel — passing it explicitly here would leak that
-        object into the public signature.
+        user nothing — and a typo like `no_data=` would reach the engine as an
+        unexpected keyword instead of being caught here.
 
         Args:
             other: The second operand, on this dataset's grid.
             func: Binary callable applied to the operands' matching cells.
             band: Zero-based band to combine, or `None` for every band.
-            **kwargs: `no_data_value`, as documented on the engine method.
+            no_data_value: Sentinel for the result, as documented on the engine
+                method. Left unset it is derived from the computed values.
 
         Returns:
             Dataset: The combined raster, on this dataset's grid.
         """
-        return self.analysis.combine(other, func, band=band, **kwargs)
+        return self.analysis.combine(
+            other, func, band=band, no_data_value=no_data_value
+        )
 
     def fill(self, *args, **kwargs):
         """Facade — delegates to :meth:`Analysis.fill <pyramids.dataset.engines.Analysis.fill>`.
@@ -1362,9 +1369,21 @@ class Dataset(RasterBase):
         """Facade — delegates to :meth:`Spatial.align <pyramids.dataset.engines.Spatial.align>`."""
         return self.spatial.align(*args, **kwargs)
 
-    def same_grid(self, *args, **kwargs):
-        """Facade — delegates to :meth:`Spatial.same_grid <pyramids.dataset.engines.Spatial.same_grid>`."""
-        return self.spatial.same_grid(*args, **kwargs)
+    def same_grid(self, other: Dataset, *, compare_crs: bool = True) -> bool:
+        """Facade — delegates to :meth:`Spatial.same_grid <pyramids.dataset.engines.Spatial.same_grid>`.
+
+        Spelled out for the same reason as :meth:`combine`, whose contract it
+        states: the keyword-only `compare_crs` is invisible in a bare forwarding
+        signature.
+
+        Args:
+            other: Dataset to compare against this one.
+            compare_crs: Whether the CRSes must agree too. Default `True`.
+
+        Returns:
+            bool: `True` iff both rasters occupy the same pixel grid.
+        """
+        return self.spatial.same_grid(other, compare_crs=compare_crs)
 
     def fill_gaps(self, *args, **kwargs):
         """Facade — delegates to :meth:`Spatial.fill_gaps <pyramids.dataset.engines.Spatial.fill_gaps>`."""
@@ -2026,8 +2045,12 @@ class Dataset(RasterBase):
             when `other` is not a Dataset.
         """
         result: Any = NotImplemented
-        if isinstance(other, Dataset):
-            result = self.combine(other, op)
+        if isinstance(other, RasterBase):
+            # `RasterBase`, matching `Analysis.combine`'s own guard: were the two
+            # to differ, `ds - x` would decline an operand `ds.combine(x, ...)`
+            # accepts. `cast` because `RasterBase` is the ABC the engine checks
+            # while `combine` is typed for the concrete raster.
+            result = self.combine(cast("Dataset", other), op)
         return result
 
     def __add__(self, other: Any) -> Any:
