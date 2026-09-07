@@ -936,9 +936,15 @@ def _container_summary(nc: NetCDF) -> str:
     """Describe the store, reporting only what this container can actually know.
 
     Sourced from ``meta_data.variables`` -- a ``dict[str, VariableInfo]`` carrying
-    name / shape / dtype / unit for every array including the coordinates, costed once
-    for the whole store. Looping ``get_variable()`` instead would raise on every
-    non-raster variable and produce a wall of text (#1090).
+    name / shape / dtype / unit for every array including the coordinates. Looping
+    ``get_variable()`` instead would raise on every non-raster variable and produce a wall of
+    text (#1090).
+
+    This is the summary that costs something. In multidimensional mode the first call builds
+    :attr:`meta_data`, which walks every array in the store: ~44 ms and one file open locally,
+    cached from then on, so a second ``print(nc)`` is ~0.5 ms. That is the same cost the
+    previous summary paid -- it interpolated ``meta_data`` too. The variable summary pays none
+    of it.
 
     That list is deliberately **not** :attr:`variable_names`: it enumerates every array, so it
     includes the coordinates and bounds that the data-variable list leaves out, and it is keyed
@@ -1019,11 +1025,18 @@ def _variable_summary(nc: NetCDF) -> str:
     dimension (``12 along time``) rather than ``Band_1 ... Band_12``, because the
     raster vocabulary for a time axis is a standing source of confusion (#1090).
 
-    Reads no pixels and computes no statistics, since ``str()`` runs in debuggers, logging and
-    pytest introspection. It is not free: the first call builds :attr:`meta_data`, which walks
-    the store's arrays and opens the file a second time for the classic-metadata top-up
-    (~47 ms locally). That cost is the same one the previous summary paid -- it interpolated
-    ``meta_data`` too -- and is cached from then on.
+    Reads no pixels, computes no statistics, and touches no metadata: it reads band-level
+    properties only, so it performs no I/O and costs about 0.0 ms on an already-extracted
+    variable. The walk of the store was paid by :meth:`get_variable` before the caller could
+    hold a variable at all (~36 ms locally, one file open).
+
+    Note that ``repr()`` is a different contract and is unchanged -- it is still
+    ``gdal.Info``, so the surfaces that auto-display an object (a notebook cell, a debugger's
+    variable pane, pytest's assertion output) still show GDAL's ``Size is 512, 512``
+    placeholder for a container. Only ``str()`` / ``print()`` route here.
+
+    Args:
+        nc: The variable to describe.
 
     Returns:
         str: A short multi-line summary.
@@ -1413,6 +1426,13 @@ class NetCDF(Dataset):
         Mirrors `Dataset.__str__`: a closed handle returns the sentinel rather than
         raising, so the repr/str stays total for debuggers and logging (`__repr__`
         already inherits this via `super()`).
+
+        This changes `str()` / `print()` only. `__repr__` is a separate contract --
+        `gdal.Info` on the underlying raster -- and is deliberately unchanged, so the
+        surfaces that auto-display an object still report the placeholder: a bare `nc` in a
+        notebook cell, a debugger's variable pane and pytest's assertion output all call
+        `repr`, and a container still shows `Size is 512, 512` there. Reworking that is a
+        separate question about `Dataset.__repr__` and its `gdal.Info` contract.
         """
         message = "<Dataset: closed>"
         if self._raster is not None:
