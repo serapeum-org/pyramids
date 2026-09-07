@@ -82,7 +82,11 @@ from pyramids.netcdf.engines.interop import Interop
 from pyramids.netcdf.engines.selection import Selection
 from pyramids.netcdf.engines.variables import Variables
 from pyramids.netcdf.metadata import get_metadata
-from pyramids.netcdf.models import MAX_DISPLAY_VARIABLES, NetCDFMetadata
+from pyramids.netcdf.models import (
+    MAX_DISPLAY_VARIABLES,
+    NetCDFMetadata,
+    VariableInfo,
+)
 from pyramids.netcdf.plot_options import CoordinateSpec, FacetSpec, Selectors
 from pyramids.netcdf.utils import (
     _read_attributes,
@@ -723,6 +727,63 @@ def _both_nan(left: Any, right: Any) -> bool:
         return False
 
 
+def _variable_table_lines(variables: dict[str, VariableInfo]) -> list[str]:
+    """Tabulate the store's arrays, one row each, capped at `MAX_DISPLAY_VARIABLES`.
+
+    The names are padded to a common width so the shapes line up in a terminal. Only the
+    displayed names take part in that width, so one very long name hidden behind the cap
+    cannot stretch the whole table.
+
+    Args:
+        variables: The store's arrays, keyed by name -- `meta_data.variables`, which
+            includes coordinates and bounds, not just the data variables.
+
+    Returns:
+        list[str]: The `variables  :` header followed by one indented row per array, and a
+            `... N more` line when the cap hid some.
+    """
+    lines = ["  variables  :"]
+    shown = list(variables.values())[:MAX_DISPLAY_VARIABLES]
+    width = max(len(info.name) for info in shown)
+    for info in shown:
+        extent = ", ".join(str(n) for n in info.shape)
+        row = f"    {info.name:<{width}}  ({extent})  {info.dtype}"
+        if info.unit:
+            row += f"  {info.unit}"
+        lines.append(row)
+    hidden = len(variables) - len(shown)
+    if hidden > 0:
+        lines.append(f"    ... {hidden} more")
+    return lines
+
+
+def _variable_name_lines(names: list[str], published: bool) -> list[str]:
+    """Name the variables on one line, for a store that publishes no per-array metadata.
+
+    This is the classic-mode fallback: `meta_data.variables` is empty there, but
+    `variable_names` still answers, so the names are worth printing even without shapes
+    or dtypes.
+
+    Args:
+        names: The variable names to list.
+        published: Whether the store publishes its structure. Only then does an empty
+            list mean `none` rather than "not knowable", so only then is the line printed
+            at all -- see `_container_summary`.
+
+    Returns:
+        list[str]: A single `variables  :` line, or nothing when there is neither a name
+            to show nor the standing to call the store empty.
+    """
+    shown = names[:MAX_DISPLAY_VARIABLES]
+    listed = ", ".join(shown)
+    if len(names) > len(shown):
+        listed += f", ... {len(names) - len(shown)} more"
+    lines: list[str] = []
+    if listed or published:
+        lines.append(f"  variables  : {listed or 'none'}")
+    return lines
+
+
 def _container_summary(nc: NetCDF) -> str:
     """Describe the store, reporting only what this container can actually know.
 
@@ -764,26 +825,9 @@ def _container_summary(nc: NetCDF) -> str:
 
     variables = nc.meta_data.variables or {}
     if variables:
-        lines.append("  variables  :")
-        shown = list(variables.values())[:MAX_DISPLAY_VARIABLES]
-        width = max(len(info.name) for info in shown)
-        for info in shown:
-            extent = ", ".join(str(n) for n in info.shape)
-            row = f"    {info.name:<{width}}  ({extent})  {info.dtype}"
-            if info.unit:
-                row += f"  {info.unit}"
-            lines.append(row)
-        hidden = len(variables) - len(shown)
-        if hidden > 0:
-            lines.append(f"    ... {hidden} more")
+        lines.extend(_variable_table_lines(variables))
     else:
-        names = nc.variable_names or []
-        shown_names = names[:MAX_DISPLAY_VARIABLES]
-        listed = ", ".join(shown_names)
-        if len(names) > len(shown_names):
-            listed += f", ... {len(names) - len(shown_names)} more"
-        if listed or published:
-            lines.append(f"  variables  : {listed or 'none'}")
+        lines.extend(_variable_name_lines(nc.variable_names or [], published))
 
     if nc.band_count:
         # `cell_size` is always a float, and `:g` trims the trailing zeros that make a summary
