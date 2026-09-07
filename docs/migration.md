@@ -652,11 +652,12 @@ Both bounds are affected, and no large offset is needed to reach one: a store wr
 `days since 0001-01-01` epoch is out of range at offset **zero**. Its in-range dates are unaffected — a
 20th-century date on that epoch still decodes to `datetime64[ns]` exactly as before.
 
-**Which object you get back is `cftime`'s choice, and it decides what still works downstream.** For a date
-Python's `datetime` can represent — the common far-future case above — it is `cftime.real_datetime`, a
-`datetime` subclass, so `pandas` gives `datetime64[us]` and `to_dataframe` / `to_parquet` / `to_csv` all keep
-working and now carry the *correct* date. Only a date Python cannot represent, which in practice means a
-pre-1582 origin on a mixed calendar, yields a true `cftime` datetime.
+**Which object you get back is `cftime`'s choice, and it decides what still works downstream.** It follows the
+**origin**, not the dates: when proleptic Gregorian rules already cover the origin — a `proleptic_gregorian`
+calendar, or a mixed-calendar origin at or after the 1582 reform — you get `cftime.real_datetime`, a `datetime`
+subclass, so `pandas` gives `datetime64[us]` and `to_dataframe` / `to_parquet` / `to_csv` all keep working and
+now carry the *correct* date. That covers the common far-future case above. A pre-1582 origin on a mixed
+calendar yields a true `cftime` datetime instead, for every value on the axis — including its post-1582 ones.
 
 **`LabeledDataset.to_parquet` raises on that second case**, where it previously wrote a file full of wrapped
 dates. Parquet has no type for a `cftime` datetime, so the write now fails with a `FailedToSaveError` naming the
