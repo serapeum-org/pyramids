@@ -13,6 +13,7 @@ end to end.
 from __future__ import annotations
 
 import gc
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -24,6 +25,7 @@ from pyramids.netcdf.netcdf import (
     _both_nan,
     _collapse_uniform,
     _container_summary,
+    _store_label,
     _variable_summary,
 )
 
@@ -343,6 +345,54 @@ class TestContainerSummary:
                 )
         finally:
             nc.close()
+
+    def test_a_real_file_without_a_suffix_is_not_called_in_memory(self, tmp_path):
+        """An extensionless path is still a real file, and the header must name it.
+
+        Test scenario:
+            The label used to be chosen by `Path(source).suffix`, so `mkstemp` output, an
+            OPeNDAP endpoint or a content-typed download -- all extensionless -- were reported
+            as `in-memory`, a false claim about provenance. The driver is the reliable signal.
+        """
+        source = Path("tests/data/netcdf/cf__5v__1d4-3d1__geog__y-desc.nc")
+        target = tmp_path / "cube"
+        target.write_bytes(source.read_bytes())
+        nc = NetCDF.read_file(str(target))
+        try:
+            header = str(nc).split("\n")[0]
+            assert "in-memory" not in header, f"real file called in-memory: {header}"
+            assert "cube" in header, f"header does not name the file: {header}"
+        finally:
+            nc.close()
+
+
+class TestStoreLabel:
+    """`_store_label` reports the label and the in-memory verdict separately."""
+
+    def test_the_memory_driver_decides_not_the_suffix(self):
+        """A `memory`-driver store is in-memory whatever its `file_name` says."""
+
+        class _InMemory:
+            file_name = "netcdf"
+            driver_type = "memory"
+
+        assert _store_label(_InMemory()) == ("in-memory", True)
+
+    def test_a_group_scoped_in_memory_store_still_reports_in_memory(self):
+        """The group suffix must not hide the in-memory verdict from the caller.
+
+        Test scenario:
+            The variable header used to recover the verdict with `label == "in-memory"`. A
+            group-scoped store labels as `in-memory:/grp`, so that comparison failed and the
+            parent-store fallback was skipped. The verdict is returned, not re-derived.
+        """
+
+        class _InMemoryGroup:
+            file_name = ""
+            driver_type = "memory"
+            _group_path = "grp"
+
+        assert _store_label(_InMemoryGroup()) == ("in-memory:/grp", True)
 
 
 class _FakeVariable:

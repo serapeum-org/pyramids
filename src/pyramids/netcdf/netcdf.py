@@ -613,44 +613,68 @@ def _collapse_uniform(values: Any) -> Any:
     return first if uniform else list(values)
 
 
-def _store_label(nc: NetCDF) -> str:
+def _store_label(nc: NetCDF) -> tuple[str, bool]:
     """A short name for the store behind `nc`, for a summary header.
 
-    ``file_name`` is not always a path. An in-memory result built by an operation such as
-    ``to_crs`` carries the driver name (``"netcdf"``), which would read as a filename in the
-    header; anything without a suffix is treated as in-memory instead. A ``get_group()`` view
-    shares its root's path, so the group path is appended to keep the two distinguishable.
+    `file_name` is not always a path. An in-memory result built by an operation such as
+    `to_crs` carries the driver name (`"netcdf"`), which would read as a filename in the
+    header. The reliable signal is the driver, not the path -- `abstract_dataset.py` states
+    the same rule for `_require_writable`: in-memory means the `memory` driver, a `/vsimem/`
+    path, or no path at all. Testing the path for a suffix instead would call a real
+    extensionless file -- `mkstemp` output, an OPeNDAP endpoint, a content-typed download --
+    `in-memory`, which is a false claim about where the data came from.
+
+    A `get_group()` view shares its root's path, so the group path is appended to keep the
+    two distinguishable. The in-memory verdict is returned alongside the label rather than
+    recovered by comparing it to `"in-memory"`, because that suffix defeats the comparison.
 
     Args:
         nc: The container or variable to label.
 
     Returns:
-        str: A file name, optionally with a group path, or ``"in-memory"``.
+        tuple[str, bool]: The label -- a file name, optionally with a group path, or
+            `"in-memory"` -- and whether the store is in memory.
 
     Examples:
         - A plain filename is reduced to its base name:
             ```python
             >>> class _Store:
             ...     file_name = "/data/archive/cube.nc"
+            ...     driver_type = "netcdf"
             >>> _store_label(_Store())
-            'cube.nc'
+            ('cube.nc', False)
 
             ```
-        - A driver name is not a path, so it reads as in-memory:
+        - An extensionless path is still a real file:
+            ```python
+            >>> class _NoSuffix:
+            ...     file_name = "/tmp/tmpab12cd/cube"
+            ...     driver_type = "netcdf"
+            >>> _store_label(_NoSuffix())
+            ('cube', False)
+
+            ```
+        - The `memory` driver is what makes a store in-memory, whatever its `file_name` says:
             ```python
             >>> class _InMemory:
             ...     file_name = "netcdf"
+            ...     driver_type = "memory"
             >>> _store_label(_InMemory())
-            'in-memory'
+            ('in-memory', True)
 
             ```
     """
     source = getattr(nc, "file_name", "") or ""
-    label = Path(source).name if source and Path(source).suffix else "in-memory"
+    in_memory = (
+        not source
+        or source.startswith("/vsimem/")
+        or getattr(nc, "driver_type", None) == "memory"
+    )
+    label = "in-memory" if in_memory else Path(source).name
     group = getattr(nc, "_group_path", None)
     if group:
         label = f"{label}:/{group}"
-    return label
+    return label, in_memory
 
 
 def _same_value(left: Any, right: Any) -> bool:
@@ -822,7 +846,8 @@ def _container_summary(nc: NetCDF) -> str:
     Returns:
         str: A short multi-line summary.
     """
-    lines = [f"<Container {_store_label(nc)}>"]
+    label, _ = _store_label(nc)
+    lines = [f"<Container {label}>"]
     published = nc._is_md_array
 
     sizes = nc.dimension_sizes or {}
@@ -880,10 +905,10 @@ def _variable_summary(nc: NetCDF) -> str:
     # A variable subset's raster is an in-memory MDArray view, so it has no path of its own;
     # the container it came from does.
     parent = getattr(nc, "_parent_nc", None)
-    label = _store_label(nc)
-    if label == "in-memory" and parent is not None:
-        label = _store_label(parent)
-    header = f"<Variable {name}" + (f" - {label}" if label != "in-memory" else "")
+    label, in_memory = _store_label(nc)
+    if in_memory and parent is not None:
+        label, in_memory = _store_label(parent)
+    header = f"<Variable {name}" + ("" if in_memory else f" - {label}")
     lines = [header + ">"]
 
     # `cell_size` is always a float, and `:g` trims the trailing zeros that make a summary
