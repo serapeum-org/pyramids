@@ -17,7 +17,12 @@ from geopandas.geodataframe import GeoDataFrame
 from osgeo import gdal, osr
 from pyproj import Transformer
 
-from pyramids.base._domain import fits_dtype, free_no_data, is_no_data
+from pyramids.base._domain import (
+    fits_dtype,
+    free_no_data,
+    is_no_data,
+    is_stored_no_data,
+)
 from pyramids.base._errors import NoDataValueError
 from pyramids.base._utils import DEFAULT_RESAMPLING, resolve_resampling
 from pyramids.base.crs import (
@@ -2476,11 +2481,21 @@ class Spatial(_Engine["Dataset"]):
         """
         big_array = src.read_array()
         value_to_remove = src.no_data_value[0]
-        # `is_no_data`, not `==`: a NaN sentinel never equals itself, so `==` marks
-        # nothing and the all-no-data frame GDAL leaves after a cutline warp
-        # survives -- an oversized crop carrying a no-data border. The helper is
-        # already imported and used for exactly this three times in this module.
-        no_data_mask = is_no_data(big_array, value_to_remove)
+        # Not `==`: a NaN sentinel never equals itself, so `==` marks nothing
+        # and the all-no-data frame GDAL leaves after a cutline warp survives
+        # -- an oversized crop carrying a no-data border.
+        #
+        # `is_stored_no_data`, not `is_no_data`: this decides which rows and
+        # columns get *deleted*, which is exactly the "decides what a reader
+        # draws, counts or writes" case that predicate is documented for.
+        # `is_no_data`'s operational `rtol` of 0.001 deleted everything within
+        # a part per thousand of the sentinel -- and interior rows, not only
+        # the border -- so a `float32` band of `-9995` cropped against a
+        # `-9999` fill came back as a single cell. The sentinel is proved free
+        # of the band's values at storage tolerance, so that is the tolerance
+        # the consumer has to ask with, or it deletes data the search
+        # deliberately preserved.
+        no_data_mask = is_stored_no_data(big_array, value_to_remove)
         # Find rows and columns to be removed
         if big_array.ndim == 2:
             rows_to_remove = np.all(no_data_mask, axis=1)

@@ -1877,6 +1877,37 @@ class TestCropFillValues:
         """
         assert Spatial._warp_nodata(fills) == expected
 
+    @pytest.mark.parametrize(
+        ("dtype", "near_value"),
+        [("int16", -9995), ("float32", -9995.0)],
+        ids=["int16 four counts away", "float32 0.04% away"],
+    )
+    def test_data_near_the_fill_survives_the_trim(self, dtype: str, near_value):
+        """The fill is proved free at storage tolerance; the trim must agree.
+
+        Args:
+            dtype: The source band dtype name.
+            near_value: A real value close to, but not equal to, the fill.
+
+        Test scenario:
+            The trim that removes fully-excluded rows and columns asked with
+            `is_no_data`'s operational `rtol` of 0.001, while the search that
+            chose the fill proved it free at storage tolerance. Everything
+            within a part per thousand of `-9999` was therefore deleted --
+            interior rows included -- so a band of `-9995` came back as a
+            single cell, or raised "crop produced no valid pixels". Elevation,
+            depth and scaled-reflectance products sit in exactly that window.
+        """
+        values = np.full((4, 4), near_value, dtype=dtype)
+        values[0, 0] = 1
+        source = Dataset.from_array(values, geo_ref=self.GEO, no_data_value=None)
+
+        cropped = source.crop(self._mask(dtype))
+
+        kept = np.asarray(cropped.read_array())
+        assert kept.shape == (4, 4), f"real data was trimmed away: {kept.shape}"
+        assert int((kept == near_value).sum()) == 15
+
     def test_a_band_holding_every_candidate_refuses(self):
         """The honest failure, rather than a colliding fill.
 
