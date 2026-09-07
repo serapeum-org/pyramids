@@ -65,8 +65,11 @@ def _cftime_columns(frame: pd.DataFrame) -> list[str]:
         list[str]: The offending column names, in column order.
     """
     offenders = []
-    for name in frame.columns:
-        column = frame[name]
+    # Positional, not `frame[name]`: a duplicate column label makes that return a
+    # DataFrame, whose `.dtype` raises `AttributeError` -- inside an `except` block, which
+    # would replace the write failure with an unrelated one.
+    for position, name in enumerate(frame.columns):
+        column = frame.iloc[:, position]
         if column.dtype == object:
             # Every element, not just the first. `cftime` picks one class per array from
             # the units origin, so a column decoded in one go is uniform -- but a frame
@@ -1093,8 +1096,12 @@ class LabeledDataset:
         try:
             frame.to_parquet(str(path), index=False, **kwargs)
         except Exception as error:
+            # Both conditions: a frame can carry a cftime column and still fail for an
+            # unrelated reason (an unwritable path, a full disk), and re-labelling that as
+            # a time-axis problem would send the caller after the wrong thing. pyarrow
+            # names the offending type in its message, so require that too.
             unstorable = _cftime_columns(frame)
-            if not unstorable:
+            if not unstorable or "cftime" not in str(error):
                 raise
             raise FailedToSaveError(
                 f"cannot write {path}: the column(s) {', '.join(unstorable)} carry "

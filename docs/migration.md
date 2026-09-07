@@ -635,7 +635,7 @@ replace the georeference wholesale.
 ### unreleased
 
 **A time axis outside `datetime64[ns]`'s range now decodes to `cftime` objects instead of wrapping.**
-Soft change, warned — a `RuntimeWarning` names the units. Only arrays that were previously **wrong** change:
+Soft change, warned — a `UserWarning` names the axis and its units. Only arrays that were previously **wrong** change:
 `decode_cf_time` cast to `datetime64[ns]` under a guard that cannot fire, because a date beyond the type's
 1677-09-21 to 2262-04-11 range does not raise on the cast, it wraps.
 
@@ -648,13 +648,24 @@ decode_cf_time(np.array([400_000]), "days since 1970-01-01", "standard")
 # after  -> cftime.real_datetime(3065, 3, 1)                 # + UserWarning
 ```
 
+**A missing timestep is now `NaT` rather than the epoch.** `cftime` marks the offsets it cannot decode — a
+`NaN` or an `inf` — and that mark used to be dropped, leaving the fill value, which is the origin, so a missing
+timestep read back as a real date. It is now `NaT` in a `datetime64` result and `None` in an object one. Values
+change wherever an axis has missing offsets, and they change from wrong to right; the integer decode path has
+always behaved this way, so only the `cftime` path moves.
+
+**A `"months since …"` axis on a non-`360_day` calendar now raises a clearer error.** It always raised — a
+calendar month has no fixed length, so `cftime` allows the unit only on `360_day` — but the `ValueError` came
+from inside `cftime`, naming neither the axis nor the store. It now names the axis, units and calendar and
+chains the original. Nothing that previously succeeded now fails.
+
 Both bounds are affected, and no large offset is needed to reach one: a store written against a
 `days since 0001-01-01` epoch is out of range at offset **zero**. Its in-range dates are unaffected — a
 20th-century date on that epoch still decodes to `datetime64[ns]` exactly as before.
 
 **Which object you get back is `cftime`'s choice, and it decides what still works downstream.** It follows the
 **origin**, not the dates: when proleptic Gregorian rules already cover the origin — a `proleptic_gregorian`
-calendar, or a mixed-calendar origin at or after the 1582 reform — you get `cftime.real_datetime`, a `datetime`
+calendar, or a mixed-calendar origin after the 1582 reform — you get `cftime.real_datetime`, a `datetime`
 subclass, so `pandas` gives `datetime64[us]` and `to_dataframe` / `to_parquet` / `to_csv` all keep working and
 now carry the *correct* date. That covers the common far-future case above. A pre-1582 origin on a mixed
 calendar yields a true `cftime` datetime instead, for every value on the axis — including its post-1582 ones.

@@ -77,7 +77,6 @@ class TestOutOfRangeTimeExport:
             succeeded with 1896.
         """
         pytest.importorskip("pyarrow")
-        pandas = pytest.importorskip("pandas")
         store = _time_store(
             tmp_path / "future.nc", "days since 1970-01-01", [400_000.0, 400_001.0]
         )
@@ -89,7 +88,7 @@ class TestOutOfRangeTimeExport:
         finally:
             dataset.close()
         assert written.exists(), "the far-future axis should still export"
-        back = pandas.read_parquet(written)
+        back = pd.read_parquet(written)
         assert back["time"].iloc[0].year == 3065, back["time"].iloc[0]
 
     def test_a_cftime_axis_raises_a_pyramids_error(self, tmp_path: Path):
@@ -234,7 +233,7 @@ class TestCftimeColumnDetection:
         )
         assert _cftime_columns(frame) == ["ancient"], _cftime_columns(frame)
 
-    def test_a_column_whose_first_value_is_a_datetime_is_still_named(self):
+    def test_a_later_cftime_value_still_names_the_column(self):
         """Any `cftime` element names the column, not only a leading one.
 
         Test scenario:
@@ -248,13 +247,27 @@ class TestCftimeColumnDetection:
         )
         assert _cftime_columns(frame) == ["time"], _cftime_columns(frame)
 
-    def test_an_empty_object_column_is_not_indexed(self):
-        """A zero-row object column has no first element, and must not be looked at.
+    def test_a_duplicate_column_label_does_not_raise(self):
+        """A repeated column label must not turn the write failure into an `AttributeError`.
 
         Test scenario:
-            An empty selection is an ordinary frame, not a contrived one, and the size guard
-            is the only thing between it and an `IndexError` raised while the code is already
-            handling another error.
+            `frame[name]` returns a DataFrame when the label is duplicated, and `.dtype` on
+            that raises -- inside the `except` block, so it would replace the failure the
+            caller needs to see. The scan is positional for that reason.
+        """
+        frame = pd.DataFrame(
+            [[datetime(2000, 1, 1), cftime.DatetimeGregorian(1000, 1, 1)]],
+            columns=["time", "time"],
+        )
+        assert _cftime_columns(frame) == ["time"], _cftime_columns(frame)
+
+    def test_an_empty_object_column_names_nothing(self):
+        """A zero-row object column has nothing to find, so it is not named.
+
+        Test scenario:
+            An empty selection is an ordinary frame, not a contrived one, and this runs
+            while another error is already being handled -- so anything raised here would
+            replace the failure the caller actually needs to see.
         """
         frame = pd.DataFrame({"time": pd.Series([], dtype=object)})
         assert _cftime_columns(frame) == [], _cftime_columns(frame)
