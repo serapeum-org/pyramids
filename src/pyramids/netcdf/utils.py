@@ -1008,9 +1008,12 @@ def decode_cf_time(
     in two ways, both of them consequences of dropping ``cftime``'s microsecond floor:
     a ``"nanoseconds since …"`` axis decodes instead of raising, and a ``NaN`` offset
     decodes to ``NaT`` instead of to the origin. Anything the integer path cannot take
-    exactly -- an unparseable origin, a period such as ``"months"``, an instant more than
-    about 285 years from 1970 (as far as the integer nanosecond scale reaches), or a
-    pre-1582 origin on a mixed Julian/Gregorian calendar -- still goes to ``cftime``. That
+    exactly -- an unparseable origin, a period such as ``"months"``, an instant the integer
+    nanosecond scale cannot reach, or a pre-1582 origin on a mixed Julian/Gregorian
+    calendar -- still goes to ``cftime``. That reach is not a fixed span of years: the gate
+    sums the offset's magnitude and the origin's distance from 1970, so a far-from-1970
+    epoch shortens it (off ``days since 1900-01-01``, an instant in 2116 already
+    declines). That
     is a wider range than the integer path's, not a narrower one: a date ``cftime`` decodes
     is still cast to ``datetime64[ns]`` whenever it fits, so 2255-2262 -- past the integer
     scale but inside the type -- comes back as ``datetime64`` all the same.
@@ -1023,11 +1026,15 @@ def decode_cf_time(
 
     Returns:
         np.ndarray: Decoded datetimes for a time axis, else ``values`` unchanged. For a
-            time axis the dtype depends on what the dates are: ``datetime64[ns]`` when
-            every one of them is representable in that type, and an object array of
-            ``cftime`` datetimes otherwise -- either because the calendar is not a
-            standard one, or because a date falls outside ``datetime64[ns]``'s
-            1677-09-21 to 2262-04-11 range, which is warned about (#1087).
+            time axis the dtype depends on the dates: ``datetime64[ns]`` when every one of
+            them is representable in that type, and an object array otherwise -- either
+            because the calendar is not a standard one, or because a date falls outside
+            ``datetime64[ns]``'s 1677-09-21 to 2262-04-11 range, which is warned about
+            (#1087). What that object array holds is ``cftime``'s own choice, not this
+            function's: ``cftime.real_datetime`` (a ``datetime.datetime`` subclass, which
+            ``pandas`` coerces to ``datetime64[us]``) for a date Python's ``datetime`` can
+            represent, and a true ``cftime`` datetime such as ``DatetimeGregorian`` for one
+            it cannot -- which in practice means a pre-1582 origin on a mixed calendar.
 
     Examples:
         - The resolution the collection writer counts in, read back with its
@@ -1070,19 +1077,21 @@ def decode_cf_time(
             )
             if standard:
                 # Range-checked, not try/except: the cast does not raise on an
-                # out-of-range date, it wraps (#1087). Out of range, the `cftime`
-                # objects are kept -- lossless, and already what a non-standard
-                # calendar returns.
+                # out-of-range date, it wraps (#1087). Out of range the decoded
+                # objects are kept as-is -- lossless, and already what a
+                # non-standard calendar returns.
                 if _fits_datetime64_ns(decoded):
                     decoded = decoded.astype("datetime64[ns]")
                 else:
+                    # `UserWarning`, not `RuntimeWarning`: GDAL floods the latter,
+                    # so the common "ignore RuntimeWarning" recipe around a GDAL
+                    # read would silence a data-integrity warning.
                     warnings.warn(
-                        f"{text!r} decodes to dates outside the range "
-                        f"datetime64[ns] can represent "
-                        f"(1677-09-21 to 2262-04-11); returning cftime objects "
-                        f"instead of datetime64, which would silently wrap them "
-                        f"to the wrong dates.",
-                        RuntimeWarning,
+                        f"{text!r} decodes to dates outside the 1677-09-21 to "
+                        f"2262-04-11 range datetime64[ns] can represent; returning "
+                        f"the decoded datetime objects instead, because casting "
+                        f"would silently wrap them to the wrong dates.",
+                        UserWarning,
                         stacklevel=2,
                     )
     return decoded

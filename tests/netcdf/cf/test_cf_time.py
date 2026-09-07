@@ -222,7 +222,7 @@ class TestDatetime64Range:
             the epoch, so day 400_000 (year 3065) read back as 1896 and day -150_000 (year
             1559) as 2143. The value, not just the dtype, is what this pins.
         """
-        with pytest.warns(RuntimeWarning, match="outside the range"):
+        with pytest.warns(UserWarning, match="outside the 1677-09-21"):
             decoded = decode_cf_time(
                 np.array([offset], dtype="int64"), EPOCH_UNIT, "standard"
             )
@@ -238,9 +238,10 @@ class TestDatetime64Range:
 
         Test scenario:
             A pre-1582 origin decodes through `cftime` to `DatetimeGregorian`, not to
-            `datetime`, and those two raise `TypeError` when compared. A bound built as a
-            plain `datetime` would therefore reject every such store -- including the corpus
-            fixtures written against that epoch, whose dates are ordinary 20th-century ones.
+            `datetime`. Comparing those two raises only when the decoded value is itself
+            pre-1582, so a 20th-century date on that epoch compares fine and must keep its
+            `datetime64` dtype. Corpus fixtures are written against this epoch, so getting
+            it wrong would downgrade them.
         """
         decoded = decode_cf_time(
             np.array([700_000], dtype="int64"), "days since 0001-01-01", "standard"
@@ -257,7 +258,7 @@ class TestDatetime64Range:
             The bug needs no large offset: the origin alone is enough to leave the type's
             range, and year 1 wrapped to 2169.
         """
-        with pytest.warns(RuntimeWarning, match="outside the range"):
+        with pytest.warns(UserWarning, match="outside the 1677-09-21"):
             decoded = decode_cf_time(
                 np.array([0], dtype="int64"), "days since 0001-01-01", "standard"
             )
