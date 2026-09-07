@@ -656,22 +656,37 @@ def free_no_data(dtype: np.dtype, candidates: Sequence[Any], values: Any) -> Any
     if chosen is None and extremes:
         # The preferred candidates are all taken, but a narrow integer band
         # still has thousands of values the data never uses -- refusing after
-        # trying three of them would be giving up early. Enumerate the whole
-        # range when it is small enough to hold as a mask (a `uint16` needs
-        # 64 KiB), and take the first value the band does not contain. Wider
+        # trying two or three of them would be giving up early. Enumerate the
+        # whole range when it is small enough to hold as a mask (a `uint16`
+        # needs 64 KiB) and take a value the band does not contain. Wider
         # integer types are left to the extremes: their range cannot be
-        # enumerated, and a collision on all three candidates is vanishingly
+        # enumerated, and a collision on every candidate is vanishingly
         # unlikely there anyway.
-        low, high = extremes[0], extremes[1]
-        span = max(low, high) - min(low, high) + 1
+        preferred, opposite = extremes[0], extremes[1]
+        floor = min(preferred, opposite)
+        span = max(preferred, opposite) - floor + 1
         if span <= 65536:
             seen = np.zeros(span, dtype=bool)
-            present = np.asarray(values).ravel().astype("int64") - min(low, high)
+            raw = np.asarray(values).ravel()
+            if np.issubdtype(raw.dtype, np.floating):
+                # A float array reaching an integer target: `NaN` and the
+                # infinities have no integer to cast to, and numpy warns and
+                # yields a garbage index rather than raising.
+                raw = raw[np.isfinite(raw)]
+            present = raw.astype("int64") - floor
             inside = present[(present >= 0) & (present < span)]
             seen[inside] = True
             unused = np.flatnonzero(~seen)
             if unused.size:
-                chosen = target.type(int(unused[0]) + min(low, high))
+                # From the preferred extreme inwards, not from the bottom of
+                # the range. `extremes` is ordered deliberately -- an unsigned
+                # band offers its maximum first because `0` is the likelier
+                # real observation -- and starting the scan at the floor threw
+                # that away, answering `1` for a `uint8` band holding `0` and
+                # `255`. `crop` declares the value it gets, so a later write of
+                # `1` into the result would silently become a gap.
+                index = unused[-1] if preferred > opposite else unused[0]
+                chosen = target.type(int(index) + floor)
     return chosen
 
 

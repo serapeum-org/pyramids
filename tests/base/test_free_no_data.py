@@ -12,6 +12,8 @@ engine, because `Spatial` resolves a crop's fill with the same three questions.
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pytest
 
@@ -162,14 +164,31 @@ class TestFreeNoData:
             A `uint8` band holding both `0` and `255` exhausts the preferred
             candidates, but 254 values remain unused. Refusing there would
             reject a crop that has an obvious correct answer -- and rasterio,
-            which writes a fixed `0`, would have collided with the data.
+            which writes a fixed `0`, would have collided with the data. The
+            answer comes off the top of the range, not the bottom: `crop`
+            declares it, and `1` is exactly the kind of value a later write
+            would use.
         """
         values = np.array([[0, 255], [0, 255]], dtype="uint8")
 
         chosen = free_no_data(np.dtype("uint8"), [], values)
 
-        assert chosen == 1
+        assert chosen == 254
         assert not occurs_in(values, chosen)
+
+    def test_a_signed_band_scans_from_its_minimum_inwards(self):
+        """The preferred extreme differs by signedness, and so does the scan.
+
+        Test scenario:
+            A signed band offers its minimum first, that being the
+            conventional sentinel and far from any real measurement, so the
+            scan walks up from there rather than down from the maximum.
+        """
+        values = np.array([-128, 127, 0], dtype="int8")
+
+        chosen = free_no_data(np.dtype("int8"), [], values)
+
+        assert chosen == -127
 
     def test_the_search_is_bounded_by_the_dtype_width(self):
         """A `uint16` range is 64 KiB of mask; wider types are not enumerated.
@@ -185,7 +204,7 @@ class TestFreeNoData:
         narrow = np.array([0, 1, 65535], dtype="uint16")
         wide = np.array([0, 1, 4294967295], dtype="uint32")
 
-        assert free_no_data(np.dtype("uint16"), [], narrow) == 2
+        assert free_no_data(np.dtype("uint16"), [], narrow) == 65534
         assert free_no_data(np.dtype("uint32"), [], wide) is None
 
     def test_it_reports_failure_as_none_rather_than_raising(self):
@@ -237,7 +256,7 @@ class TestTheSearchEdges:
 
         chosen = free_no_data(np.dtype("uint8"), [], values)
 
-        assert chosen == 1
+        assert chosen == 254
 
     def test_a_signed_band_scans_from_its_own_minimum(self):
         """The mask is offset by the dtype minimum, not by zero.
@@ -252,6 +271,23 @@ class TestTheSearchEdges:
 
         assert chosen not in set(values.tolist())
         assert np.iinfo("int8").min <= chosen <= np.iinfo("int8").max
+
+    def test_a_float_array_against_an_integer_target_does_not_warn(self):
+        """`NaN` has no integer to cast to, and numpy warns rather than raises.
+
+        Test scenario:
+            The scan indexes its mask with the values cast to `int64`. A float
+            array carrying `NaN` or an infinity produced
+            `RuntimeWarning: invalid value encountered in cast` and a garbage
+            index, so the non-finite cells are dropped before the cast.
+        """
+        values = np.array([0.0, 255.0, np.nan, np.inf])
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            chosen = free_no_data(np.dtype("uint8"), [], values)
+
+        assert chosen == 254
 
     def test_a_nan_candidate_is_taken_on_a_float_band(self):
         """`NaN` skips the range prefilter and is compared directly.
