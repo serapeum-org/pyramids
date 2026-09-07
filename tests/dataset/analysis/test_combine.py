@@ -523,6 +523,39 @@ class TestCombine:
         assert (left - right).band_names == ["red", "nir"]
         assert left.combine(right, np.subtract, band=1).band_names == ["nir"]
 
+    def test_read_only_operands_combine_into_a_writable_result(self, tmp_path):
+        """`combine` only reads, so a read-only source is not a barrier.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            Two rasters opened from disk in read-only mode subtract into an in-memory
+            result that is itself writable.
+        """
+        left_path = str(tmp_path / "a.tif")
+        right_path = str(tmp_path / "b.tif")
+        _raster(np.full((4, 4), 10.0, "float32")).to_file(left_path)
+        _raster(np.full((4, 4), 4.0, "float32")).to_file(right_path)
+        left = Dataset.read_file(left_path)
+
+        result = left - Dataset.read_file(right_path)
+
+        assert left.access == "read_only", "premise: the operands are read-only"
+        assert np.allclose(np.asarray(result.read_array()), 6.0)
+        assert result.access == "write", "the result is a fresh in-memory raster"
+
+    def test_an_out_of_range_band_is_refused(self):
+        """`band=` beyond the operand's bands fails at the read, naming the band.
+
+        Test scenario:
+            `band=7` on a 1-band pair raises ValueError rather than reading nothing.
+        """
+        one = _raster(np.full((4, 4), 1.0, "float32"))
+
+        with pytest.raises(ValueError, match="out of range for a 1-band dataset"):
+            one.combine(one, np.subtract, band=7)
+
     def test_the_result_dtype_follows_func_not_the_inputs(self):
         """Dividing two integer rasters yields a float result, not a truncated one.
 
