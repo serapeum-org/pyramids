@@ -539,7 +539,9 @@ def merge_rasters(
             reprojected, selects no whole pixel, does not overlap the mosaic, or
             cannot be projected into its CRS.
         RuntimeError: GDAL failed to open a source, reproject it, or build the
-            source mosaic.
+            source mosaic. When a source is at fault the message names it and
+            its position in `src`, and chains GDAL's own error; any credential
+            in a signed URL is redacted.
         DriverNotExistError: `dst` has no extension, or one the driver catalog
             does not know.
         FileFormatNotSupportedError: `dst`'s extension maps to a
@@ -779,9 +781,11 @@ def _prepare_sources(
         TypeError: ``resampling`` is not a string.
         ValueError: ``dst_crs`` (or ``resampling``) could not be parsed, or a
             source carries no CRS.
-        RuntimeError: A source could not be opened -- the message names the
-            source (and its position in ``src_paths``) and chains GDAL's own
-            error -- or a reprojecting :func:`gdal.Warp` failed.
+        RuntimeError: A source could not be opened, or a reprojecting
+            :func:`gdal.Warp` failed. Either way the message names the source
+            and redacts any credential in it; when GDAL raised (the usual case
+            under :func:`gdal.UseExceptions`) it also carries the source's
+            position in ``src_paths`` and chains GDAL's own error.
     """
     resample_alg = resolve_resampling(resampling)
 
