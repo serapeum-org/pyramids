@@ -725,9 +725,33 @@ class Dataset(RasterBase):
         result = self.analysis.apply(*args, **kwargs)
         return self if result is None else result
 
-    def combine(self, *args, **kwargs):
-        """Facade — delegates to :meth:`Analysis.combine <pyramids.dataset.engines.Analysis.combine>`."""
-        return self.analysis.combine(*args, **kwargs)
+    def combine(
+        self,
+        other: Dataset,
+        func: Callable[[np.ndarray, np.ndarray], np.ndarray],
+        *,
+        band: int | None = None,
+        **kwargs: Any,
+    ) -> Dataset:
+        """Facade — delegates to :meth:`Analysis.combine <pyramids.dataset.engines.Analysis.combine>`.
+
+        Spelled out rather than `*args, **kwargs` like its neighbours: `combine`
+        has keyword-only options and a `no_data_value` default that is neither
+        `None` nor a value, so a bare forwarding signature tells an IDE or mypy
+        user nothing. `no_data_value` stays inside `kwargs` because its default
+        is a private sentinel — passing it explicitly here would leak that
+        object into the public signature.
+
+        Args:
+            other: The second operand, on this dataset's grid.
+            func: Binary callable applied to the operands' matching cells.
+            band: Zero-based band to combine, or `None` for every band.
+            **kwargs: `no_data_value`, as documented on the engine method.
+
+        Returns:
+            Dataset: The combined raster, on this dataset's grid.
+        """
+        return self.analysis.combine(other, func, band=band, **kwargs)
 
     def fill(self, *args, **kwargs):
         """Facade — delegates to :meth:`Analysis.fill <pyramids.dataset.engines.Analysis.fill>`.
@@ -2001,8 +2025,8 @@ class Dataset(RasterBase):
             Dataset | NotImplemented: The combined raster, or `NotImplemented`
             when `other` is not a Dataset.
         """
-        result = NotImplemented
-        if isinstance(other, RasterBase):
+        result: Any = NotImplemented
+        if isinstance(other, Dataset):
             result = self.combine(other, op)
         return result
 
