@@ -3568,7 +3568,16 @@ class Dataset(RasterBase):
             layers: One layer name, or several to composite, as advertised by the
                 service ``GetCapabilities`` (joined with commas for the request).
             bbox: ``(minx, miny, maxx, maxy)`` in ``crs`` order (lon/lat for the
-                default ``"EPSG:4326"``).
+                default ``"EPSG:4326"``). ``minx > maxx`` reads as a window crossing
+                the antimeridian, the same wrap :meth:`crop` accepts:
+                ``(170, -10, -170, 10)`` is the 20 degrees around Fiji, not the 340
+                the corners subtract to. It is served as two ``GetMap`` requests
+                either side of the 180 degree seam and stitched into one raster whose
+                longitude runs on past it (``170 .. 180`` then ``180 .. 190``);
+                ``size`` is the width of the whole result, divided between the halves
+                at one shared resolution so the pixel size does not change across the
+                seam. Only a geographic ``crs`` has such a seam, so a wrapping bbox
+                with a projected one is refused rather than read as inverted.
             crs: CRS of ``bbox`` and of the rendered request. Defaults to
                 ``"EPSG:4326"`` (GDAL handles the WMS 1.3.0 lat/lon axis order).
             size: Output image size ``(width, height)`` in pixels. Mutually
@@ -3593,7 +3602,9 @@ class Dataset(RasterBase):
 
         Raises:
             ValueError: ``bbox`` is malformed, ``layers`` is empty, or ``size`` /
-                ``resolution`` was not given exactly once.
+                ``resolution`` was not given exactly once. A wrapping ``bbox`` is
+                malformed when ``crs`` is projected, or when a corner falls outside
+                ``-180 .. 180`` and "west of the seam" stops meaning anything.
             pyramids.errors.WMSError: The server could not be reached or returned a
                 non-raster body.
 
@@ -3663,7 +3674,13 @@ class Dataset(RasterBase):
             layer: The layer identifier as advertised by the capabilities document.
                 A value the service does not advertise raises :class:`ValueError`
                 (with the available layers listed).
-            bbox: ``(minx, miny, maxx, maxy)`` in ``crs`` order.
+            bbox: ``(minx, miny, maxx, maxy)`` in ``crs`` order. ``minx > maxx``
+                reads as a window crossing the antimeridian and is read as two crops
+                either side of the 180 degree seam, stitched into one raster whose
+                longitude continues past it. The seam offset is *measured* in the
+                layer's native CRS rather than assumed, so a layer tiled in Web
+                Mercator crosses as cleanly as a lon/lat one; a wrapping bbox in a
+                projected ``crs`` is still refused, since only lon/lat has the seam.
             crs: CRS of ``bbox``. Defaults to ``"EPSG:4326"``.
             tile_matrix_set: Optional tile-matrix-set id to pin. ``None`` lets GDAL
                 pick the layer's default.
@@ -3685,11 +3702,13 @@ class Dataset(RasterBase):
             Dataset: The cropped WMTS window.
 
         Raises:
-            ValueError: ``bbox`` is malformed, ``layer`` is not advertised,
-                ``layer_crs`` cannot be interpreted, or the requested window exceeds
-                the pixel ceiling (:data:`~pyramids.base._coverage.MAX_PX`; a
-                finest-level read over a wide ``bbox`` — pass a coarser ``resolution``
-                or a smaller ``bbox`` to bound it).
+            ValueError: ``bbox`` is malformed -- including a wrapping ``bbox`` with
+                a projected ``crs`` or a corner outside ``-180 .. 180`` -- ``layer``
+                is not advertised, ``layer_crs`` cannot be interpreted, or the
+                requested window exceeds the pixel ceiling
+                (:data:`~pyramids.base._coverage.MAX_PX`; a finest-level read over a
+                wide ``bbox`` — pass a coarser ``resolution`` or a smaller ``bbox``
+                to bound it).
             pyramids.errors.WMSError: The server could not be reached or the tile
                 read failed.
 
