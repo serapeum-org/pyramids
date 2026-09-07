@@ -708,16 +708,22 @@ class TestCombine:
         """When every candidate occurs in the result there is nothing to mark a gap with.
 
         Test scenario:
-            An int8 result holding both -128 and 127 exhausts the operands' sentinel, the
-            package default (which does not fit int8) and both dtype extremes, so
-            `combine` says so instead of picking a value the raster already uses.
+            The search does not stop at the operands' sentinel, the package default and
+            the dtype extremes -- for a narrow integer type it goes on to scan the rest
+            of the range, so a result merely holding -128 and 127 still has 254 values
+            to choose from. Refusing takes an int8 result that holds *all* 256, which is
+            the only state where no honest answer exists.
         """
-        # The three domain cells sum to 7 (the operands' sentinel), -128 and 127,
-        # so every candidate the search offers is already in the result.
-        left = np.array([[7, 1], [0, 1]], "int8")
-        right = np.array([[0, 6], [-128, 126]], "int8")
-        masked = Dataset.from_array(left, geo_ref=GEO_REF, no_data_value=7)
-        other = Dataset.from_array(right, geo_ref=GEO_REF, no_data_value=7)
+        # 257 cells over 256 distinct values: the duplicate is the one the mask
+        # excludes, so every int8 value survives in the result's domain.
+        values = np.concatenate(
+            [np.arange(-128, 128, dtype="int8"), np.array([-128], "int8")]
+        ).reshape(257, 1)
+        geo_ref = GeoReference(top_left_corner=(0, 257), cell_size=1, epsg=4326)
+        zeros = np.zeros((257, 1), "int8")
+        zeros[256, 0] = 1
+        masked = Dataset.from_array(values, geo_ref=geo_ref, no_data_value=None)
+        other = Dataset.from_array(zeros, geo_ref=geo_ref, no_data_value=1)
 
         with pytest.raises(ValueError, match="leaves no free value"):
             masked.combine(other, lambda a, b: (a + b).astype("int8"))

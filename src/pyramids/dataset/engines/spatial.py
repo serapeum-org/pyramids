@@ -17,7 +17,8 @@ from geopandas.geodataframe import GeoDataFrame
 from osgeo import gdal, osr
 from pyproj import Transformer
 
-from pyramids.base._domain import is_no_data
+from pyramids.base._domain import fits_dtype, free_no_data, is_no_data
+from pyramids.base._errors import NoDataValueError
 from pyramids.base._utils import DEFAULT_RESAMPLING, resolve_resampling
 from pyramids.base.crs import (
     crs_equal,
@@ -1321,28 +1322,167 @@ class Spatial(_Engine["Dataset"]):
                     "the other raster coordinate system"
                 )
 
+    def _crop_fill_values(self, src_array: np.ndarray | None = None) -> list:
+        """The value each band writes into the cells a mask excludes.
+
+        Cropping asks a different question from "what sentinel does this band
+        declare". The declaration may honestly be *none* -- an integer band
+        cannot store `NaN`, and nothing fabricates one on its behalf -- but a
+        rectangular array has no way to hold an absent cell, so the excluded
+        ones still need a number.
+
+        Where the band declares a storable sentinel, that is the number. Where
+        it declares one it cannot store (`NaN` on an integer band) or declares
+        none at all, one is derived **against the data**: the first candidate
+        that fits the dtype and occurs nowhere in the band, so no real
+        observation is reclassified as a gap. The caller then declares it on
+        the cropped output, which is what makes the fill honest rather than a
+        guess -- the result says which cells are absent instead of leaving a
+        bare `0` or a fabricated maximum indistinguishable from data.
+
+        Deriving for a band that declares *nothing* is not inventing a property
+        the data lacked: the crop is what makes those cells absent, so
+        recording it describes what the operation did. Before, this path leant
+        on the unsigned substitution -- `_check_no_data_value` turned the
+        band's `None` into 65535, wrote that into the excluded cells and then
+        declared `NaN`, so the cells read back as an ordinary measurement. Only
+        `uint16` and `uint32` even got that far; the same crop of a `uint8` or
+        `int16` raster raised `TypeError` on the assignment.
+
+        A band whose sentinel is storable costs nothing to resolve -- the
+        answer is that sentinel, and the data is never read. Only the band that
+        needs a derived fill pays for a read, and only when `src_array` is not
+        already to hand, so the tiled crop keeps its streaming behaviour for
+        every well-formed raster.
+
+        Args:
+            src_array: The source values, when the caller already holds them.
+                `None` reads only the bands that actually need deriving.
+
+        Returns:
+            list: One fill value per band, each storable in that band's dtype.
+
+        Raises:
+            NoDataValueError: A band holds every candidate sentinel, so nothing
+                is free to mark its absent cells with.
+        """
+        declared = self._ds.no_data_value
+        fills = []
+        for band in range(self._ds.band_count):
+            dtype = np.dtype(self._ds.numpy_dtype[band])
+            value = declared[band]
+            if fits_dtype(value, dtype):
+                fills.append(self._ds.numpy_dtype[band](value))
+                continue
+            if src_array is None:
+                values = self._ds.read_array(band=band)
+            elif src_array.ndim == 3:
+                values = src_array[band]
+            else:
+                values = src_array
+            # `NaN` first: it is the conventional "absent" for a floating
+            # band and the value this path already wrote there, so a float
+            # crop is unchanged. An integer dtype cannot hold it, so those
+            # fall through to the package default and the extremes.
+            fill = free_no_data(dtype, [np.nan], values)
+            if fill is None:
+                raise NoDataValueError(
+                    f"band {band + 1} is a {dtype.name} raster holding every "
+                    "candidate sentinel, so no value is free to mark the cells "
+                    "the mask excludes; widen the dtype, or declare a no-data "
+                    "value the band does not use before cropping"
+                )
+            # As a scalar of the band's own dtype, so a derived fill and a
+            # declared one are the same kind of thing to every consumer. The
+            # extremes arrive from `np.iinfo` as Python `int`s.
+            fills.append(self._ds.numpy_dtype[band](fill))
+        return fills
+
+    def _derived_crop_fills(self) -> list | None:
+        """The per-band fill, but only when the declared sentinel cannot serve.
+
+        `None` means the warp is left exactly as it was, and it covers two
+        cases. A band declaring something storable needs nothing: GDAL's own
+        source-to-destination no-data propagation already does the right thing.
+        A band declaring *nothing* is deliberately left alone too, and this is
+        where the cutline path parts company with the raster-mask one.
+
+        The difference is who writes the cells. :meth:`_crop_fill_values`
+        derives for an undeclared band because that path writes the excluded
+        cells itself and must put a number in them, so it can say truthfully
+        what it wrote. Here GDAL fills them, and stamping `-dstnodata` on a
+        raster whose file declares no no-data would put a sentinel on the
+        output that the source never had -- which the netCDF fan-out then
+        carries onto a rebuilt variable, the invention
+        `NetCDF._storable_no_data` exists to refuse. A mixed raster (one band
+        unstorable, another undeclared) is left alone for the same reason,
+        `-dstnodata` taking a value per band with no spelling for "none".
+
+        Returns:
+            list | None: One fill per band, or `None` when none is needed.
+        """
+        declared = self._ds.no_data_value
+        needed = any(
+            declared[band] is not None
+            and not fits_dtype(declared[band], np.dtype(self._ds.numpy_dtype[band]))
+            for band in range(self._ds.band_count)
+        )
+        fills = self._crop_fill_values() if needed else None
+        return None if fills is not None and None in fills else fills
+
+    @staticmethod
+    def _warp_nodata(fills: list) -> str:
+        """Render per-band fills for `gdal.WarpOptions(dstNodata=...)`.
+
+        The binding stringifies whatever it is given, so a Python list would
+        reach GDAL as `"[255, 255]"`. GDAL wants one value per band, separated
+        by spaces.
+
+        An integer fill is rendered as an integer rather than through `float`:
+        a `uint64` band's maximum has no exact `float64`, so the round trip
+        would hand GDAL a value one larger than the dtype can hold.
+
+        Args:
+            fills: One fill value per band.
+
+        Returns:
+            str: The `-dstnodata` argument.
+        """
+        rendered = []
+        for fill in fills:
+            if np.issubdtype(np.asarray(fill).dtype, np.integer):
+                rendered.append(str(int(fill)))
+            else:
+                value = float(fill)
+                rendered.append("nan" if np.isnan(value) else repr(value))
+        return " ".join(rendered)
+
     def _apply_mask_nodata(
         self,
         src_array: np.ndarray,
         mask_no_data: np.ndarray,
         band_count: int,
-        no_data_value: list | None = None,
+        no_data_value: list,
     ) -> None:
-        """Write the source no-data value into the masked cells (per band).
+        """Write the per-band fill value into the masked cells.
 
-        `no_data_value` may be a caller-precomputed, dtype-checked per-band list; the
-        tiled crop passes it so the coercion runs once instead of per tile. When
-        `None` the multi-band path validates it here as before.
+        `no_data_value` is resolved by the caller rather than here, so the
+        tiled crop pays for it once instead of on every tile and both crop
+        paths write the value the output declares. See
+        :meth:`_crop_fill_values` for why the fill is not simply the band's
+        declared sentinel.
+
+        Args:
+            src_array: The source values, modified in place.
+            mask_no_data: True where the mask excludes the cell.
+            band_count: Number of bands in the source raster.
+            no_data_value: One fill value per band.
         """
         if band_count > 1:
-            # check the no_data_value complies with the src dtype before writing it
-            # into cells (a band full of values may never use its no_data_value).
-            if no_data_value is None:
-                no_data_value = self._ds._check_no_data_value(self._ds.no_data_value)
             for band in range(self._ds.band_count):
                 src_array[band, mask_no_data] = no_data_value[band]
         else:
-            src_array[mask_no_data] = self._ds.no_data_value[0]
+            src_array[mask_no_data] = no_data_value[0]
 
     def _write_bands(
         self, dst_obj: Any, src_array: np.ndarray, band_count: int
@@ -1414,8 +1554,12 @@ class Spatial(_Engine["Dataset"]):
             dst.SetProjection(src_sref.ExportToWkt())
 
         dst_obj = self._ds.__class__(dst)
-        # set the no data value
-        dst_obj._set_no_data_value(self._ds.no_data_value)
+        # The cropped output declares the value its masked cells actually hold,
+        # which is not always the source's: a band whose sentinel is unstorable
+        # (`NaN` on an integer band) has one derived against its data, and the
+        # result has to say so or those cells read back as ordinary numbers.
+        fills = self._crop_fill_values()
+        dst_obj._set_no_data_value(fills)
 
         # Apply the mask's no-data layout tile by tile for the raster-mask,
         # no-gap-fill case, so neither the full source (all bands) nor the full
@@ -1424,7 +1568,7 @@ class Spatial(_Engine["Dataset"]):
         # path. The numpy-array mask (already in memory) and the gap-filling
         # path (which interpolates across the whole array) stay eager below.
         if isinstance(mask, RasterBase) and not fill_gaps:
-            self._crop_aligned_tiled(mask, mask_noval, dst_obj, band_count)
+            self._crop_aligned_tiled(mask, mask_noval, dst_obj, band_count, fills)
             return dst_obj
 
         # read_array() is called with no chunks=, so it always returns a plain
@@ -1436,7 +1580,7 @@ class Spatial(_Engine["Dataset"]):
         src_array = cast(np.typing.NDArray, self._ds.read_array())
 
         mask_no_data = is_no_data(mask_array, mask_noval)
-        self._apply_mask_nodata(src_array, mask_no_data, band_count)
+        self._apply_mask_nodata(src_array, mask_no_data, band_count, fills)
 
         if fill_gaps:
             src_array = self.fill_gaps(mask, src_array)
@@ -1450,6 +1594,7 @@ class Spatial(_Engine["Dataset"]):
         mask_noval: int | float | None,
         dst_obj: Any,
         band_count: int,
+        fills: list,
     ) -> None:
         """Stamp the mask's no-data layout onto the source one window at a time.
 
@@ -1464,13 +1609,9 @@ class Spatial(_Engine["Dataset"]):
             mask_noval: The mask's no-data value used to locate masked cells.
             dst_obj: The destination Dataset the masked blocks are written into.
             band_count: Number of bands in the source raster.
+            fills: Per-band value to write into masked cells, resolved once by
+                the caller so it is neither re-derived nor re-checked per tile.
         """
-        # Coerce the per-band no-data value once here rather than on every tile.
-        no_data_value = (
-            self._ds._check_no_data_value(self._ds.no_data_value)
-            if band_count > 1
-            else None
-        )
         for xoff, yoff, xsize, ysize in self._ds.io._tile_offsets():
             window = [xoff, yoff, xsize, ysize]
             # read_array() is called with no chunks=, so it always returns a
@@ -1478,7 +1619,7 @@ class Spatial(_Engine["Dataset"]):
             mask_tile = cast(np.typing.NDArray, mask.read_array(band=0, window=window))
             src_tile = cast(np.typing.NDArray, self._ds.read_array(window=window))
             mask_no_data = is_no_data(mask_tile, mask_noval)
-            self._apply_mask_nodata(src_tile, mask_no_data, band_count, no_data_value)
+            self._apply_mask_nodata(src_tile, mask_no_data, band_count, fills)
             if band_count > 1:
                 for band in range(band_count):
                     dst_obj.raster.GetRasterBand(band + 1).WriteArray(
@@ -2227,6 +2368,14 @@ class Spatial(_Engine["Dataset"]):
         # from the source to the crop. cropToCutline already bounds the touch=False path.
         feature = self._cutline_in_source_crs(self._ds, feature)
         window = self._cutline_window_bounds(self._ds, feature) if touch else None
+        # The cells outside the cutline have to hold something, and GDAL's
+        # default is `0` -- indistinguishable from a real observation, and
+        # declared nowhere. A band whose own sentinel is storable keeps it
+        # (`fills` is then `None` and the warp is unchanged); one whose
+        # sentinel cannot be stored gets a value derived against its data, the
+        # same as the raster-mask crop, so `crop` answers the same way whichever
+        # mask it is given.
+        fills = self._derived_crop_fills()
         # Pin the resolution to the source's own so the windowed warp is a pixel-exact
         # subset and cannot resample; only needed when a window is set.
         gt = self._ds._raster.GetGeoTransform() if window else None
@@ -2252,6 +2401,7 @@ class Spatial(_Engine["Dataset"]):
                     if touch and cutline_all_touched
                     else None
                 ),
+                dstNodata=(None if fills is None else self._warp_nodata(fills)),
             )
             # `_base_dataset_class` already returns a `type[Dataset]`; the cast is for the
             # checker's benefit only.
@@ -2267,6 +2417,14 @@ class Spatial(_Engine["Dataset"]):
                     error_message="GDAL could not crop the dataset with the cutline.",
                 ),
             )
+            # `-dstnodata` already stamps the fill on the warp output's bands,
+            # and the output is a VRT that refuses a write, so the value is
+            # read back from there rather than set again. The trim below needs
+            # it: it finds the rows and columns lying entirely outside the
+            # cutline by reading the sentinel back, and with an unstorable one
+            # it matched nothing and trimmed nothing -- an integer raster kept
+            # a border of fill cells that the same crop of a float raster
+            # removed.
             if touch:
                 dst_obj = Spatial._correct_wrap_cutline_error(dst_obj)
 

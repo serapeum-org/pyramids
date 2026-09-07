@@ -28,6 +28,7 @@ import numpy as np
 from geopandas.geodataframe import GeoDataFrame
 from osgeo import gdal
 
+from pyramids.base._domain import DEFAULT_NO_DATA_VALUE
 from pyramids.base._errors import ReadOnlyError
 from pyramids.base._utils import (
     DEFAULT_RESAMPLING,
@@ -49,7 +50,6 @@ if TYPE_CHECKING:
 
 from pyramids.feature import FeatureCollection
 
-DEFAULT_NO_DATA_VALUE = -9999
 CATALOG = get_catalog()
 OVERVIEW_LEVELS = [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048]
 # Overview-build resampling names (gdal.Dataset.BuildOverviews family). This is a
