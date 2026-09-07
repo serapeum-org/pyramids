@@ -367,6 +367,27 @@ def disjoint_pair(tmp_path):
 class TestMergeRastersInputContracts:
     """Input/output contracts of ``merge_rasters`` beyond the overlap rule."""
 
+    def test_unopenable_source_is_named_end_to_end(self, tmp_path):
+        """A real failed open through ``merge_rasters`` names the source.
+
+        Test scenario:
+            No mocking -- real GDAL under ``gdal.UseExceptions()`` raises for a
+            missing source, and the wrapper must name it and its ``1/2``
+            position. This pins the catch type: if GDAL ever raised something
+            other than ``RuntimeError`` the wrapper would stop catching it and
+            this test would fail, which the monkeypatched tests cannot detect
+            (#1107).
+        """
+        good = write_raster(
+            tmp_path / "good.tif", np.ones((4, 4), dtype="float32"), (0, 4)
+        )
+        missing = str(tmp_path / "absent_tile.tif")
+        with pytest.raises(RuntimeError) as excinfo:
+            merge_rasters([missing, str(good)], tmp_path / "out.tif")
+        message = str(excinfo.value)
+        assert "absent_tile.tif" in message, f"source not named: {message}"
+        assert "1/2" in message, f"source position not reported: {message}"
+
     def test_zorder_init_fills_uncovered_pixels(self, disjoint_pair, tmp_path):
         """``init`` fills pixels no source covers on the z-order path.
 
@@ -734,7 +755,7 @@ class TestSourceBounds:
             A non-existent path cannot be opened, so the extent lookup fails loudly
             rather than returning a bogus extent.
         """
-        with pytest.raises(RuntimeError):
+        with pytest.raises(RuntimeError, match="could not open merge source"):
             _source_bounds("/no/such/raster/does-not-exist.tif")
 
     def test_raising_open_names_the_source(self, monkeypatch):
