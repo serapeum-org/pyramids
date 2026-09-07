@@ -28,6 +28,13 @@ unadvertised coverage fails fast with a clear :class:`ValueError`, and so
 transport / driver failures surface as
 :class:`~pyramids.base._errors.OGCAPIError`.
 
+It also serves an **antimeridian** ``bbox`` -- one whose ``minx > maxx`` -- the
+way :meth:`pyramids.dataset.Dataset.crop` does: the window is split at the 180
+degree seam (:func:`pyramids.base._coverage.seam_halves`), both halves are read
+off the same open coverage, and the two are concatenated along longitude. Such a
+``bbox`` used to be refused with ``ValueError: bbox must have minx < maxx and
+miny < maxy``.
+
 This is the OGC-API-era sibling of :mod:`pyramids.dataset._wcs` (the WCS reader);
 the two share their bbox/CRS/window helpers through the protocol-neutral
 :mod:`pyramids.base._coverage`, and share their ``/collections`` discovery with
@@ -54,15 +61,25 @@ from pyramids.base._coverage import open_network_dataset as _open_network_datase
 from pyramids.base._coverage import read_size as _read_size
 from pyramids.base._coverage import resolution_pair as _resolution_pair
 from pyramids.base._coverage import resolve_native_srs as _resolve_native_srs
+from pyramids.base._coverage import seam_halves as _seam_halves
 from pyramids.base._coverage import translate_to_mem as _translate_to_mem
 from pyramids.base._coverage import validate_bbox as _validate_bbox
+from pyramids.base._coverage import window_overlaps as _window_overlaps
 from pyramids.base._errors import CoverageError, OGCAPIError
 from pyramids.base._ogc_api import append_path as _append_path
 from pyramids.base._ogc_api import gdal_http_config as _gdal_http_config
 from pyramids.base._ogc_api import get_collections as _get_collections
 from pyramids.base._ogc_api import not_advertised
 
+# Borrowed rather than reimplemented, so a seam read here, a seam read over WCS
+# and `Dataset.crop` all stitch the same way: `_stitch_lon_halves` is the crop
+# engine's longitude concatenation, which keeps the west half's geotransform so
+# longitude continues past the seam rather than jumping back to -180.
+from pyramids.dataset.engines.spatial import _stitch_lon_halves
+
 if TYPE_CHECKING:
+    from osgeo import osr
+
     from pyramids.dataset.dataset import Dataset
 
 _OPEN_OPTIONS = ["API=COVERAGE", "IMAGE_FORMAT=GEOTIFF", "CACHE=NO"]
@@ -131,6 +148,113 @@ def _translate_window(
     )
 
 
+def _window_sizes(
+    projwins: list[list[float]], res: tuple[float, float] | None
+) -> list[tuple[int, int]]:
+    """Pixel ``(width, height)`` for each window, on one shared grid when there are two.
+
+    One window is sized exactly as it always was, straight through
+    :func:`~pyramids.base._coverage.read_size`. Two windows are the halves of an
+    antimeridian read and have to stitch afterwards, which they can only do on a
+    common grid: sizing each half on its own with no ``res`` would cap **each** at
+    :data:`~pyramids.base._coverage.DEFAULT_MAX_PX` on its longer side, giving the
+    two different pixel sizes and different row counts. So the combined span is
+    sized once and the resolution read back out of it, then applied to both halves
+    -- which also keeps the whole seam-crossing read inside the same pixel budget
+    an unwrapped read of the same width would get.
+
+    Args:
+        projwins: One or two ``[ulx, uly, lrx, lry]`` windows in the coverage's
+            native CRS, in west-to-east order.
+        res: The caller's ``(x_res, y_res)``, or ``None`` to size from the cap.
+
+    Returns:
+        list[tuple[int, int]]: The ``(width, height)`` for each window, in the
+            same order.
+
+    Raises:
+        ValueError: A window exceeds the pixel ceiling, or `res` has a
+            non-positive axis (both raised by
+            :func:`~pyramids.base._coverage.read_size`).
+    """
+    grid_res = res
+    if grid_res is None and len(projwins) > 1:
+        span_x = sum(abs(pw[2] - pw[0]) for pw in projwins)
+        ulx, uly, _, lry = projwins[0]
+        width, height = _read_size([ulx, uly, ulx + span_x, lry], None)
+        grid_res = (span_x / width, abs(uly - lry) / height)
+    return [_read_size(projwin, grid_res) for projwin in projwins]
+
+
+def _fetch_windows(
+    connection: str,
+    coverage: str,
+    windows: list[tuple[float, float, float, float]],
+    coverage_crs: str | None,
+    res: tuple[float, float] | None,
+    config: dict[str, str],
+) -> tuple[list[gdal.Dataset], osr.SpatialReference]:
+    """Open the coverage once and materialise every requested window from it.
+
+    `windows` holds one box for an ordinary request and two for one crossing the
+    antimeridian. Reading both halves off a single open handle is what lets them
+    stitch: they share the coverage's CRS, its lattice and -- via
+    :func:`_window_sizes` -- one resolution.
+
+    Args:
+        connection: The ``OGCAPI:`` connection string for the coverage.
+        coverage: The coverage identifier, used in error messages.
+        windows: One or two ``(minx, miny, maxx, maxy)`` CRS84 boxes, each with
+            ``minx < maxx``, in west-to-east order.
+        coverage_crs: The CRS shim for a coverage the service advertises in a CRS
+            absent from PROJ, or ``None``.
+        res: The caller's normalised ``(x_res, y_res)``, or ``None``.
+        config: GDAL config options (auth / timeout) to install around the read.
+
+    Returns:
+        tuple[list[gdal.Dataset], osr.SpatialReference]: The ``MEM`` raster for
+            each window that had data, and the coverage's native CRS. With two
+            windows a half that misses the coverage entirely is dropped, so the
+            list can be shorter than `windows` -- and empty when neither overlaps.
+
+    Raises:
+        ValueError: ``coverage_crs`` cannot be interpreted, a window does not
+            project to a finite native-CRS extent, or a window exceeds the pixel
+            ceiling.
+        OGCAPIError: The ``OGCAPI`` driver is unavailable, the coverage could not
+            be opened or has no resolvable CRS, or GDAL produced no raster.
+    """
+    mems: list[gdal.Dataset] = []
+    with gdal.config_options(config):
+        src = _open_coverage(connection, coverage)
+        try:
+            # _resolve_native_srs is the shared, protocol-neutral resolver;
+            # normalise its CoverageError (CRS-less coverage, no coverage_crs shim)
+            # to this reader's OGCAPIError so the documented Raises contract holds
+            # and the message names OGC API. A bad coverage_crs raises ValueError,
+            # which propagates.
+            try:
+                native_srs = _resolve_native_srs(src, coverage_crs)
+            except CoverageError as exc:
+                raise OGCAPIError(
+                    f"OGC API coverage {coverage!r} has no resolvable spatial reference; "
+                    "the service advertised no usable CRS for the coverage"
+                ) from exc
+            projwins = [_native_projwin(w, "EPSG:4326", native_srs) for w in windows]
+            if len(projwins) > 1:
+                # Overlap-filtered before fetching, as _crop_seam_halves does:
+                # only for a split request, so a single window keeps its own
+                # error rather than silently returning nothing.
+                projwins = [pw for pw in projwins if _window_overlaps(pw, src)]
+            sizes = _window_sizes(projwins, res)
+            for projwin, size in zip(projwins, sizes, strict=True):
+                mems.append(_translate_window(src, projwin, size, coverage))
+        finally:
+            # release the opened coverage handle on every path, error or not.
+            src = None
+    return mems, native_srs
+
+
 def from_ogc_coverages(
     dataset_cls: type[Dataset],
     endpoint: str,
@@ -161,45 +285,72 @@ def from_ogc_coverages(
     and the bbox cannot be projected. Passing ``coverage_crs`` (any proj4 / WKT /
     authority string) supplies that CRS explicitly, mirroring :meth:`from_wcs`.
 
+    ``bbox`` may cross the antimeridian. ``minx > maxx`` is read as a box wrapping
+    the 180 degree seam (it used to be refused as inverted): the window is split at
+    the seam, both halves are read off the same open coverage, and the two are
+    concatenated along longitude. The merged raster keeps the **west** half's
+    geotransform, so its longitudes continue past the seam -- 170..180 then
+    180..190 -- rather than jumping back to -180. A half that misses the coverage
+    entirely is dropped before it is requested, so a one-sided overlap returns just
+    that half. With no ``resolution`` the pixel cap is applied to the combined span
+    once and shared by both halves, so a seam read is budgeted like the unwrapped
+    read of the same width rather than twice over.
+
+    Note:
+        The stitched result of a seam-crossing read is a plain
+        :class:`~pyramids.dataset.Dataset`, not `dataset_cls`, because the merge
+        rebuilds the raster through :meth:`Dataset.from_array`. Every
+        single-window read still returns `dataset_cls`.
+
     Raises:
         ValueError: ``bbox`` is malformed, ``coverage`` is not advertised by the
-            service, or ``coverage_crs`` cannot be interpreted.
+            service, ``coverage_crs`` cannot be interpreted, or a seam-crossing
+            ``bbox`` overlaps no part of the coverage / produced two halves that do
+            not meet at the seam.
         OGCAPIError: The ``OGCAPI`` driver is unavailable, the service could not be
             reached, or it returned an error / a non-raster body.
     """
-    box = _validate_bbox(bbox)
+    box = _validate_bbox(bbox, allow_antimeridian=True)
     res = _resolution_pair(resolution)
+    # One window normally, two when the bbox wraps the seam. Splitting
+    # unconditionally keeps the ordinary request on exactly the path it had.
+    windows = _seam_halves(box)
 
     collections = _get_collections(endpoint, auth, timeout)
     if collections and coverage not in collections:
         raise not_advertised("coverage", coverage, endpoint, collections)
 
-    connection = _coverage_connection(endpoint, coverage)
-    config = _gdal_http_config(auth, timeout)
-    with gdal.config_options(config):
-        src = _open_coverage(connection, coverage)
-        try:
-            # _resolve_native_srs is the shared, protocol-neutral resolver;
-            # normalise its CoverageError (CRS-less coverage, no coverage_crs shim)
-            # to this reader's OGCAPIError so the documented Raises contract holds
-            # and the message names OGC API. A bad coverage_crs raises ValueError,
-            # which propagates.
-            try:
-                native_srs = _resolve_native_srs(src, coverage_crs)
-            except CoverageError as exc:
-                raise OGCAPIError(
-                    f"OGC API coverage {coverage!r} has no resolvable spatial reference; "
-                    "the service advertised no usable CRS for the coverage"
-                ) from exc
-            projwin = _native_projwin(box, "EPSG:4326", native_srs)
-            size = _read_size(projwin, res)
-            mem = _translate_window(src, projwin, size, coverage)
-        finally:
-            # release the opened coverage handle on every path, error or not.
-            src = None
+    mems, native_srs = _fetch_windows(
+        _coverage_connection(endpoint, coverage),
+        coverage,
+        windows,
+        coverage_crs,
+        res,
+        _gdal_http_config(auth, timeout),
+    )
 
-    mem.SetSpatialRef(native_srs)
-    ds = dataset_cls(mem, access="write")
+    parts: list[Dataset] = []
+    try:
+        for mem in mems:
+            mem.SetSpatialRef(native_srs)
+            parts.append(dataset_cls(mem, access="write"))
+        if not parts:
+            raise ValueError(
+                f"bbox {bbox!r} crosses the antimeridian but neither half overlaps "
+                f"the extent of coverage {coverage!r}"
+            )
+        if len(parts) == 1:
+            # Hand ownership of the only part to the caller, so the cleanup below
+            # does not close the raster being returned.
+            ds, parts = parts[0], []
+        else:
+            # _stitch_lon_halves copies both halves into a new raster, so the parts
+            # stay owned here and are closed by the finally. Its first argument is
+            # only read for band names; the west half carries the same ones.
+            ds = _stitch_lon_halves(parts[0], parts[0], parts[1])
+    finally:
+        for part in parts:
+            part.close()
 
     if output_crs is not None:
         ds = ds.to_crs(output_crs, method=resample)

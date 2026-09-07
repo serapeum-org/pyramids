@@ -20,6 +20,7 @@ import json
 import os
 import re
 import threading
+from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import numpy as np
@@ -209,15 +210,20 @@ class TestFromOgcCoveragesValidation:
             )
 
     def test_bad_bbox_raises_before_network(self, monkeypatch):
-        """An inverted bbox is rejected before any /collections or OpenEx call."""
+        """A bbox inverted in latitude is rejected before /collections or OpenEx.
+
+        Latitude only: a ``minx > maxx`` bbox is now read as crossing the
+        antimeridian rather than as inverted (#1088), so the X axis no longer
+        refuses. There is no seam in latitude, so ``miny >= maxy`` stays an error.
+        """
 
         def fail(*a, **k):  # pragma: no cover - must not be reached
             raise AssertionError("network must not be touched")
 
         monkeypatch.setattr(_ogc_coverages, "_get_collections", fail)
-        with pytest.raises(ValueError, match="minx < maxx"):
+        with pytest.raises(ValueError, match="miny < maxy"):
             Dataset.from_ogc_coverages(
-                "https://h/ogc", coverage="cov", bbox=(6.0, 51.0, 5.0, 52.0)
+                "https://h/ogc", coverage="cov", bbox=(5.0, 52.0, 6.0, 51.0)
             )
 
     def test_openex_none_raises_ogcapierror(self, monkeypatch):
@@ -348,89 +354,116 @@ _RES = 0.01
 _NX = int(round((_MAXX - _MINX) / _RES))  # 1000
 _NY = int(round((_MAXY - _MINY) / _RES))  # 800
 
-_COLLECTION = {
-    "id": "demo",
-    "title": "Demo coverage",
-    "extent": {
-        "spatial": {
-            "bbox": [[_MINX, _MINY, _MAXX, _MAXY]],
-            "crs": "http://www.opengis.net/def/crs/OGC/1.3/CRS84",
-        }
-    },
-    "crs": ["http://www.opengis.net/def/crs/OGC/1.3/CRS84"],
-    "links": [
-        {
-            "rel": "self",
-            "type": "application/json",
-            "href": "http://HOST/collections/demo",
+# The extents the mock can advertise. DEFAULT_BOUNDS is the regional grid;
+# GLOBAL_BOUNDS reaches the 180 degree seam, which an antimeridian bbox needs —
+# a seam-crossing request only has data either side of the split if the coverage
+# spans the seam.
+DEFAULT_BOUNDS = (_MINX, _MINY, _MAXX, _MAXY)
+GLOBAL_BOUNDS = (-180.0, -80.0, 180.0, 80.0)
+
+
+def _collection(bounds):
+    """The ``/collections/demo`` document for a coverage over `bounds`."""
+    return {
+        "id": "demo",
+        "title": "Demo coverage",
+        "extent": {
+            "spatial": {
+                "bbox": [list(bounds)],
+                "crs": "http://www.opengis.net/def/crs/OGC/1.3/CRS84",
+            }
         },
-        {
-            "rel": "http://www.opengis.net/def/rel/ogc/1.0/coverage",
-            "type": "image/tiff; application=geotiff",
-            "href": "http://HOST/collections/demo/coverage",
-        },
-        {
-            "rel": "http://www.opengis.net/def/rel/ogc/1.0/coverage-domainset",
-            "type": "application/json",
-            "href": "http://HOST/collections/demo/coverage/domainset",
-        },
-        {
-            "rel": "http://www.opengis.net/def/rel/ogc/1.0/coverage-rangetype",
-            "type": "application/json",
-            "href": "http://HOST/collections/demo/coverage/rangetype",
-        },
-    ],
-}
-_DISCOVERY = {
-    "links": [
-        {"rel": "self", "type": "application/json", "href": "http://HOST/collections"}
-    ],
-    "collections": [_COLLECTION],
-}
-_DOMAINSET = {
-    "type": "DomainSet",
-    "generalGrid": {
-        "type": "GeneralGridCoverage",
-        "srsName": "http://www.opengis.net/def/crs/EPSG/0/4326",
-        "axisLabels": ["Lat", "Long"],
-        "axis": [
+        "crs": ["http://www.opengis.net/def/crs/OGC/1.3/CRS84"],
+        "links": [
             {
-                "type": "RegularAxis",
-                "axisLabel": "Lat",
-                "lowerBound": _MINY,
-                "upperBound": _MAXY,
-                "resolution": _RES,
-                "uomLabel": "deg",
+                "rel": "self",
+                "type": "application/json",
+                "href": "http://HOST/collections/demo",
             },
             {
-                "type": "RegularAxis",
-                "axisLabel": "Long",
-                "lowerBound": _MINX,
-                "upperBound": _MAXX,
-                "resolution": _RES,
-                "uomLabel": "deg",
+                "rel": "http://www.opengis.net/def/rel/ogc/1.0/coverage",
+                "type": "image/tiff; application=geotiff",
+                "href": "http://HOST/collections/demo/coverage",
+            },
+            {
+                "rel": "http://www.opengis.net/def/rel/ogc/1.0/coverage-domainset",
+                "type": "application/json",
+                "href": "http://HOST/collections/demo/coverage/domainset",
+            },
+            {
+                "rel": "http://www.opengis.net/def/rel/ogc/1.0/coverage-rangetype",
+                "type": "application/json",
+                "href": "http://HOST/collections/demo/coverage/rangetype",
             },
         ],
-        "gridLimits": {
-            "type": "GridLimits",
-            "axisLabels": ["i", "j"],
+    }
+
+
+def _discovery(bounds):
+    """The ``/collections`` document listing the single demo coverage."""
+    return {
+        "links": [
+            {
+                "rel": "self",
+                "type": "application/json",
+                "href": "http://HOST/collections",
+            }
+        ],
+        "collections": [_collection(bounds)],
+    }
+
+
+def _domainset(bounds):
+    """The coverage domain set: a regular ``_RES`` lattice over `bounds`."""
+    minx, miny, maxx, maxy = bounds
+    nx = int(round((maxx - minx) / _RES))
+    ny = int(round((maxy - miny) / _RES))
+    return {
+        "type": "DomainSet",
+        "generalGrid": {
+            "type": "GeneralGridCoverage",
+            "srsName": "http://www.opengis.net/def/crs/EPSG/0/4326",
+            "axisLabels": ["Lat", "Long"],
             "axis": [
                 {
-                    "type": "IndexAxis",
-                    "axisLabel": "i",
-                    "lowerBound": 0,
-                    "upperBound": _NY - 1,
+                    "type": "RegularAxis",
+                    "axisLabel": "Lat",
+                    "lowerBound": miny,
+                    "upperBound": maxy,
+                    "resolution": _RES,
+                    "uomLabel": "deg",
                 },
                 {
-                    "type": "IndexAxis",
-                    "axisLabel": "j",
-                    "lowerBound": 0,
-                    "upperBound": _NX - 1,
+                    "type": "RegularAxis",
+                    "axisLabel": "Long",
+                    "lowerBound": minx,
+                    "upperBound": maxx,
+                    "resolution": _RES,
+                    "uomLabel": "deg",
                 },
             ],
+            "gridLimits": {
+                "type": "GridLimits",
+                "axisLabels": ["i", "j"],
+                "axis": [
+                    {
+                        "type": "IndexAxis",
+                        "axisLabel": "i",
+                        "lowerBound": 0,
+                        "upperBound": ny - 1,
+                    },
+                    {
+                        "type": "IndexAxis",
+                        "axisLabel": "j",
+                        "lowerBound": 0,
+                        "upperBound": nx - 1,
+                    },
+                ],
+            },
         },
-    },
-}
+    }
+
+
 _RANGETYPE = {
     "type": "DataRecord",
     "field": [
@@ -488,13 +521,14 @@ class _CoverageHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        bounds = getattr(self.server, "bounds", DEFAULT_BOUNDS)
         path = self.path.split("?", 1)[0]
         if path == "/collections":
-            return self._json(_DISCOVERY)
+            return self._json(_discovery(bounds))
         if path in ("/collections/demo", "/collections/demo/"):
-            return self._json(_COLLECTION)
+            return self._json(_collection(bounds))
         if path == "/collections/demo/coverage/domainset":
-            return self._json(_DOMAINSET)
+            return self._json(_domainset(bounds))
         if path == "/collections/demo/coverage/rangetype":
             return self._json(_RANGETYPE)
         if path == "/collections/demo/coverage":
@@ -507,7 +541,9 @@ class _CoverageHandler(BaseHTTPRequestHandler):
                 y0, y1 = sorted(map(float, mlat.groups()))
                 w, h = int(msc.group(1)), int(msc.group(2))
             else:
-                x0, y0, x1, y1, w, h = _MINX, _MINY, _MAXX, _MAXY, _NX, _NY
+                x0, y0, x1, y1 = bounds
+                w = int(round((x1 - x0) / _RES))
+                h = int(round((y1 - y0) / _RES))
             tif = _make_geotiff(max(w, 1), max(h, 1), x0, y0, x1, y1)
             self.send_response(200)
             self.send_header("Content-Type", "image/tiff")
@@ -520,10 +556,11 @@ class _CoverageHandler(BaseHTTPRequestHandler):
         self.send_error(404, "unknown path")
 
 
-@pytest.fixture(scope="class")
-def coverage_server():
-    """A threaded in-process OGC API – Coverages mock; yields its base URL."""
+@contextmanager
+def _serving(bounds):
+    """Run the coverage mock over `bounds`; yields its base URL."""
     server = ThreadingHTTPServer(("127.0.0.1", 0), _CoverageHandler)
+    server.bounds = bounds
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -532,6 +569,20 @@ def coverage_server():
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+@pytest.fixture(scope="class")
+def coverage_server():
+    """A threaded in-process OGC API – Coverages mock; yields its base URL."""
+    with _serving(DEFAULT_BOUNDS) as url:
+        yield url
+
+
+@pytest.fixture(scope="class")
+def global_coverage_server():
+    """The same mock advertising a coverage that spans the 180 degree seam."""
+    with _serving(GLOBAL_BOUNDS) as url:
+        yield url
 
 
 @pytest.mark.skipif(

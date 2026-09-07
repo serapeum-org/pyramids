@@ -18,6 +18,15 @@ error: a ``RuntimeError`` (GDAL raises under ``gdal.UseExceptions()``) and a
 :func:`open_network_dataset` and :func:`translate_to_mem` own that sequence and
 that classification; the readers pass in their own exception class and the words
 that name the request, so the messages stay branded per protocol.
+
+The antimeridian split is here for the same reason. A ``bbox`` whose ``minx``
+exceeds its ``maxx`` crosses the 180 degree seam, and every reader serves it the
+same way: :func:`validate_bbox` with ``allow_antimeridian=True`` stops calling it
+inverted, :func:`seam_halves` cuts it into the one or two ``west < east`` boxes to
+actually request, and :func:`window_overlaps` drops a half that misses the
+coverage before it costs a request. What each reader still owns is the merge,
+because that is where the protocols differ -- a WMS divides a pixel width between
+the halves, a vector reader de-duplicates features across them.
 """
 
 from __future__ import annotations
@@ -328,6 +337,55 @@ def native_resolution(src: gdal.Dataset) -> tuple[float, float]:
     """Return the source raster's absolute native ``(x_res, y_res)`` from its geotransform."""
     gt = src.GetGeoTransform()
     return (abs(gt[1]), abs(gt[5]))
+
+
+def window_overlaps(projwin: list[float], src: gdal.Dataset) -> bool:
+    """Whether a native-CRS ``[ulx, uly, lrx, lry]`` window meets `src`'s own extent.
+
+    The seam readers split an antimeridian ``bbox`` into two halves and fetch each
+    one; a half that misses the coverage entirely must be skipped rather than
+    requested, because GDAL refuses a window fully outside the raster ("Computed
+    -srcwin ... falls completely outside raster extent") and that refusal would
+    fail the whole read instead of yielding the one half that does have data. This
+    is the network equivalent of the overlap test in
+    :func:`pyramids.dataset.engines.spatial._crop_seam_halves`, which reads the
+    extent off a dataset it already holds.
+
+    Args:
+        projwin: ``[ulx, uly, lrx, lry]`` in `src`'s CRS, as
+            :func:`pyramids.base._coverage.native_projwin` returns it.
+        src: The opened coverage, read for its geotransform and pixel size.
+
+    Returns:
+        bool: True when the window and the source extent share area. Touching
+            edges do not count as overlap -- a zero-area intersection has no
+            pixels to read.
+
+    Examples:
+        - A window inside the raster overlaps, one beyond its east edge does not:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.base._coverage import window_overlaps
+            >>> src = gdal.GetDriverByName("MEM").Create("", 10, 10, 1)
+            >>> _ = src.SetGeoTransform((0.0, 1.0, 0.0, 10.0, 0.0, -1.0))
+            >>> window_overlaps([2.0, 8.0, 4.0, 6.0], src)
+            True
+            >>> window_overlaps([20.0, 8.0, 30.0, 6.0], src)
+            False
+
+            ```
+    """
+    gt = src.GetGeoTransform()
+    # Both far corners, so a rotated geotransform (gt[2] / gt[4] non-zero) is
+    # bounded rather than mis-measured; min/max then makes the result axis-order
+    # agnostic for a south-up or west-positive grid.
+    far_x = float(gt[0] + src.RasterXSize * gt[1] + src.RasterYSize * gt[2])
+    far_y = float(gt[3] + src.RasterXSize * gt[4] + src.RasterYSize * gt[5])
+    minx, maxx = sorted((float(gt[0]), far_x))
+    miny, maxy = sorted((float(gt[3]), far_y))
+    win_minx, win_maxx = sorted((projwin[0], projwin[2]))
+    win_miny, win_maxy = sorted((projwin[3], projwin[1]))
+    return win_minx < maxx and win_maxx > minx and win_miny < maxy and win_maxy > miny
 
 
 def open_network_dataset(

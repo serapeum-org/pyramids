@@ -9,7 +9,7 @@ or raster-I/O libraries. GDAL performs ``GetCapabilities`` /
 ``DescribeCoverage``, negotiates
 the WCS version, and issues the version-correct ``GetCoverage`` (the ``1.0.0``
 ``bbox`` + ``resx/resy`` form versus the ``2.0.x`` ``subsets`` + ``scaling``
-form). pyramids adds the two things the driver does *not* handle on its own:
+form). pyramids adds the three things the driver does *not* handle on its own:
 
 * **A CRS shim.** Some servers (e.g. ISRIC SoilGrids) advertise a coverage CRS
   under an authority code that the local PROJ database does not know
@@ -21,6 +21,13 @@ form). pyramids adds the two things the driver does *not* handle on its own:
   query ``bbox`` into the coverage's native CRS with ``pyproj`` (already a core
   dependency) and hand GDAL a native-CRS window. This is what makes subsetting
   land on the right pixels even when the server only honours its native CRS.
+* **Antimeridian bboxes.** A ``bbox`` whose ``minx > maxx`` is read as crossing
+  the 180 degree seam, the same way :meth:`pyramids.dataset.Dataset.crop` reads
+  it. The request is split into the two ``west < east`` halves either side of the
+  seam (:func:`pyramids.base._coverage.seam_halves`), each half is fetched through
+  the normal path, and the two are concatenated along longitude into one raster.
+  Before this, such a ``bbox`` was refused with ``ValueError: bbox must have
+  minx < maxx and miny < maxy``.
 
 For ``GetCoverage``-only "shim" servers that ``502``/``400`` on capabilities /
 describe, ``from_wcs(..., direct=True)`` bypasses GDAL's driver entirely and
@@ -55,8 +62,10 @@ from pyramids.base._coverage import open_network_dataset as _open_network_datase
 from pyramids.base._coverage import read_size as _read_size
 from pyramids.base._coverage import resolution_pair as _resolution_pair
 from pyramids.base._coverage import resolve_native_srs as _resolve_native_srs_neutral
+from pyramids.base._coverage import seam_halves as _seam_halves
 from pyramids.base._coverage import translate_to_mem as _translate_to_mem
 from pyramids.base._coverage import validate_bbox as _validate_bbox
+from pyramids.base._coverage import window_overlaps as _window_overlaps
 from pyramids.base._errors import CoverageError, WCSError
 from pyramids.base._ogc_api import (
     HTTP_RETRY_ATTEMPTS,
@@ -69,6 +78,14 @@ from pyramids.base._ogc_api import gdal_http_config as _gdal_http_config
 from pyramids.base._ogc_api import http_get_with_retry as _http_get_with_retry
 from pyramids.base._ogc_api import read_http_error as _read_http_error
 from pyramids.base.crs import crs_from_user_input
+
+# The stitch the crop engine already owns: it concatenates two longitude-adjacent
+# rasters keeping the west half's geotransform, so longitude continues past the
+# seam (170..180 then 180..190) instead of jumping back to -180. Reused rather
+# than reimplemented so a WCS / OGC API seam read and `Dataset.crop` produce the
+# same raster. Importing it here is not a cycle: `engines.spatial` pulls in
+# `Dataset` only under TYPE_CHECKING and through a function-local import.
+from pyramids.dataset.engines.spatial import _stitch_lon_halves
 
 # Cap on how much of an HTTP-error body is inlined into a WCSError message; the
 # full body is still carried on WCSError.response_body. Keeps a multi-KB HTML
@@ -601,6 +618,83 @@ def _from_wcs_direct(
     return ds, native_wkt
 
 
+def _from_wcs_discovery(
+    endpoint: str,
+    coverage: str,
+    windows: list[tuple[float, float, float, float]],
+    crs: str,
+    version: str | None,
+    wcs_format: str | None,
+    coverage_crs: str | None,
+    auth: tuple[str, str] | None,
+    timeout: float,
+    extra_params: dict[str, str] | None,
+) -> tuple[list[gdal.Dataset], osr.SpatialReference]:
+    """Discovery path: validate the coverage, then read every window off one handle.
+
+    ``GetCapabilities`` validates the coverage name, GDAL's WCS driver is opened
+    once on the service descriptor, and each window in `windows` is materialised
+    from that single handle. `windows` holds one box for an ordinary request and
+    two for one crossing the antimeridian, so a seam read costs one connection and
+    two ``GetCoverage`` calls rather than two full handshakes -- and, because both
+    halves come off the same source lattice, they land on a shared grid and stitch
+    without resampling.
+
+    Args:
+        endpoint: The WCS service URL.
+        coverage: The coverage identifier to read.
+        windows: One or two ``(minx, miny, maxx, maxy)`` boxes in `crs`, each with
+            ``minx < maxx``, in west-to-east order.
+        crs: The CRS the windows are expressed in.
+        version: The WCS version to pin, or ``None`` to let GDAL negotiate.
+        wcs_format: The preferred response format, or ``None``.
+        coverage_crs: The CRS shim for a coverage whose advertised CRS is absent
+            from PROJ, or ``None``.
+        auth: Optional ``(user, password)`` for HTTP Basic auth.
+        timeout: Request timeout in seconds.
+        extra_params: Extra ``GetCoverage`` query parameters, or ``None``.
+
+    Returns:
+        tuple[list[gdal.Dataset], osr.SpatialReference]: The ``MEM`` raster for
+            each window that had data, and the coverage's native CRS. With two
+            windows a half that misses the coverage entirely is dropped, so the
+            list can be shorter than `windows` -- and empty when neither half
+            overlaps.
+
+    Raises:
+        ValueError: `coverage` is not advertised by the service, ``coverage_crs``
+            cannot be interpreted, or a window does not project to a finite
+            native-CRS extent.
+        WCSError: The service could not be reached, the coverage has no resolvable
+            CRS, or GDAL could not produce a raster for a window.
+    """
+    _, coverages = _get_capabilities(endpoint, version, auth, timeout)
+    if coverages and coverage not in coverages:
+        raise not_advertised("coverage", coverage, endpoint, coverages)
+    descriptor = _service_descriptor(
+        endpoint, coverage, version, wcs_format, extra_params
+    )
+    mems: list[gdal.Dataset] = []
+    with gdal.config_options(_gdal_http_config(auth, timeout)):
+        src = _open_service(descriptor, coverage)
+        try:
+            native_srs = _resolve_native_srs(src, coverage_crs)
+            for window in windows:
+                projwin = _native_projwin(window, crs, native_srs)
+                # Overlap-filtered before fetching, as _crop_seam_halves does:
+                # only for a split request, so a single window keeps its own
+                # error rather than silently returning nothing.
+                if len(windows) > 1 and not _window_overlaps(projwin, src):
+                    continue
+                mems.append(_translate_window(src, projwin, coverage))
+        finally:
+            # Release the opened coverage handle on every path, error or not
+            # (mirrors from_wmts / from_ogc_coverages); a raise from resolve /
+            # projwin / translate must not leak the live network handle.
+            src = None
+    return mems, native_srs
+
+
 def _finalize(
     ds: Dataset,
     output_crs: str | None,
@@ -666,61 +760,100 @@ def from_wcs(
     caller-supplied parameters — for ``GetCoverage``-only "WCS shim" endpoints that
     502/400 on capabilities/describe.
 
+    ``bbox`` may cross the antimeridian. ``minx > maxx`` is read as a box wrapping
+    the 180 degree seam (it used to be refused as inverted): the request is split
+    at the seam into a ``(minx, ..., 180)`` and a ``(-180, ..., maxx)`` half, each
+    half is fetched through whichever path ``direct`` selects, and the two are
+    concatenated along longitude. The merged raster keeps the **west** half's
+    geotransform, so its longitudes continue past the seam -- 170..180 then
+    180..190 -- rather than jumping back to -180; reproject it if you need the
+    wrapped frame back. In discovery mode a half that misses the coverage entirely
+    is dropped before it is requested and the surviving half is returned on its
+    own; direct mode has no descriptor to measure the coverage against, so both
+    halves are always requested there.
+
+    Note:
+        The stitched result of a seam-crossing read is a plain
+        :class:`~pyramids.dataset.Dataset`, not `dataset_cls`, because the merge
+        rebuilds the raster through :meth:`Dataset.from_array`. Every
+        single-window read still returns `dataset_cls`.
+
     Raises:
         ValueError: ``bbox`` is malformed, ``coverage`` is not advertised (discovery
-            mode), ``coverage_crs`` cannot be interpreted, or (direct mode) the WCS
-            version is unsupported / ``1.0.0`` lacks a ``resolution``.
+            mode), ``coverage_crs`` cannot be interpreted, (direct mode) the WCS
+            version is unsupported / ``1.0.0`` lacks a ``resolution``, or a
+            seam-crossing ``bbox`` overlaps no part of the coverage / produced two
+            halves that do not meet at the seam.
         WCSError: The server could not be reached or returned an error / a
             non-raster body.
     """
-    minx, miny, maxx, maxy = _validate_bbox(bbox)
+    box = _validate_bbox(bbox, allow_antimeridian=True)
     res = _resolution_pair(resolution)
-    window = (minx, miny, maxx, maxy)
+    # One window normally, two when the bbox wraps the seam. Splitting
+    # unconditionally keeps the ordinary request on exactly the path it had.
+    windows = _seam_halves(box)
 
-    if direct:
-        ds, native_wkt = _from_wcs_direct(
-            dataset_cls,
-            endpoint,
-            coverage,
-            window,
-            crs,
-            version,
-            wcs_format,
-            resolution,
-            subset_axes,
-            coverage_crs,
-            auth,
-            timeout,
-            extra_params,
-        )
-        # 1.0.0 direct sends RESX/RESY, so the server already grids to `res`; skip
-        # the redundant client-side resample. 2.0.x has no request-side resolution,
-        # so it resamples client-side in _finalize.
-        finalize_res = None if (version or "2.0.0").startswith("1.0") else res
-    else:
-        _, coverages = _get_capabilities(endpoint, version, auth, timeout)
-        if coverages and coverage not in coverages:
-            raise not_advertised("coverage", coverage, endpoint, coverages)
-        descriptor = _service_descriptor(
-            endpoint, coverage, version, wcs_format, extra_params
-        )
-        config = _gdal_http_config(auth, timeout)
-        with gdal.config_options(config):
-            src = _open_service(descriptor, coverage)
-            try:
-                native_srs = _resolve_native_srs(src, coverage_crs)
-                projwin = _native_projwin(window, crs, native_srs)
-                mem = _translate_window(src, projwin, coverage)
-            finally:
-                # Release the opened coverage handle on every path, error or not
-                # (mirrors from_wmts / from_ogc_coverages); a raise from resolve /
-                # projwin / translate must not leak the live network handle.
-                src = None
-        mem.SetSpatialRef(native_srs)
-        ds = dataset_cls(mem, access="write")
-        # WKT round-trips more faithfully than proj4 for exotic / compound CRS.
-        native_wkt = native_srs.ExportToWkt()
-        finalize_res = res
+    parts: list[Dataset] = []
+    native_wkt: str | None = None
+    try:
+        if direct:
+            for window in windows:
+                part, native_wkt = _from_wcs_direct(
+                    dataset_cls,
+                    endpoint,
+                    coverage,
+                    window,
+                    crs,
+                    version,
+                    wcs_format,
+                    resolution,
+                    subset_axes,
+                    coverage_crs,
+                    auth,
+                    timeout,
+                    extra_params,
+                )
+                parts.append(part)
+            # 1.0.0 direct sends RESX/RESY, so the server already grids to `res`;
+            # skip the redundant client-side resample. 2.0.x has no request-side
+            # resolution, so it resamples client-side in _finalize.
+            finalize_res = None if (version or "2.0.0").startswith("1.0") else res
+        else:
+            mems, native_srs = _from_wcs_discovery(
+                endpoint,
+                coverage,
+                windows,
+                crs,
+                version,
+                wcs_format,
+                coverage_crs,
+                auth,
+                timeout,
+                extra_params,
+            )
+            # WKT round-trips more faithfully than proj4 for exotic / compound CRS.
+            native_wkt = native_srs.ExportToWkt()
+            for mem in mems:
+                mem.SetSpatialRef(native_srs)
+                parts.append(dataset_cls(mem, access="write"))
+            finalize_res = res
+        if not parts:
+            raise ValueError(
+                f"bbox {bbox!r} crosses the antimeridian but neither half overlaps "
+                f"the extent of coverage {coverage!r}"
+            )
+        if len(parts) == 1:
+            # Hand ownership of the only part to the caller, so the cleanup below
+            # does not close the raster being returned.
+            ds, parts = parts[0], []
+        else:
+            # _stitch_lon_halves copies both halves into a new raster, so the parts
+            # stay owned here and are closed by the finally. Its first argument is
+            # only read for band names; the west half carries the same ones.
+            ds = _stitch_lon_halves(parts[0], parts[0], parts[1])
+    finally:
+        for part in parts:
+            part.close()
 
     return _finalize(ds, output_crs, finalize_res, resample, native_wkt, output)
 
