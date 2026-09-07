@@ -25,10 +25,12 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Literal, cast
 
+import cftime
 import numpy as np
 import pandas as pd
 from osgeo import gdal
 
+from pyramids.base._errors import FailedToSaveError
 from pyramids.base._utils import extra_hint, import_pyarrow
 from pyramids.base.remote import (
     _DODS_SCHEME,
@@ -48,12 +50,36 @@ from pyramids.netcdf.utils import (
 # (the estimate is dtype x selected size — no data is read to compute it).
 _LARGE_REALISE_BYTES = 512 * 1024 * 1024
 
+
 # The conda half of this hint names `pyramids-parquet`, not `pyarrow` as it once
 # did. That is a real conda-forge output of the pyramids feedstock (alongside
 # `pyramids`, `pyramids-viz`, `pyramids-lazy` and `pyramids-stac`), and it
 # depends on `pyarrow >=10.0.0` + `dask-geopandas >=0.5.0`, so it installs what
 # the `[parquet]` extra installs -- verified against the feedstock recipe and
 # anaconda.org before the message was switched over.
+def _cftime_columns(frame: pd.DataFrame) -> list[str]:
+    """Names of the columns holding true `cftime` datetimes, which Parquet cannot store.
+
+    Only a genuine `cftime` datetime is a problem. A `cftime.real_datetime` is a
+    `datetime.datetime` subclass, so `pandas` coerces it to `datetime64[us]` and Parquet
+    takes it -- including for a year-3065 date, which is the common out-of-range case.
+
+    Args:
+        frame: The tidy table about to be written.
+
+    Returns:
+        list[str]: The offending column names, in column order.
+    """
+    offenders = []
+    for name in frame.columns:
+        column = frame[name]
+        if column.dtype == object:
+            values = column.to_numpy()
+            if values.size and isinstance(values[0], cftime.datetime):
+                offenders.append(str(name))
+    return offenders
+
+
 _PARQUET_INSTALL_HINT = extra_hint(
     "Writing Parquet needs the optional 'pyarrow' dependency.",
     "parquet",
@@ -1047,10 +1073,27 @@ class LabeledDataset:
 
         Raises:
             OptionalPackageDoesNotExist: When pyarrow is not installed.
+            FailedToSaveError: A time axis decodes to dates outside
+                `datetime64[ns]`, so it is carried as `cftime` objects that Parquet
+                has no type for (#1087).
         """
         import_pyarrow(_PARQUET_INSTALL_HINT)
         path = Path(path)
-        self.to_dataframe().to_parquet(str(path), index=False, **kwargs)
+        frame = self.to_dataframe()
+        try:
+            frame.to_parquet(str(path), index=False, **kwargs)
+        except Exception as error:
+            unstorable = _cftime_columns(frame)
+            if not unstorable:
+                raise
+            raise FailedToSaveError(
+                f"cannot write {path}: the column(s) {', '.join(unstorable)} carry "
+                "cftime datetimes, which Parquet has no type for. That happens when a "
+                "time axis decodes to dates outside the 1677-09-21 to 2262-04-11 range "
+                "datetime64[ns] can represent, or uses a non-standard calendar, so the "
+                "dates are kept as objects rather than being wrapped to wrong values "
+                "(#1087). Write to CSV instead, or select an in-range window first."
+            ) from error
         return path
 
     def to_csv(self, path: str | Path, **kwargs: Any) -> Path:

@@ -640,17 +640,32 @@ Soft change, warned — a `RuntimeWarning` names the units. Only arrays that wer
 1677-09-21 to 2262-04-11 range does not raise on the cast, it wraps.
 
 ```python
+import numpy as np
+from pyramids.netcdf.utils import decode_cf_time
+
 decode_cf_time(np.array([400_000]), "days since 1970-01-01", "standard")
 # before -> np.datetime64('1896-01-21T00:50:52.580896768')   # the date is year 3065
-# after  -> cftime.DatetimeGregorian(3065, 3, 1)             # + RuntimeWarning
+# after  -> cftime.real_datetime(3065, 3, 1)                 # + UserWarning
 ```
 
 Both bounds are affected, and no large offset is needed to reach one: a store written against a
 `days since 0001-01-01` epoch is out of range at offset **zero**. Its in-range dates are unaffected — a
 20th-century date on that epoch still decodes to `datetime64[ns]` exactly as before.
 
+**Which object you get back is `cftime`'s choice, and it decides what still works downstream.** For a date
+Python's `datetime` can represent — the common far-future case above — it is `cftime.real_datetime`, a
+`datetime` subclass, so `pandas` gives `datetime64[us]` and `to_dataframe` / `to_parquet` / `to_csv` all keep
+working and now carry the *correct* date. Only a date Python cannot represent, which in practice means a
+pre-1582 origin on a mixed calendar, yields a true `cftime` datetime.
+
+**`LabeledDataset.to_parquet` raises on that second case**, where it previously wrote a file full of wrapped
+dates. Parquet has no type for a `cftime` datetime, so the write now fails with a `FailedToSaveError` naming the
+offending columns rather than an `ArrowInvalid` from inside pyarrow. This was already the behaviour for a
+non-standard calendar (`360_day`, `noleap`), which has always produced `cftime` objects — the change is that the
+error explains itself. Use `to_csv`, which writes these stores unchanged, or select an in-range window first.
+
 If you need `datetime64` regardless, the values were never trustworthy in this range; convert deliberately from
-the `cftime` objects, or read the axis with a calendar-aware library. Everything inside the range is unchanged.
+the returned objects, or read the axis with a calendar-aware library. Everything inside the range is unchanged.
 
 **`str(nc)` is a different shape, and the summary now depends on whether you hold a container or a variable.**
 Hard change, silent — nothing raises and nothing warns. Anything scraping the old text (log parsing, notebook
