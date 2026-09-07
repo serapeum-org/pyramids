@@ -1908,6 +1908,37 @@ class TestCropFillValues:
         assert kept.shape == (4, 4), f"real data was trimmed away: {kept.shape}"
         assert int((kept == near_value).sum()) == 15
 
+    def test_a_fill_outside_the_band_range_costs_no_read(self, monkeypatch):
+        """The streaming crop must not materialise the band to pick a fill.
+
+        Args:
+            monkeypatch: pytest fixture, used to count `read_array` calls.
+
+        Test scenario:
+            `_crop_aligned_tiled` exists so neither the full source nor the
+            full destination is held in memory, and resolving the fill by
+            reading the band undid that for exactly the large rasters it
+            protects. A candidate below the band's minimum or above its maximum
+            occurs nowhere in it, and GDAL answers that from the band's own
+            streamed statistics -- so a `uint8` raster whose values stop at 7
+            gets its `255` without a single Python-side read.
+        """
+        values = np.full((8, 8), 7, dtype="uint8")
+        source = Dataset.from_array(values, geo_ref=self.GEO, no_data_value=None)
+        source.no_data_value = [np.nan]
+        calls = []
+        original = Dataset.read_array
+        monkeypatch.setattr(
+            Dataset,
+            "read_array",
+            lambda self, *a, **k: (calls.append(1), original(self, *a, **k))[1],
+        )
+
+        fills = source.spatial._crop_fill_values()
+
+        assert fills == [255]
+        assert calls == [], f"the band was read {len(calls)} times to pick a fill"
+
     def test_a_band_holding_every_candidate_refuses(self):
         """The honest failure, rather than a colliding fill.
 

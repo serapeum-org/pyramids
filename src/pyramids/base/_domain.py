@@ -43,6 +43,10 @@ DEFAULT_NO_DATA_VALUE = -9999
 
 DEFAULT_RTOL: float = 0.001
 
+# Cells per slice when scanning a band for an unused value. Bounds the scan's
+# temporaries to a few megabytes whatever the raster's size.
+_SCAN_CHUNK: int = 1 << 20
+
 # `numpy.isclose`'s own default absolute tolerance, named so a caller can opt
 # out of it (`atol=0.0`) without restating a magic number.
 DEFAULT_ATOL: float = 1e-8
@@ -595,6 +599,69 @@ def occurs_in(values: Any, sentinel: Any) -> bool:
     return occurs
 
 
+def _dtype_extremes(target: np.dtype) -> list[Any]:
+    """The dtype's own bounds, in the order they should be tried.
+
+    Args:
+        target: The dtype the sentinel must be storable in.
+
+    Returns:
+        list[Any]: `[min, max]` for a signed integer dtype, `[max, min]` for an
+        unsigned one, and empty for everything else.
+    """
+    extremes: list[Any] = []
+    if np.issubdtype(target, np.integer):
+        info = np.iinfo(target)
+        # Signed: `min` is the conventional sentinel and far from any real
+        # measurement. Unsigned: `min` is 0 -- the likeliest value for a future
+        # write, a mosaic fill or a legitimate observation to take -- so the
+        # maximum is tried first, which is also what the package's own band
+        # fallback picks for those dtypes.
+        extremes = [info.min, info.max] if info.min < 0 else [info.max, info.min]
+    return extremes
+
+
+def no_data_candidates(dtype: np.dtype, candidates: Sequence[Any] = ()) -> list[Any]:
+    """The sentinels tried for a band of `dtype`, in preference order.
+
+    Only those the dtype can actually store: the caller's own candidates, then
+    the package default, then the dtype's extremes.
+
+    Exposed so a caller that can answer "does the band contain this" more
+    cheaply than by reading it -- from the band's own statistics, say -- asks
+    the same questions in the same order as :func:`free_no_data` would.
+
+    Args:
+        dtype: The dtype the sentinel must be storable in.
+        candidates: Preferred sentinels, tried before the package default.
+
+    Returns:
+        list[Any]: The storable candidates, most preferred first.
+
+    Examples:
+        - An unsigned band cannot hold the package default, and reaches for its
+          maximum before its minimum:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base._domain import no_data_candidates
+            >>> no_data_candidates(np.dtype("uint8"))
+            [255, 0]
+
+            ```
+        - A signed band keeps the default first, then its own bounds:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base._domain import no_data_candidates
+            >>> no_data_candidates(np.dtype("int16"))
+            [-9999, -32768, 32767]
+
+            ```
+    """
+    target = np.dtype(dtype)
+    offered = [*candidates, DEFAULT_NO_DATA_VALUE, *_dtype_extremes(target)]
+    return [value for value in offered if fits_dtype(value, target)]
+
+
 def free_no_data(dtype: np.dtype, candidates: Sequence[Any], values: Any) -> Any | None:
     """First sentinel that fits `dtype` and occurs nowhere in `values`.
 
@@ -639,18 +706,10 @@ def free_no_data(dtype: np.dtype, candidates: Sequence[Any], values: Any) -> Any
             ```
     """
     target = np.dtype(dtype)
-    extremes: list[Any] = []
-    if np.issubdtype(target, np.integer):
-        info = np.iinfo(target)
-        # Signed: `min` is the conventional sentinel and far from any real
-        # measurement. Unsigned: `min` is 0 -- the likeliest value for a future
-        # write, a mosaic fill or a legitimate observation to take -- so the
-        # maximum is tried first, which is also what the package's own band
-        # fallback picks for those dtypes.
-        extremes = [info.min, info.max] if info.min < 0 else [info.max, info.min]
+    extremes = _dtype_extremes(target)
     chosen = None
-    for candidate in [*candidates, DEFAULT_NO_DATA_VALUE, *extremes]:
-        if fits_dtype(candidate, target) and not occurs_in(values, candidate):
+    for candidate in no_data_candidates(target, candidates):
+        if not occurs_in(values, candidate):
             chosen = candidate
             break
     if chosen is None and extremes:
@@ -668,14 +727,20 @@ def free_no_data(dtype: np.dtype, candidates: Sequence[Any], values: Any) -> Any
         if span <= 65536:
             seen = np.zeros(span, dtype=bool)
             raw = np.asarray(values).ravel()
-            if np.issubdtype(raw.dtype, np.floating):
-                # A float array reaching an integer target: `NaN` and the
-                # infinities have no integer to cast to, and numpy warns and
-                # yields a garbage index rather than raising.
-                raw = raw[np.isfinite(raw)]
-            present = raw.astype("int64") - floor
-            inside = present[(present >= 0) & (present < span)]
-            seen[inside] = True
+            # In slices, not all at once: the cast below widens every cell to
+            # 8 bytes and the comparisons add two boolean temporaries, so a
+            # whole-array pass peaked at many times the band's own size. The
+            # mask being filled is at most 64 KiB either way.
+            for start in range(0, raw.size, _SCAN_CHUNK):
+                chunk = raw[start : start + _SCAN_CHUNK]
+                if np.issubdtype(chunk.dtype, np.floating):
+                    # A float array reaching an integer target: `NaN` and the
+                    # infinities have no integer to cast to, and numpy warns
+                    # and yields a garbage index rather than raising.
+                    chunk = chunk[np.isfinite(chunk)]
+                present = chunk.astype("int64") - floor
+                inside = present[(present >= 0) & (present < span)]
+                seen[inside] = True
             unused = np.flatnonzero(~seen)
             if unused.size:
                 # From the preferred extreme inwards, not from the bottom of
@@ -694,6 +759,7 @@ __all__ = [
     "DEFAULT_NO_DATA_VALUE",
     "fits_dtype",
     "free_no_data",
+    "no_data_candidates",
     "occurs_in",
     "DEFAULT_ATOL",
     "DEFAULT_RTOL",

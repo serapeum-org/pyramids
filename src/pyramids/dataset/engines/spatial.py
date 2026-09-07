@@ -22,6 +22,7 @@ from pyramids.base._domain import (
     free_no_data,
     is_no_data,
     is_stored_no_data,
+    no_data_candidates,
 )
 from pyramids.base._errors import NoDataValueError
 from pyramids.base._utils import DEFAULT_RESAMPLING, resolve_resampling
@@ -1355,9 +1356,11 @@ class Spatial(_Engine["Dataset"]):
         `int16` raster raised `TypeError` on the assignment.
 
         A band whose sentinel is storable costs nothing to resolve -- the
-        answer is that sentinel, and the data is never read. Only a band that
-        needs a derived fill pays for a read, and only that band, so the tiled
-        crop keeps its streaming behaviour for every well-formed raster.
+        answer is that sentinel, and the data is never read. Nor is a floating
+        band, whose answer is always `NaN`. A band that needs a derived fill is
+        asked for its range first, which GDAL streams; only when every
+        candidate falls *inside* that range does the band have to be read, and
+        then only that band.
 
         Returns:
             list: One fill value per band, each storable in that band's dtype.
@@ -1385,8 +1388,11 @@ class Spatial(_Engine["Dataset"]):
                 # path wrote before the fill was derived at all.
                 fills.append(self._ds.numpy_dtype[band](np.nan))
                 continue
-            values = self._ds.read_array(band=band)
-            fill = free_no_data(dtype, [], values)
+            fill = self._fill_outside_the_band_range(band, dtype)
+            if fill is None:
+                # Every candidate lies inside the band's range, so which cells
+                # actually hold them can only be answered by looking.
+                fill = free_no_data(dtype, [], self._ds.read_array(band=band))
             if fill is None:
                 raise NoDataValueError(
                     f"band {band + 1} is a {dtype.name} raster holding every "
@@ -1399,6 +1405,45 @@ class Spatial(_Engine["Dataset"]):
             # extremes arrive from `np.iinfo` as Python `int`s.
             fills.append(self._ds.numpy_dtype[band](fill))
         return fills
+
+    def _fill_outside_the_band_range(self, band: int, dtype: np.dtype) -> Any:
+        """The first candidate sentinel the band's own range cannot contain.
+
+        A value below the band's minimum or above its maximum occurs nowhere in
+        it, and GDAL answers that from the band itself -- streaming it block by
+        block in C, with no Python array of the whole thing and no widening of
+        every cell to 8 bytes. The `uint8` DEM whose values stop at 7 gets its
+        `255` here, and never reads.
+
+        That matters most on the path this is called from. `_crop_aligned_tiled`
+        exists so neither the full source nor the full destination is held in
+        memory, and resolving the fill by materialising the band would have
+        undone it for exactly the large rasters it was written to protect.
+
+        Args:
+            band: Zero-based index of the band to resolve.
+            dtype: That band's numpy dtype.
+
+        Returns:
+            Any: The first storable candidate outside the band's range, or
+            `None` when every candidate falls inside it (or the range cannot be
+            computed, as for a band with no valid cells at all).
+        """
+        try:
+            minimum, maximum = self._ds._raster.GetRasterBand(
+                band + 1
+            ).ComputeRasterMinMax(False)
+        except RuntimeError:
+            # No valid cells to compute a range from; let the caller read.
+            return None
+        return next(
+            (
+                candidate
+                for candidate in no_data_candidates(dtype)
+                if not minimum <= candidate <= maximum
+            ),
+            None,
+        )
 
     def _derived_crop_fills(self) -> list | None:
         """The per-band fill, but only when the declared sentinel cannot serve.
