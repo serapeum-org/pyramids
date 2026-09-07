@@ -29,6 +29,7 @@ from pyramids.netcdf.netcdf import (
     _container_summary,
     _global_attribute_count,
     _has_georeference,
+    _same_value,
     _store_label,
     _variable_summary,
 )
@@ -171,6 +172,49 @@ class TestCollapseUniform:
             Not every per-band property is a list; the helper must be safe to apply blindly.
         """
         assert _collapse_uniform(value) == value
+
+
+class _Uncomparable:
+    """A value whose `==` raises, standing in for an exotic per-band entry.
+
+    `_same_value` guards against both halves of its `except` tuple. A numpy array supplies
+    the `ValueError` half -- `bool(array == array)` is ambiguous -- but nothing in the corpus
+    raises `TypeError` from `==`, so that half needs a stand-in.
+    """
+
+    def __eq__(self, other):
+        """Raise, the way a value with a hostile `__eq__` would."""
+        raise TypeError("cannot compare")
+
+
+class TestSameValue:
+    """`_same_value` — the comparison failures the per-band collapse has to survive."""
+
+    @pytest.mark.parametrize(
+        "left, right",
+        [
+            (np.array([1, 2]), np.array([1, 2])),
+            (_Uncomparable(), _Uncomparable()),
+        ],
+        ids=["ambiguous-array", "raising-eq"],
+    )
+    def test_a_raising_comparison_reports_not_the_same(self, left, right):
+        """A pair whose `==` raises answers False instead of propagating.
+
+        Args:
+            left: One band's value.
+            right: The value it is compared against.
+
+        Test scenario:
+            `bool(array == array)` raises `ValueError` (the truth value of a multi-element
+            array is ambiguous) and a hostile `__eq__` raises `TypeError`. `_collapse_uniform`
+            applies this to every per-band sequence, so a raise here would take `str()` down
+            with it -- the one thing the summary contract forbids. Distinct objects on purpose:
+            the identity fast path would answer True before `==` was ever reached.
+        """
+        assert _same_value(left, right) is False, (
+            f"a raising comparison must be False, got True for {left!r}"
+        )
 
 
 class TestBothNan:
@@ -536,6 +580,24 @@ class TestContainerSummary:
         finally:
             nc.close()
 
+    def test_a_released_handle_is_not_georeferenced(self):
+        """A container whose handle is gone reports no georeference rather than raising.
+
+        Test scenario:
+            The same store answers `True` while open, so the `False` here comes from the
+            `None` arm and not from the fixture. `close()` sets `_raster` to `None`, and the
+            helper is a plain function the package calls on whatever it is handed, so that
+            arm is live rather than defensive dead code -- without it the lookup would raise
+            `AttributeError` on a released handle, which `_container_summary` would then have
+            to swallow into `summary unavailable`.
+        """
+        path = "tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc"
+        nc = NetCDF.read_file(path, open_as_multi_dimensional=False)
+        assert _has_georeference(nc), "fixture must be georeferenced while it is open"
+        nc.close()
+        assert nc._raster is None, "close() must release the handle for this to bite"
+        assert _has_georeference(nc) is False, "a released handle has no geotransform"
+
     def test_long_lists_are_capped_by_width(self):
         """`dimensions` and `groups` stay readable on a store with many long names.
 
@@ -734,3 +796,18 @@ class TestVariableSummary:
         parent = _FakeVariable(file_name="/tmp/store/cube.nc")
         summary = _variable_summary(_FakeVariable(file_name="", _parent_nc=parent))
         assert summary.startswith("<Variable t2m - cube.nc>"), summary
+
+    def test_an_unreported_dtype_drops_its_line(self):
+        """A variable whose `dtype` reports nothing omits the line rather than printing it.
+
+        Test scenario:
+            `dtype` is the one optional line whose omission arm no fixture reached: units,
+            band axis and no-data all have an emptied case, but every stand-in kept a dtype.
+            An empty per-band sequence collapses to `None`, which must drop the label rather
+            than render `dtype   : None`.
+        """
+        summary = _variable_summary(_FakeVariable(dtype=[]))
+        assert "dtype" not in summary, (
+            f"an unreported dtype should be omitted:\n{summary}"
+        )
+        assert "bands   : 12" in summary, f"only the dtype line should go:\n{summary}"
