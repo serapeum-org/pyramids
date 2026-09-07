@@ -24,6 +24,7 @@ from pyramids.netcdf.models import MAX_DISPLAY_VARIABLES
 from pyramids.netcdf.netcdf import (
     _both_nan,
     _collapse_uniform,
+    _capped_join,
     _container_summary,
     _has_georeference,
     _store_label,
@@ -406,6 +407,51 @@ class TestContainerSummary:
             assert "@ 1," in grid[0], f"dropped a real unit cell size: {grid[0]}"
         finally:
             nc.close()
+
+    def test_long_lists_are_capped_by_width(self):
+        """`dimensions` and `groups` stay readable on a store with many long names.
+
+        Test scenario:
+            The variable rows were capped, but `dimensions` and `groups` were joined whole:
+            22 dimensions rendered a 372-character line, and seven flight-path group names a
+            289-character one. A summary meant for a debugger or a log line cannot be that.
+        """
+        path = "tests/data/netcdf/none__111v__1d96-2d13-3d2__str.nc"
+        nc = NetCDF.read_file(path)
+        try:
+            summary = _container_summary(nc)
+            dims = [
+                ln for ln in summary.split("\n") if ln.strip().startswith("dimensions")
+            ]
+            assert dims, f"no dimensions line:\n{summary}"
+            assert len(dims[0]) < 120, f"line is {len(dims[0])} chars: {dims[0]}"
+            assert "more" in dims[0], f"long list was not truncated: {dims[0]}"
+        finally:
+            nc.close()
+
+
+class TestCappedJoin:
+    """`_capped_join` truncates a one-line list by count and by width."""
+
+    def test_a_short_list_is_joined_whole(self):
+        """Nothing is cut when the list fits."""
+        assert _capped_join(["time=12", "y=5", "x=5"]) == "time=12, y=5, x=5"
+
+    def test_an_empty_list_joins_to_nothing(self):
+        """An empty list yields the empty string, so the caller can decide to omit the line."""
+        assert _capped_join([]) == ""
+
+    def test_a_single_overlong_entry_is_still_shown(self):
+        """The first entry is never dropped, so the line is never a bare count."""
+        result = _capped_join(["x" * 200, "y"])
+        assert result.startswith("x" * 200), result
+        assert result.endswith("... 1 more"), result
+
+    def test_the_count_cap_applies_below_the_width_cap(self):
+        """Many short names are cut at `MAX_DISPLAY_VARIABLES`, not only by width."""
+        result = _capped_join([f"d{n}" for n in range(MAX_DISPLAY_VARIABLES + 4)])
+        assert result.count(",") == MAX_DISPLAY_VARIABLES, result
+        assert result.endswith("... 4 more"), result
 
 
 class TestStoreLabel:

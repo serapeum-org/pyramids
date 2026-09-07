@@ -766,6 +766,52 @@ def _both_nan(left: Any, right: Any) -> bool:
         return False
 
 
+# How much of a one-line list a summary will print before it truncates. The point of the
+# summary is a line a debugger, a log handler or a notebook can show at a glance; a store with
+# 22 dimensions or seven flight-path group names blows well past that, so the list is cut by
+# width as well as by count -- ten names are still 316 characters when the names are long.
+_MAX_LIST_WIDTH = 96
+
+
+def _capped_join(items: list[str]) -> str:
+    """Join `items` with `", "`, truncating by both count and width.
+
+    Args:
+        items: The already-formatted entries to list.
+
+    Returns:
+        str: The joined text, with a `, ... N more` tail when anything was cut. Always shows
+            at least one entry, even one longer than the budget, so the line is never a bare
+            count.
+
+    Examples:
+        - A short list is joined whole:
+            ```python
+            >>> _capped_join(["time=12", "y=5", "x=5"])
+            'time=12, y=5, x=5'
+
+            ```
+        - A long one is cut, and says how much it cut:
+            ```python
+            >>> _capped_join([f"group_name_{n}" for n in range(9)])
+            'group_name_0, group_name_1, group_name_2, group_name_3, group_name_4, group_name_5, ... 3 more'
+
+            ```
+    """
+    shown: list[str] = []
+    used = 0
+    for item in items[:MAX_DISPLAY_VARIABLES]:
+        if shown and used + len(item) + 2 > _MAX_LIST_WIDTH:
+            break
+        used += len(item) + 2
+        shown.append(item)
+    listed = ", ".join(shown)
+    hidden = len(items) - len(shown)
+    if hidden > 0:
+        listed += f", ... {hidden} more"
+    return listed
+
+
 def _has_georeference(nc: NetCDF) -> bool:
     """Whether the store carries a real affine mapping, so a cell size means something.
 
@@ -842,10 +888,7 @@ def _variable_name_lines(names: list[str], published: bool) -> list[str]:
         list[str]: A single `variables  :` line, or nothing when there is neither a name
             to show nor the standing to call the store empty.
     """
-    shown = names[:MAX_DISPLAY_VARIABLES]
-    listed = ", ".join(shown)
-    if len(names) > len(shown):
-        listed += f", ... {len(names) - len(shown)} more"
+    listed = _capped_join(list(names))
     lines: list[str] = []
     if listed or published:
         lines.append(f"  variables  : {listed or 'none'}")
@@ -894,7 +937,7 @@ def _container_summary(nc: NetCDF) -> str:
 
     sizes = nc.dimension_sizes or {}
     if sizes or published:
-        dims = ", ".join(f"{name}={size}" for name, size in sizes.items())
+        dims = _capped_join([f"{name}={size}" for name, size in sizes.items()])
         lines.append(f"  dimensions : {dims or 'none'}")
 
     variables = nc.meta_data.variables or {}
@@ -914,7 +957,7 @@ def _container_summary(nc: NetCDF) -> str:
 
     groups = nc.group_names or []
     if groups or published:
-        joined = ", ".join(groups)
+        joined = _capped_join(list(groups))
         lines.append(f"  groups     : {joined or 'none'}")
     lines.append(f"  CRS        : {nc._crs_label()}")
     attributes = nc.meta_data.global_attributes or {}
