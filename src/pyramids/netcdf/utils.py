@@ -1072,6 +1072,70 @@ def _exact_ns_offsets(
     return offsets
 
 
+def _decode_via_cftime(
+    values: np.ndarray,
+    text: str,
+    calendar: str,
+    standard: bool,
+    context: str | None,
+) -> np.typing.NDArray:
+    """Decode through `cftime`, when the exact integer path cannot take the axis.
+
+    Split out of `decode_cf_time` so that function stays a router between the two decode
+    paths: everything here is the second path's own business -- honouring the mask, deciding
+    whether the result fits `datetime64[ns]`, and saying so when it does not.
+
+    Args:
+        values: The numeric offsets to decode.
+        text: The CF `"<period> since <origin>"` string.
+        calendar: The CF calendar name.
+        standard: Whether `calendar` is a Gregorian-family one, which is what decides
+            whether the result is a candidate for `datetime64[ns]` at all.
+        context: Optional name of the axis, for the warning.
+
+    Returns:
+        np.ndarray: `datetime64[ns]` when every present value fits it, else an object array
+            of the decoded datetimes with `None` where a value was missing.
+    """
+    raw = _num2date(values, text, calendar, standard, context)
+    # `cftime` masks the positions it could not decode -- a `NaN` or an `inf`
+    # offset -- and `np.asarray` drops that mask, leaving the fill value, which
+    # is the origin. Read as a real timestamp, that is a missing timestep
+    # silently becoming a date (#1116). Keep the mask and honour it below.
+    missing = np.ma.getmaskarray(np.ma.asarray(raw))
+    decoded = np.asarray(raw)
+    if standard:
+        # Range-checked, not try/except: the cast does not raise on an
+        # out-of-range date, it wraps (#1087). Out of range the decoded
+        # objects are kept as-is -- lossless, and already what a
+        # non-standard calendar returns. Masked positions are excluded: they
+        # hold the origin, so on a pre-1582 epoch they would fail the check and
+        # blame a range problem for what is a missing value.
+        present = decoded[~missing] if missing.any() else decoded
+        if _fits_datetime64_ns(present):
+            decoded = decoded.astype("datetime64[ns]")
+            if missing.any():
+                decoded = np.where(missing, np.datetime64("NaT", "ns"), decoded)
+        else:
+            # `UserWarning`, not `RuntimeWarning`: GDAL floods the latter,
+            # so the common "ignore RuntimeWarning" recipe around a GDAL
+            # read would silence a data-integrity warning.
+            axis = f"{context!r} " if context else ""
+            warnings.warn(
+                f"time axis {axis}({text!r}) decodes to dates outside the "
+                f"1677-09-21 to 2262-04-11 range datetime64[ns] can represent; "
+                f"returning the decoded datetime objects instead, because casting "
+                f"would silently wrap them to the wrong dates.",
+                UserWarning,
+                # 3, not 2: this sits one frame deeper than `decode_cf_time` now.
+                stacklevel=3,
+            )
+            decoded = _blank_missing(decoded, missing)
+    else:
+        decoded = _blank_missing(decoded, missing)
+    return decoded
+
+
 def decode_cf_time(
     values: np.ndarray,
     unit: str | bytes | None,
@@ -1189,41 +1253,7 @@ def decode_cf_time(
         if exact is not None:
             decoded = exact
         else:
-            raw = _num2date(values, text, calendar, standard, context)
-            # `cftime` masks the positions it could not decode -- a `NaN` or an `inf`
-            # offset -- and `np.asarray` drops that mask, leaving the fill value, which
-            # is the origin. Read as a real timestamp, that is a missing timestep
-            # silently becoming a date (#1116). Keep the mask and honour it below.
-            missing = np.ma.getmaskarray(np.ma.asarray(raw))
-            decoded = np.asarray(raw)
-            if standard:
-                # Range-checked, not try/except: the cast does not raise on an
-                # out-of-range date, it wraps (#1087). Out of range the decoded
-                # objects are kept as-is -- lossless, and already what a
-                # non-standard calendar returns. Masked positions are excluded: they
-                # hold the origin, so on a pre-1582 epoch they would fail the check and
-                # blame a range problem for what is a missing value.
-                present = decoded[~missing] if missing.any() else decoded
-                if _fits_datetime64_ns(present):
-                    decoded = decoded.astype("datetime64[ns]")
-                    if missing.any():
-                        decoded = np.where(missing, np.datetime64("NaT", "ns"), decoded)
-                else:
-                    # `UserWarning`, not `RuntimeWarning`: GDAL floods the latter,
-                    # so the common "ignore RuntimeWarning" recipe around a GDAL
-                    # read would silence a data-integrity warning.
-                    axis = f"{context!r} " if context else ""
-                    warnings.warn(
-                        f"time axis {axis}({text!r}) decodes to dates outside the "
-                        f"1677-09-21 to 2262-04-11 range datetime64[ns] can represent; "
-                        f"returning the decoded datetime objects instead, because casting "
-                        f"would silently wrap them to the wrong dates.",
-                        UserWarning,
-                        stacklevel=2,
-                    )
-                    decoded = _blank_missing(decoded, missing)
-            else:
-                decoded = _blank_missing(decoded, missing)
+            decoded = _decode_via_cftime(values, text, calendar, standard, context)
     return decoded
 
 

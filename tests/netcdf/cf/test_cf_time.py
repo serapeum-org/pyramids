@@ -70,7 +70,8 @@ class TestMissingValues:
         )
         np.testing.assert_array_equal(fast, slow)
         assert np.isnat(slow[1]), f"the masked offset should be NaT, got {slow[1]}"
-        assert not np.isnat(slow[0]) and not np.isnat(slow[2]), slow
+        assert not np.isnat(slow[0]), f"the first offset is present, got {slow[0]}"
+        assert not np.isnat(slow[2]), f"the last offset is present, got {slow[2]}"
 
     def test_an_object_result_blanks_the_missing_value(self):
         """An object array has no `NaT`, so a missing value is `None` there.
