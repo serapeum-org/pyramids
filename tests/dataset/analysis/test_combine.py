@@ -740,6 +740,26 @@ class TestCombine:
 
         assert np.isnan(result.no_data_value[0])
 
+    def test_a_complex_result_has_no_dtype_extremes_to_fall_back_on(self):
+        """The extremes fallback is integer-only; other dtypes rely on the candidates.
+
+        Test scenario:
+            A `func` returning complex values, with one cell masked, still gets a
+            sentinel — the operands' own -9999 fits a complex band — where an integer
+            result would have had `iinfo` extremes to fall back on and a complex one
+            has none.
+        """
+        left = np.full((4, 4), 3.0, "float32")
+        left[0, 0] = -9999.0
+
+        result = _raster(left).combine(
+            _raster(np.full((4, 4), 1.0, "float32")),
+            lambda a, b: (a - b).astype("complex128"),
+        )
+
+        assert result.no_data_value[0] == -9999
+        assert np.asarray(result.read_array())[1, 1] == 2.0 + 0j
+
     def test_the_result_dtype_follows_func_not_the_inputs(self):
         """Dividing two integer rasters yields a float result, not a truncated one.
 
