@@ -634,6 +634,24 @@ replace the georeference wholesale.
 
 ### unreleased
 
+**A time axis outside `datetime64[ns]`'s range now decodes to `cftime` objects instead of wrapping.**
+Soft change, warned — a `RuntimeWarning` names the units. Only arrays that were previously **wrong** change:
+`decode_cf_time` cast to `datetime64[ns]` under a guard that cannot fire, because a date beyond the type's
+1677-09-21 to 2262-04-11 range does not raise on the cast, it wraps.
+
+```python
+decode_cf_time(np.array([400_000]), "days since 1970-01-01", "standard")
+# before -> np.datetime64('1896-01-21T00:50:52.580896768')   # the date is year 3065
+# after  -> cftime.DatetimeGregorian(3065, 3, 1)             # + RuntimeWarning
+```
+
+Both bounds are affected, and no large offset is needed to reach one: a store written against a
+`days since 0001-01-01` epoch is out of range at offset **zero**. Its in-range dates are unaffected — a
+20th-century date on that epoch still decodes to `datetime64[ns]` exactly as before.
+
+If you need `datetime64` regardless, the values were never trustworthy in this range; convert deliberately from
+the `cftime` objects, or read the axis with a calendar-aware library. Everything inside the range is unchanged.
+
 **`str(nc)` is a different shape, and the summary now depends on whether you hold a container or a variable.**
 Hard change, silent — nothing raises and nothing warns. Anything scraping the old text (log parsing, notebook
 snapshots, doctests) will stop matching.
