@@ -176,6 +176,40 @@ def _window_sizes(
         ValueError: A window exceeds the pixel ceiling, or `res` has a
             non-positive axis (both raised by
             :func:`~pyramids.base._coverage.read_size`).
+
+    Examples:
+        - One window with an explicit resolution is sized straight from it:
+            ```python
+            >>> from pyramids.dataset._ogc_coverages import _window_sizes
+            >>> _window_sizes([[170.0, 10.0, 175.0, -10.0]], (0.05, 0.05))
+            [(100, 400)]
+
+            ```
+        - Two halves of a seam read share one resolution, so their widths are in
+          proportion to their spans and their heights are identical -- which is
+          what lets them be concatenated afterwards:
+            ```python
+            >>> from pyramids.dataset._ogc_coverages import _window_sizes
+            >>> halves = [[170.0, 10.0, 180.0, -10.0], [-180.0, 10.0, -175.0, -10.0]]
+            >>> sizes = _window_sizes(halves, None)
+            >>> sizes
+            [(512, 1024), (256, 1024)]
+            >>> sizes[0][1] == sizes[1][1]
+            True
+
+            ```
+        - The cap is spent on the combined span, not once per half, so the two
+          widths add up to what a single unwrapped window of that span would get --
+          15 degrees against 20 of latitude, so the tall side takes the 1024 cap and
+          the width follows the aspect ratio:
+            ```python
+            >>> from pyramids.dataset._ogc_coverages import _window_sizes
+            >>> halves = [[170.0, 10.0, 180.0, -10.0], [-180.0, 10.0, -175.0, -10.0]]
+            >>> sizes = _window_sizes(halves, None)
+            >>> sum(width for width, _ in sizes)
+            768
+
+            ```
     """
     grid_res = res
     if grid_res is None and len(projwins) > 1:

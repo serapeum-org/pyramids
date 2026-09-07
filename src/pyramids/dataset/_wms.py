@@ -116,6 +116,16 @@ def _output_size(
     spans rather than from the negative ``maxx - minx`` that reading it as an
     ordinary box would give.
 
+    Args:
+        bbox: The validated ``(minx, miny, maxx, maxy)``, possibly wrapping.
+        size: The caller's ``(width, height)`` in pixels, or ``None`` to derive it
+            from `resolution`.
+        resolution: Pixel size in the bbox CRS units -- a scalar for square pixels
+            or an ``(x_res, y_res)`` pair -- or ``None`` when `size` is given.
+
+    Returns:
+        tuple[int, int]: The ``(width, height)`` to request, each at least 1 pixel.
+
     Raises:
         ValueError: both or neither of ``size`` / ``resolution`` were given, or
             ``size`` is not two positive integers.
@@ -170,6 +180,36 @@ def _check_seam_bbox(bbox: tuple[float, float, float, float], crs: str) -> None:
             just an inverted box. Or it wraps but a corner lies outside
             ``-180 .. 180``, where "west of the seam" and "east of it" stop
             meaning anything.
+
+    Examples:
+        - An ordinary box passes in any CRS, projected included, because nothing
+          about it needs a seam:
+            ```python
+            >>> from pyramids.dataset._wms import _check_seam_bbox
+            >>> _check_seam_bbox((5.0, 51.0, 6.0, 52.0), "EPSG:3857") is None
+            True
+
+            ```
+        - A wrapping box in a projected CRS is refused rather than stitched at a
+          seam that CRS does not have:
+            ```python
+            >>> from pyramids.dataset._wms import _check_seam_bbox
+            >>> box = (170.0, -10.0, -170.0, 10.0)
+            >>> _check_seam_bbox(box, "EPSG:3857")  # doctest: +ELLIPSIS
+            Traceback (most recent call last):
+            ValueError: bbox (170.0, ...) has minx > maxx, ...it has no such seam...
+
+            ```
+        - So is a wrapping box reaching outside ``-180 .. 180``, where the two
+          sides of the seam stop being well defined:
+            ```python
+            >>> from pyramids.dataset._wms import _check_seam_bbox
+            >>> box = (190.0, -10.0, -170.0, 10.0)
+            >>> _check_seam_bbox(box, "EPSG:4326")  # doctest: +ELLIPSIS
+            Traceback (most recent call last):
+            ValueError: an antimeridian bbox must have both corners within -18...
+
+            ```
     """
     minx, _, maxx, _ = bbox
     if minx > maxx:
@@ -447,6 +487,29 @@ def _seam_offset(
 
     Returns:
         float: The seam-to-seam x span in the native CRS's units.
+
+    Examples:
+        - A lon/lat layer measures the seam as the 360 degrees it is:
+            ```python
+            >>> from osgeo import osr
+            >>> from pyramids.dataset._wms import _seam_offset
+            >>> native = osr.SpatialReference()
+            >>> _ = native.ImportFromEPSG(4326)
+            >>> _seam_offset((170.0, -10.0, -170.0, 10.0), "EPSG:4326", native)
+            360.0
+
+            ```
+        - A Web Mercator layer measures the same seam in metres, so the check the
+          offset feeds is done in the units the halves are actually cropped in:
+            ```python
+            >>> from osgeo import osr
+            >>> from pyramids.dataset._wms import _seam_offset
+            >>> native = osr.SpatialReference()
+            >>> _ = native.ImportFromEPSG(3857)
+            >>> round(_seam_offset((170.0, -10.0, -170.0, 10.0), "EPSG:4326", native))
+            40075017
+
+            ```
     """
     _, miny, _, maxy = bbox
     world = _native_projwin((-180.0, miny, 180.0, maxy), crs, native_srs)
@@ -473,6 +536,34 @@ def _check_halves_concatenable(
     Raises:
         ValueError: The halves differ in rows, band count, pixel size or top edge,
             or they do not meet at the seam.
+
+    Examples:
+        - Two halves that meet exactly at 180 pass, and the check returns nothing:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.dataset._wms import _check_halves_concatenable
+            >>> west = gdal.GetDriverByName("MEM").Create("", 20, 40, 1)
+            >>> _ = west.SetGeoTransform((170.0, 0.5, 0.0, 10.0, 0.0, -0.5))
+            >>> east = gdal.GetDriverByName("MEM").Create("", 10, 40, 1)
+            >>> _ = east.SetGeoTransform((-180.0, 0.5, 0.0, 10.0, 0.0, -0.5))
+            >>> _check_halves_concatenable(west, east, 360.0) is None
+            True
+
+            ```
+        - A gap between them is caught rather than silently stitched, because the
+          east half no longer starts where the west one ends:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.dataset._wms import _check_halves_concatenable
+            >>> west = gdal.GetDriverByName("MEM").Create("", 20, 40, 1)
+            >>> _ = west.SetGeoTransform((170.0, 0.5, 0.0, 10.0, 0.0, -0.5))
+            >>> east = gdal.GetDriverByName("MEM").Create("", 10, 40, 1)
+            >>> _ = east.SetGeoTransform((-179.0, 0.5, 0.0, 10.0, 0.0, -0.5))
+            >>> _check_halves_concatenable(west, east, 360.0)  # doctest: +ELLIPSIS
+            Traceback (most recent call last):
+            ValueError: antimeridian halves are 1.0 apart at the seam (over ha...
+
+            ```
     """
     if west.RasterYSize != east.RasterYSize or west.RasterCount != east.RasterCount:
         raise ValueError(
@@ -528,6 +619,39 @@ def _merge_lon_halves(
 
     Raises:
         ValueError: The halves do not tile a continuous raster.
+
+    Examples:
+        - The stitch is as wide as both halves together and keeps the west half's
+          origin, so longitude runs on past the seam instead of wrapping:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.dataset._wms import _merge_lon_halves
+            >>> west = gdal.GetDriverByName("MEM").Create("", 20, 40, 1)
+            >>> _ = west.SetGeoTransform((170.0, 0.5, 0.0, 10.0, 0.0, -0.5))
+            >>> east = gdal.GetDriverByName("MEM").Create("", 10, 40, 1)
+            >>> _ = east.SetGeoTransform((-180.0, 0.5, 0.0, 10.0, 0.0, -0.5))
+            >>> merged = _merge_lon_halves(west, east, 360.0)
+            >>> merged.RasterXSize, merged.RasterYSize
+            (30, 40)
+            >>> merged.GetGeoTransform()[0]
+            170.0
+
+            ```
+        - The east edge of the result is therefore past 180, which is what makes it
+          one continuous raster rather than two:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.dataset._wms import _merge_lon_halves
+            >>> west = gdal.GetDriverByName("MEM").Create("", 20, 40, 1)
+            >>> _ = west.SetGeoTransform((170.0, 0.5, 0.0, 10.0, 0.0, -0.5))
+            >>> east = gdal.GetDriverByName("MEM").Create("", 10, 40, 1)
+            >>> _ = east.SetGeoTransform((-180.0, 0.5, 0.0, 10.0, 0.0, -0.5))
+            >>> merged = _merge_lon_halves(west, east, 360.0)
+            >>> gt = merged.GetGeoTransform()
+            >>> gt[0] + merged.RasterXSize * gt[1]
+            185.0
+
+            ```
     """
     _check_halves_concatenable(west, east, seam_offset)
     data_type = west.GetRasterBand(1).DataType
@@ -575,6 +699,37 @@ def _collect_halves(fetch: Any, windows: list[Any], seam_offset: float) -> gdal.
 
     Raises:
         ValueError: Two halves were fetched but do not tile a continuous raster.
+
+    Examples:
+        - One window is handed straight back, still open for the caller to use:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.dataset._wms import _collect_halves
+            >>> def fetch(window):
+            ...     part = gdal.GetDriverByName("MEM").Create("", 20, 40, 1)
+            ...     _ = part.SetGeoTransform((window, 0.5, 0.0, 10.0, 0.0, -0.5))
+            ...     return part
+            >>> only = _collect_halves(fetch, [170.0], 360.0)
+            >>> only.RasterXSize
+            20
+
+            ```
+        - Two windows come back as one stitched raster, twice as wide, on the west
+          half's origin:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.dataset._wms import _collect_halves
+            >>> def fetch(window):
+            ...     part = gdal.GetDriverByName("MEM").Create("", 20, 40, 1)
+            ...     _ = part.SetGeoTransform((window, 0.5, 0.0, 10.0, 0.0, -0.5))
+            ...     return part
+            >>> merged = _collect_halves(fetch, [170.0, -180.0], 360.0)
+            >>> merged.RasterXSize
+            40
+            >>> merged.GetGeoTransform()[0]
+            170.0
+
+            ```
     """
     parts: list[gdal.Dataset] = []
     try:
