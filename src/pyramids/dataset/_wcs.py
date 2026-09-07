@@ -681,9 +681,11 @@ def _from_wcs_discovery(
             native_srs = _resolve_native_srs(src, coverage_crs)
             for window in windows:
                 projwin = _native_projwin(window, crs, native_srs)
-                # Overlap-filtered before fetching, as _crop_seam_halves does:
-                # only for a split request, so a single window keeps its own
-                # error rather than silently returning nothing.
+                # Overlap-filtered before fetching, as _crop_seam_halves does,
+                # but only for a split request. A lone window is left to GDAL,
+                # which warns and fills a miss with no-data rather than raising;
+                # filtering it too would turn that long-standing outcome into
+                # "neither half overlaps" for a bbox that never wrapped.
                 if len(windows) > 1 and not _window_overlaps(projwin, src):
                     continue
                 mems.append(_translate_window(src, projwin, coverage))

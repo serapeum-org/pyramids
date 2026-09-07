@@ -67,9 +67,27 @@ class TestWindowOverlaps:
     """The overlap test that keeps a seam half that misses the coverage unfetched."""
 
     @staticmethod
-    def _src() -> gdal.Dataset:
+    def _src(
+        geotransform: tuple[float, float, float, float, float, float] = (
+            0.0,
+            1.0,
+            0.0,
+            10.0,
+            0.0,
+            -1.0,
+        ),
+    ) -> gdal.Dataset:
+        """A 10x10 MEM raster carrying `geotransform`.
+
+        Args:
+            geotransform: The GDAL geotransform to stamp. Defaults to the ordinary
+                north-up, east-positive one covering `0..10` on both axes.
+
+        Returns:
+            osgeo.gdal.Dataset: The in-memory raster.
+        """
         src = gdal.GetDriverByName("MEM").Create("", 10, 10, 1)
-        src.SetGeoTransform((0.0, 1.0, 0.0, 10.0, 0.0, -1.0))
+        src.SetGeoTransform(geotransform)
         return src
 
     def test_window_inside_overlaps(self):
@@ -93,6 +111,68 @@ class TestWindowOverlaps:
     def test_touching_edge_does_not_overlap(self):
         """A zero-area intersection has no pixels to read, so it is not an overlap."""
         assert not window_overlaps([10.0, 8.0, 20.0, 6.0], self._src())
+
+    def test_a_rotated_grid_is_measured_by_its_far_corner(self):
+        """A rotated geotransform reaches further east than its pixel width suggests.
+
+        Test scenario:
+            With a rotation term (`gt[2] = 0.5`) a 10-column raster spans `0 .. 15`
+            in x, not `0 .. 10`: the far corner is
+            `gt[0] + width*gt[1] + height*gt[2]`. A window at `11 .. 14` therefore
+            does overlap. Measuring the extent from `gt[1]` alone would place the
+            east edge at `10` and skip a half that genuinely has data.
+        """
+        rotated = self._src((0.0, 1.0, 0.5, 10.0, 0.5, -1.0))
+        result = window_overlaps([11.0, 9.0, 14.0, 6.0], rotated)
+        assert result, (
+            "a window inside the rotated footprint should overlap; measuring the "
+            "extent without the rotation terms would put the east edge at 10"
+        )
+
+    def test_a_rotated_grid_still_excludes_what_is_beyond_it(self):
+        """The far-corner extent bounds the raster rather than unbounding it.
+
+        Test scenario:
+            The same rotated raster reaches `15` in x, so a window at `16 .. 20` is
+            outside it. This is the companion to the previous case: widening the
+            extent to catch the rotation must not widen it without limit.
+        """
+        rotated = self._src((0.0, 1.0, 0.5, 10.0, 0.5, -1.0))
+        result = window_overlaps([16.0, 9.0, 20.0, 6.0], rotated)
+        assert not result, (
+            "a window east of the rotated footprint should not overlap, got True"
+        )
+
+    def test_a_south_up_grid_is_not_read_as_empty(self):
+        """A positive `gt[5]` puts the origin at the raster's south edge.
+
+        Test scenario:
+            With `gt[3] = 0` and `gt[5] = +1` the raster runs from `0` up to `10` in
+            y, so the origin is its *minimum*. Taking `gt[3]` as the maximum without
+            ordering the pair yields `miny > maxy`, which makes the intersection
+            test false for every window and would skip both halves of a seam read.
+        """
+        south_up = self._src((0.0, 1.0, 0.0, 0.0, 0.0, 1.0))
+        result = window_overlaps([2.0, 8.0, 4.0, 6.0], south_up)
+        assert result, (
+            "a window inside a south-up raster should overlap; an unordered y "
+            "extent makes every window miss"
+        )
+
+    def test_a_west_positive_grid_is_not_read_as_empty(self):
+        """The same ordering problem on the x axis, with a negative `gt[1]`.
+
+        Test scenario:
+            `gt[0] = 10` with `gt[1] = -1` runs the columns westward, so the origin
+            is the raster's *maximum* x. A window at `2 .. 4` is inside it, and only
+            ordering the pair keeps that true.
+        """
+        west_positive = self._src((10.0, -1.0, 0.0, 10.0, 0.0, -1.0))
+        result = window_overlaps([2.0, 8.0, 4.0, 6.0], west_positive)
+        assert result, (
+            "a window inside a west-positive raster should overlap; an unordered x "
+            "extent makes every window miss"
+        )
 
 
 class TestWindowSizes:
@@ -254,6 +334,29 @@ class TestWcsDiscovery:
                     server.url, coverage="test_cov", bbox=WRAP, version="1.0.0"
                 )
 
+    def test_a_single_window_that_misses_is_left_to_gdal(self):
+        """The overlap filter must not change what a *non-wrapping* request does.
+
+        Test scenario:
+            An ordinary bbox nowhere near the coverage is one window, not two, so
+            the filter is skipped entirely and GDAL's own lenient behaviour
+            survives: it warns that the source window falls outside the raster and
+            fills the result with no-data rather than raising. Applying the filter
+            unconditionally would turn that long-standing outcome into
+            `neither half overlaps`, which is why the guard reads
+            `len(windows) > 1`.
+        """
+        with WcsMock(version="1.0.0") as server:
+            ds = Dataset.from_wcs(
+                server.url,
+                coverage="test_cov",
+                bbox=(50.0, 50.0, 52.0, 52.0),
+                version="1.0.0",
+            )
+        assert ds.shape == (1, 20, 20), (
+            f"a single off-coverage window should still return a raster, got {ds.shape}"
+        )
+
 
 @pytest.mark.skipif(
     gdal.GetDriverByName("OGCAPI") is None,
@@ -299,6 +402,23 @@ class TestOgcCoverages:
         with _serving((0.0, 0.0, 10.0, 8.0)) as url:
             with pytest.raises(ValueError, match="neither half overlaps"):
                 Dataset.from_ogc_coverages(url, coverage="demo", bbox=WRAP)
+
+    def test_a_single_window_that_misses_is_left_to_gdal(self):
+        """The same guard, on the reader that filters a whole list at once.
+
+        Test scenario:
+            `_fetch_windows` filters `projwins` only when there is more than one, so
+            an ordinary off-coverage bbox keeps GDAL's no-data fill instead of
+            gaining a refusal it never had. Without the length guard the list would
+            empty and `_window_sizes` would be handed nothing.
+        """
+        with _serving((0.0, 0.0, 10.0, 8.0)) as url:
+            ds = Dataset.from_ogc_coverages(
+                url, coverage="demo", bbox=(50.0, 50.0, 52.0, 52.0), resolution=0.1
+            )
+        assert ds.shape == (1, 20, 20), (
+            f"a single off-coverage window should still return a raster, got {ds.shape}"
+        )
 
     def test_output_crs_is_applied_once_to_the_merged_raster(self):
         with _serving(OGC_GLOBAL_BOUNDS) as url:

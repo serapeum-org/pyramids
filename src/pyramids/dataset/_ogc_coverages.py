@@ -242,9 +242,11 @@ def _fetch_windows(
                 ) from exc
             projwins = [_native_projwin(w, "EPSG:4326", native_srs) for w in windows]
             if len(projwins) > 1:
-                # Overlap-filtered before fetching, as _crop_seam_halves does:
-                # only for a split request, so a single window keeps its own
-                # error rather than silently returning nothing.
+                # Overlap-filtered before fetching, as _crop_seam_halves does,
+                # but only for a split request. A lone window is left to GDAL,
+                # which warns and fills a miss with no-data rather than raising;
+                # filtering it too would empty the list and leave _window_sizes
+                # nothing to size.
                 projwins = [pw for pw in projwins if _window_overlaps(pw, src)]
             sizes = _window_sizes(projwins, res)
             for projwin, size in zip(projwins, sizes, strict=True):
