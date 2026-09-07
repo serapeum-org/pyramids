@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -7463,11 +7463,12 @@ Soft change, warned — a <code>RuntimeWarning</code> names the units. Only arra
 <p>Both bounds are affected, and no large offset is needed to reach one: a store written against a
 <code>days since 0001-01-01</code> epoch is out of range at offset <strong>zero</strong>. Its in-range dates are unaffected — a
 20th-century date on that epoch still decodes to <code>datetime64[ns]</code> exactly as before.</p>
-<p><strong>Which object you get back is <code>cftime</code>'s choice, and it decides what still works downstream.</strong> For a date
-Python's <code>datetime</code> can represent — the common far-future case above — it is <code>cftime.real_datetime</code>, a
-<code>datetime</code> subclass, so <code>pandas</code> gives <code>datetime64[us]</code> and <code>to_dataframe</code> / <code>to_parquet</code> / <code>to_csv</code> all keep
-working and now carry the <em>correct</em> date. Only a date Python cannot represent, which in practice means a
-pre-1582 origin on a mixed calendar, yields a true <code>cftime</code> datetime.</p>
+<p><strong>Which object you get back is <code>cftime</code>'s choice, and it decides what still works downstream.</strong> It follows the
+<strong>origin</strong>, not the dates: when proleptic Gregorian rules already cover the origin — a <code>proleptic_gregorian</code>
+calendar, or a mixed-calendar origin at or after the 1582 reform — you get <code>cftime.real_datetime</code>, a <code>datetime</code>
+subclass, so <code>pandas</code> gives <code>datetime64[us]</code> and <code>to_dataframe</code> / <code>to_parquet</code> / <code>to_csv</code> all keep working and
+now carry the <em>correct</em> date. That covers the common far-future case above. A pre-1582 origin on a mixed
+calendar yields a true <code>cftime</code> datetime instead, for every value on the axis — including its post-1582 ones.</p>
 <p><strong><code>LabeledDataset.to_parquet</code> raises on that second case</strong>, where it previously wrote a file full of wrapped
 dates. Parquet has no type for a <code>cftime</code> datetime, so the write now fails with a <code>FailedToSaveError</code> naming the
 offending columns rather than an <code>ArrowInvalid</code> from inside pyarrow. This was already the behaviour for a
