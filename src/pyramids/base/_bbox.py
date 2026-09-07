@@ -4,12 +4,18 @@
 `pyproj.Transformer.transform_bounds`, with the latitudes clamped when the
 destination is geographic.
 
-It lives under `base` rather than in `feature.bbox` because the coverage
-readers need it, and `base` importing `feature` inverts the layering -- it also
-pulled geopandas into any process that touched `base._coverage`. Nothing here
-needs shapely or geopandas, only pyproj, so the move costs those callers
-nothing. `pyramids.feature.bbox` re-exports it, so the name callers already use
-still resolves.
+`split_antimeridian` severs a `west > east` bbox at the 180 degree seam.
+
+Both live under `base` rather than in `feature.bbox` because the coverage
+readers need them, and `base` importing `feature` inverts the layering -- it
+also pulled geopandas into any process that touched `base._coverage`. Nothing
+here needs shapely or geopandas, only pyproj, so the move costs those callers
+nothing. `pyramids.feature.bbox` re-exports both, so the names callers already
+use still resolve.
+
+`split_antimeridian` moved down for the same reason `transform` did: the OGC
+readers refused a wrapping bbox that `Dataset.crop` already splits, and fixing
+that meant `base._coverage` reaching a primitive that only `feature` could see.
 """
 
 from __future__ import annotations
@@ -86,3 +92,48 @@ def transform(
         miny = max(miny, -90.0)
         maxy = min(maxy, 90.0)
     return (minx, miny, maxx, maxy)
+
+
+def split_antimeridian(bbox: Bbox) -> list[Bbox]:
+    """Split a bbox into one or two bboxes, severing the antimeridian.
+
+    Returns the input unchanged (as a single-element list) when `west <= east`.
+    When `west > east` the bbox is treated as crossing the 180 deg meridian
+    and is split into an eastern `(west, south, 180, north)` and a western
+    `(-180, south, east, north)` half.
+
+    Args:
+        bbox: A `(west, south, east, north)` tuple in degrees.
+
+    Returns:
+        A list of one bbox (no crossing) or two bboxes (crossing), each with
+        `west <= east`.
+
+    Examples:
+        - A bbox that does not cross the antimeridian is returned as-is:
+            ```python
+            >>> split_antimeridian((-10.0, -5.0, 10.0, 5.0))
+            [(-10.0, -5.0, 10.0, 5.0)]
+
+            ```
+        - A crossing bbox is split into an eastern and a western half:
+            ```python
+            >>> split_antimeridian((175.0, -22.0, -175.0, -12.0))
+            [(175.0, -22.0, 180.0, -12.0), (-180.0, -22.0, -175.0, -12.0)]
+
+            ```
+        - The two halves can be fed to separate spatial queries:
+            ```python
+            >>> halves = split_antimeridian((170.0, 0.0, -170.0, 10.0))
+            >>> [round(h[2] - h[0], 1) for h in halves]
+            [10.0, 10.0]
+
+            ```
+    """
+    west, south, east, north = bbox
+    if west <= east:
+        return [(west, south, east, north)]
+    return [
+        (west, south, 180.0, north),
+        (-180.0, south, east, north),
+    ]

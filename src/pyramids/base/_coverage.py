@@ -29,6 +29,7 @@ from typing import Any, cast
 from osgeo import gdal, osr
 
 from pyramids.base._bbox import transform as bbox_transform
+from pyramids.base._bbox import split_antimeridian
 from pyramids.base._errors import CoverageError, CRSError
 from pyramids.base._grid import grid_size
 from pyramids.base.crs import sr_from_user_input
@@ -36,6 +37,8 @@ from pyramids.base.crs import sr_from_user_input
 
 def validate_bbox(
     bbox: tuple[float, float, float, float],
+    *,
+    allow_antimeridian: bool = False,
 ) -> tuple[float, float, float, float]:
     """Validate a ``(minx, miny, maxx, maxy)`` bbox.
 
@@ -43,6 +46,14 @@ def validate_bbox(
         bbox: Four numbers, or anything `float()` accepts for each of them --
             a bbox read out of JSON arrives as strings often enough that
             coercing is worth more than refusing.
+        allow_antimeridian: Accept ``minx > maxx`` as a box crossing the 180
+            degree seam rather than an inverted one. Off by default, because
+            for most callers an inverted box is a mistake and silently reading
+            it as a wrap would hide it. A reader that can actually serve the
+            wrap -- by splitting it with :func:`seam_halves` and merging the
+            results, as :meth:`Dataset.crop` does -- passes `True`. The Y axis
+            is never wrapped: there is no seam in latitude, so ``miny >= maxy``
+            stays an error either way.
 
     Returns:
         tuple[float, float, float, float]: The bbox as floats.
@@ -50,7 +61,9 @@ def validate_bbox(
     Raises:
         ValueError: `bbox` is not four values, one of them is text `float()`
             cannot read, any of them is not finite, or the box is empty or
-            inverted on either axis.
+            inverted on either axis. With `allow_antimeridian`, ``minx > maxx``
+            is no longer inverted -- but ``minx == maxx`` still is, since a
+            zero-width box is empty whichever way it is read.
         TypeError: One of the four is a value `float()` refuses outright, such
             as `None` or a list. Raised by the coercion rather than by a check
             here -- the message names the type, which is what the caller needs.
@@ -83,9 +96,48 @@ def validate_bbox(
     # the failure is the server's and reads as a network problem.
     if not all(isfinite(v) for v in (minx, miny, maxx, maxy)):
         raise ValueError(f"bbox must be four finite numbers, got {bbox!r}")
-    if minx >= maxx or miny >= maxy:
+    wraps = allow_antimeridian and minx > maxx
+    if (minx >= maxx and not wraps) or miny >= maxy:
         raise ValueError(f"bbox must have minx < maxx and miny < maxy, got {bbox!r}")
     return minx, miny, maxx, maxy
+
+
+def seam_halves(
+    bbox: tuple[float, float, float, float],
+) -> list[tuple[float, float, float, float]]:
+    """The one or two ``west < east`` boxes a request should actually ask for.
+
+    A network reader has no grid to measure when it validates a bbox -- it is
+    fetching the grid. So unlike :func:`pyramids.dataset.engines.spatial._antimeridian_halves`,
+    which reads the seam out of a dataset it already holds, this splits at the
+    180 degree meridian, which is where the seam is for the geographic CRS an
+    OGC request declares.
+
+    Args:
+        bbox: A validated ``(minx, miny, maxx, maxy)``, possibly wrapping.
+
+    Returns:
+        list[tuple[float, float, float, float]]: One box when it does not wrap,
+            two in west-to-east order when it does.
+
+    Examples:
+        - An ordinary box is handed back untouched, so a caller can split
+          unconditionally and only branch on the length:
+            ```python
+            >>> from pyramids.base._coverage import seam_halves
+            >>> seam_halves((10.0, -5.0, 20.0, 5.0))
+            [(10.0, -5.0, 20.0, 5.0)]
+
+            ```
+        - A wrapping box becomes the two halves either side of the seam:
+            ```python
+            >>> from pyramids.base._coverage import seam_halves
+            >>> seam_halves((170.0, -10.0, -170.0, 10.0))
+            [(170.0, -10.0, 180.0, 10.0), (-180.0, -10.0, -170.0, 10.0)]
+
+            ```
+    """
+    return split_antimeridian(bbox)
 
 
 def resolution_pair(
