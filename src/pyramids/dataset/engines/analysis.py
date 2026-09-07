@@ -704,62 +704,24 @@ class Analysis(_Engine["Dataset"]):
         """
         if not isinstance(other, RasterBase):
             raise TypeError(f"`other` must be a Dataset, got {type(other).__name__}")
-        if not callable(func):
-            raise TypeError(f"`func` must be callable, got {type(func).__name__}")
-        if not self._ds.spatial.same_grid(other):
-            raise AlignmentError(
-                "the two rasters do not share a grid/CRS, so they cannot be "
-                "combined cell by cell; align them first "
-                "(`other = other.align(self)`) and combine the result"
-            )
+        self._check_combinable(other, func, band)
 
-        # Before either read: the message is already written in terms of
-        # `band_count`, which is a header field, and combining a 12-band scene
-        # with a 1-band mask should not pull gigabytes off disk to refuse on a
-        # comparison that needed no pixels. `cli.py` orders its own grid check
-        # the same way.
-        if band is None and self._ds.band_count != other.band_count:
-            raise ValueError(
-                f"the operands carry a different number of bands "
-                f"({self._ds.band_count} and {other.band_count}); pass `band=` to "
-                "combine one band from each"
-            )
         left, left_sentinels = self._operand_arrays(self._ds, band)
         right, right_sentinels = self._operand_arrays(other, band)
-
         masked = no_data_value is not None
-        if masked:
-            domain = self._domain_mask(left, left_sentinels) & self._domain_mask(
-                right, right_sentinels
-            )
-        else:
-            # `ravel`, not an all-True mask: this path exists because the caller
-            # asked for no masking, so allocating a full boolean array and fancy-
-            # indexing through it twice is pure overhead.
-            domain = None
+        domain = (
+            self._domain_mask(left, left_sentinels)
+            & self._domain_mask(right, right_sentinels)
+            if masked
+            # `None`, not an all-True mask: the unmasked path exists because the
+            # caller asked for no masking, so allocating a full boolean array and
+            # fancy-indexing through it twice is pure overhead.
+            else None
+        )
 
-        expected = left.size if domain is None else int(domain.sum())
-        left_values = left.ravel() if domain is None else left[domain]
-        right_values = right.ravel() if domain is None else right[domain]
-        values = np.asarray(self._combine_domain(func, left_values, right_values))
-        if values.shape != (expected,):
-            # Shape, not just size: a `func` returning a column vector has the
-            # right count and the wrong rank, and reached the masked assignment
-            # below to fail there with a numpy message naming neither `func` nor
-            # the contract. Returning `(n, 1)` is an ordinary mistake -- it is
-            # what a scikit-learn-style predictor does by default.
-            raise ValueError(
-                f"`func` returned an array of shape {values.shape} for "
-                f"{expected} cells; it must return one flat array as long as "
-                "the arguments it was given"
-            )
-        # GDAL has no boolean band, so a predicate `func` is stored as Byte --
-        # and 255 is the one value a 0/1 result leaves free for a sentinel.
-        boolean = values.dtype == np.bool_
-        if boolean:
-            values = values.astype("uint8")
-        if masked:
-            sentinel = self._resolve_combined_no_data(
+        values, boolean = self._computed_values(func, left, right, domain)
+        sentinel = (
+            self._resolve_combined_no_data(
                 no_data_value,
                 values.dtype,
                 # Every band of both operands, left first: the result carries
@@ -767,19 +729,13 @@ class Analysis(_Engine["Dataset"]):
                 # occur in the result can mark what either operand masked out.
                 [*left_sentinels, *right_sentinels],
                 values,
-                excluded=expected != left.size,
+                excluded=values.size != left.size,
                 boolean=boolean,
             )
-        else:
-            sentinel = None
-        out: np.typing.NDArray
-        if domain is None:
-            out = values.reshape(left.shape)
-        else:
-            out = np.full(
-                left.shape, 0 if sentinel is None else sentinel, dtype=values.dtype
-            )
-            out[domain] = values
+            if masked
+            else None
+        )
+        out = self._place_values(values, left.shape, domain, sentinel)
 
         combined = self._ds.__class__._build_dataset(
             self._ds.columns,
@@ -800,6 +756,107 @@ class Analysis(_Engine["Dataset"]):
             else list(self._ds.band_names)
         )
         return combined
+
+    def _check_combinable(self, other: Dataset, func: Any, band: int | None) -> None:
+        """Refuse a pair :meth:`combine` cannot run, before reading any pixels.
+
+        Args:
+            other: The second operand.
+            func: The binary callable.
+            band: The selected band, or `None` for every band.
+
+        Raises:
+            TypeError: `func` is not callable.
+            AlignmentError: The rasters do not share a grid/CRS.
+            ValueError: `band` is `None` and the band counts differ.
+        """
+        if not callable(func):
+            raise TypeError(f"`func` must be callable, got {type(func).__name__}")
+        if not self._ds.spatial.same_grid(other):
+            raise AlignmentError(
+                "the two rasters do not share a grid/CRS, so they cannot be "
+                "combined cell by cell; align them first "
+                "(`other = other.align(self)`) and combine the result"
+            )
+        # Before either read: the message is already written in terms of
+        # `band_count`, which is a header field, and combining a 12-band scene
+        # with a 1-band mask should not pull gigabytes off disk to refuse on a
+        # comparison that needed no pixels. `cli.py` orders its own grid check
+        # the same way.
+        if band is None and self._ds.band_count != other.band_count:
+            raise ValueError(
+                f"the operands carry a different number of bands "
+                f"({self._ds.band_count} and {other.band_count}); pass `band=` to "
+                "combine one band from each"
+            )
+
+    @classmethod
+    def _computed_values(
+        cls,
+        func: Callable[[np.ndarray, np.ndarray], np.ndarray],
+        left: np.ndarray,
+        right: np.ndarray,
+        domain: np.ndarray | None,
+    ) -> tuple[np.typing.NDArray, bool]:
+        """Run `func` over the cells `domain` selects and check what came back.
+
+        Args:
+            func: The binary callable to apply.
+            left: The left operand's array.
+            right: The right operand's array, shaped like `left`.
+            domain: Boolean mask of the cells to combine, or `None` for all.
+
+        Returns:
+            tuple: The computed values as a flat array, and whether `func`
+            returned booleans — which GDAL has no band type for, so they are
+            promoted to Byte here and given a `255` sentinel later.
+
+        Raises:
+            ValueError: `func` returned an array of the wrong shape.
+        """
+        expected = left.size if domain is None else int(domain.sum())
+        left_values = left.ravel() if domain is None else left[domain]
+        right_values = right.ravel() if domain is None else right[domain]
+        values = np.asarray(cls._combine_domain(func, left_values, right_values))
+        if values.shape != (expected,):
+            # Shape, not just size: a `func` returning a column vector has the
+            # right count and the wrong rank, and used to reach the masked
+            # assignment and fail there with a numpy message naming neither
+            # `func` nor the contract. Returning `(n, 1)` is an ordinary mistake
+            # -- it is what a scikit-learn-style predictor does by default.
+            raise ValueError(
+                f"`func` returned an array of shape {values.shape} for "
+                f"{expected} cells; it must return one flat array as long as "
+                "the arguments it was given"
+            )
+        boolean = values.dtype == np.bool_
+        return (values.astype("uint8") if boolean else values), boolean
+
+    @staticmethod
+    def _place_values(
+        values: np.ndarray,
+        shape: tuple[int, ...],
+        domain: np.ndarray | None,
+        sentinel: Any,
+    ) -> np.typing.NDArray:
+        """Lay the computed values back out on the raster's grid.
+
+        Args:
+            values: The flat computed values.
+            shape: The shape the result must take.
+            domain: The mask `values` was computed over, or `None` for all cells.
+            sentinel: The no-data value filling the cells `domain` excluded.
+
+        Returns:
+            np.ndarray: The result array, shaped like the operands.
+        """
+        out: np.typing.NDArray
+        if domain is None:
+            out = values.reshape(shape)
+        else:
+            out = np.full(shape, 0 if sentinel is None else sentinel, values.dtype)
+            out[domain] = values
+        return out
 
     @staticmethod
     def _operand_arrays(
