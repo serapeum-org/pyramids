@@ -3400,7 +3400,15 @@ class Dataset(RasterBase):
                 ``GetCapabilities`` (e.g. ``"nitrogen_0-5cm_mean"``). A value the
                 server does not advertise raises :class:`ValueError`.
             bbox: ``(minx, miny, maxx, maxy)`` in ``crs`` order (lon/lat for the
-                default ``"EPSG:4326"``).
+                default ``"EPSG:4326"``). ``minx > maxx`` reads as a window crossing
+                the antimeridian, the same wrap :meth:`crop` accepts: it is fetched
+                as two ``GetCoverage`` requests either side of the 180 degree seam
+                and concatenated into one raster whose longitude runs on past it
+                (``170 .. 180`` then ``180 .. 190``). Both halves are read off a
+                single open connection, so they come from the same source lattice
+                and stitch without resampling, and a half that misses the coverage
+                is skipped rather than requested. ``output_crs``, ``resolution`` and
+                ``output`` are applied once, to the merged raster.
             crs: CRS of ``bbox``. Defaults to ``"EPSG:4326"``.
             output_crs: Optional CRS to reproject the result into (any form
                 :meth:`to_crs` accepts). ``None`` (default) keeps the coverage's
@@ -3456,9 +3464,10 @@ class Dataset(RasterBase):
             Dataset: The fetched coverage subset.
 
         Raises:
-            ValueError: ``bbox`` is malformed, ``coverage`` is not advertised
-                (discovery mode), ``coverage_crs`` cannot be interpreted, the
-                requested window exceeds the pixel ceiling
+            ValueError: ``bbox`` is malformed — an inverted *latitude* range still
+                counts, since there is no seam in latitude — ``coverage`` is not
+                advertised (discovery mode), ``coverage_crs`` cannot be interpreted,
+                the requested window exceeds the pixel ceiling
                 (:data:`~pyramids.base._coverage.MAX_PX`; a native-resolution read
                 over a wide ``bbox`` — pass a coarser ``resolution`` or a smaller
                 ``bbox`` to bound it), or (direct mode) the WCS version is
@@ -3794,6 +3803,13 @@ class Dataset(RasterBase):
                 **lon/lat (CRS84)**. It is projected into the coverage's native CRS
                 and read as a bounded, size-capped window; an unbounded full read is
                 not supported (the virtual raster spans the whole coverage).
+                ``minx > maxx`` reads as a subset crossing the antimeridian, as in
+                :meth:`from_wcs`, and is read as two windows either side of the 180
+                degree seam. With no ``resolution`` the two are sized *together* —
+                the combined span is capped once and the resulting pixel size
+                applied to both — because sizing each half against the cap on its
+                own gives them different pixel sizes and row counts, which cannot be
+                concatenated at all.
             output_crs: Optional CRS to reproject the result into (any form
                 :meth:`to_crs` accepts). ``None`` (default) keeps the coverage's
                 native CRS.
@@ -3828,8 +3844,9 @@ class Dataset(RasterBase):
             Dataset: The fetched coverage subset.
 
         Raises:
-            ValueError: ``bbox`` is malformed, ``coverage`` is not advertised, or
-                ``coverage_crs`` cannot be interpreted.
+            ValueError: ``bbox`` is malformed — an inverted *latitude* range
+                still counts, since there is no seam in latitude — ``coverage`` is
+                not advertised, or ``coverage_crs`` cannot be interpreted.
             pyramids.errors.OGCAPIError: The service could not be reached or
                 returned an error / a non-raster body.
 

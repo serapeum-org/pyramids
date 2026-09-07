@@ -165,6 +165,34 @@ that leaked out of an empty table lookup. Only affects code catching the old typ
 
 ### unreleased
 
+**The web-service readers accept a bbox that crosses the antimeridian.** Additive if you pass an ordinary box; a
+hard change if you relied on `minx > maxx` being rejected. `Dataset.from_wcs`, `from_wms`, `from_wmts` and
+`from_ogc_coverages` used to raise `ValueError: bbox must have minx < maxx and miny < maxy` for
+`(170, -10, -170, 10)` — while `Dataset.crop` had served exactly that box for a long time, by splitting at the
+180 degree seam. The readers now split too: two requests, one per side, concatenated into one raster whose
+geotransform continues past the seam (`170 .. 180` then `180 .. 190`) instead of jumping back to `-180`.
+
+- **A transposed longitude pair is no longer caught, and that is the price.** A network reader has no grid to
+  measure the bbox against — it is fetching the grid — so `(6, 51, 5, 52)`, a west/east pair entered the wrong
+  way round, now reads as a 359 degree wrap and issues two large requests rather than raising. If you were
+  relying on that `ValueError` to catch swapped arguments, check the bbox yourself before the call. **Latitude
+  is unaffected**: `miny >= maxy` is still an error, because there is no seam in latitude.
+- **Two wrapping bboxes are refused rather than approximated**, both on the `from_wms` / `from_wmts` side: one
+  with a projected `crs`, where there is no 180 degree meridian and `minx > maxx` really is inverted; and one
+  with a corner outside `-180 .. 180`, where "west of the seam" stops meaning anything.
+- **`from_wms`'s `size` is the width of the whole result**, divided between the two halves at one shared
+  resolution, with the seam snapped to the nearest pixel boundary. The two widths sum to the `size` you asked
+  for, odd or even, so a wrapping request returns the image dimensions a non-wrapping one would.
+- **`from_wmts` measures the seam offset in the layer's native CRS** rather than assuming 360 — about
+  40,075,017 m for a Web Mercator layer — and only computes it when there is a seam, so a non-wrapping read is
+  byte-identical to before.
+- **`from_ogc_coverages` sizes the two halves together** when no `resolution` is given: the combined span is
+  capped once and the resulting pixel size applied to both. Sizing each half against the cap on its own would
+  give them different pixel sizes and row counts, which cannot be concatenated at all.
+- **The stitched result of a seam read is a plain `Dataset`**, because the merge rebuilds through
+  `Dataset.from_array`. Only relevant if you call these classmethods on a `Dataset` subclass; nothing in
+  `pyramids` does.
+
 **Two rasters can now be combined directly, and `Dataset` gained arithmetic operators.** Additive — nothing that
 worked before behaves differently. `ds.combine(other, func)` runs a binary function over two aligned rasters and
 returns a `Dataset` on the left operand's grid, and `-`, `+`, `*`, `/` between two rasters are thin wrappers over
@@ -649,6 +677,24 @@ ignored: there is no frame to transform into.
 ## feature
 
 ### unreleased
+
+**`FeatureCollection.from_wfs` and `from_ogc_features` accept an antimeridian bbox.** Same change as the raster
+readers, for the same reason, and with the same caveat about a transposed longitude pair no longer being caught.
+The vector side has a sharper motivation, though: a wrapping rect handed to OGR whole does **not** raise. It is
+silently normalised into its complement, so a filter written as `(170, -10, -170, 10)` — the 20 degrees around
+Fiji — quietly returned the other 340 degrees of the planet. The bbox is now split at the seam, each half
+requested on its own, and the two results merged with duplicates removed.
+
+- **A wrapping bbox costs two requests.** A non-wrapping one still costs exactly one; the split is a no-op for it.
+- **Duplicates are removed by geometry and attributes, never by FID.** A feature that straddles the seam comes
+  back from both halves, and servers assign FIDs per request, so the same feature can arrive under two different
+  ids — keying on the FID would drop real features rather than duplicate ones. Matching on the geometry's WKB
+  plus the attribute values is what actually de-duplicates it. The accepted cost: two rows the source genuinely
+  holds twice, identical in geometry *and* in every attribute, are indistinguishable and collapse to one. This
+  only applies to a wrapping bbox — a single-request read is passed through untouched.
+- `FeatureCollection.fishnet` still refuses a wrapping bbox. Its bounds are in the target `crs`, which may be
+  projected and so has no seam; there is no coherent column numbering across a wrap; and a cell containing ±180
+  would have to be a `MultiPolygon`.
 
 **`pyramids.feature.bbox` no longer carries `Transformer` and `crs_from_user_input`.** Both were incidental
 re-exports — names the module imported to implement `transform`, never advertised in its docs or `__all__`. The
