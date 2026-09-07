@@ -702,7 +702,13 @@ class Analysis(_Engine["Dataset"]):
         else:
             domain = np.ones(left.shape, dtype=bool)
 
+        expected = int(domain.sum())
         values = np.asarray(self._combine_domain(func, left[domain], right[domain]))
+        if values.size != expected:
+            raise ValueError(
+                f"`func` returned {values.size} values for {expected} cells; it "
+                "must return one array as long as the arguments it was given"
+            )
         # GDAL has no boolean band, so a predicate `func` is stored as Byte --
         # and 255 is the one value a 0/1 result leaves free for a sentinel.
         boolean = values.dtype == np.bool_
@@ -790,9 +796,17 @@ class Analysis(_Engine["Dataset"]):
     ) -> np.ndarray:
         """Apply a binary `func` to two aligned flat arrays of domain values.
 
-        Mirrors :meth:`_apply_func_to_domain`: a vectorized callable is used as
-        given, and a scalar-only one is lifted with `np.vectorize` rather than
-        rejected.
+        Mirrors :meth:`_apply_func_to_domain`, including its empty-domain guard:
+        a vectorized callable is used as given, a scalar-only one is lifted with
+        `np.vectorize` rather than rejected, and neither is asked to run over an
+        empty domain.
+
+        Note the cost of that lift. The fallback is reached through a blanket
+        `except`, so a `ValueError` or `TypeError` raised *inside* a vectorized
+        `func` -- a bad cast, a shape mistake, a bug in the caller's own code --
+        is retried one cell at a time instead of surfacing. On a full-domain
+        raster that is one Python call per pixel, so the caller sees a long
+        stall rather than their exception.
 
         Args:
             func: The binary callable to apply.
@@ -803,9 +817,18 @@ class Analysis(_Engine["Dataset"]):
             np.ndarray: The combined values, aligned to `left`.
         """
         try:
-            values = func(left, right)
+            values = np.asarray(func(left, right))
         except (ValueError, TypeError):
-            values = np.vectorize(func)(left, right)
+            if left.size == 0:
+                # Two fully-masked operands leave nothing to compute, and
+                # `np.vectorize` refuses size-0 inputs outright ("unless
+                # `otypes` is set") -- so the scalar-callable path died on a
+                # raster the ufunc path handled. An all-no-data pair is not
+                # exotic: it is the normal state of an ocean tile in a land
+                # product. #969 closed the same hole in `apply`.
+                values = np.empty(0, dtype="float64")
+            else:
+                values = np.asarray(np.vectorize(func)(left, right))
         return values
 
     @classmethod

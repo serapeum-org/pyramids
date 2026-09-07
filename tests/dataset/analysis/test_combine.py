@@ -472,6 +472,35 @@ class TestCombine:
                 _raster(np.full((4, 4), 4, "int32")), np.subtract, no_data_value="abc"
             )
 
+    def test_two_fully_masked_operands_survive_a_scalar_callable(self):
+        """An all-no-data pair is the normal state of, say, an ocean tile.
+
+        Test scenario:
+            Both operands are entirely no-data and `func` accepts only scalars, so the
+            `np.vectorize` lift is reached with nothing to compute — where it used to
+            refuse size-0 inputs. The result comes back fully masked.
+        """
+        empty = np.full((4, 4), -9999.0, "float32")
+
+        result = _raster(empty).combine(_raster(empty), math.hypot)
+
+        assert np.isnan(np.asarray(result.read_array())).all(), "every cell is a gap"
+
+    def test_a_func_returning_the_wrong_number_of_values_is_named(self):
+        """A short result names `func` rather than surfacing a numpy mask message.
+
+        Test scenario:
+            A `func` returning two values for a 16-cell domain raises ValueError stating
+            both counts and the contract.
+        """
+        left = _raster(np.full((4, 4), 1.0, "float32"))
+
+        with pytest.raises(ValueError, match=r"returned 2 values for 16 cells"):
+            left.combine(
+                _raster(np.full((4, 4), 2.0, "float32")),
+                lambda a, b: np.array([1.0, 2.0]),
+            )
+
     def test_the_result_dtype_follows_func_not_the_inputs(self):
         """Dividing two integer rasters yields a float result, not a truncated one.
 
