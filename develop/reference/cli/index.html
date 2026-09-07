@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6305,10 +6305,13 @@ See the <a href="../cog/cli/">COG CLI reference</a> for the full option set.</p>
 <ul>
 <li><strong><code>calc</code></strong> — evaluate an expression over inputs <code>A, B, …</code> (the operands, in order) into a new raster; the
   <strong>last</strong> operand is the output path. <code>--dtype</code> sets the output NumPy dtype. Every input must already sit on
-  the first one's grid and CRS — <code>calc</code> does not resample, and refuses a mismatch rather than writing the
-  answer on a grid the inputs never agreed on. Warp them onto a common grid first (<code>pyramids warp</code>). The
+  the first one's grid — <code>calc</code> does not resample, and refuses a mismatch rather than writing the answer on
+  a grid the inputs never agreed on. Warp them onto a common grid first (<code>pyramids warp</code>). An input carrying
+  no CRS tag at all is compared on its pixel grid alone, so an untagged mask or QA layer that sits on the
+  template's cells still works. The output's no-data value is <code>-9999</code> regardless of the inputs'. The
   in-process equivalent is
-  <a href="../dataset/analysis/#combining-two-rasters"><code>Dataset.combine</code></a> and the <code>-</code> / <code>+</code> / <code>*</code> / <code>/</code> operators.</li>
+  <a href="../dataset/analysis/#combining-two-rasters"><code>Dataset.combine</code></a> and the <code>-</code> / <code>+</code> / <code>*</code> / <code>/</code> operators,
+  which do apply no-data masking — <code>calc</code> evaluates over the raw arrays.</li>
 </ul>
 <h2 id="georeferencing"><a class="toclink" href="#georeferencing">Georeferencing</a><a class="headerlink" href="#georeferencing" title="Permanent link">#</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Fit a transform through ground-control points (pixel/line -&gt; map x/y)</span>
