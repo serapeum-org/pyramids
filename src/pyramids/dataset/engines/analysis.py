@@ -733,7 +733,7 @@ class Analysis(_Engine["Dataset"]):
         )
         out[domain] = values
 
-        return self._ds.__class__._build_dataset(
+        combined = self._ds.__class__._build_dataset(
             self._ds.columns,
             self._ds.rows,
             1 if out.ndim == 2 else out.shape[0],
@@ -743,6 +743,17 @@ class Analysis(_Engine["Dataset"]):
             sentinel,
             array=out,
         )
+        # Band identity is half the reason to keep the operation inside the
+        # Dataset: an NDVI or change-detection stack whose bands come back as
+        # `Band_1`, `Band_2` has lost what told the caller which is which.
+        names = (
+            [self._ds.band_names[band]]
+            if band is not None
+            else list(self._ds.band_names)
+        )
+        if len(names) == combined.band_count:
+            combined.band_names = names
+        return combined
 
     @staticmethod
     def _operand_arrays(
