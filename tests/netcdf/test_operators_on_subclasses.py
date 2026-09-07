@@ -181,7 +181,8 @@ class TestTruthinessAcrossTheHierarchy:
         container = NetCDF.read_file(path)
         variable = container.get_variable("t")
 
-        assert isinstance(container, Dataset) and isinstance(variable, Dataset)
+        assert isinstance(container, Dataset), "the container is a Dataset"
+        assert isinstance(variable, Dataset), "and so is a variable view"
         for obj in (container, variable):
             with pytest.raises(
                 ValueError, match="truth value of a Dataset is ambiguous"

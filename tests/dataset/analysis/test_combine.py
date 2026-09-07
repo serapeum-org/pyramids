@@ -776,8 +776,11 @@ class TestCombine:
         right = np.full((3, 3), 1.0, "float32")
         left[2, 2] = np.nan
 
+        masked = _raster(left)
+        other = _raster(right)
+
         with pytest.warns(NoDataCollisionWarning, match="also a value"):
-            _raster(left).combine(_raster(right), np.subtract, no_data_value=-9999.0)
+            masked.combine(other, np.subtract, no_data_value=-9999.0)
 
     @pytest.mark.parametrize(
         ("dtype", "left_value", "right_value", "wrapped"),
@@ -1261,10 +1264,11 @@ class TestComparisonOperators:
         """
         left = _raster(np.full((3, 3), 1.0, "float32"))
         right = _raster(np.full((3, 3), 1.0, "float32"))
+        registry = {left: "left", right: "right"}
 
-        assert left == left
-        assert left != right
-        assert isinstance(hash(left), int), "Dataset must stay hashable"
+        assert registry[left] == "left", "a Dataset must work as a dict key"
+        assert left != right, "two rasters of equal values are still distinct objects"
+        assert len({left, right}) == 2, "and distinct set members"
 
 
 class TestSameGrid:
