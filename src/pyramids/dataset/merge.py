@@ -18,7 +18,7 @@ from osgeo import gdal, osr
 from pyproj.exceptions import ProjError
 
 from pyramids.base._utils import DEFAULT_RESAMPLING, resolve_resampling
-from pyramids.base.remote import signer_cloud_config
+from pyramids.base.remote import redact_credentials, signer_cloud_config
 from pyramids.dataset._driver import resolve_output_driver
 from pyramids.dataset.dataset import _INHERIT_NO_DATA, Dataset
 from pyramids.dataset.transform import GeoTransform
@@ -357,9 +357,13 @@ def _source_bounds(
         try:
             ds, opened = gdal.Open(str(path)), True
         except RuntimeError as exc:
-            raise RuntimeError(f"could not open merge source {path!r}: {exc}") from exc
+            raise RuntimeError(
+                redact_credentials(f"could not open merge source {path!r}: {exc}")
+            ) from exc
     if ds is None:
-        raise RuntimeError(f"gdal.Open returned None for merge source {path!r}.")
+        raise RuntimeError(
+            redact_credentials(f"gdal.Open returned None for merge source {path!r}.")
+        )
     bounds = GeoTransform(*ds.GetGeoTransform()).extent(ds.RasterXSize, ds.RasterYSize)
     if opened:
         # Close the handle we opened; a caller-supplied gdal.Dataset is theirs to own.
@@ -795,15 +799,21 @@ def _prepare_sources(
             dataset = gdal.Open(path)
         except RuntimeError as exc:
             raise RuntimeError(
-                f"could not open source {index + 1}/{len(src_paths)} {path!r}: {exc}"
+                redact_credentials(
+                    f"could not open source {index + 1}/{len(src_paths)} {path!r}: {exc}"
+                )
             ) from exc
         if dataset is None:
-            raise RuntimeError(f"gdal.Open returned None for source {path!r}.")
+            raise RuntimeError(
+                redact_credentials(f"gdal.Open returned None for source {path!r}.")
+            )
         wkt = dataset.GetProjection()
         if not wkt:
             raise ValueError(
-                f"source {path!r} has no CRS; every source must carry a CRS to "
-                "be merged/reprojected."
+                redact_credentials(
+                    f"source {path!r} has no CRS; every source must carry a CRS "
+                    "to be merged/reprojected."
+                )
             )
         srs = osr.SpatialReference()
         srs.ImportFromWkt(wkt)

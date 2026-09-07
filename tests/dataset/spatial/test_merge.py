@@ -780,6 +780,36 @@ class TestSourceBounds:
 class TestPrepareSources:
     """Tests for the ``_prepare_sources`` reproject helper."""
 
+    def test_unopenable_signed_source_does_not_leak_its_credential(
+        self, shared_crs_pair, monkeypatch
+    ):
+        """The failure message keeps the URL but blanks the signed credential.
+
+        Test scenario:
+            ``merge_rasters`` signs every source before ``_prepare_sources`` sees
+            it, so ``src_paths`` can hold a live SAS/presigned URL. A failed open
+            must report the source -- that is the point of #1107 -- with the
+            secret replaced by ``<redacted>``, never the token itself.
+        """
+        pa, _pb = shared_crs_pair
+        signed = (
+            "/vsicurl/https://acct.blob.core.windows.net/c/tile.tif?sig=SECRETTOKEN"
+        )
+        real_open = merge_mod.gdal.Open
+
+        def _raise_for_signed(path, *args, **kwargs):
+            if str(path) == signed:
+                raise RuntimeError("HTTP response code: 403")
+            return real_open(path, *args, **kwargs)
+
+        monkeypatch.setattr(merge_mod.gdal, "Open", _raise_for_signed)
+        with pytest.raises(RuntimeError) as excinfo:
+            _prepare_sources([pa, signed], None)
+        message = str(excinfo.value)
+        assert "SECRETTOKEN" not in message, f"credential leaked: {message}"
+        assert "<redacted>" in message, f"credential not redacted: {message}"
+        assert "tile.tif" in message, f"source should still be named: {message}"
+
     def test_shared_crs_reuses_open_handles_no_reproject(self, shared_crs_pair):
         """A shared CRS with no ``dst_crs`` reuses the open handles (no reproject).
 
