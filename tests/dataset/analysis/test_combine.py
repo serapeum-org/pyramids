@@ -760,6 +760,106 @@ class TestCombine:
         assert result.no_data_value[0] == -9999
         assert np.asarray(result.read_array())[1, 1] == 2.0 + 0j
 
+    def test_a_nan_elsewhere_does_not_silence_the_collision_warning(self):
+        """The range prefilter must not be defeated by a single NaN in the result.
+
+        Test scenario:
+            A result that both collides with the requested sentinel and holds a NaN
+            somewhere else still warns. Plain `min`/`max` propagate NaN and every
+            comparison against NaN is False, so the prefilter used to answer "no
+            collision" for every finite sentinel — silence exactly where the band really
+            does mark real cells as gaps.
+        """
+        left = np.full((3, 3), -9998.0, "float32")
+        right = np.full((3, 3), 1.0, "float32")
+        left[2, 2] = np.nan
+
+        with pytest.warns(NoDataCollisionWarning, match="also a value"):
+            _raster(left).combine(_raster(right), np.subtract, no_data_value=-9999.0)
+
+    @pytest.mark.parametrize(
+        ("dtype", "left_value", "right_value", "wrapped"),
+        [("uint8", 10, 20, 246), ("int16", 30000, -30000, -5536)],
+        ids=["uint8-underflow", "int16-overflow"],
+    )
+    def test_integer_arithmetic_wraps_like_numpy(
+        self, dtype, left_value, right_value, wrapped
+    ):
+        """The result takes `func`'s dtype, so integer subtraction wraps rather than promotes.
+
+        Args:
+            dtype: Band dtype of both operands.
+            left_value: Constant filling the left operand.
+            right_value: Constant filling the right operand.
+            wrapped: The wrapped value every result cell holds.
+
+        Test scenario:
+            Pinned because it is surprising and unmarked — an integer result that masked
+            nothing declares no sentinel, so a wrapped cell reads as ordinary data. The
+            documented remedy is to promote inside `func`.
+        """
+        left = _raster(np.full((3, 3), left_value, dtype))
+        right = _raster(np.full((3, 3), right_value, dtype))
+
+        assert (np.asarray((left - right).read_array()) == wrapped).all()
+
+        promoted = left.combine(right, lambda a, b: a.astype("int32") - b)
+        assert (np.asarray(promoted.read_array()) == left_value - right_value).all(), (
+            "promoting inside func is the documented way out"
+        )
+
+    def test_dataset_metadata_travels_with_the_result(self):
+        """A result that forgot its scene tags is harder to use than the arrays.
+
+        Test scenario:
+            `meta_data` set on the left operand comes back on the result, as band names
+            already do.
+        """
+        left = _raster(np.full((3, 3), 3.0, "float32"))
+        left.meta_data = {"SENSOR": "OLI"}
+
+        result = left - _raster(np.full((3, 3), 1.0, "float32"))
+
+        assert result.meta_data == {"SENSOR": "OLI"}
+
+    def test_a_vectorized_func_that_raises_is_retried_per_cell(self):
+        """The blanket `except` retries the caller's own error one cell at a time.
+
+        Test scenario:
+            A `func` that accepts arrays but raises ValueError on them is retried through
+            `np.vectorize`, which calls it per element and surfaces the error from there.
+            Pinned so that narrowing or widening the `except` later is visible to CI —
+            the docstring documents this as a deliberate, costly trade-off.
+        """
+        calls = []
+
+        def raises_on_arrays(left, right):
+            calls.append(np.ndim(left))
+            if np.ndim(left):
+                raise ValueError("arrays not supported")
+            return left - right
+
+        result = _raster(np.full((2, 2), 5.0, "float32")).combine(
+            _raster(np.full((2, 2), 2.0, "float32")), raises_on_arrays
+        )
+
+        assert calls[0] == 1, "the array form is tried first"
+        assert 0 in calls, "then it is retried scalar by scalar"
+        assert np.allclose(np.asarray(result.read_array()), 3.0)
+
+    def test_a_bool_sentinel_is_refused(self):
+        """`True` fits every numeric dtype as 1, so accepting it would be a trap.
+
+        Test scenario:
+            `no_data_value=True` raises rather than quietly stamping a `1.0` sentinel —
+            the same rule by which the operators refuse `False` as the additive identity.
+        """
+        left = _raster(np.full((3, 3), 3.0, "float32"))
+        right = _raster(np.full((3, 3), 1.0, "float32"))
+
+        with pytest.raises(ValueError, match="is a bool"):
+            left.combine(right, np.subtract, no_data_value=True)
+
     def test_the_result_dtype_follows_func_not_the_inputs(self):
         """Dividing two integer rasters yields a float result, not a truncated one.
 

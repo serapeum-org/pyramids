@@ -51,7 +51,25 @@ canopy = surface - bare
 | Cell is no-data in one operand?          | No-data in the result (the domains intersect)                        |
 | Result sentinel?                         | Derived against the computed values — see below — or `no_data_value=` |
 | Result dtype?                            | Whatever `func` returns; `int / int` gives floats, not a truncation |
+| Integer overflow?                        | Wraps, as numpy does — see the warning below                        |
 | Band count?                              | All bands by default; `band=` picks one from each operand           |
+
+!!! warning "Integer subtraction wraps"
+
+    The result takes whatever dtype `func` returns, which for two integer bands
+    is that same integer dtype — with numpy's wraparound, not an error and not a
+    promotion. On `uint8`, `10 - 20` is `246`; on `int16`, `30000 - (-30000)` is
+    `-5536`. Nothing marks those cells: an integer result that masked nothing
+    declares no sentinel, so they read as ordinary data.
+
+    This bites hardest on the difference this page leads with. Promote before
+    subtracting when the operands are integers and the answer can go negative or
+    overflow:
+
+    ```python
+    canopy = surface.combine(bare, lambda a, b: a.astype("int32") - b)
+    canopy = surface.combine(bare, lambda a, b: a.astype("float32") - b)
+    ```
 
 ### How the result's no-data value is chosen
 
@@ -91,11 +109,19 @@ from functools import reduce
 import operator
 
 total = sum(rasters)                       # a fresh Dataset
-total = sum(rasters[1:], start=rasters[0]) # equivalent
-total = reduce(operator.add, rasters)      # equivalent
+total = sum(rasters[1:], start=rasters[0]) # the same, for two or more
+total = reduce(operator.add, rasters)      # the same, for two or more
 ```
 
+For a *one*-element list they differ: `sum([a])` returns a copy while
+`reduce(operator.add, [a])` returns `a` itself, so an in-place write to "the
+total" would reach into the input.
+
 `math.prod(rasters)` folds the same way, absorbing the integer `1`.
+
+A wrapper that forwards `no_data_value` should accept it in `**kwargs` and pass
+the whole mapping on, rather than naming a default of its own — the "derive it"
+default is a private sentinel, and `**kwargs` forwards it without spelling it.
 
 A real numeric zero (or one) is the only scalar the operators accept, and only
 from the left: `1 + ds`, `False + ds`, `0j + ds` and `ds + 0` all raise, so this

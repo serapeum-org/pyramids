@@ -588,6 +588,16 @@ def _cmd_calc(args: argparse.Namespace) -> int:
         # `pyramids warp`, which cannot warp a raster that has no source CRS.
         # `compare_crs=False` is the same predicate with that one clause off, so
         # the two questions cannot drift apart.
+        if not ds.crs:
+            # The carve-out assumes the untagged input is in the template's CRS.
+            # That is what `calc` did before the grid check existed, but it is an
+            # assumption, so say so rather than letting a raster that really is
+            # in another CRS be stamped with the template's in silence.
+            print(
+                f"note: {path!r} declares no CRS; assuming it is on "
+                f"{inputs[0]!r}'s grid and CRS",
+                file=sys.stderr,
+            )
         if not template.same_grid(ds, compare_crs=bool(ds.crs)):
             raise AlignmentError(
                 f"{path!r} does not share the grid/CRS of {inputs[0]!r}, so the "

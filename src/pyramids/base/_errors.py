@@ -370,9 +370,6 @@ class NoDataCollisionWarning(UserWarning):
     dtype's extremes until it finds one no cell holds. A derived `NaN` on a
     floating result is stamped without that check and needs none: a cell `func`
     computed as `NaN` has no value to lose.
-
-    Args:
-        None: Raised as a warning category, not constructed with arguments.
     """
 
 

@@ -182,21 +182,29 @@ inputs and wrapping the result with `from_array` — the step where georeferenci
   says so. Pass `no_data_value=` to choose one, or `no_data_value=None` for no masking.
 - `sum(rasters)` works: `__radd__` absorbs the integer `0` that `sum()` seeds with, returning a copy so a
   one-element sum never aliases its input. `0` is the only scalar accepted anywhere in the operators, and only
-  from the left — `1 + ds` still raises.
+  from the left — `1 + ds` still raises. That copy is a real cost: `sum()` and `math.prod()` each materialise one
+  extra full raster that `functools.reduce(operator.add, rasters)` does not, which matters near the memory limit.
+- `combine` is whole-array: both operands are read in full. For rasters near the memory limit use
+  `apply(elementwise=True)` or `read_array(chunks=)`.
+- The module-private `_same_grid` helper in `pyramids.dataset.dataset` moved to `Spatial.same_grid`, faced on
+  `Dataset`. It was never public, but anyone importing it directly must switch to `a.same_grid(b)`.
 - `<`, `<=`, `>` and `>=` between two rasters return a Byte mask (`1`/`0`, and `255` wherever either operand was
   no-data). `==` and `!=` are **not** overridden — they stay identity-based, so `Dataset` remains usable in
   `assert`, in sets and as a dict key; use `a.combine(b, np.equal)` for the mask.
 - `math.prod(rasters)` folds like `sum(rasters)`; both absorb their identity scalar from the left only.
 
-**`bool(ds)` now raises — replace `if ds:` with `if ds is not None:`.** Hard change, and the only breaking one
-here. A raster holds one value per cell, and a comparison between two rasters is itself a raster, so there is no
-honest single truth value: `if a >= b:` used to take the branch for every input, and `sorted`, `min` and `max`
-used to return the wrong raster silently. numpy, pandas and xarray all refuse a truth value for the same reason.
-Reduce explicitly — `bool(np.asarray((a >= b).read_array()).all())` — and use `is not None` for presence checks.
-- `combine` is whole-array: both operands are read in full. For rasters near the memory limit use
-  `apply(elementwise=True)` or `read_array(chunks=)`.
-- The module-private `_same_grid` helper in `pyramids.dataset.dataset` moved to `Spatial.same_grid`, faced on
-  `Dataset`. It was never public, but anyone importing it directly must switch to `a.same_grid(b)`.
+**`bool(ds)` now raises — replace `if ds:` with `if ds is not None:`.** Hard change. A raster holds one value per
+cell, and a comparison between two rasters is itself a raster, so there is no honest single truth value. Reduce
+explicitly — `bool(np.asarray((a >= b).read_array()).all())` — and use `is not None` for presence checks. numpy,
+pandas and xarray all refuse a truth value for the same reason.
+
+The refusal is what keeps the new comparison operators safe. Before this release `a >= b` raised `TypeError`, so
+`if a >= b:` and `sorted(rasters)` were errors; making them return a raster without also refusing a truth value
+would have turned those errors into silently wrong answers, which is why the two ship together.
+
+**`np.<ufunc>(ds, ...)` now raises `TypeError`.** Hard change. `Dataset` sets `__array_ufunc__ = None`, so numpy
+defers instead of treating a raster as an opaque object. Previously `np.array([0.0]) + ds` returned an object
+array holding a raster copy — a silent wrong answer rather than an error. Use the operators, or `combine`.
 
 **`Dataset.dtype` reports numpy's spelling, so a Byte raster reads `uint8` rather than `byte`.** Hard change,
 silent — the property still returns one string per band, but two of the catalog's names moved, two half-precision
