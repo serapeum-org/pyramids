@@ -645,24 +645,34 @@ raster fields it has no raster for: for a 12x5x5 cube at 0.25 degrees it reporte
 Before, both types printed the same block — `Cell size`, `Dimension`, `EPSG`, `projection`,
 `Variables`, `Metadata`, `File` — every line indented by 12 spaces.
 
-After, a container describes the store:
+After, a container describes the store — this is the real output for
+`tests/data/netcdf/cf__5v__1d4-3d1__geog__y-desc.nc`:
 
 ```
-<Container cube.nc>
-  dimensions : time=12, x=5, y=5
+<Container cf__5v__1d4-3d1__geog__y-desc.nc>
+  dimensions : valid_time=12, latitude=5, longitude=5
   variables  :
-    t2m   (12, 5, 5)  float32  K
+    expver      (12)  unknown
+    latitude    (5)  float64  degrees_north
+    longitude   (5)  float64  degrees_east
+    t2m         (12, 5, 5)  float32  K
+    valid_time  (12)  int64  seconds since 1970-01-01
   groups     : none
   CRS        : EPSG:4326
-  attributes : 27 global
+  attributes : 6 global
 ```
+
+The listing is every array in the store, so the coordinate and auxiliary variables appear alongside the data
+variables — a wider set than `variable_names` returns. On a grouped store each row is labelled by its full
+`group/name` path, the way `variable_names` spells its names. At most ten rows are shown, followed by a
+`... N more` line; the `dimensions` and `groups` lines truncate the same way once they get long.
 
 and a variable describes the raster it is:
 
 ```
-<Variable t2m - cube.nc>
+<Variable t2m - cf__5v__1d4-3d1__geog__y-desc.nc>
   grid    : 5 x 5 @ 0.25, EPSG:4326
-  bands   : 12 along time
+  bands   : 12 along valid_time
   units   : K
   dtype   : float32
   no-data : nan
@@ -675,8 +685,13 @@ Three fields are gone from the text on purpose:
 - the whole **`meta_data`** object, replaced by a count of global attributes;
 - the leading **12 spaces** on every line, which came from the f-string being indented inside the method.
 
-`repr()` is unchanged. If you were parsing `str()`, read the properties instead: `nc.cell_size`, `nc.rows`,
-`nc.columns`, `nc.epsg`, `nc.crs`, `nc.variable_names`, `nc.meta_data`.
+**`repr()` is unchanged, and still shows the placeholder.** Only `str()` / `print(nc)` route to the new summary.
+`repr()` remains `gdal.Info` on the underlying raster, so a bare `nc` in a notebook cell, a debugger's variable
+pane and pytest's assertion output all still report `Size is 512, 512` for a container. Use `print(nc)` where you
+want the summary.
+
+If you were parsing `str()`, read the properties instead: `nc.cell_size`, `nc.rows`, `nc.columns`, `nc.epsg`,
+`nc.crs`, `nc.variable_names`, `nc.meta_data`.
 
 **`NetCDF.variable_names` answers a different question, so the set of names changes.** Hard change, silent —
 nothing raises and nothing warns, and both the membership and the order can move. The property used to hand
