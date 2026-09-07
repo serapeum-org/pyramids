@@ -20,12 +20,15 @@ from __future__ import annotations
 import warnings
 from pathlib import Path
 
+import cftime
 import numpy as np
+import pandas as pd
 import pytest
 from osgeo import gdal
 
 from pyramids.base._errors import FailedToSaveError
 from pyramids.netcdf import LabeledDataset
+from pyramids.netcdf.labeled import _cftime_columns
 
 pytestmark = pytest.mark.core
 
@@ -94,7 +97,8 @@ class TestOutOfRangeTimeExport:
         Test scenario:
             A pre-1582 origin decodes to `DatetimeGregorian`, which Parquet has no type for.
             Left alone, pyarrow raises `ArrowInvalid` from several frames deep with no
-            mention of the time axis or of why the objects are there.
+            mention of the time axis or of why the objects are there. It is chained rather
+            than dropped, since it is the only thing that says which value pyarrow choked on.
         """
         pytest.importorskip("pyarrow")
         store = _time_store(
@@ -104,10 +108,13 @@ class TestOutOfRangeTimeExport:
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                with pytest.raises(FailedToSaveError, match="cftime datetimes"):
+                with pytest.raises(
+                    FailedToSaveError, match="cftime datetimes"
+                ) as raised:
                     dataset.to_parquet(tmp_path / "ancient.parquet")
         finally:
             dataset.close()
+        assert raised.value.__cause__ is not None, "the pyarrow error should be chained"
 
     def test_csv_still_writes_a_cftime_axis(self, tmp_path: Path):
         """CSV has no such limit, so it remains the way out for these stores.
@@ -142,3 +149,97 @@ class TestOutOfRangeTimeExport:
             dataset.close()
         assert frame["time"].dtype == np.dtype("datetime64[ns]"), frame["time"].dtype
         assert written.exists()
+
+    def test_an_unrelated_parquet_failure_is_not_blamed_on_the_time_axis(
+        self, tmp_path: Path
+    ):
+        """A write that fails for another reason raises that error, not the #1087 one.
+
+        Test scenario:
+            The write is wrapped in a bare `except Exception`, so every failure reaches the
+            cftime check. On an ordinary `datetime64[ns]` axis there is nothing to blame, and
+            the original error -- here a missing output directory -- has to come back out
+            unchanged. Re-labelling it would send the caller hunting a range problem that
+            does not exist.
+        """
+        pytest.importorskip("pyarrow")
+        store = _time_store(tmp_path / "now.nc", "days since 1970-01-01", [0.0, 1.0])
+        dataset = LabeledDataset.read_file(store)
+        try:
+            with pytest.raises(OSError) as raised:
+                dataset.to_parquet(tmp_path / "absent" / "now.parquet")
+        finally:
+            dataset.close()
+        assert not isinstance(raised.value, FailedToSaveError), (
+            f"an unrelated failure was re-labelled: {raised.value}"
+        )
+        assert "cftime" not in str(raised.value), raised.value
+
+    def test_the_warning_names_the_axis_it_was_read_from(self, tmp_path: Path):
+        """Reading the store warns with the coordinate's own name, not just its units.
+
+        Test scenario:
+            `decode_cf_time` can name the axis only if it is told, and `LabeledDataset` is
+            the only caller that knows the name. A store with several time axes would
+            otherwise warn identically for each, leaving the reader nothing to tell them
+            apart.
+        """
+        store = _time_store(
+            tmp_path / "future.nc", "days since 1970-01-01", [400_000.0]
+        )
+        dataset = LabeledDataset.read_file(store)
+        try:
+            with pytest.warns(UserWarning, match="'time'") as caught:
+                dataset.to_dataframe()
+        finally:
+            dataset.close()
+        assert any("outside the" in str(record.message) for record in caught), [
+            str(record.message) for record in caught
+        ]
+
+
+class TestCftimeColumnDetection:
+    """`_cftime_columns` names the columns Parquet has no type for, and only those."""
+
+    def test_only_a_true_cftime_column_is_named(self):
+        """Numeric, string and `real_datetime` columns are all storable, so none is blamed.
+
+        Test scenario:
+            The helper decides which columns a failed Parquet write should blame, so a false
+            positive would misreport an unrelated failure as a range problem. Only
+            `DatetimeGregorian` is unstorable here: a `real_datetime` is a `datetime`
+            subclass Parquet takes (that is what makes the year-3065 export work), and a
+            string column is an object column that holds no dates at all.
+        """
+        frame = pd.DataFrame(
+            {
+                "value": np.array([1.0, 2.0]),
+                "label": np.array(["a", "b"], dtype=object),
+                "future": np.array(
+                    [
+                        cftime.real_datetime(3065, 1, 1),
+                        cftime.real_datetime(3065, 1, 2),
+                    ],
+                    dtype=object,
+                ),
+                "ancient": np.array(
+                    [
+                        cftime.DatetimeGregorian(1, 1, 1),
+                        cftime.DatetimeGregorian(1, 1, 2),
+                    ],
+                    dtype=object,
+                ),
+            }
+        )
+        assert _cftime_columns(frame) == ["ancient"], _cftime_columns(frame)
+
+    def test_an_empty_object_column_is_not_indexed(self):
+        """A zero-row object column has no first element, and must not be looked at.
+
+        Test scenario:
+            An empty selection is an ordinary frame, not a contrived one, and the size guard
+            is the only thing between it and an `IndexError` raised while the code is already
+            handling another error.
+        """
+        frame = pd.DataFrame({"time": pd.Series([], dtype=object)})
+        assert _cftime_columns(frame) == [], _cftime_columns(frame)

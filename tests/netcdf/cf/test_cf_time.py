@@ -558,7 +558,10 @@ class TestFitsDatetime64Ns:
             Comparing a `datetime` with an array yields an elementwise result whose truth
             value raises `ValueError`, which the guard does not catch -- so without the screen
             it would leave `decode_cf_time` entirely rather than falling back to the objects.
+            The nested element sits beside a real date, so the screen has to reject on *any*
+            element rather than only on an array holding no dates at all.
         """
-        values = np.empty(1, dtype=object)
-        values[0] = np.array([0.0, 1.0])
+        values = np.empty(2, dtype=object)
+        values[0] = datetime(2000, 1, 1)
+        values[1] = np.array([datetime(2000, 1, 1), datetime(2001, 1, 1)], dtype=object)
         assert not _fits_datetime64_ns(values), "an array element cannot be a date"
