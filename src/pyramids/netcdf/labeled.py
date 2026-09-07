@@ -728,6 +728,12 @@ class LabeledDataset:
 
         Returns:
             np.ndarray: Decoded datetimes for a time axis, else ``values``.
+
+        Raises:
+            ValueError: Propagated from ``decode_cf_time`` when ``cftime`` cannot decode
+                the axis -- most often a ``"months since …"`` unit on anything but the
+                ``360_day`` calendar, which ``is_cf_time_units`` admits because it is
+                purely syntactic and never sees the calendar.
         """
         unit = arr.GetUnit()
         if not is_cf_time_units(unit):
@@ -1086,9 +1092,12 @@ class LabeledDataset:
             OptionalPackageDoesNotExist: When pyarrow is not installed.
             FailedToSaveError: A column carries true `cftime` datetimes, which Parquet has
                 no type for -- a non-standard calendar (`360_day` / `noleap` …), or a
-                pre-1582 origin on a mixed one. A merely out-of-range date does not trigger
-                it: `cftime` hands those back as `cftime.real_datetime`, which `pandas`
-                stores as `datetime64[us]` and Parquet takes (#1087).
+                mixed-calendar origin no later than the 1582 reform. A merely out-of-range
+                date does not trigger it: `cftime` hands those back as
+                `cftime.real_datetime`, which `pandas` stores as `datetime64[us]` and
+                Parquet takes (#1087). Both conditions are required -- such a column *and*
+                a pyarrow message naming the type -- so a write that fails for an
+                unrelated reason (an unwritable path, a full disk) propagates unchanged.
         """
         import_pyarrow(_PARQUET_INSTALL_HINT)
         path = Path(path)

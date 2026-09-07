@@ -827,7 +827,10 @@ def is_cf_time_units(units: str | bytes | None) -> bool:
 # origin at or after it therefore puts every offset on the side where the two
 # agree, which is what makes the integer path below safe to take; an earlier
 # origin on a mixed calendar stays on `cftime`, which knows about the ten
-# missing days.
+# missing days. Note this `>=` is not the same threshold as the one deciding
+# which class `cftime` hands back: that one is strictly later, so an origin of
+# exactly 1582-10-15 is safe for the integer path yet still decodes to
+# `DatetimeGregorian` when the fallback is reached for some other reason.
 _GREGORIAN_CUTOVER = datetime(1582, 10, 15)
 # Bound on the nanosecond magnitudes the integer path will handle. Deliberately
 # under `int64`'s 9.223e18 so the check -- made in float64, where the rounding
@@ -913,7 +916,9 @@ def _num2date(
         context: Optional name of the axis, for the message.
 
     Returns:
-        The `cftime` result, masked where it could not decode a value.
+        np.ndarray | np.ma.MaskedArray: The `cftime` result -- a masked array when some
+            value could not be decoded (a `NaN` or an `inf` offset), and a plain array
+            when every one of them decoded.
 
     Raises:
         ValueError: `cftime` cannot decode this axis -- an unsupported units/calendar pair
@@ -990,8 +995,8 @@ def _fits_datetime64_ns(decoded: np.typing.NDArray) -> bool:
 
     Returns:
         bool: `True` when the whole array fits, so the cast is exact; `False` when any
-            value is out of range or cannot be compared, in which case keeping the
-            `cftime` objects is the lossless answer.
+            value is out of range, cannot be compared, or is not a datetime at all, in
+            which case keeping the `cftime` objects is the lossless answer.
     """
     low, high = _DT64_NS_BOUNDS
     floor, ceiling = datetime(*low), datetime(*high)
@@ -1109,6 +1114,10 @@ def _decode_via_cftime(
             value fits it, else an object array. For any other calendar, always an object
             array -- those decode to `cftime` datetimes that no range check could cast.
             Either object array carries `None` where a value was missing.
+
+    Raises:
+        ValueError: Propagated from `_num2date` when `cftime` cannot decode the axis at
+            all -- most often a `"months since ..."` axis on anything but `360_day`.
     """
     raw = _num2date(values, text, calendar, standard, context)
     # `cftime` masks the positions it could not decode -- a `NaN` or an `inf`
@@ -1204,10 +1213,12 @@ def decode_cf_time(
             value: ``cftime.real_datetime`` (a ``datetime.datetime`` subclass, which
             ``pandas`` coerces to ``datetime64[us]``) when the proleptic Gregorian rules
             already cover that origin -- a ``proleptic_gregorian`` calendar, or a
-            mixed-calendar origin after the 1582 reform -- and a true ``cftime``
-            datetime such as ``DatetimeGregorian`` when they do not, which means a pre-1582
-            origin on a mixed calendar. Being an array-wide choice, such an axis stays
-            ``DatetimeGregorian`` even in the offsets that land after the reform.
+            mixed-calendar origin strictly after the 1582 reform -- and a true ``cftime``
+            datetime such as ``DatetimeGregorian`` when they do not, which means a
+            mixed-calendar origin no later than the reform date itself
+            (``days since 1582-10-15`` already gives ``DatetimeGregorian``). Being an
+            array-wide choice, such an axis stays ``DatetimeGregorian`` even in the
+            offsets that land after the reform.
 
     Raises:
         ValueError: ``cftime`` cannot decode this axis -- most often a ``"months since …"``
