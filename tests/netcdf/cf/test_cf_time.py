@@ -20,6 +20,7 @@ import pytest
 from pyramids.netcdf.utils import (
     _DT64_NS_BOUNDS,
     _GREGORIAN_CUTOVER,
+    _NS_LIMIT,
     _decode_gregorian_ns,
     decode_cf_time,
     encode_cf_time,
@@ -28,6 +29,10 @@ from pyramids.netcdf.utils import (
 pytestmark = pytest.mark.core
 
 UNIT = "days since 1979-01-01"
+# The 1970 epoch makes the boundary arithmetic legible: `datetime64[ns]` spans
+# 1677-09-21T00:12:43.145224193 to 2262-04-11T23:47:16.854775807, so day 106_751 is the
+# last whole day inside it and day -106_751 the first.
+EPOCH_UNIT = "days since 1970-01-01"
 
 
 class TestCfTimeRoundTrip:
@@ -144,12 +149,6 @@ class TestStandardCalendarCasing:
         )
 
 
-# The 1970 epoch makes the boundary arithmetic legible: `datetime64[ns]` spans
-# 1677-09-21T00:12:43.145224193 to 2262-04-11T23:47:16.854775807, so day 106_751 is the
-# last whole day inside it and day -106_751 the first.
-EPOCH_UNIT = "days since 1970-01-01"
-
-
 class TestDatetime64Range:
     """`decode_cf_time` keeps `cftime` objects rather than wrapping past `datetime64[ns]` (#1087)."""
 
@@ -165,25 +164,39 @@ class TestDatetime64Range:
         low, high = _DT64_NS_BOUNDS
         floor = np.datetime64(np.iinfo(np.int64).min + 1, "ns")
         ceiling = np.datetime64(np.iinfo(np.int64).max, "ns")
+        # The invariant that actually couples the two constants: the integer path's own
+        # ceiling must stay inside what this bound admits, or it could hand the cast a
+        # value this check has already called representable.
+        span = (np.datetime64(datetime(*high), "ns") - np.datetime64(0, "ns")).astype(
+            "int64"
+        )
+        assert _NS_LIMIT <= span, (
+            f"_NS_LIMIT {_NS_LIMIT:.3e} now exceeds the {span} ns this bound admits"
+        )
         assert np.datetime64(datetime(*low), "ns") >= floor, (
             f"{low} is below datetime64[ns]'s floor {floor}"
         )
         assert np.datetime64(datetime(*high), "ns") <= ceiling, (
             f"{high} is above datetime64[ns]'s ceiling {ceiling}"
         )
-        assert np.datetime64(datetime(*low), "ns") - floor < np.timedelta64(1, "us"), (
-            "the floor is rounded inward by more than the microsecond it should cost"
+        # Tightest possible, not merely "within a microsecond": one microsecond further out
+        # at either end would leave the range entirely. Compared as Python ints, because
+        # taking that step in `datetime64[ns]` overflows -- which is the point.
+        low_ns = int(np.datetime64(datetime(*low), "ns").astype("int64"))
+        high_ns = int(np.datetime64(datetime(*high), "ns").astype("int64"))
+        assert low_ns - 1_000 < int(np.iinfo(np.int64).min) + 1, (
+            "the floor could be rounded one microsecond closer to the real limit"
         )
-        assert ceiling - np.datetime64(datetime(*high), "ns") < np.timedelta64(
-            1, "us"
-        ), "the ceiling is rounded inward by more than the microsecond it should cost"
+        assert high_ns + 1_000 > int(np.iinfo(np.int64).max), (
+            "the ceiling could be rounded one microsecond closer to the real limit"
+        )
 
     def test_the_gregorian_reform_predates_the_floor(self):
         """The reform is below the type's floor, which is what lets a `TypeError` mean "no fit".
 
         Test scenario:
-            `cftime` refuses to compare a `DatetimeGregorian` with a `datetime` when either
-            is pre-1582, and `_fits_datetime64_ns` reads that refusal as "does not fit". That
+            `cftime` refuses to compare a `DatetimeGregorian` with a `datetime` when the
+            decoded value is pre-1582, and `_fits_datetime64_ns` reads that as "does not fit". That
             is only correct because every such date is below `datetime64[ns]`'s floor anyway.
             If the floor ever moved earlier than the reform, the refusal would start hiding
             representable dates and the guard would need to compare in the value's own
@@ -222,7 +235,7 @@ class TestDatetime64Range:
             the epoch, so day 400_000 (year 3065) read back as 1896 and day -150_000 (year
             1559) as 2143. The value, not just the dtype, is what this pins.
         """
-        with pytest.warns(UserWarning, match="outside the 1677-09-21"):
+        with pytest.warns(UserWarning, match="outside the"):
             decoded = decode_cf_time(
                 np.array([offset], dtype="int64"), EPOCH_UNIT, "standard"
             )
@@ -258,7 +271,7 @@ class TestDatetime64Range:
             The bug needs no large offset: the origin alone is enough to leave the type's
             range, and year 1 wrapped to 2169.
         """
-        with pytest.warns(UserWarning, match="outside the 1677-09-21"):
+        with pytest.warns(UserWarning, match="outside the"):
             decoded = decode_cf_time(
                 np.array([0], dtype="int64"), "days since 0001-01-01", "standard"
             )
@@ -325,6 +338,53 @@ class TestDatetime64Range:
         assert decoded.dtype == np.dtype("datetime64[ns]"), (
             f"day {offset} is inside datetime64[ns] and should cast, got {decoded.dtype}"
         )
+
+    def test_the_element_class_follows_the_origin_not_the_values(self):
+        """Which object comes back decides what still works downstream, so pin both cases.
+
+        Test scenario:
+            A date Python's `datetime` can represent yields `cftime.real_datetime`, a
+            `datetime` subclass that `pandas` coerces to `datetime64[us]` -- so a year-3065
+            axis still exports. A date it cannot, which in practice means a pre-1582 origin,
+            yields a true `cftime` datetime that Parquet has no type for.
+        """
+        with pytest.warns(UserWarning):
+            future = decode_cf_time(
+                np.array([400_000], dtype="int64"), EPOCH_UNIT, "standard"
+            )
+        assert isinstance(future[0], datetime), type(future[0])
+        assert not isinstance(future[0], cftime.datetime), type(future[0])
+        with pytest.warns(UserWarning):
+            ancient = decode_cf_time(
+                np.array([0], dtype="int64"), "days since 0001-01-01", "standard"
+            )
+        assert isinstance(ancient[0], cftime.datetime), type(ancient[0])
+
+    def test_one_bad_value_downgrades_the_whole_axis(self):
+        """The dtype decision is array-wide, because one array has one dtype.
+
+        Test scenario:
+            An in-range neighbour loses its `datetime64` representation when any value on
+            the axis is out of range. That is forced rather than chosen -- a mixed-dtype
+            array is not possible -- but it is worth pinning so the trade-off is visible.
+        """
+        with pytest.warns(UserWarning):
+            decoded = decode_cf_time(
+                np.array([0, 400_000], dtype="int64"), EPOCH_UNIT, "standard"
+            )
+        assert decoded.dtype == np.dtype("object"), decoded.dtype
+        assert decoded[0].year == 1970, decoded[0]
+        assert decoded[1].year == 3065, decoded[1]
+
+    def test_the_warning_names_the_axis_when_given_one(self):
+        """`context` puts the axis name in the message, for a store with several time axes."""
+        with pytest.warns(UserWarning, match="'valid_time'"):
+            decode_cf_time(
+                np.array([400_000], dtype="int64"),
+                EPOCH_UNIT,
+                "standard",
+                context="valid_time",
+            )
 
     def test_a_non_standard_calendar_does_not_warn(self):
         """A `360_day` axis already returns `cftime`; that is not the #1087 condition.

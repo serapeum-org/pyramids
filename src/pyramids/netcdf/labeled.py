@@ -707,9 +707,11 @@ class LabeledDataset:
 
         A coordinate with a ``<interval> since <date>`` unit is decoded with
         ``cftime`` so reads (``__getitem__`` / ``to_dataframe``) return real
-        timestamps rather than raw numbers. Standard calendars yield
-        ``datetime64[ns]``; non-standard calendars (``360_day`` / ``noleap`` …)
-        yield ``cftime`` objects. Non-time arrays pass through unchanged.
+        timestamps rather than raw numbers. A standard calendar yields
+        ``datetime64[ns]`` **when the dates fit in it**; a non-standard calendar
+        (``360_day`` / ``noleap`` …), or a date outside 1677-09-21 to 2262-04-11,
+        yields the decoded datetime objects instead, with a warning naming this
+        array (#1087). Non-time arrays pass through unchanged.
 
         Args:
             arr: The source MDArray (its unit / calendar drive the decode).
@@ -723,7 +725,7 @@ class LabeledDataset:
             return values
         cal_attr = _get_attr(arr, "calendar")
         calendar = cal_attr.ReadAsString() if cal_attr is not None else "standard"
-        return decode_cf_time(values, unit, calendar)
+        return decode_cf_time(values, unit, calendar, context=arr.GetName())
 
     def _coord_full(self, name: str) -> np.typing.NDArray:
         """Read a coordinate's full (unselected) values, memoized by name (ARC-49)."""

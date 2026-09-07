@@ -915,10 +915,17 @@ def _fits_datetime64_ns(decoded: np.typing.NDArray) -> bool:
     """
     low, high = _DT64_NS_BOUNDS
     floor, ceiling = datetime(*low), datetime(*high)
-    try:
-        fits = all(floor <= value <= ceiling for value in decoded.ravel())
-    except TypeError:
-        fits = False
+    values = decoded.ravel()
+    # Screened first, so the `except` below can only ever absorb the one `TypeError` it is
+    # meant for. Without it, anything non-datetime in the array -- and `decoded.ravel()`
+    # itself, were it inside the `try` -- would read as "does not fit" and be reported as an
+    # out-of-range date, which is a misdiagnosis rather than a safe default.
+    fits = all(isinstance(value, (datetime, cftime.datetime)) for value in values)
+    if fits:
+        try:
+            fits = all(floor <= value <= ceiling for value in values)
+        except TypeError:
+            fits = False
     return fits
 
 
@@ -995,6 +1002,7 @@ def decode_cf_time(
     values: np.ndarray,
     unit: str | bytes | None,
     calendar: str = "standard",
+    context: str | None = None,
 ) -> np.typing.NDArray:
     """Decode numeric CF time offsets to datetimes.
 
@@ -1007,7 +1015,10 @@ def decode_cf_time(
     nanoseconds, rather than through ``cftime``. Behaviour differs from earlier releases
     in two ways, both of them consequences of dropping ``cftime``'s microsecond floor:
     a ``"nanoseconds since …"`` axis decodes instead of raising, and a ``NaN`` offset
-    decodes to ``NaT`` instead of to the origin. Anything the integer path cannot take
+    decodes to ``NaT`` instead of to the origin -- the latter **on that integer path only**.
+    The ``cftime`` fallback still reads a ``NaN`` as the origin rather than as missing,
+    because ``cftime`` returns a masked array and the mask is dropped on the way out; that
+    is a separate defect this function does not fix. Anything the integer path cannot take
     exactly -- an unparseable origin, a period such as ``"months"``, an instant the integer
     nanosecond scale cannot reach, or a pre-1582 origin on a mixed Julian/Gregorian
     calendar -- still goes to ``cftime``. That reach is not a fixed span of years: the gate
@@ -1023,6 +1034,9 @@ def decode_cf_time(
         unit: The coordinate's CF unit string (e.g. ``"days since 1979-01-01"``),
             or the bytes an undecoded attribute arrives as.
         calendar: The CF calendar name. Defaults to ``"standard"``.
+        context: Optional name of the axis being decoded, used only so the out-of-range
+            warning can say *which* axis it is about. A store with several time axes
+            otherwise warns with nothing but the units string to tell them apart.
 
     Returns:
         np.ndarray: Decoded datetimes for a time axis, else ``values`` unchanged. For a
@@ -1030,13 +1044,31 @@ def decode_cf_time(
             them is representable in that type, and an object array otherwise -- either
             because the calendar is not a standard one, or because a date falls outside
             ``datetime64[ns]``'s 1677-09-21 to 2262-04-11 range, which is warned about
-            (#1087). What that object array holds is ``cftime``'s own choice, not this
+            (#1087). The choice is array-wide, since one array has one dtype: a single
+            out-of-range value keeps its in-range neighbours as objects too.
+            What that object array holds is ``cftime``'s own choice, not this
             function's: ``cftime.real_datetime`` (a ``datetime.datetime`` subclass, which
             ``pandas`` coerces to ``datetime64[us]``) for a date Python's ``datetime`` can
             represent, and a true ``cftime`` datetime such as ``DatetimeGregorian`` for one
             it cannot -- which in practice means a pre-1582 origin on a mixed calendar.
 
     Examples:
+        - A date past what ``datetime64[ns]`` holds keeps its real value, and says so:
+            ```python
+            >>> import warnings
+            >>> import numpy as np
+            >>> from pyramids.netcdf.utils import decode_cf_time
+            >>> with warnings.catch_warnings(record=True) as caught:
+            ...     warnings.simplefilter("always")
+            ...     decoded = decode_cf_time(
+            ...         np.array([400_000]), "days since 1970-01-01", "standard"
+            ...     )
+            >>> decoded.dtype, decoded[0].year
+            (dtype('O'), 3065)
+            >>> caught[0].category.__name__
+            'UserWarning'
+
+            ```
         - The resolution the collection writer counts in, read back with its
           sub-microsecond digits intact:
             ```python
@@ -1086,10 +1118,11 @@ def decode_cf_time(
                     # `UserWarning`, not `RuntimeWarning`: GDAL floods the latter,
                     # so the common "ignore RuntimeWarning" recipe around a GDAL
                     # read would silence a data-integrity warning.
+                    axis = f"{context!r} " if context else ""
                     warnings.warn(
-                        f"{text!r} decodes to dates outside the 1677-09-21 to "
-                        f"2262-04-11 range datetime64[ns] can represent; returning "
-                        f"the decoded datetime objects instead, because casting "
+                        f"time axis {axis}({text!r}) decodes to dates outside the "
+                        f"1677-09-21 to 2262-04-11 range datetime64[ns] can represent; "
+                        f"returning the decoded datetime objects instead, because casting "
                         f"would silently wrap them to the wrong dates.",
                         UserWarning,
                         stacklevel=2,
