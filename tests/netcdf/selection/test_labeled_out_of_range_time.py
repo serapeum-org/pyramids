@@ -175,6 +175,69 @@ class TestOutOfRangeTimeExport:
         )
         assert "cftime" not in str(raised.value), raised.value
 
+    def test_a_cftime_axis_failing_for_another_reason_keeps_that_error(
+        self, tmp_path: Path
+    ):
+        """An unstorable column is not on its own enough to blame the time axis.
+
+        Test scenario:
+            The frame genuinely carries `DatetimeGregorian`, so the column scan alone says
+            "range problem". The write failed for something else entirely -- a duplicated
+            `index` argument, rejected before pyarrow is handed the frame at all -- and
+            answering that with advice about selecting an in-range window would send the
+            caller after a defect that is not there. Only the error text tells the two apart,
+            since pyarrow names the offending type in its own message.
+        """
+        pytest.importorskip("pyarrow")
+        store = _time_store(
+            tmp_path / "ancient.nc", "days since 0001-01-01", [0.0, 1.0]
+        )
+        dataset = LabeledDataset.read_file(store)
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                assert _cftime_columns(dataset.to_dataframe()) == ["time"], (
+                    "the axis must decode to cftime for this test to mean anything"
+                )
+                with pytest.raises(TypeError) as raised:
+                    dataset.to_parquet(tmp_path / "ancient.parquet", index=True)
+        finally:
+            dataset.close()
+        assert "index" in str(raised.value), str(raised.value)
+        assert "cftime datetimes" not in str(raised.value), (
+            f"an unrelated failure was re-labelled: {raised.value}"
+        )
+
+    def test_a_failure_that_merely_mentions_cftime_is_not_re_labelled(
+        self, tmp_path: Path
+    ):
+        """The error text is not enough on its own either; a column has to be to blame.
+
+        Test scenario:
+            The output directory is named `cftime`, so the "non-existent directory" message
+            carries the word while the frame carries no such value. Matching on the text
+            alone would answer a missing-directory error with an empty list of offending
+            columns and advice about a range this ordinary 1970-epoch store is well inside.
+        """
+        pytest.importorskip("pyarrow")
+        store = _time_store(tmp_path / "now.nc", "days since 1970-01-01", [0.0, 1.0])
+        dataset = LabeledDataset.read_file(store)
+        try:
+            assert _cftime_columns(dataset.to_dataframe()) == [], (
+                "this store must decode to datetime64 for this test to mean anything"
+            )
+            with pytest.raises(OSError) as raised:
+                dataset.to_parquet(tmp_path / "cftime" / "now.parquet")
+        finally:
+            dataset.close()
+        assert not isinstance(raised.value, FailedToSaveError), (
+            f"an unrelated failure was re-labelled: {raised.value}"
+        )
+        assert "cftime" in str(raised.value), (
+            f"the message must name the directory for this to reach the text clause: "
+            f"{raised.value}"
+        )
+
     def test_the_warning_names_the_axis_it_was_read_from(self, tmp_path: Path):
         """Reading the store warns with the coordinate's own name, not just its units.
 

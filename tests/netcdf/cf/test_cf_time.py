@@ -323,6 +323,30 @@ class TestUndecodableUnits:
             decode_cf_time(np.array([1.0]), "months since not-a-date", "360_day")
         assert MONTH_HINT not in str(raised.value), str(raised.value)
 
+    @pytest.mark.parametrize(
+        "calendar", ["360_Day", "360_DAY"], ids=["mixed-case", "upper-case"]
+    )
+    def test_the_month_hint_is_withheld_whatever_the_calendar_casing(self, calendar):
+        """The calendar gate lowercases, as every other calendar check in the codec does.
+
+        Args:
+            calendar: `360_day` spelled in mixed or upper case.
+
+        Test scenario:
+            `cftime` takes a `"months since ..."` axis on these spellings exactly as it takes
+            the lowercase one -- asserted here rather than assumed -- so the unit is
+            supported and a failure has some other cause, here an unparseable origin.
+            Comparing the calendar as written would append a hint saying months are defined
+            only on `360_day` to an axis that is on `360_day`.
+        """
+        supported = decode_cf_time(np.array([1.0]), "months since 2000-01-01", calendar)
+        assert supported[0].month == 2, (
+            f"cftime no longer takes months on {calendar!r}, so the hint would be apt"
+        )
+        with pytest.raises(ValueError) as raised:
+            decode_cf_time(np.array([1.0]), "months since not-a-date", calendar)
+        assert MONTH_HINT not in str(raised.value), str(raised.value)
+
     def test_an_overflowing_offset_is_named_too(self):
         """An offset that overflows the scale arrives as `OverflowError` and is normalised.
 
@@ -694,6 +718,40 @@ class TestDatetime64Range:
         assert decoded[0].year == 1970, decoded[0]
         assert decoded[1].year == 3065, decoded[1]
 
+    def test_the_out_of_range_value_may_come_first(self):
+        """An axis out of range at the front is downgraded just as one out of range at the back.
+
+        Test scenario:
+            The range check scans element by element and stops at the first value that does
+            not fit. Drop that stop and the verdict becomes whatever the *last* element says,
+            so this axis -- year 3065 followed by an ordinary 1970 -- would cast and wrap the
+            3065 to 1896, which is the whole of #1087 back again.
+            `test_one_bad_value_downgrades_the_whole_axis` puts the bad value last, so it
+            cannot see that.
+        """
+        with pytest.warns(UserWarning, match="outside the"):
+            decoded = decode_cf_time(
+                np.array([400_000, 0], dtype="int64"), EPOCH_UNIT, "standard"
+            )
+        assert decoded.dtype == np.dtype("object"), decoded.dtype
+        assert decoded[0].year == 3065, decoded[0]
+        assert decoded[1].year == 1970, decoded[1]
+
+    def test_the_warning_is_attributed_to_the_caller(self):
+        """The warning points at the code that called `decode_cf_time`, not into the codec.
+
+        Test scenario:
+            The `warnings.warn` sits two frames below the caller now that the `cftime`
+            fallback is its own function, so `stacklevel` has to be 3. At 2 the warning is
+            attributed to `utils.py` instead, which reads as a pyramids-internal complaint
+            and puts it out of reach of a caller filtering warnings on their own module.
+        """
+        with pytest.warns(UserWarning, match="outside the") as caught:
+            decode_cf_time(np.array([400_000], dtype="int64"), EPOCH_UNIT, "standard")
+        assert caught[0].filename == __file__, (
+            f"the warning should be attributed to this file, got {caught[0].filename}"
+        )
+
     def test_the_warning_names_the_axis_when_given_one(self):
         """`context` puts the axis name in the message, for a store with several time axes."""
         with pytest.warns(UserWarning, match="'valid_time'"):
@@ -778,3 +836,26 @@ class TestFitsDatetime64Ns:
         values[0] = datetime(2000, 1, 1)
         values[1] = np.array([datetime(2000, 1, 1), datetime(2001, 1, 1)], dtype=object)
         assert not _fits_datetime64_ns(values), "an array element cannot be a date"
+
+    @pytest.mark.parametrize(
+        "leading",
+        [datetime(1, 1, 1), "1979-01-11"],
+        ids=["out-of-range-date", "not-a-date"],
+    )
+    def test_a_refusal_is_not_undone_by_a_later_value(self, leading):
+        """The first value that does not fit settles the answer, whatever follows it.
+
+        Args:
+            leading: A first element that does not fit -- a date below the floor, and a value
+                that is not a date at all, one for each of the two ways the scan refuses.
+
+        Test scenario:
+            The scan assigns its verdict per element and breaks on the first refusal. Without
+            the break the verdict would simply be the last element's, so a fitting date after
+            a refused one would report the whole array as castable. Every other test here
+            refuses on the last element, where a missing break makes no difference.
+        """
+        values = np.array([leading, datetime(2000, 1, 1)], dtype=object)
+        assert not _fits_datetime64_ns(values), (
+            f"{leading!r} does not fit, so neither does the array it leads"
+        )
