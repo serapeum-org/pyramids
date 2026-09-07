@@ -349,10 +349,11 @@ class TestCombine:
         Test scenario:
             A 1-band minus a 3-band raster on the same grid raises, naming `band=`.
         """
+        single_band = _raster(np.full((5, 5), 1.0, "float32"))
+        three_band = _raster(np.full((3, 5, 5), 1.0, "float32"))
+
         with pytest.raises(ValueError, match="different number of bands"):
-            _raster(np.full((5, 5), 1.0, "float32")) - _raster(
-                np.full((3, 5, 5), 1.0, "float32")
-            )
+            single_band - three_band
 
     def test_a_grid_mismatch_is_refused_rather_than_broadcast(self):
         """Rasters on different grids never combine silently onto the left one's grid.
@@ -362,10 +363,11 @@ class TestCombine:
         """
         elsewhere = GeoReference(top_left_corner=(50.0, 5.0), cell_size=0.25, epsg=4326)
 
+        here = _raster(np.zeros((5, 5), "float32"))
+        there = _raster(np.zeros((5, 5), "float32"), geo_ref=elsewhere)
+
         with pytest.raises(AlignmentError, match="do not share a grid"):
-            _raster(np.zeros((5, 5), "float32")) - _raster(
-                np.zeros((5, 5), "float32"), geo_ref=elsewhere
-            )
+            here - there
 
     def test_aligning_first_makes_the_operands_combinable(self):
         """`align()` is the explicit route from a mismatch to a working combine.
@@ -400,8 +402,11 @@ class TestCombine:
         Test scenario:
             Passing an ndarray as the other operand raises TypeError.
         """
+        left = _raster(np.zeros((4, 4), "float32"))
+        not_a_raster = np.zeros((4, 4))
+
         with pytest.raises(TypeError, match=r"`other` must be a Dataset, got ndarray"):
-            _raster(np.zeros((4, 4), "float32")).combine(np.zeros((4, 4)), np.subtract)
+            left.combine(not_a_raster, np.subtract)
 
     def test_a_non_callable_func_is_refused(self):
         """The second argument has to be callable.
@@ -410,9 +415,10 @@ class TestCombine:
             Passing a string as `func` raises TypeError.
         """
         left = _raster(np.zeros((4, 4), "float32"))
+        right = _raster(np.zeros((4, 4), "float32"))
 
         with pytest.raises(TypeError, match=r"`func` must be callable, got str"):
-            left.combine(_raster(np.zeros((4, 4), "float32")), "nope")
+            left.combine(right, "nope")
 
     def test_a_scalar_callable_is_lifted_with_vectorize(self):
         """A two-scalar `func` works, mirroring `apply`'s fallback.
@@ -474,11 +480,10 @@ class TestCombine:
             argument to pass instead.
         """
         left = _raster(np.full((4, 4), 10, "int32"))
+        right = _raster(np.full((4, 4), 4, "int32"))
 
         with pytest.raises(ValueError, match="cannot be stored in the int32"):
-            left.combine(
-                _raster(np.full((4, 4), 4, "int32")), np.subtract, no_data_value="abc"
-            )
+            left.combine(right, np.subtract, no_data_value="abc")
 
     def test_two_fully_masked_operands_survive_a_scalar_callable(self):
         """An all-no-data pair is the normal state of, say, an ocean tile.
@@ -502,12 +507,10 @@ class TestCombine:
             both counts and the contract.
         """
         left = _raster(np.full((4, 4), 1.0, "float32"))
+        right = _raster(np.full((4, 4), 2.0, "float32"))
 
         with pytest.raises(ValueError, match=r"shape \(2,\) for 16 cells"):
-            left.combine(
-                _raster(np.full((4, 4), 2.0, "float32")),
-                lambda a, b: np.array([1.0, 2.0]),
-            )
+            left.combine(right, lambda a, b: np.array([1.0, 2.0]))
 
     def test_band_names_travel_with_the_result(self):
         """Band identity is half the reason to keep the operation inside the Dataset.
@@ -603,12 +606,10 @@ class TestCombine:
             default — raises ValueError naming the shape, not a numpy indexing message.
         """
         left = _raster(np.full((4, 4), 5.0, "float32"))
+        right = _raster(np.full((4, 4), 2.0, "float32"))
 
         with pytest.raises(ValueError, match=r"shape \(16, 1\) for 16 cells"):
-            left.combine(
-                _raster(np.full((4, 4), 2.0, "float32")),
-                lambda a, b: (a - b).reshape(-1, 1),
-            )
+            left.combine(right, lambda a, b: (a - b).reshape(-1, 1))
 
     def test_an_unsigned_result_prefers_its_max_over_zero(self):
         """`0` is a value an unsigned band will hold; the dtype's max is not.
@@ -762,8 +763,11 @@ class TestSameGrid:
             Passing a bare ndarray raises TypeError, not `AttributeError: 'numpy.ndarray'
             object has no attribute 'epsg'`.
         """
+        raster = _raster(np.zeros((5, 5), "float32"))
+        not_a_raster = np.zeros((5, 5))
+
         with pytest.raises(TypeError, match=r"`other` must be a Dataset, got ndarray"):
-            _raster(np.zeros((5, 5), "float32")).same_grid(np.zeros((5, 5)))
+            raster.same_grid(not_a_raster)
 
     def test_a_different_crs_does_not_match(self):
         """Identical numbers in a different CRS describe a different grid.
