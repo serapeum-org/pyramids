@@ -702,47 +702,6 @@ class TestMergeRastersDstCrs:
         with pytest.raises(RuntimeError, match="gdal.Open returned None"):
             merge_rasters([pa, pb], tmp_path / "x.tif")
 
-    @pytest.mark.parametrize(
-        "failing_index, expected_position", [(0, "1/2"), (1, "2/2")]
-    )
-    def test_raising_open_names_the_source_and_its_position(
-        self, shared_crs_pair, monkeypatch, failing_index, expected_position
-    ):
-        """A raising ``gdal.Open`` names the failing source and how far the open got.
-
-        Args:
-            failing_index: Position of the unopenable remote source in ``src_paths``.
-            expected_position: The ``n/total`` marker the message must carry.
-
-        Test scenario:
-            One of two sources is a remote tile whose open raises a bare
-            ``HTTP response code: 403`` -- GDAL names no source for a
-            ``/vsicurl/`` path. ``_prepare_sources`` must report the URL, its
-            position in ``src_paths``, and chain GDAL's message (#1107). Both
-            positions are exercised so the reported index tracks the real one.
-        """
-        pa, _pb = shared_crs_pair
-        remote = "/vsicurl/https://example.invalid/tile_B04_0042.tif"
-        paths = [pa, pa]
-        paths[failing_index] = remote
-        real_open = merge_mod.gdal.Open
-
-        def _raise_for_remote(path, *args, **kwargs):
-            if str(path) == remote:
-                raise RuntimeError("HTTP response code: 403")
-            return real_open(path, *args, **kwargs)
-
-        monkeypatch.setattr(merge_mod.gdal, "Open", _raise_for_remote)
-        with pytest.raises(RuntimeError) as excinfo:
-            _prepare_sources(paths, None)
-        message = str(excinfo.value)
-        assert "tile_B04_0042.tif" in message, f"source not named: {message}"
-        assert expected_position in message, f"wrong position marker: {message}"
-        assert "403" in message, f"GDAL's own message not preserved: {message}"
-        assert isinstance(excinfo.value.__cause__, RuntimeError), (
-            "GDAL's error should be chained as __cause__, not replaced"
-        )
-
 
 class TestSourceBounds:
     """Tests for the ``_source_bounds`` extent helper used by the strip reduction."""
@@ -802,8 +761,9 @@ class TestSourceBounds:
         message = str(excinfo.value)
         assert "tile_B04_0042.tif" in message, f"source not named: {message}"
         assert "403" in message, f"GDAL's own message not preserved: {message}"
-        assert isinstance(excinfo.value.__cause__, RuntimeError), (
-            "GDAL's error should be chained as __cause__, not replaced"
+        cause = excinfo.value.__cause__
+        assert cause is not None and "403" in str(cause), (
+            f"GDAL's own error should be chained as __cause__, got {cause!r}"
         )
 
     def test_open_returning_none_raises(self, monkeypatch):
@@ -823,6 +783,48 @@ class TestSourceBounds:
 
 class TestPrepareSources:
     """Tests for the ``_prepare_sources`` reproject helper."""
+
+    @pytest.mark.parametrize(
+        "failing_index, expected_position", [(0, "1/2"), (1, "2/2")]
+    )
+    def test_raising_open_names_the_source_and_its_position(
+        self, shared_crs_pair, monkeypatch, failing_index, expected_position
+    ):
+        """A raising ``gdal.Open`` names the failing source and how far the open got.
+
+        Args:
+            failing_index: Position of the unopenable remote source in ``src_paths``.
+            expected_position: The ``n/total`` marker the message must carry.
+
+        Test scenario:
+            One of two sources is a remote tile whose open raises a bare
+            ``HTTP response code: 403`` -- GDAL names no source for a
+            ``/vsicurl/`` path. ``_prepare_sources`` must report the URL, its
+            position in ``src_paths``, and chain GDAL's message (#1107). Both
+            positions are exercised so the reported index tracks the real one.
+        """
+        pa, _pb = shared_crs_pair
+        remote = "/vsicurl/https://example.invalid/tile_B04_0042.tif"
+        paths = [pa, pa]
+        paths[failing_index] = remote
+        real_open = merge_mod.gdal.Open
+
+        def _raise_for_remote(path, *args, **kwargs):
+            if str(path) == remote:
+                raise RuntimeError("HTTP response code: 403")
+            return real_open(path, *args, **kwargs)
+
+        monkeypatch.setattr(merge_mod.gdal, "Open", _raise_for_remote)
+        with pytest.raises(RuntimeError) as excinfo:
+            _prepare_sources(paths, None)
+        message = str(excinfo.value)
+        assert "tile_B04_0042.tif" in message, f"source not named: {message}"
+        assert expected_position in message, f"wrong position marker: {message}"
+        assert "403" in message, f"GDAL's own message not preserved: {message}"
+        cause = excinfo.value.__cause__
+        assert cause is not None and "403" in str(cause), (
+            f"GDAL's own error should be chained as __cause__, got {cause!r}"
+        )
 
     def test_unopenable_signed_source_does_not_leak_its_credential(
         self, shared_crs_pair, monkeypatch

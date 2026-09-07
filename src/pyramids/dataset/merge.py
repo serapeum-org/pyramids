@@ -353,12 +353,15 @@ def _source_bounds(
         # Name the source whichever way GDAL reports the failure: under
         # gdal.UseExceptions() (pyramids' default) Open raises instead of
         # returning None, and for a /vsicurl/ or /vsis3/ source GDAL's own
-        # message carries only the HTTP status -- not the URL (#1107).
+        # message carries only the HTTP status -- not the URL. The `is None`
+        # guard below is kept for a caller running with gdal.DontUseExceptions()
+        # (#1107).
+        source = str(path)
         try:
-            ds, opened = gdal.Open(str(path)), True
+            ds, opened = gdal.Open(source), True
         except RuntimeError as exc:
             raise RuntimeError(
-                redact_credentials(f"could not open merge source {path!r}: {exc}")
+                redact_credentials(f"could not open merge source {source!r}: {exc}")
             ) from exc
     if ds is None:
         raise RuntimeError(
@@ -795,10 +798,12 @@ def _prepare_sources(
     for index, path in enumerate(src_paths):
         # Name the source whichever way GDAL reports the failure. Under
         # gdal.UseExceptions() (pyramids' default) Open raises rather than
-        # returning None, so the `is None` guard below never runs; and for a
-        # /vsicurl/ or /vsis3/ source GDAL's message is just the HTTP status
-        # ("HTTP response code: 403"), naming no source at all. The index says
-        # how far the open got on a mosaic of many tiles (#1107).
+        # returning None; for a /vsicurl/ or /vsis3/ source GDAL's message is
+        # just the HTTP status ("HTTP response code: 403"), naming no source at
+        # all. The index says how far the open got on a mosaic of many tiles.
+        # The `is None` guard below is kept for a caller who has turned
+        # exceptions off -- gdal.UseExceptions() is process-global, so that is
+        # theirs to change, not ours to assume (#1107).
         try:
             dataset = gdal.Open(path)
         except RuntimeError as exc:
