@@ -103,6 +103,24 @@ def _raise_from(nc, name: str):
     return nc
 
 
+def _override(nc, **properties):
+    """Give `nc` alone the supplied property values, via a throwaway subclass.
+
+    Args:
+        nc: The dataset to re-base.
+        **properties: Property name to fixed value.
+
+    Returns:
+        The same object, now an instance of the throwaway subclass.
+    """
+    namespace = {
+        name: property(lambda self, value=value: value)
+        for name, value in properties.items()
+    }
+    nc.__class__ = type("_Overridden", (type(nc),), namespace)
+    return nc
+
+
 class TestCollapseUniform:
     """`_collapse_uniform` — one value when every band agrees, the sequence when they differ."""
 
@@ -195,7 +213,7 @@ class TestCrsLabel:
         finally:
             nc.close()
 
-    def test_falls_back_to_the_crs_name(self, tmp_path, monkeypatch):
+    def test_falls_back_to_the_crs_name(self, tmp_path):
         """With no EPSG, the CRS *name* is used — still never the WKT.
 
         Args:
@@ -208,40 +226,31 @@ class TestCrsLabel:
         """
         nc = NetCDF.read_file(_write_store(str(tmp_path / "name.nc")))
         try:
-            monkeypatch.setattr(
-                type(nc), "epsg", property(lambda self: None), raising=True
-            )
+            _override(nc, epsg=None)
             label = nc._crs_label()
             assert label not in ("", "unknown"), f"expected a CRS name, got {label!r}"
             assert "GEOGCS" not in label, f"the WKT leaked into the label: {label}"
         finally:
             nc.close()
 
-    def test_unknown_when_nothing_resolves(self, tmp_path, monkeypatch):
+    def test_unknown_when_nothing_resolves(self, tmp_path):
         """No EPSG and no CRS yields `unknown` rather than an empty label."""
         nc = NetCDF.read_file(_write_store(str(tmp_path / "none.nc")))
         try:
-            monkeypatch.setattr(
-                type(nc), "epsg", property(lambda self: None), raising=True
-            )
-            monkeypatch.setattr(type(nc), "crs", property(lambda self: ""))
+            _override(nc, epsg=None, crs="")
             assert nc._crs_label() == "unknown"
         finally:
             nc.close()
 
-    def test_a_raising_crs_is_survivable(self, tmp_path, monkeypatch):
+    def test_a_raising_crs_is_survivable(self, tmp_path):
         """A property that raises degrades to `unknown` instead of breaking `str()`.
 
         Test scenario:
             `str()` runs in debuggers and pytest introspection, so it must stay total.
         """
         nc = NetCDF.read_file(_write_store(str(tmp_path / "raise.nc")))
-
-        def _boom(self):
-            raise RuntimeError("no CRS")
-
         try:
-            monkeypatch.setattr(type(nc), "epsg", property(_boom))
+            _raise_from(nc, "epsg")
             assert nc._crs_label() == "unknown"
         finally:
             nc.close()
@@ -398,7 +407,7 @@ class TestContainerSummary:
         nc = NetCDF.read_file(_write_store(str(tmp_path / "empty.nc")))
         try:
             monkeypatch.setattr(nc.meta_data, "variables", {})
-            monkeypatch.setattr(type(nc), "variable_names", property(lambda self: []))
+            _override(nc, variable_names=[])
             summary = _container_summary(nc)
             assert "variables  : none" in summary, summary
         finally:
@@ -421,7 +430,12 @@ class TestContainerSummary:
             )
             summary = str(nc)
             assert summary.startswith("<Container "), f"wrong header: {summary}"
-            assert "?" not in summary.split("\n")[0], f"placeholder name: {summary}"
+            # Not `"?" not in ...`: the `?` placeholder is gone from the source, so that
+            # assertion could no longer fail while still reading as load-bearing. The header
+            # being a Container at all is round-1 H1's real symptom.
+            assert not summary.startswith("<Variable"), (
+                f"classic container dispatched to the variable summary: {summary}"
+            )
             assert "grid       :" in summary, f"real grid not reported: {summary}"
             for claim in ("dimensions : none", "groups     : none"):
                 assert claim not in summary, f"asserted an unknown as fact: {summary}"
