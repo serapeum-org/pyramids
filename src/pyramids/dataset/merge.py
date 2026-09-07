@@ -343,7 +343,9 @@ def _source_bounds(
         east, north)``.
 
     Raises:
-        RuntimeError: The path could not be opened.
+        RuntimeError: The path could not be opened -- the message names the
+            source and chains GDAL's own error, which for a ``/vsicurl/`` or
+            ``/vsis3/`` source carries only the HTTP status and no URL.
     """
     if isinstance(path, gdal.Dataset):
         ds, opened = path, False
