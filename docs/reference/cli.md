@@ -69,7 +69,9 @@ pyramids calc '(A - B) / (A + B)' nir.tif red.tif ndvi.tif --dtype float32
   the first one's grid — `calc` does not resample, and refuses a mismatch rather than writing the answer on
   a grid the inputs never agreed on. Warp them onto a common grid first (`pyramids warp`). An input carrying
   no CRS tag at all is compared on its pixel grid alone, so an untagged mask or QA layer that sits on the
-  template's cells still works. The output's no-data value is `-9999` regardless of the inputs'. The
+  template's cells still works. The output's no-data value is `-9999` whatever the inputs declare — or, when
+  the output dtype cannot hold `-9999`, that dtype's own fallback (`255` for `uint8`, `65535` for `uint16`),
+  which `calc` reports on stderr. The
   in-process equivalent is
   [`Dataset.combine`](dataset/analysis.md#combining-two-rasters) and the `-` / `+` / `*` / `/` operators,
   which do apply no-data masking — `calc` evaluates over the raw arrays.

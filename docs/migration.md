@@ -175,10 +175,13 @@ inputs and wrapping the result with `from_array` — the step where georeferenci
   `ds.same_grid(other)` predicate answers the question in advance, and `align()` is the explicit fix.
 - A **scalar** operand is not accepted. `ds * 2` raises `TypeError`; scalar arithmetic stays with
   `ds.apply(lambda v: v * 2)`, which preserves the band's dtype where `combine` takes whatever `func` returns.
-- A cell that is no-data in either operand is no-data in the result, and the result's sentinel is derived from
-  the values `func` computed, so no cell is ever marked as a gap by the arithmetic that produced it. An integer
-  result that masked nothing declares **no** sentinel at all. Pass `no_data_value=` to choose one, or
-  `no_data_value=None` for no masking.
+- A cell that is no-data in either operand is no-data in the result. An **integer** result's sentinel is derived
+  against the values `func` computed, so no in-range number is claimed as a gap by the arithmetic that produced
+  it, and one that masked nothing declares **no** sentinel at all. A **floating** result always declares `NaN`:
+  a cell `func` computed as `NaN` (`0/0` in a normalised difference) has no value, so it is a gap and the result
+  says so. Pass `no_data_value=` to choose one, or `no_data_value=None` for no masking.
+- `sum(rasters)` does not work — it starts at the integer `0`, and a scalar operand is declined. Use
+  `sum(rest, start=first)` or `functools.reduce(operator.add, rasters)`.
 - `combine` is whole-array: both operands are read in full. For rasters near the memory limit use
   `apply(elementwise=True)` or `read_array(chunks=)`.
 - The module-private `_same_grid` helper in `pyramids.dataset.dataset` moved to `Spatial.same_grid`, faced on
@@ -655,7 +658,8 @@ cells is still accepted.
 rebuilt from the template's top-left corner and cell size, which collapses to a north-up square-pixel grid: an
 input at `(100, 2, 0.5, 200, 0.25, -3)` was written out as `(100, 2, 0, 200, 0, -2)`, with its skew zeroed and
 its y-resolution changed. The whole geotransform is now copied. The output's no-data value is unchanged — still
-`-9999`, whatever the inputs declare.
+`-9999` whatever the inputs declare, falling back per dtype exactly as before when `-9999` is out of range (`255`
+for `uint8`, `65535` for `uint16`).
 
 ### 0.47.0
 

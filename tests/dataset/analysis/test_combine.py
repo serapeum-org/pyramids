@@ -400,7 +400,7 @@ class TestCombine:
         Test scenario:
             Passing an ndarray as the other operand raises TypeError.
         """
-        with pytest.raises(TypeError, match="should be a Dataset"):
+        with pytest.raises(TypeError, match=r"`other` must be a Dataset, got ndarray"):
             _raster(np.zeros((4, 4), "float32")).combine(np.zeros((4, 4)), np.subtract)
 
     def test_a_non_callable_func_is_refused(self):
@@ -411,7 +411,7 @@ class TestCombine:
         """
         left = _raster(np.zeros((4, 4), "float32"))
 
-        with pytest.raises(TypeError, match="should be a function"):
+        with pytest.raises(TypeError, match=r"`func` must be callable, got str"):
             left.combine(_raster(np.zeros((4, 4), "float32")), "nope")
 
     def test_a_scalar_callable_is_lifted_with_vectorize(self):
@@ -503,7 +503,7 @@ class TestCombine:
         """
         left = _raster(np.full((4, 4), 1.0, "float32"))
 
-        with pytest.raises(ValueError, match=r"returned 2 values for 16 cells"):
+        with pytest.raises(ValueError, match=r"shape \(2,\) for 16 cells"):
             left.combine(
                 _raster(np.full((4, 4), 2.0, "float32")),
                 lambda a, b: np.array([1.0, 2.0]),
@@ -556,6 +556,150 @@ class TestCombine:
         with pytest.raises(ValueError, match="out of range for a 1-band dataset"):
             one.combine(one, np.subtract, band=7)
 
+    def test_a_computed_nan_is_a_gap_on_a_floating_result(self):
+        """A float result declares NaN whether or not `func` produced one.
+
+        Test scenario:
+            An NDVI where one cell has `nir == red == 0` computes `0/0` there. That cell
+            has no value, so the result marks it a gap and the domain shrinks by one —
+            the single case where a derived sentinel matches a computed value, and the
+            right answer rather than a collision.
+        """
+        nir = np.full((3, 3), 0.2, "float32")
+        red = np.full((3, 3), 0.1, "float32")
+        nir[0, 0] = 0.0
+        red[0, 0] = 0.0
+        left = Dataset.from_array(nir, geo_ref=GEO_REF, no_data_value=None)
+        right = Dataset.from_array(red, geo_ref=GEO_REF, no_data_value=None)
+
+        ndvi = (left - right) / (left + right)
+
+        assert np.isnan(ndvi.no_data_value[0]), "a float result always declares NaN"
+        assert np.isnan(np.asarray(ndvi.read_array())[0, 0]), "0/0 has no value"
+        assert ndvi.count_domain_cells() == 8, "the undefined cell leaves the domain"
+
+    def test_an_all_masked_pair_agrees_on_dtype_whichever_way_func_is_spelled(self):
+        """The empty-domain path must not depend on how the caller wrote `func`.
+
+        Test scenario:
+            Two fully-masked int32 rasters combined with a scalar-only callable and with
+            a ufunc: both come back int32 with the same sentinel. The hard-coded fallback
+            dtype used to give float64/NaN for one and int32/-9999 for the other, so half
+            a mosaic could land in each band type.
+        """
+        empty = np.full((4, 4), -9999, "int32")
+
+        scalar_style = _raster(empty).combine(_raster(empty), math.hypot)
+        ufunc_style = _raster(empty) - _raster(empty)
+
+        assert scalar_style.dtype == ufunc_style.dtype, "the band type must agree"
+        assert scalar_style.no_data_value == ufunc_style.no_data_value
+
+    def test_a_func_returning_a_column_vector_is_named(self):
+        """The right count in the wrong shape is still a contract violation.
+
+        Test scenario:
+            A `func` returning `(n, 1)` — what a scikit-learn-style predictor does by
+            default — raises ValueError naming the shape, not a numpy indexing message.
+        """
+        left = _raster(np.full((4, 4), 5.0, "float32"))
+
+        with pytest.raises(ValueError, match=r"shape \(16, 1\) for 16 cells"):
+            left.combine(
+                _raster(np.full((4, 4), 2.0, "float32")),
+                lambda a, b: (a - b).reshape(-1, 1),
+            )
+
+    def test_an_unsigned_result_prefers_its_max_over_zero(self):
+        """`0` is a value an unsigned band will hold; the dtype's max is not.
+
+        Test scenario:
+            uint8 operands whose sentinel collides with every computed value fall through
+            to the dtype's extremes. Taking `min` first would declare `0` as no-data and
+            turn every later zero in that band into a gap.
+        """
+        left = np.full((3, 3), 50, "uint8")
+        left[0, 0] = 100
+        masked = Dataset.from_array(left, geo_ref=GEO_REF, no_data_value=100)
+        right = Dataset.from_array(
+            np.full((3, 3), 50, "uint8"), geo_ref=GEO_REF, no_data_value=100
+        )
+
+        result = masked + right
+
+        assert result.no_data_value[0] == 255, "the free extreme, not 0"
+        assert np.asarray(result.read_array())[0, 0] == 255, "the gap carries it"
+        assert np.asarray(result.read_array())[1, 1] == 100, "data is untouched"
+
+    def test_the_collision_warning_points_at_the_caller(self):
+        """A `-W` rule or filter keyed on the user's module has to match.
+
+        Test scenario:
+            The recorded warning's filename is this test file, not the engine module it
+            is raised from — otherwise the traceback sends a user into library internals
+            for a mistake in their own call.
+        """
+        left = _raster(np.full((4, 4), 3.0, "float32"))
+        right = _raster(np.full((4, 4), 4.0, "float32"))
+
+        with pytest.warns(NoDataCollisionWarning) as recorded:
+            left.combine(right, np.subtract, no_data_value=-1.0)
+
+        assert recorded[0].filename == __file__, "the warning must blame the caller"
+
+    def test_a_band_count_mismatch_is_refused_before_either_read(self, mocker):
+        """Refusing on a header field must not pull gigabytes off disk first.
+
+        Args:
+            mocker: pytest-mock fixture, used to prove no read happened.
+
+        Test scenario:
+            A 1-band and a 3-band operand on one grid raise without `read_array` being
+            called on either side.
+        """
+        left = _raster(np.full((4, 4), 1.0, "float32"))
+        right = _raster(np.full((3, 4, 4), 1.0, "float32"))
+        spy = mocker.spy(left.io, "read_array")
+
+        with pytest.raises(ValueError, match="different number of bands"):
+            left - right
+
+        assert spy.call_count == 0, "the check must precede the reads"
+
+    def test_a_numpy_scalar_sentinel_is_judged_like_a_python_one(self):
+        """`Dataset.no_data_value` hands back numpy scalars; forwarding one must work.
+
+        Test scenario:
+            `np.float64(0.1)` is accepted for a float32 result exactly as the
+            byte-identical `0.1` is — NEP 50 compares the two in different dtypes, which
+            used to make one fit and the other not.
+        """
+        left = _raster(np.full((4, 4), 3.0, "float32"))
+        right = _raster(np.full((4, 4), 1.0, "float32"))
+
+        as_python = left.combine(right, np.subtract, no_data_value=0.1)
+        as_numpy = left.combine(right, np.subtract, no_data_value=np.float64(0.1))
+
+        assert as_python.no_data_value[0] == pytest.approx(as_numpy.no_data_value[0])
+
+    def test_an_unmasked_integer_result_keeps_the_raw_sentinels_as_data(self):
+        """`no_data_value=None` really means no masking, sentinels included.
+
+        Test scenario:
+            The left operand's -9999 cell takes part in the arithmetic and lands in the
+            band as an ordinary value, in a band declaring no no-data.
+        """
+        left = np.full((4, 4), 10, "int32")
+        left[0, 0] = -9999
+
+        result = _raster(left).combine(
+            _raster(np.full((4, 4), 4, "int32")), np.subtract, no_data_value=None
+        )
+
+        assert result.no_data_value[0] is None
+        assert np.asarray(result.read_array())[0, 0] == -10003, "the sentinel is data"
+        assert np.asarray(result.read_array())[1, 1] == 6
+
     def test_the_result_dtype_follows_func_not_the_inputs(self):
         """Dividing two integer rasters yields a float result, not a truncated one.
 
@@ -596,6 +740,21 @@ class TestSameGrid:
             _raster(np.zeros((5, 5), "float32"), geo_ref=elsewhere)
         )
 
+    def test_compare_crs_false_ignores_the_crs_clause(self):
+        """The CRS-blind mode is the one predicate with a clause switched off.
+
+        Test scenario:
+            Two rasters on one pixel grid tagged with different CRSes match under
+            `compare_crs=False` and do not under the default — the distinction
+            `pyramids calc` needs for an untagged companion input.
+        """
+        projected = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=3857)
+        lonlat = _raster(np.zeros((5, 5), "float32"))
+        other = _raster(np.zeros((5, 5), "float32"), geo_ref=projected)
+
+        assert not lonlat.same_grid(other), "the CRSes differ"
+        assert lonlat.same_grid(other, compare_crs=False), "the pixel grids match"
+
     def test_a_non_dataset_argument_is_refused(self):
         """The public predicate says what it wants instead of failing on a property read.
 
@@ -603,7 +762,7 @@ class TestSameGrid:
             Passing a bare ndarray raises TypeError, not `AttributeError: 'numpy.ndarray'
             object has no attribute 'epsg'`.
         """
-        with pytest.raises(TypeError, match="should be a Dataset"):
+        with pytest.raises(TypeError, match=r"`other` must be a Dataset, got ndarray"):
             _raster(np.zeros((5, 5), "float32")).same_grid(np.zeros((5, 5)))
 
     def test_a_different_crs_does_not_match(self):

@@ -62,18 +62,44 @@ the package default, so inheriting an operand's sentinel blind would hand back a
 raster every consumer reads as empty. `combine` therefore derives the sentinel
 *from the values it just computed*:
 
-* a **floating** result takes `NaN`, which no arithmetic produces and means as data;
+* a **floating** result always takes `NaN`. It is *not* checked against the values,
+  and does not need to be: `NaN` is not a measurement, so a cell `func` computed as
+  `NaN` — `0/0` in a normalised difference, `log` of a negative — genuinely has no
+  value, and the result marking it a gap is the right answer rather than a
+  collision. `count_domain_cells()` on the result will be lower than on the inputs
+  when that happens;
 * a **predicate** (`a > b`) is stored as Byte and takes `255`, free beside `0`/`1`;
 * an **integer** result that masked nothing declares **no sentinel** — there is no
   gap to mark, and any in-range value would be a lie;
 * an **integer** result that masked something takes the first value that both fits
   the dtype and occurs nowhere in the result, searched through the operands' own
   sentinels (every band, left operand first), then `-9999`, then the dtype's
-  extremes.
+  extremes — max before min for an unsigned dtype, whose min is the very usable `0`.
 
 An explicit `no_data_value=` is always honoured, with a `NoDataCollisionWarning`
 when the result holds it. `no_data_value=None` turns masking off entirely: every
 cell reaches `func`, including the ones the inputs marked as no-data.
+
+### Summing more than two
+
+`sum(rasters)` does not work: it starts at the integer `0`, and a scalar operand is
+declined. Give it a raster to start from, or fold explicitly:
+
+```python
+from functools import reduce
+import operator
+
+total = sum(rasters[1:], start=rasters[0])
+total = reduce(operator.add, rasters)
+```
+
+### The shell equivalent
+
+`pyramids calc "(A - B) / (A + B)" a.tif b.tif out.tif` is the same operation for N
+rasters from a shell. It shares the grid rule — the inputs must already share a grid
+— but not the domain semantics: `calc` evaluates over the raw arrays, so no-data
+cells take part in the arithmetic, and it broadcasts mismatched band counts instead
+of refusing them.
 
 ### Memory
 
@@ -81,11 +107,6 @@ cell reaches `func`, including the ones the inputs marked as no-data.
 usage is several times one band. There is no tiled or lazy path yet, so for
 rasters near the memory limit reach for `apply(elementwise=True)` (single-raster,
 streamed) or `read_array(chunks=)` and dask.
-
-The shell equivalent for N rasters is `pyramids calc "(A - B) / (A + B)" a.tif b.tif out.tif`.
-It shares the grid rule — the inputs must already share a grid — but not the
-domain semantics: `calc` evaluates over the raw arrays, so no-data cells take part
-in the arithmetic, and it broadcasts mismatched band counts instead of refusing them.
 
 ## Lazy per-pixel operations
 

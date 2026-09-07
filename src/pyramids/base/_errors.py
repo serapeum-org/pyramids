@@ -364,10 +364,12 @@ class NoDataCollisionWarning(UserWarning):
     partly — or entirely — empty to any consumer that honours the sentinel,
     while nothing about the file says so.
 
-    Only an explicitly requested sentinel warns. The derived one cannot
-    collide: `combine` picks it from the values it just computed, and falls
-    back through the operands' sentinels, the package default and the dtype's
-    extremes until it finds one no cell holds.
+    Only an explicitly requested sentinel warns. A derived *integer* sentinel
+    cannot collide -- `combine` picks it against the values it just computed,
+    falling back through the operands' sentinels, the package default and the
+    dtype's extremes until it finds one no cell holds. A derived `NaN` on a
+    floating result is stamped without that check and needs none: a cell `func`
+    computed as `NaN` has no value to lose.
 
     Args:
         None: Raised as a warning category, not constructed with arguments.

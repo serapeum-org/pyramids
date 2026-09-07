@@ -847,6 +847,41 @@ class TestCalc:
         assert written.dtype == ["int16"]
         assert written.no_data_value[0] == -9999, "the sentinel must fit the band"
 
+    def test_a_dtype_that_cannot_hold_minus_9999_falls_back(self, tmp_path):
+        """`-9999` is the intent, but an unsigned band cannot hold it.
+
+        Test scenario:
+            `--dtype uint8` writes 255, the dtype's own fallback, rather than a sentinel
+            that does not fit. The docs state both halves of this rule.
+        """
+        source = self._band(tmp_path, "a.tif", 4.0)
+        out = str(tmp_path / "byte.tif")
+
+        rc = main(["calc", "A * 2", source, out, "--dtype", "uint8"])
+
+        assert rc == 0
+        assert Dataset.read_file(out).no_data_value[0] == 255
+
+    def test_an_input_with_a_different_present_crs_is_refused(self, tmp_path):
+        """The CRS clause still applies to an input that actually declares one.
+
+        Test scenario:
+            A second input on the identical pixel grid but tagged EPSG:3857 is refused —
+            the CRS-blind comparison is only for inputs carrying no CRS at all.
+        """
+        a = self._band(tmp_path, "a.tif", 4.0)
+        projected = str(tmp_path / "b_3857.tif")
+        Dataset.from_array(
+            np.full((2, 2), 2.0, "float32"),
+            geo_ref=GeoReference(top_left_corner=(0, 2), cell_size=1.0, epsg=3857),
+        ).to_file(projected)
+        out = str(tmp_path / "diff.tif")
+
+        rc = main(["calc", "A - B", a, projected, out])
+
+        assert rc == 1, "a differing, present CRS must still be refused"
+        assert not os.path.exists(out)
+
     def test_preserves_a_rotated_geotransform(self, tmp_path):
         """The output copies the template's whole geotransform, skew included.
 
