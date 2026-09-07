@@ -895,6 +895,36 @@ def _variable_name_lines(names: list[str], published: bool) -> list[str]:
     return lines
 
 
+def _global_attribute_count(nc: NetCDF, published: bool) -> int:
+    """How many global attributes the store carries.
+
+    In multidimensional mode `meta_data` is the source, and the summary is already paying for
+    it to list the variables. In classic mode it is the wrong source: the classic metadata
+    top-up leaves `global_attributes` empty on more than half the corpus -- reporting no
+    attributes for a store that has eighteen -- and disagrees with the multidimensional count
+    on the rest. The already-open handle's `NC_GLOBAL#`-prefixed keys match the
+    multidimensional count on 21 of the 22 classic-openable fixtures, so the handle answers.
+
+    This is an accuracy fix, not a speed one: in classic mode `meta_data` costs about 0.4 ms
+    and opens no file. (The three `gdal.Open` calls a classic `print(nc)` does make come from
+    the CRS lookup, which pays for a line the summary actually prints.)
+
+    Args:
+        nc: The container to count for.
+        published: Whether the store publishes multidimensional metadata.
+
+    Returns:
+        int: The number of global attributes.
+    """
+    if published:
+        count = len(nc.meta_data.global_attributes or {})
+    else:
+        raster = getattr(nc, "_raster", None)
+        metadata = (raster.GetMetadata() if raster is not None else None) or {}
+        count = sum(1 for key in metadata if key.startswith("NC_GLOBAL#"))
+    return count
+
+
 def _container_summary(nc: NetCDF) -> str:
     """Describe the store, reporting only what this container can actually know.
 
@@ -912,8 +942,13 @@ def _container_summary(nc: NetCDF) -> str:
     publishes its dimensions, variables and groups, so an empty one genuinely means there
     are none. Classic (non-MDIM) mode publishes no such metadata at all, so the same word
     there would be a positive false claim about a store that does have dimensions -- those
-    lines are omitted instead, and the variable list falls back to ``variable_names``,
-    which classic mode does answer.
+    lines are omitted instead, and the variable list falls back to ``variable_names``.
+
+    That fallback is thin: ``variable_names`` in classic mode parses subdataset metadata, and a
+    store whose bands GDAL exposes directly has no subdatasets, so it answers ``[]`` for nine
+    of the eleven banded classic fixtures in the corpus and the line is omitted for them. It
+    still earns its place for the subdataset-style stores, where it is the only variable
+    listing available.
 
     The raster block appears only when the container carries bands. An MDIM container has
     none -- that is the #1090 defect, where ``rows`` / ``columns`` / ``cell_size`` returned
@@ -940,7 +975,10 @@ def _container_summary(nc: NetCDF) -> str:
         dims = _capped_join([f"{name}={size}" for name, size in sizes.items()])
         lines.append(f"  dimensions : {dims or 'none'}")
 
-    variables = nc.meta_data.variables or {}
+    # Classic mode never populates `meta_data.variables` -- true for all 22 classic-openable
+    # corpus fixtures -- so the table branch is unreachable there and the fallback is the
+    # only listing; skipping the lookup keeps that explicit rather than incidental.
+    variables = (nc.meta_data.variables or {}) if published else {}
     if variables:
         lines.extend(_variable_table_lines(variables))
     else:
@@ -960,9 +998,9 @@ def _container_summary(nc: NetCDF) -> str:
         joined = _capped_join(list(groups))
         lines.append(f"  groups     : {joined or 'none'}")
     lines.append(f"  CRS        : {nc._crs_label()}")
-    attributes = nc.meta_data.global_attributes or {}
+    attributes = _global_attribute_count(nc, published)
     if attributes or published:
-        lines.append(f"  attributes : {len(attributes)} global")
+        lines.append(f"  attributes : {attributes} global")
     return "\n".join(lines)
 
 

@@ -26,6 +26,7 @@ from pyramids.netcdf.netcdf import (
     _capped_join,
     _collapse_uniform,
     _container_summary,
+    _global_attribute_count,
     _has_georeference,
     _store_label,
     _variable_summary,
@@ -428,6 +429,30 @@ class TestContainerSummary:
             assert "more" in dims[0], f"long list was not truncated: {dims[0]}"
         finally:
             nc.close()
+
+    def test_classic_attribute_count_matches_the_multidimensional_one(self):
+        """Both modes report the same number of global attributes for the same store.
+
+        Test scenario:
+            The classic metadata top-up leaves `global_attributes` empty on more than half the
+            corpus, so the classic summary reported no attributes for a store carrying eight.
+            The open handle's `NC_GLOBAL#` keys are the accurate source.
+        """
+        path = "tests/data/netcdf/cf__48v__1d17-3d21-4d10__y-asc.nc"
+        classic = NetCDF.read_file(path, open_as_multi_dimensional=False)
+        try:
+            counted = _global_attribute_count(classic, published=False)
+        finally:
+            classic.close()
+        mdim = NetCDF.read_file(path)
+        try:
+            expected = len(mdim.meta_data.global_attributes or {})
+        finally:
+            mdim.close()
+        assert counted == expected, (
+            f"classic counted {counted} global attributes, multidim says {expected}"
+        )
+        assert counted > 0, "fixture must carry global attributes for this to bite"
 
 
 class TestCappedJoin:
