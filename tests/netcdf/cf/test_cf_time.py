@@ -21,6 +21,7 @@ from pyramids.netcdf.utils import (
     _DT64_NS_BOUNDS,
     _GREGORIAN_CUTOVER,
     _NS_LIMIT,
+    _blank_missing,
     _decode_gregorian_ns,
     _fits_datetime64_ns,
     decode_cf_time,
@@ -42,6 +43,11 @@ EPOCH_UNIT = "days since 1970-01-01"
 # paths against identical input.
 FALLBACK_UNIT = "days since 1900-01-01 00:00:00 UTC"
 FAST_UNIT = "days since 1900-01-01"
+
+# The sentence `_num2date` appends to a `"months since"` failure and to nothing else.
+# `cftime`'s own message names `360_day` for several unrelated failures, so matching on that
+# alone would not tell the hint apart from the error it decorates.
+MONTH_HINT = "A calendar month has no fixed length"
 
 
 class TestMissingValues:
@@ -82,12 +88,88 @@ class TestMissingValues:
         assert decoded[1] is None, decoded[1]
         assert decoded[0].year == 1, decoded[0]
 
-    def test_a_non_standard_calendar_blanks_it_too(self):
+    @pytest.mark.parametrize("bad", [np.nan, np.inf], ids=["nan", "inf"])
+    def test_a_non_standard_calendar_blanks_it_too(self, bad):
         """The `360_day` path returns objects as well, and must blank the same way."""
         decoded = decode_cf_time(
-            np.array([1.0, np.nan]), "days since 2000-01-01", "360_day"
+            np.array([1.0, bad]), "days since 2000-01-01", "360_day"
         )
         assert decoded[1] is None, decoded[1]
+
+    def test_an_entirely_missing_axis_decodes_to_all_nat(self):
+        """An axis with nothing but missing values still comes back as `datetime64`.
+
+        Test scenario:
+            Excluding the masked positions leaves the range check an empty array, which is
+            vacuously in range. That must read as "casts exactly" -- an all-`NaT`
+            `datetime64` axis -- and not as an out-of-range downgrade to objects, which
+            would warn about a range problem an axis holding no dates cannot have.
+        """
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            decoded = decode_cf_time(
+                np.array([np.nan, np.nan]), FALLBACK_UNIT, "standard"
+            )
+        assert decoded.dtype == np.dtype("datetime64[ns]"), decoded.dtype
+        assert np.isnat(decoded).all(), decoded
+
+    def test_a_two_dimensional_axis_keeps_its_shape(self):
+        """Blanking a masked position must not flatten a multidimensional axis.
+
+        Test scenario:
+            The range check indexes the unmasked values out, which flattens; the `NaT`
+            write must not. A 2-D axis has to come back 2-D with the mask honoured in
+            place, so the missing cell is the one that was missing.
+        """
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            decoded = decode_cf_time(
+                np.array([[0.0, np.nan], [1.0, 2.0]]), FALLBACK_UNIT, "standard"
+            )
+        assert decoded.shape == (2, 2), decoded.shape
+        assert np.isnat(decoded[0, 1]), decoded[0, 1]
+        assert not np.isnat(decoded).ravel()[[0, 2, 3]].any(), decoded
+
+    def test_a_two_dimensional_object_axis_keeps_its_shape(self):
+        """The object path blanks in place too, so its shape survives as well."""
+        with pytest.warns(UserWarning):
+            decoded = decode_cf_time(
+                np.array([[0.0, np.nan], [1.0, 2.0]]),
+                "days since 0001-01-01",
+                "standard",
+            )
+        assert decoded.shape == (2, 2), decoded.shape
+        assert decoded[0, 1] is None, decoded[0, 1]
+        assert decoded[1, 0].year == 1, decoded[1, 0]
+
+
+class TestBlankMissing:
+    """`_blank_missing` on its own, for the two invariants a decode cannot show."""
+
+    def test_an_unmasked_array_is_returned_unchanged(self):
+        """Nothing masked is the common case, and must not cost a copy.
+
+        Test scenario:
+            The mask `cftime` returns is all-`False` for a clean axis, so the helper runs
+            on every fallback decode. It has to hand the array straight back rather than
+            rebuild it.
+        """
+        decoded = np.array(["a", "b"], dtype=object)
+        result = _blank_missing(decoded, np.array([False, False]))
+        assert result is decoded, "an unmasked array should be returned as-is"
+
+    def test_the_source_array_is_not_mutated(self):
+        """Blanking works on a copy, because the caller's array aliases `cftime`'s buffer.
+
+        Test scenario:
+            `np.asarray` on a masked array is a view of its `.data`, so writing `None`
+            through it would reach into what `cftime` returned. The helper copies first;
+            the caller's array must still hold its decoded value afterwards.
+        """
+        decoded = np.array(["a", "b"], dtype=object)
+        result = _blank_missing(decoded, np.array([False, True]))
+        assert result[1] is None, result[1]
+        assert decoded[1] == "b", f"the source array was mutated: {decoded.tolist()}"
 
     def test_a_missing_value_is_not_mistaken_for_an_out_of_range_one(self):
         """A masked offset on a pre-1582 epoch must not trigger the range warning.
@@ -128,8 +210,70 @@ class TestUndecodableUnits:
         message = str(raised.value)
         assert "valid_time" in message, message
         assert "standard" in message, message
-        assert "360_day" in message, message
+        assert MONTH_HINT in message, message
         assert raised.value.__cause__ is not None, "the cftime error should be chained"
+
+    @pytest.mark.parametrize(
+        "unit",
+        ["years since 2000-01-01", "days since not-a-date"],
+        ids=["unknown-period", "unparseable-origin"],
+    )
+    def test_a_non_month_failure_carries_no_month_hint(self, unit):
+        """Every `cftime` failure names the axis, but only a month one earns the hint.
+
+        Args:
+            unit: A units string `is_cf_time_units` admits and `cftime` refuses -- a period
+                it does not recognise, and an origin it cannot parse.
+
+        Test scenario:
+            The month hint explains one specific cause. Appending it to an unrelated
+            failure -- an unknown period, an unparseable origin -- would misdiagnose it, so
+            the message must carry the units and calendar and nothing else.
+        """
+        assert is_cf_time_units(unit), "the predicate admits it"
+        with pytest.raises(ValueError, match=unit) as raised:
+            decode_cf_time(np.array([1.0, 2.0]), unit, "standard", context="t")
+        message = str(raised.value)
+        assert "'t'" in message, message
+        assert "standard" in message, message
+        assert MONTH_HINT not in message, (
+            f"the month hint does not belong here: {message}"
+        )
+        assert raised.value.__cause__ is not None, "the cftime error should be chained"
+
+    def test_the_message_omits_the_axis_when_no_context_is_given(self):
+        """Without a `context` the message names the units alone, with no empty quotes.
+
+        Test scenario:
+            `context` is optional, and a caller that has no axis name must not produce a
+            message with a stray `''` where the name would go.
+        """
+        with pytest.raises(ValueError) as raised:
+            decode_cf_time(np.array([1.0]), "months since 2000-01-01", "standard")
+        message = str(raised.value)
+        assert "time axis ('months since 2000-01-01')" in message, message
+        assert "''" not in message, (
+            f"an empty axis name leaked into the message: {message}"
+        )
+
+    @pytest.mark.parametrize(
+        "unit",
+        ["  Months since 2000-01-01  ", "MONTHS since 2000-01-01"],
+        ids=["padded-and-capitalised", "upper-case"],
+    )
+    def test_the_month_hint_survives_casing_and_padding(self, unit):
+        """A units string is stored as written, so the hint must not depend on its spelling.
+
+        Args:
+            unit: A `"months since"` axis spelled with surrounding whitespace or in capitals.
+
+        Test scenario:
+            CF does not normalise the attribute, and the same defect writes the same
+            message whichever way the store spells the unit.
+        """
+        with pytest.raises(ValueError) as raised:
+            decode_cf_time(np.array([1.0]), unit, "standard")
+        assert MONTH_HINT in str(raised.value), str(raised.value)
 
     def test_months_on_a_360_day_calendar_still_decodes(self):
         """The unit is defined on `360_day`, so that path must keep working."""

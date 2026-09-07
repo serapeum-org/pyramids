@@ -74,8 +74,12 @@ def _cftime_columns(frame: pd.DataFrame) -> list[str]:
     for name in frame.columns:
         column = frame[name]
         if column.dtype == object:
-            values = column.to_numpy()
-            if values.size and isinstance(values[0], cftime.datetime):
+            # Every element, not just the first. `cftime` picks one class per array from
+            # the units origin, so a column decoded in one go is uniform -- but a frame
+            # assembled from more than one decode need not be, and naming no column at all
+            # would put us back to re-raising pyarrow's own opaque error. This runs only
+            # after the write has already failed, so the scan costs nothing that matters.
+            if any(isinstance(value, cftime.datetime) for value in column.to_numpy()):
                 offenders.append(str(name))
     return offenders
 

@@ -18,6 +18,7 @@ rather than being gated on the interop extra.
 from __future__ import annotations
 
 import warnings
+from datetime import datetime
 from pathlib import Path
 
 import cftime
@@ -232,6 +233,20 @@ class TestCftimeColumnDetection:
             }
         )
         assert _cftime_columns(frame) == ["ancient"], _cftime_columns(frame)
+
+    def test_a_column_whose_first_value_is_a_datetime_is_still_named(self):
+        """Any `cftime` element names the column, not only a leading one.
+
+        Test scenario:
+            `cftime` picks one class per array from the units origin, so a column decoded in
+            one go is uniform and a first-element check would do. A frame assembled from more
+            than one decode need not be, and inspecting only the first value would then name
+            no column -- leaving pyarrow's own opaque error to surface instead.
+        """
+        frame = pd.DataFrame(
+            {"time": [datetime(2000, 1, 1), cftime.DatetimeGregorian(1000, 1, 1)]}
+        )
+        assert _cftime_columns(frame) == ["time"], _cftime_columns(frame)
 
     def test_an_empty_object_column_is_not_indexed(self):
         """A zero-row object column has no first element, and must not be looked at.
