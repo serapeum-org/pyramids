@@ -15,7 +15,7 @@ from a matching Python builtin (`ValueError` / `RuntimeError`) so
 existing `except ValueError:` / `except RuntimeError:` blocks keep
 working without change.
 
-The pyramids-emitted warning categories (`ContainerRasterWarning`,
+The pyramids-emitted warning categories (`ContainerRasterWarning`, `NoDataCollisionWarning`,
 `GeometryWarning`) are re-exported here too, so a caller who wants to
 filter one writes ``warnings.filterwarnings("ignore",
 category=errors.ContainerRasterWarning)`` against this public module.
@@ -40,6 +40,7 @@ from pyramids.base._errors import (
     FileFormatNotSupportedError,
     GeometryWarning,
     InvalidGeometryError,
+    NoDataCollisionWarning,
     NoDataValueError,
     OGCAPIError,
     OptionalPackageDoesNotExist,
@@ -67,6 +68,7 @@ __all__ = [
     "FileFormatNotSupportedError",
     "GeometryWarning",
     "InvalidGeometryError",
+    "NoDataCollisionWarning",
     "NoDataValueError",
     "OGCAPIError",
     "OptionalPackageDoesNotExist",

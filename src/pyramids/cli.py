@@ -53,7 +53,7 @@ import numpy as np
 from osgeo import osr
 from pandas import DataFrame
 
-from pyramids.base._errors import _PyramidsError
+from pyramids.base._errors import AlignmentError, _PyramidsError
 from pyramids.base._utils import DEFAULT_RESAMPLING
 from pyramids.base.crs import crs_spec, sr_from_user_input, sr_from_wkt
 from pyramids.base.georeference import GeoReference
@@ -535,7 +535,12 @@ def _cmd_calc(args: argparse.Namespace) -> int:
     """Handle `pyramids calc` — evaluate a band expression into a new raster.
 
     The expression operates on the input rasters bound to ``A``, ``B``, ... in
-    order; it is evaluated by a small AST whitelist, never ``eval``.
+    order; it is evaluated by a small AST whitelist, never ``eval``. Every input
+    must already sit on the first one's grid — the same rule
+    :meth:`Dataset.combine <pyramids.dataset.Dataset.combine>` applies, and like
+    it, ``calc`` does not resample. It does *not* share `combine`'s domain
+    semantics: the expression sees the raw arrays, so no-data cells take part in
+    the arithmetic, and mismatched band counts broadcast rather than raise.
 
     Args:
         args: Parsed args with `expr`, `operands` (inputs... + output), `dtype`,
@@ -548,6 +553,9 @@ def _cmd_calc(args: argparse.Namespace) -> int:
         ValueError: Fewer than one input + output, a disallowed expression, or
             the first input has no CRS — the result cannot be georeferenced and
             pyramids will not stamp a default (ARC-26).
+        AlignmentError: An input does not share the first input's grid. A later
+            input carrying no CRS at all is compared on its pixel grid alone, so
+            an untagged mask or QA layer on the template's cells still works.
     """
     if len(args.operands) < 2:
         raise ValueError("calc needs at least one input raster and an output path.")
@@ -567,17 +575,50 @@ def _cmd_calc(args: argparse.Namespace) -> int:
             "input does not have; set a CRS on the input first (e.g. "
             "gdal_edit.py -a_srs EPSG:<code> <file>) and re-run."
         )
+    # Same reason the CRS refusal above comes first: this needs only the
+    # headers, so a mismatched grid should not pay for reading every band.
+    # Without it the bound names broadcast against each other and the result is
+    # written on the first input's grid — a georeferenced answer to a question
+    # the inputs never agreed on.
+    for path, ds in zip(inputs[1:], datasets[1:]):
+        # A companion input with no CRS tag — the usual shape of a mask or QA
+        # layer written by a naive writer — is on the template's grid whenever
+        # its geotransform and size match, and `calc` accepted it before this
+        # check existed. Comparing CRSes would reject it and send the user to
+        # `pyramids warp`, which cannot warp a raster that has no source CRS.
+        # `compare_crs=False` is the same predicate with that one clause off, so
+        # the two questions cannot drift apart.
+        if not ds.crs:
+            # The carve-out assumes the untagged input is in the template's CRS.
+            # That is what `calc` did before the grid check existed, but it is an
+            # assumption, so say so rather than letting a raster that really is
+            # in another CRS be stamped with the template's in silence.
+            print(
+                f"note: {path!r} declares no CRS; assuming it is on "
+                f"{inputs[0]!r}'s grid and CRS",
+                file=sys.stderr,
+            )
+        if not template.same_grid(ds, compare_crs=bool(ds.crs)):
+            raise AlignmentError(
+                f"{path!r} does not share the grid/CRS of {inputs[0]!r}, so the "
+                "expression cannot be evaluated cell by cell; align the inputs "
+                "first (`pyramids warp`) and re-run"
+            )
     names = [chr(ord("A") + index) for index in range(len(datasets))]
     variables = {name: np.asarray(ds.read_array()) for name, ds in zip(names, datasets)}
     result = np.asarray(_safe_calc_eval(ast.parse(args.expr, mode="eval"), variables))
     if args.dtype:
         result = result.astype(args.dtype)
+    # `geo=` (the whole geotransform), not `top_left_corner` + `cell_size`:
+    # the latter collapses to a north-up square-pixel grid, silently dropping a
+    # rotation/skew or an anisotropic cell size. `from_array` is kept over
+    # `dataset_like` so the output's no-data value stays what `calc` has always
+    # written — `dataset_like` inherits the template's, which need not even fit
+    # the dtype `--dtype` asked for.
     Dataset.from_array(
         result,
         geo_ref=GeoReference(
-            top_left_corner=template.top_left_corner,
-            cell_size=template.cell_size,
-            epsg=crs_spec(template.epsg, template.crs),
+            geo=template.geotransform, epsg=crs_spec(template.epsg, template.crs)
         ),
     ).to_file(output)
     print(f"wrote {output}")

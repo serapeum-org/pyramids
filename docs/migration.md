@@ -165,6 +165,47 @@ that leaked out of an empty table lookup. Only affects code catching the old typ
 
 ### unreleased
 
+**Two rasters can now be combined directly, and `Dataset` gained arithmetic operators.** Additive — nothing that
+worked before behaves differently. `ds.combine(other, func)` runs a binary function over two aligned rasters and
+returns a `Dataset` on the left operand's grid, and `-`, `+`, `*`, `/` between two rasters are thin wrappers over
+it. Previously this meant reading both bands into numpy, computing, rebuilding a `GeoReference` from one of the
+inputs and wrapping the result with `from_array` — the step where georeferencing gets lost.
+
+- The operands must already share a grid; a mismatch raises `AlignmentError` rather than resampling. The new
+  `ds.same_grid(other)` predicate answers the question in advance, and `align()` is the explicit fix.
+- A **scalar** operand is not accepted. `ds * 2` raises `TypeError`; scalar arithmetic stays with
+  `ds.apply(lambda v: v * 2)`, which preserves the band's dtype where `combine` takes whatever `func` returns.
+- A cell that is no-data in either operand is no-data in the result. An **integer** result's sentinel is derived
+  against the values `func` computed, so no in-range number is claimed as a gap by the arithmetic that produced
+  it, and one that masked nothing declares **no** sentinel at all. A **floating** result always declares `NaN`:
+  a cell `func` computed as `NaN` (`0/0` in a normalised difference) has no value, so it is a gap and the result
+  says so. Pass `no_data_value=` to choose one, or `no_data_value=None` for no masking.
+- `sum(rasters)` works: `__radd__` absorbs the integer `0` that `sum()` seeds with, returning a copy so a
+  one-element sum never aliases its input. `0` is the only scalar accepted anywhere in the operators, and only
+  from the left — `1 + ds` still raises. That copy is a real cost: `sum()` and `math.prod()` each materialise one
+  extra full raster that `functools.reduce(operator.add, rasters)` does not, which matters near the memory limit.
+- `combine` is whole-array: both operands are read in full. For rasters near the memory limit use
+  `apply(elementwise=True)` or `read_array(chunks=)`.
+- The module-private `_same_grid` helper in `pyramids.dataset.dataset` moved to `Spatial.same_grid`, faced on
+  `Dataset`. It was never public, but anyone importing it directly must switch to `a.same_grid(b)`.
+- `<`, `<=`, `>` and `>=` between two rasters return a Byte mask (`1`/`0`, and `255` wherever either operand was
+  no-data). `==` and `!=` are **not** overridden — they stay identity-based, so `Dataset` remains usable in
+  `assert`, in sets and as a dict key; use `a.combine(b, np.equal)` for the mask.
+- `math.prod(rasters)` folds like `sum(rasters)`; both absorb their identity scalar from the left only.
+
+**`bool(ds)` now raises — replace `if ds:` with `if ds is not None:`.** Hard change. A raster holds one value per
+cell, and a comparison between two rasters is itself a raster, so there is no honest single truth value. Reduce
+explicitly — `bool(np.asarray((a >= b).read_array()).all())` — and use `is not None` for presence checks. numpy,
+pandas and xarray all refuse a truth value for the same reason.
+
+The refusal is what keeps the new comparison operators safe. Before this release `a >= b` raised `TypeError`, so
+`if a >= b:` and `sorted(rasters)` were errors; making them return a raster without also refusing a truth value
+would have turned those errors into silently wrong answers, which is why the two ship together.
+
+**`np.<ufunc>(ds, ...)` now raises `TypeError`.** Hard change. `Dataset` sets `__array_ufunc__ = None`, so numpy
+defers instead of treating a raster as an opaque object. Previously `np.array([0.0]) + ds` returned an object
+array holding a raster copy — a silent wrong answer rather than an error. Use the operators, or `combine`.
+
 **`Dataset.dtype` reports numpy's spelling, so a Byte raster reads `uint8` rather than `byte`.** Hard change,
 silent — the property still returns one string per band, but two of the catalog's names moved, two half-precision
 types became reachable, and one band type that used to return a value now raises. The names are numpy's wherever
@@ -623,6 +664,21 @@ from pyramids.base.crs import crs_from_user_input
 ```
 
 ## cli
+
+### unreleased
+
+**`pyramids calc` refuses inputs that do not share the first input's grid.** Hard change — it used to let the
+bound names broadcast against each other and wrote the answer on the first input's grid, a georeferenced result
+to a question the inputs never agreed on. Warp them onto a common grid first (`pyramids warp`). An input carrying
+no CRS tag at all is compared on its pixel grid alone, so an untagged mask or QA layer sitting on the template's
+cells is still accepted.
+
+**`pyramids calc` preserves a rotated or anisotropic geotransform.** Bug fix, silent before. The output was
+rebuilt from the template's top-left corner and cell size, which collapses to a north-up square-pixel grid: an
+input at `(100, 2, 0.5, 200, 0.25, -3)` was written out as `(100, 2, 0, 200, 0, -2)`, with its skew zeroed and
+its y-resolution changed. The whole geotransform is now copied. The output's no-data value is unchanged — still
+`-9999` whatever the inputs declare, falling back per dtype exactly as before when `-9999` is out of range (`255`
+for `uint8`, `65535` for `uint16`).
 
 ### 0.47.0
 

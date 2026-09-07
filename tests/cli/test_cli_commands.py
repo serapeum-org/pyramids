@@ -750,6 +750,158 @@ class TestCalc:
         assert rc == 0
         assert np.allclose(np.asarray(Dataset.read_file(out).read_array()), 1)
 
+    def test_operands_shorter_than_input_plus_output_are_refused(self, tmp_path):
+        """calc needs at least one input and an output path.
+
+        Test scenario:
+            A single operand exits 1 rather than treating the only path as both.
+        """
+        assert main(["calc", "A * 2", str(tmp_path / "only.tif")]) == 1
+
+    def test_more_than_twenty_six_inputs_are_refused(self, tmp_path):
+        """The expression binds A..Z, so 27 inputs have no name left.
+
+        Test scenario:
+            27 input paths exit 1 with the A..Z limit, before any file is opened.
+        """
+        inputs = [str(tmp_path / f"in{index}.tif") for index in range(27)]
+
+        assert main(["calc", "A * 2", *inputs, str(tmp_path / "out.tif")]) == 1
+
+    def test_a_crs_less_input_is_refused(self, tmp_path):
+        """A result that cannot be georeferenced is refused, not stamped with a default.
+
+        Test scenario:
+            An input with no CRS exits 1 and writes nothing (ARC-26).
+        """
+        source = _crsless_raster(tmp_path)
+        out = str(tmp_path / "out.tif")
+
+        rc = main(["calc", "A * 2", source, out])
+
+        assert rc == 1, "a CRS-less input must exit 1"
+        assert not os.path.exists(out), "nothing is written without a CRS"
+
+    def test_mismatched_grid_is_refused(self, tmp_path):
+        """calc will not broadcast inputs from different grids onto the first one's.
+
+        Test scenario:
+            A second input at a different origin exits 1 and writes nothing, instead of
+            stamping the first input's georeferencing on an answer the inputs never
+            agreed on (#1111).
+        """
+        a = self._band(tmp_path, "a.tif", 4.0)
+        elsewhere = str(tmp_path / "b.tif")
+        Dataset.from_array(
+            np.full((2, 2), 2.0, "float32"),
+            geo_ref=GeoReference(top_left_corner=(50, 2), cell_size=1.0),
+        ).to_file(elsewhere)
+        out = str(tmp_path / "diff.tif")
+
+        rc = main(["calc", "A - B", a, elsewhere, out])
+
+        assert rc == 1, "a grid mismatch must exit 1"
+        assert not os.path.exists(out), "nothing is written on a grid mismatch"
+
+    def test_an_untagged_companion_on_the_same_pixel_grid_is_accepted(self, tmp_path):
+        """A CRS-less mask or QA layer on the template's cells still works.
+
+        Test scenario:
+            The second input carries no CRS tag but the same geotransform and size.
+            Comparing CRSes would refuse it and point at `pyramids warp`, which cannot
+            warp a raster that has no source CRS — so the pixel grid alone decides.
+        """
+        a = self._band(tmp_path, "a.tif", 4.0)
+        untagged = str(tmp_path / "b_nocrs.tif")
+        out = gdal.GetDriverByName("GTiff").Create(untagged, 2, 2, 1, gdal.GDT_Float32)
+        out.SetGeoTransform((0.0, 1.0, 0.0, 2.0, 0.0, -1.0))
+        out.GetRasterBand(1).WriteArray(np.full((2, 2), 2.0, "float32"))
+        out.FlushCache()
+        out = None
+        result = str(tmp_path / "diff.tif")
+
+        rc = main(["calc", "A - B", a, untagged, result])
+
+        assert rc == 0, "an untagged input on the same grid must be accepted"
+        assert np.allclose(np.asarray(Dataset.read_file(result).read_array()), 2.0)
+
+    def test_the_output_no_data_value_does_not_follow_the_template(self, tmp_path):
+        """`calc` keeps writing -9999 rather than inheriting the template's sentinel.
+
+        Test scenario:
+            A NaN-sentinel float template with `--dtype int16`: inheriting would stamp
+            `nan` on an Int16 band, a marker no cell of that band can ever hold.
+        """
+        source = str(tmp_path / "nan.tif")
+        Dataset.from_array(
+            np.full((2, 2), 3.0, "float32"),
+            no_data_value=np.nan,
+            geo_ref=GeoReference(top_left_corner=(0, 2), cell_size=1.0, epsg=4326),
+        ).to_file(source)
+        out = str(tmp_path / "doubled.tif")
+
+        rc = main(["calc", "A * 2", source, out, "--dtype", "int16"])
+
+        assert rc == 0
+        written = Dataset.read_file(out)
+        assert written.dtype == ["int16"]
+        assert written.no_data_value[0] == -9999, "the sentinel must fit the band"
+
+    def test_a_dtype_that_cannot_hold_minus_9999_falls_back(self, tmp_path):
+        """`-9999` is the intent, but an unsigned band cannot hold it.
+
+        Test scenario:
+            `--dtype uint8` writes 255, the dtype's own fallback, rather than a sentinel
+            that does not fit. The docs state both halves of this rule.
+        """
+        source = self._band(tmp_path, "a.tif", 4.0)
+        out = str(tmp_path / "byte.tif")
+
+        rc = main(["calc", "A * 2", source, out, "--dtype", "uint8"])
+
+        assert rc == 0
+        assert Dataset.read_file(out).no_data_value[0] == 255
+
+    def test_an_input_with_a_different_present_crs_is_refused(self, tmp_path):
+        """The CRS clause still applies to an input that actually declares one.
+
+        Test scenario:
+            A second input on the identical pixel grid but tagged EPSG:3857 is refused —
+            the CRS-blind comparison is only for inputs carrying no CRS at all.
+        """
+        a = self._band(tmp_path, "a.tif", 4.0)
+        projected = str(tmp_path / "b_3857.tif")
+        Dataset.from_array(
+            np.full((2, 2), 2.0, "float32"),
+            geo_ref=GeoReference(top_left_corner=(0, 2), cell_size=1.0, epsg=3857),
+        ).to_file(projected)
+        out = str(tmp_path / "diff.tif")
+
+        rc = main(["calc", "A - B", a, projected, out])
+
+        assert rc == 1, "a differing, present CRS must still be refused"
+        assert not os.path.exists(out)
+
+    def test_preserves_a_rotated_geotransform(self, tmp_path):
+        """The output copies the template's whole geotransform, skew included.
+
+        Test scenario:
+            A rotated, anisotropic input keeps all six geotransform terms; rebuilding
+            from top-left + cell size used to flatten them to a north-up square grid.
+        """
+        source = str(tmp_path / "rot.tif")
+        geotransform = (100.0, 2.0, 0.5, 200.0, 0.25, -3.0)
+        Dataset.from_array(
+            np.full((4, 4), 5.0, "float32"),
+            geo_ref=GeoReference(geo=geotransform, epsg=4326),
+        ).to_file(source)
+        out = str(tmp_path / "rot_out.tif")
+
+        rc = main(["calc", "A * 2", source, out])
+
+        assert rc == 0
+        assert Dataset.read_file(out).geotransform == geotransform
+
     def test_disallowed_expression_rejected(self, src_raster, tmp_path):
         """A hostile expression is rejected and writes nothing.
 
