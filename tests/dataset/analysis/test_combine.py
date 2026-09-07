@@ -8,6 +8,7 @@ a grid mismatch is refused rather than broadcast onto the left operand's georefe
 from __future__ import annotations
 
 import math
+import operator
 
 import numpy as np
 import pytest
@@ -57,14 +58,21 @@ class TestCombine:
         assert np.allclose(np.asarray(canopy.read_array()), 8.0)
 
     @pytest.mark.parametrize(
-        ("operator_name", "expected"),
-        [("sub", 8.0), ("add", 52.0), ("mul", 660.0), ("truediv", 30.0 / 22.0)],
+        ("apply_operator", "expected"),
+        [
+            (operator.sub, 8.0),
+            (operator.add, 52.0),
+            (operator.mul, 660.0),
+            (operator.truediv, 30.0 / 22.0),
+        ],
+        ids=["sub", "add", "mul", "truediv"],
     )
-    def test_arithmetic_operators_combine_cell_by_cell(self, operator_name, expected):
+    def test_arithmetic_operators_combine_cell_by_cell(self, apply_operator, expected):
         """`-`, `+`, `*` and `/` all route through combine.
 
         Args:
-            operator_name: Name of the dunder under test.
+            apply_operator: The operator under test, applied through `operator` so the
+                binary-op protocol runs rather than the dunder being called directly.
             expected: The value every output cell must hold.
 
         Test scenario:
@@ -73,9 +81,9 @@ class TestCombine:
         surface = _raster(np.full((5, 5), 30.0, "float32"))
         bare = _raster(np.full((5, 5), 22.0, "float32"))
 
-        result = getattr(surface, f"__{operator_name}__")(bare)
+        result = apply_operator(surface, bare)
 
-        assert isinstance(result, Dataset), f"__{operator_name}__ must return a Dataset"
+        assert isinstance(result, Dataset), "an operator must return a Dataset"
         assert np.allclose(np.asarray(result.read_array()), expected)
 
     def test_a_no_data_cell_on_either_side_stays_no_data(self):
