@@ -6754,8 +6754,7 @@ object), composes the path from the parent group's full name and <code>fallback_
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/netcdf/utils.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-59">59</a></span>
-<span class="normal"><a href="#__codelineno-0-60">60</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-60">60</a></span>
 <span class="normal"><a href="#__codelineno-0-61">61</a></span>
 <span class="normal"><a href="#__codelineno-0-62">62</a></span>
 <span class="normal"><a href="#__codelineno-0-63">63</a></span>
@@ -6774,27 +6773,28 @@ object), composes the path from the parent group's full name and <code>fallback_
 <span class="normal"><a href="#__codelineno-0-76">76</a></span>
 <span class="normal"><a href="#__codelineno-0-77">77</a></span>
 <span class="normal"><a href="#__codelineno-0-78">78</a></span>
-<span class="normal"><a href="#__codelineno-0-79">79</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-59" name="__codelineno-0-59"></a><span class="k">def</span><span class="w"> </span><span class="nf">resolve_full_name</span><span class="p">(</span><span class="n">obj</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">group_full_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">fallback_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<a id="__codelineno-0-60" name="__codelineno-0-60"></a><span class="w">    </span><span class="sd">"""Full hierarchical name of a GDAL dimension / array, with a qualified fallback.</span>
-<a id="__codelineno-0-61" name="__codelineno-0-61"></a>
-<a id="__codelineno-0-62" name="__codelineno-0-62"></a><span class="sd">    Tries ``obj.GetFullName()``; when that raises (some drivers don't expose it on every</span>
-<a id="__codelineno-0-63" name="__codelineno-0-63"></a><span class="sd">    object), composes the path from the parent group's full name and ``fallback_name`` —</span>
-<a id="__codelineno-0-64" name="__codelineno-0-64"></a><span class="sd">    ``"&lt;group&gt;/&lt;name&gt;"``, or ``"/&lt;name&gt;"`` when the parent is the root group.</span>
-<a id="__codelineno-0-65" name="__codelineno-0-65"></a>
-<a id="__codelineno-0-66" name="__codelineno-0-66"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-67" name="__codelineno-0-67"></a><span class="sd">        obj: A GDAL dimension or MDArray.</span>
-<a id="__codelineno-0-68" name="__codelineno-0-68"></a><span class="sd">        group_full_name: Full name of the parent group (e.g. ``"/"`` or ``"/grp"``).</span>
-<a id="__codelineno-0-69" name="__codelineno-0-69"></a><span class="sd">        fallback_name: The object's short name, used to build the fallback path.</span>
-<a id="__codelineno-0-70" name="__codelineno-0-70"></a>
-<a id="__codelineno-0-71" name="__codelineno-0-71"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-72" name="__codelineno-0-72"></a><span class="sd">        The resolved full-name string.</span>
-<a id="__codelineno-0-73" name="__codelineno-0-73"></a><span class="sd">    """</span>
-<a id="__codelineno-0-74" name="__codelineno-0-74"></a>    <span class="k">try</span><span class="p">:</span>
-<a id="__codelineno-0-75" name="__codelineno-0-75"></a>        <span class="k">return</span> <span class="n">cast</span><span class="p">(</span><span class="s2">"str"</span><span class="p">,</span> <span class="n">obj</span><span class="o">.</span><span class="n">GetFullName</span><span class="p">())</span>
-<a id="__codelineno-0-76" name="__codelineno-0-76"></a>    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
-<a id="__codelineno-0-77" name="__codelineno-0-77"></a>        <span class="k">if</span> <span class="n">group_full_name</span> <span class="o">!=</span> <span class="s2">"/"</span><span class="p">:</span>
-<a id="__codelineno-0-78" name="__codelineno-0-78"></a>            <span class="k">return</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">group_full_name</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">fallback_name</span><span class="si">}</span><span class="s2">"</span>
-<a id="__codelineno-0-79" name="__codelineno-0-79"></a>        <span class="k">return</span> <span class="sa">f</span><span class="s2">"/</span><span class="si">{</span><span class="n">fallback_name</span><span class="si">}</span><span class="s2">"</span>
+<span class="normal"><a href="#__codelineno-0-79">79</a></span>
+<span class="normal"><a href="#__codelineno-0-80">80</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-60" name="__codelineno-0-60"></a><span class="k">def</span><span class="w"> </span><span class="nf">resolve_full_name</span><span class="p">(</span><span class="n">obj</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">group_full_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">fallback_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<a id="__codelineno-0-61" name="__codelineno-0-61"></a><span class="w">    </span><span class="sd">"""Full hierarchical name of a GDAL dimension / array, with a qualified fallback.</span>
+<a id="__codelineno-0-62" name="__codelineno-0-62"></a>
+<a id="__codelineno-0-63" name="__codelineno-0-63"></a><span class="sd">    Tries ``obj.GetFullName()``; when that raises (some drivers don't expose it on every</span>
+<a id="__codelineno-0-64" name="__codelineno-0-64"></a><span class="sd">    object), composes the path from the parent group's full name and ``fallback_name`` —</span>
+<a id="__codelineno-0-65" name="__codelineno-0-65"></a><span class="sd">    ``"&lt;group&gt;/&lt;name&gt;"``, or ``"/&lt;name&gt;"`` when the parent is the root group.</span>
+<a id="__codelineno-0-66" name="__codelineno-0-66"></a>
+<a id="__codelineno-0-67" name="__codelineno-0-67"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-68" name="__codelineno-0-68"></a><span class="sd">        obj: A GDAL dimension or MDArray.</span>
+<a id="__codelineno-0-69" name="__codelineno-0-69"></a><span class="sd">        group_full_name: Full name of the parent group (e.g. ``"/"`` or ``"/grp"``).</span>
+<a id="__codelineno-0-70" name="__codelineno-0-70"></a><span class="sd">        fallback_name: The object's short name, used to build the fallback path.</span>
+<a id="__codelineno-0-71" name="__codelineno-0-71"></a>
+<a id="__codelineno-0-72" name="__codelineno-0-72"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-73" name="__codelineno-0-73"></a><span class="sd">        The resolved full-name string.</span>
+<a id="__codelineno-0-74" name="__codelineno-0-74"></a><span class="sd">    """</span>
+<a id="__codelineno-0-75" name="__codelineno-0-75"></a>    <span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-0-76" name="__codelineno-0-76"></a>        <span class="k">return</span> <span class="n">cast</span><span class="p">(</span><span class="s2">"str"</span><span class="p">,</span> <span class="n">obj</span><span class="o">.</span><span class="n">GetFullName</span><span class="p">())</span>
+<a id="__codelineno-0-77" name="__codelineno-0-77"></a>    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+<a id="__codelineno-0-78" name="__codelineno-0-78"></a>        <span class="k">if</span> <span class="n">group_full_name</span> <span class="o">!=</span> <span class="s2">"/"</span><span class="p">:</span>
+<a id="__codelineno-0-79" name="__codelineno-0-79"></a>            <span class="k">return</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">group_full_name</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">fallback_name</span><span class="si">}</span><span class="s2">"</span>
+<a id="__codelineno-0-80" name="__codelineno-0-80"></a>        <span class="k">return</span> <span class="sa">f</span><span class="s2">"/</span><span class="si">{</span><span class="n">fallback_name</span><span class="si">}</span><span class="s2">"</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -6980,8 +6980,7 @@ uses an unsupported time unit.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/netcdf/utils.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-553">553</a></span>
-<span class="normal"><a href="#__codelineno-0-554">554</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-554">554</a></span>
 <span class="normal"><a href="#__codelineno-0-555">555</a></span>
 <span class="normal"><a href="#__codelineno-0-556">556</a></span>
 <span class="normal"><a href="#__codelineno-0-557">557</a></span>
@@ -7081,108 +7080,109 @@ uses an unsupported time unit.</p>
 <span class="normal"><a href="#__codelineno-0-651">651</a></span>
 <span class="normal"><a href="#__codelineno-0-652">652</a></span>
 <span class="normal"><a href="#__codelineno-0-653">653</a></span>
-<span class="normal"><a href="#__codelineno-0-654">654</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-553" name="__codelineno-0-553"></a><span class="k">def</span><span class="w"> </span><span class="nf">create_time_conversion_func</span><span class="p">(</span>
-<a id="__codelineno-0-554" name="__codelineno-0-554"></a>    <span class="n">units</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-<a id="__codelineno-0-555" name="__codelineno-0-555"></a>    <span class="n">out_format</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"%Y-%m-</span><span class="si">%d</span><span class="s2"> %H:%M:%S"</span><span class="p">,</span>
-<a id="__codelineno-0-556" name="__codelineno-0-556"></a>    <span class="n">calendar</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"standard"</span><span class="p">,</span>
-<a id="__codelineno-0-557" name="__codelineno-0-557"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Callable</span><span class="p">:</span>
-<a id="__codelineno-0-558" name="__codelineno-0-558"></a><span class="w">    </span><span class="sd">"""Create a converter that maps numeric CF time offsets to date strings.</span>
-<a id="__codelineno-0-559" name="__codelineno-0-559"></a>
-<a id="__codelineno-0-560" name="__codelineno-0-560"></a><span class="sd">    Parses CF-compliant time unit strings (e.g.,</span>
-<a id="__codelineno-0-561" name="__codelineno-0-561"></a><span class="sd">    `"days since 1979-01-01"`) and returns a callable that</span>
-<a id="__codelineno-0-562" name="__codelineno-0-562"></a><span class="sd">    converts numeric offsets to formatted date strings.</span>
-<a id="__codelineno-0-563" name="__codelineno-0-563"></a>
-<a id="__codelineno-0-564" name="__codelineno-0-564"></a><span class="sd">    For standard/proleptic_gregorian calendars, uses Python's</span>
-<a id="__codelineno-0-565" name="__codelineno-0-565"></a><span class="sd">    `datetime` + `timedelta`. For non-standard calendars</span>
-<a id="__codelineno-0-566" name="__codelineno-0-566"></a><span class="sd">    (`360_day`, `noleap`, `all_leap`, `julian`), uses</span>
-<a id="__codelineno-0-567" name="__codelineno-0-567"></a><span class="sd">    `cftime.num2date()` (optional dependency).</span>
-<a id="__codelineno-0-568" name="__codelineno-0-568"></a>
-<a id="__codelineno-0-569" name="__codelineno-0-569"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-570" name="__codelineno-0-570"></a><span class="sd">        units: CF time unit string in the format</span>
-<a id="__codelineno-0-571" name="__codelineno-0-571"></a><span class="sd">            `"&lt;unit&gt; since &lt;origin&gt;"`. Supported units are days, hours,</span>
-<a id="__codelineno-0-572" name="__codelineno-0-572"></a><span class="sd">            minutes, seconds, milliseconds, microseconds, and nanoseconds.</span>
-<a id="__codelineno-0-573" name="__codelineno-0-573"></a><span class="sd">            Sub-second units decode at microsecond resolution (Python</span>
-<a id="__codelineno-0-574" name="__codelineno-0-574"></a><span class="sd">            `datetime`'s finest), so a nanosecond axis is rounded to the</span>
-<a id="__codelineno-0-575" name="__codelineno-0-575"></a><span class="sd">            nearest microsecond — exact for date/second output, and visible</span>
-<a id="__codelineno-0-576" name="__codelineno-0-576"></a><span class="sd">            only in a `%f` (microsecond) `out_format`.</span>
-<a id="__codelineno-0-577" name="__codelineno-0-577"></a><span class="sd">        out_format: strftime format for the output strings.</span>
-<a id="__codelineno-0-578" name="__codelineno-0-578"></a><span class="sd">            Defaults to `"%Y-%m-%d %H:%M:%S"`.</span>
-<a id="__codelineno-0-579" name="__codelineno-0-579"></a><span class="sd">        calendar: CF calendar type. Defaults to `"standard"`.</span>
-<a id="__codelineno-0-580" name="__codelineno-0-580"></a><span class="sd">            Non-standard calendars are decoded with `cftime` (a core</span>
-<a id="__codelineno-0-581" name="__codelineno-0-581"></a><span class="sd">            dependency).</span>
-<a id="__codelineno-0-582" name="__codelineno-0-582"></a>
-<a id="__codelineno-0-583" name="__codelineno-0-583"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-584" name="__codelineno-0-584"></a><span class="sd">        Callable: A function that takes a numeric value and</span>
-<a id="__codelineno-0-585" name="__codelineno-0-585"></a><span class="sd">            returns a formatted date string.</span>
-<a id="__codelineno-0-586" name="__codelineno-0-586"></a>
-<a id="__codelineno-0-587" name="__codelineno-0-587"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-588" name="__codelineno-0-588"></a><span class="sd">        ValueError: If the unit string cannot be parsed or</span>
-<a id="__codelineno-0-589" name="__codelineno-0-589"></a><span class="sd">            uses an unsupported time unit.</span>
-<a id="__codelineno-0-590" name="__codelineno-0-590"></a>
-<a id="__codelineno-0-591" name="__codelineno-0-591"></a><span class="sd">    Examples:</span>
-<a id="__codelineno-0-592" name="__codelineno-0-592"></a><span class="sd">        - Convert day offsets from a 1979 origin:</span>
-<a id="__codelineno-0-593" name="__codelineno-0-593"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-594" name="__codelineno-0-594"></a><span class="sd">            &gt;&gt;&gt; from pyramids.netcdf.utils import (</span>
-<a id="__codelineno-0-595" name="__codelineno-0-595"></a><span class="sd">            ...     create_time_conversion_func,</span>
-<a id="__codelineno-0-596" name="__codelineno-0-596"></a><span class="sd">            ... )</span>
-<a id="__codelineno-0-597" name="__codelineno-0-597"></a><span class="sd">            &gt;&gt;&gt; convert = create_time_conversion_func(</span>
-<a id="__codelineno-0-598" name="__codelineno-0-598"></a><span class="sd">            ...     "days since 1979-01-01"</span>
-<a id="__codelineno-0-599" name="__codelineno-0-599"></a><span class="sd">            ... )</span>
-<a id="__codelineno-0-600" name="__codelineno-0-600"></a><span class="sd">            &gt;&gt;&gt; convert(0)</span>
-<a id="__codelineno-0-601" name="__codelineno-0-601"></a><span class="sd">            '1979-01-01 00:00:00'</span>
-<a id="__codelineno-0-602" name="__codelineno-0-602"></a><span class="sd">            &gt;&gt;&gt; convert(365)</span>
-<a id="__codelineno-0-603" name="__codelineno-0-603"></a><span class="sd">            '1980-01-01 00:00:00'</span>
-<a id="__codelineno-0-604" name="__codelineno-0-604"></a>
-<a id="__codelineno-0-605" name="__codelineno-0-605"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-606" name="__codelineno-0-606"></a>
-<a id="__codelineno-0-607" name="__codelineno-0-607"></a><span class="sd">        - Use hour-based units with a custom format:</span>
-<a id="__codelineno-0-608" name="__codelineno-0-608"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-609" name="__codelineno-0-609"></a><span class="sd">            &gt;&gt;&gt; convert = create_time_conversion_func(</span>
-<a id="__codelineno-0-610" name="__codelineno-0-610"></a><span class="sd">            ...     "hours since 2000-01-01",</span>
-<a id="__codelineno-0-611" name="__codelineno-0-611"></a><span class="sd">            ...     out_format="%Y-%m-%d",</span>
-<a id="__codelineno-0-612" name="__codelineno-0-612"></a><span class="sd">            ... )</span>
-<a id="__codelineno-0-613" name="__codelineno-0-613"></a><span class="sd">            &gt;&gt;&gt; convert(24)</span>
-<a id="__codelineno-0-614" name="__codelineno-0-614"></a><span class="sd">            '2000-01-02'</span>
-<a id="__codelineno-0-615" name="__codelineno-0-615"></a><span class="sd">            &gt;&gt;&gt; convert(0)</span>
-<a id="__codelineno-0-616" name="__codelineno-0-616"></a><span class="sd">            '2000-01-01'</span>
-<a id="__codelineno-0-617" name="__codelineno-0-617"></a>
-<a id="__codelineno-0-618" name="__codelineno-0-618"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-619" name="__codelineno-0-619"></a>
-<a id="__codelineno-0-620" name="__codelineno-0-620"></a><span class="sd">    See Also:</span>
-<a id="__codelineno-0-621" name="__codelineno-0-621"></a><span class="sd">        _parse_units_origin: Parses the unit string.</span>
-<a id="__codelineno-0-622" name="__codelineno-0-622"></a><span class="sd">    """</span>
-<a id="__codelineno-0-623" name="__codelineno-0-623"></a>    <span class="n">converter</span> <span class="o">=</span> <span class="kc">None</span>
-<a id="__codelineno-0-624" name="__codelineno-0-624"></a>
-<a id="__codelineno-0-625" name="__codelineno-0-625"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">_is_standard_calendar</span><span class="p">(</span><span class="n">calendar</span><span class="p">):</span>
-<a id="__codelineno-0-626" name="__codelineno-0-626"></a>
-<a id="__codelineno-0-627" name="__codelineno-0-627"></a>        <span class="k">def</span><span class="w"> </span><span class="nf">convert_cftime</span><span class="p">(</span><span class="n">value</span><span class="p">):</span>
-<a id="__codelineno-0-628" name="__codelineno-0-628"></a>            <span class="n">dt</span> <span class="o">=</span> <span class="n">cftime</span><span class="o">.</span><span class="n">num2date</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">units</span><span class="p">,</span> <span class="n">calendar</span><span class="p">)</span>
-<a id="__codelineno-0-629" name="__codelineno-0-629"></a>            <span class="k">return</span> <span class="n">dt</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="n">out_format</span><span class="p">)</span>
-<a id="__codelineno-0-630" name="__codelineno-0-630"></a>
-<a id="__codelineno-0-631" name="__codelineno-0-631"></a>        <span class="n">converter</span> <span class="o">=</span> <span class="n">convert_cftime</span>
-<a id="__codelineno-0-632" name="__codelineno-0-632"></a>    <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-633" name="__codelineno-0-633"></a>        <span class="n">unit</span><span class="p">,</span> <span class="n">origin</span> <span class="o">=</span> <span class="n">_parse_units_origin</span><span class="p">(</span><span class="n">units</span><span class="p">)</span>
-<a id="__codelineno-0-634" name="__codelineno-0-634"></a>
-<a id="__codelineno-0-635" name="__codelineno-0-635"></a>        <span class="c1"># datetime/timedelta is microsecond-resolution, so the offset is resolved as</span>
-<a id="__codelineno-0-636" name="__codelineno-0-636"></a>        <span class="c1"># ``origin + timedelta(microseconds=value * factor)``: day/hour/minute/second</span>
-<a id="__codelineno-0-637" name="__codelineno-0-637"></a>        <span class="c1"># stay exact over any realistic date range, while the sub-second units (notably</span>
-<a id="__codelineno-0-638" name="__codelineno-0-638"></a>        <span class="c1"># the ``nanoseconds`` axis DatasetCollection.to_netcdf writes) round to the</span>
-<a id="__codelineno-0-639" name="__codelineno-0-639"></a>        <span class="c1"># nearest microsecond — exact for date/second output, with any residual only in</span>
-<a id="__codelineno-0-640" name="__codelineno-0-640"></a>        <span class="c1"># the microsecond digit of a ``%f`` format. The scale comes from the shared</span>
-<a id="__codelineno-0-641" name="__codelineno-0-641"></a>        <span class="c1"># nanosecond table so this reader and ``decode_cf_time`` cannot drift on which</span>
-<a id="__codelineno-0-642" name="__codelineno-0-642"></a>        <span class="c1"># unit names they accept.</span>
-<a id="__codelineno-0-643" name="__codelineno-0-643"></a>        <span class="n">nanos</span> <span class="o">=</span> <span class="n">_ns_per_cf_unit</span><span class="p">(</span><span class="n">unit</span><span class="p">)</span>
-<a id="__codelineno-0-644" name="__codelineno-0-644"></a>        <span class="k">if</span> <span class="n">nanos</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-645" name="__codelineno-0-645"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Unsupported time unit: </span><span class="si">{</span><span class="n">unit</span><span class="si">!r}</span><span class="s2">"</span><span class="p">)</span>
-<a id="__codelineno-0-646" name="__codelineno-0-646"></a>        <span class="n">factor</span> <span class="o">=</span> <span class="n">nanos</span> <span class="o">/</span> <span class="mf">1000.0</span>
-<a id="__codelineno-0-647" name="__codelineno-0-647"></a>
-<a id="__codelineno-0-648" name="__codelineno-0-648"></a>        <span class="k">def</span><span class="w"> </span><span class="nf">convert</span><span class="p">(</span><span class="n">value</span><span class="p">):</span>
-<a id="__codelineno-0-649" name="__codelineno-0-649"></a>            <span class="n">dt</span> <span class="o">=</span> <span class="n">origin</span> <span class="o">+</span> <span class="n">timedelta</span><span class="p">(</span><span class="n">microseconds</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="o">*</span> <span class="n">factor</span><span class="p">)</span>
-<a id="__codelineno-0-650" name="__codelineno-0-650"></a>            <span class="k">return</span> <span class="n">dt</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="n">out_format</span><span class="p">)</span>
-<a id="__codelineno-0-651" name="__codelineno-0-651"></a>
-<a id="__codelineno-0-652" name="__codelineno-0-652"></a>        <span class="n">converter</span> <span class="o">=</span> <span class="n">convert</span>
-<a id="__codelineno-0-653" name="__codelineno-0-653"></a>
-<a id="__codelineno-0-654" name="__codelineno-0-654"></a>    <span class="k">return</span> <span class="n">converter</span>
+<span class="normal"><a href="#__codelineno-0-654">654</a></span>
+<span class="normal"><a href="#__codelineno-0-655">655</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-554" name="__codelineno-0-554"></a><span class="k">def</span><span class="w"> </span><span class="nf">create_time_conversion_func</span><span class="p">(</span>
+<a id="__codelineno-0-555" name="__codelineno-0-555"></a>    <span class="n">units</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+<a id="__codelineno-0-556" name="__codelineno-0-556"></a>    <span class="n">out_format</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"%Y-%m-</span><span class="si">%d</span><span class="s2"> %H:%M:%S"</span><span class="p">,</span>
+<a id="__codelineno-0-557" name="__codelineno-0-557"></a>    <span class="n">calendar</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"standard"</span><span class="p">,</span>
+<a id="__codelineno-0-558" name="__codelineno-0-558"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Callable</span><span class="p">:</span>
+<a id="__codelineno-0-559" name="__codelineno-0-559"></a><span class="w">    </span><span class="sd">"""Create a converter that maps numeric CF time offsets to date strings.</span>
+<a id="__codelineno-0-560" name="__codelineno-0-560"></a>
+<a id="__codelineno-0-561" name="__codelineno-0-561"></a><span class="sd">    Parses CF-compliant time unit strings (e.g.,</span>
+<a id="__codelineno-0-562" name="__codelineno-0-562"></a><span class="sd">    `"days since 1979-01-01"`) and returns a callable that</span>
+<a id="__codelineno-0-563" name="__codelineno-0-563"></a><span class="sd">    converts numeric offsets to formatted date strings.</span>
+<a id="__codelineno-0-564" name="__codelineno-0-564"></a>
+<a id="__codelineno-0-565" name="__codelineno-0-565"></a><span class="sd">    For standard/proleptic_gregorian calendars, uses Python's</span>
+<a id="__codelineno-0-566" name="__codelineno-0-566"></a><span class="sd">    `datetime` + `timedelta`. For non-standard calendars</span>
+<a id="__codelineno-0-567" name="__codelineno-0-567"></a><span class="sd">    (`360_day`, `noleap`, `all_leap`, `julian`), uses</span>
+<a id="__codelineno-0-568" name="__codelineno-0-568"></a><span class="sd">    `cftime.num2date()` (optional dependency).</span>
+<a id="__codelineno-0-569" name="__codelineno-0-569"></a>
+<a id="__codelineno-0-570" name="__codelineno-0-570"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-571" name="__codelineno-0-571"></a><span class="sd">        units: CF time unit string in the format</span>
+<a id="__codelineno-0-572" name="__codelineno-0-572"></a><span class="sd">            `"&lt;unit&gt; since &lt;origin&gt;"`. Supported units are days, hours,</span>
+<a id="__codelineno-0-573" name="__codelineno-0-573"></a><span class="sd">            minutes, seconds, milliseconds, microseconds, and nanoseconds.</span>
+<a id="__codelineno-0-574" name="__codelineno-0-574"></a><span class="sd">            Sub-second units decode at microsecond resolution (Python</span>
+<a id="__codelineno-0-575" name="__codelineno-0-575"></a><span class="sd">            `datetime`'s finest), so a nanosecond axis is rounded to the</span>
+<a id="__codelineno-0-576" name="__codelineno-0-576"></a><span class="sd">            nearest microsecond — exact for date/second output, and visible</span>
+<a id="__codelineno-0-577" name="__codelineno-0-577"></a><span class="sd">            only in a `%f` (microsecond) `out_format`.</span>
+<a id="__codelineno-0-578" name="__codelineno-0-578"></a><span class="sd">        out_format: strftime format for the output strings.</span>
+<a id="__codelineno-0-579" name="__codelineno-0-579"></a><span class="sd">            Defaults to `"%Y-%m-%d %H:%M:%S"`.</span>
+<a id="__codelineno-0-580" name="__codelineno-0-580"></a><span class="sd">        calendar: CF calendar type. Defaults to `"standard"`.</span>
+<a id="__codelineno-0-581" name="__codelineno-0-581"></a><span class="sd">            Non-standard calendars are decoded with `cftime` (a core</span>
+<a id="__codelineno-0-582" name="__codelineno-0-582"></a><span class="sd">            dependency).</span>
+<a id="__codelineno-0-583" name="__codelineno-0-583"></a>
+<a id="__codelineno-0-584" name="__codelineno-0-584"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-585" name="__codelineno-0-585"></a><span class="sd">        Callable: A function that takes a numeric value and</span>
+<a id="__codelineno-0-586" name="__codelineno-0-586"></a><span class="sd">            returns a formatted date string.</span>
+<a id="__codelineno-0-587" name="__codelineno-0-587"></a>
+<a id="__codelineno-0-588" name="__codelineno-0-588"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-589" name="__codelineno-0-589"></a><span class="sd">        ValueError: If the unit string cannot be parsed or</span>
+<a id="__codelineno-0-590" name="__codelineno-0-590"></a><span class="sd">            uses an unsupported time unit.</span>
+<a id="__codelineno-0-591" name="__codelineno-0-591"></a>
+<a id="__codelineno-0-592" name="__codelineno-0-592"></a><span class="sd">    Examples:</span>
+<a id="__codelineno-0-593" name="__codelineno-0-593"></a><span class="sd">        - Convert day offsets from a 1979 origin:</span>
+<a id="__codelineno-0-594" name="__codelineno-0-594"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-595" name="__codelineno-0-595"></a><span class="sd">            &gt;&gt;&gt; from pyramids.netcdf.utils import (</span>
+<a id="__codelineno-0-596" name="__codelineno-0-596"></a><span class="sd">            ...     create_time_conversion_func,</span>
+<a id="__codelineno-0-597" name="__codelineno-0-597"></a><span class="sd">            ... )</span>
+<a id="__codelineno-0-598" name="__codelineno-0-598"></a><span class="sd">            &gt;&gt;&gt; convert = create_time_conversion_func(</span>
+<a id="__codelineno-0-599" name="__codelineno-0-599"></a><span class="sd">            ...     "days since 1979-01-01"</span>
+<a id="__codelineno-0-600" name="__codelineno-0-600"></a><span class="sd">            ... )</span>
+<a id="__codelineno-0-601" name="__codelineno-0-601"></a><span class="sd">            &gt;&gt;&gt; convert(0)</span>
+<a id="__codelineno-0-602" name="__codelineno-0-602"></a><span class="sd">            '1979-01-01 00:00:00'</span>
+<a id="__codelineno-0-603" name="__codelineno-0-603"></a><span class="sd">            &gt;&gt;&gt; convert(365)</span>
+<a id="__codelineno-0-604" name="__codelineno-0-604"></a><span class="sd">            '1980-01-01 00:00:00'</span>
+<a id="__codelineno-0-605" name="__codelineno-0-605"></a>
+<a id="__codelineno-0-606" name="__codelineno-0-606"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-607" name="__codelineno-0-607"></a>
+<a id="__codelineno-0-608" name="__codelineno-0-608"></a><span class="sd">        - Use hour-based units with a custom format:</span>
+<a id="__codelineno-0-609" name="__codelineno-0-609"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-610" name="__codelineno-0-610"></a><span class="sd">            &gt;&gt;&gt; convert = create_time_conversion_func(</span>
+<a id="__codelineno-0-611" name="__codelineno-0-611"></a><span class="sd">            ...     "hours since 2000-01-01",</span>
+<a id="__codelineno-0-612" name="__codelineno-0-612"></a><span class="sd">            ...     out_format="%Y-%m-%d",</span>
+<a id="__codelineno-0-613" name="__codelineno-0-613"></a><span class="sd">            ... )</span>
+<a id="__codelineno-0-614" name="__codelineno-0-614"></a><span class="sd">            &gt;&gt;&gt; convert(24)</span>
+<a id="__codelineno-0-615" name="__codelineno-0-615"></a><span class="sd">            '2000-01-02'</span>
+<a id="__codelineno-0-616" name="__codelineno-0-616"></a><span class="sd">            &gt;&gt;&gt; convert(0)</span>
+<a id="__codelineno-0-617" name="__codelineno-0-617"></a><span class="sd">            '2000-01-01'</span>
+<a id="__codelineno-0-618" name="__codelineno-0-618"></a>
+<a id="__codelineno-0-619" name="__codelineno-0-619"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-620" name="__codelineno-0-620"></a>
+<a id="__codelineno-0-621" name="__codelineno-0-621"></a><span class="sd">    See Also:</span>
+<a id="__codelineno-0-622" name="__codelineno-0-622"></a><span class="sd">        _parse_units_origin: Parses the unit string.</span>
+<a id="__codelineno-0-623" name="__codelineno-0-623"></a><span class="sd">    """</span>
+<a id="__codelineno-0-624" name="__codelineno-0-624"></a>    <span class="n">converter</span> <span class="o">=</span> <span class="kc">None</span>
+<a id="__codelineno-0-625" name="__codelineno-0-625"></a>
+<a id="__codelineno-0-626" name="__codelineno-0-626"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">_is_standard_calendar</span><span class="p">(</span><span class="n">calendar</span><span class="p">):</span>
+<a id="__codelineno-0-627" name="__codelineno-0-627"></a>
+<a id="__codelineno-0-628" name="__codelineno-0-628"></a>        <span class="k">def</span><span class="w"> </span><span class="nf">convert_cftime</span><span class="p">(</span><span class="n">value</span><span class="p">):</span>
+<a id="__codelineno-0-629" name="__codelineno-0-629"></a>            <span class="n">dt</span> <span class="o">=</span> <span class="n">cftime</span><span class="o">.</span><span class="n">num2date</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">units</span><span class="p">,</span> <span class="n">calendar</span><span class="p">)</span>
+<a id="__codelineno-0-630" name="__codelineno-0-630"></a>            <span class="k">return</span> <span class="n">dt</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="n">out_format</span><span class="p">)</span>
+<a id="__codelineno-0-631" name="__codelineno-0-631"></a>
+<a id="__codelineno-0-632" name="__codelineno-0-632"></a>        <span class="n">converter</span> <span class="o">=</span> <span class="n">convert_cftime</span>
+<a id="__codelineno-0-633" name="__codelineno-0-633"></a>    <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-634" name="__codelineno-0-634"></a>        <span class="n">unit</span><span class="p">,</span> <span class="n">origin</span> <span class="o">=</span> <span class="n">_parse_units_origin</span><span class="p">(</span><span class="n">units</span><span class="p">)</span>
+<a id="__codelineno-0-635" name="__codelineno-0-635"></a>
+<a id="__codelineno-0-636" name="__codelineno-0-636"></a>        <span class="c1"># datetime/timedelta is microsecond-resolution, so the offset is resolved as</span>
+<a id="__codelineno-0-637" name="__codelineno-0-637"></a>        <span class="c1"># ``origin + timedelta(microseconds=value * factor)``: day/hour/minute/second</span>
+<a id="__codelineno-0-638" name="__codelineno-0-638"></a>        <span class="c1"># stay exact over any realistic date range, while the sub-second units (notably</span>
+<a id="__codelineno-0-639" name="__codelineno-0-639"></a>        <span class="c1"># the ``nanoseconds`` axis DatasetCollection.to_netcdf writes) round to the</span>
+<a id="__codelineno-0-640" name="__codelineno-0-640"></a>        <span class="c1"># nearest microsecond — exact for date/second output, with any residual only in</span>
+<a id="__codelineno-0-641" name="__codelineno-0-641"></a>        <span class="c1"># the microsecond digit of a ``%f`` format. The scale comes from the shared</span>
+<a id="__codelineno-0-642" name="__codelineno-0-642"></a>        <span class="c1"># nanosecond table so this reader and ``decode_cf_time`` cannot drift on which</span>
+<a id="__codelineno-0-643" name="__codelineno-0-643"></a>        <span class="c1"># unit names they accept.</span>
+<a id="__codelineno-0-644" name="__codelineno-0-644"></a>        <span class="n">nanos</span> <span class="o">=</span> <span class="n">_ns_per_cf_unit</span><span class="p">(</span><span class="n">unit</span><span class="p">)</span>
+<a id="__codelineno-0-645" name="__codelineno-0-645"></a>        <span class="k">if</span> <span class="n">nanos</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-646" name="__codelineno-0-646"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Unsupported time unit: </span><span class="si">{</span><span class="n">unit</span><span class="si">!r}</span><span class="s2">"</span><span class="p">)</span>
+<a id="__codelineno-0-647" name="__codelineno-0-647"></a>        <span class="n">factor</span> <span class="o">=</span> <span class="n">nanos</span> <span class="o">/</span> <span class="mf">1000.0</span>
+<a id="__codelineno-0-648" name="__codelineno-0-648"></a>
+<a id="__codelineno-0-649" name="__codelineno-0-649"></a>        <span class="k">def</span><span class="w"> </span><span class="nf">convert</span><span class="p">(</span><span class="n">value</span><span class="p">):</span>
+<a id="__codelineno-0-650" name="__codelineno-0-650"></a>            <span class="n">dt</span> <span class="o">=</span> <span class="n">origin</span> <span class="o">+</span> <span class="n">timedelta</span><span class="p">(</span><span class="n">microseconds</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="o">*</span> <span class="n">factor</span><span class="p">)</span>
+<a id="__codelineno-0-651" name="__codelineno-0-651"></a>            <span class="k">return</span> <span class="n">dt</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="n">out_format</span><span class="p">)</span>
+<a id="__codelineno-0-652" name="__codelineno-0-652"></a>
+<a id="__codelineno-0-653" name="__codelineno-0-653"></a>        <span class="n">converter</span> <span class="o">=</span> <span class="n">convert</span>
+<a id="__codelineno-0-654" name="__codelineno-0-654"></a>
+<a id="__codelineno-0-655" name="__codelineno-0-655"></a>    <span class="k">return</span> <span class="n">converter</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -7293,8 +7293,7 @@ that are not valid UTF-8.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/netcdf/utils.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-694">694</a></span>
-<span class="normal"><a href="#__codelineno-0-695">695</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-695">695</a></span>
 <span class="normal"><a href="#__codelineno-0-696">696</a></span>
 <span class="normal"><a href="#__codelineno-0-697">697</a></span>
 <span class="normal"><a href="#__codelineno-0-698">698</a></span>
@@ -7345,59 +7344,60 @@ that are not valid UTF-8.</p>
 <span class="normal"><a href="#__codelineno-0-743">743</a></span>
 <span class="normal"><a href="#__codelineno-0-744">744</a></span>
 <span class="normal"><a href="#__codelineno-0-745">745</a></span>
-<span class="normal"><a href="#__codelineno-0-746">746</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-694" name="__codelineno-0-694"></a><span class="k">def</span><span class="w"> </span><span class="nf">cf_units_text</span><span class="p">(</span><span class="n">units</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-695" name="__codelineno-0-695"></a><span class="w">    </span><span class="sd">"""The `units` attribute as text, or `None` when it is not text at all.</span>
-<a id="__codelineno-0-696" name="__codelineno-0-696"></a>
-<a id="__codelineno-0-697" name="__codelineno-0-697"></a><span class="sd">    A `units` read straight out of an HDF5 / netCDF attribute can arrive as</span>
-<a id="__codelineno-0-698" name="__codelineno-0-698"></a><span class="sd">    `bytes`. That is the same unit, undecoded -- not a different kind of thing</span>
-<a id="__codelineno-0-699" name="__codelineno-0-699"></a><span class="sd">    -- so both the predicate below and the decoder that gates on it resolve it</span>
-<a id="__codelineno-0-700" name="__codelineno-0-700"></a><span class="sd">    here rather than each deciding for itself. Answering "not a time unit" for</span>
-<a id="__codelineno-0-701" name="__codelineno-0-701"></a><span class="sd">    bytes put them back in the hole the predicate exists to fill; decoding them</span>
-<a id="__codelineno-0-702" name="__codelineno-0-702"></a><span class="sd">    in the predicate alone would have let `decode_cf_time` hand the raw bytes</span>
-<a id="__codelineno-0-703" name="__codelineno-0-703"></a><span class="sd">    to `cftime`, which raises.</span>
-<a id="__codelineno-0-704" name="__codelineno-0-704"></a>
-<a id="__codelineno-0-705" name="__codelineno-0-705"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-706" name="__codelineno-0-706"></a><span class="sd">        units: The CF `units` attribute -- a string, the bytes an undecoded</span>
-<a id="__codelineno-0-707" name="__codelineno-0-707"></a><span class="sd">            attribute arrives as, `None`, or whatever a malformed file put</span>
-<a id="__codelineno-0-708" name="__codelineno-0-708"></a><span class="sd">            there. GDAL normalises attributes into scalars *or lists*, so a</span>
-<a id="__codelineno-0-709" name="__codelineno-0-709"></a><span class="sd">            `units` written as a one-element array is a real input.</span>
-<a id="__codelineno-0-710" name="__codelineno-0-710"></a>
-<a id="__codelineno-0-711" name="__codelineno-0-711"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-712" name="__codelineno-0-712"></a><span class="sd">        str | None: The text, or `None` for a non-text value and for bytes</span>
-<a id="__codelineno-0-713" name="__codelineno-0-713"></a><span class="sd">            that are not valid UTF-8.</span>
-<a id="__codelineno-0-714" name="__codelineno-0-714"></a>
-<a id="__codelineno-0-715" name="__codelineno-0-715"></a><span class="sd">    Examples:</span>
-<a id="__codelineno-0-716" name="__codelineno-0-716"></a><span class="sd">        - A string is itself, and bytes are decoded:</span>
-<a id="__codelineno-0-717" name="__codelineno-0-717"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-718" name="__codelineno-0-718"></a><span class="sd">            &gt;&gt;&gt; from pyramids.netcdf.utils import cf_units_text</span>
-<a id="__codelineno-0-719" name="__codelineno-0-719"></a><span class="sd">            &gt;&gt;&gt; cf_units_text("days since 1970-01-01")</span>
-<a id="__codelineno-0-720" name="__codelineno-0-720"></a><span class="sd">            'days since 1970-01-01'</span>
-<a id="__codelineno-0-721" name="__codelineno-0-721"></a><span class="sd">            &gt;&gt;&gt; cf_units_text(b"days since 1970-01-01")</span>
-<a id="__codelineno-0-722" name="__codelineno-0-722"></a><span class="sd">            'days since 1970-01-01'</span>
-<a id="__codelineno-0-723" name="__codelineno-0-723"></a>
-<a id="__codelineno-0-724" name="__codelineno-0-724"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-725" name="__codelineno-0-725"></a><span class="sd">        - Anything that is not text at all answers `None`, rather than</span>
-<a id="__codelineno-0-726" name="__codelineno-0-726"></a><span class="sd">          raising the way a bare `" since " in unit` would:</span>
-<a id="__codelineno-0-727" name="__codelineno-0-727"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-728" name="__codelineno-0-728"></a><span class="sd">            &gt;&gt;&gt; from pyramids.netcdf.utils import cf_units_text</span>
-<a id="__codelineno-0-729" name="__codelineno-0-729"></a><span class="sd">            &gt;&gt;&gt; print(cf_units_text(None), cf_units_text(1), cf_units_text(["a"]))</span>
-<a id="__codelineno-0-730" name="__codelineno-0-730"></a><span class="sd">            None None None</span>
-<a id="__codelineno-0-731" name="__codelineno-0-731"></a>
-<a id="__codelineno-0-732" name="__codelineno-0-732"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-733" name="__codelineno-0-733"></a>
-<a id="__codelineno-0-734" name="__codelineno-0-734"></a><span class="sd">    See Also:</span>
-<a id="__codelineno-0-735" name="__codelineno-0-735"></a><span class="sd">        is_cf_time_units: Asks whether that text names a CF time axis.</span>
-<a id="__codelineno-0-736" name="__codelineno-0-736"></a><span class="sd">    """</span>
-<a id="__codelineno-0-737" name="__codelineno-0-737"></a>    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">units</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
-<a id="__codelineno-0-738" name="__codelineno-0-738"></a>        <span class="n">text</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="n">units</span>
-<a id="__codelineno-0-739" name="__codelineno-0-739"></a>    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">units</span><span class="p">,</span> <span class="p">(</span><span class="nb">bytes</span><span class="p">,</span> <span class="nb">bytearray</span><span class="p">)):</span>
-<a id="__codelineno-0-740" name="__codelineno-0-740"></a>        <span class="k">try</span><span class="p">:</span>
-<a id="__codelineno-0-741" name="__codelineno-0-741"></a>            <span class="n">text</span> <span class="o">=</span> <span class="nb">bytes</span><span class="p">(</span><span class="n">units</span><span class="p">)</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s2">"utf-8"</span><span class="p">)</span>
-<a id="__codelineno-0-742" name="__codelineno-0-742"></a>        <span class="k">except</span> <span class="ne">UnicodeDecodeError</span><span class="p">:</span>
-<a id="__codelineno-0-743" name="__codelineno-0-743"></a>            <span class="n">text</span> <span class="o">=</span> <span class="kc">None</span>
-<a id="__codelineno-0-744" name="__codelineno-0-744"></a>    <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-745" name="__codelineno-0-745"></a>        <span class="n">text</span> <span class="o">=</span> <span class="kc">None</span>
-<a id="__codelineno-0-746" name="__codelineno-0-746"></a>    <span class="k">return</span> <span class="n">text</span>
+<span class="normal"><a href="#__codelineno-0-746">746</a></span>
+<span class="normal"><a href="#__codelineno-0-747">747</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-695" name="__codelineno-0-695"></a><span class="k">def</span><span class="w"> </span><span class="nf">cf_units_text</span><span class="p">(</span><span class="n">units</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-696" name="__codelineno-0-696"></a><span class="w">    </span><span class="sd">"""The `units` attribute as text, or `None` when it is not text at all.</span>
+<a id="__codelineno-0-697" name="__codelineno-0-697"></a>
+<a id="__codelineno-0-698" name="__codelineno-0-698"></a><span class="sd">    A `units` read straight out of an HDF5 / netCDF attribute can arrive as</span>
+<a id="__codelineno-0-699" name="__codelineno-0-699"></a><span class="sd">    `bytes`. That is the same unit, undecoded -- not a different kind of thing</span>
+<a id="__codelineno-0-700" name="__codelineno-0-700"></a><span class="sd">    -- so both the predicate below and the decoder that gates on it resolve it</span>
+<a id="__codelineno-0-701" name="__codelineno-0-701"></a><span class="sd">    here rather than each deciding for itself. Answering "not a time unit" for</span>
+<a id="__codelineno-0-702" name="__codelineno-0-702"></a><span class="sd">    bytes put them back in the hole the predicate exists to fill; decoding them</span>
+<a id="__codelineno-0-703" name="__codelineno-0-703"></a><span class="sd">    in the predicate alone would have let `decode_cf_time` hand the raw bytes</span>
+<a id="__codelineno-0-704" name="__codelineno-0-704"></a><span class="sd">    to `cftime`, which raises.</span>
+<a id="__codelineno-0-705" name="__codelineno-0-705"></a>
+<a id="__codelineno-0-706" name="__codelineno-0-706"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-707" name="__codelineno-0-707"></a><span class="sd">        units: The CF `units` attribute -- a string, the bytes an undecoded</span>
+<a id="__codelineno-0-708" name="__codelineno-0-708"></a><span class="sd">            attribute arrives as, `None`, or whatever a malformed file put</span>
+<a id="__codelineno-0-709" name="__codelineno-0-709"></a><span class="sd">            there. GDAL normalises attributes into scalars *or lists*, so a</span>
+<a id="__codelineno-0-710" name="__codelineno-0-710"></a><span class="sd">            `units` written as a one-element array is a real input.</span>
+<a id="__codelineno-0-711" name="__codelineno-0-711"></a>
+<a id="__codelineno-0-712" name="__codelineno-0-712"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-713" name="__codelineno-0-713"></a><span class="sd">        str | None: The text, or `None` for a non-text value and for bytes</span>
+<a id="__codelineno-0-714" name="__codelineno-0-714"></a><span class="sd">            that are not valid UTF-8.</span>
+<a id="__codelineno-0-715" name="__codelineno-0-715"></a>
+<a id="__codelineno-0-716" name="__codelineno-0-716"></a><span class="sd">    Examples:</span>
+<a id="__codelineno-0-717" name="__codelineno-0-717"></a><span class="sd">        - A string is itself, and bytes are decoded:</span>
+<a id="__codelineno-0-718" name="__codelineno-0-718"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-719" name="__codelineno-0-719"></a><span class="sd">            &gt;&gt;&gt; from pyramids.netcdf.utils import cf_units_text</span>
+<a id="__codelineno-0-720" name="__codelineno-0-720"></a><span class="sd">            &gt;&gt;&gt; cf_units_text("days since 1970-01-01")</span>
+<a id="__codelineno-0-721" name="__codelineno-0-721"></a><span class="sd">            'days since 1970-01-01'</span>
+<a id="__codelineno-0-722" name="__codelineno-0-722"></a><span class="sd">            &gt;&gt;&gt; cf_units_text(b"days since 1970-01-01")</span>
+<a id="__codelineno-0-723" name="__codelineno-0-723"></a><span class="sd">            'days since 1970-01-01'</span>
+<a id="__codelineno-0-724" name="__codelineno-0-724"></a>
+<a id="__codelineno-0-725" name="__codelineno-0-725"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-726" name="__codelineno-0-726"></a><span class="sd">        - Anything that is not text at all answers `None`, rather than</span>
+<a id="__codelineno-0-727" name="__codelineno-0-727"></a><span class="sd">          raising the way a bare `" since " in unit` would:</span>
+<a id="__codelineno-0-728" name="__codelineno-0-728"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-729" name="__codelineno-0-729"></a><span class="sd">            &gt;&gt;&gt; from pyramids.netcdf.utils import cf_units_text</span>
+<a id="__codelineno-0-730" name="__codelineno-0-730"></a><span class="sd">            &gt;&gt;&gt; print(cf_units_text(None), cf_units_text(1), cf_units_text(["a"]))</span>
+<a id="__codelineno-0-731" name="__codelineno-0-731"></a><span class="sd">            None None None</span>
+<a id="__codelineno-0-732" name="__codelineno-0-732"></a>
+<a id="__codelineno-0-733" name="__codelineno-0-733"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-734" name="__codelineno-0-734"></a>
+<a id="__codelineno-0-735" name="__codelineno-0-735"></a><span class="sd">    See Also:</span>
+<a id="__codelineno-0-736" name="__codelineno-0-736"></a><span class="sd">        is_cf_time_units: Asks whether that text names a CF time axis.</span>
+<a id="__codelineno-0-737" name="__codelineno-0-737"></a><span class="sd">    """</span>
+<a id="__codelineno-0-738" name="__codelineno-0-738"></a>    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">units</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+<a id="__codelineno-0-739" name="__codelineno-0-739"></a>        <span class="n">text</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="n">units</span>
+<a id="__codelineno-0-740" name="__codelineno-0-740"></a>    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">units</span><span class="p">,</span> <span class="p">(</span><span class="nb">bytes</span><span class="p">,</span> <span class="nb">bytearray</span><span class="p">)):</span>
+<a id="__codelineno-0-741" name="__codelineno-0-741"></a>        <span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-0-742" name="__codelineno-0-742"></a>            <span class="n">text</span> <span class="o">=</span> <span class="nb">bytes</span><span class="p">(</span><span class="n">units</span><span class="p">)</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s2">"utf-8"</span><span class="p">)</span>
+<a id="__codelineno-0-743" name="__codelineno-0-743"></a>        <span class="k">except</span> <span class="ne">UnicodeDecodeError</span><span class="p">:</span>
+<a id="__codelineno-0-744" name="__codelineno-0-744"></a>            <span class="n">text</span> <span class="o">=</span> <span class="kc">None</span>
+<a id="__codelineno-0-745" name="__codelineno-0-745"></a>    <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-746" name="__codelineno-0-746"></a>        <span class="n">text</span> <span class="o">=</span> <span class="kc">None</span>
+<a id="__codelineno-0-747" name="__codelineno-0-747"></a>    <span class="k">return</span> <span class="n">text</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -7528,8 +7528,7 @@ there.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/netcdf/utils.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-749">749</a></span>
-<span class="normal"><a href="#__codelineno-0-750">750</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-750">750</a></span>
 <span class="normal"><a href="#__codelineno-0-751">751</a></span>
 <span class="normal"><a href="#__codelineno-0-752">752</a></span>
 <span class="normal"><a href="#__codelineno-0-753">753</a></span>
@@ -7599,78 +7598,79 @@ there.</p>
 <span class="normal"><a href="#__codelineno-0-817">817</a></span>
 <span class="normal"><a href="#__codelineno-0-818">818</a></span>
 <span class="normal"><a href="#__codelineno-0-819">819</a></span>
-<span class="normal"><a href="#__codelineno-0-820">820</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-749" name="__codelineno-0-749"></a><span class="k">def</span><span class="w"> </span><span class="nf">is_cf_time_units</span><span class="p">(</span><span class="n">units</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">bytes</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
-<a id="__codelineno-0-750" name="__codelineno-0-750"></a><span class="w">    </span><span class="sd">"""True when `units` declares a CF time axis.</span>
-<a id="__codelineno-0-751" name="__codelineno-0-751"></a>
-<a id="__codelineno-0-752" name="__codelineno-0-752"></a><span class="sd">    Four places asked this and answered differently. Axis *detection* matched a</span>
-<a id="__codelineno-0-753" name="__codelineno-0-753"></a><span class="sd">    bare lowercased `"since"` substring; *decoding* required a case-sensitive</span>
-<a id="__codelineno-0-754" name="__codelineno-0-754"></a><span class="sd">    `" since "`. A file whose units read `"Days SINCE 1970-01-01"` -- which</span>
-<a id="__codelineno-0-755" name="__codelineno-0-755"></a><span class="sd">    `cftime` parses perfectly well -- was therefore reported as a time axis and</span>
-<a id="__codelineno-0-756" name="__codelineno-0-756"></a><span class="sd">    then handed back as raw numbers, with nothing raised. This is the one rule</span>
-<a id="__codelineno-0-757" name="__codelineno-0-757"></a><span class="sd">    both questions now use.</span>
-<a id="__codelineno-0-758" name="__codelineno-0-758"></a>
-<a id="__codelineno-0-759" name="__codelineno-0-759"></a><span class="sd">    Total: anything that is not a string is not a time unit. GDAL attributes</span>
-<a id="__codelineno-0-760" name="__codelineno-0-760"></a><span class="sd">    are normalised into scalars *or lists*, so a `units` written as a</span>
-<a id="__codelineno-0-761" name="__codelineno-0-761"></a><span class="sd">    one-element array is a real input, and the CF compliance checker exists to</span>
-<a id="__codelineno-0-762" name="__codelineno-0-762"></a><span class="sd">    *report* on malformed files rather than to crash on one.</span>
-<a id="__codelineno-0-763" name="__codelineno-0-763"></a>
-<a id="__codelineno-0-764" name="__codelineno-0-764"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-765" name="__codelineno-0-765"></a><span class="sd">        units: The CF `units` attribute -- a string, the bytes an undecoded</span>
-<a id="__codelineno-0-766" name="__codelineno-0-766"></a><span class="sd">            attribute arrives as, `None`, or whatever a malformed file put</span>
-<a id="__codelineno-0-767" name="__codelineno-0-767"></a><span class="sd">            there.</span>
-<a id="__codelineno-0-768" name="__codelineno-0-768"></a>
-<a id="__codelineno-0-769" name="__codelineno-0-769"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-770" name="__codelineno-0-770"></a><span class="sd">        bool: True when `units` is a string with the `&lt;period&gt; since</span>
-<a id="__codelineno-0-771" name="__codelineno-0-771"></a><span class="sd">            &lt;timestamp&gt;` shape.</span>
-<a id="__codelineno-0-772" name="__codelineno-0-772"></a>
-<a id="__codelineno-0-773" name="__codelineno-0-773"></a><span class="sd">    Examples:</span>
-<a id="__codelineno-0-774" name="__codelineno-0-774"></a><span class="sd">        - The ordinary form, and the uppercase one that used to decode wrong:</span>
-<a id="__codelineno-0-775" name="__codelineno-0-775"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-776" name="__codelineno-0-776"></a><span class="sd">            &gt;&gt;&gt; from pyramids.netcdf.utils import is_cf_time_units</span>
-<a id="__codelineno-0-777" name="__codelineno-0-777"></a><span class="sd">            &gt;&gt;&gt; is_cf_time_units("days since 1970-01-01")</span>
-<a id="__codelineno-0-778" name="__codelineno-0-778"></a><span class="sd">            True</span>
-<a id="__codelineno-0-779" name="__codelineno-0-779"></a><span class="sd">            &gt;&gt;&gt; is_cf_time_units("Days SINCE 1970-01-01")</span>
-<a id="__codelineno-0-780" name="__codelineno-0-780"></a><span class="sd">            True</span>
-<a id="__codelineno-0-781" name="__codelineno-0-781"></a>
-<a id="__codelineno-0-782" name="__codelineno-0-782"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-783" name="__codelineno-0-783"></a><span class="sd">        - A spatial unit is not a time axis, nor is a missing one:</span>
-<a id="__codelineno-0-784" name="__codelineno-0-784"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-785" name="__codelineno-0-785"></a><span class="sd">            &gt;&gt;&gt; from pyramids.netcdf.utils import is_cf_time_units</span>
-<a id="__codelineno-0-786" name="__codelineno-0-786"></a><span class="sd">            &gt;&gt;&gt; is_cf_time_units("degrees_north"), is_cf_time_units(None)</span>
-<a id="__codelineno-0-787" name="__codelineno-0-787"></a><span class="sd">            (False, False)</span>
-<a id="__codelineno-0-788" name="__codelineno-0-788"></a>
-<a id="__codelineno-0-789" name="__codelineno-0-789"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-790" name="__codelineno-0-790"></a><span class="sd">        - Neither is a `units` a malformed file wrote as a list or a number:</span>
-<a id="__codelineno-0-791" name="__codelineno-0-791"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-792" name="__codelineno-0-792"></a><span class="sd">            &gt;&gt;&gt; from pyramids.netcdf.utils import is_cf_time_units</span>
-<a id="__codelineno-0-793" name="__codelineno-0-793"></a><span class="sd">            &gt;&gt;&gt; is_cf_time_units(["days since 1970-01-01"])</span>
-<a id="__codelineno-0-794" name="__codelineno-0-794"></a><span class="sd">            False</span>
-<a id="__codelineno-0-795" name="__codelineno-0-795"></a><span class="sd">            &gt;&gt;&gt; is_cf_time_units(1)</span>
-<a id="__codelineno-0-796" name="__codelineno-0-796"></a><span class="sd">            False</span>
-<a id="__codelineno-0-797" name="__codelineno-0-797"></a>
-<a id="__codelineno-0-798" name="__codelineno-0-798"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-799" name="__codelineno-0-799"></a><span class="sd">        - `since` has to be a word with a period and an epoch around it, so a</span>
-<a id="__codelineno-0-800" name="__codelineno-0-800"></a><span class="sd">          unit that merely contains the letters is not matched:</span>
-<a id="__codelineno-0-801" name="__codelineno-0-801"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-802" name="__codelineno-0-802"></a><span class="sd">            &gt;&gt;&gt; from pyramids.netcdf.utils import is_cf_time_units</span>
-<a id="__codelineno-0-803" name="__codelineno-0-803"></a><span class="sd">            &gt;&gt;&gt; is_cf_time_units("sincerity"), is_cf_time_units("since")</span>
-<a id="__codelineno-0-804" name="__codelineno-0-804"></a><span class="sd">            (False, False)</span>
-<a id="__codelineno-0-805" name="__codelineno-0-805"></a>
-<a id="__codelineno-0-806" name="__codelineno-0-806"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-807" name="__codelineno-0-807"></a><span class="sd">        - Bytes are decoded first, so an attribute that arrived undecoded</span>
-<a id="__codelineno-0-808" name="__codelineno-0-808"></a><span class="sd">          still names the axis it names:</span>
-<a id="__codelineno-0-809" name="__codelineno-0-809"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-810" name="__codelineno-0-810"></a><span class="sd">            &gt;&gt;&gt; from pyramids.netcdf.utils import is_cf_time_units</span>
-<a id="__codelineno-0-811" name="__codelineno-0-811"></a><span class="sd">            &gt;&gt;&gt; is_cf_time_units(b"days since 1970-01-01")</span>
-<a id="__codelineno-0-812" name="__codelineno-0-812"></a><span class="sd">            True</span>
-<a id="__codelineno-0-813" name="__codelineno-0-813"></a>
-<a id="__codelineno-0-814" name="__codelineno-0-814"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-815" name="__codelineno-0-815"></a>
-<a id="__codelineno-0-816" name="__codelineno-0-816"></a><span class="sd">    See Also:</span>
-<a id="__codelineno-0-817" name="__codelineno-0-817"></a><span class="sd">        decode_cf_time: Decodes the axes this identifies.</span>
-<a id="__codelineno-0-818" name="__codelineno-0-818"></a><span class="sd">    """</span>
-<a id="__codelineno-0-819" name="__codelineno-0-819"></a>    <span class="n">text</span> <span class="o">=</span> <span class="n">cf_units_text</span><span class="p">(</span><span class="n">units</span><span class="p">)</span>
-<a id="__codelineno-0-820" name="__codelineno-0-820"></a>    <span class="k">return</span> <span class="n">text</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">_CF_TIME_UNITS</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">text</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+<span class="normal"><a href="#__codelineno-0-820">820</a></span>
+<span class="normal"><a href="#__codelineno-0-821">821</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-750" name="__codelineno-0-750"></a><span class="k">def</span><span class="w"> </span><span class="nf">is_cf_time_units</span><span class="p">(</span><span class="n">units</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">bytes</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<a id="__codelineno-0-751" name="__codelineno-0-751"></a><span class="w">    </span><span class="sd">"""True when `units` declares a CF time axis.</span>
+<a id="__codelineno-0-752" name="__codelineno-0-752"></a>
+<a id="__codelineno-0-753" name="__codelineno-0-753"></a><span class="sd">    Four places asked this and answered differently. Axis *detection* matched a</span>
+<a id="__codelineno-0-754" name="__codelineno-0-754"></a><span class="sd">    bare lowercased `"since"` substring; *decoding* required a case-sensitive</span>
+<a id="__codelineno-0-755" name="__codelineno-0-755"></a><span class="sd">    `" since "`. A file whose units read `"Days SINCE 1970-01-01"` -- which</span>
+<a id="__codelineno-0-756" name="__codelineno-0-756"></a><span class="sd">    `cftime` parses perfectly well -- was therefore reported as a time axis and</span>
+<a id="__codelineno-0-757" name="__codelineno-0-757"></a><span class="sd">    then handed back as raw numbers, with nothing raised. This is the one rule</span>
+<a id="__codelineno-0-758" name="__codelineno-0-758"></a><span class="sd">    both questions now use.</span>
+<a id="__codelineno-0-759" name="__codelineno-0-759"></a>
+<a id="__codelineno-0-760" name="__codelineno-0-760"></a><span class="sd">    Total: anything that is not a string is not a time unit. GDAL attributes</span>
+<a id="__codelineno-0-761" name="__codelineno-0-761"></a><span class="sd">    are normalised into scalars *or lists*, so a `units` written as a</span>
+<a id="__codelineno-0-762" name="__codelineno-0-762"></a><span class="sd">    one-element array is a real input, and the CF compliance checker exists to</span>
+<a id="__codelineno-0-763" name="__codelineno-0-763"></a><span class="sd">    *report* on malformed files rather than to crash on one.</span>
+<a id="__codelineno-0-764" name="__codelineno-0-764"></a>
+<a id="__codelineno-0-765" name="__codelineno-0-765"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-766" name="__codelineno-0-766"></a><span class="sd">        units: The CF `units` attribute -- a string, the bytes an undecoded</span>
+<a id="__codelineno-0-767" name="__codelineno-0-767"></a><span class="sd">            attribute arrives as, `None`, or whatever a malformed file put</span>
+<a id="__codelineno-0-768" name="__codelineno-0-768"></a><span class="sd">            there.</span>
+<a id="__codelineno-0-769" name="__codelineno-0-769"></a>
+<a id="__codelineno-0-770" name="__codelineno-0-770"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-771" name="__codelineno-0-771"></a><span class="sd">        bool: True when `units` is a string with the `&lt;period&gt; since</span>
+<a id="__codelineno-0-772" name="__codelineno-0-772"></a><span class="sd">            &lt;timestamp&gt;` shape.</span>
+<a id="__codelineno-0-773" name="__codelineno-0-773"></a>
+<a id="__codelineno-0-774" name="__codelineno-0-774"></a><span class="sd">    Examples:</span>
+<a id="__codelineno-0-775" name="__codelineno-0-775"></a><span class="sd">        - The ordinary form, and the uppercase one that used to decode wrong:</span>
+<a id="__codelineno-0-776" name="__codelineno-0-776"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-777" name="__codelineno-0-777"></a><span class="sd">            &gt;&gt;&gt; from pyramids.netcdf.utils import is_cf_time_units</span>
+<a id="__codelineno-0-778" name="__codelineno-0-778"></a><span class="sd">            &gt;&gt;&gt; is_cf_time_units("days since 1970-01-01")</span>
+<a id="__codelineno-0-779" name="__codelineno-0-779"></a><span class="sd">            True</span>
+<a id="__codelineno-0-780" name="__codelineno-0-780"></a><span class="sd">            &gt;&gt;&gt; is_cf_time_units("Days SINCE 1970-01-01")</span>
+<a id="__codelineno-0-781" name="__codelineno-0-781"></a><span class="sd">            True</span>
+<a id="__codelineno-0-782" name="__codelineno-0-782"></a>
+<a id="__codelineno-0-783" name="__codelineno-0-783"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-784" name="__codelineno-0-784"></a><span class="sd">        - A spatial unit is not a time axis, nor is a missing one:</span>
+<a id="__codelineno-0-785" name="__codelineno-0-785"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-786" name="__codelineno-0-786"></a><span class="sd">            &gt;&gt;&gt; from pyramids.netcdf.utils import is_cf_time_units</span>
+<a id="__codelineno-0-787" name="__codelineno-0-787"></a><span class="sd">            &gt;&gt;&gt; is_cf_time_units("degrees_north"), is_cf_time_units(None)</span>
+<a id="__codelineno-0-788" name="__codelineno-0-788"></a><span class="sd">            (False, False)</span>
+<a id="__codelineno-0-789" name="__codelineno-0-789"></a>
+<a id="__codelineno-0-790" name="__codelineno-0-790"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-791" name="__codelineno-0-791"></a><span class="sd">        - Neither is a `units` a malformed file wrote as a list or a number:</span>
+<a id="__codelineno-0-792" name="__codelineno-0-792"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-793" name="__codelineno-0-793"></a><span class="sd">            &gt;&gt;&gt; from pyramids.netcdf.utils import is_cf_time_units</span>
+<a id="__codelineno-0-794" name="__codelineno-0-794"></a><span class="sd">            &gt;&gt;&gt; is_cf_time_units(["days since 1970-01-01"])</span>
+<a id="__codelineno-0-795" name="__codelineno-0-795"></a><span class="sd">            False</span>
+<a id="__codelineno-0-796" name="__codelineno-0-796"></a><span class="sd">            &gt;&gt;&gt; is_cf_time_units(1)</span>
+<a id="__codelineno-0-797" name="__codelineno-0-797"></a><span class="sd">            False</span>
+<a id="__codelineno-0-798" name="__codelineno-0-798"></a>
+<a id="__codelineno-0-799" name="__codelineno-0-799"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-800" name="__codelineno-0-800"></a><span class="sd">        - `since` has to be a word with a period and an epoch around it, so a</span>
+<a id="__codelineno-0-801" name="__codelineno-0-801"></a><span class="sd">          unit that merely contains the letters is not matched:</span>
+<a id="__codelineno-0-802" name="__codelineno-0-802"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-803" name="__codelineno-0-803"></a><span class="sd">            &gt;&gt;&gt; from pyramids.netcdf.utils import is_cf_time_units</span>
+<a id="__codelineno-0-804" name="__codelineno-0-804"></a><span class="sd">            &gt;&gt;&gt; is_cf_time_units("sincerity"), is_cf_time_units("since")</span>
+<a id="__codelineno-0-805" name="__codelineno-0-805"></a><span class="sd">            (False, False)</span>
+<a id="__codelineno-0-806" name="__codelineno-0-806"></a>
+<a id="__codelineno-0-807" name="__codelineno-0-807"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-808" name="__codelineno-0-808"></a><span class="sd">        - Bytes are decoded first, so an attribute that arrived undecoded</span>
+<a id="__codelineno-0-809" name="__codelineno-0-809"></a><span class="sd">          still names the axis it names:</span>
+<a id="__codelineno-0-810" name="__codelineno-0-810"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-811" name="__codelineno-0-811"></a><span class="sd">            &gt;&gt;&gt; from pyramids.netcdf.utils import is_cf_time_units</span>
+<a id="__codelineno-0-812" name="__codelineno-0-812"></a><span class="sd">            &gt;&gt;&gt; is_cf_time_units(b"days since 1970-01-01")</span>
+<a id="__codelineno-0-813" name="__codelineno-0-813"></a><span class="sd">            True</span>
+<a id="__codelineno-0-814" name="__codelineno-0-814"></a>
+<a id="__codelineno-0-815" name="__codelineno-0-815"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-816" name="__codelineno-0-816"></a>
+<a id="__codelineno-0-817" name="__codelineno-0-817"></a><span class="sd">    See Also:</span>
+<a id="__codelineno-0-818" name="__codelineno-0-818"></a><span class="sd">        decode_cf_time: Decodes the axes this identifies.</span>
+<a id="__codelineno-0-819" name="__codelineno-0-819"></a><span class="sd">    """</span>
+<a id="__codelineno-0-820" name="__codelineno-0-820"></a>    <span class="n">text</span> <span class="o">=</span> <span class="n">cf_units_text</span><span class="p">(</span><span class="n">units</span><span class="p">)</span>
+<a id="__codelineno-0-821" name="__codelineno-0-821"></a>    <span class="k">return</span> <span class="n">text</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">_CF_TIME_UNITS</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">text</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -7681,7 +7681,7 @@ there.</p>
 
 
 <h4 id="pyramids.netcdf.utils.decode_cf_time" class="doc doc-heading"><a href="#pyramids.netcdf.utils.decode_cf_time" class="toclink">
-            <code class="highlight language-python"><span class="n">decode_cf_time</span><span class="p">(</span><span class="n">values</span><span class="p">,</span> <span class="n">unit</span><span class="p">,</span> <span class="n">calendar</span><span class="o">=</span><span class="s1">'standard'</span><span class="p">)</span></code>
+            <code class="highlight language-python"><span class="n">decode_cf_time</span><span class="p">(</span><span class="n">values</span><span class="p">,</span> <span class="n">unit</span><span class="p">,</span> <span class="n">calendar</span><span class="o">=</span><span class="s1">'standard'</span><span class="p">,</span> <span class="n">context</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
 
 </a><a href="#pyramids.netcdf.utils.decode_cf_time" class="headerlink" title="Permanent link">#</a></h4>
 
@@ -7697,10 +7697,19 @@ returned unchanged.</p>
 nanoseconds, rather than through <code>cftime</code>. Behaviour differs from earlier releases
 in two ways, both of them consequences of dropping <code>cftime</code>'s microsecond floor:
 a <code>"nanoseconds since …"</code> axis decodes instead of raising, and a <code>NaN</code> offset
-decodes to <code>NaT</code> instead of to the origin. Anything the integer path cannot take
-exactly -- an unparseable origin, a period such as <code>"months"</code>, an instant outside
-<code>datetime64[ns]</code>'s 1678-2262 range, or a pre-1582 origin on a mixed
-Julian/Gregorian calendar -- still goes to <code>cftime</code>, unchanged.</p>
+decodes to <code>NaT</code> instead of to the origin. Both decode paths agree about missing
+values: the <code>cftime</code> fallback honours the mask <code>cftime</code> returns, so a <code>NaN</code> or an
+<code>inf</code> offset is missing there too rather than silently reading as the origin (#1116).</p>
+<p>Anything the integer path cannot take
+exactly -- an unparseable origin, a period such as <code>"months"</code>, an instant the integer
+nanosecond scale cannot reach, or a pre-1582 origin on a mixed Julian/Gregorian
+calendar -- still goes to <code>cftime</code>. That reach is not a fixed span of years: the gate
+sums the offset's magnitude and the origin's distance from 1970, so a far-from-1970
+epoch shortens it (off <code>days since 1900-01-01</code>, an instant in 2116 already
+declines). That
+is a wider range than the integer path's, not a narrower one: a date <code>cftime</code> decodes
+is still cast to <code>datetime64[ns]</code> whenever it fits, so 2255-2262 -- past the integer
+scale but inside the type -- comes back as <code>datetime64</code> all the same.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
@@ -7763,6 +7772,24 @@ or the bytes an undecoded attribute arrives as.</p>
                   <code>&#39;standard&#39;</code>
             </td>
           </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>context</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Optional name of the axis being decoded, used only so the out-of-range
+warning can say <em>which</em> axis it is about. A store with several time axes
+otherwise warns with nothing but the units string to tell them apart.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
       </tbody>
     </table>
 
@@ -7782,7 +7809,47 @@ or the bytes an undecoded attribute arrives as.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>np.ndarray: Decoded datetimes for a time axis, else <code>values</code> unchanged.</p>
+                <p>np.ndarray: Decoded datetimes for a time axis, else <code>values</code> unchanged. For a
+time axis the dtype depends on the dates: <code>datetime64[ns]</code> when every one of
+them is representable in that type, and an object array otherwise -- either
+because the calendar is not a standard one, or because a date falls outside
+<code>datetime64[ns]</code>'s 1677-09-21 to 2262-04-11 range, which is warned about
+(#1087). The choice is array-wide, since one array has one dtype: a single
+out-of-range value keeps its in-range neighbours as objects too. A value
+<code>cftime</code> could not decode -- a <code>NaN</code> or an <code>inf</code> offset -- comes back as
+<code>NaT</code> in a <code>datetime64</code> result and as <code>None</code> in an object one, since an
+object array of datetimes has no <code>NaT</code> (#1116).
+What that object array holds is <code>cftime</code>'s own choice, not this
+function's: <code>cftime.real_datetime</code> (a <code>datetime.datetime</code> subclass, which
+<code>pandas</code> coerces to <code>datetime64[us]</code>) for a date Python's <code>datetime</code> can
+represent, and a true <code>cftime</code> datetime such as <code>DatetimeGregorian</code> for one
+it cannot -- which in practice means a pre-1582 origin on a mixed calendar.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="ValueError">ValueError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>cftime</code> cannot decode this units/calendar pair -- most often a
+<code>"months since …"</code> axis on anything but <code>360_day</code>, since a calendar month
+has no fixed length. Re-raised with the axis, units and calendar named, because
+<code>cftime</code>'s own message identifies none of them (#1117).</p>
               </div>
             </td>
           </tr>
@@ -7792,16 +7859,30 @@ or the bytes an undecoded attribute arrives as.</p>
 
 <p><span class="doc-section-title">Examples:</span></p>
     <ul>
+<li>A date past what <code>datetime64[ns]</code> holds keeps its real value, and says so:
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">decode_cf_time</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="o">&gt;&gt;&gt;</span> <span class="k">with</span> <span class="n">warnings</span><span class="o">.</span><span class="n">catch_warnings</span><span class="p">(</span><span class="n">record</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span> <span class="k">as</span> <span class="n">caught</span><span class="p">:</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="o">...</span>     <span class="n">warnings</span><span class="o">.</span><span class="n">simplefilter</span><span class="p">(</span><span class="s2">"always"</span><span class="p">)</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="o">...</span>     <span class="n">decoded</span> <span class="o">=</span> <span class="n">decode_cf_time</span><span class="p">(</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="o">...</span>         <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mi">400_000</span><span class="p">]),</span> <span class="s2">"days since 1970-01-01"</span><span class="p">,</span> <span class="s2">"standard"</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="o">...</span>     <span class="p">)</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">decoded</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">decoded</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">year</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="p">(</span><span class="n">dtype</span><span class="p">(</span><span class="s1">'O'</span><span class="p">),</span> <span class="mi">3065</span><span class="p">)</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">caught</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">category</span><span class="o">.</span><span class="vm">__name__</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="s1">'UserWarning'</span>
+</code></pre></div></li>
 <li>The resolution the collection writer counts in, read back with its
   sub-microsecond digits intact:
-    <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">cf_epoch_units</span><span class="p">,</span> <span class="n">decode_cf_time</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">offsets</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1577836800123456789</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">"int64"</span><span class="p">)</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">decoded</span> <span class="o">=</span> <span class="n">decode_cf_time</span><span class="p">(</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="o">...</span>     <span class="n">offsets</span><span class="p">,</span> <span class="n">cf_epoch_units</span><span class="p">(</span><span class="s2">"nanoseconds"</span><span class="p">),</span> <span class="s2">"proleptic_gregorian"</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="o">...</span> <span class="p">)</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">decoded</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">str</span><span class="p">)</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="p">[</span><span class="s1">'1970-01-01T00:00:00.000000000'</span><span class="p">,</span> <span class="s1">'2020-01-01T00:00:00.123456789'</span><span class="p">]</span>
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">cf_epoch_units</span><span class="p">,</span> <span class="n">decode_cf_time</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">offsets</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1577836800123456789</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">"int64"</span><span class="p">)</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">decoded</span> <span class="o">=</span> <span class="n">decode_cf_time</span><span class="p">(</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="o">...</span>     <span class="n">offsets</span><span class="p">,</span> <span class="n">cf_epoch_units</span><span class="p">(</span><span class="s2">"nanoseconds"</span><span class="p">),</span> <span class="s2">"proleptic_gregorian"</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="o">...</span> <span class="p">)</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">decoded</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">str</span><span class="p">)</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="p">[</span><span class="s1">'1970-01-01T00:00:00.000000000'</span><span class="p">,</span> <span class="s1">'2020-01-01T00:00:00.123456789'</span><span class="p">]</span>
 </code></pre></div></li>
 </ul>
 
@@ -7816,155 +7897,305 @@ or the bytes an undecoded attribute arrives as.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/netcdf/utils.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-948"> 948</a></span>
-<span class="normal"><a href="#__codelineno-0-949"> 949</a></span>
-<span class="normal"><a href="#__codelineno-0-950"> 950</a></span>
-<span class="normal"><a href="#__codelineno-0-951"> 951</a></span>
-<span class="normal"><a href="#__codelineno-0-952"> 952</a></span>
-<span class="normal"><a href="#__codelineno-0-953"> 953</a></span>
-<span class="normal"><a href="#__codelineno-0-954"> 954</a></span>
-<span class="normal"><a href="#__codelineno-0-955"> 955</a></span>
-<span class="normal"><a href="#__codelineno-0-956"> 956</a></span>
-<span class="normal"><a href="#__codelineno-0-957"> 957</a></span>
-<span class="normal"><a href="#__codelineno-0-958"> 958</a></span>
-<span class="normal"><a href="#__codelineno-0-959"> 959</a></span>
-<span class="normal"><a href="#__codelineno-0-960"> 960</a></span>
-<span class="normal"><a href="#__codelineno-0-961"> 961</a></span>
-<span class="normal"><a href="#__codelineno-0-962"> 962</a></span>
-<span class="normal"><a href="#__codelineno-0-963"> 963</a></span>
-<span class="normal"><a href="#__codelineno-0-964"> 964</a></span>
-<span class="normal"><a href="#__codelineno-0-965"> 965</a></span>
-<span class="normal"><a href="#__codelineno-0-966"> 966</a></span>
-<span class="normal"><a href="#__codelineno-0-967"> 967</a></span>
-<span class="normal"><a href="#__codelineno-0-968"> 968</a></span>
-<span class="normal"><a href="#__codelineno-0-969"> 969</a></span>
-<span class="normal"><a href="#__codelineno-0-970"> 970</a></span>
-<span class="normal"><a href="#__codelineno-0-971"> 971</a></span>
-<span class="normal"><a href="#__codelineno-0-972"> 972</a></span>
-<span class="normal"><a href="#__codelineno-0-973"> 973</a></span>
-<span class="normal"><a href="#__codelineno-0-974"> 974</a></span>
-<span class="normal"><a href="#__codelineno-0-975"> 975</a></span>
-<span class="normal"><a href="#__codelineno-0-976"> 976</a></span>
-<span class="normal"><a href="#__codelineno-0-977"> 977</a></span>
-<span class="normal"><a href="#__codelineno-0-978"> 978</a></span>
-<span class="normal"><a href="#__codelineno-0-979"> 979</a></span>
-<span class="normal"><a href="#__codelineno-0-980"> 980</a></span>
-<span class="normal"><a href="#__codelineno-0-981"> 981</a></span>
-<span class="normal"><a href="#__codelineno-0-982"> 982</a></span>
-<span class="normal"><a href="#__codelineno-0-983"> 983</a></span>
-<span class="normal"><a href="#__codelineno-0-984"> 984</a></span>
-<span class="normal"><a href="#__codelineno-0-985"> 985</a></span>
-<span class="normal"><a href="#__codelineno-0-986"> 986</a></span>
-<span class="normal"><a href="#__codelineno-0-987"> 987</a></span>
-<span class="normal"><a href="#__codelineno-0-988"> 988</a></span>
-<span class="normal"><a href="#__codelineno-0-989"> 989</a></span>
-<span class="normal"><a href="#__codelineno-0-990"> 990</a></span>
-<span class="normal"><a href="#__codelineno-0-991"> 991</a></span>
-<span class="normal"><a href="#__codelineno-0-992"> 992</a></span>
-<span class="normal"><a href="#__codelineno-0-993"> 993</a></span>
-<span class="normal"><a href="#__codelineno-0-994"> 994</a></span>
-<span class="normal"><a href="#__codelineno-0-995"> 995</a></span>
-<span class="normal"><a href="#__codelineno-0-996"> 996</a></span>
-<span class="normal"><a href="#__codelineno-0-997"> 997</a></span>
-<span class="normal"><a href="#__codelineno-0-998"> 998</a></span>
-<span class="normal"><a href="#__codelineno-0-999"> 999</a></span>
-<span class="normal"><a href="#__codelineno-0-1000">1000</a></span>
-<span class="normal"><a href="#__codelineno-0-1001">1001</a></span>
-<span class="normal"><a href="#__codelineno-0-1002">1002</a></span>
-<span class="normal"><a href="#__codelineno-0-1003">1003</a></span>
-<span class="normal"><a href="#__codelineno-0-1004">1004</a></span>
-<span class="normal"><a href="#__codelineno-0-1005">1005</a></span>
-<span class="normal"><a href="#__codelineno-0-1006">1006</a></span>
-<span class="normal"><a href="#__codelineno-0-1007">1007</a></span>
-<span class="normal"><a href="#__codelineno-0-1008">1008</a></span>
-<span class="normal"><a href="#__codelineno-0-1009">1009</a></span>
-<span class="normal"><a href="#__codelineno-0-1010">1010</a></span>
-<span class="normal"><a href="#__codelineno-0-1011">1011</a></span>
-<span class="normal"><a href="#__codelineno-0-1012">1012</a></span>
-<span class="normal"><a href="#__codelineno-0-1013">1013</a></span>
-<span class="normal"><a href="#__codelineno-0-1014">1014</a></span>
-<span class="normal"><a href="#__codelineno-0-1015">1015</a></span>
-<span class="normal"><a href="#__codelineno-0-1016">1016</a></span>
-<span class="normal"><a href="#__codelineno-0-1017">1017</a></span>
-<span class="normal"><a href="#__codelineno-0-1018">1018</a></span>
-<span class="normal"><a href="#__codelineno-0-1019">1019</a></span>
-<span class="normal"><a href="#__codelineno-0-1020">1020</a></span>
-<span class="normal"><a href="#__codelineno-0-1021">1021</a></span>
-<span class="normal"><a href="#__codelineno-0-1022">1022</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-948" name="__codelineno-0-948"></a><span class="k">def</span><span class="w"> </span><span class="nf">decode_cf_time</span><span class="p">(</span>
-<a id="__codelineno-0-949" name="__codelineno-0-949"></a>    <span class="n">values</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span>
-<a id="__codelineno-0-950" name="__codelineno-0-950"></a>    <span class="n">unit</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">bytes</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-951" name="__codelineno-0-951"></a>    <span class="n">calendar</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"standard"</span><span class="p">,</span>
-<a id="__codelineno-0-952" name="__codelineno-0-952"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">typing</span><span class="o">.</span><span class="n">NDArray</span><span class="p">:</span>
-<a id="__codelineno-0-953" name="__codelineno-0-953"></a><span class="w">    </span><span class="sd">"""Decode numeric CF time offsets to datetimes.</span>
-<a id="__codelineno-0-954" name="__codelineno-0-954"></a>
-<a id="__codelineno-0-955" name="__codelineno-0-955"></a><span class="sd">    Standard / gregorian / proleptic_gregorian calendars yield ``datetime64[ns]`` when</span>
-<a id="__codelineno-0-956" name="__codelineno-0-956"></a><span class="sd">    representable; non-standard calendars (``360_day`` / ``noleap`` …) yield ``cftime``</span>
-<a id="__codelineno-0-957" name="__codelineno-0-957"></a><span class="sd">    objects. Arrays whose ``unit`` is not a ``"&lt;interval&gt; since &lt;origin&gt;"`` string are</span>
-<a id="__codelineno-0-958" name="__codelineno-0-958"></a><span class="sd">    returned unchanged.</span>
-<a id="__codelineno-0-959" name="__codelineno-0-959"></a>
-<a id="__codelineno-0-960" name="__codelineno-0-960"></a><span class="sd">    A Gregorian-family axis is decoded by adding its offsets to the origin in integer</span>
-<a id="__codelineno-0-961" name="__codelineno-0-961"></a><span class="sd">    nanoseconds, rather than through ``cftime``. Behaviour differs from earlier releases</span>
-<a id="__codelineno-0-962" name="__codelineno-0-962"></a><span class="sd">    in two ways, both of them consequences of dropping ``cftime``'s microsecond floor:</span>
-<a id="__codelineno-0-963" name="__codelineno-0-963"></a><span class="sd">    a ``"nanoseconds since …"`` axis decodes instead of raising, and a ``NaN`` offset</span>
-<a id="__codelineno-0-964" name="__codelineno-0-964"></a><span class="sd">    decodes to ``NaT`` instead of to the origin. Anything the integer path cannot take</span>
-<a id="__codelineno-0-965" name="__codelineno-0-965"></a><span class="sd">    exactly -- an unparseable origin, a period such as ``"months"``, an instant outside</span>
-<a id="__codelineno-0-966" name="__codelineno-0-966"></a><span class="sd">    ``datetime64[ns]``'s 1678-2262 range, or a pre-1582 origin on a mixed</span>
-<a id="__codelineno-0-967" name="__codelineno-0-967"></a><span class="sd">    Julian/Gregorian calendar -- still goes to ``cftime``, unchanged.</span>
-<a id="__codelineno-0-968" name="__codelineno-0-968"></a>
-<a id="__codelineno-0-969" name="__codelineno-0-969"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-970" name="__codelineno-0-970"></a><span class="sd">        values: The numeric values already read for the coordinate.</span>
-<a id="__codelineno-0-971" name="__codelineno-0-971"></a><span class="sd">        unit: The coordinate's CF unit string (e.g. ``"days since 1979-01-01"``),</span>
-<a id="__codelineno-0-972" name="__codelineno-0-972"></a><span class="sd">            or the bytes an undecoded attribute arrives as.</span>
-<a id="__codelineno-0-973" name="__codelineno-0-973"></a><span class="sd">        calendar: The CF calendar name. Defaults to ``"standard"``.</span>
-<a id="__codelineno-0-974" name="__codelineno-0-974"></a>
-<a id="__codelineno-0-975" name="__codelineno-0-975"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-976" name="__codelineno-0-976"></a><span class="sd">        np.ndarray: Decoded datetimes for a time axis, else ``values`` unchanged.</span>
-<a id="__codelineno-0-977" name="__codelineno-0-977"></a>
-<a id="__codelineno-0-978" name="__codelineno-0-978"></a><span class="sd">    Examples:</span>
-<a id="__codelineno-0-979" name="__codelineno-0-979"></a><span class="sd">        - The resolution the collection writer counts in, read back with its</span>
-<a id="__codelineno-0-980" name="__codelineno-0-980"></a><span class="sd">          sub-microsecond digits intact:</span>
-<a id="__codelineno-0-981" name="__codelineno-0-981"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-982" name="__codelineno-0-982"></a><span class="sd">            &gt;&gt;&gt; import numpy as np</span>
-<a id="__codelineno-0-983" name="__codelineno-0-983"></a><span class="sd">            &gt;&gt;&gt; from pyramids.netcdf.utils import cf_epoch_units, decode_cf_time</span>
-<a id="__codelineno-0-984" name="__codelineno-0-984"></a><span class="sd">            &gt;&gt;&gt; offsets = np.array([0, 1577836800123456789], dtype="int64")</span>
-<a id="__codelineno-0-985" name="__codelineno-0-985"></a><span class="sd">            &gt;&gt;&gt; decoded = decode_cf_time(</span>
-<a id="__codelineno-0-986" name="__codelineno-0-986"></a><span class="sd">            ...     offsets, cf_epoch_units("nanoseconds"), "proleptic_gregorian"</span>
-<a id="__codelineno-0-987" name="__codelineno-0-987"></a><span class="sd">            ... )</span>
-<a id="__codelineno-0-988" name="__codelineno-0-988"></a><span class="sd">            &gt;&gt;&gt; decoded.astype(str).tolist()</span>
-<a id="__codelineno-0-989" name="__codelineno-0-989"></a><span class="sd">            ['1970-01-01T00:00:00.000000000', '2020-01-01T00:00:00.123456789']</span>
-<a id="__codelineno-0-990" name="__codelineno-0-990"></a>
-<a id="__codelineno-0-991" name="__codelineno-0-991"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-992" name="__codelineno-0-992"></a>
-<a id="__codelineno-0-993" name="__codelineno-0-993"></a><span class="sd">    See Also:</span>
-<a id="__codelineno-0-994" name="__codelineno-0-994"></a><span class="sd">        is_cf_time_units: The predicate this gates on. It accepts every</span>
-<a id="__codelineno-0-995" name="__codelineno-0-995"></a><span class="sd">            ``"&lt;period&gt; since &lt;origin&gt;"`` string, so a resolution it admits and</span>
-<a id="__codelineno-0-996" name="__codelineno-0-996"></a><span class="sd">            this cannot decode is a defect -- which is what a ``nanoseconds``</span>
-<a id="__codelineno-0-997" name="__codelineno-0-997"></a><span class="sd">            axis was, accepted by the predicate and refused by ``cftime``.</span>
-<a id="__codelineno-0-998" name="__codelineno-0-998"></a><span class="sd">    """</span>
-<a id="__codelineno-0-999" name="__codelineno-0-999"></a>    <span class="c1"># Through the same normaliser the predicate uses: `cftime` needs `str`, and</span>
-<a id="__codelineno-0-1000" name="__codelineno-0-1000"></a>    <span class="c1"># a `units` the predicate accepted as bytes would otherwise raise here.</span>
-<a id="__codelineno-0-1001" name="__codelineno-0-1001"></a>    <span class="n">text</span> <span class="o">=</span> <span class="n">cf_units_text</span><span class="p">(</span><span class="n">unit</span><span class="p">)</span>
-<a id="__codelineno-0-1002" name="__codelineno-0-1002"></a>    <span class="n">decoded</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">typing</span><span class="o">.</span><span class="n">NDArray</span>
-<a id="__codelineno-0-1003" name="__codelineno-0-1003"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">is_cf_time_units</span><span class="p">(</span><span class="n">text</span><span class="p">):</span>
-<a id="__codelineno-0-1004" name="__codelineno-0-1004"></a>        <span class="n">decoded</span> <span class="o">=</span> <span class="n">values</span>
-<a id="__codelineno-0-1005" name="__codelineno-0-1005"></a>    <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-1006" name="__codelineno-0-1006"></a>        <span class="n">standard</span> <span class="o">=</span> <span class="n">_is_standard_calendar</span><span class="p">(</span><span class="n">calendar</span><span class="p">)</span>
-<a id="__codelineno-0-1007" name="__codelineno-0-1007"></a>        <span class="n">text</span> <span class="o">=</span> <span class="n">cast</span><span class="p">(</span><span class="s2">"str"</span><span class="p">,</span> <span class="n">text</span><span class="p">)</span>
-<a id="__codelineno-0-1008" name="__codelineno-0-1008"></a>        <span class="n">exact</span> <span class="o">=</span> <span class="n">_decode_gregorian_ns</span><span class="p">(</span><span class="n">values</span><span class="p">,</span> <span class="n">text</span><span class="p">,</span> <span class="n">calendar</span><span class="p">)</span> <span class="k">if</span> <span class="n">standard</span> <span class="k">else</span> <span class="kc">None</span>
-<a id="__codelineno-0-1009" name="__codelineno-0-1009"></a>        <span class="k">if</span> <span class="n">exact</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-1010" name="__codelineno-0-1010"></a>            <span class="n">decoded</span> <span class="o">=</span> <span class="n">exact</span>
-<a id="__codelineno-0-1011" name="__codelineno-0-1011"></a>        <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-1012" name="__codelineno-0-1012"></a>            <span class="n">decoded</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span>
-<a id="__codelineno-0-1013" name="__codelineno-0-1013"></a>                <span class="n">cftime</span><span class="o">.</span><span class="n">num2date</span><span class="p">(</span>
-<a id="__codelineno-0-1014" name="__codelineno-0-1014"></a>                    <span class="n">values</span><span class="p">,</span> <span class="n">text</span><span class="p">,</span> <span class="n">calendar</span><span class="p">,</span> <span class="n">only_use_cftime_datetimes</span><span class="o">=</span><span class="ow">not</span> <span class="n">standard</span>
-<a id="__codelineno-0-1015" name="__codelineno-0-1015"></a>                <span class="p">)</span>
-<a id="__codelineno-0-1016" name="__codelineno-0-1016"></a>            <span class="p">)</span>
-<a id="__codelineno-0-1017" name="__codelineno-0-1017"></a>            <span class="k">if</span> <span class="n">standard</span><span class="p">:</span>
-<a id="__codelineno-0-1018" name="__codelineno-0-1018"></a>                <span class="k">try</span><span class="p">:</span>
-<a id="__codelineno-0-1019" name="__codelineno-0-1019"></a>                    <span class="n">decoded</span> <span class="o">=</span> <span class="n">decoded</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s2">"datetime64[ns]"</span><span class="p">)</span>
-<a id="__codelineno-0-1020" name="__codelineno-0-1020"></a>                <span class="k">except</span> <span class="p">(</span><span class="ne">ValueError</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">):</span>
-<a id="__codelineno-0-1021" name="__codelineno-0-1021"></a>                    <span class="k">pass</span>
-<a id="__codelineno-0-1022" name="__codelineno-0-1022"></a>    <span class="k">return</span> <span class="n">decoded</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1072">1072</a></span>
+<span class="normal"><a href="#__codelineno-0-1073">1073</a></span>
+<span class="normal"><a href="#__codelineno-0-1074">1074</a></span>
+<span class="normal"><a href="#__codelineno-0-1075">1075</a></span>
+<span class="normal"><a href="#__codelineno-0-1076">1076</a></span>
+<span class="normal"><a href="#__codelineno-0-1077">1077</a></span>
+<span class="normal"><a href="#__codelineno-0-1078">1078</a></span>
+<span class="normal"><a href="#__codelineno-0-1079">1079</a></span>
+<span class="normal"><a href="#__codelineno-0-1080">1080</a></span>
+<span class="normal"><a href="#__codelineno-0-1081">1081</a></span>
+<span class="normal"><a href="#__codelineno-0-1082">1082</a></span>
+<span class="normal"><a href="#__codelineno-0-1083">1083</a></span>
+<span class="normal"><a href="#__codelineno-0-1084">1084</a></span>
+<span class="normal"><a href="#__codelineno-0-1085">1085</a></span>
+<span class="normal"><a href="#__codelineno-0-1086">1086</a></span>
+<span class="normal"><a href="#__codelineno-0-1087">1087</a></span>
+<span class="normal"><a href="#__codelineno-0-1088">1088</a></span>
+<span class="normal"><a href="#__codelineno-0-1089">1089</a></span>
+<span class="normal"><a href="#__codelineno-0-1090">1090</a></span>
+<span class="normal"><a href="#__codelineno-0-1091">1091</a></span>
+<span class="normal"><a href="#__codelineno-0-1092">1092</a></span>
+<span class="normal"><a href="#__codelineno-0-1093">1093</a></span>
+<span class="normal"><a href="#__codelineno-0-1094">1094</a></span>
+<span class="normal"><a href="#__codelineno-0-1095">1095</a></span>
+<span class="normal"><a href="#__codelineno-0-1096">1096</a></span>
+<span class="normal"><a href="#__codelineno-0-1097">1097</a></span>
+<span class="normal"><a href="#__codelineno-0-1098">1098</a></span>
+<span class="normal"><a href="#__codelineno-0-1099">1099</a></span>
+<span class="normal"><a href="#__codelineno-0-1100">1100</a></span>
+<span class="normal"><a href="#__codelineno-0-1101">1101</a></span>
+<span class="normal"><a href="#__codelineno-0-1102">1102</a></span>
+<span class="normal"><a href="#__codelineno-0-1103">1103</a></span>
+<span class="normal"><a href="#__codelineno-0-1104">1104</a></span>
+<span class="normal"><a href="#__codelineno-0-1105">1105</a></span>
+<span class="normal"><a href="#__codelineno-0-1106">1106</a></span>
+<span class="normal"><a href="#__codelineno-0-1107">1107</a></span>
+<span class="normal"><a href="#__codelineno-0-1108">1108</a></span>
+<span class="normal"><a href="#__codelineno-0-1109">1109</a></span>
+<span class="normal"><a href="#__codelineno-0-1110">1110</a></span>
+<span class="normal"><a href="#__codelineno-0-1111">1111</a></span>
+<span class="normal"><a href="#__codelineno-0-1112">1112</a></span>
+<span class="normal"><a href="#__codelineno-0-1113">1113</a></span>
+<span class="normal"><a href="#__codelineno-0-1114">1114</a></span>
+<span class="normal"><a href="#__codelineno-0-1115">1115</a></span>
+<span class="normal"><a href="#__codelineno-0-1116">1116</a></span>
+<span class="normal"><a href="#__codelineno-0-1117">1117</a></span>
+<span class="normal"><a href="#__codelineno-0-1118">1118</a></span>
+<span class="normal"><a href="#__codelineno-0-1119">1119</a></span>
+<span class="normal"><a href="#__codelineno-0-1120">1120</a></span>
+<span class="normal"><a href="#__codelineno-0-1121">1121</a></span>
+<span class="normal"><a href="#__codelineno-0-1122">1122</a></span>
+<span class="normal"><a href="#__codelineno-0-1123">1123</a></span>
+<span class="normal"><a href="#__codelineno-0-1124">1124</a></span>
+<span class="normal"><a href="#__codelineno-0-1125">1125</a></span>
+<span class="normal"><a href="#__codelineno-0-1126">1126</a></span>
+<span class="normal"><a href="#__codelineno-0-1127">1127</a></span>
+<span class="normal"><a href="#__codelineno-0-1128">1128</a></span>
+<span class="normal"><a href="#__codelineno-0-1129">1129</a></span>
+<span class="normal"><a href="#__codelineno-0-1130">1130</a></span>
+<span class="normal"><a href="#__codelineno-0-1131">1131</a></span>
+<span class="normal"><a href="#__codelineno-0-1132">1132</a></span>
+<span class="normal"><a href="#__codelineno-0-1133">1133</a></span>
+<span class="normal"><a href="#__codelineno-0-1134">1134</a></span>
+<span class="normal"><a href="#__codelineno-0-1135">1135</a></span>
+<span class="normal"><a href="#__codelineno-0-1136">1136</a></span>
+<span class="normal"><a href="#__codelineno-0-1137">1137</a></span>
+<span class="normal"><a href="#__codelineno-0-1138">1138</a></span>
+<span class="normal"><a href="#__codelineno-0-1139">1139</a></span>
+<span class="normal"><a href="#__codelineno-0-1140">1140</a></span>
+<span class="normal"><a href="#__codelineno-0-1141">1141</a></span>
+<span class="normal"><a href="#__codelineno-0-1142">1142</a></span>
+<span class="normal"><a href="#__codelineno-0-1143">1143</a></span>
+<span class="normal"><a href="#__codelineno-0-1144">1144</a></span>
+<span class="normal"><a href="#__codelineno-0-1145">1145</a></span>
+<span class="normal"><a href="#__codelineno-0-1146">1146</a></span>
+<span class="normal"><a href="#__codelineno-0-1147">1147</a></span>
+<span class="normal"><a href="#__codelineno-0-1148">1148</a></span>
+<span class="normal"><a href="#__codelineno-0-1149">1149</a></span>
+<span class="normal"><a href="#__codelineno-0-1150">1150</a></span>
+<span class="normal"><a href="#__codelineno-0-1151">1151</a></span>
+<span class="normal"><a href="#__codelineno-0-1152">1152</a></span>
+<span class="normal"><a href="#__codelineno-0-1153">1153</a></span>
+<span class="normal"><a href="#__codelineno-0-1154">1154</a></span>
+<span class="normal"><a href="#__codelineno-0-1155">1155</a></span>
+<span class="normal"><a href="#__codelineno-0-1156">1156</a></span>
+<span class="normal"><a href="#__codelineno-0-1157">1157</a></span>
+<span class="normal"><a href="#__codelineno-0-1158">1158</a></span>
+<span class="normal"><a href="#__codelineno-0-1159">1159</a></span>
+<span class="normal"><a href="#__codelineno-0-1160">1160</a></span>
+<span class="normal"><a href="#__codelineno-0-1161">1161</a></span>
+<span class="normal"><a href="#__codelineno-0-1162">1162</a></span>
+<span class="normal"><a href="#__codelineno-0-1163">1163</a></span>
+<span class="normal"><a href="#__codelineno-0-1164">1164</a></span>
+<span class="normal"><a href="#__codelineno-0-1165">1165</a></span>
+<span class="normal"><a href="#__codelineno-0-1166">1166</a></span>
+<span class="normal"><a href="#__codelineno-0-1167">1167</a></span>
+<span class="normal"><a href="#__codelineno-0-1168">1168</a></span>
+<span class="normal"><a href="#__codelineno-0-1169">1169</a></span>
+<span class="normal"><a href="#__codelineno-0-1170">1170</a></span>
+<span class="normal"><a href="#__codelineno-0-1171">1171</a></span>
+<span class="normal"><a href="#__codelineno-0-1172">1172</a></span>
+<span class="normal"><a href="#__codelineno-0-1173">1173</a></span>
+<span class="normal"><a href="#__codelineno-0-1174">1174</a></span>
+<span class="normal"><a href="#__codelineno-0-1175">1175</a></span>
+<span class="normal"><a href="#__codelineno-0-1176">1176</a></span>
+<span class="normal"><a href="#__codelineno-0-1177">1177</a></span>
+<span class="normal"><a href="#__codelineno-0-1178">1178</a></span>
+<span class="normal"><a href="#__codelineno-0-1179">1179</a></span>
+<span class="normal"><a href="#__codelineno-0-1180">1180</a></span>
+<span class="normal"><a href="#__codelineno-0-1181">1181</a></span>
+<span class="normal"><a href="#__codelineno-0-1182">1182</a></span>
+<span class="normal"><a href="#__codelineno-0-1183">1183</a></span>
+<span class="normal"><a href="#__codelineno-0-1184">1184</a></span>
+<span class="normal"><a href="#__codelineno-0-1185">1185</a></span>
+<span class="normal"><a href="#__codelineno-0-1186">1186</a></span>
+<span class="normal"><a href="#__codelineno-0-1187">1187</a></span>
+<span class="normal"><a href="#__codelineno-0-1188">1188</a></span>
+<span class="normal"><a href="#__codelineno-0-1189">1189</a></span>
+<span class="normal"><a href="#__codelineno-0-1190">1190</a></span>
+<span class="normal"><a href="#__codelineno-0-1191">1191</a></span>
+<span class="normal"><a href="#__codelineno-0-1192">1192</a></span>
+<span class="normal"><a href="#__codelineno-0-1193">1193</a></span>
+<span class="normal"><a href="#__codelineno-0-1194">1194</a></span>
+<span class="normal"><a href="#__codelineno-0-1195">1195</a></span>
+<span class="normal"><a href="#__codelineno-0-1196">1196</a></span>
+<span class="normal"><a href="#__codelineno-0-1197">1197</a></span>
+<span class="normal"><a href="#__codelineno-0-1198">1198</a></span>
+<span class="normal"><a href="#__codelineno-0-1199">1199</a></span>
+<span class="normal"><a href="#__codelineno-0-1200">1200</a></span>
+<span class="normal"><a href="#__codelineno-0-1201">1201</a></span>
+<span class="normal"><a href="#__codelineno-0-1202">1202</a></span>
+<span class="normal"><a href="#__codelineno-0-1203">1203</a></span>
+<span class="normal"><a href="#__codelineno-0-1204">1204</a></span>
+<span class="normal"><a href="#__codelineno-0-1205">1205</a></span>
+<span class="normal"><a href="#__codelineno-0-1206">1206</a></span>
+<span class="normal"><a href="#__codelineno-0-1207">1207</a></span>
+<span class="normal"><a href="#__codelineno-0-1208">1208</a></span>
+<span class="normal"><a href="#__codelineno-0-1209">1209</a></span>
+<span class="normal"><a href="#__codelineno-0-1210">1210</a></span>
+<span class="normal"><a href="#__codelineno-0-1211">1211</a></span>
+<span class="normal"><a href="#__codelineno-0-1212">1212</a></span>
+<span class="normal"><a href="#__codelineno-0-1213">1213</a></span>
+<span class="normal"><a href="#__codelineno-0-1214">1214</a></span>
+<span class="normal"><a href="#__codelineno-0-1215">1215</a></span>
+<span class="normal"><a href="#__codelineno-0-1216">1216</a></span>
+<span class="normal"><a href="#__codelineno-0-1217">1217</a></span>
+<span class="normal"><a href="#__codelineno-0-1218">1218</a></span>
+<span class="normal"><a href="#__codelineno-0-1219">1219</a></span>
+<span class="normal"><a href="#__codelineno-0-1220">1220</a></span>
+<span class="normal"><a href="#__codelineno-0-1221">1221</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1072" name="__codelineno-0-1072"></a><span class="k">def</span><span class="w"> </span><span class="nf">decode_cf_time</span><span class="p">(</span>
+<a id="__codelineno-0-1073" name="__codelineno-0-1073"></a>    <span class="n">values</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span>
+<a id="__codelineno-0-1074" name="__codelineno-0-1074"></a>    <span class="n">unit</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">bytes</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-1075" name="__codelineno-0-1075"></a>    <span class="n">calendar</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"standard"</span><span class="p">,</span>
+<a id="__codelineno-0-1076" name="__codelineno-0-1076"></a>    <span class="n">context</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-1077" name="__codelineno-0-1077"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">typing</span><span class="o">.</span><span class="n">NDArray</span><span class="p">:</span>
+<a id="__codelineno-0-1078" name="__codelineno-0-1078"></a><span class="w">    </span><span class="sd">"""Decode numeric CF time offsets to datetimes.</span>
+<a id="__codelineno-0-1079" name="__codelineno-0-1079"></a>
+<a id="__codelineno-0-1080" name="__codelineno-0-1080"></a><span class="sd">    Standard / gregorian / proleptic_gregorian calendars yield ``datetime64[ns]`` when</span>
+<a id="__codelineno-0-1081" name="__codelineno-0-1081"></a><span class="sd">    representable; non-standard calendars (``360_day`` / ``noleap`` …) yield ``cftime``</span>
+<a id="__codelineno-0-1082" name="__codelineno-0-1082"></a><span class="sd">    objects. Arrays whose ``unit`` is not a ``"&lt;interval&gt; since &lt;origin&gt;"`` string are</span>
+<a id="__codelineno-0-1083" name="__codelineno-0-1083"></a><span class="sd">    returned unchanged.</span>
+<a id="__codelineno-0-1084" name="__codelineno-0-1084"></a>
+<a id="__codelineno-0-1085" name="__codelineno-0-1085"></a><span class="sd">    A Gregorian-family axis is decoded by adding its offsets to the origin in integer</span>
+<a id="__codelineno-0-1086" name="__codelineno-0-1086"></a><span class="sd">    nanoseconds, rather than through ``cftime``. Behaviour differs from earlier releases</span>
+<a id="__codelineno-0-1087" name="__codelineno-0-1087"></a><span class="sd">    in two ways, both of them consequences of dropping ``cftime``'s microsecond floor:</span>
+<a id="__codelineno-0-1088" name="__codelineno-0-1088"></a><span class="sd">    a ``"nanoseconds since …"`` axis decodes instead of raising, and a ``NaN`` offset</span>
+<a id="__codelineno-0-1089" name="__codelineno-0-1089"></a><span class="sd">    decodes to ``NaT`` instead of to the origin. Both decode paths agree about missing</span>
+<a id="__codelineno-0-1090" name="__codelineno-0-1090"></a><span class="sd">    values: the ``cftime`` fallback honours the mask ``cftime`` returns, so a ``NaN`` or an</span>
+<a id="__codelineno-0-1091" name="__codelineno-0-1091"></a><span class="sd">    ``inf`` offset is missing there too rather than silently reading as the origin (#1116).</span>
+<a id="__codelineno-0-1092" name="__codelineno-0-1092"></a>
+<a id="__codelineno-0-1093" name="__codelineno-0-1093"></a><span class="sd">    Anything the integer path cannot take</span>
+<a id="__codelineno-0-1094" name="__codelineno-0-1094"></a><span class="sd">    exactly -- an unparseable origin, a period such as ``"months"``, an instant the integer</span>
+<a id="__codelineno-0-1095" name="__codelineno-0-1095"></a><span class="sd">    nanosecond scale cannot reach, or a pre-1582 origin on a mixed Julian/Gregorian</span>
+<a id="__codelineno-0-1096" name="__codelineno-0-1096"></a><span class="sd">    calendar -- still goes to ``cftime``. That reach is not a fixed span of years: the gate</span>
+<a id="__codelineno-0-1097" name="__codelineno-0-1097"></a><span class="sd">    sums the offset's magnitude and the origin's distance from 1970, so a far-from-1970</span>
+<a id="__codelineno-0-1098" name="__codelineno-0-1098"></a><span class="sd">    epoch shortens it (off ``days since 1900-01-01``, an instant in 2116 already</span>
+<a id="__codelineno-0-1099" name="__codelineno-0-1099"></a><span class="sd">    declines). That</span>
+<a id="__codelineno-0-1100" name="__codelineno-0-1100"></a><span class="sd">    is a wider range than the integer path's, not a narrower one: a date ``cftime`` decodes</span>
+<a id="__codelineno-0-1101" name="__codelineno-0-1101"></a><span class="sd">    is still cast to ``datetime64[ns]`` whenever it fits, so 2255-2262 -- past the integer</span>
+<a id="__codelineno-0-1102" name="__codelineno-0-1102"></a><span class="sd">    scale but inside the type -- comes back as ``datetime64`` all the same.</span>
+<a id="__codelineno-0-1103" name="__codelineno-0-1103"></a>
+<a id="__codelineno-0-1104" name="__codelineno-0-1104"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-1105" name="__codelineno-0-1105"></a><span class="sd">        values: The numeric values already read for the coordinate.</span>
+<a id="__codelineno-0-1106" name="__codelineno-0-1106"></a><span class="sd">        unit: The coordinate's CF unit string (e.g. ``"days since 1979-01-01"``),</span>
+<a id="__codelineno-0-1107" name="__codelineno-0-1107"></a><span class="sd">            or the bytes an undecoded attribute arrives as.</span>
+<a id="__codelineno-0-1108" name="__codelineno-0-1108"></a><span class="sd">        calendar: The CF calendar name. Defaults to ``"standard"``.</span>
+<a id="__codelineno-0-1109" name="__codelineno-0-1109"></a><span class="sd">        context: Optional name of the axis being decoded, used only so the out-of-range</span>
+<a id="__codelineno-0-1110" name="__codelineno-0-1110"></a><span class="sd">            warning can say *which* axis it is about. A store with several time axes</span>
+<a id="__codelineno-0-1111" name="__codelineno-0-1111"></a><span class="sd">            otherwise warns with nothing but the units string to tell them apart.</span>
+<a id="__codelineno-0-1112" name="__codelineno-0-1112"></a>
+<a id="__codelineno-0-1113" name="__codelineno-0-1113"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-1114" name="__codelineno-0-1114"></a><span class="sd">        np.ndarray: Decoded datetimes for a time axis, else ``values`` unchanged. For a</span>
+<a id="__codelineno-0-1115" name="__codelineno-0-1115"></a><span class="sd">            time axis the dtype depends on the dates: ``datetime64[ns]`` when every one of</span>
+<a id="__codelineno-0-1116" name="__codelineno-0-1116"></a><span class="sd">            them is representable in that type, and an object array otherwise -- either</span>
+<a id="__codelineno-0-1117" name="__codelineno-0-1117"></a><span class="sd">            because the calendar is not a standard one, or because a date falls outside</span>
+<a id="__codelineno-0-1118" name="__codelineno-0-1118"></a><span class="sd">            ``datetime64[ns]``'s 1677-09-21 to 2262-04-11 range, which is warned about</span>
+<a id="__codelineno-0-1119" name="__codelineno-0-1119"></a><span class="sd">            (#1087). The choice is array-wide, since one array has one dtype: a single</span>
+<a id="__codelineno-0-1120" name="__codelineno-0-1120"></a><span class="sd">            out-of-range value keeps its in-range neighbours as objects too. A value</span>
+<a id="__codelineno-0-1121" name="__codelineno-0-1121"></a><span class="sd">            ``cftime`` could not decode -- a ``NaN`` or an ``inf`` offset -- comes back as</span>
+<a id="__codelineno-0-1122" name="__codelineno-0-1122"></a><span class="sd">            ``NaT`` in a ``datetime64`` result and as ``None`` in an object one, since an</span>
+<a id="__codelineno-0-1123" name="__codelineno-0-1123"></a><span class="sd">            object array of datetimes has no ``NaT`` (#1116).</span>
+<a id="__codelineno-0-1124" name="__codelineno-0-1124"></a><span class="sd">            What that object array holds is ``cftime``'s own choice, not this</span>
+<a id="__codelineno-0-1125" name="__codelineno-0-1125"></a><span class="sd">            function's: ``cftime.real_datetime`` (a ``datetime.datetime`` subclass, which</span>
+<a id="__codelineno-0-1126" name="__codelineno-0-1126"></a><span class="sd">            ``pandas`` coerces to ``datetime64[us]``) for a date Python's ``datetime`` can</span>
+<a id="__codelineno-0-1127" name="__codelineno-0-1127"></a><span class="sd">            represent, and a true ``cftime`` datetime such as ``DatetimeGregorian`` for one</span>
+<a id="__codelineno-0-1128" name="__codelineno-0-1128"></a><span class="sd">            it cannot -- which in practice means a pre-1582 origin on a mixed calendar.</span>
+<a id="__codelineno-0-1129" name="__codelineno-0-1129"></a>
+<a id="__codelineno-0-1130" name="__codelineno-0-1130"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-1131" name="__codelineno-0-1131"></a><span class="sd">        ValueError: ``cftime`` cannot decode this units/calendar pair -- most often a</span>
+<a id="__codelineno-0-1132" name="__codelineno-0-1132"></a><span class="sd">            ``"months since …"`` axis on anything but ``360_day``, since a calendar month</span>
+<a id="__codelineno-0-1133" name="__codelineno-0-1133"></a><span class="sd">            has no fixed length. Re-raised with the axis, units and calendar named, because</span>
+<a id="__codelineno-0-1134" name="__codelineno-0-1134"></a><span class="sd">            ``cftime``'s own message identifies none of them (#1117).</span>
+<a id="__codelineno-0-1135" name="__codelineno-0-1135"></a>
+<a id="__codelineno-0-1136" name="__codelineno-0-1136"></a><span class="sd">    Examples:</span>
+<a id="__codelineno-0-1137" name="__codelineno-0-1137"></a><span class="sd">        - A date past what ``datetime64[ns]`` holds keeps its real value, and says so:</span>
+<a id="__codelineno-0-1138" name="__codelineno-0-1138"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-1139" name="__codelineno-0-1139"></a><span class="sd">            &gt;&gt;&gt; import warnings</span>
+<a id="__codelineno-0-1140" name="__codelineno-0-1140"></a><span class="sd">            &gt;&gt;&gt; import numpy as np</span>
+<a id="__codelineno-0-1141" name="__codelineno-0-1141"></a><span class="sd">            &gt;&gt;&gt; from pyramids.netcdf.utils import decode_cf_time</span>
+<a id="__codelineno-0-1142" name="__codelineno-0-1142"></a><span class="sd">            &gt;&gt;&gt; with warnings.catch_warnings(record=True) as caught:</span>
+<a id="__codelineno-0-1143" name="__codelineno-0-1143"></a><span class="sd">            ...     warnings.simplefilter("always")</span>
+<a id="__codelineno-0-1144" name="__codelineno-0-1144"></a><span class="sd">            ...     decoded = decode_cf_time(</span>
+<a id="__codelineno-0-1145" name="__codelineno-0-1145"></a><span class="sd">            ...         np.array([400_000]), "days since 1970-01-01", "standard"</span>
+<a id="__codelineno-0-1146" name="__codelineno-0-1146"></a><span class="sd">            ...     )</span>
+<a id="__codelineno-0-1147" name="__codelineno-0-1147"></a><span class="sd">            &gt;&gt;&gt; decoded.dtype, decoded[0].year</span>
+<a id="__codelineno-0-1148" name="__codelineno-0-1148"></a><span class="sd">            (dtype('O'), 3065)</span>
+<a id="__codelineno-0-1149" name="__codelineno-0-1149"></a><span class="sd">            &gt;&gt;&gt; caught[0].category.__name__</span>
+<a id="__codelineno-0-1150" name="__codelineno-0-1150"></a><span class="sd">            'UserWarning'</span>
+<a id="__codelineno-0-1151" name="__codelineno-0-1151"></a>
+<a id="__codelineno-0-1152" name="__codelineno-0-1152"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-1153" name="__codelineno-0-1153"></a><span class="sd">        - The resolution the collection writer counts in, read back with its</span>
+<a id="__codelineno-0-1154" name="__codelineno-0-1154"></a><span class="sd">          sub-microsecond digits intact:</span>
+<a id="__codelineno-0-1155" name="__codelineno-0-1155"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-1156" name="__codelineno-0-1156"></a><span class="sd">            &gt;&gt;&gt; import numpy as np</span>
+<a id="__codelineno-0-1157" name="__codelineno-0-1157"></a><span class="sd">            &gt;&gt;&gt; from pyramids.netcdf.utils import cf_epoch_units, decode_cf_time</span>
+<a id="__codelineno-0-1158" name="__codelineno-0-1158"></a><span class="sd">            &gt;&gt;&gt; offsets = np.array([0, 1577836800123456789], dtype="int64")</span>
+<a id="__codelineno-0-1159" name="__codelineno-0-1159"></a><span class="sd">            &gt;&gt;&gt; decoded = decode_cf_time(</span>
+<a id="__codelineno-0-1160" name="__codelineno-0-1160"></a><span class="sd">            ...     offsets, cf_epoch_units("nanoseconds"), "proleptic_gregorian"</span>
+<a id="__codelineno-0-1161" name="__codelineno-0-1161"></a><span class="sd">            ... )</span>
+<a id="__codelineno-0-1162" name="__codelineno-0-1162"></a><span class="sd">            &gt;&gt;&gt; decoded.astype(str).tolist()</span>
+<a id="__codelineno-0-1163" name="__codelineno-0-1163"></a><span class="sd">            ['1970-01-01T00:00:00.000000000', '2020-01-01T00:00:00.123456789']</span>
+<a id="__codelineno-0-1164" name="__codelineno-0-1164"></a>
+<a id="__codelineno-0-1165" name="__codelineno-0-1165"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-1166" name="__codelineno-0-1166"></a>
+<a id="__codelineno-0-1167" name="__codelineno-0-1167"></a><span class="sd">    See Also:</span>
+<a id="__codelineno-0-1168" name="__codelineno-0-1168"></a><span class="sd">        is_cf_time_units: The predicate this gates on. It accepts every</span>
+<a id="__codelineno-0-1169" name="__codelineno-0-1169"></a><span class="sd">            ``"&lt;period&gt; since &lt;origin&gt;"`` string, so a resolution it admits and</span>
+<a id="__codelineno-0-1170" name="__codelineno-0-1170"></a><span class="sd">            this cannot decode is a defect -- which is what a ``nanoseconds``</span>
+<a id="__codelineno-0-1171" name="__codelineno-0-1171"></a><span class="sd">            axis was, accepted by the predicate and refused by ``cftime``.</span>
+<a id="__codelineno-0-1172" name="__codelineno-0-1172"></a><span class="sd">    """</span>
+<a id="__codelineno-0-1173" name="__codelineno-0-1173"></a>    <span class="c1"># Through the same normaliser the predicate uses: `cftime` needs `str`, and</span>
+<a id="__codelineno-0-1174" name="__codelineno-0-1174"></a>    <span class="c1"># a `units` the predicate accepted as bytes would otherwise raise here.</span>
+<a id="__codelineno-0-1175" name="__codelineno-0-1175"></a>    <span class="n">text</span> <span class="o">=</span> <span class="n">cf_units_text</span><span class="p">(</span><span class="n">unit</span><span class="p">)</span>
+<a id="__codelineno-0-1176" name="__codelineno-0-1176"></a>    <span class="n">decoded</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">typing</span><span class="o">.</span><span class="n">NDArray</span>
+<a id="__codelineno-0-1177" name="__codelineno-0-1177"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">is_cf_time_units</span><span class="p">(</span><span class="n">text</span><span class="p">):</span>
+<a id="__codelineno-0-1178" name="__codelineno-0-1178"></a>        <span class="n">decoded</span> <span class="o">=</span> <span class="n">values</span>
+<a id="__codelineno-0-1179" name="__codelineno-0-1179"></a>    <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-1180" name="__codelineno-0-1180"></a>        <span class="n">standard</span> <span class="o">=</span> <span class="n">_is_standard_calendar</span><span class="p">(</span><span class="n">calendar</span><span class="p">)</span>
+<a id="__codelineno-0-1181" name="__codelineno-0-1181"></a>        <span class="n">text</span> <span class="o">=</span> <span class="n">cast</span><span class="p">(</span><span class="s2">"str"</span><span class="p">,</span> <span class="n">text</span><span class="p">)</span>
+<a id="__codelineno-0-1182" name="__codelineno-0-1182"></a>        <span class="n">exact</span> <span class="o">=</span> <span class="n">_decode_gregorian_ns</span><span class="p">(</span><span class="n">values</span><span class="p">,</span> <span class="n">text</span><span class="p">,</span> <span class="n">calendar</span><span class="p">)</span> <span class="k">if</span> <span class="n">standard</span> <span class="k">else</span> <span class="kc">None</span>
+<a id="__codelineno-0-1183" name="__codelineno-0-1183"></a>        <span class="k">if</span> <span class="n">exact</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1184" name="__codelineno-0-1184"></a>            <span class="n">decoded</span> <span class="o">=</span> <span class="n">exact</span>
+<a id="__codelineno-0-1185" name="__codelineno-0-1185"></a>        <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-1186" name="__codelineno-0-1186"></a>            <span class="n">raw</span> <span class="o">=</span> <span class="n">_num2date</span><span class="p">(</span><span class="n">values</span><span class="p">,</span> <span class="n">text</span><span class="p">,</span> <span class="n">calendar</span><span class="p">,</span> <span class="n">standard</span><span class="p">,</span> <span class="n">context</span><span class="p">)</span>
+<a id="__codelineno-0-1187" name="__codelineno-0-1187"></a>            <span class="c1"># `cftime` masks the positions it could not decode -- a `NaN` or an `inf`</span>
+<a id="__codelineno-0-1188" name="__codelineno-0-1188"></a>            <span class="c1"># offset -- and `np.asarray` drops that mask, leaving the fill value, which</span>
+<a id="__codelineno-0-1189" name="__codelineno-0-1189"></a>            <span class="c1"># is the origin. Read as a real timestamp, that is a missing timestep</span>
+<a id="__codelineno-0-1190" name="__codelineno-0-1190"></a>            <span class="c1"># silently becoming a date (#1116). Keep the mask and honour it below.</span>
+<a id="__codelineno-0-1191" name="__codelineno-0-1191"></a>            <span class="n">missing</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ma</span><span class="o">.</span><span class="n">getmaskarray</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">ma</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">raw</span><span class="p">))</span>
+<a id="__codelineno-0-1192" name="__codelineno-0-1192"></a>            <span class="n">decoded</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">raw</span><span class="p">)</span>
+<a id="__codelineno-0-1193" name="__codelineno-0-1193"></a>            <span class="k">if</span> <span class="n">standard</span><span class="p">:</span>
+<a id="__codelineno-0-1194" name="__codelineno-0-1194"></a>                <span class="c1"># Range-checked, not try/except: the cast does not raise on an</span>
+<a id="__codelineno-0-1195" name="__codelineno-0-1195"></a>                <span class="c1"># out-of-range date, it wraps (#1087). Out of range the decoded</span>
+<a id="__codelineno-0-1196" name="__codelineno-0-1196"></a>                <span class="c1"># objects are kept as-is -- lossless, and already what a</span>
+<a id="__codelineno-0-1197" name="__codelineno-0-1197"></a>                <span class="c1"># non-standard calendar returns. Masked positions are excluded: they</span>
+<a id="__codelineno-0-1198" name="__codelineno-0-1198"></a>                <span class="c1"># hold the origin, so on a pre-1582 epoch they would fail the check and</span>
+<a id="__codelineno-0-1199" name="__codelineno-0-1199"></a>                <span class="c1"># blame a range problem for what is a missing value.</span>
+<a id="__codelineno-0-1200" name="__codelineno-0-1200"></a>                <span class="n">present</span> <span class="o">=</span> <span class="n">decoded</span><span class="p">[</span><span class="o">~</span><span class="n">missing</span><span class="p">]</span> <span class="k">if</span> <span class="n">missing</span><span class="o">.</span><span class="n">any</span><span class="p">()</span> <span class="k">else</span> <span class="n">decoded</span>
+<a id="__codelineno-0-1201" name="__codelineno-0-1201"></a>                <span class="k">if</span> <span class="n">_fits_datetime64_ns</span><span class="p">(</span><span class="n">present</span><span class="p">):</span>
+<a id="__codelineno-0-1202" name="__codelineno-0-1202"></a>                    <span class="n">decoded</span> <span class="o">=</span> <span class="n">decoded</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s2">"datetime64[ns]"</span><span class="p">)</span>
+<a id="__codelineno-0-1203" name="__codelineno-0-1203"></a>                    <span class="k">if</span> <span class="n">missing</span><span class="o">.</span><span class="n">any</span><span class="p">():</span>
+<a id="__codelineno-0-1204" name="__codelineno-0-1204"></a>                        <span class="n">decoded</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">missing</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">datetime64</span><span class="p">(</span><span class="s2">"NaT"</span><span class="p">,</span> <span class="s2">"ns"</span><span class="p">),</span> <span class="n">decoded</span><span class="p">)</span>
+<a id="__codelineno-0-1205" name="__codelineno-0-1205"></a>                <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-1206" name="__codelineno-0-1206"></a>                    <span class="c1"># `UserWarning`, not `RuntimeWarning`: GDAL floods the latter,</span>
+<a id="__codelineno-0-1207" name="__codelineno-0-1207"></a>                    <span class="c1"># so the common "ignore RuntimeWarning" recipe around a GDAL</span>
+<a id="__codelineno-0-1208" name="__codelineno-0-1208"></a>                    <span class="c1"># read would silence a data-integrity warning.</span>
+<a id="__codelineno-0-1209" name="__codelineno-0-1209"></a>                    <span class="n">axis</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">context</span><span class="si">!r}</span><span class="s2"> "</span> <span class="k">if</span> <span class="n">context</span> <span class="k">else</span> <span class="s2">""</span>
+<a id="__codelineno-0-1210" name="__codelineno-0-1210"></a>                    <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
+<a id="__codelineno-0-1211" name="__codelineno-0-1211"></a>                        <span class="sa">f</span><span class="s2">"time axis </span><span class="si">{</span><span class="n">axis</span><span class="si">}</span><span class="s2">(</span><span class="si">{</span><span class="n">text</span><span class="si">!r}</span><span class="s2">) decodes to dates outside the "</span>
+<a id="__codelineno-0-1212" name="__codelineno-0-1212"></a>                        <span class="sa">f</span><span class="s2">"1677-09-21 to 2262-04-11 range datetime64[ns] can represent; "</span>
+<a id="__codelineno-0-1213" name="__codelineno-0-1213"></a>                        <span class="sa">f</span><span class="s2">"returning the decoded datetime objects instead, because casting "</span>
+<a id="__codelineno-0-1214" name="__codelineno-0-1214"></a>                        <span class="sa">f</span><span class="s2">"would silently wrap them to the wrong dates."</span><span class="p">,</span>
+<a id="__codelineno-0-1215" name="__codelineno-0-1215"></a>                        <span class="ne">UserWarning</span><span class="p">,</span>
+<a id="__codelineno-0-1216" name="__codelineno-0-1216"></a>                        <span class="n">stacklevel</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+<a id="__codelineno-0-1217" name="__codelineno-0-1217"></a>                    <span class="p">)</span>
+<a id="__codelineno-0-1218" name="__codelineno-0-1218"></a>                    <span class="n">decoded</span> <span class="o">=</span> <span class="n">_blank_missing</span><span class="p">(</span><span class="n">decoded</span><span class="p">,</span> <span class="n">missing</span><span class="p">)</span>
+<a id="__codelineno-0-1219" name="__codelineno-0-1219"></a>            <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-1220" name="__codelineno-0-1220"></a>                <span class="n">decoded</span> <span class="o">=</span> <span class="n">_blank_missing</span><span class="p">(</span><span class="n">decoded</span><span class="p">,</span> <span class="n">missing</span><span class="p">)</span>
+<a id="__codelineno-0-1221" name="__codelineno-0-1221"></a>    <span class="k">return</span> <span class="n">decoded</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -8076,59 +8307,59 @@ accepts.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/netcdf/utils.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1025">1025</a></span>
-<span class="normal"><a href="#__codelineno-0-1026">1026</a></span>
-<span class="normal"><a href="#__codelineno-0-1027">1027</a></span>
-<span class="normal"><a href="#__codelineno-0-1028">1028</a></span>
-<span class="normal"><a href="#__codelineno-0-1029">1029</a></span>
-<span class="normal"><a href="#__codelineno-0-1030">1030</a></span>
-<span class="normal"><a href="#__codelineno-0-1031">1031</a></span>
-<span class="normal"><a href="#__codelineno-0-1032">1032</a></span>
-<span class="normal"><a href="#__codelineno-0-1033">1033</a></span>
-<span class="normal"><a href="#__codelineno-0-1034">1034</a></span>
-<span class="normal"><a href="#__codelineno-0-1035">1035</a></span>
-<span class="normal"><a href="#__codelineno-0-1036">1036</a></span>
-<span class="normal"><a href="#__codelineno-0-1037">1037</a></span>
-<span class="normal"><a href="#__codelineno-0-1038">1038</a></span>
-<span class="normal"><a href="#__codelineno-0-1039">1039</a></span>
-<span class="normal"><a href="#__codelineno-0-1040">1040</a></span>
-<span class="normal"><a href="#__codelineno-0-1041">1041</a></span>
-<span class="normal"><a href="#__codelineno-0-1042">1042</a></span>
-<span class="normal"><a href="#__codelineno-0-1043">1043</a></span>
-<span class="normal"><a href="#__codelineno-0-1044">1044</a></span>
-<span class="normal"><a href="#__codelineno-0-1045">1045</a></span>
-<span class="normal"><a href="#__codelineno-0-1046">1046</a></span>
-<span class="normal"><a href="#__codelineno-0-1047">1047</a></span>
-<span class="normal"><a href="#__codelineno-0-1048">1048</a></span>
-<span class="normal"><a href="#__codelineno-0-1049">1049</a></span>
-<span class="normal"><a href="#__codelineno-0-1050">1050</a></span>
-<span class="normal"><a href="#__codelineno-0-1051">1051</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1025" name="__codelineno-0-1025"></a><span class="k">def</span><span class="w"> </span><span class="nf">encode_cf_time</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">unit</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">calendar</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"standard"</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
-<a id="__codelineno-0-1026" name="__codelineno-0-1026"></a><span class="w">    </span><span class="sd">"""Convert a date string / datetime to a coordinate's numeric CF scale.</span>
-<a id="__codelineno-0-1027" name="__codelineno-0-1027"></a>
-<a id="__codelineno-0-1028" name="__codelineno-0-1028"></a><span class="sd">    The inverse of :func:`decode_cf_time` for a single value: used to translate a</span>
-<a id="__codelineno-0-1029" name="__codelineno-0-1029"></a><span class="sd">    user-supplied selection bound back to the time axis's stored numbers.</span>
-<a id="__codelineno-0-1030" name="__codelineno-0-1030"></a>
-<a id="__codelineno-0-1031" name="__codelineno-0-1031"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-1032" name="__codelineno-0-1032"></a><span class="sd">        value: A date string, :class:`datetime`, or anything :class:`pandas.Timestamp`</span>
-<a id="__codelineno-0-1033" name="__codelineno-0-1033"></a><span class="sd">            accepts.</span>
-<a id="__codelineno-0-1034" name="__codelineno-0-1034"></a><span class="sd">        unit: The CF unit string the numeric scale is expressed in.</span>
-<a id="__codelineno-0-1035" name="__codelineno-0-1035"></a><span class="sd">        calendar: The CF calendar name.</span>
-<a id="__codelineno-0-1036" name="__codelineno-0-1036"></a>
-<a id="__codelineno-0-1037" name="__codelineno-0-1037"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-1038" name="__codelineno-0-1038"></a><span class="sd">        float: ``value`` expressed in ``unit`` on the given ``calendar``.</span>
-<a id="__codelineno-0-1039" name="__codelineno-0-1039"></a><span class="sd">    """</span>
-<a id="__codelineno-0-1040" name="__codelineno-0-1040"></a>    <span class="n">year</span><span class="p">,</span> <span class="n">month</span><span class="p">,</span> <span class="n">day</span><span class="p">,</span> <span class="n">hour</span><span class="p">,</span> <span class="n">minute</span><span class="p">,</span> <span class="n">second</span><span class="p">,</span> <span class="n">microsecond</span> <span class="o">=</span> <span class="n">_datetime_components</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
-<a id="__codelineno-0-1041" name="__codelineno-0-1041"></a>    <span class="n">dt</span> <span class="o">=</span> <span class="n">cftime</span><span class="o">.</span><span class="n">datetime</span><span class="p">(</span>
-<a id="__codelineno-0-1042" name="__codelineno-0-1042"></a>        <span class="n">year</span><span class="p">,</span>
-<a id="__codelineno-0-1043" name="__codelineno-0-1043"></a>        <span class="n">month</span><span class="p">,</span>
-<a id="__codelineno-0-1044" name="__codelineno-0-1044"></a>        <span class="n">day</span><span class="p">,</span>
-<a id="__codelineno-0-1045" name="__codelineno-0-1045"></a>        <span class="n">hour</span><span class="p">,</span>
-<a id="__codelineno-0-1046" name="__codelineno-0-1046"></a>        <span class="n">minute</span><span class="p">,</span>
-<a id="__codelineno-0-1047" name="__codelineno-0-1047"></a>        <span class="n">second</span><span class="p">,</span>
-<a id="__codelineno-0-1048" name="__codelineno-0-1048"></a>        <span class="n">microsecond</span><span class="p">,</span>
-<a id="__codelineno-0-1049" name="__codelineno-0-1049"></a>        <span class="n">calendar</span><span class="o">=</span><span class="n">calendar</span><span class="p">,</span>
-<a id="__codelineno-0-1050" name="__codelineno-0-1050"></a>    <span class="p">)</span>
-<a id="__codelineno-0-1051" name="__codelineno-0-1051"></a>    <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">cftime</span><span class="o">.</span><span class="n">date2num</span><span class="p">(</span><span class="n">dt</span><span class="p">,</span> <span class="n">unit</span><span class="p">,</span> <span class="n">calendar</span><span class="p">))</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1224">1224</a></span>
+<span class="normal"><a href="#__codelineno-0-1225">1225</a></span>
+<span class="normal"><a href="#__codelineno-0-1226">1226</a></span>
+<span class="normal"><a href="#__codelineno-0-1227">1227</a></span>
+<span class="normal"><a href="#__codelineno-0-1228">1228</a></span>
+<span class="normal"><a href="#__codelineno-0-1229">1229</a></span>
+<span class="normal"><a href="#__codelineno-0-1230">1230</a></span>
+<span class="normal"><a href="#__codelineno-0-1231">1231</a></span>
+<span class="normal"><a href="#__codelineno-0-1232">1232</a></span>
+<span class="normal"><a href="#__codelineno-0-1233">1233</a></span>
+<span class="normal"><a href="#__codelineno-0-1234">1234</a></span>
+<span class="normal"><a href="#__codelineno-0-1235">1235</a></span>
+<span class="normal"><a href="#__codelineno-0-1236">1236</a></span>
+<span class="normal"><a href="#__codelineno-0-1237">1237</a></span>
+<span class="normal"><a href="#__codelineno-0-1238">1238</a></span>
+<span class="normal"><a href="#__codelineno-0-1239">1239</a></span>
+<span class="normal"><a href="#__codelineno-0-1240">1240</a></span>
+<span class="normal"><a href="#__codelineno-0-1241">1241</a></span>
+<span class="normal"><a href="#__codelineno-0-1242">1242</a></span>
+<span class="normal"><a href="#__codelineno-0-1243">1243</a></span>
+<span class="normal"><a href="#__codelineno-0-1244">1244</a></span>
+<span class="normal"><a href="#__codelineno-0-1245">1245</a></span>
+<span class="normal"><a href="#__codelineno-0-1246">1246</a></span>
+<span class="normal"><a href="#__codelineno-0-1247">1247</a></span>
+<span class="normal"><a href="#__codelineno-0-1248">1248</a></span>
+<span class="normal"><a href="#__codelineno-0-1249">1249</a></span>
+<span class="normal"><a href="#__codelineno-0-1250">1250</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1224" name="__codelineno-0-1224"></a><span class="k">def</span><span class="w"> </span><span class="nf">encode_cf_time</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">unit</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">calendar</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"standard"</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<a id="__codelineno-0-1225" name="__codelineno-0-1225"></a><span class="w">    </span><span class="sd">"""Convert a date string / datetime to a coordinate's numeric CF scale.</span>
+<a id="__codelineno-0-1226" name="__codelineno-0-1226"></a>
+<a id="__codelineno-0-1227" name="__codelineno-0-1227"></a><span class="sd">    The inverse of :func:`decode_cf_time` for a single value: used to translate a</span>
+<a id="__codelineno-0-1228" name="__codelineno-0-1228"></a><span class="sd">    user-supplied selection bound back to the time axis's stored numbers.</span>
+<a id="__codelineno-0-1229" name="__codelineno-0-1229"></a>
+<a id="__codelineno-0-1230" name="__codelineno-0-1230"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-1231" name="__codelineno-0-1231"></a><span class="sd">        value: A date string, :class:`datetime`, or anything :class:`pandas.Timestamp`</span>
+<a id="__codelineno-0-1232" name="__codelineno-0-1232"></a><span class="sd">            accepts.</span>
+<a id="__codelineno-0-1233" name="__codelineno-0-1233"></a><span class="sd">        unit: The CF unit string the numeric scale is expressed in.</span>
+<a id="__codelineno-0-1234" name="__codelineno-0-1234"></a><span class="sd">        calendar: The CF calendar name.</span>
+<a id="__codelineno-0-1235" name="__codelineno-0-1235"></a>
+<a id="__codelineno-0-1236" name="__codelineno-0-1236"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-1237" name="__codelineno-0-1237"></a><span class="sd">        float: ``value`` expressed in ``unit`` on the given ``calendar``.</span>
+<a id="__codelineno-0-1238" name="__codelineno-0-1238"></a><span class="sd">    """</span>
+<a id="__codelineno-0-1239" name="__codelineno-0-1239"></a>    <span class="n">year</span><span class="p">,</span> <span class="n">month</span><span class="p">,</span> <span class="n">day</span><span class="p">,</span> <span class="n">hour</span><span class="p">,</span> <span class="n">minute</span><span class="p">,</span> <span class="n">second</span><span class="p">,</span> <span class="n">microsecond</span> <span class="o">=</span> <span class="n">_datetime_components</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+<a id="__codelineno-0-1240" name="__codelineno-0-1240"></a>    <span class="n">dt</span> <span class="o">=</span> <span class="n">cftime</span><span class="o">.</span><span class="n">datetime</span><span class="p">(</span>
+<a id="__codelineno-0-1241" name="__codelineno-0-1241"></a>        <span class="n">year</span><span class="p">,</span>
+<a id="__codelineno-0-1242" name="__codelineno-0-1242"></a>        <span class="n">month</span><span class="p">,</span>
+<a id="__codelineno-0-1243" name="__codelineno-0-1243"></a>        <span class="n">day</span><span class="p">,</span>
+<a id="__codelineno-0-1244" name="__codelineno-0-1244"></a>        <span class="n">hour</span><span class="p">,</span>
+<a id="__codelineno-0-1245" name="__codelineno-0-1245"></a>        <span class="n">minute</span><span class="p">,</span>
+<a id="__codelineno-0-1246" name="__codelineno-0-1246"></a>        <span class="n">second</span><span class="p">,</span>
+<a id="__codelineno-0-1247" name="__codelineno-0-1247"></a>        <span class="n">microsecond</span><span class="p">,</span>
+<a id="__codelineno-0-1248" name="__codelineno-0-1248"></a>        <span class="n">calendar</span><span class="o">=</span><span class="n">calendar</span><span class="p">,</span>
+<a id="__codelineno-0-1249" name="__codelineno-0-1249"></a>    <span class="p">)</span>
+<a id="__codelineno-0-1250" name="__codelineno-0-1250"></a>    <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">cftime</span><span class="o">.</span><span class="n">date2num</span><span class="p">(</span><span class="n">dt</span><span class="p">,</span> <span class="n">unit</span><span class="p">,</span> <span class="n">calendar</span><span class="p">))</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -8218,57 +8449,57 @@ file say", not "what does this axis mean".</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/netcdf/utils.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1306">1306</a></span>
-<span class="normal"><a href="#__codelineno-0-1307">1307</a></span>
-<span class="normal"><a href="#__codelineno-0-1308">1308</a></span>
-<span class="normal"><a href="#__codelineno-0-1309">1309</a></span>
-<span class="normal"><a href="#__codelineno-0-1310">1310</a></span>
-<span class="normal"><a href="#__codelineno-0-1311">1311</a></span>
-<span class="normal"><a href="#__codelineno-0-1312">1312</a></span>
-<span class="normal"><a href="#__codelineno-0-1313">1313</a></span>
-<span class="normal"><a href="#__codelineno-0-1314">1314</a></span>
-<span class="normal"><a href="#__codelineno-0-1315">1315</a></span>
-<span class="normal"><a href="#__codelineno-0-1316">1316</a></span>
-<span class="normal"><a href="#__codelineno-0-1317">1317</a></span>
-<span class="normal"><a href="#__codelineno-0-1318">1318</a></span>
-<span class="normal"><a href="#__codelineno-0-1319">1319</a></span>
-<span class="normal"><a href="#__codelineno-0-1320">1320</a></span>
-<span class="normal"><a href="#__codelineno-0-1321">1321</a></span>
-<span class="normal"><a href="#__codelineno-0-1322">1322</a></span>
-<span class="normal"><a href="#__codelineno-0-1323">1323</a></span>
-<span class="normal"><a href="#__codelineno-0-1324">1324</a></span>
-<span class="normal"><a href="#__codelineno-0-1325">1325</a></span>
-<span class="normal"><a href="#__codelineno-0-1326">1326</a></span>
-<span class="normal"><a href="#__codelineno-0-1327">1327</a></span>
-<span class="normal"><a href="#__codelineno-0-1328">1328</a></span>
-<span class="normal"><a href="#__codelineno-0-1329">1329</a></span>
-<span class="normal"><a href="#__codelineno-0-1330">1330</a></span>
-<span class="normal"><a href="#__codelineno-0-1331">1331</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1306" name="__codelineno-0-1306"></a><span class="k">def</span><span class="w"> </span><span class="nf">read_cf_attributes</span><span class="p">(</span><span class="n">obj</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">AttributeValue</span><span class="p">]:</span>
-<a id="__codelineno-0-1307" name="__codelineno-0-1307"></a><span class="w">    </span><span class="sd">"""Read a GDAL object's attributes the way a CF consumer needs them.</span>
-<a id="__codelineno-0-1308" name="__codelineno-0-1308"></a>
-<a id="__codelineno-0-1309" name="__codelineno-0-1309"></a><span class="sd">    The CF reader for every consumer of ``units`` / ``calendar`` / ``standard_name`` /</span>
-<a id="__codelineno-0-1310" name="__codelineno-0-1310"></a><span class="sd">    ``axis``. Use this rather than :func:`_read_attributes` wherever the attributes are</span>
-<a id="__codelineno-0-1311" name="__codelineno-0-1311"></a><span class="sd">    interpreted as CF: attributes alone omit ``units``, because GDAL moves it to the object's</span>
-<a id="__codelineno-0-1312" name="__codelineno-0-1312"></a><span class="sd">    unit slot, so a site that reads them raw silently loses it — which is how a time axis came</span>
-<a id="__codelineno-0-1313" name="__codelineno-0-1313"></a><span class="sd">    back undecodable, CF axis detection by units never fired, and a UGRID variable's unit</span>
-<a id="__codelineno-0-1314" name="__codelineno-0-1314"></a><span class="sd">    vanished on a round trip (#1078).</span>
-<a id="__codelineno-0-1315" name="__codelineno-0-1315"></a>
-<a id="__codelineno-0-1316" name="__codelineno-0-1316"></a><span class="sd">    :func:`_read_attributes` remains the right call for a verbatim view of what the file</span>
-<a id="__codelineno-0-1317" name="__codelineno-0-1317"></a><span class="sd">    declares (serialisation, round-trip writers); this one is for interpreting CF.</span>
-<a id="__codelineno-0-1318" name="__codelineno-0-1318"></a>
-<a id="__codelineno-0-1319" name="__codelineno-0-1319"></a><span class="sd">    The slot is the CF ``units`` for the netCDF and HDF5 drivers, which is where this matters.</span>
-<a id="__codelineno-0-1320" name="__codelineno-0-1320"></a><span class="sd">    Another multidim driver (Zarr, HDF-EOS) may fill it from a format-specific field, in which</span>
-<a id="__codelineno-0-1321" name="__codelineno-0-1321"></a><span class="sd">    case the reported ``units`` is that driver's unit rather than a CF attribute the file</span>
-<a id="__codelineno-0-1322" name="__codelineno-0-1322"></a><span class="sd">    literally declares — a reason to read attributes raw when the question is "what does this</span>
-<a id="__codelineno-0-1323" name="__codelineno-0-1323"></a><span class="sd">    file say", not "what does this axis mean".</span>
-<a id="__codelineno-0-1324" name="__codelineno-0-1324"></a>
-<a id="__codelineno-0-1325" name="__codelineno-0-1325"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-1326" name="__codelineno-0-1326"></a><span class="sd">        obj: Any GDAL object exposing ``GetAttributes()`` and ``GetUnit()``.</span>
-<a id="__codelineno-0-1327" name="__codelineno-0-1327"></a>
-<a id="__codelineno-0-1328" name="__codelineno-0-1328"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-1329" name="__codelineno-0-1329"></a><span class="sd">        dict[str, AttributeValue]: The object's attributes, including ``units``.</span>
-<a id="__codelineno-0-1330" name="__codelineno-0-1330"></a><span class="sd">    """</span>
-<a id="__codelineno-0-1331" name="__codelineno-0-1331"></a>    <span class="k">return</span> <span class="n">_merge_unit</span><span class="p">(</span><span class="n">_read_attributes</span><span class="p">(</span><span class="n">obj</span><span class="p">),</span> <span class="n">obj</span><span class="p">)</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1505">1505</a></span>
+<span class="normal"><a href="#__codelineno-0-1506">1506</a></span>
+<span class="normal"><a href="#__codelineno-0-1507">1507</a></span>
+<span class="normal"><a href="#__codelineno-0-1508">1508</a></span>
+<span class="normal"><a href="#__codelineno-0-1509">1509</a></span>
+<span class="normal"><a href="#__codelineno-0-1510">1510</a></span>
+<span class="normal"><a href="#__codelineno-0-1511">1511</a></span>
+<span class="normal"><a href="#__codelineno-0-1512">1512</a></span>
+<span class="normal"><a href="#__codelineno-0-1513">1513</a></span>
+<span class="normal"><a href="#__codelineno-0-1514">1514</a></span>
+<span class="normal"><a href="#__codelineno-0-1515">1515</a></span>
+<span class="normal"><a href="#__codelineno-0-1516">1516</a></span>
+<span class="normal"><a href="#__codelineno-0-1517">1517</a></span>
+<span class="normal"><a href="#__codelineno-0-1518">1518</a></span>
+<span class="normal"><a href="#__codelineno-0-1519">1519</a></span>
+<span class="normal"><a href="#__codelineno-0-1520">1520</a></span>
+<span class="normal"><a href="#__codelineno-0-1521">1521</a></span>
+<span class="normal"><a href="#__codelineno-0-1522">1522</a></span>
+<span class="normal"><a href="#__codelineno-0-1523">1523</a></span>
+<span class="normal"><a href="#__codelineno-0-1524">1524</a></span>
+<span class="normal"><a href="#__codelineno-0-1525">1525</a></span>
+<span class="normal"><a href="#__codelineno-0-1526">1526</a></span>
+<span class="normal"><a href="#__codelineno-0-1527">1527</a></span>
+<span class="normal"><a href="#__codelineno-0-1528">1528</a></span>
+<span class="normal"><a href="#__codelineno-0-1529">1529</a></span>
+<span class="normal"><a href="#__codelineno-0-1530">1530</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1505" name="__codelineno-0-1505"></a><span class="k">def</span><span class="w"> </span><span class="nf">read_cf_attributes</span><span class="p">(</span><span class="n">obj</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">AttributeValue</span><span class="p">]:</span>
+<a id="__codelineno-0-1506" name="__codelineno-0-1506"></a><span class="w">    </span><span class="sd">"""Read a GDAL object's attributes the way a CF consumer needs them.</span>
+<a id="__codelineno-0-1507" name="__codelineno-0-1507"></a>
+<a id="__codelineno-0-1508" name="__codelineno-0-1508"></a><span class="sd">    The CF reader for every consumer of ``units`` / ``calendar`` / ``standard_name`` /</span>
+<a id="__codelineno-0-1509" name="__codelineno-0-1509"></a><span class="sd">    ``axis``. Use this rather than :func:`_read_attributes` wherever the attributes are</span>
+<a id="__codelineno-0-1510" name="__codelineno-0-1510"></a><span class="sd">    interpreted as CF: attributes alone omit ``units``, because GDAL moves it to the object's</span>
+<a id="__codelineno-0-1511" name="__codelineno-0-1511"></a><span class="sd">    unit slot, so a site that reads them raw silently loses it — which is how a time axis came</span>
+<a id="__codelineno-0-1512" name="__codelineno-0-1512"></a><span class="sd">    back undecodable, CF axis detection by units never fired, and a UGRID variable's unit</span>
+<a id="__codelineno-0-1513" name="__codelineno-0-1513"></a><span class="sd">    vanished on a round trip (#1078).</span>
+<a id="__codelineno-0-1514" name="__codelineno-0-1514"></a>
+<a id="__codelineno-0-1515" name="__codelineno-0-1515"></a><span class="sd">    :func:`_read_attributes` remains the right call for a verbatim view of what the file</span>
+<a id="__codelineno-0-1516" name="__codelineno-0-1516"></a><span class="sd">    declares (serialisation, round-trip writers); this one is for interpreting CF.</span>
+<a id="__codelineno-0-1517" name="__codelineno-0-1517"></a>
+<a id="__codelineno-0-1518" name="__codelineno-0-1518"></a><span class="sd">    The slot is the CF ``units`` for the netCDF and HDF5 drivers, which is where this matters.</span>
+<a id="__codelineno-0-1519" name="__codelineno-0-1519"></a><span class="sd">    Another multidim driver (Zarr, HDF-EOS) may fill it from a format-specific field, in which</span>
+<a id="__codelineno-0-1520" name="__codelineno-0-1520"></a><span class="sd">    case the reported ``units`` is that driver's unit rather than a CF attribute the file</span>
+<a id="__codelineno-0-1521" name="__codelineno-0-1521"></a><span class="sd">    literally declares — a reason to read attributes raw when the question is "what does this</span>
+<a id="__codelineno-0-1522" name="__codelineno-0-1522"></a><span class="sd">    file say", not "what does this axis mean".</span>
+<a id="__codelineno-0-1523" name="__codelineno-0-1523"></a>
+<a id="__codelineno-0-1524" name="__codelineno-0-1524"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-1525" name="__codelineno-0-1525"></a><span class="sd">        obj: Any GDAL object exposing ``GetAttributes()`` and ``GetUnit()``.</span>
+<a id="__codelineno-0-1526" name="__codelineno-0-1526"></a>
+<a id="__codelineno-0-1527" name="__codelineno-0-1527"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-1528" name="__codelineno-0-1528"></a><span class="sd">        dict[str, AttributeValue]: The object's attributes, including ``units``.</span>
+<a id="__codelineno-0-1529" name="__codelineno-0-1529"></a><span class="sd">    """</span>
+<a id="__codelineno-0-1530" name="__codelineno-0-1530"></a>    <span class="k">return</span> <span class="n">_merge_unit</span><span class="p">(</span><span class="n">_read_attributes</span><span class="p">(</span><span class="n">obj</span><span class="p">),</span> <span class="n">obj</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
