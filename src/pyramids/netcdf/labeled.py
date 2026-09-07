@@ -51,12 +51,6 @@ from pyramids.netcdf.utils import (
 _LARGE_REALISE_BYTES = 512 * 1024 * 1024
 
 
-# The conda half of this hint names `pyramids-parquet`, not `pyarrow` as it once
-# did. That is a real conda-forge output of the pyramids feedstock (alongside
-# `pyramids`, `pyramids-viz`, `pyramids-lazy` and `pyramids-stac`), and it
-# depends on `pyarrow >=10.0.0` + `dask-geopandas >=0.5.0`, so it installs what
-# the `[parquet]` extra installs -- verified against the feedstock recipe and
-# anaconda.org before the message was switched over.
 def _cftime_columns(frame: pd.DataFrame) -> list[str]:
     """Names of the columns holding true `cftime` datetimes, which Parquet cannot store.
 
@@ -84,6 +78,12 @@ def _cftime_columns(frame: pd.DataFrame) -> list[str]:
     return offenders
 
 
+# The conda half of this hint names `pyramids-parquet`, not `pyarrow` as it once
+# did. That is a real conda-forge output of the pyramids feedstock (alongside
+# `pyramids`, `pyramids-viz`, `pyramids-lazy` and `pyramids-stac`), and it
+# depends on `pyarrow >=10.0.0` + `dask-geopandas >=0.5.0`, so it installs what
+# the `[parquet]` extra installs -- verified against the feedstock recipe and
+# anaconda.org before the message was switched over.
 _PARQUET_INSTALL_HINT = extra_hint(
     "Writing Parquet needs the optional 'pyarrow' dependency.",
     "parquet",
@@ -714,8 +714,10 @@ class LabeledDataset:
         timestamps rather than raw numbers. A standard calendar yields
         ``datetime64[ns]`` **when the dates fit in it**; a non-standard calendar
         (``360_day`` / ``noleap`` …), or a date outside 1677-09-21 to 2262-04-11,
-        yields the decoded datetime objects instead, with a warning naming this
-        array (#1087). Non-time arrays pass through unchanged.
+        yields the decoded datetime objects instead. Only the out-of-range case
+        warns, and it names this array -- which is why ``arr``'s name is handed
+        down as ``context`` (#1087); a non-standard calendar has always returned
+        objects and is no surprise. Non-time arrays pass through unchanged.
 
         Args:
             arr: The source MDArray (its unit / calendar drive the decode).
@@ -1079,9 +1081,11 @@ class LabeledDataset:
 
         Raises:
             OptionalPackageDoesNotExist: When pyarrow is not installed.
-            FailedToSaveError: A time axis decodes to dates outside
-                `datetime64[ns]`, so it is carried as `cftime` objects that Parquet
-                has no type for (#1087).
+            FailedToSaveError: A column carries true `cftime` datetimes, which Parquet has
+                no type for -- a non-standard calendar (`360_day` / `noleap` …), or a
+                pre-1582 origin on a mixed one. A merely out-of-range date does not trigger
+                it: `cftime` hands those back as `cftime.real_datetime`, which `pandas`
+                stores as `datetime64[us]` and Parquet takes (#1087).
         """
         import_pyarrow(_PARQUET_INSTALL_HINT)
         path = Path(path)

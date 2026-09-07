@@ -901,7 +901,9 @@ def _num2date(
     `cftime` raises a bare `ValueError` naming neither the axis nor the store. The commonest
     case is a `"months since ..."` axis on anything but `360_day`: a calendar month has no
     fixed length, so `cftime` refuses the unit, while `is_cf_time_units` -- which is purely
-    syntactic and never sees the calendar -- has already admitted the string (#1117).
+    syntactic and never sees the calendar -- has already admitted the string (#1117). The
+    other case is an offset landing outside `datetime`'s year 1 to 9999, which `cftime`
+    reports as an overflow rather than returning a datetime for.
 
     Args:
         values: The numeric offsets to decode.
@@ -914,8 +916,9 @@ def _num2date(
         The `cftime` result, masked where it could not decode a value.
 
     Raises:
-        ValueError: `cftime` cannot decode this units/calendar pair. Re-raised rather than
-            allowed through so the message says which axis, with the original chained.
+        ValueError: `cftime` cannot decode this axis -- an unsupported units/calendar pair,
+            or an offset that overflows `datetime`. Re-raised rather than allowed through
+            so the message says which axis, with the original chained.
     """
     try:
         decoded = cftime.num2date(
@@ -1090,16 +1093,14 @@ def decode_cf_time(
     values: the ``cftime`` fallback honours the mask ``cftime`` returns, so a ``NaN`` or an
     ``inf`` offset is missing there too rather than silently reading as the origin (#1116).
 
-    Anything the integer path cannot take
-    exactly -- an unparseable origin, a period such as ``"months"``, an instant the integer
-    nanosecond scale cannot reach, or a pre-1582 origin on a mixed Julian/Gregorian
-    calendar -- still goes to ``cftime``. That reach is not a fixed span of years: the gate
-    sums the offset's magnitude and the origin's distance from 1970, so a far-from-1970
-    epoch shortens it (off ``days since 1900-01-01``, an instant in 2116 already
-    declines). That
-    is a wider range than the integer path's, not a narrower one: a date ``cftime`` decodes
-    is still cast to ``datetime64[ns]`` whenever it fits, so 2255-2262 -- past the integer
-    scale but inside the type -- comes back as ``datetime64`` all the same.
+    Anything the integer path cannot take exactly -- an unparseable origin, a period such as
+    ``"months"``, an instant the integer nanosecond scale cannot reach, or a pre-1582 origin
+    on a mixed Julian/Gregorian calendar -- still goes to ``cftime``. That reach is not a
+    fixed span of years: the gate sums the offset's magnitude and the origin's distance from
+    1970, so a far-from-1970 epoch shortens it (off ``days since 1900-01-01`` it gives out in
+    March 2115). That is a wider range than the integer path's, not a narrower one: a date
+    ``cftime`` decodes is still cast to ``datetime64[ns]`` whenever it fits, so 2255-2262 --
+    past the integer scale but inside the type -- comes back as ``datetime64`` all the same.
 
     Args:
         values: The numeric values already read for the coordinate.
@@ -1122,16 +1123,21 @@ def decode_cf_time(
             ``NaT`` in a ``datetime64`` result and as ``None`` in an object one, since an
             object array of datetimes has no ``NaT`` (#1116).
             What that object array holds is ``cftime``'s own choice, not this
-            function's: ``cftime.real_datetime`` (a ``datetime.datetime`` subclass, which
-            ``pandas`` coerces to ``datetime64[us]``) for a date Python's ``datetime`` can
-            represent, and a true ``cftime`` datetime such as ``DatetimeGregorian`` for one
-            it cannot -- which in practice means a pre-1582 origin on a mixed calendar.
+            function's, and it is made once per array from the units origin rather than per
+            value: ``cftime.real_datetime`` (a ``datetime.datetime`` subclass, which
+            ``pandas`` coerces to ``datetime64[us]``) when the proleptic Gregorian rules
+            already cover that origin -- a ``proleptic_gregorian`` calendar, or a
+            mixed-calendar origin at or after the 1582 reform -- and a true ``cftime``
+            datetime such as ``DatetimeGregorian`` when they do not, which means a pre-1582
+            origin on a mixed calendar. Being an array-wide choice, such an axis stays
+            ``DatetimeGregorian`` even in the offsets that land after the reform.
 
     Raises:
-        ValueError: ``cftime`` cannot decode this units/calendar pair -- most often a
-            ``"months since …"`` axis on anything but ``360_day``, since a calendar month
-            has no fixed length. Re-raised with the axis, units and calendar named, because
-            ``cftime``'s own message identifies none of them (#1117).
+        ValueError: ``cftime`` cannot decode this axis -- most often a ``"months since …"``
+            axis on anything but ``360_day``, since a calendar month has no fixed length,
+            and otherwise an offset landing outside ``datetime``'s year 1 to 9999, which
+            ``cftime`` reports as an overflow. Re-raised with the axis, units and calendar
+            named, because ``cftime``'s own message identifies none of them (#1117).
 
     Examples:
         - A date past what ``datetime64[ns]`` holds keeps its real value, and says so:
