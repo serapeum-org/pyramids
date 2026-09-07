@@ -1322,7 +1322,7 @@ class Spatial(_Engine["Dataset"]):
                     "the other raster coordinate system"
                 )
 
-    def _crop_fill_values(self, src_array: np.ndarray | None = None) -> list:
+    def _crop_fill_values(self) -> list:
         """The value each band writes into the cells a mask excludes.
 
         Cropping asks a different question from "what sentinel does this band
@@ -1350,14 +1350,9 @@ class Spatial(_Engine["Dataset"]):
         `int16` raster raised `TypeError` on the assignment.
 
         A band whose sentinel is storable costs nothing to resolve -- the
-        answer is that sentinel, and the data is never read. Only the band that
-        needs a derived fill pays for a read, and only when `src_array` is not
-        already to hand, so the tiled crop keeps its streaming behaviour for
-        every well-formed raster.
-
-        Args:
-            src_array: The source values, when the caller already holds them.
-                `None` reads only the bands that actually need deriving.
+        answer is that sentinel, and the data is never read. Only a band that
+        needs a derived fill pays for a read, and only that band, so the tiled
+        crop keeps its streaming behaviour for every well-formed raster.
 
         Returns:
             list: One fill value per band, each storable in that band's dtype.
@@ -1374,12 +1369,7 @@ class Spatial(_Engine["Dataset"]):
             if fits_dtype(value, dtype):
                 fills.append(self._ds.numpy_dtype[band](value))
                 continue
-            if src_array is None:
-                values = self._ds.read_array(band=band)
-            elif src_array.ndim == 3:
-                values = src_array[band]
-            else:
-                values = src_array
+            values = self._ds.read_array(band=band)
             # `NaN` first: it is the conventional "absent" for a floating
             # band and the value this path already wrote there, so a float
             # crop is unchanged. An integer dtype cannot hold it, so those
@@ -1422,13 +1412,16 @@ class Spatial(_Engine["Dataset"]):
             list | None: One fill per band, or `None` when none is needed.
         """
         declared = self._ds.no_data_value
-        needed = any(
-            declared[band] is not None
-            and not fits_dtype(declared[band], np.dtype(self._ds.numpy_dtype[band]))
+        # Asked of the *declaration*, not of the resolved fills:
+        # `_crop_fill_values` derives for an undeclared band too, so a check on
+        # what it returns can never see one and a mixed raster would have been
+        # stamped after all.
+        undeclared = any(declared[band] is None for band in range(self._ds.band_count))
+        needed = not undeclared and any(
+            not fits_dtype(declared[band], np.dtype(self._ds.numpy_dtype[band]))
             for band in range(self._ds.band_count)
         )
-        fills = self._crop_fill_values() if needed else None
-        return None if fills is not None and None in fills else fills
+        return self._crop_fill_values() if needed else None
 
     @staticmethod
     def _warp_nodata(fills: list) -> str:
@@ -1467,8 +1460,8 @@ class Spatial(_Engine["Dataset"]):
         """Write the per-band fill value into the masked cells.
 
         `no_data_value` is resolved by the caller rather than here, so the
-        tiled crop pays for it once instead of on every tile and both crop
-        paths write the value the output declares. See
+        tiled crop pays for it once instead of on every tile and both arms of
+        the aligned crop write the value the output declares. See
         :meth:`_crop_fill_values` for why the fill is not simply the band's
         declared sentinel.
 
