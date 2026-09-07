@@ -310,6 +310,40 @@ class TestContainerSummary:
         finally:
             nc.close()
 
+    def test_grouped_store_qualifies_every_variable(self):
+        """A grouped store labels each row by its full path, so no two rows look alike.
+
+        Test scenario:
+            `meta_data.variables` spans sub-groups and is keyed by `group/name`, but every group
+            in this fixture carries the same leaf names, so rendering `info.name` printed `CO`,
+            `O3`, `UTC_time` and `air_press` two and three times with nothing to tell them apart.
+            The labels must carry the group path, the way `variable_names` spells its own names.
+        """
+        path = "tests/data/netcdf/none__35v__1d35__groups-nc4.nc"
+        nc = NetCDF.read_file(path)
+        try:
+            assert len(nc.group_names) > 1, "fixture must be grouped for this to bite"
+            summary = _container_summary(nc)
+            rows = [
+                line.strip()
+                for line in summary.split("\n")
+                if line.startswith("    ") and not line.strip().startswith("...")
+            ]
+            labels = [row.split("  ")[0] for row in rows]
+            assert labels, f"no variable rows rendered:\n{summary}"
+            assert len(labels) == len(set(labels)), (
+                f"duplicate variable labels {labels} in:\n{summary}"
+            )
+            qualified = [label for label in labels if "/" in label]
+            assert qualified, f"no group-qualified label in:\n{summary}"
+            groups = set(nc.group_names)
+            for label in qualified:
+                assert label.rsplit("/", 1)[0] in groups, (
+                    f"{label!r} is not qualified by one of the store's groups"
+                )
+        finally:
+            nc.close()
+
 
 class _FakeVariable:
     """The attributes `_variable_summary` reads, and nothing else.

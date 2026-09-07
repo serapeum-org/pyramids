@@ -730,12 +730,19 @@ def _both_nan(left: Any, right: Any) -> bool:
 def _variable_table_lines(variables: dict[str, VariableInfo]) -> list[str]:
     """Tabulate the store's arrays, one row each, capped at `MAX_DISPLAY_VARIABLES`.
 
-    The names are padded to a common width so the shapes line up in a terminal. Only the
-    displayed names take part in that width, so one very long name hidden behind the cap
+    Rows are labelled by the map's **key**, not by `info.name`. The map spans sub-groups and is
+    keyed by the full store path (`group/name`), while `info.name` is only the leaf: a grouped
+    store carries the same leaf in every group, so labelling by name printed `CO` and `air_press`
+    two and three times over with nothing to tell the rows apart. The key spells a name the way
+    `variable_names` spells its own, so the two read alike -- though this map is the wider one,
+    covering the coordinates and bounds that the data-variable list leaves out.
+
+    The labels are padded to a common width so the shapes line up in a terminal. Only the
+    displayed labels take part in that width, so one very long path hidden behind the cap
     cannot stretch the whole table.
 
     Args:
-        variables: The store's arrays, keyed by name -- `meta_data.variables`, which
+        variables: The store's arrays, keyed by full path -- `meta_data.variables`, which
             includes coordinates and bounds, not just the data variables.
 
     Returns:
@@ -743,11 +750,11 @@ def _variable_table_lines(variables: dict[str, VariableInfo]) -> list[str]:
             `... N more` line when the cap hid some.
     """
     lines = ["  variables  :"]
-    shown = list(variables.values())[:MAX_DISPLAY_VARIABLES]
-    width = max(len(info.name) for info in shown)
-    for info in shown:
+    shown = list(variables.items())[:MAX_DISPLAY_VARIABLES]
+    width = max(len(path) for path, _ in shown)
+    for path, info in shown:
         extent = ", ".join(str(n) for n in info.shape)
-        row = f"    {info.name:<{width}}  ({extent})  {info.dtype}"
+        row = f"    {path:<{width}}  ({extent})  {info.dtype}"
         if info.unit:
             row += f"  {info.unit}"
         lines.append(row)
