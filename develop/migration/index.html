@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -7385,19 +7385,28 @@ raster fields it has no raster for: for a 12x5x5 cube at 0.25 degrees it reporte
 <code>Cell size: 1.0</code> — GDAL's in-memory placeholder for a multidimensional store. The summary is now chosen by type.</p>
 <p>Before, both types printed the same block — <code>Cell size</code>, <code>Dimension</code>, <code>EPSG</code>, <code>projection</code>,
 <code>Variables</code>, <code>Metadata</code>, <code>File</code> — every line indented by 12 spaces.</p>
-<p>After, a container describes the store:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>&lt;Container cube.nc&gt;
-<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>  dimensions : time=12, x=5, y=5
+<p>After, a container describes the store — this is the real output for
+<code>tests/data/netcdf/cf__5v__1d4-3d1__geog__y-desc.nc</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>&lt;Container cf__5v__1d4-3d1__geog__y-desc.nc&gt;
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>  dimensions : valid_time=12, latitude=5, longitude=5
 <a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>  variables  :
-<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>    t2m   (12, 5, 5)  float32  K
-<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>  groups     : none
-<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a>  CRS        : EPSG:4326
-<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a>  attributes : 27 global
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>    expver      (12)  unknown
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>    latitude    (5)  float64  degrees_north
+<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a>    longitude   (5)  float64  degrees_east
+<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a>    t2m         (12, 5, 5)  float32  K
+<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a>    valid_time  (12)  int64  seconds since 1970-01-01
+<a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a>  groups     : none
+<a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a>  CRS        : EPSG:4326
+<a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a>  attributes : 6 global
 </code></pre></div>
+<p>The listing is every array in the store, so the coordinate and auxiliary variables appear alongside the data
+variables — a wider set than <code>variable_names</code> returns. On a grouped store each row is labelled by its full
+<code>group/name</code> path, the way <code>variable_names</code> spells its names. At most ten rows are shown, followed by a
+<code>... N more</code> line; the <code>dimensions</code> and <code>groups</code> lines truncate the same way once they get long.</p>
 <p>and a variable describes the raster it is:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>&lt;Variable t2m - cube.nc&gt;
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>&lt;Variable t2m - cf__5v__1d4-3d1__geog__y-desc.nc&gt;
 <a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>  grid    : 5 x 5 @ 0.25, EPSG:4326
-<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>  bands   : 12 along time
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>  bands   : 12 along valid_time
 <a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>  units   : K
 <a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>  dtype   : float32
 <a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>  no-data : nan
@@ -7409,8 +7418,12 @@ raster fields it has no raster for: for a 12x5x5 cube at 0.25 degrees it reporte
 <li>the whole <strong><code>meta_data</code></strong> object, replaced by a count of global attributes;</li>
 <li>the leading <strong>12 spaces</strong> on every line, which came from the f-string being indented inside the method.</li>
 </ul>
-<p><code>repr()</code> is unchanged. If you were parsing <code>str()</code>, read the properties instead: <code>nc.cell_size</code>, <code>nc.rows</code>,
-<code>nc.columns</code>, <code>nc.epsg</code>, <code>nc.crs</code>, <code>nc.variable_names</code>, <code>nc.meta_data</code>.</p>
+<p><strong><code>repr()</code> is unchanged, and still shows the placeholder.</strong> Only <code>str()</code> / <code>print(nc)</code> route to the new summary.
+<code>repr()</code> remains <code>gdal.Info</code> on the underlying raster, so a bare <code>nc</code> in a notebook cell, a debugger's variable
+pane and pytest's assertion output all still report <code>Size is 512, 512</code> for a container. Use <code>print(nc)</code> where you
+want the summary.</p>
+<p>If you were parsing <code>str()</code>, read the properties instead: <code>nc.cell_size</code>, <code>nc.rows</code>, <code>nc.columns</code>, <code>nc.epsg</code>,
+<code>nc.crs</code>, <code>nc.variable_names</code>, <code>nc.meta_data</code>.</p>
 <p><strong><code>NetCDF.variable_names</code> answers a different question, so the set of names changes.</strong> Hard change, silent —
 nothing raises and nothing warns, and both the membership and the order can move. The property used to hand
 back the CF classification's own list; it now filters the store's declared list, which means it walks sub-groups
