@@ -833,20 +833,33 @@ def _prepare_sources(
     # path strings and dataset objects.
     target_wkt = target_srs.ExportToWkt()
     sources: list = []
-    for dataset, srs in zip(opened, source_srs):
+    for path, dataset, srs in zip(src_paths, opened, source_srs):
         if srs.IsSame(target_srs):
             sources.append(dataset)
             continue
-        warped = gdal.Warp(
-            "",
-            dataset,
-            options=gdal.WarpOptions(
-                format="VRT", dstSRS=target_wkt, resampleAlg=resample_alg
-            ),
-        )
+        # Same two failure shapes as the open above: gdal.UseExceptions() makes
+        # Warp raise, so name the source there too rather than letting the
+        # reproject half of this function fail anonymously (#1107).
+        try:
+            warped = gdal.Warp(
+                "",
+                dataset,
+                options=gdal.WarpOptions(
+                    format="VRT", dstSRS=target_wkt, resampleAlg=resample_alg
+                ),
+            )
+        except RuntimeError as exc:
+            raise RuntimeError(
+                redact_credentials(
+                    f"could not reproject source {path!r} to the target CRS: {exc}"
+                )
+            ) from exc
         if warped is None:
             raise RuntimeError(
-                "gdal.Warp returned None reprojecting a source to the target CRS."
+                redact_credentials(
+                    f"gdal.Warp returned None reprojecting source {path!r} to the "
+                    "target CRS."
+                )
             )
         sources.append(warped)
     return sources, sources

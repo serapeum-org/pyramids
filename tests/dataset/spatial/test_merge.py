@@ -665,6 +665,29 @@ class TestMergeRastersDstCrs:
         with pytest.raises(RuntimeError, match="gdal.Warp returned None"):
             merge_rasters([pa, pb], tmp_path / "x.tif", dst_crs=3857)
 
+    def test_raising_warp_names_the_source(
+        self, shared_crs_pair, tmp_path, monkeypatch
+    ):
+        """A raising ``gdal.Warp`` names the source it could not reproject.
+
+        Test scenario:
+            Under ``gdal.UseExceptions()`` Warp raises rather than returning
+            None, so the reproject half of ``_prepare_sources`` must name the
+            source too -- the ``Raises:`` contract covers the whole function,
+            not just the open (#1107).
+        """
+        pa, pb = shared_crs_pair
+
+        def _raise(*_args, **_kwargs):
+            raise RuntimeError("Too many points failed to transform")
+
+        monkeypatch.setattr(merge_mod.gdal, "Warp", _raise)
+        with pytest.raises(RuntimeError) as excinfo:
+            merge_rasters([pa, pb], tmp_path / "x.tif", dst_crs=3857)
+        message = str(excinfo.value)
+        assert "could not reproject source" in message, f"unexpected message: {message}"
+        assert "failed to transform" in message, f"GDAL message not kept: {message}"
+
     def test_open_failure_raises(self, shared_crs_pair, tmp_path, monkeypatch):
         """A None from gdal.Open while reading source CRS raises RuntimeError.
 
