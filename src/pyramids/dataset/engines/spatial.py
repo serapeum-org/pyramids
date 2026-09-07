@@ -1494,6 +1494,125 @@ class Spatial(_Engine["Dataset"]):
 
         return self._ds.rows == mask.rows and self._ds.columns == mask.columns
 
+    def same_grid(self, other: Dataset, *, compare_crs: bool = True) -> bool:
+        """Whether ``other`` occupies this dataset's pixel grid, in the same CRS.
+
+        Size alone is not the question: this also requires the same CRS and the
+        same geotransform, so two rasters that pass it can be combined cell by
+        cell without resampling — which is exactly what
+        :meth:`Analysis.combine <pyramids.dataset.engines.Analysis.combine>`
+        asks before it does so.
+
+        Geotransform components are compared with a small relative tolerance so
+        that byte-for-byte-identical grids (the normal case for per-band files
+        of one scene) compare equal even after the round-trip through GDAL's
+        floating-point geotransform.
+
+        Args:
+            other (Dataset):
+                Dataset to compare against this one.
+            compare_crs (bool):
+                Whether the CRSes must agree too. Default `True`. Pass `False`
+                for the one case where a missing CRS is not a mismatch: an input
+                that carries no CRS tag at all still sits on this raster's cells
+                when its geotransform and size match, and inherits this one's
+                georeferencing downstream. `pyramids calc` uses it for exactly
+                that.
+
+        Returns:
+            bool:
+                `True` iff both rasters occupy the same pixel grid — in the same
+                CRS unless `compare_crs=False`.
+
+        Raises:
+            TypeError:
+                `other` is not a Dataset. Reported here rather than as an
+                `AttributeError` from the first geo-property read.
+
+        Examples:
+            - Two rasters built on one grid can be combined cell by cell:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> a = Dataset.from_array(np.zeros((20, 20), "float32"), geo_ref=geo_ref)
+              >>> b = Dataset.from_array(np.ones((20, 20), "float32"), geo_ref=geo_ref)
+              >>> a.same_grid(b)
+              True
+
+              ```
+
+            - A different origin is a different grid, even at the same size and
+              CRS — `align` brings it onto this one:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> here = Dataset.from_array(
+              ...     np.zeros((8, 8), "float32"),
+              ...     geo_ref=GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326),
+              ... )
+              >>> coarse = Dataset.from_array(
+              ...     np.zeros((4, 4), "float32"),
+              ...     geo_ref=GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.5, epsg=4326),
+              ... )
+              >>> here.same_grid(coarse)
+              False
+              >>> here.same_grid(coarse.align(here))
+              True
+
+              ```
+
+            - Identical numbers in a different CRS describe a different grid:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> lonlat = Dataset.from_array(
+              ...     np.zeros((4, 4), "float32"),
+              ...     geo_ref=GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326),
+              ... )
+              >>> projected = Dataset.from_array(
+              ...     np.zeros((4, 4), "float32"),
+              ...     geo_ref=GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=3857),
+              ... )
+              >>> lonlat.same_grid(projected)
+              False
+
+              ```
+
+        See Also:
+            Spatial.align: Resamples a mismatched raster onto this one's grid,
+                so that `same_grid` then holds.
+            Analysis.combine: Combines two rasters cell by cell, and raises
+                unless this predicate holds.
+        """
+        if not isinstance(other, RasterBase):
+            raise TypeError(f"`other` must be a Dataset, got {type(other).__name__}")
+        ds = self._ds
+        return (
+            # `crs_equal(crs_spec(...))`, not `a.epsg == b.epsg`: `epsg` is None
+            # for any CRS without an EPSG authority, so two *different* such
+            # CRSes both reported None and compared equal. Two geostationary
+            # rasters at different sub-satellite longitudes were read as one
+            # grid, and the band stack silently dropped every band after the
+            # first.
+            (
+                not compare_crs
+                or crs_equal(crs_spec(ds.epsg, ds.crs), crs_spec(other.epsg, other.crs))
+            )
+            and ds.rows == other.rows
+            and ds.columns == other.columns
+            and bool(
+                np.allclose(
+                    np.asarray(ds.geotransform),
+                    np.asarray(other.geotransform),
+                    rtol=1e-7,
+                )
+            )
+        )
+
     def align(
         self,
         alignment_src: Dataset,

@@ -21,7 +21,7 @@ from pyramids.base._errors import (
 )
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
-from pyramids.dataset.dataset import _derive_band_names, _same_grid
+from pyramids.dataset.dataset import _derive_band_names
 from pyramids.dataset.merge import stack_bands
 
 pytestmark = pytest.mark.core
@@ -124,7 +124,7 @@ class TestDeriveBandNames:
 
 
 class TestSameGrid:
-    """Tests for :func:`pyramids.dataset.dataset._same_grid`."""
+    """Tests for :meth:`pyramids.dataset.engines.Spatial.same_grid`."""
 
     def test_identical_grids(self, tmp_path):
         """Two rasters created with the same geo parameters compare equal.
@@ -134,11 +134,11 @@ class TestSameGrid:
 
         Test scenario:
             Two ``4x5`` rasters, same cell size / corner / epsg — expected:
-            ``_same_grid`` is ``True``.
+            ``same_grid`` is ``True``.
         """
         a = Dataset.read_file(_make_band(tmp_path, "a.tif", 1))
         b = Dataset.read_file(_make_band(tmp_path, "b.tif", 2))
-        assert _same_grid(a, b) is True, "identical grids should compare equal"
+        assert a.same_grid(b) is True, "identical grids should compare equal"
 
     @pytest.mark.parametrize(
         "kw",
@@ -159,11 +159,11 @@ class TestSameGrid:
 
         Test scenario:
             Reference vs a raster differing in one property — expected:
-            ``_same_grid`` is ``False``.
+            ``same_grid`` is ``False``.
         """
         a = Dataset.read_file(_make_band(tmp_path, "a.tif", 1))
         b = Dataset.read_file(_make_band(tmp_path, "b.tif", 2, **kw))
-        assert _same_grid(a, b) is False, (
+        assert a.same_grid(b) is False, (
             f"grids differing in {list(kw)} should be unequal"
         )
 
