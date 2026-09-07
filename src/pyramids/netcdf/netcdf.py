@@ -766,6 +766,28 @@ def _both_nan(left: Any, right: Any) -> bool:
         return False
 
 
+def _has_georeference(nc: NetCDF) -> bool:
+    """Whether the store carries a real affine mapping, so a cell size means something.
+
+    A curvilinear or unstructured store has none. `GetGeoTransform()` still answers for those --
+    with the identity `(0, 1, 0, 0, 0, 1)` -- so `cell_size` reads 1.0 by construction rather
+    than by measurement, the same class of placeholder as the 512 x 512 this summary exists to
+    stop printing. `can_return_null=True` is the signal that separates the two; comparing
+    against the identity tuple instead would also silence a genuine 1-unit grid at the origin.
+
+    Args:
+        nc: The container to test.
+
+    Returns:
+        bool: `True` when GDAL reports an affine transform for this store.
+    """
+    raster = getattr(nc, "_raster", None)
+    georeferenced = False
+    if raster is not None:
+        georeferenced = raster.GetGeoTransform(can_return_null=True) is not None
+    return georeferenced
+
+
 def _variable_table_lines(variables: dict[str, VariableInfo]) -> list[str]:
     """Tabulate the store's arrays, one row each, capped at `MAX_DISPLAY_VARIABLES`.
 
@@ -855,6 +877,11 @@ def _container_summary(nc: NetCDF) -> str:
     GDAL's in-memory placeholder -- but a classic-mode container exposes the store's bands
     directly, and there those numbers are the real grid.
 
+    The cell size within that block is dropped when GDAL reports no geotransform for the store.
+    A curvilinear or unstructured store has no affine mapping, so ``cell_size`` there is 1.0 by
+    construction rather than by measurement; the shape and band count are still real, so the
+    line stays and only the ``@ ...`` term goes.
+
     Args:
         nc: The container to describe.
 
@@ -877,14 +904,13 @@ def _container_summary(nc: NetCDF) -> str:
         lines.extend(_variable_name_lines(nc.variable_names or [], published))
 
     if nc.band_count:
-        # `cell_size` is always a float, and `:g` trims the trailing zeros that make a summary
-        # unreadable -- at the cost of rounding to 6 significant digits, so read the value from
-        # `cell_size` rather than from this line when it matters.
-        cell_text = f"{nc.cell_size:g}"
-        lines.append(
-            f"  grid       : {nc.rows} x {nc.columns} @ {cell_text}, "
-            f"{nc.band_count} band(s)"
-        )
+        grid = f"  grid       : {nc.rows} x {nc.columns}"
+        if _has_georeference(nc):
+            # `cell_size` is always a float, and `:g` trims the trailing zeros that make a
+            # summary unreadable -- at the cost of rounding to 6 significant digits, so read
+            # the value from `cell_size` rather than from this line when it matters.
+            grid += f" @ {nc.cell_size:g}"
+        lines.append(f"{grid}, {nc.band_count} band(s)")
 
     groups = nc.group_names or []
     if groups or published:

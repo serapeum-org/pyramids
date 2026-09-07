@@ -25,6 +25,7 @@ from pyramids.netcdf.netcdf import (
     _both_nan,
     _collapse_uniform,
     _container_summary,
+    _has_georeference,
     _store_label,
     _variable_summary,
 )
@@ -362,6 +363,47 @@ class TestContainerSummary:
             header = str(nc).split("\n")[0]
             assert "in-memory" not in header, f"real file called in-memory: {header}"
             assert "cube" in header, f"header does not name the file: {header}"
+        finally:
+            nc.close()
+
+    def test_an_unreferenced_store_reports_no_cell_size(self):
+        """A store with no affine mapping prints its shape without inventing a cell size.
+
+        Test scenario:
+            A curvilinear or unstructured store has no geotransform, so `cell_size` reads 1.0
+            by construction. Printing `@ 1` there is the same class of placeholder-as-fact as
+            the `512 x 512 @ 1.0` this summary exists to stop printing.
+        """
+        path = "tests/data/netcdf/ugrid__1v__3d1.nc"
+        nc = NetCDF.read_file(path, open_as_multi_dimensional=False)
+        try:
+            assert nc.band_count > 0, "fixture must carry bands to reach the grid line"
+            assert not _has_georeference(nc), "fixture must be unreferenced to bite"
+            grid = [
+                ln
+                for ln in _container_summary(nc).split("\n")
+                if ln.strip().startswith("grid")
+            ]
+            assert grid, "no grid line rendered"
+            assert "@" not in grid[0], f"invented a cell size: {grid[0]}"
+            assert "8 x 4" in grid[0], f"lost the real shape: {grid[0]}"
+        finally:
+            nc.close()
+
+    def test_a_georeferenced_store_keeps_a_unit_cell_size(self):
+        """A genuine 1-unit grid still prints `@ 1`; only the null transform is suppressed."""
+        path = "tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc"
+        nc = NetCDF.read_file(path, open_as_multi_dimensional=False)
+        try:
+            assert _has_georeference(nc), (
+                "fixture must be georeferenced for this to mean it"
+            )
+            grid = [
+                ln
+                for ln in _container_summary(nc).split("\n")
+                if ln.strip().startswith("grid")
+            ]
+            assert "@ 1," in grid[0], f"dropped a real unit cell size: {grid[0]}"
         finally:
             nc.close()
 
