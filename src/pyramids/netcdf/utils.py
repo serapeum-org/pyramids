@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import warnings
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any, TypeAlias, cast
@@ -832,6 +833,16 @@ _GREGORIAN_CUTOVER = datetime(1582, 10, 15)
 # under `int64`'s 9.223e18 so the check -- made in float64, where the rounding
 # error at this scale is ~1e3 ns -- cannot pass a value that then overflows.
 _NS_LIMIT = 9.0e18
+# The same `int64` nanosecond limit as `_NS_LIMIT`, in calendar coordinates, for the
+# `cftime` path -- which holds decoded datetimes rather than nanosecond offsets and so
+# cannot compare against a magnitude. Rounded inward to whole microseconds, because a
+# `datetime` carries no nanoseconds: that makes the bound conservative by under a
+# microsecond at each end, which costs a sliver of range and never admits a value that
+# would wrap. `test_bounds_match_int64_nanoseconds` pins it to the derivation.
+_DT64_NS_BOUNDS = (
+    (1677, 9, 21, 0, 12, 43, 145225),
+    (2262, 4, 11, 23, 47, 16, 854775),
+)
 
 
 def _gregorian_scale_and_origin(
@@ -874,6 +885,37 @@ def _gregorian_scale_and_origin(
                 + elapsed.microseconds * 1_000,
             )
     return resolved
+
+
+def _fits_datetime64_ns(decoded: np.typing.NDArray) -> bool:
+    """Whether every decoded datetime is representable as `datetime64[ns]`.
+
+    `astype("datetime64[ns]")` does not raise on a date outside the type's range -- it
+    wraps, silently, into a plausible-looking date on the other side of the epoch (#1087).
+    So the range has to be checked before the cast rather than caught after it.
+
+    `cftime` refuses to compare a `DatetimeGregorian` with a `datetime` when either falls
+    before the 1582 Gregorian reform, because the two calendars disagree there. That
+    refusal is not a problem: the reform predates this type's floor, so a date `cftime`
+    will not compare is necessarily below 1677 and out of range anyway. Treating the
+    `TypeError` as "does not fit" is therefore the right answer and not merely a safe one --
+    `test_the_gregorian_reform_predates_the_floor` pins the invariant that makes it so.
+
+    Args:
+        decoded: The datetimes `cftime` produced, as an object array.
+
+    Returns:
+        bool: `True` when the whole array fits, so the cast is exact; `False` when any
+            value is out of range or cannot be compared, in which case keeping the
+            `cftime` objects is the lossless answer.
+    """
+    low, high = _DT64_NS_BOUNDS
+    floor, ceiling = datetime(*low), datetime(*high)
+    try:
+        fits = all(floor <= value <= ceiling for value in decoded.ravel())
+    except TypeError:
+        fits = False
+    return fits
 
 
 def _decode_gregorian_ns(
@@ -973,7 +1015,12 @@ def decode_cf_time(
         calendar: The CF calendar name. Defaults to ``"standard"``.
 
     Returns:
-        np.ndarray: Decoded datetimes for a time axis, else ``values`` unchanged.
+        np.ndarray: Decoded datetimes for a time axis, else ``values`` unchanged. For a
+            time axis the dtype depends on what the dates are: ``datetime64[ns]`` when
+            every one of them is representable in that type, and an object array of
+            ``cftime`` datetimes otherwise -- either because the calendar is not a
+            standard one, or because a date falls outside ``datetime64[ns]``'s
+            1677-09-21 to 2262-04-11 range, which is warned about (#1087).
 
     Examples:
         - The resolution the collection writer counts in, read back with its
@@ -1015,10 +1062,22 @@ def decode_cf_time(
                 )
             )
             if standard:
-                try:
+                # Range-checked, not try/except: the cast does not raise on an
+                # out-of-range date, it wraps (#1087). Out of range, the `cftime`
+                # objects are kept -- lossless, and already what a non-standard
+                # calendar returns.
+                if _fits_datetime64_ns(decoded):
                     decoded = decoded.astype("datetime64[ns]")
-                except (ValueError, TypeError):
-                    pass
+                else:
+                    warnings.warn(
+                        f"{text!r} decodes to dates outside the range "
+                        f"datetime64[ns] can represent "
+                        f"(1677-09-21 to 2262-04-11); returning cftime objects "
+                        f"instead of datetime64, which would silently wrap them "
+                        f"to the wrong dates.",
+                        RuntimeWarning,
+                        stacklevel=2,
+                    )
     return decoded
 
 
