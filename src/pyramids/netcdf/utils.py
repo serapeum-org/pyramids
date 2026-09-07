@@ -833,12 +833,14 @@ _GREGORIAN_CUTOVER = datetime(1582, 10, 15)
 # under `int64`'s 9.223e18 so the check -- made in float64, where the rounding
 # error at this scale is ~1e3 ns -- cannot pass a value that then overflows.
 _NS_LIMIT = 9.0e18
-# The same `int64` nanosecond limit as `_NS_LIMIT`, in calendar coordinates, for the
-# `cftime` path -- which holds decoded datetimes rather than nanosecond offsets and so
-# cannot compare against a magnitude. Rounded inward to whole microseconds, because a
-# `datetime` carries no nanoseconds: that makes the bound conservative by under a
-# microsecond at each end, which costs a sliver of range and never admits a value that
-# would wrap. `test_bounds_match_int64_nanoseconds` pins it to the derivation.
+# The `int64` nanosecond limit `_NS_LIMIT` guards against, in calendar coordinates, for
+# the `cftime` path -- which holds decoded datetimes rather than nanosecond offsets and so
+# cannot compare against a magnitude. Taken in full (+/-9.223e18) rather than at
+# `_NS_LIMIT`'s conservative 9.0e18: this comparison is exact, so it needs no headroom for
+# float error. Rounded inward to whole microseconds, because a `datetime` carries no
+# nanoseconds: that makes the bound conservative by under a microsecond at each end, which
+# costs a sliver of range and never admits a value that would wrap.
+# `test_bounds_match_int64_nanoseconds` pins it to the derivation.
 _DT64_NS_BOUNDS = (
     (1677, 9, 21, 0, 12, 43, 145225),
     (2262, 4, 11, 23, 47, 16, 854775),
@@ -894,12 +896,14 @@ def _fits_datetime64_ns(decoded: np.typing.NDArray) -> bool:
     wraps, silently, into a plausible-looking date on the other side of the epoch (#1087).
     So the range has to be checked before the cast rather than caught after it.
 
-    `cftime` refuses to compare a `DatetimeGregorian` with a `datetime` when either falls
-    before the 1582 Gregorian reform, because the two calendars disagree there. That
-    refusal is not a problem: the reform predates this type's floor, so a date `cftime`
-    will not compare is necessarily below 1677 and out of range anyway. Treating the
-    `TypeError` as "does not fit" is therefore the right answer and not merely a safe one --
-    `test_the_gregorian_reform_predates_the_floor` pins the invariant that makes it so.
+    `cftime` refuses to compare a `DatetimeGregorian` with a `datetime` when the decoded
+    value itself falls before the 1582 Gregorian reform, because the two calendars disagree
+    there; the bound's own date does not enter into it, and a value on or after the reform
+    compares against any `datetime`. That refusal is not a problem: the reform predates
+    this type's floor, so a date `cftime` will not compare is necessarily below 1677 and
+    out of range anyway. Treating the `TypeError` as "does not fit" is therefore the right
+    answer and not merely a safe one -- `test_the_gregorian_reform_predates_the_floor` pins
+    the invariant that makes it so.
 
     Args:
         decoded: The datetimes `cftime` produced, as an object array.
@@ -1004,9 +1008,12 @@ def decode_cf_time(
     in two ways, both of them consequences of dropping ``cftime``'s microsecond floor:
     a ``"nanoseconds since …"`` axis decodes instead of raising, and a ``NaN`` offset
     decodes to ``NaT`` instead of to the origin. Anything the integer path cannot take
-    exactly -- an unparseable origin, a period such as ``"months"``, an instant outside
-    ``datetime64[ns]``'s 1678-2262 range, or a pre-1582 origin on a mixed
-    Julian/Gregorian calendar -- still goes to ``cftime``, unchanged.
+    exactly -- an unparseable origin, a period such as ``"months"``, an instant more than
+    about 285 years from 1970 (as far as the integer nanosecond scale reaches), or a
+    pre-1582 origin on a mixed Julian/Gregorian calendar -- still goes to ``cftime``. That
+    is a wider range than the integer path's, not a narrower one: a date ``cftime`` decodes
+    is still cast to ``datetime64[ns]`` whenever it fits, so 2255-2262 -- past the integer
+    scale but inside the type -- comes back as ``datetime64`` all the same.
 
     Args:
         values: The numeric values already read for the coordinate.

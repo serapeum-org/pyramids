@@ -20,6 +20,7 @@ import pytest
 from pyramids.netcdf.utils import (
     _DT64_NS_BOUNDS,
     _GREGORIAN_CUTOVER,
+    _decode_gregorian_ns,
     decode_cf_time,
     encode_cf_time,
 )
@@ -300,6 +301,29 @@ class TestDatetime64Range:
         )
         assert decoded.dtype == np.dtype("datetime64[ns]"), decoded.dtype
         assert decoded.size == 0, decoded
+
+    @pytest.mark.parametrize("offset", [104_400, 106_000, 106_751])
+    def test_the_band_past_the_integer_scale_still_casts(self, offset):
+        """Dates the integer path declines but the type can hold still decode to `datetime64`.
+
+        Test scenario:
+            `_NS_LIMIT` stops the integer path at 9.0e18 ns (2255-03-14), deliberately below
+            `int64` so a float comparison cannot overflow. `datetime64[ns]` itself reaches
+            2262-04-11, so there is a seven-year band where the fast path declines and the
+            `cftime` fallback is the only route. The new range check must not narrow the type
+            down to the integer scale's reach: these must still come back as `datetime64`,
+            unwarned.
+        """
+        values = np.array([offset], dtype="int64")
+        assert _decode_gregorian_ns(values, EPOCH_UNIT, "standard") is None, (
+            f"day {offset} must be past the integer scale for this to mean anything"
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            decoded = decode_cf_time(values, EPOCH_UNIT, "standard")
+        assert decoded.dtype == np.dtype("datetime64[ns]"), (
+            f"day {offset} is inside datetime64[ns] and should cast, got {decoded.dtype}"
+        )
 
     def test_a_non_standard_calendar_does_not_warn(self):
         """A `360_day` axis already returns `cftime`; that is not the #1087 condition.
