@@ -7,6 +7,7 @@ a grid mismatch is refused rather than broadcast onto the left operand's georefe
 
 from __future__ import annotations
 
+import inspect
 import math
 import operator
 from functools import reduce
@@ -17,6 +18,7 @@ import pytest
 from pyramids.base._errors import AlignmentError, NoDataCollisionWarning
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
+from pyramids.dataset.engines.analysis import _DERIVE_NO_DATA
 
 pytestmark = pytest.mark.core
 
@@ -859,6 +861,17 @@ class TestCombine:
 
         with pytest.raises(ValueError, match="is a bool"):
             left.combine(right, np.subtract, no_data_value=True)
+
+    def test_the_derive_default_renders_readably_in_the_signature(self):
+        """The sentinel's repr is what `help()` and the API docs show.
+
+        Test scenario:
+            A bare `object()` rendered as `<object object at 0x...>` — a different address
+            on every docs build, churning the rendered diff. It reads `<derive>` now, and
+            that string reaches the public signature.
+        """
+        assert repr(_DERIVE_NO_DATA) == "<derive>"
+        assert "<derive>" in str(inspect.signature(Dataset.combine))
 
     def test_the_result_dtype_follows_func_not_the_inputs(self):
         """Dividing two integer rasters yields a float result, not a truncated one.
