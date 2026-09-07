@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -5775,17 +5775,6 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#unreleased_3" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        unreleased
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
   <a href="#0470_2" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5814,7 +5803,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#unreleased_4" class="md-nav__link">
+  <a href="#unreleased_3" class="md-nav__link">
     <span class="md-ellipsis">
       
         unreleased
@@ -6539,17 +6528,6 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#unreleased_3" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        unreleased
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
   <a href="#0470_2" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -6578,7 +6556,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#unreleased_4" class="md-nav__link">
+  <a href="#unreleased_3" class="md-nav__link">
     <span class="md-ellipsis">
       
         unreleased
@@ -6901,25 +6879,6 @@ that leaked out of an empty table lookup. Only affects code catching the old typ
 </table>
 <h2 id="dataset"><a class="toclink" href="#dataset">dataset</a><a class="headerlink" href="#dataset" title="Permanent link">#</a></h2>
 <h3 id="unreleased_1"><a class="toclink" href="#unreleased_1">unreleased</a><a class="headerlink" href="#unreleased_1" title="Permanent link">#</a></h3>
-<p><strong>Two rasters can now be combined directly, and <code>Dataset</code> gained arithmetic operators.</strong> Additive — nothing that
-worked before behaves differently. <code>ds.combine(other, func)</code> runs a binary function over two aligned rasters and
-returns a <code>Dataset</code> on the left operand's grid, and <code>-</code>, <code>+</code>, <code>*</code>, <code>/</code> between two rasters are thin wrappers over
-it. Previously this meant reading both bands into numpy, computing, rebuilding a <code>GeoReference</code> from one of the
-inputs and wrapping the result with <code>from_array</code> — the step where georeferencing gets lost.</p>
-<ul>
-<li>The operands must already share a grid; a mismatch raises <code>AlignmentError</code> rather than resampling. The new
-  <code>ds.same_grid(other)</code> predicate answers the question in advance, and <code>align()</code> is the explicit fix.</li>
-<li>A <strong>scalar</strong> operand is not accepted. <code>ds * 2</code> raises <code>TypeError</code>; scalar arithmetic stays with
-  <code>ds.apply(lambda v: v * 2)</code>, which preserves the band's dtype where <code>combine</code> takes whatever <code>func</code> returns.</li>
-<li>A cell that is no-data in either operand is no-data in the result, and the result's sentinel is derived from
-  the values <code>func</code> computed, so no cell is ever marked as a gap by the arithmetic that produced it. An integer
-  result that masked nothing declares <strong>no</strong> sentinel at all. Pass <code>no_data_value=</code> to choose one, or
-  <code>no_data_value=None</code> for no masking.</li>
-<li><code>combine</code> is whole-array: both operands are read in full. For rasters near the memory limit use
-  <code>apply(elementwise=True)</code> or <code>read_array(chunks=)</code>.</li>
-<li>The module-private <code>_same_grid</code> helper in <code>pyramids.dataset.dataset</code> moved to <code>Spatial.same_grid</code>, faced on
-  <code>Dataset</code>. It was never public, but anyone importing it directly must switch to <code>a.same_grid(b)</code>.</li>
-</ul>
 <p><strong><code>Dataset.dtype</code> reports numpy's spelling, so a Byte raster reads <code>uint8</code> rather than <code>byte</code>.</strong> Hard change,
 silent — the property still returns one string per band, but two of the catalog's names moved, two half-precision
 types became reachable, and one band type that used to return a value now raises. The names are numpy's wherever
@@ -7412,23 +7371,12 @@ reprojection itself moved down to <code>pyramids.base._bbox</code> so <code>pyra
 <a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.base.crs</span><span class="w"> </span><span class="kn">import</span> <span class="n">crs_from_user_input</span>
 </code></pre></div>
 <h2 id="cli"><a class="toclink" href="#cli">cli</a><a class="headerlink" href="#cli" title="Permanent link">#</a></h2>
-<h3 id="unreleased_3"><a class="toclink" href="#unreleased_3">unreleased</a><a class="headerlink" href="#unreleased_3" title="Permanent link">#</a></h3>
-<p><strong><code>pyramids calc</code> refuses inputs that do not share the first input's grid.</strong> Hard change — it used to let the
-bound names broadcast against each other and wrote the answer on the first input's grid, a georeferenced result
-to a question the inputs never agreed on. Warp them onto a common grid first (<code>pyramids warp</code>). An input carrying
-no CRS tag at all is compared on its pixel grid alone, so an untagged mask or QA layer sitting on the template's
-cells is still accepted.</p>
-<p><strong><code>pyramids calc</code> preserves a rotated or anisotropic geotransform.</strong> Bug fix, silent before. The output was
-rebuilt from the template's top-left corner and cell size, which collapses to a north-up square-pixel grid: an
-input at <code>(100, 2, 0.5, 200, 0.25, -3)</code> was written out as <code>(100, 2, 0, 200, 0, -2)</code>, with its skew zeroed and
-its y-resolution changed. The whole geotransform is now copied. The output's no-data value is unchanged — still
-<code>-9999</code>, whatever the inputs declare.</p>
 <h3 id="0470_2"><a class="toclink" href="#0470_2">0.47.0</a><a class="headerlink" href="#0470_2" title="Permanent link">#</a></h3>
 <p><strong><code>pyramids calc</code> refuses a first input with no CRS.</strong> The result cannot be georeferenced and pyramids will not
 stamp a default; set a CRS on the input first. <code>pyramids georeference</code> is unaffected — its GCPs and <code>--gcp-crs</code>
 replace the georeference wholesale.</p>
 <h2 id="netcdf"><a class="toclink" href="#netcdf">netcdf</a><a class="headerlink" href="#netcdf" title="Permanent link">#</a></h2>
-<h3 id="unreleased_4"><a class="toclink" href="#unreleased_4">unreleased</a><a class="headerlink" href="#unreleased_4" title="Permanent link">#</a></h3>
+<h3 id="unreleased_3"><a class="toclink" href="#unreleased_3">unreleased</a><a class="headerlink" href="#unreleased_3" title="Permanent link">#</a></h3>
 <p><strong><code>NetCDF.variable_names</code> answers a different question, so the set of names changes.</strong> Hard change, silent —
 nothing raises and nothing warns, and both the membership and the order can move. The property used to hand
 back the CF classification's own list; it now filters the store's declared list, which means it walks sub-groups
