@@ -803,6 +803,50 @@ class TestCalc:
         assert rc == 1, "a grid mismatch must exit 1"
         assert not os.path.exists(out), "nothing is written on a grid mismatch"
 
+    def test_an_untagged_companion_on_the_same_pixel_grid_is_accepted(self, tmp_path):
+        """A CRS-less mask or QA layer on the template's cells still works.
+
+        Test scenario:
+            The second input carries no CRS tag but the same geotransform and size.
+            Comparing CRSes would refuse it and point at `pyramids warp`, which cannot
+            warp a raster that has no source CRS — so the pixel grid alone decides.
+        """
+        a = self._band(tmp_path, "a.tif", 4.0)
+        untagged = str(tmp_path / "b_nocrs.tif")
+        out = gdal.GetDriverByName("GTiff").Create(untagged, 2, 2, 1, gdal.GDT_Float32)
+        out.SetGeoTransform((0.0, 1.0, 0.0, 2.0, 0.0, -1.0))
+        out.GetRasterBand(1).WriteArray(np.full((2, 2), 2.0, "float32"))
+        out.FlushCache()
+        out = None
+        result = str(tmp_path / "diff.tif")
+
+        rc = main(["calc", "A - B", a, untagged, result])
+
+        assert rc == 0, "an untagged input on the same grid must be accepted"
+        assert np.allclose(np.asarray(Dataset.read_file(result).read_array()), 2.0)
+
+    def test_the_output_no_data_value_does_not_follow_the_template(self, tmp_path):
+        """`calc` keeps writing -9999 rather than inheriting the template's sentinel.
+
+        Test scenario:
+            A NaN-sentinel float template with `--dtype int16`: inheriting would stamp
+            `nan` on an Int16 band, a marker no cell of that band can ever hold.
+        """
+        source = str(tmp_path / "nan.tif")
+        Dataset.from_array(
+            np.full((2, 2), 3.0, "float32"),
+            no_data_value=np.nan,
+            geo_ref=GeoReference(top_left_corner=(0, 2), cell_size=1.0, epsg=4326),
+        ).to_file(source)
+        out = str(tmp_path / "doubled.tif")
+
+        rc = main(["calc", "A * 2", source, out, "--dtype", "int16"])
+
+        assert rc == 0
+        written = Dataset.read_file(out)
+        assert written.dtype == ["int16"]
+        assert written.no_data_value[0] == -9999, "the sentinel must fit the band"
+
     def test_preserves_a_rotated_geotransform(self, tmp_path):
         """The output copies the template's whole geotransform, skew included.
 

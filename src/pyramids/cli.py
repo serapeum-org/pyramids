@@ -55,7 +55,7 @@ from pandas import DataFrame
 
 from pyramids.base._errors import AlignmentError, _PyramidsError
 from pyramids.base._utils import DEFAULT_RESAMPLING
-from pyramids.base.crs import sr_from_user_input, sr_from_wkt
+from pyramids.base.crs import crs_spec, sr_from_user_input, sr_from_wkt
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.dataset._gcp import GroundControlPoint
@@ -531,6 +531,35 @@ def _safe_calc_eval(node: ast.AST, variables: dict) -> object:
     return result
 
 
+def _same_pixel_grid(template: Dataset, other: Dataset) -> bool:
+    """Whether two rasters occupy the same pixel grid, ignoring the CRS.
+
+    The CRS-blind half of
+    :meth:`Spatial.same_grid <pyramids.dataset.engines.Spatial.same_grid>`, for
+    the one case where a missing CRS is not a mismatch: an input that carries no
+    CRS tag at all still sits on the template's cells when its geotransform and
+    size match, and inherits the template's georeferencing on the way out.
+
+    Args:
+        template: The raster whose grid the others must match.
+        other: The raster to compare against `template`.
+
+    Returns:
+        bool: `True` when both rasters have the same size and geotransform.
+    """
+    return (
+        template.rows == other.rows
+        and template.columns == other.columns
+        and bool(
+            np.allclose(
+                np.asarray(template.geotransform),
+                np.asarray(other.geotransform),
+                rtol=1e-7,
+            )
+        )
+    )
+
+
 def _cmd_calc(args: argparse.Namespace) -> int:
     """Handle `pyramids calc` — evaluate a band expression into a new raster.
 
@@ -553,7 +582,9 @@ def _cmd_calc(args: argparse.Namespace) -> int:
         ValueError: Fewer than one input + output, a disallowed expression, or
             the first input has no CRS — the result cannot be georeferenced and
             pyramids will not stamp a default (ARC-26).
-        AlignmentError: An input does not share the first input's grid/CRS.
+        AlignmentError: An input does not share the first input's grid. A later
+            input carrying no CRS at all is compared on its pixel grid alone, so
+            an untagged mask or QA layer on the template's cells still works.
     """
     if len(args.operands) < 2:
         raise ValueError("calc needs at least one input raster and an output path.")
@@ -579,7 +610,15 @@ def _cmd_calc(args: argparse.Namespace) -> int:
     # written on the first input's grid — a georeferenced answer to a question
     # the inputs never agreed on.
     for path, ds in zip(inputs[1:], datasets[1:]):
-        if not template.spatial.same_grid(ds):
+        # A companion input with no CRS tag — the usual shape of a mask or QA
+        # layer written by a naive writer — is on the template's grid whenever
+        # its geotransform and size match, and `calc` accepted it before this
+        # check existed. Comparing CRSes would reject it and send the user to
+        # `pyramids warp`, which cannot warp a raster that has no source CRS.
+        matches = (
+            _same_pixel_grid(template, ds) if not ds.crs else template.same_grid(ds)
+        )
+        if not matches:
             raise AlignmentError(
                 f"{path!r} does not share the grid/CRS of {inputs[0]!r}, so the "
                 "expression cannot be evaluated cell by cell; align the inputs "
@@ -590,11 +629,18 @@ def _cmd_calc(args: argparse.Namespace) -> int:
     result = np.asarray(_safe_calc_eval(ast.parse(args.expr, mode="eval"), variables))
     if args.dtype:
         result = result.astype(args.dtype)
-    # `dataset_like`, not a rebuilt GeoReference: it copies the template's whole
-    # geotransform, while `top_left_corner` + `cell_size` collapses to a
-    # north-up square-pixel grid and silently drops a rotation/skew or an
-    # anisotropic cell size.
-    Dataset.dataset_like(template, result).to_file(output)
+    # `geo=` (the whole geotransform), not `top_left_corner` + `cell_size`:
+    # the latter collapses to a north-up square-pixel grid, silently dropping a
+    # rotation/skew or an anisotropic cell size. `from_array` is kept over
+    # `dataset_like` so the output's no-data value stays what `calc` has always
+    # written — `dataset_like` inherits the template's, which need not even fit
+    # the dtype `--dtype` asked for.
+    Dataset.from_array(
+        result,
+        geo_ref=GeoReference(
+            geo=template.geotransform, epsg=crs_spec(template.epsg, template.crs)
+        ),
+    ).to_file(output)
     print(f"wrote {output}")
     return 0
 
