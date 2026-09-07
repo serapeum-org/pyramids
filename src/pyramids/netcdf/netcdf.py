@@ -605,8 +605,88 @@ def _collapse_uniform(values: Any) -> Any:
     if not values:
         return None
     first = values[0]
-    uniform = all(v is first or v == first or _both_nan(v, first) for v in values)
+    uniform = all(_same_value(v, first) for v in values)
     return first if uniform else list(values)
+
+
+def _store_label(nc: NetCDF) -> str:
+    """A short name for the store behind `nc`, for a summary header.
+
+    ``file_name`` is not always a path. An in-memory result built by an operation such as
+    ``to_crs`` carries the driver name (``"netcdf"``), which would read as a filename in the
+    header; anything without a suffix is treated as in-memory instead. A ``get_group()`` view
+    shares its root's path, so the group path is appended to keep the two distinguishable.
+
+    Args:
+        nc: The container or variable to label.
+
+    Returns:
+        str: A file name, optionally with a group path, or ``"in-memory"``.
+
+    Examples:
+        - A plain filename is reduced to its base name:
+            ```python
+            >>> class _Store:
+            ...     file_name = "/data/archive/cube.nc"
+            >>> _store_label(_Store())
+            'cube.nc'
+
+            ```
+        - A driver name is not a path, so it reads as in-memory:
+            ```python
+            >>> class _InMemory:
+            ...     file_name = "netcdf"
+            >>> _store_label(_InMemory())
+            'in-memory'
+
+            ```
+    """
+    source = getattr(nc, "file_name", "") or ""
+    label = Path(source).name if source and Path(source).suffix else "in-memory"
+    group = getattr(nc, "_group_path", None)
+    if group:
+        label = f"{label}:/{group}"
+    return label
+
+
+def _same_value(left: Any, right: Any) -> bool:
+    """Whether two per-band entries are the same value, for any type a band can carry.
+
+    ``==`` alone is not enough twice over: it is False for two ``nan``s, and for a numpy array
+    it returns an elementwise array that ``all()`` cannot take a truth value from. Identity is
+    tried first (the common case, since GDAL hands back the same object per band), then a
+    guarded equality, then the ``nan`` special case.
+
+    Args:
+        left: One band's value.
+        right: The value being compared against.
+
+    Returns:
+        bool: ``True`` when the two should be treated as one value.
+
+    Examples:
+        - Equal scalars match, and two ``nan``s do too:
+            ```python
+            >>> _same_value("float32", "float32")
+            True
+            >>> _same_value(float("nan"), float("nan"))
+            True
+
+            ```
+        - A value whose ``==`` is not a plain bool does not raise:
+            ```python
+            >>> import numpy as np
+            >>> _same_value(np.array([1, 2]), np.array([1, 2]))
+            False
+
+            ```
+    """
+    if left is right:
+        return True
+    try:
+        return bool(left == right) or _both_nan(left, right)
+    except (TypeError, ValueError):
+        return _both_nan(left, right)
 
 
 def _both_nan(left: Any, right: Any) -> bool:
@@ -644,47 +724,83 @@ def _both_nan(left: Any, right: Any) -> bool:
 
 
 def _container_summary(nc: NetCDF) -> str:
-    """Describe the cube, never a raster.
+    """Describe the store, reporting only what this container can actually know.
 
     Sourced from ``meta_data.variables`` -- a ``dict[str, VariableInfo]`` carrying
     name / shape / dtype / unit for every array including the coordinates, costed once
     for the whole store. Looping ``get_variable()`` instead would raise on every
     non-raster variable and produce a wall of text (#1090).
 
-    Prints no ``rows`` / ``columns`` / ``cell_size`` / ``band_count``: a container has
-    no raster behind those, which is the whole defect this replaces.
+    That list is deliberately **not** :attr:`variable_names`: it enumerates every array, so it
+    includes the coordinates and bounds that the data-variable list leaves out, and it is keyed
+    in metadata order rather than the store's declared one. A structural summary wants the whole
+    picture; a caller asking "what can I extract" wants :attr:`variable_names`.
+
+    ``none`` is printed only where it is a fact. In multidimensional mode the store
+    publishes its dimensions, variables and groups, so an empty one genuinely means there
+    are none. Classic (non-MDIM) mode publishes no such metadata at all, so the same word
+    there would be a positive false claim about a store that does have dimensions -- those
+    lines are omitted instead, and the variable list falls back to ``variable_names``,
+    which classic mode does answer.
+
+    The raster block appears only when the container carries bands. An MDIM container has
+    none -- that is the #1090 defect, where ``rows`` / ``columns`` / ``cell_size`` returned
+    GDAL's in-memory placeholder -- but a classic-mode container exposes the store's bands
+    directly, and there those numbers are the real grid.
+
+    Args:
+        nc: The container to describe.
 
     Returns:
         str: A short multi-line summary.
     """
-    source = nc.file_name
-    lines = [f"<Container {Path(source).name if source else 'in-memory'}>"]
+    lines = [f"<Container {_store_label(nc)}>"]
+    published = nc._is_md_array
 
     sizes = nc.dimension_sizes or {}
-    dims = ", ".join(f"{name}={size}" for name, size in sizes.items())
-    lines.append(f"  dimensions : {dims or 'none'}")
+    if sizes or published:
+        dims = ", ".join(f"{name}={size}" for name, size in sizes.items())
+        lines.append(f"  dimensions : {dims or 'none'}")
 
     variables = nc.meta_data.variables or {}
-    if not variables:
-        lines.append("  variables  : none")
-    else:
+    if variables:
         lines.append("  variables  :")
         shown = list(variables.values())[:MAX_DISPLAY_VARIABLES]
         width = max(len(info.name) for info in shown)
         for info in shown:
-            shape = "(" + ", ".join(str(n) for n in info.shape) + ")"
-            row = f"    {info.name:<{width}}  {shape}  {info.dtype}"
+            extent = ", ".join(str(n) for n in info.shape)
+            row = f"    {info.name:<{width}}  ({extent})  {info.dtype}"
             if info.unit:
                 row += f"  {info.unit}"
             lines.append(row)
         hidden = len(variables) - len(shown)
         if hidden > 0:
             lines.append(f"    ... {hidden} more")
+    else:
+        names = nc.variable_names or []
+        shown_names = names[:MAX_DISPLAY_VARIABLES]
+        listed = ", ".join(shown_names)
+        if len(names) > len(shown_names):
+            listed += f", ... {len(names) - len(shown_names)} more"
+        if listed or published:
+            lines.append(f"  variables  : {listed or 'none'}")
+
+    if nc.band_count:
+        cell = nc.cell_size
+        cell_text = f"{cell:g}" if isinstance(cell, (int, float)) else str(cell)
+        lines.append(
+            f"  grid       : {nc.rows} x {nc.columns} @ {cell_text}, "
+            f"{nc.band_count} band(s)"
+        )
 
     groups = nc.group_names or []
-    lines.append(f"  groups     : {', '.join(groups) if groups else 'none'}")
+    if groups or published:
+        joined = ", ".join(groups)
+        lines.append(f"  groups     : {joined or 'none'}")
     lines.append(f"  CRS        : {nc._crs_label()}")
-    lines.append(f"  attributes : {len(nc.meta_data.global_attributes or {})} global")
+    attributes = nc.meta_data.global_attributes or {}
+    if attributes or published:
+        lines.append(f"  attributes : {len(attributes)} global")
     return "\n".join(lines)
 
 
@@ -696,20 +812,25 @@ def _variable_summary(nc: NetCDF) -> str:
     dimension (``12 along time``) rather than ``Band_1 ... Band_12``, because the
     raster vocabulary for a time axis is a standing source of confusion (#1090).
 
-    Stays cheap -- no band reads and no ``stats()`` -- since ``str()`` runs in
-    debuggers, logging and pytest introspection.
+    Reads no pixels and computes no statistics, since ``str()`` runs in debuggers, logging and
+    pytest introspection. It is not free: the first call builds :attr:`meta_data`, which walks
+    the store's arrays and opens the file a second time for the classic-metadata top-up
+    (~47 ms locally). That cost is the same one the previous summary paid -- it interpolated
+    ``meta_data`` too -- and is cached from then on.
 
     Returns:
         str: A short multi-line summary.
     """
-    name = nc._source_var_name or "?"
-    header = f"<Variable {name}"
-    # A variable subset's raster is an in-memory MDArray view, so it has no path of
-    # its own; the container it came from does.
-    parent = getattr(nc, '_parent_nc', None)
-    source = nc.file_name or (parent.file_name if parent is not None else '')
-    if source:
-        header += f" - {Path(source).name}"
+    # `copy()` and some in-memory results carry no source name; "unnamed" says so rather than
+    # printing a bare "?" where a name belongs.
+    name = nc._source_var_name or "unnamed"
+    # A variable subset's raster is an in-memory MDArray view, so it has no path of its own;
+    # the container it came from does.
+    parent = getattr(nc, "_parent_nc", None)
+    label = _store_label(nc)
+    if label == "in-memory" and parent is not None:
+        label = _store_label(parent)
+    header = f"<Variable {name}" + (f" - {label}" if label != "in-memory" else "")
     lines = [header + ">"]
 
     cell = nc.cell_size
@@ -1068,28 +1189,49 @@ class NetCDF(Dataset):
     def __str__(self):
         """Return a human-readable summary, or a `<Dataset: closed>` sentinel when closed.
 
-        Dispatches on the identity the class docstrings already use: a container is not a
-        raster (``band_count == 0``), a variable is (``band_count >= 1``). Defining one
-        summary here and letting both inherit it made the container describe raster fields
-        it does not have -- ``rows`` / ``columns`` / ``cell_size`` fell through to GDAL's
-        in-memory placeholder, so a 12x5x5 cube at 0.25 degrees reported itself as
-        512 x 512 at cell size 1.0 (#1090).
+        The summary is chosen by **type**, through :meth:`_summary_text`, which
+        :class:`Container` and :class:`Variable` override. Defining one summary here and
+        letting both inherit it made the container describe raster fields it does not have:
+        ``rows`` / ``columns`` / ``cell_size`` fell through to GDAL's in-memory placeholder,
+        so a 12x5x5 cube at 0.25 degrees reported itself as 512 x 512 at cell size 1.0
+        (#1090).
 
-        A bare ``NetCDF`` is never produced -- ``read_file`` returns a
-        :class:`Container` and ``get_variable`` a :class:`Variable` -- so this base
-        implementation only routes.
+        Type rather than ``band_count``: a container opened in classic mode carries the
+        store's bands directly, so ``band_count >= 1`` there and a band-count test would
+        label it a variable. The classes already encode the distinction ``read_file`` and
+        ``get_variable`` established, so they are the discriminator.
 
         Mirrors `Dataset.__str__`: a closed handle returns the sentinel rather than
         raising, so the repr/str stays total for debuggers and logging (`__repr__`
         already inherits this via `super()`).
         """
-        if self._raster is None:
-            message = "<Dataset: closed>"
-        elif self.band_count == 0:
-            message = _container_summary(self)
-        else:
-            message = _variable_summary(self)
+        message = "<Dataset: closed>"
+        if self._raster is not None:
+            try:
+                message = self._summary_text()
+            except Exception:
+                # Total by contract, not just for a closed handle. `str()` runs in debuggers,
+                # logging and pytest introspection, where a raising summary masks the error the
+                # caller was actually looking at. The summary walks a dozen properties, any of
+                # which can fail on a half-built or exotic store, so degrade to a sentinel that
+                # still says what this is.
+                message = f"<{type(self).__name__}: summary unavailable>"
         return message
+
+    def _summary_text(self) -> str:
+        """The summary body for a bare ``NetCDF``, which neither factory produces.
+
+        :class:`Container` and :class:`Variable` override this; the base only has to cope
+        with an instance of the deprecated alias itself. It defers to
+        :attr:`_is_root_container` -- the predicate the package already owns for this
+        question -- rather than spelling the conjunction out again.
+
+        Returns:
+            str: A container or variable summary.
+        """
+        if self._is_root_container:
+            return _container_summary(self)
+        return _variable_summary(self)
 
     def _crs_label(self) -> str:
         """The CRS as a short label -- ``EPSG:4326``, a CRS name, or ``unknown``.
@@ -8696,6 +8838,10 @@ class Variable(NetCDF):
         """
         return None
 
+    def _summary_text(self) -> str:
+        """Describe the raster this variable is; see :func:`_variable_summary`."""
+        return _variable_summary(self)
+
 
 class Container(NetCDF):
     """A NetCDF container (the root MDIM group) holding variables, dimensions, attributes.
@@ -8723,3 +8869,7 @@ class Container(NetCDF):
 
             ```
     """
+
+    def _summary_text(self) -> str:
+        """Describe the cube this container is; see :func:`_container_summary`."""
+        return _container_summary(self)

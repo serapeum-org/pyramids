@@ -2,8 +2,9 @@
 
 `__str__` used to be defined once on `NetCDF` and inherited by both subclasses, so a container
 fell through to `rows` / `columns` / `cell_size` — which for an MDIM store have no raster behind
-them and return GDAL's in-memory placeholder. `NetCDF.__str__` now dispatches on `band_count` to
-one of two module-level summaries.
+them and return GDAL's in-memory placeholder. `NetCDF.__str__` now picks the summary by **type**,
+through `_summary_text`, which `Container` and `Variable` override — a band-count test would
+mislabel a classic-mode container, which carries the store's bands directly.
 
 These cover the helpers directly; `tests/netcdf/test_netcdf_core.py::TestStr` covers the dispatch
 end to end.
@@ -178,7 +179,9 @@ class TestCrsLabel:
         """
         nc = NetCDF.read_file(_write_store(str(tmp_path / "name.nc")))
         try:
-            monkeypatch.setattr(type(nc), "epsg", property(lambda self: None))
+            monkeypatch.setattr(
+                type(nc), "epsg", property(lambda self: None), raising=True
+            )
             label = nc._crs_label()
             assert label not in ("", "unknown"), f"expected a CRS name, got {label!r}"
             assert "GEOGCS" not in label, f"the WKT leaked into the label: {label}"
@@ -189,7 +192,9 @@ class TestCrsLabel:
         """No EPSG and no CRS yields `unknown` rather than an empty label."""
         nc = NetCDF.read_file(_write_store(str(tmp_path / "none.nc")))
         try:
-            monkeypatch.setattr(type(nc), "epsg", property(lambda self: None))
+            monkeypatch.setattr(
+                type(nc), "epsg", property(lambda self: None), raising=True
+            )
             monkeypatch.setattr(type(nc), "crs", property(lambda self: ""))
             assert nc._crs_label() == "unknown"
         finally:
@@ -246,12 +251,60 @@ class TestContainerSummary:
         finally:
             nc.close()
 
-    def test_no_variables_reports_none(self, tmp_path, monkeypatch):
-        """A store the metadata reports as empty says `none`, not a blank block."""
+    def test_falls_back_to_variable_names(self, tmp_path, monkeypatch):
+        """With no multidim metadata, the variable list comes from `variable_names`.
+
+        Test scenario:
+            Classic (non-MDIM) mode publishes no `meta_data.variables` at all, so a summary that
+            only consulted it printed `variables : none` about a store that has variables — a
+            positive false claim. `variable_names` is the list classic mode does answer.
+        """
+        nc = NetCDF.read_file(_write_store(str(tmp_path / "fallback.nc")))
+        try:
+            monkeypatch.setattr(nc.meta_data, "variables", {})
+            assert "variables  : v0" in _container_summary(nc), _container_summary(nc)
+        finally:
+            nc.close()
+
+    def test_reports_none_only_when_the_store_published_nothing(
+        self, tmp_path, monkeypatch
+    ):
+        """`none` is printed when it is a fact, i.e. the store published an empty list.
+
+        Test scenario:
+            An MDIM store that genuinely holds no variables should say so; the word is only
+            wrong when the mode cannot answer the question at all.
+        """
         nc = NetCDF.read_file(_write_store(str(tmp_path / "empty.nc")))
         try:
             monkeypatch.setattr(nc.meta_data, "variables", {})
-            assert "variables  : none" in _container_summary(nc)
+            monkeypatch.setattr(type(nc), "variable_names", property(lambda self: []))
+            summary = _container_summary(nc)
+            assert "variables  : none" in summary, summary
+        finally:
+            nc.close()
+
+    def test_classic_mode_omits_what_it_cannot_know(self):
+        """A classic-mode container reports its grid, and claims nothing it cannot see.
+
+        Test scenario:
+            The classic driver exposes the store's bands directly, so `band_count >= 1` on a
+            `Container` — which is why the summary is chosen by type, not by band count. It
+            publishes no multidim metadata, so `dimensions` / `groups` are omitted rather than
+            reported as `none`.
+        """
+        path = "tests/data/netcdf/cf__5v__1d4-3d1__geog__y-desc.nc"
+        nc = NetCDF.read_file(path, open_as_multi_dimensional=False)
+        try:
+            assert nc.band_count > 0, (
+                "classic container must carry bands for this to bite"
+            )
+            summary = str(nc)
+            assert summary.startswith("<Container "), f"wrong header: {summary}"
+            assert "?" not in summary.split("\n")[0], f"placeholder name: {summary}"
+            assert "grid       :" in summary, f"real grid not reported: {summary}"
+            for claim in ("dimensions : none", "groups     : none"):
+                assert claim not in summary, f"asserted an unknown as fact: {summary}"
         finally:
             nc.close()
 
@@ -280,7 +333,9 @@ class _FakeVariable:
         self._band_dim_name = "time"
         self.band_units = ["K"] * 12
         self.dtype = ["float32"] * 12
-        self.no_data_value = (float("nan"),) * 12
+        # Distinct objects: a repeated one would pass the no-data assertion by identity
+        # rather than by the nan handling under test.
+        self.no_data_value = tuple(float("nan") for _ in range(12))
         self.__dict__.update(overrides)
 
     def _crs_label(self) -> str:
