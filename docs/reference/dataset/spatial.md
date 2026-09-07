@@ -9,7 +9,8 @@ resampling. `align` is what you call when the answer is no.
 ```mermaid
 flowchart LR
     SP(("Spatial<br/>ds.spatial"))
-    SP --> C["<b>clip / align</b><br/>crop · align · same_grid"]
+    SP --> C["<b>clip / align</b><br/>crop · align"]
+    SP --> P["<b>predicates</b><br/>same_grid"]
     SP --> R["<b>reproject / resample</b><br/>to_crs · warped_view · resample"]
     SP --> M["<b>CRS & longitude</b><br/>set_crs · wrap_longitude"]
     SP --> G["<b>gap fill</b><br/>fill_gaps"]

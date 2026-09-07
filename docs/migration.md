@@ -165,6 +165,25 @@ that leaked out of an empty table lookup. Only affects code catching the old typ
 
 ### unreleased
 
+**Two rasters can now be combined directly, and `Dataset` gained arithmetic operators.** Additive — nothing that
+worked before behaves differently. `ds.combine(other, func)` runs a binary function over two aligned rasters and
+returns a `Dataset` on the left operand's grid, and `-`, `+`, `*`, `/` between two rasters are thin wrappers over
+it. Previously this meant reading both bands into numpy, computing, rebuilding a `GeoReference` from one of the
+inputs and wrapping the result with `from_array` — the step where georeferencing gets lost.
+
+- The operands must already share a grid; a mismatch raises `AlignmentError` rather than resampling. The new
+  `ds.same_grid(other)` predicate answers the question in advance, and `align()` is the explicit fix.
+- A **scalar** operand is not accepted. `ds * 2` raises `TypeError`; scalar arithmetic stays with
+  `ds.apply(lambda v: v * 2)`, which preserves the band's dtype where `combine` takes whatever `func` returns.
+- A cell that is no-data in either operand is no-data in the result, and the result's sentinel is derived from
+  the values `func` computed, so no cell is ever marked as a gap by the arithmetic that produced it. An integer
+  result that masked nothing declares **no** sentinel at all. Pass `no_data_value=` to choose one, or
+  `no_data_value=None` for no masking.
+- `combine` is whole-array: both operands are read in full. For rasters near the memory limit use
+  `apply(elementwise=True)` or `read_array(chunks=)`.
+- The module-private `_same_grid` helper in `pyramids.dataset.dataset` moved to `Spatial.same_grid`, faced on
+  `Dataset`. It was never public, but anyone importing it directly must switch to `a.same_grid(b)`.
+
 **`Dataset.dtype` reports numpy's spelling, so a Byte raster reads `uint8` rather than `byte`.** Hard change,
 silent — the property still returns one string per band, but two of the catalog's names moved, two half-precision
 types became reachable, and one band type that used to return a value now raises. The names are numpy's wherever
@@ -623,6 +642,20 @@ from pyramids.base.crs import crs_from_user_input
 ```
 
 ## cli
+
+### unreleased
+
+**`pyramids calc` refuses inputs that do not share the first input's grid.** Hard change — it used to let the
+bound names broadcast against each other and wrote the answer on the first input's grid, a georeferenced result
+to a question the inputs never agreed on. Warp them onto a common grid first (`pyramids warp`). An input carrying
+no CRS tag at all is compared on its pixel grid alone, so an untagged mask or QA layer sitting on the template's
+cells is still accepted.
+
+**`pyramids calc` preserves a rotated or anisotropic geotransform.** Bug fix, silent before. The output was
+rebuilt from the template's top-left corner and cell size, which collapses to a north-up square-pixel grid: an
+input at `(100, 2, 0.5, 200, 0.25, -3)` was written out as `(100, 2, 0, 200, 0, -2)`, with its skew zeroed and
+its y-resolution changed. The whole geotransform is now copied. The output's no-data value is unchanged — still
+`-9999`, whatever the inputs declare.
 
 ### 0.47.0
 
