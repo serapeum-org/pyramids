@@ -35,7 +35,7 @@ from pyramids.base.crs import (
 )
 from pyramids.base.georeference import GeoReference
 from pyramids.base.protocols import ArrayLike
-from pyramids.base.remote import is_remote
+from pyramids.base.remote import is_remote, redact_credentials
 from pyramids.dataset import Dataset
 from pyramids.dataset._plot_helpers import nonnull_group_kwargs
 from pyramids.dataset.abstract_dataset import DEFAULT_NO_DATA_VALUE
@@ -628,6 +628,12 @@ def _store_label(nc: NetCDF) -> tuple[str, bool]:
     two distinguishable. The in-memory verdict is returned alongside the label rather than
     recovered by comparing it to `"in-memory"`, because that suffix defeats the comparison.
 
+    The base name goes through `redact_credentials` first. `file_name` is the dataset's GDAL
+    description, so a remote open keeps its query string, and the base name of
+    `/vsis3/bucket/cube.nc?X-Amz-Signature=...` still carries the signature. `str()` reaches
+    every log handler and pytest's assertion output, which is why `Dataset.__repr__` redacts
+    too.
+
     Args:
         nc: The container or variable to label.
 
@@ -663,6 +669,15 @@ def _store_label(nc: NetCDF) -> tuple[str, bool]:
             ('in-memory', True)
 
             ```
+        - A signed remote path keeps its name and loses its credentials:
+            ```python
+            >>> class _Signed:
+            ...     file_name = "/vsis3/bucket/cube.nc?X-Amz-Signature=deadbeef"
+            ...     driver_type = "netcdf"
+            >>> _store_label(_Signed())
+            ('cube.nc?X-Amz-Signature=<redacted>', False)
+
+            ```
     """
     source = getattr(nc, "file_name", "") or ""
     in_memory = (
@@ -670,7 +685,7 @@ def _store_label(nc: NetCDF) -> tuple[str, bool]:
         or source.startswith("/vsimem/")
         or getattr(nc, "driver_type", None) == "memory"
     )
-    label = "in-memory" if in_memory else Path(source).name
+    label = "in-memory" if in_memory else redact_credentials(Path(source).name)
     group = getattr(nc, "_group_path", None)
     if group:
         label = f"{label}:/{group}"

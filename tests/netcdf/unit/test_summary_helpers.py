@@ -378,6 +378,24 @@ class TestStoreLabel:
 
         assert _store_label(_InMemory()) == ("in-memory", True)
 
+    def test_a_signed_remote_path_is_redacted(self):
+        """A signature in the store path must not reach the header.
+
+        Test scenario:
+            `file_name` is the GDAL description, so a remote open keeps its query string and
+            the base name still carries the credential. `str()` reaches every log handler and
+            pytest's assertion output.
+        """
+
+        class _Signed:
+            file_name = "/vsis3/bucket/cube.nc?X-Amz-Signature=deadbeef"
+            driver_type = "netcdf"
+
+        label, in_memory = _store_label(_Signed())
+        assert "deadbeef" not in label, f"signature leaked into the header: {label}"
+        assert label == "cube.nc?X-Amz-Signature=<redacted>", label
+        assert in_memory is False, "a signed remote path is not in-memory"
+
     def test_a_group_scoped_in_memory_store_still_reports_in_memory(self):
         """The group suffix must not hide the in-memory verdict from the caller.
 
