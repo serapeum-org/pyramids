@@ -2554,6 +2554,55 @@ class Dataset(RasterBase):
         that stays a numpy *integer*, since its maximum has no exact float64:
         it reports `np.uint64(2**64 - 1)`. See `docs/migration.md`,
         dataset / unreleased.
+
+        Returns:
+            tuple: One entry per band, in band order -- a number, or `None` for
+            a band that declares no sentinel.
+
+        Examples:
+            - A band created with a sentinel reports it, through GDAL's C
+              double:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+                >>> raster = Dataset.from_array(
+                ...     np.ones((4, 4), "float32"), geo_ref=geo_ref, no_data_value=-9999.0
+                ... )
+                >>> raster.no_data_value
+                (np.float64(-9999.0),)
+
+                ```
+            - An integer band asked for `NaN` reports `NaN`, not a fabricated
+              maximum, so nothing in it is marked absent:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+                >>> raster = Dataset.create(
+                ...     rows=4, columns=4, bands=1, dtype="uint16",
+                ...     no_data_value=np.nan, geo_ref=geo_ref,
+                ... )
+                >>> bool(np.isnan(raster.no_data_value[0]))
+                True
+
+                ```
+            - One entry per band, so a two-band raster reports a pair:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+                >>> raster = Dataset.from_array(
+                ...     np.ones((2, 4, 4), "float32"), geo_ref=geo_ref, no_data_value=0.0
+                ... )
+                >>> len(raster.no_data_value)
+                2
+
+                ```
+
+        See Also:
+            change_no_data_value: Rewrites the cells as well as the
+                declaration, and refuses a sentinel the band cannot store.
         """
         return tuple(self._no_data_value)
 

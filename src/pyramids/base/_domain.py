@@ -539,6 +539,37 @@ def occurs_in(values: Any, sentinel: Any) -> bool:
     Returns:
         bool: `True` when at least one value matches the sentinel under the same
         tolerance a reader would apply.
+
+    Examples:
+        - A value the band holds rules that sentinel out:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base._domain import occurs_in
+            >>> occurs_in(np.array([1, 2, 255], "uint8"), 255)
+            True
+
+            ```
+        - One outside the data's range cannot occur in it:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base._domain import occurs_in
+            >>> occurs_in(np.array([1, 2, 3], "uint8"), 255)
+            False
+
+            ```
+        - A `NaN` in the data does not hide a finite collision, which a plain
+          `min`/`max` prefilter would (every comparison against `NaN` is False):
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base._domain import occurs_in
+            >>> occurs_in(np.array([1.0, np.nan, -9999.0]), -9999.0)
+            True
+
+            ```
+
+    See Also:
+        free_no_data: Uses this to reject a candidate the data already holds.
+        is_stored_no_data: The element-wise comparison this delegates to.
     """
     array = np.asarray(values)
     occurs = False

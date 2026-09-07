@@ -1634,6 +1634,17 @@ class Bands(_Engine["Dataset"]):
         `_fallback_no_data` still substitutes, and deliberately: it runs when
         the caller *asked* for a sentinel that overflows the band, where
         picking a storable one is a repair rather than an invention.
+
+        Args:
+            i: Index of the band the value belongs to.
+            val: The requested sentinel, or `None` / `NaN` for none.
+
+        Returns:
+            Any: The value as a scalar of the band's dtype, or `val` unchanged
+            when it is `None` / `NaN`.
+
+        Raises:
+            OverflowError: `val` is a number the band's dtype cannot hold.
         """
         # if not None or np.nan
         if val is not None and not np.isnan(val):
@@ -1657,6 +1668,12 @@ class Bands(_Engine["Dataset"]):
         a sentinel the band cannot hold, so choosing a storable one honours the
         request. There, the caller asked for *no* sentinel, and inventing one
         answers a question nobody posed.
+
+        Args:
+            i: Index of the band whose dtype decides the substitute.
+
+        Returns:
+            Any: A sentinel storable in that band's dtype.
         """
         np_dtype = np.dtype(self._ds.numpy_dtype[i])
         # np.issubdtype narrows at runtime but isn't recognised by the numpy
