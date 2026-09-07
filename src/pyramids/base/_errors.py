@@ -355,6 +355,25 @@ class ContainerRasterWarning(UserWarning):
     """
 
 
+class NoDataCollisionWarning(UserWarning):
+    """Pyramids-emitted warning that a no-data sentinel also occurs as real data.
+
+    Emitted by :meth:`pyramids.dataset.Dataset.combine` when the caller's
+    explicit ``no_data_value=`` is a value the combining function actually
+    produced. Every such cell reads back as a gap, so the raster looks
+    partly — or entirely — empty to any consumer that honours the sentinel,
+    while nothing about the file says so.
+
+    Only an explicitly requested sentinel warns. The derived one cannot
+    collide: `combine` picks it from the values it just computed, and falls
+    back through the operands' sentinels, the package default and the dtype's
+    extremes until it finds one no cell holds.
+
+    Args:
+        None: Raised as a warning category, not constructed with arguments.
+    """
+
+
 class DtypeNarrowingWarning(UserWarning):
     """Pyramids-emitted warning that a write will not preserve the band dtype.
 

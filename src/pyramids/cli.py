@@ -536,9 +536,11 @@ def _cmd_calc(args: argparse.Namespace) -> int:
 
     The expression operates on the input rasters bound to ``A``, ``B``, ... in
     order; it is evaluated by a small AST whitelist, never ``eval``. Every input
-    must already sit on the first one's grid — this is the shell-side twin of
-    :meth:`Dataset.combine <pyramids.dataset.Dataset.combine>`, and it does not
-    resample either.
+    must already sit on the first one's grid — the same rule
+    :meth:`Dataset.combine <pyramids.dataset.Dataset.combine>` applies, and like
+    it, ``calc`` does not resample. It does *not* share `combine`'s domain
+    semantics: the expression sees the raw arrays, so no-data cells take part in
+    the arithmetic, and mismatched band counts broadcast rather than raise.
 
     Args:
         args: Parsed args with `expr`, `operands` (inputs... + output), `dtype`,

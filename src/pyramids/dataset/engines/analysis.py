@@ -21,7 +21,12 @@ from osgeo import gdal
 from pandas import DataFrame
 
 from pyramids.base._domain import is_nan_sentinel, is_stored_no_data
-from pyramids.base._errors import AlignmentError, OutOfBoundsError, ReadOnlyError
+from pyramids.base._errors import (
+    AlignmentError,
+    NoDataCollisionWarning,
+    OutOfBoundsError,
+    ReadOnlyError,
+)
 from pyramids.base._utils import (
     gdal_to_numpy_dtype,
     numpy_to_gdal_dtype,
@@ -34,7 +39,7 @@ from pyramids.dataset._plot_helpers import (
     RgbSpec,
     render_array,
 )
-from pyramids.dataset.abstract_dataset import RasterBase
+from pyramids.dataset.abstract_dataset import DEFAULT_NO_DATA_VALUE, RasterBase
 from pyramids.dataset.window import Window
 from pyramids.feature import FeatureCollection
 
@@ -72,11 +77,15 @@ _DERIVE_NO_DATA = object()
 
 
 def _fits_dtype(value: Any, dtype: np.dtype) -> bool:
-    """Whether `value` survives a round-trip into `dtype` unchanged.
+    """Whether `dtype` can hold `value` as a distinguishable no-data sentinel.
 
-    Decides whether a no-data sentinel can be stamped on a band of `dtype` --
-    `NaN` does not fit an integer band, and `-9999` does not fit a `uint8` one,
-    and stamping either anyway would mark real cells as no-data.
+    A range test, not an exactness one: a float sentinel that `dtype` rounds --
+    `0.1` into `float32` -- still marks its own cells, because the value written
+    and the value compared against go through the same cast. What the test
+    rejects is a sentinel the dtype cannot represent *as itself*: `NaN` in an
+    integer band, `-9999` in a `uint8` one, `1e40` in a `float32` one (it lands
+    on `inf`, which would then mark every genuinely infinite cell). Stamping any
+    of those would mark real cells as no-data, or mark nothing at all.
 
     Args:
         value: The candidate sentinel. Callers decide what a missing sentinel
@@ -84,15 +93,21 @@ def _fits_dtype(value: Any, dtype: np.dtype) -> bool:
         dtype: The numpy dtype of the band the sentinel would be stored in.
 
     Returns:
-        bool: `True` when the sentinel round-trips through `dtype` unchanged.
+        bool: `True` when the sentinel is representable in `dtype`.
     """
     target = np.dtype(dtype)
-    if isinstance(value, float) and np.isnan(value):
+    if value is None:
+        fits = False
+    elif is_nan_sentinel(value):
+        # `is_nan_sentinel`, not `isinstance(value, float) and isnan(value)`:
+        # `np.float32("nan")` does not subclass `float` and fell through to the
+        # comparison below, where `nan == nan` is False by definition.
         fits = bool(np.issubdtype(target, np.floating))
     else:
         with np.errstate(invalid="ignore", over="ignore"):
             try:
-                fits = bool(np.asarray(value).astype(target) == value)
+                stored = np.asarray(value).astype(target)
+                fits = bool(stored == value) and bool(np.isfinite(stored))
             except (ValueError, OverflowError, TypeError):
                 fits = False
     return fits
@@ -546,14 +561,19 @@ class Analysis(_Engine["Dataset"]):
                 :meth:`apply`, which defaults to band `0`.
             no_data_value (Any, optional):
                 Sentinel for the result, one value across every band. Left unset
-                it is derived from the result's dtype: `NaN` for a floating-point
-                result, `255` for a predicate's Byte result, otherwise this
-                dataset's sentinel for the first band read — and a `ValueError`
-                naming this argument when that does not fit the dtype. Pass an
-                explicit value to choose it, or `None` for a result with no
-                sentinel — which also switches off the domain masking, so every
-                cell is handed to `func` including the ones the inputs marked as
-                no-data.
+                it is derived — and, crucially, derived *against the values*
+                `func` computed, so no cell of the result is ever marked as a
+                gap by the arithmetic that produced it. `NaN` for a floating
+                result, `255` for a predicate's Byte result; an integer result
+                that masked nothing declares no sentinel at all, and one that
+                masked something takes the first of the operands' own sentinels,
+                the package default, then the dtype's extremes that both fits
+                and occurs nowhere in the result. Pass an explicit value to
+                choose it — it is honoured, with a
+                :class:`~pyramids.errors.NoDataCollisionWarning` if the result
+                holds it — or `None` for a result with no sentinel, which also
+                switches off the domain masking so every cell is handed to
+                `func`, including the ones the inputs marked as no-data.
 
         Returns:
             Dataset:
@@ -564,8 +584,12 @@ class Analysis(_Engine["Dataset"]):
         Raises:
             TypeError: `other` is not a Dataset, or `func` is not callable.
             AlignmentError: The two rasters do not share a grid/CRS.
-            ValueError: `band` is `None` and the band counts differ, or the
-                derived no-data sentinel does not fit the result dtype.
+            ValueError: `band` is `None` and the band counts differ; `band` is
+                out of range for either operand (raised by the read, which names
+                the band but not which side); an explicit `no_data_value=` does
+                not fit the result dtype, or no sentinel is free to mark what
+                the operands masked out; `func` returned a different number of
+                values than it was given, or a dtype GDAL has no band type for.
 
         Examples:
             - Two aligned rasters, differenced without leaving the Dataset:
@@ -685,19 +709,16 @@ class Analysis(_Engine["Dataset"]):
         if boolean:
             values = values.astype("uint8")
         if masked:
-            # Left first, then right: whichever operand declares a sentinel
-            # supplies one that can mark the cells the other one masked out. If
-            # neither does, nothing was masked and the result needs none.
-            inherited = next(
-                (
-                    value
-                    for value in (left_sentinels[0], right_sentinels[0])
-                    if value is not None
-                ),
-                None,
-            )
             sentinel = self._resolve_combined_no_data(
-                no_data_value, values.dtype, 255 if boolean else inherited
+                no_data_value,
+                values.dtype,
+                # Every band of both operands, left first: the result carries
+                # one sentinel, and any of them that fits the dtype and does not
+                # occur in the result can mark what either operand masked out.
+                [*left_sentinels, *right_sentinels],
+                values,
+                excluded=not bool(domain.all()),
+                boolean=boolean,
             )
         else:
             sentinel = None
@@ -787,43 +808,149 @@ class Analysis(_Engine["Dataset"]):
             values = np.vectorize(func)(left, right)
         return values
 
-    @staticmethod
+    @classmethod
     def _resolve_combined_no_data(
-        requested: Any, dtype: np.dtype, inherited: Any
+        cls,
+        requested: Any,
+        dtype: np.dtype,
+        candidates: Sequence[Any],
+        values: np.ndarray,
+        *,
+        excluded: bool,
+        boolean: bool,
     ) -> Any:
         """Pick the sentinel :meth:`combine` stamps on its result.
+
+        A sentinel is a real value of the band's dtype, so the one question that
+        matters is whether `func` also computed it. Inheriting an operand's
+        sentinel blind is how a whole result silently becomes no-data: `uint8`
+        `200 + 55` lands exactly on `255`, the sentinel `from_array` gives every
+        `uint8` band, and `int32` `0 - 9999` lands on the package default. So
+        the derived sentinel is chosen *against the computed values*, and only
+        when there is something to mark:
+
+        * an explicit `requested` is honoured, but warns when it collides;
+        * a floating result takes `NaN`, which no arithmetic produces and means
+          as data;
+        * a predicate's Byte result takes `255`, free beside `0` and `1`;
+        * an integer result that masked nothing declares no sentinel at all --
+          there is no gap to mark, and every in-range value would be a lie;
+        * otherwise the first candidate that fits the dtype and occurs nowhere
+          in the result, searched through the operands' own sentinels, then the
+          package default, then the dtype's extremes.
 
         Args:
             requested: The caller's `no_data_value`, or `_DERIVE_NO_DATA` when
                 it was left unset.
             dtype: The dtype `func` produced.
-            inherited: The sentinel carried by the operands, or `None` when
-                neither declares one.
+            candidates: The operands' sentinels, in preference order.
+            values: The values `func` computed, used to detect a collision.
+            excluded: Whether the domain mask actually dropped any cell.
+            boolean: Whether `func` returned a boolean, now stored as Byte.
 
         Returns:
             Any: The sentinel to write into the result's bands, or `None` for a
             result that declares none.
 
         Raises:
-            ValueError: The chosen sentinel cannot be stored in `dtype`.
+            ValueError: `requested` cannot be stored in `dtype`, or no candidate
+                is both storable and absent from the result.
         """
         if requested is not _DERIVE_NO_DATA:
-            sentinel = requested
+            sentinel = cls._requested_no_data(requested, dtype, values)
         elif np.issubdtype(dtype, np.floating):
             sentinel = np.nan
+        elif boolean:
+            sentinel = 255
+        elif not excluded:
+            sentinel = None
         else:
-            sentinel = inherited
-        # `None` here means neither operand declared a sentinel, so no cell was
-        # masked out and the result has nothing to mark -- not a value that
-        # failed to fit, which is what `_fits_dtype(None, ...)` reports.
-        if sentinel is not None and not _fits_dtype(sentinel, dtype):
+            sentinel = cls._free_no_data(dtype, candidates, values)
+        return sentinel
+
+    @classmethod
+    def _requested_no_data(cls, requested: Any, dtype: np.dtype, values: Any) -> Any:
+        """Validate a caller-supplied sentinel, warning when the result holds it.
+
+        Args:
+            requested: The caller's `no_data_value`.
+            dtype: The dtype `func` produced.
+            values: The values `func` computed.
+
+        Returns:
+            Any: `requested`, unchanged.
+
+        Raises:
+            ValueError: `requested` cannot be stored in `dtype`.
+        """
+        if not _fits_dtype(requested, dtype):
             raise ValueError(
-                f"the no-data value {sentinel!r} cannot be stored in the "
+                f"the no-data value {requested!r} cannot be stored in the "
                 f"{np.dtype(dtype).name} result of `func`; pass an explicit "
                 "`no_data_value=` that fits it, or `no_data_value=None` for a "
                 "result with no sentinel"
             )
-        return sentinel
+        if cls._occurs_in(values, requested):
+            warnings.warn(
+                f"the requested no-data value {requested!r} is also a value "
+                "`func` computed, so those cells read back as gaps; pass a "
+                "`no_data_value=` the result cannot hold",
+                NoDataCollisionWarning,
+                stacklevel=2,
+            )
+        return requested
+
+    @classmethod
+    def _free_no_data(
+        cls, dtype: np.dtype, candidates: Sequence[Any], values: Any
+    ) -> Any:
+        """First sentinel that fits `dtype` and occurs nowhere in `values`.
+
+        Args:
+            dtype: The dtype `func` produced.
+            candidates: The operands' sentinels, in preference order, tried
+                before the package default and the dtype's extremes.
+            values: The values `func` computed.
+
+        Returns:
+            Any: The chosen sentinel.
+
+        Raises:
+            ValueError: Every candidate either does not fit or collides.
+        """
+        target = np.dtype(dtype)
+        extremes: list[Any] = []
+        if np.issubdtype(target, np.integer):
+            info = np.iinfo(target)
+            extremes = [info.min, info.max]
+        chosen = None
+        for candidate in [*candidates, DEFAULT_NO_DATA_VALUE, *extremes]:
+            if _fits_dtype(candidate, target) and not cls._occurs_in(values, candidate):
+                chosen = candidate
+                break
+        if chosen is None:
+            raise ValueError(
+                f"the {target.name} result of `func` leaves no free value to "
+                "mark the cells its operands masked out -- every candidate "
+                "sentinel occurs in the result; widen the result dtype, or pass "
+                "`no_data_value=None` to combine every cell unmasked"
+            )
+        return chosen
+
+    @staticmethod
+    def _occurs_in(values: Any, sentinel: Any) -> bool:
+        """Whether any computed value would read back as `sentinel`.
+
+        Args:
+            values: The values `func` computed.
+            sentinel: The candidate sentinel.
+
+        Returns:
+            bool: `True` when at least one value matches the sentinel under the
+            same tolerance a reader would apply.
+        """
+        array = np.asarray(values)
+        return bool(array.size) and bool(is_stored_no_data(array, sentinel).any())
 
     def fill(
         self, value: float | int, inplace: bool = False, path: str | Path | None = None

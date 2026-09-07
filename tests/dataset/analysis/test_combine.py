@@ -12,7 +12,7 @@ import math
 import numpy as np
 import pytest
 
-from pyramids.base._errors import AlignmentError
+from pyramids.base._errors import AlignmentError, NoDataCollisionWarning
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 
@@ -108,18 +108,154 @@ class TestCombine:
 
         assert np.isnan(difference.no_data_value[0]), "float results default to NaN"
 
-    def test_integer_result_inherits_the_left_sentinel(self):
-        """An integer result keeps the left operand's sentinel, which fits its dtype.
+    def test_an_integer_result_that_masked_nothing_declares_no_sentinel(self):
+        """With no gap to mark, no in-range value may be claimed as no-data.
 
         Test scenario:
-            Two int32 rasters subtract into an int32 band still declaring -9999.
+            Two full-domain int32 rasters subtract into an int32 band declaring no
+            no-data value — inheriting the operands' -9999 would mark whichever cells
+            happened to compute to -9999.
         """
         difference = _raster(np.full((4, 4), 100, "int32")) - _raster(
             np.full((4, 4), 40, "int32")
         )
 
         assert np.asarray(difference.read_array()).dtype == np.int32
+        assert difference.no_data_value[0] is None, "nothing was masked to mark"
+
+    def test_an_integer_result_that_masked_something_inherits_a_sentinel(self):
+        """A masked cell needs a marker, so a fitting operand sentinel is inherited.
+
+        Test scenario:
+            One no-data cell on the left makes the int32 result declare -9999 and stamp
+            it on that cell.
+        """
+        left = np.full((4, 4), 100, "int32")
+        left[0, 0] = -9999
+
+        difference = _raster(left) - _raster(np.full((4, 4), 40, "int32"))
+
         assert difference.no_data_value[0] == -9999
+        assert np.asarray(difference.read_array())[0, 0] == -9999
+        assert np.asarray(difference.read_array())[1, 1] == 60
+
+    @pytest.mark.parametrize(
+        ("dtype", "left_value", "right_value", "sentinel", "expected"),
+        [
+            ("uint8", 200, 55, 255, 255),
+            ("int32", 0, 9999, -9999, -9999),
+        ],
+        ids=["uint8-wraps-onto-255", "int32-lands-on-9999"],
+    )
+    def test_a_result_is_never_marked_no_data_by_a_value_func_computed(
+        self, dtype, left_value, right_value, sentinel, expected
+    ):
+        """The derived sentinel is chosen against the values, so no result is erased.
+
+        Args:
+            dtype: Band dtype of both operands.
+            left_value: Constant filling the left operand.
+            right_value: Constant filling the right operand.
+            sentinel: No-data value both operands declare.
+            expected: The value every result cell must hold, as data.
+
+        Test scenario:
+            `uint8` 200 + 55 lands exactly on 255 — the sentinel `from_array` gives every
+            uint8 band — and `int32` 0 - 9999 lands on the package default. Inheriting
+            either would mark every cell of the result as no-data.
+        """
+        left = Dataset.from_array(
+            np.full((4, 4), left_value, dtype), geo_ref=GEO_REF, no_data_value=sentinel
+        )
+        right = Dataset.from_array(
+            np.full((4, 4), right_value, dtype), geo_ref=GEO_REF, no_data_value=sentinel
+        )
+
+        result = left + right if dtype == "uint8" else left - right
+
+        assert result.no_data_value[0] is None, "no cell is a gap, so none is marked"
+        assert (np.asarray(result.read_array()) == expected).all()
+
+    def test_a_colliding_explicit_sentinel_warns(self):
+        """An explicit `no_data_value=` is honoured, but not silently.
+
+        Test scenario:
+            Asking for -1.0 when the difference is -1.0 everywhere still stamps -1.0, and
+            warns that those cells read back as gaps.
+        """
+        left = _raster(np.full((4, 4), 3.0, "float32"))
+        right = _raster(np.full((4, 4), 4.0, "float32"))
+
+        with pytest.warns(NoDataCollisionWarning, match="also a value"):
+            result = left.combine(right, np.subtract, no_data_value=-1.0)
+
+        assert result.no_data_value[0] == -1.0
+
+    def test_a_masked_cell_is_marked_even_when_no_operand_declares_a_sentinel(self):
+        """A NaN gap must not become a plain 0 in a band claiming a full domain.
+
+        Test scenario:
+            Both operands declare no no-data value, but the left carries a NaN cell —
+            which `is_stored_no_data` masks — and the result is integer. The gap gets a
+            real sentinel rather than the fill value.
+        """
+        left = np.full((4, 4), 10.0, "float32")
+        left[0, 0] = np.nan
+        masked = Dataset.from_array(left, geo_ref=GEO_REF, no_data_value=None)
+        right = Dataset.from_array(
+            np.full((4, 4), 2.0, "float32"), geo_ref=GEO_REF, no_data_value=None
+        )
+
+        result = masked.combine(right, lambda a, b: (a - b).astype("int32"))
+        array = np.asarray(result.read_array())
+
+        assert result.no_data_value[0] is not None, "the gap needs a marker"
+        assert array[0, 0] == result.no_data_value[0], "the gap carries it"
+        assert array[1, 1] == 8, "domain cells are untouched"
+
+    def test_nan_sentinel_operands_can_produce_an_integer_result(self):
+        """A NaN sentinel must not block the classification case it cannot represent.
+
+        Test scenario:
+            Two NaN-sentinel float rasters thresholded into int16 — NaN cannot be stored
+            in an integer band, so a fitting sentinel is used instead of refusing.
+        """
+        left = Dataset.from_array(
+            np.full((4, 4), 3.0, "float32"), geo_ref=GEO_REF, no_data_value=np.nan
+        )
+        right = Dataset.from_array(
+            np.full((4, 4), 1.0, "float32"), geo_ref=GEO_REF, no_data_value=np.nan
+        )
+
+        result = left.combine(right, lambda a, b: (a > b).astype("int16"))
+
+        assert np.asarray(result.read_array()).dtype == np.int16
+        assert (np.asarray(result.read_array()) == 1).all()
+
+    def test_a_band_whose_sentinel_is_unusable_falls_through_to_one_that_fits(self):
+        """Inheritance scans every band of both operands, not band 0 alone.
+
+        Test scenario:
+            A 2-band operand whose band 0 declares NaN and band 1 declares -9999, with a
+            cell masked in band 1 and an integer result: band 1's usable sentinel is
+            found rather than band 0's NaN deciding for the whole stack.
+        """
+        left = np.full((2, 4, 4), 10, "int32")
+        left[1, 0, 0] = -9999
+        operand = Dataset.from_array(
+            left, geo_ref=GEO_REF, no_data_value=[np.nan, -9999]
+        )
+        right = Dataset.from_array(
+            np.full((2, 4, 4), 3, "int32"),
+            geo_ref=GEO_REF,
+            no_data_value=[np.nan, -9999],
+        )
+
+        result = operand - right
+
+        assert result.no_data_value[0] == -9999
+        assert np.asarray(result.read_array())[1, 0, 0] == -9999
+        assert np.asarray(result.read_array())[0, 0, 0] == 7
 
     def test_explicit_no_data_value_is_used_as_given(self):
         """`no_data_value=` overrides the derived sentinel.

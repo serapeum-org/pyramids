@@ -30,8 +30,10 @@ canopy = surface - bare                               # the same call
 ```
 
 `-`, `+`, `*` and `/` between two rasters are thin wrappers over `combine`. A
-scalar operand is *not* accepted — `ds * 2` stays with `apply`, which keeps the
-band's dtype, so the two spellings of one expression cannot disagree about it.
+scalar operand is *not* accepted: `ds * 2` raises `TypeError`, and scalar
+arithmetic is spelled `ds.apply(lambda v: v * 2)` instead. Keeping the two apart
+is deliberate — `apply` preserves the band's dtype while `combine` takes whatever
+`func` returns, so one expression written two ways cannot disagree about it.
 
 The operands must already share a grid; `combine` never resamples. Use
 [`align`](spatial.md) first when they do not, and
@@ -47,12 +49,43 @@ canopy = surface - bare
 |-----------------------------------------|---------------------------------------------------------------------|
 | Grids differ?                            | `AlignmentError` — call `align()` yourself, no implicit resampling  |
 | Cell is no-data in one operand?          | No-data in the result (the domains intersect)                        |
-| Result sentinel?                         | `NaN` for a float result, else the left operand's — or `no_data_value=` |
+| Result sentinel?                         | Derived against the computed values — see below — or `no_data_value=` |
 | Result dtype?                            | Whatever `func` returns; `int / int` gives floats, not a truncation |
 | Band count?                              | All bands by default; `band=` picks one from each operand           |
 
-The shell equivalent for N rasters is `pyramids calc "(A - B) / (A + B)" a.tif b.tif out.tif`,
-which applies the same rule: the inputs must already share a grid.
+### How the result's no-data value is chosen
+
+A sentinel is a real value of the band's dtype, so the only question that matters
+is whether `func` also computed it. `uint8` `200 + 55` lands exactly on `255` —
+the sentinel every `uint8` band gets by default — and `int32` `0 - 9999` lands on
+the package default, so inheriting an operand's sentinel blind would hand back a
+raster every consumer reads as empty. `combine` therefore derives the sentinel
+*from the values it just computed*:
+
+* a **floating** result takes `NaN`, which no arithmetic produces and means as data;
+* a **predicate** (`a > b`) is stored as Byte and takes `255`, free beside `0`/`1`;
+* an **integer** result that masked nothing declares **no sentinel** — there is no
+  gap to mark, and any in-range value would be a lie;
+* an **integer** result that masked something takes the first value that both fits
+  the dtype and occurs nowhere in the result, searched through the operands' own
+  sentinels (every band, left operand first), then `-9999`, then the dtype's
+  extremes.
+
+An explicit `no_data_value=` is always honoured, with a `NoDataCollisionWarning`
+when the result holds it. `no_data_value=None` turns masking off entirely: every
+cell reaches `func`, including the ones the inputs marked as no-data.
+
+### Memory
+
+`combine` is a whole-array operation — both operands are read in full, and peak
+usage is several times one band. There is no tiled or lazy path yet, so for
+rasters near the memory limit reach for `apply(elementwise=True)` (single-raster,
+streamed) or `read_array(chunks=)` and dask.
+
+The shell equivalent for N rasters is `pyramids calc "(A - B) / (A + B)" a.tif b.tif out.tif`.
+It shares the grid rule — the inputs must already share a grid — but not the
+domain semantics: `calc` evaluates over the raw arrays, so no-data cells take part
+in the arithmetic, and it broadcasts mismatched band counts instead of refusing them.
 
 ## Lazy per-pixel operations
 
