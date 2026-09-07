@@ -701,6 +701,44 @@ class TestCombine:
         assert np.asarray(result.read_array())[0, 0] == -10003, "the sentinel is data"
         assert np.asarray(result.read_array())[1, 1] == 6
 
+    def test_a_result_that_leaves_no_free_value_is_refused(self):
+        """When every candidate occurs in the result there is nothing to mark a gap with.
+
+        Test scenario:
+            An int8 result holding both -128 and 127 exhausts the operands' sentinel, the
+            package default (which does not fit int8) and both dtype extremes, so
+            `combine` says so instead of picking a value the raster already uses.
+        """
+        # The three domain cells sum to 7 (the operands' sentinel), -128 and 127,
+        # so every candidate the search offers is already in the result.
+        left = np.array([[7, 1], [0, 1]], "int8")
+        right = np.array([[0, 6], [-128, 126]], "int8")
+        masked = Dataset.from_array(left, geo_ref=GEO_REF, no_data_value=7)
+        other = Dataset.from_array(right, geo_ref=GEO_REF, no_data_value=7)
+
+        with pytest.raises(ValueError, match="leaves no free value"):
+            masked.combine(other, lambda a, b: (a + b).astype("int8"))
+
+    def test_a_nan_sentinel_that_the_result_holds_still_warns(self):
+        """A non-finite sentinel skips the range prefilter and is compared directly.
+
+        Test scenario:
+            Asking for `no_data_value=np.nan` on a result that computes `NaN` warns, the
+            same as any other collision — the min/max shortcut cannot answer for a value
+            that compares false against everything.
+        """
+        values = np.full((3, 3), 1.0, "float32")
+        values[0, 0] = 0.0
+        left = Dataset.from_array(values, geo_ref=GEO_REF, no_data_value=None)
+        right = Dataset.from_array(
+            np.zeros((3, 3), "float32"), geo_ref=GEO_REF, no_data_value=None
+        )
+
+        with pytest.warns(NoDataCollisionWarning, match="also a value"):
+            result = left.combine(right, np.divide, no_data_value=np.nan)
+
+        assert np.isnan(result.no_data_value[0])
+
     def test_the_result_dtype_follows_func_not_the_inputs(self):
         """Dividing two integer rasters yields a float result, not a truncated one.
 
