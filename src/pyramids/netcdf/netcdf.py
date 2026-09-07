@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import gc
 import itertools
+import logging
 import math
 import os
 import threading
@@ -138,6 +139,12 @@ _RESERVED_ACCESSOR_NAMES.update(_NETCDF_COLLABORATOR_ATTRS)
 # it is here so a malformed or hostile one cannot turn enumeration into an
 # unbounded walk.
 _MAX_GROUP_DEPTH = 32
+
+
+# Module-level logger, matching `pyramids.netcdf.metadata`: the summary helpers swallow
+# every exception so `str()` stays total for debuggers and logging, and a swallowed error
+# that logs nothing is one nobody can diagnose. Both handlers report through this at DEBUG.
+logger = logging.getLogger(__name__)
 
 
 class _LazyVariableDict(dict):
@@ -1411,12 +1418,16 @@ class NetCDF(Dataset):
         if self._raster is not None:
             try:
                 message = self._summary_text()
-            except Exception:
+            except Exception as error:
                 # Total by contract, not just for a closed handle. `str()` runs in debuggers,
                 # logging and pytest introspection, where a raising summary masks the error the
                 # caller was actually looking at. The summary walks a dozen properties, any of
                 # which can fail on a half-built or exotic store, so degrade to a sentinel that
-                # still says what this is.
+                # still says what this is -- and log what went wrong, so the failure is
+                # diagnosable rather than merely survivable.
+                logger.debug(
+                    "%s summary failed: %r", type(self).__name__, error, exc_info=True
+                )
                 message = f"<{type(self).__name__}: summary unavailable>"
         return message
 
@@ -1454,7 +1465,10 @@ class NetCDF(Dataset):
                 if wkt:
                     name = osr.SpatialReference(wkt=wkt).GetName()
                     label = name or "unknown"
-        except Exception:
+        except Exception as error:
+            # `unknown` is also what a store with no CRS reports, so a genuine `epsg` / `crs`
+            # bug would be indistinguishable from an honest absence without this line.
+            logger.debug("CRS label failed: %r", error, exc_info=True)
             label = "unknown"
         return label
 

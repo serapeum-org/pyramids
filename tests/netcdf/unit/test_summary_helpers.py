@@ -13,6 +13,7 @@ end to end.
 from __future__ import annotations
 
 import gc
+import logging
 from pathlib import Path
 
 import numpy as np
@@ -78,6 +79,28 @@ def _write_store(path: str, variable_count: int = 1, unit: str | None = "K") -> 
     del ds
     gc.collect()
     return path
+
+
+def _raise_from(nc, name: str):
+    """Make `name` raise on `nc` alone, by moving it to a throwaway subclass.
+
+    Patching the property onto `Container` itself would affect every live container for the
+    test's duration, and on undo would reinstall the inherited `NetCDF` property as an *own*
+    attribute of `Container`. Re-basing this one instance keeps the blast radius to it.
+
+    Args:
+        nc: The dataset to sabotage.
+        name: The property that should raise.
+
+    Returns:
+        The same object, now an instance of the throwaway subclass.
+    """
+
+    def _boom(self):
+        raise RuntimeError(f"{name} exploded")
+
+    nc.__class__ = type(f"_Raising_{name}", (type(nc),), {name: property(_boom)})
+    return nc
 
 
 class TestCollapseUniform:
@@ -220,6 +243,44 @@ class TestCrsLabel:
         try:
             monkeypatch.setattr(type(nc), "epsg", property(_boom))
             assert nc._crs_label() == "unknown"
+        finally:
+            nc.close()
+
+
+class TestSummaryLogging:
+    """The summary swallows exceptions to stay total, and says so at DEBUG."""
+
+    def test_a_failing_summary_is_logged(self, tmp_path, caplog):
+        """`str()` degrades to a sentinel and records why.
+
+        Test scenario:
+            A swallowed error that logs nothing cannot be diagnosed: the sentinel names neither
+            the property nor the exception, so without the log line the maintainer sees only
+            `summary unavailable`.
+        """
+        nc = NetCDF.read_file(_write_store(str(tmp_path / "boom.nc")))
+        try:
+            _raise_from(nc, "dimension_sizes")
+            with caplog.at_level(logging.DEBUG, logger="pyramids.netcdf.netcdf"):
+                rendered = str(nc)
+            assert rendered.endswith("summary unavailable>"), rendered
+            assert any("summary failed" in r.message for r in caplog.records), (
+                f"nothing logged; records={[r.message for r in caplog.records]}"
+            )
+        finally:
+            nc.close()
+
+    def test_a_failing_crs_label_is_logged(self, tmp_path, caplog):
+        """`unknown` is also an honest answer, so a failure behind it must be logged."""
+        nc = NetCDF.read_file(_write_store(str(tmp_path / "nocrs.nc")))
+        try:
+            _raise_from(nc, "epsg")
+            with caplog.at_level(logging.DEBUG, logger="pyramids.netcdf.netcdf"):
+                label = nc._crs_label()
+            assert label == "unknown", label
+            assert any("CRS label failed" in r.message for r in caplog.records), (
+                f"nothing logged; records={[r.message for r in caplog.records]}"
+            )
         finally:
             nc.close()
 
