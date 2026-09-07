@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -7450,7 +7450,7 @@ replace the georeference wholesale.</p>
 <h2 id="netcdf"><a class="toclink" href="#netcdf">netcdf</a><a class="headerlink" href="#netcdf" title="Permanent link">#</a></h2>
 <h3 id="unreleased_4"><a class="toclink" href="#unreleased_4">unreleased</a><a class="headerlink" href="#unreleased_4" title="Permanent link">#</a></h3>
 <p><strong>A time axis outside <code>datetime64[ns]</code>'s range now decodes to <code>cftime</code> objects instead of wrapping.</strong>
-Soft change, warned — a <code>RuntimeWarning</code> names the units. Only arrays that were previously <strong>wrong</strong> change:
+Soft change, warned — a <code>UserWarning</code> names the axis and its units. Only arrays that were previously <strong>wrong</strong> change:
 <code>decode_cf_time</code> cast to <code>datetime64[ns]</code> under a guard that cannot fire, because a date beyond the type's
 1677-09-21 to 2262-04-11 range does not raise on the cast, it wraps.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
@@ -7460,12 +7460,21 @@ Soft change, warned — a <code>RuntimeWarning</code> names the units. Only arra
 <a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="c1"># before -&gt; np.datetime64('1896-01-21T00:50:52.580896768')   # the date is year 3065</span>
 <a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="c1"># after  -&gt; cftime.real_datetime(3065, 3, 1)                 # + UserWarning</span>
 </code></pre></div>
+<p><strong>A missing timestep is now <code>NaT</code> rather than the epoch.</strong> <code>cftime</code> marks the offsets it cannot decode — a
+<code>NaN</code> or an <code>inf</code> — and that mark used to be dropped, leaving the fill value, which is the origin, so a missing
+timestep read back as a real date. It is now <code>NaT</code> in a <code>datetime64</code> result and <code>None</code> in an object one. Values
+change wherever an axis has missing offsets, and they change from wrong to right; the integer decode path has
+always behaved this way, so only the <code>cftime</code> path moves.</p>
+<p><strong>A <code>"months since …"</code> axis on a non-<code>360_day</code> calendar now raises a clearer error.</strong> It always raised — a
+calendar month has no fixed length, so <code>cftime</code> allows the unit only on <code>360_day</code> — but the <code>ValueError</code> came
+from inside <code>cftime</code>, naming neither the axis nor the store. It now names the axis, units and calendar and
+chains the original. Nothing that previously succeeded now fails.</p>
 <p>Both bounds are affected, and no large offset is needed to reach one: a store written against a
 <code>days since 0001-01-01</code> epoch is out of range at offset <strong>zero</strong>. Its in-range dates are unaffected — a
 20th-century date on that epoch still decodes to <code>datetime64[ns]</code> exactly as before.</p>
 <p><strong>Which object you get back is <code>cftime</code>'s choice, and it decides what still works downstream.</strong> It follows the
 <strong>origin</strong>, not the dates: when proleptic Gregorian rules already cover the origin — a <code>proleptic_gregorian</code>
-calendar, or a mixed-calendar origin at or after the 1582 reform — you get <code>cftime.real_datetime</code>, a <code>datetime</code>
+calendar, or a mixed-calendar origin after the 1582 reform — you get <code>cftime.real_datetime</code>, a <code>datetime</code>
 subclass, so <code>pandas</code> gives <code>datetime64[us]</code> and <code>to_dataframe</code> / <code>to_parquet</code> / <code>to_csv</code> all keep working and
 now carry the <em>correct</em> date. That covers the common far-future case above. A pre-1582 origin on a mixed
 calendar yields a true <code>cftime</code> datetime instead, for every value on the axis — including its post-1582 ones.</p>
