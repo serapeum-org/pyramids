@@ -1403,8 +1403,9 @@ class Spatial(_Engine["Dataset"]):
                     "value the band does not use before cropping"
                 )
             # As a scalar of the band's own dtype, so a derived fill and a
-            # declared one are the same kind of thing to every consumer. The
-            # extremes arrive from `np.iinfo` as Python `int`s.
+            # declared one are the same kind of thing to every consumer.
+            # `free_no_data` answers in Python scalars whichever branch it
+            # takes, so every fill needs this and not just some.
             fills.append(self._ds.numpy_dtype[band](fill))
         return fills
 

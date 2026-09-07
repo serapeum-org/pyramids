@@ -533,12 +533,64 @@ def fits_dtype(value: Any, dtype: np.dtype) -> bool:
     return fits
 
 
-def occurs_in(values: Any, sentinel: Any) -> bool:
+def nan_bounds(values: Any) -> tuple[Any, Any]:
+    """The array's smallest and largest values, ignoring `NaN`.
+
+    `nanmin` / `nanmax` warn -- through `warnings.warn`, which `np.errstate`
+    does not reach -- when every value is `NaN`, and there is nothing unusual
+    about an all-`NaN` band: `crop` reaches one whenever a float raster is
+    entirely gaps. The answer in that case is that there are no bounds.
+
+    Args:
+        values: The array to measure.
+
+    Returns:
+        tuple[Any, Any]: `(min, max)` over the non-`NaN` values, or
+        `(nan, nan)` when there are none.
+
+    Examples:
+        - The `NaN` is ignored rather than propagated, which plain `min` and
+          `max` would do:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base._domain import nan_bounds
+            >>> nan_bounds(np.array([3.0, np.nan, 1.0]))
+            (np.float64(1.0), np.float64(3.0))
+
+            ```
+        - An all-`NaN` array has no bounds, and says so without warning:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base._domain import nan_bounds
+            >>> low, high = nan_bounds(np.full(4, np.nan))
+            >>> bool(np.isnan(low)), bool(np.isnan(high))
+            (True, True)
+
+            ```
+    """
+    array = np.asarray(values)
+    empty = np.dtype(array.dtype).kind == "f" and bool(np.isnan(array).all())
+    if array.size == 0 or empty:
+        bounds = (np.float64(np.nan), np.float64(np.nan))
+    else:
+        with np.errstate(invalid="ignore"):
+            bounds = (np.nanmin(array), np.nanmax(array))
+    return bounds
+
+
+def occurs_in(
+    values: Any, sentinel: Any, bounds: tuple[Any, Any] | None = None
+) -> bool:
     """Whether any value in `values` would read back as `sentinel`.
 
     Args:
         values: The array to search.
         sentinel: The candidate sentinel.
+        bounds: The array's `(min, max)` ignoring `NaN`, when the caller
+            already has them. Asking once and reusing the answer matters to
+            :func:`free_no_data`, which tests several candidates against the
+            same array and would otherwise make a full pass per candidate --
+            the prefilter costing more than the comparison it avoids.
 
     Returns:
         bool: `True` when at least one value matches the sentinel under the same
@@ -590,8 +642,7 @@ def occurs_in(values: Any, sentinel: Any) -> bool:
         # sentinel.
         with np.errstate(invalid="ignore"):
             comparable = np.isfinite(np.asarray(sentinel, dtype="float64"))
-            low = np.nanmin(array)
-            high = np.nanmax(array)
+            low, high = nan_bounds(array) if bounds is None else bounds
         in_range = not (comparable and np.isfinite(low) and np.isfinite(high)) or bool(
             low <= sentinel <= high
         )
@@ -683,7 +734,8 @@ def free_no_data(dtype: np.dtype, candidates: Sequence[Any], values: Any) -> Any
         values: The data the sentinel must not collide with.
 
     Returns:
-        Any | None: The chosen sentinel, or `None` when every candidate either
+        Any | None: The chosen sentinel as a Python scalar -- never a numpy
+        one, whichever branch found it -- or `None` when every candidate either
         does not fit `dtype` or already occurs in `values`.
 
     Examples:
@@ -707,9 +759,10 @@ def free_no_data(dtype: np.dtype, candidates: Sequence[Any], values: Any) -> Any
     """
     target = np.dtype(dtype)
     extremes = _dtype_extremes(target)
+    bounds = nan_bounds(values)
     chosen = None
     for candidate in no_data_candidates(target, candidates):
-        if not occurs_in(values, candidate):
+        if not occurs_in(values, candidate, bounds):
             chosen = candidate
             break
     if chosen is None and extremes:
@@ -738,7 +791,8 @@ def free_no_data(dtype: np.dtype, candidates: Sequence[Any], values: Any) -> Any
                     # infinities have no integer to cast to, and numpy warns
                     # and yields a garbage index rather than raising.
                     chunk = chunk[np.isfinite(chunk)]
-                present = chunk.astype("int64") - floor
+                with np.errstate(invalid="ignore", over="ignore"):
+                    present = chunk.astype("int64") - floor
                 inside = present[(present >= 0) & (present < span)]
                 seen[inside] = True
             unused = np.flatnonzero(~seen)
@@ -751,20 +805,25 @@ def free_no_data(dtype: np.dtype, candidates: Sequence[Any], values: Any) -> Any
                 # `255`. `crop` declares the value it gets, so a later write of
                 # `1` into the result would silently become a gap.
                 index = unused[-1] if preferred > opposite else unused[0]
-                chosen = target.type(int(index) + floor)
+                # A Python `int`, like every other branch returns: the
+                # candidates and the `np.iinfo` extremes are Python scalars,
+                # and a numpy one here made the same logical answer reach
+                # `Dataset.no_data_value` as two different types depending on
+                # which branch found it.
+                chosen = int(index) + floor
     return chosen
 
 
 __all__ = [
+    "DEFAULT_ATOL",
     "DEFAULT_NO_DATA_VALUE",
+    "DEFAULT_RTOL",
     "fits_dtype",
     "free_no_data",
-    "no_data_candidates",
-    "occurs_in",
-    "DEFAULT_ATOL",
-    "DEFAULT_RTOL",
     "inside_domain",
     "is_nan_sentinel",
     "is_no_data",
     "is_stored_no_data",
+    "no_data_candidates",
+    "occurs_in",
 ]
