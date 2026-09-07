@@ -501,6 +501,20 @@ class TestCombine:
                 lambda a, b: np.array([1.0, 2.0]),
             )
 
+    def test_band_names_travel_with_the_result(self):
+        """Band identity is half the reason to keep the operation inside the Dataset.
+
+        Test scenario:
+            A 2-band operand named red/nir comes back named red/nir, and a `band=`
+            selection keeps just that band's name.
+        """
+        left = _raster(np.full((2, 4, 4), 5.0, "float32"))
+        left.band_names = ["red", "nir"]
+        right = _raster(np.full((2, 4, 4), 1.0, "float32"))
+
+        assert (left - right).band_names == ["red", "nir"]
+        assert left.combine(right, np.subtract, band=1).band_names == ["nir"]
+
     def test_the_result_dtype_follows_func_not_the_inputs(self):
         """Dividing two integer rasters yields a float result, not a truncated one.
 
@@ -540,6 +554,16 @@ class TestSameGrid:
         assert not _raster(np.zeros((5, 5), "float32")).same_grid(
             _raster(np.zeros((5, 5), "float32"), geo_ref=elsewhere)
         )
+
+    def test_a_non_dataset_argument_is_refused(self):
+        """The public predicate says what it wants instead of failing on a property read.
+
+        Test scenario:
+            Passing a bare ndarray raises TypeError, not `AttributeError: 'numpy.ndarray'
+            object has no attribute 'epsg'`.
+        """
+        with pytest.raises(TypeError, match="should be a Dataset"):
+            _raster(np.zeros((5, 5), "float32")).same_grid(np.zeros((5, 5)))
 
     def test_a_different_crs_does_not_match(self):
         """Identical numbers in a different CRS describe a different grid.

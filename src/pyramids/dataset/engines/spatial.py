@@ -1497,10 +1497,11 @@ class Spatial(_Engine["Dataset"]):
     def same_grid(self, other: Dataset) -> bool:
         """Whether ``other`` occupies this dataset's pixel grid, in the same CRS.
 
-        A stricter question than :meth:`_check_alignment`, which only compares
-        the raster's size: this also requires the same CRS and the same
-        geotransform, so two rasters that pass it can be combined cell by cell
-        without resampling.
+        Size alone is not the question: this also requires the same CRS and the
+        same geotransform, so two rasters that pass it can be combined cell by
+        cell without resampling — which is exactly what
+        :meth:`Analysis.combine <pyramids.dataset.engines.Analysis.combine>`
+        asks before it does so.
 
         Geotransform components are compared with a small relative tolerance so
         that byte-for-byte-identical grids (the normal case for per-band files
@@ -1514,6 +1515,11 @@ class Spatial(_Engine["Dataset"]):
         Returns:
             bool:
                 `True` iff both rasters occupy the same pixel grid in the same CRS.
+
+        Raises:
+            TypeError:
+                `other` is not a Dataset. Reported here rather than as an
+                `AttributeError` from the first geo-property read.
 
         Examples:
             - Two rasters built on one grid can be combined cell by cell:
@@ -1574,6 +1580,8 @@ class Spatial(_Engine["Dataset"]):
             Analysis.combine: Combines two rasters cell by cell, and raises
                 unless this predicate holds.
         """
+        if not isinstance(other, RasterBase):
+            raise TypeError("The argument should be a Dataset")
         ds = self._ds
         return (
             # `crs_equal(crs_spec(...))`, not `a.epsg == b.epsg`: `epsg` is None
