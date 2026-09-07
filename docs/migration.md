@@ -299,11 +299,20 @@ a fabricated maximum indistinguishable from a measurement. A band that holds eve
 `NoDataValueError` naming the fix rather than reclassifying a real observation as a gap.
 
 A band that declares **no** sentinel is derived for too, on this path. That is not inventing a property the data
-lacked — the crop is what makes those cells absent — and it replaces a worse answer: the excluded cells were
-written with the substituted maximum and the output then declared `NaN`, so they read back as an ordinary
-measurement. Only `uint16` and `uint32` got that far; the same crop of a `uint8` or `int16` raster raised
-`TypeError: int() argument must be ... not 'NoneType'`. A floating band is unchanged, since `NaN` is offered
-first and is what that path already wrote.
+lacked — the crop is what makes those cells absent — and what it replaces was collide-or-crash. Measured on the
+previous release, a raster-mask crop of a band declaring nothing:
+
+| dtype | single band | multi-band |
+|---|---|---|
+| `uint16` / `uint32` | `TypeError` | wrote **and declared** the dtype maximum |
+| `uint8` / `int16` | `TypeError` | `TypeError` |
+| floating | `NaN`, declared | `NaN`, declared |
+
+The one case that completed is the one this issue exists for: `_check_no_data_value` turned the band's `None`
+into 65535, wrote it into the excluded cells and declared it, so every genuinely-65535 cell in the band became
+out-of-domain on the output. Every other integer case raised
+`TypeError: int() argument must be ... not 'NoneType'`, single- and multi-band alike. A floating band is
+unchanged — it gets `NaN`, which is what that path already wrote and declared.
 
 ```python
 # uint8 source with no storable sentinel, data in 1..7

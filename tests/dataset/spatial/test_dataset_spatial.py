@@ -1732,13 +1732,12 @@ class TestCropFillValues:
             dtype: The source band dtype name.
 
         Test scenario:
-            Deriving here is not inventing a property the data lacked. Before,
-            this path leant on the unsigned substitution: `_check_no_data_value`
-            turned the band's `None` into 65535, wrote that into the excluded
-            cells and then declared `NaN`, so those cells read back as an
-            ordinary measurement -- and only `uint16` and `uint32` got that far,
-            the same crop of a `uint8` or `int16` raster raising `TypeError` on
-            the assignment.
+            Deriving here is not inventing a property the data lacked, and what
+            it replaces was collide-or-crash. Only a *multi-band* `uint16` /
+            `uint32` crop completed: the unsigned substitution turned the
+            band's `None` into 65535, wrote it into the excluded cells and
+            declared it, putting every genuinely-65535 cell out of domain.
+            Every other integer case raised `TypeError` on the assignment.
         """
         source = Dataset.from_array(
             np.full((4, 4), 7, dtype=dtype), geo_ref=self.GEO, no_data_value=None

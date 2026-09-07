@@ -1348,12 +1348,14 @@ class Spatial(_Engine["Dataset"]):
 
         Deriving for a band that declares *nothing* is not inventing a property
         the data lacked: the crop is what makes those cells absent, so
-        recording it describes what the operation did. Before, this path leant
-        on the unsigned substitution -- `_check_no_data_value` turned the
-        band's `None` into 65535, wrote that into the excluded cells and then
-        declared `NaN`, so the cells read back as an ordinary measurement. Only
-        `uint16` and `uint32` even got that far; the same crop of a `uint8` or
-        `int16` raster raised `TypeError` on the assignment.
+        recording it describes what the operation did. What it replaces was
+        collide-or-crash. Only a *multi-band* `uint16` / `uint32` crop
+        completed at all, by leaning on the unsigned substitution:
+        `_check_no_data_value` turned the band's `None` into 65535, wrote it
+        into the excluded cells and declared it, putting every genuinely-65535
+        cell of the band out of domain -- the defect this issue is about. Every
+        other integer case, single- and multi-band alike, raised `TypeError` on
+        the assignment.
 
         A band whose sentinel is storable costs nothing to resolve -- the
         answer is that sentinel, and the data is never read. Nor is a floating
