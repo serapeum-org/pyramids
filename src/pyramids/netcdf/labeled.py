@@ -25,10 +25,12 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Literal, cast
 
+import cftime
 import numpy as np
 import pandas as pd
 from osgeo import gdal
 
+from pyramids.base._errors import FailedToSaveError
 from pyramids.base._utils import extra_hint, import_pyarrow
 from pyramids.base.remote import (
     _DODS_SCHEME,
@@ -47,6 +49,37 @@ from pyramids.netcdf.utils import (
 # memory. Above this many bytes the write methods warn the caller to slice first
 # (the estimate is dtype x selected size — no data is read to compute it).
 _LARGE_REALISE_BYTES = 512 * 1024 * 1024
+
+
+def _cftime_columns(frame: pd.DataFrame) -> list[str]:
+    """Names of the columns holding true `cftime` datetimes, which Parquet cannot store.
+
+    Only a genuine `cftime` datetime is a problem. A `cftime.real_datetime` is a
+    `datetime.datetime` subclass, so `pandas` coerces it to `datetime64[us]` and Parquet
+    takes it -- including for a year-3065 date, which is the common out-of-range case.
+
+    Args:
+        frame: The tidy table about to be written.
+
+    Returns:
+        list[str]: The offending column names, in column order.
+    """
+    offenders = []
+    # Positional, not `frame[name]`: a duplicate column label makes that return a
+    # DataFrame, whose `.dtype` raises `AttributeError` -- inside an `except` block, which
+    # would replace the write failure with an unrelated one.
+    for position, name in enumerate(frame.columns):
+        column = frame.iloc[:, position]
+        if column.dtype == object:
+            # Every element, not just the first. `cftime` picks one class per array from
+            # the units origin, so a column decoded in one go is uniform -- but a frame
+            # assembled from more than one decode need not be, and naming no column at all
+            # would put us back to re-raising pyarrow's own opaque error. This runs only
+            # after the write has already failed, so the scan costs nothing that matters.
+            if any(isinstance(value, cftime.datetime) for value in column.to_numpy()):
+                offenders.append(str(name))
+    return offenders
+
 
 # The conda half of this hint names `pyramids-parquet`, not `pyarrow` as it once
 # did. That is a real conda-forge output of the pyramids feedstock (alongside
@@ -681,9 +714,13 @@ class LabeledDataset:
 
         A coordinate with a ``<interval> since <date>`` unit is decoded with
         ``cftime`` so reads (``__getitem__`` / ``to_dataframe``) return real
-        timestamps rather than raw numbers. Standard calendars yield
-        ``datetime64[ns]``; non-standard calendars (``360_day`` / ``noleap`` …)
-        yield ``cftime`` objects. Non-time arrays pass through unchanged.
+        timestamps rather than raw numbers. A standard calendar yields
+        ``datetime64[ns]`` **when the dates fit in it**; a non-standard calendar
+        (``360_day`` / ``noleap`` …), or a date outside 1677-09-21 to 2262-04-11,
+        yields the decoded datetime objects instead. Only the out-of-range case
+        warns, and it names this array -- which is why ``arr``'s name is handed
+        down as ``context`` (#1087); a non-standard calendar has always returned
+        objects and is no surprise. Non-time arrays pass through unchanged.
 
         Args:
             arr: The source MDArray (its unit / calendar drive the decode).
@@ -691,13 +728,19 @@ class LabeledDataset:
 
         Returns:
             np.ndarray: Decoded datetimes for a time axis, else ``values``.
+
+        Raises:
+            ValueError: Propagated from ``decode_cf_time`` when ``cftime`` cannot decode
+                the axis -- most often a ``"months since …"`` unit on anything but the
+                ``360_day`` calendar, which ``is_cf_time_units`` admits because it is
+                purely syntactic and never sees the calendar.
         """
         unit = arr.GetUnit()
         if not is_cf_time_units(unit):
             return values
         cal_attr = _get_attr(arr, "calendar")
         calendar = cal_attr.ReadAsString() if cal_attr is not None else "standard"
-        return decode_cf_time(values, unit, calendar)
+        return decode_cf_time(values, unit, calendar, context=arr.GetName())
 
     def _coord_full(self, name: str) -> np.typing.NDArray:
         """Read a coordinate's full (unselected) values, memoized by name (ARC-49)."""
@@ -1047,10 +1090,36 @@ class LabeledDataset:
 
         Raises:
             OptionalPackageDoesNotExist: When pyarrow is not installed.
+            FailedToSaveError: A column carries true `cftime` datetimes, which Parquet has
+                no type for -- a non-standard calendar (`360_day` / `noleap` …), or a
+                mixed-calendar origin no later than the 1582 reform. A merely out-of-range
+                date does not trigger it: `cftime` hands those back as
+                `cftime.real_datetime`, which `pandas` stores as `datetime64[us]` and
+                Parquet takes (#1087). Both conditions are required -- such a column *and*
+                a pyarrow message naming the type -- so a write that fails for an
+                unrelated reason (an unwritable path, a full disk) propagates unchanged.
         """
         import_pyarrow(_PARQUET_INSTALL_HINT)
         path = Path(path)
-        self.to_dataframe().to_parquet(str(path), index=False, **kwargs)
+        frame = self.to_dataframe()
+        try:
+            frame.to_parquet(str(path), index=False, **kwargs)
+        except Exception as error:
+            # Both conditions: a frame can carry a cftime column and still fail for an
+            # unrelated reason (an unwritable path, a full disk), and re-labelling that as
+            # a time-axis problem would send the caller after the wrong thing. pyarrow
+            # names the offending type in its message, so require that too.
+            unstorable = _cftime_columns(frame)
+            if not unstorable or "cftime" not in str(error):
+                raise
+            raise FailedToSaveError(
+                f"cannot write {path}: the column(s) {', '.join(unstorable)} carry "
+                "cftime datetimes, which Parquet has no type for. That happens when a "
+                "time axis decodes to dates outside the 1677-09-21 to 2262-04-11 range "
+                "datetime64[ns] can represent, or uses a non-standard calendar, so the "
+                "dates are kept as objects rather than being wrapped to wrong values "
+                "(#1087). Write to CSV instead, or select an in-range window first."
+            ) from error
         return path
 
     def to_csv(self, path: str | Path, **kwargs: Any) -> Path:
