@@ -11,7 +11,7 @@ falling back to a proleptic-Gregorian ``datetime64``.
 from __future__ import annotations
 
 import warnings
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import cftime
 import numpy as np
@@ -22,8 +22,10 @@ from pyramids.netcdf.utils import (
     _GREGORIAN_CUTOVER,
     _NS_LIMIT,
     _decode_gregorian_ns,
+    _fits_datetime64_ns,
     decode_cf_time,
     encode_cf_time,
+    is_cf_time_units,
 )
 
 pytestmark = pytest.mark.core
@@ -33,6 +35,109 @@ UNIT = "days since 1979-01-01"
 # 1677-09-21T00:12:43.145224193 to 2262-04-11T23:47:16.854775807, so day 106_751 is the
 # last whole day inside it and day -106_751 the first.
 EPOCH_UNIT = "days since 1970-01-01"
+
+
+# A zone suffix the origin parser does not take, so the integer fast path declines and the
+# same values go through the `cftime` fallback. That is the only way to exercise the two
+# paths against identical input.
+FALLBACK_UNIT = "days since 1900-01-01 00:00:00 UTC"
+FAST_UNIT = "days since 1900-01-01"
+
+
+class TestMissingValues:
+    """Both decode paths agree that an undecodable offset is missing (#1116)."""
+
+    @pytest.mark.parametrize("bad", [np.nan, np.inf], ids=["nan", "inf"])
+    def test_both_paths_report_the_same_missing_value(self, bad):
+        """A `NaN` or `inf` offset is `NaT` whichever path decodes it.
+
+        Test scenario:
+            `cftime` masks what it cannot decode, and `np.asarray` used to drop that mask,
+            leaving the fill value -- the origin. A missing timestep read back as a real
+            date, silently, while the integer path on the same values gave `NaT`.
+        """
+        values = np.array([0.0, bad, 100.0])
+        fast = decode_cf_time(values, FAST_UNIT, "standard")
+        slow = decode_cf_time(values, FALLBACK_UNIT, "standard")
+        assert fast.dtype == slow.dtype == np.dtype("datetime64[ns]"), (
+            f"{fast.dtype} vs {slow.dtype}"
+        )
+        np.testing.assert_array_equal(fast, slow)
+        assert np.isnat(slow[1]), f"the masked offset should be NaT, got {slow[1]}"
+        assert not np.isnat(slow[0]) and not np.isnat(slow[2]), slow
+
+    def test_an_object_result_blanks_the_missing_value(self):
+        """An object array has no `NaT`, so a missing value is `None` there.
+
+        Test scenario:
+            An out-of-range axis keeps its decoded objects, and those carry no `NaT`
+            spelling. Leaving the fill value would put the origin -- a real date -- where a
+            missing timestep belongs.
+        """
+        with pytest.warns(UserWarning):
+            decoded = decode_cf_time(
+                np.array([0.0, np.nan]), "days since 0001-01-01", "standard"
+            )
+        assert decoded.dtype == np.dtype("object"), decoded.dtype
+        assert decoded[1] is None, decoded[1]
+        assert decoded[0].year == 1, decoded[0]
+
+    def test_a_non_standard_calendar_blanks_it_too(self):
+        """The `360_day` path returns objects as well, and must blank the same way."""
+        decoded = decode_cf_time(
+            np.array([1.0, np.nan]), "days since 2000-01-01", "360_day"
+        )
+        assert decoded[1] is None, decoded[1]
+
+    def test_a_missing_value_is_not_mistaken_for_an_out_of_range_one(self):
+        """A masked offset on a pre-1582 epoch must not trigger the range warning.
+
+        Test scenario:
+            The mask's fill value is the origin, which on this epoch is out of range. Range-
+            checking it would fail, downgrade an otherwise representable axis to objects,
+            and blame a range problem for what is a missing value.
+        """
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            decoded = decode_cf_time(
+                np.array([700_000.0, np.nan]), "days since 0001-01-01", "standard"
+            )
+        assert decoded.dtype == np.dtype("datetime64[ns]"), decoded.dtype
+        assert np.isnat(decoded[1]), decoded[1]
+
+
+class TestUndecodableUnits:
+    """`cftime` failures are re-raised naming the axis, units and calendar (#1117)."""
+
+    def test_months_on_a_standard_calendar_names_the_axis(self):
+        """A `"months since"` axis fails with an explanation, not a bare cftime message.
+
+        Test scenario:
+            A calendar month has no fixed length, so `cftime` allows the unit only on
+            `360_day`. `is_cf_time_units` is purely syntactic and never sees the calendar,
+            so it admits the string and the failure surfaces here instead.
+        """
+        assert is_cf_time_units("months since 2000-01-01"), "the predicate admits it"
+        with pytest.raises(ValueError, match="months since 2000-01-01") as raised:
+            decode_cf_time(
+                np.array([1.0, 2.0]),
+                "months since 2000-01-01",
+                "standard",
+                context="valid_time",
+            )
+        message = str(raised.value)
+        assert "valid_time" in message, message
+        assert "standard" in message, message
+        assert "360_day" in message, message
+        assert raised.value.__cause__ is not None, "the cftime error should be chained"
+
+    def test_months_on_a_360_day_calendar_still_decodes(self):
+        """The unit is defined on `360_day`, so that path must keep working."""
+        decoded = decode_cf_time(
+            np.array([1.0, 2.0]), "months since 2000-01-01", "360_day"
+        )
+        assert decoded.dtype == np.dtype("object"), decoded.dtype
+        assert decoded[0].month == 2, decoded[0]
 
 
 class TestCfTimeRoundTrip:
@@ -399,3 +504,61 @@ class TestDatetime64Range:
                 np.array([400_000], dtype="int64"), EPOCH_UNIT, "360_day"
             )
         assert decoded.dtype == np.dtype("object"), decoded.dtype
+
+
+class TestFitsDatetime64Ns:
+    """The range guard itself, at the bounds and on values that are not dates."""
+
+    def test_the_bounds_themselves_are_admitted(self):
+        """The comparison is inclusive, so nothing representable is turned away.
+
+        Test scenario:
+            `_DT64_NS_BOUNDS` is already rounded inward to whole microseconds, so an
+            exclusive comparison would discard the last representable microsecond at each end
+            for nothing. Every axis decoded elsewhere in this file sits days away from the
+            bounds, so no other test would notice.
+        """
+        low, high = _DT64_NS_BOUNDS
+        edges = np.array([datetime(*low), datetime(*high)], dtype=object)
+        assert _fits_datetime64_ns(edges), "the bounds themselves must be admitted"
+
+    @pytest.mark.parametrize("end", [0, 1], ids=["floor", "ceiling"])
+    def test_one_microsecond_past_a_bound_is_refused(self, end):
+        """A microsecond beyond either bound does not fit, which is what makes it a bound.
+
+        Args:
+            end: Which end of `_DT64_NS_BOUNDS` to step past.
+
+        Test scenario:
+            Paired with the test above this pins the edge exactly -- one step in is admitted,
+            one step out is not -- rather than merely somewhere in the right region.
+        """
+        step = timedelta(microseconds=1)
+        edge = datetime(*_DT64_NS_BOUNDS[end]) + (-step if end == 0 else step)
+        assert not _fits_datetime64_ns(np.array([edge], dtype=object)), (
+            f"{edge} is past the bound and must not be admitted"
+        )
+
+    def test_a_value_that_is_not_a_datetime_does_not_fit(self):
+        """An object array of something other than datetimes is refused, not compared.
+
+        Test scenario:
+            "Does not fit" is the honest answer for a value that is not a date at all: the
+            cast would be wrong for it too, and the caller's fallback -- keeping the objects
+            -- is lossless either way.
+        """
+        assert not _fits_datetime64_ns(np.array(["1979-01-11"], dtype=object)), (
+            "a string is not a representable datetime"
+        )
+
+    def test_an_array_valued_element_is_refused_rather_than_raising(self):
+        """The type screen is what keeps a non-`TypeError` comparison from escaping.
+
+        Test scenario:
+            Comparing a `datetime` with an array yields an elementwise result whose truth
+            value raises `ValueError`, which the guard does not catch -- so without the screen
+            it would leave `decode_cf_time` entirely rather than falling back to the objects.
+        """
+        values = np.empty(1, dtype=object)
+        values[0] = np.array([0.0, 1.0])
+        assert not _fits_datetime64_ns(values), "an array element cannot be a date"
