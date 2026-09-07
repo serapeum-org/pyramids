@@ -658,6 +658,37 @@ class TestMergeRastersDstCrs:
         with pytest.raises(RuntimeError, match="gdal.Open returned None"):
             merge_rasters([pa, pb], tmp_path / "x.tif")
 
+    def test_raising_open_names_the_source_and_its_position(
+        self, shared_crs_pair, monkeypatch
+    ):
+        """A raising ``gdal.Open`` names the failing source and how far the open got.
+
+        Test scenario:
+            The second of two sources is a remote tile whose open raises a bare
+            ``HTTP response code: 403`` -- GDAL names no source for a
+            ``/vsicurl/`` path. ``_prepare_sources`` must report the URL, its
+            ``2/2`` position in ``src_paths``, and chain GDAL's message (#1107).
+        """
+        pa, _pb = shared_crs_pair
+        remote = "/vsicurl/https://example.invalid/tile_B04_0042.tif"
+        real_open = merge_mod.gdal.Open
+
+        def _raise_for_remote(path, *args, **kwargs):
+            if str(path) == remote:
+                raise RuntimeError("HTTP response code: 403")
+            return real_open(path, *args, **kwargs)
+
+        monkeypatch.setattr(merge_mod.gdal, "Open", _raise_for_remote)
+        with pytest.raises(RuntimeError) as excinfo:
+            _prepare_sources([pa, remote], None)
+        message = str(excinfo.value)
+        assert "tile_B04_0042.tif" in message, f"source not named: {message}"
+        assert "2/2" in message, f"source position not reported: {message}"
+        assert "403" in message, f"GDAL's own message not preserved: {message}"
+        assert isinstance(excinfo.value.__cause__, RuntimeError), (
+            "GDAL's error should be chained as __cause__, not replaced"
+        )
+
 
 class TestSourceBounds:
     """Tests for the ``_source_bounds`` extent helper used by the strip reduction."""
@@ -695,6 +726,31 @@ class TestSourceBounds:
         """
         with pytest.raises(RuntimeError):
             _source_bounds("/no/such/raster/does-not-exist.tif")
+
+    def test_raising_open_names_the_source(self, monkeypatch):
+        """A raising ``gdal.Open`` still reports which source could not be opened.
+
+        Test scenario:
+            Under ``gdal.UseExceptions()`` (pyramids' default) ``gdal.Open``
+            raises instead of returning None, so the ``is None`` guard never
+            runs. For a remote source GDAL's message is a bare HTTP status that
+            names nothing, so ``_source_bounds`` must add the source itself and
+            chain GDAL's original message (#1107).
+        """
+        remote = "/vsicurl/https://example.invalid/tile_B04_0042.tif"
+
+        def _raise(*_args, **_kwargs):
+            raise RuntimeError("HTTP response code: 403")
+
+        monkeypatch.setattr(merge_mod.gdal, "Open", _raise)
+        with pytest.raises(RuntimeError) as excinfo:
+            _source_bounds(remote)
+        message = str(excinfo.value)
+        assert "tile_B04_0042.tif" in message, f"source not named: {message}"
+        assert "403" in message, f"GDAL's own message not preserved: {message}"
+        assert isinstance(excinfo.value.__cause__, RuntimeError), (
+            "GDAL's error should be chained as __cause__, not replaced"
+        )
 
 
 class TestPrepareSources:

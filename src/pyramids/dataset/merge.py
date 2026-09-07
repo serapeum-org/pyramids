@@ -348,7 +348,14 @@ def _source_bounds(
     if isinstance(path, gdal.Dataset):
         ds, opened = path, False
     else:
-        ds, opened = gdal.Open(str(path)), True
+        # Name the source whichever way GDAL reports the failure: under
+        # gdal.UseExceptions() (pyramids' default) Open raises instead of
+        # returning None, and for a /vsicurl/ or /vsis3/ source GDAL's own
+        # message carries only the HTTP status -- not the URL (#1107).
+        try:
+            ds, opened = gdal.Open(str(path)), True
+        except RuntimeError as exc:
+            raise RuntimeError(f"could not open merge source {path!r}: {exc}") from exc
     if ds is None:
         raise RuntimeError(f"gdal.Open returned None for merge source {path!r}.")
     bounds = GeoTransform(*ds.GetGeoTransform()).extent(ds.RasterXSize, ds.RasterYSize)
@@ -766,16 +773,28 @@ def _prepare_sources(
         TypeError: ``resampling`` is not a string.
         ValueError: ``dst_crs`` (or ``resampling``) could not be parsed, or a
             source carries no CRS.
-        RuntimeError: A source could not be opened, or a reprojecting
-            :func:`gdal.Warp` failed.
+        RuntimeError: A source could not be opened -- the message names the
+            source (and its position in ``src_paths``) and chains GDAL's own
+            error -- or a reprojecting :func:`gdal.Warp` failed.
     """
     resample_alg = resolve_resampling(resampling)
 
     # Open each source once; read its CRS from that same handle.
     opened: list = []
     source_srs: list[osr.SpatialReference] = []
-    for path in src_paths:
-        dataset = gdal.Open(path)
+    for index, path in enumerate(src_paths):
+        # Name the source whichever way GDAL reports the failure. Under
+        # gdal.UseExceptions() (pyramids' default) Open raises rather than
+        # returning None, so the `is None` guard below never runs; and for a
+        # /vsicurl/ or /vsis3/ source GDAL's message is just the HTTP status
+        # ("HTTP response code: 403"), naming no source at all. The index says
+        # how far the open got on a mosaic of many tiles (#1107).
+        try:
+            dataset = gdal.Open(path)
+        except RuntimeError as exc:
+            raise RuntimeError(
+                f"could not open source {index + 1}/{len(src_paths)} {path!r}: {exc}"
+            ) from exc
         if dataset is None:
             raise RuntimeError(f"gdal.Open returned None for source {path!r}.")
         wkt = dataset.GetProjection()
