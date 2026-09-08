@@ -371,7 +371,7 @@ class Cell(_Engine["Dataset"]):
             metres = crs.axis_info[0].unit_conversion_factor
             determinant = abs(geo[1] * geo[5] - geo[2] * geo[4])
             one = determinant * metres * metres / scale
-            if not one > 0.0:
+            if one <= 0.0:
                 raise ValueError(_NO_EXTENT)
             areas = np.broadcast_to(np.float64(one), (self._ds.rows, self._ds.columns))
         else:
@@ -520,8 +520,11 @@ class Cell(_Engine["Dataset"]):
                 "area is not derived for; reproject to an oblate or spherical "
                 "datum first"
             )
-        if eccentricity_squared == 0.0:
+        if eccentricity_squared <= 0.0:
             # A spherical datum -- every major weather model ships GRIB on one.
+            # `<=` rather than `==` because a prolate figure, the only way this
+            # goes negative, is already refused above: reaching here with a
+            # non-positive `e^2` means it is exactly zero.
             # Both terms above tend to `(sin u - sin l)/2` as `e` vanishes, so
             # the general form's division by `e` is avoided rather than
             # approached.
