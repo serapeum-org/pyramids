@@ -308,6 +308,12 @@ previous release, a raster-mask crop of a band declaring nothing:
 | `uint8` / `int16` | `TypeError` | `TypeError` |
 | floating | `NaN`, declared | `NaN`, declared |
 
+Because the output now declares a sentinel the trim recognises, a raster-mask crop also removes rows and columns
+that the mask excluded entirely — so the result can be smaller than the mask's extent. That is not new behaviour,
+only newly reachable: a `float32` band, whose `NaN` was always storable, was trimmed the same way before. A 4x4
+raster masked along its first row and column comes back 3x3 for every dtype now, where the integer cases used to
+raise instead.
+
 The one case that completed is the one this issue exists for: `_check_no_data_value` turned the band's `None`
 into 65535, wrote it into the excluded cells and declared it, so every genuinely-65535 cell in the band became
 out-of-domain on the output. Every other integer case raised

@@ -1938,6 +1938,33 @@ class TestCropFillValues:
         assert fills == [255]
         assert calls == [], f"the band was read {len(calls)} times to pick a fill"
 
+    @pytest.mark.parametrize("dtype", ["uint8", "int16", "float32"])
+    def test_fully_excluded_border_rows_are_trimmed(self, dtype: str):
+        """The output can be smaller than the mask's extent, on every dtype.
+
+        Args:
+            dtype: The source band dtype name.
+
+        Test scenario:
+            The trim that removes wholly-excluded rows and columns works by
+            reading the output's sentinel back, so it only ever fired for a
+            band whose sentinel was storable -- `float32` was trimmed this way
+            already, while the integer cases raised before reaching it. Now
+            that every band declares what its excluded cells hold, all three
+            agree, and callers will start depending on the shape.
+        """
+        cells = np.ones((4, 4), dtype=dtype)
+        cells[0, :] = 0
+        cells[:, 0] = 0
+        mask = Dataset.from_array(cells, geo_ref=self.GEO, no_data_value=0)
+        source = Dataset.from_array(
+            np.full((4, 4), 7, dtype=dtype), geo_ref=self.GEO, no_data_value=None
+        )
+
+        cropped = source.crop(mask)
+
+        assert np.asarray(cropped.read_array()).shape == (3, 3)
+
     def test_a_band_holding_every_candidate_refuses(self):
         """The honest failure, rather than a colliding fill.
 
