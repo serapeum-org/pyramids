@@ -19,13 +19,20 @@ import pytest
 from osgeo import gdal
 from pyproj import CRS
 
+from pyproj.exceptions import CRSError
+
 from pyramids.base._domain import is_stored_no_data
 from pyramids.dataset import Dataset, GeoReference
+from pyramids.dataset.engines import cell as cell_engine
 
 pytestmark = pytest.mark.core
 
 GEOGRAPHIC = GeoReference(top_left_corner=(-180.0, 90.0), cell_size=1.0, epsg=4326)
 WGS84_ELLIPSOID_KM2 = 510_065_622.0
+SPHERICAL_DATUM_WKT = (
+    'GEOGCS["Sphere",DATUM["unnamed",SPHEROID["Sphere",6371229,0]],'
+    'PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]]'
+)
 
 
 def _global_grid(values: np.ndarray | None = None, no_data=None) -> Dataset:
@@ -545,3 +552,86 @@ class TestTheEdgesTheHappyPathMisses:
         # one is the other reversed. Asserting only "finite and positive" would
         # pass for any answer at all.
         assert np.allclose(areas[:, 0], north_up.cell_area()[::-1, 0], rtol=1e-12)
+
+
+class TestASphericalDatum:
+    """The weather-model datum: a real ellipsoid whose flattening is zero."""
+
+    def test_the_sphere_is_integrated_in_closed_form_too(self):
+        """A sphere is not a special case to the caller, only to the integral.
+
+        Test scenario:
+            The general antiderivative divides by the eccentricity, which is
+            zero here. The limit as it vanishes is `a^2 sin(phi)`, so a global
+            grid must come to exactly `4 pi R^2` -- the closed form of the
+            surface it is integrating. GRIB rasters from every major weather
+            model carry precisely this datum, so the branch is ordinary input.
+        """
+        handle = gdal.GetDriverByName("MEM").Create("", 360, 180, 1, gdal.GDT_Float32)
+        handle.SetGeoTransform((-180.0, 1.0, 0.0, 90.0, 0.0, -1.0))
+        handle.SetProjection(SPHERICAL_DATUM_WKT)
+        raster = Dataset(handle)
+
+        total = float(raster.cell_area(unit="km2").sum())
+
+        assert total == pytest.approx(4.0 * np.pi * 6371.229**2, rel=1e-12)
+
+    def test_the_sphere_disagrees_with_the_ellipsoid_where_it_should(self):
+        """Zero flattening is a different earth, not a rounding difference.
+
+        Test scenario:
+            Were the flattening ignored -- or the eccentricity branch taken
+            with `e = 0` folded in wrongly -- the two datums would answer alike.
+            They must not: a sphere puts more area at the equator and less at
+            the pole than WGS84 does, while the totals stay within 0.01 %.
+        """
+        handle = gdal.GetDriverByName("MEM").Create("", 360, 180, 1, gdal.GDT_Float32)
+        handle.SetGeoTransform((-180.0, 1.0, 0.0, 90.0, 0.0, -1.0))
+        handle.SetProjection(SPHERICAL_DATUM_WKT)
+        sphere = Dataset(handle).cell_area(unit="km2")
+        ellipsoid = _global_grid().cell_area(unit="km2")
+
+        assert float(sphere[90, 0]) > float(ellipsoid[90, 0])
+        assert float(sphere[0, 0]) < float(ellipsoid[0, 0])
+        assert float(sphere.sum()) == pytest.approx(float(ellipsoid.sum()), rel=1e-4)
+
+
+class TestTheGuardsNoPublicInputReaches:
+    """Two defensive branches, forced open.
+
+    Neither is reachable through the public API as the code stands: `crs` is
+    always a string GDAL itself serialised, and pyproj parsed every CRS GDAL
+    would store when this was probed; and `get_geod()` returned an ellipsoid
+    for every geographic CRS tried, including a datum naming none. They are
+    typed and written as defence in depth -- `get_geod()` is declared
+    `Geod | None` -- so the tests force the state rather than producing it,
+    and assert only that the refusal is the documented one.
+    """
+
+    def test_an_uninterpretable_crs_is_refused_in_this_method_s_terms(
+        self, monkeypatch
+    ):
+        """A `CRSError` escaping `cell_area` would read as a bug in the area code.
+
+        Args:
+            monkeypatch: Forces the parser to fail, which no raster does here.
+        """
+
+        def _refuse(_):
+            raise CRSError("could not interpret 'nonsense' as a CRS")
+
+        monkeypatch.setattr(cell_engine, "crs_from_user_input", _refuse)
+
+        with pytest.raises(ValueError, match="could not be interpreted"):
+            _global_grid().cell_area()
+
+    def test_a_geographic_crs_without_an_ellipsoid_is_refused(self, monkeypatch):
+        """There is no figure of the earth to integrate over.
+
+        Args:
+            monkeypatch: Returns a CRS whose `get_geod()` is `None`.
+        """
+        monkeypatch.setattr(CRS, "get_geod", lambda self: None)
+
+        with pytest.raises(ValueError, match="declares no ellipsoid"):
+            _global_grid().cell_area()
