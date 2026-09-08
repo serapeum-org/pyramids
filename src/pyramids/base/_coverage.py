@@ -380,6 +380,7 @@ def run_gdal_op(
     action: str,
     subject: str,
     hint: str | None = None,
+    outcome: str = "returned no raster",
 ) -> gdal.Dataset:
     """Run a GDAL dataset-producing call, re-branding both failure shapes as `error`.
 
@@ -391,22 +392,48 @@ def run_gdal_op(
     diagnostic text that can never be printed, and the raising path escapes with
     GDAL's own message, which for a remote source names nothing.
 
+    Build the options object and resolve the driver *before* the call and keep only
+    the GDAL call itself in `operation`: a bad keyword is the caller's mistake, and
+    re-branding it would blame the source for an argument error.
+
+    Every message is passed through
+    :func:`pyramids.base.remote.redact_credentials`, so a signed URL in `subject`
+    or in GDAL's own text keeps its path and loses its secret.
+
     Args:
-        operation: A zero-argument callable performing the GDAL call.
+        operation: A zero-argument callable performing the GDAL call. Prefer
+            :func:`functools.partial` over a lambda closing over a loop variable.
         error: The exception class to raise.
         action: What was being attempted, e.g. ``"building the source mosaic"``.
         subject: What it was attempted on, already quoted by the caller.
         hint: Optional trailing advice appended after a semicolon.
+        outcome: How to describe a ``None`` return. Defaults to
+            ``"returned no raster"``; a call that writes a file reads better with
+            something like ``"produced no output"``.
 
     Returns:
         osgeo.gdal.Dataset: The dataset the call produced.
 
     Raises:
-        Exception: An instance of `error` -- GDAL raised, or returned no dataset.
+        error: GDAL raised while running `operation`, or returned no dataset.
 
     Examples:
-        - GDAL raising is re-branded, naming the action and subject and keeping
-          GDAL's own text:
+        - A successful call is handed straight back:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.base._coverage import run_gdal_op
+            >>> made = run_gdal_op(
+            ...     lambda: gdal.GetDriverByName("MEM").Create("", 4, 3, 1),
+            ...     error=RuntimeError,
+            ...     action="building the mosaic",
+            ...     subject="sources ['tile.tif']",
+            ... )
+            >>> (made.RasterXSize, made.RasterYSize)
+            (4, 3)
+
+            ```
+        - GDAL raising is re-branded, naming the action and subject, keeping GDAL's
+          own text and appending the hint:
             ```python
             >>> from pyramids.base._coverage import run_gdal_op
             >>> class DemoError(Exception):
@@ -418,16 +445,16 @@ def run_gdal_op(
             ...         boom,
             ...         error=DemoError,
             ...         action="building the mosaic",
-            ...         subject="sources ['tile.tif']",
+            ...         subject="sources ['t.tif']",
+            ...         hint="check the paths are readable",
             ...     )
             ... except DemoError as exc:
             ...     print(exc)
-            building the mosaic failed for sources ['tile.tif']: HTTP response code: 403
+            building the mosaic failed for sources ['t.tif']: HTTP response code: 403; check the paths are readable
 
             ```
-        - A `None` return (what GDAL does with exceptions off, and what
-          ``BuildVRT`` does for a source it skips) is branded the same way, with
-          the optional hint appended:
+        - A `None` return -- what GDAL does with exceptions off, and what
+          ``BuildVRT`` does when *no* source is usable -- is branded the same way:
             ```python
             >>> from pyramids.base._coverage import run_gdal_op
             >>> class DemoError(Exception):
@@ -436,28 +463,50 @@ def run_gdal_op(
             ...     run_gdal_op(
             ...         lambda: None,
             ...         error=DemoError,
-            ...         action="building the mosaic",
-            ...         subject="sources ['tile.tif']",
-            ...         hint="check the paths are readable rasters",
+            ...         action="writing the mosaic",
+            ...         subject="'out.tif'",
+            ...         outcome="produced no output",
             ...     )
             ... except DemoError as exc:
             ...     print(exc)
-            building the mosaic returned no raster for sources ['tile.tif']; check the paths are readable rasters
+            writing the mosaic produced no output for 'out.tif'
+
+            ```
+        - A credential in the subject is blanked, the path kept:
+            ```python
+            >>> from pyramids.base._coverage import run_gdal_op
+            >>> class DemoError(Exception):
+            ...     pass
+            >>> def boom():
+            ...     raise RuntimeError("HTTP response code: 403")
+            >>> try:
+            ...     run_gdal_op(
+            ...         boom,
+            ...         error=DemoError,
+            ...         action="opening",
+            ...         subject="source 'https://h/t.tif?sig=SECRET'",
+            ...     )
+            ... except DemoError as exc:
+            ...     print(exc)
+            opening failed for source 'https://h/t.tif?sig=<redacted>': HTTP response code: 403
 
             ```
     """
+
+    def _brand(message: str) -> str:
+        """Append the hint, scrub any credential, and hand back the final text."""
+        return redact_credentials(message if hint is None else f"{message}; {hint}")
+
     try:
         result = operation()
     except RuntimeError as exc:
-        message = f"{action} failed for {subject}: {exc}"
-        raise error(
-            redact_credentials(message if hint is None else f"{message}; {hint}")
-        ) from exc
+        raise error(_brand(f"{action} failed for {subject}: {exc}")) from exc
     if result is None:
-        message = f"{action} returned no raster for {subject}"
-        raise error(
-            redact_credentials(message if hint is None else f"{message}; {hint}")
-        )
+        # The None branch has no exception to chain, so GDAL's last error is the
+        # only diagnostic left; it is empty when the driver declined quietly.
+        last = gdal.GetLastErrorMsg()
+        detail = f"{action} {outcome} for {subject}"
+        raise error(_brand(detail if not last else f"{detail} ({last})"))
     return result
 
 
