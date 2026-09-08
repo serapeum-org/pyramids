@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6925,9 +6925,10 @@ geotransform continues past the seam (<code>170 .. 180</code> then <code>180 .. 
 <li><strong><code>from_ogc_coverages</code> sizes the two halves together</strong> when no <code>resolution</code> is given: the combined span is
   capped once and the resulting pixel size applied to both. Sizing each half against the cap on its own would
   give them different pixel sizes and row counts, which cannot be concatenated at all.</li>
-<li><strong>The stitched result of a seam read is a plain <code>Dataset</code></strong>, because the merge rebuilds through
-  <code>Dataset.from_array</code>. Only relevant if you call these classmethods on a <code>Dataset</code> subclass; nothing in
-  <code>pyramids</code> does.</li>
+<li><strong>A seam read through <code>from_wcs</code> or <code>from_ogc_coverages</code> returns a plain <code>Dataset</code></strong>, even when called on a
+  subclass, because those two merge by rebuilding through <code>Dataset.from_array</code>. <code>from_wms</code> and <code>from_wmts</code> stitch
+  into a GDAL handle and wrap it with the class they were called on, so a subclass survives there. Only relevant
+  if you call these classmethods on a <code>Dataset</code> subclass; nothing in <code>pyramids</code> does.</li>
 </ul>
 <p><strong>Two rasters can now be combined directly, and <code>Dataset</code> gained arithmetic operators.</strong> Additive — nothing that
 worked before behaves differently. <code>ds.combine(other, func)</code> runs a binary function over two aligned rasters and
