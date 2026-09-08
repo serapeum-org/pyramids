@@ -834,35 +834,22 @@ def from_wmts(
             raise
         try:
             native_srs = _resolve_native_srs(src, layer_crs)
-            # A split read pins both halves to one pixel size — left to itself each
-            # gdal.Translate would size its half from the source independently, and
-            # two grids that disagree cannot be stitched. A single-window read keeps
-            # the previous `resolution=None` meaning (finest level) untouched.
-            split = len(halves) > 1
-            half_res = (res or _native_resolution(src)) if split else res
-
-            def crop_half(half: Any) -> gdal.Dataset:
-                """Window one ``west < east`` half out of the pyramid."""
-                projwin = _native_projwin(half, crs, native_srs)
-                return _translate_window(src, projwin, layer, half_res, resample)
-
-            # The seam offset is only measured when there is a seam to check: the
-            # whole-world transform it needs is meaningless (and can be non-finite)
-            # for a layer whose CRS does not span both meridians.
-            offset = _seam_offset(window, crs, native_srs) if split else 0.0
-            if split:
+            # Project each half exactly once; the overlap filter and the fetch both
+            # need the window, and transforming twice is only a chance for the two
+            # to disagree.
+            windows = [
+                (half, _native_projwin(half, crs, native_srs)) for half in halves
+            ]
+            if len(windows) > 1:
                 # Drop a half that misses the pyramid, as the WCS and OGC API
                 # Coverages readers do. A regional layer would otherwise return
                 # that half as a block of no-data and concatenate it in as though
                 # it were data. Only for a split read: a lone window keeps GDAL's
                 # own lenient behaviour, unchanged.
-                projwins = [_native_projwin(half, crs, native_srs) for half in halves]
-                halves = [
-                    half
-                    for half, projwin in zip(halves, projwins, strict=True)
-                    if _window_overlaps(projwin, src)
-                ]
-                if not halves:
+                spans = [abs(pw[2] - pw[0]) for _, pw in windows]
+                first = windows[0][1]
+                windows = [(h, pw) for h, pw in windows if _window_overlaps(pw, src)]
+                if not windows:
                     raise ValueError(
                         f"bbox {bbox!r} crosses the antimeridian but neither half "
                         f"overlaps the extent of layer {layer!r}"
@@ -871,15 +858,27 @@ def from_wmts(
                 # `_translate_window` checks the ceiling per half, so without this
                 # a wrapping read is bounded at MAX_PX on *each* side -- twice the
                 # intended peak, and then a third copy to stitch them.
-                spans = [abs(pw[2] - pw[0]) for pw in projwins]
-                combined = [
-                    projwins[0][0],
-                    projwins[0][1],
-                    projwins[0][0] + sum(spans),
-                    projwins[0][3],
-                ]
-                _read_size(combined, half_res or _native_resolution(src))
-            mem = _collect_halves(crop_half, halves, offset)
+                combined = [first[0], first[1], first[0] + sum(spans), first[3]]
+                _read_size(combined, res or _native_resolution(src))
+            # `split` is decided by what survived the filter, not by what was asked
+            # for: a wrap where only one half overlaps is one request, and it should
+            # take the same path a non-wrapping request of that half would.
+            split = len(windows) > 1
+            # A split read pins both halves to one pixel size — left to itself each
+            # gdal.Translate would size its half from the source independently, and
+            # two grids that disagree cannot be stitched. A single-window read keeps
+            # the previous `resolution=None` meaning (finest level) untouched.
+            half_res = (res or _native_resolution(src)) if split else res
+
+            def crop_half(projwin: Any) -> gdal.Dataset:
+                """Window one already-projected half out of the pyramid."""
+                return _translate_window(src, projwin, layer, half_res, resample)
+
+            # The seam offset is only measured when there is a seam to check: the
+            # whole-world transform it needs is meaningless (and can be non-finite)
+            # for a layer whose CRS does not span both meridians.
+            offset = _seam_offset(window, crs, native_srs) if split else 0.0
+            mem = _collect_halves(crop_half, [pw for _, pw in windows], offset)
         finally:
             src = None
 

@@ -272,8 +272,10 @@ def _span(projwin: list[float]) -> float:
             10.0
 
             ```
-        - Corner order does not matter, so a window read off a west-positive grid
-          measures the same:
+        - The absolute value is defensive only. `native_projwin` always returns
+          ``ulx <= lrx``, and :func:`_align_to_sizes` moves the far edge eastward
+          unconditionally, so a genuinely west-positive window would not survive
+          the rest of this path even though `_span` measures it:
             ```python
             >>> from pyramids.dataset._ogc_coverages import _span
             >>> _span([180.0, 10.0, 170.0, -10.0])
@@ -529,7 +531,10 @@ def from_ogc_coverages(
         for part in parts:
             part.close()
         # A raise part-way through the adoption above leaves the tail of `mems`
-        # wrapped by nothing, so `parts` cannot close them.
+        # wrapped by nothing, so nothing else drops their GDAL handle. (`close()`
+        # on an adopted part clears that part's reference, not this list's -- both
+        # die with the frame either way; this is about releasing the handle
+        # promptly, not about who owns the object.)
         for mem in mems[adopted:]:
             mem.Close()
 

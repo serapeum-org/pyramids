@@ -965,7 +965,10 @@ def from_wcs(
         for part in parts:
             part.close()
         # A raise part-way through the adoption above leaves the tail of `mems`
-        # wrapped by nothing, so `parts` cannot close them.
+        # wrapped by nothing, so nothing else drops their GDAL handle. (`close()`
+        # on an adopted part clears that part's reference, not this list's -- both
+        # die with the frame either way; this is about releasing the handle
+        # promptly, not about who owns the object.)
         for mem in mems[adopted:]:
             mem.Close()
 

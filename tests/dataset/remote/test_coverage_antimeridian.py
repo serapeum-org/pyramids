@@ -299,7 +299,18 @@ class TestWindowSizes:
         assert cells[0] == pytest.approx(cells[1], rel=1e-12), (
             f"the halves must share one cell size, got {cells}"
         )
-        assert sizes[0][1] == sizes[1][1], "the halves must share one row count"
+        # Sharing a cell size is what `_align_to_sizes` guarantees by construction,
+        # so on its own that assertion cannot see a wrong `_window_sizes`. What
+        # snapping *trades away* is fidelity to the requested corners, and that is
+        # the thing worth bounding: each snapped far edge must still land within
+        # half a cell of what was asked for.
+        for snapped_window, requested in zip(snapped, halves):
+            assert snapped_window[2] == pytest.approx(
+                requested[2], abs=0.5 * cells[0]
+            ), (
+                f"snapping may move a far edge by under half a cell, not from "
+                f"{requested[2]} to {snapped_window[2]}"
+            )
 
     def test_two_windows_share_one_resolution(self):
         """Both halves come back on one grid: equal height, widths summing to the cap."""
