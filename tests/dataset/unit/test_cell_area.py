@@ -304,9 +304,11 @@ class TestTheRefusalsAddedAfterReview:
 
         Test scenario:
             Indexing the sentinel tuple gave `IndexError: tuple index out of
-            range`, naming neither the band nor the dataset. A negative index
-            was worse on the count: it selected a real band from the other end.
-            The message is the one the rest of the package already uses.
+            range`, naming neither the band nor the dataset. A negative band
+            already raised this `ValueError` from the read layer below, so it
+            is pinned here rather than fixed -- what changed is that both cases
+            are now refused up front, with the message the rest of the package
+            already uses for a bad band.
         """
         with pytest.raises(ValueError, match="out of range for a 1-band"):
             getattr(_global_grid(), method)(band=band)

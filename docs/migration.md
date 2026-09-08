@@ -165,6 +165,23 @@ that leaked out of an empty table lookup. Only affects code catching the old typ
 
 ### unreleased
 
+**`count_domain_cells` refuses an out-of-range band with `ValueError`, not `IndexError`.** Asking for a band the
+raster does not have used to reach `self._ds.no_data_value[band]` and surface `IndexError: tuple index out of
+range`, which names neither the band nor the dataset. It now raises the same message the rest of the package
+gives for a bad band, as `convert_units` and `get_overview_dataset` already did:
+
+```python
+>>> dataset.count_domain_cells(band=5)
+ValueError: band 5 is out of range for a 1-band dataset.
+```
+
+- **Change `except IndexError` to `except ValueError`** if you wrapped the call. Nothing else about the count
+  changes, and a valid band behaves exactly as before.
+- **Only the too-large case changes.** A negative band already raised `ValueError` with this same message, from
+  the read layer further down, so `count_domain_cells(band=-1)` is unaffected. It is simply refused earlier now,
+  before any data is read.
+- The new `domain_area` refuses the same bands the same way, so the pair stays consistent.
+
 **The web-service readers accept a bbox that crosses the antimeridian.** Additive if you pass an ordinary box; a
 hard change if you relied on `minx > maxx` being rejected. `Dataset.from_wcs`, `from_wms`, `from_wmts` and
 `from_ogc_coverages` used to raise `ValueError: bbox must have minx < maxx and miny < maxy` for
