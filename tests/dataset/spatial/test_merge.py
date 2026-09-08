@@ -435,11 +435,16 @@ class TestMergeRastersInheritsNoData:
         return paths
 
     @staticmethod
-    def _gapped_tiles(tmp_path, dtype="float32"):
-        """Write two tiles declaring nothing, with a 2-column gap between them.
+    def _gapped_tiles(tmp_path, dtype="float32", no_data=None):
+        """Write two tiles with a 2-column gap between them.
 
         The union grid is 6 wide and holds 1..8; columns 2..3 are covered by no
         source, which is what makes the mosaic's marker observable at all.
+
+        Args:
+            tmp_path: Directory to write the tiles into.
+            dtype: The tiles' data type.
+            no_data: What each tile declares, or `None` to declare nothing.
         """
         paths = []
         for name, values, x0 in (
@@ -454,7 +459,11 @@ class TestMergeRastersInheritsNoData:
             )
             ds.to_file(tmp_path / name)
             handle = gdal.Open(str(tmp_path / name), gdal.GA_Update)
-            handle.GetRasterBand(1).DeleteNoDataValue()
+            band = handle.GetRasterBand(1)
+            if no_data is None:
+                band.DeleteNoDataValue()
+            else:
+                band.SetNoDataValue(no_data)
             handle.FlushCache()
             handle = None
             paths.append(tmp_path / name)
@@ -630,6 +639,46 @@ class TestMergeRastersInheritsNoData:
         assert self._raw_marker(out) is None, (
             "no value was free, so none should have been stamped"
         )
+
+    def test_the_gaps_hold_the_marker_the_sources_declared(self, tmp_path):
+        """An inherited marker has to reach the pixels it exists to cover.
+
+        Test scenario:
+            Two float tiles declaring -9999 with a gap between them. The mosaic
+            declared -9999 while its gaps still held the NaN `init` puts in the
+            VRT, so the marker matched nothing and `read_array(masked=True)`
+            masked nothing.
+        """
+        out = tmp_path / "declared_gap.tif"
+        merge_rasters(self._gapped_tiles(tmp_path, "float32", -9999.0), out)
+        masked, ds = self._masked_count(out)
+        assert self._raw_marker(out) == pytest.approx(-9999.0), (
+            "the sources' own value should still be inherited"
+        )
+        assert masked == 4, f"the four gap cells should be masked, {masked} were"
+        assert float(ds.stats(approx_ok=False)["mean"].iloc[0]) == pytest.approx(4.5), (
+            "the gaps leaked into stats()"
+        )
+
+    def test_an_unstorable_inherited_marker_is_replaced_and_warns(self, tmp_path):
+        """A NaN inherited onto an integer band is refused by GDAL, so it is not used.
+
+        Test scenario:
+            `Dataset.no_data_value` reports NaN for an integer raster that was
+            asked for one, so integer sources really can declare it. Handed
+            straight to `gdal.Translate` it produced "Nodata value was not set to
+            output band" and a mosaic marking nothing -- the same undeclared gaps
+            #1086's fix set out to close, reached through the inherited path.
+        """
+        out = tmp_path / "nan_on_int.tif"
+        with pytest.warns(UserWarning, match="cannot store"):
+            merge_rasters(self._gapped_tiles(tmp_path, "uint16", float("nan")), out)
+        masked, _ds = self._masked_count(out)
+        marker = self._raw_marker(out)
+        assert marker == pytest.approx(65535), (
+            f"a storable marker should replace the NaN, got {marker}"
+        )
+        assert masked == 4, f"the four gap cells should be masked, {masked} were"
 
     def test_a_declared_no_data_cell_stays_no_data(self, tmp_path):
         """A source cell that IS no-data is not leaked into the mosaic as data.

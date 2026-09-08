@@ -478,25 +478,35 @@ def _unused_marker(mosaic: gdal.Dataset, dtype: np.dtype) -> Any | None:
     return chosen
 
 
-def _declare_uncovered(
-    ordered: list, src_paths: list[str], init: float | int | str
+def _storable_marker(
+    ordered: list,
+    src_paths: list[str],
+    init: float | int | str,
+    inherited: float | None,
 ) -> Any | None:
-    """Choose what a mosaic whose sources declare no no-data marks its gaps with.
+    """Settle what a mosaic declares, and fills its gaps with, when nothing was passed.
 
     Inheriting nothing is not the same as having nothing to mask: pixels no source
     covers are still written, and leaving them undeclared turns them into ordinary
     data -- on an integer mosaic a literal `0`, indistinguishable from a real
     measurement and pulled straight into
-    :meth:`~pyramids.dataset.Dataset.stats`. So a marker is always chosen; what
-    varies is which one.
+    :meth:`~pyramids.dataset.Dataset.stats`. So a marker is always settled on; what
+    varies is which one, in three steps:
 
-    The value uncovered pixels *would* hold is `init`, and declaring that is both
-    free and exactly right whenever the mosaic's dtype can store it -- the default
-    `"nan"` on a floating mosaic, which is the common case. An integer band cannot
-    store `NaN`, so GDAL would substitute `0` there and the declaration has to lead
-    instead of follow: a sentinel the dtype can store and the data does not use is
-    chosen, and the caller fills the mosaic's gaps with it so they really do hold
-    what the output declares.
+    1. **What the sources declared**, when the mosaic's dtype can store it. It
+       usually can -- the sources and the mosaic share a dtype. What it cannot
+       store is a `NaN` inherited onto an integer band, which
+       :attr:`~pyramids.dataset.Dataset.no_data_value` reports for an integer
+       raster asked for one: GDAL then refuses the marker outright ("Nodata value
+       was not set to output band"), leaving the same undeclared gaps. That warns
+       and falls through.
+    2. **The value uncovered pixels would otherwise hold**, `init` -- free and
+       exactly right for the default `"nan"` on a floating mosaic, the common case.
+    3. **A sentinel the dtype can store and the data does not use**, when neither
+       of those is storable.
+
+    Whichever it is, the caller fills the mosaic's gaps with it, so the pixels the
+    marker exists to cover really do hold it.
 
     Args:
         ordered: The compositor inputs, in z-order. ``ordered[0]`` decides the
@@ -505,13 +515,15 @@ def _declare_uncovered(
             type rather than an approximation of it.
         src_paths: The source paths, for the error message on a failed build.
         init: The caller's uncovered-pixel value.
+        inherited: What the sources declared, or `None` when none of them did.
 
     Returns:
         Any | None: The value to declare and fill gaps with, or `None` when the
         data leaves none free -- which warns.
 
     Warns:
-        UserWarning: The mosaic's cells use every value its dtype could spare, so
+        UserWarning: The sources' own value cannot be stored in the mosaic's data
+            type; or the mosaic's cells use every value that type could spare, so
             it is written with no marker at all.
     """
     # Band 1 decides the dtype, as it does for the inheritance itself, and
@@ -521,9 +533,19 @@ def _declare_uncovered(
         stored: float | None = float(init)
     except (TypeError, ValueError):
         stored = None
-    if stored is not None and fits_dtype(stored, dtype):
+    if inherited is not None and fits_dtype(inherited, dtype):
+        marker = inherited
+    elif inherited is None and stored is not None and fits_dtype(stored, dtype):
         marker = stored
     else:
+        if inherited is not None:
+            warnings.warn(
+                f"the sources declare a no-data value of {inherited!r}, which a "
+                f"{dtype} band cannot store, so GDAL would drop it and leave the "
+                "mosaic unmarked; choosing a value that data type can hold "
+                "instead.",
+                stacklevel=3,
+            )
         # Composited bare, with neither `srcNodata` nor `VRTNodata`: this mosaic
         # exists only to be measured, and the default `"nan"` for either is what
         # GDAL answers with "Band data type of <T> cannot represent the specified
@@ -860,14 +882,17 @@ def merge_rasters(
         # therefore wins.
         ordered = list(reversed(sources)) if method == "first" else sources
         vrt_fill = str(init)
-        if inheriting and no_data_value is None:
-            # Inheriting nothing still leaves uncovered pixels to account for.
-            no_data_value = _declare_uncovered(ordered, src_paths, init)
+        if inheriting:
+            # Whether or not a value was inherited, the mosaic's uncovered pixels
+            # have to be accounted for -- and the value has to be one this output
+            # band can actually hold.
+            no_data_value = _storable_marker(ordered, src_paths, init, no_data_value)
             if no_data_value is not None:
                 # Fill with what the output is about to declare. Where `init` is
-                # storable the two are the same value and this is a no-op; where
-                # it is not, declaring a marker over gaps GDAL had filled with
-                # something else would mask nothing.
+                # already that value this is a no-op; otherwise the marker would
+                # be stamped over gaps holding something else -- NaN on a float
+                # mosaic inheriting -9999, or the 0 GDAL substitutes on an
+                # integer one -- and would mask nothing.
                 vrt_fill = str(no_data_value)
         vrt_opts = gdal.BuildVRTOptions(
             srcNodata=str(n),
