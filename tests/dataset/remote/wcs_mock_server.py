@@ -8,8 +8,12 @@ speaks both WCS dialects this matters for:
 * **1.0.0** — ``GetCoverage`` uses ``BBOX`` + ``WIDTH``/``HEIGHT``,
 * **2.0.1** — ``GetCoverage`` uses ``COVERAGEID`` + named-axis ``SUBSET``.
 
-The synthetic coverage ``test_cov`` is a 100×100 grid at 0.1° over lon/lat
-``[0, 10]`` (declared in CRS84 so GDAL builds a north-up geotransform). Each
+The synthetic coverage ``test_cov`` is a grid at 0.1° over a caller-chosen lon/lat
+extent (declared in CRS84 so GDAL builds a north-up geotransform), defaulting to
+``DEFAULT_BOUNDS`` — 100×100 over ``[0, 10]``. ``GLOBAL_BOUNDS`` gives instead a
+3600×1800 coverage over the whole globe, which is what an antimeridian request
+needs: a seam-crossing ``bbox`` splits into a ``170..180`` and a ``-180..-175``
+half, and only a coverage reaching the seam has data on both sides. Each
 ``GetCoverage`` is answered with a freshly generated GeoTIFF for the requested
 window, so the returned raster is real and openable.
 
@@ -30,7 +34,30 @@ from osgeo import gdal, osr
 COVERAGE = "test_cov"
 _RES = 0.1
 
-CAPS_100 = """<?xml version="1.0" encoding="UTF-8"?>
+# The lon/lat extents the mock can serve. DEFAULT_BOUNDS is the original small
+# regional grid; GLOBAL_BOUNDS reaches the 180 degree seam, which is what an
+# antimeridian request needs — a seam-crossing bbox only has data on both sides
+# of the split if the coverage spans the seam.
+DEFAULT_BOUNDS = (0.0, 0.0, 10.0, 10.0)
+GLOBAL_BOUNDS = (-180.0, -90.0, 180.0, 90.0)
+
+
+def _grid(bounds):
+    """``(columns, rows, origin_x, origin_y)`` of the coverage lattice at ``_RES``.
+
+    The origin is the *centre* of the top-left cell, which is what the
+    ``RectifiedGrid`` origin means in both WCS dialects.
+    """
+    minx, miny, maxx, maxy = bounds
+    nx = int(round((maxx - minx) / _RES))
+    ny = int(round((maxy - miny) / _RES))
+    return nx, ny, minx + _RES / 2, maxy - _RES / 2
+
+
+def caps_100(bounds):
+    """WCS 1.0.0 ``GetCapabilities`` advertising ``test_cov`` over `bounds`."""
+    minx, miny, maxx, maxy = bounds
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
 <WCS_Capabilities version="1.0.0" xmlns="http://www.opengis.net/wcs"
     xmlns:gml="http://www.opengis.net/gml" xmlns:xlink="http://www.w3.org/1999/xlink">
   <Service><name>mock</name><label>mock</label></Service>
@@ -40,42 +67,47 @@ CAPS_100 = """<?xml version="1.0" encoding="UTF-8"?>
       <name>test_cov</name>
       <label>Test Coverage</label>
       <lonLatEnvelope srsName="urn:ogc:def:crs:OGC:1.3:CRS84">
-        <gml:pos>0 0</gml:pos>
-        <gml:pos>10 10</gml:pos>
+        <gml:pos>{minx} {miny}</gml:pos>
+        <gml:pos>{maxx} {maxy}</gml:pos>
       </lonLatEnvelope>
     </CoverageOfferingBrief>
   </ContentMetadata>
 </WCS_Capabilities>
 """
 
-DESCRIBE_100 = """<?xml version="1.0" encoding="UTF-8"?>
+
+def describe_100(bounds):
+    """WCS 1.0.0 ``DescribeCoverage`` for ``test_cov`` over `bounds`."""
+    minx, miny, maxx, maxy = bounds
+    nx, ny, ox, oy = _grid(bounds)
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
 <CoverageDescription version="1.0.0" xmlns="http://www.opengis.net/wcs"
     xmlns:gml="http://www.opengis.net/gml" xmlns:xlink="http://www.w3.org/1999/xlink">
   <CoverageOffering>
     <name>test_cov</name>
     <label>Test Coverage</label>
     <lonLatEnvelope srsName="urn:ogc:def:crs:OGC:1.3:CRS84">
-      <gml:pos>0 0</gml:pos>
-      <gml:pos>10 10</gml:pos>
+      <gml:pos>{minx} {miny}</gml:pos>
+      <gml:pos>{maxx} {maxy}</gml:pos>
     </lonLatEnvelope>
     <domainSet>
       <spatialDomain>
         <gml:Envelope srsName="EPSG:4326">
-          <gml:pos>0 0</gml:pos>
-          <gml:pos>10 10</gml:pos>
+          <gml:pos>{minx} {miny}</gml:pos>
+          <gml:pos>{maxx} {maxy}</gml:pos>
         </gml:Envelope>
         <gml:RectifiedGrid dimension="2">
           <gml:limits>
             <gml:GridEnvelope>
               <gml:low>0 0</gml:low>
-              <gml:high>99 99</gml:high>
+              <gml:high>{nx - 1} {ny - 1}</gml:high>
             </gml:GridEnvelope>
           </gml:limits>
           <gml:axisName>x</gml:axisName>
           <gml:axisName>y</gml:axisName>
-          <gml:origin><gml:pos>0.05 9.95</gml:pos></gml:origin>
-          <gml:offsetVector>0.1 0</gml:offsetVector>
-          <gml:offsetVector>0 -0.1</gml:offsetVector>
+          <gml:origin><gml:pos>{ox} {oy}</gml:pos></gml:origin>
+          <gml:offsetVector>{_RES} 0</gml:offsetVector>
+          <gml:offsetVector>0 -{_RES}</gml:offsetVector>
         </gml:RectifiedGrid>
       </spatialDomain>
     </domainSet>
@@ -92,6 +124,7 @@ DESCRIBE_100 = """<?xml version="1.0" encoding="UTF-8"?>
   </CoverageOffering>
 </CoverageDescription>
 """
+
 
 CAPS_201 = """<?xml version="1.0" encoding="UTF-8"?>
 <wcs:Capabilities xmlns:wcs="http://www.opengis.net/wcs/2.0"
@@ -111,7 +144,12 @@ CAPS_201 = """<?xml version="1.0" encoding="UTF-8"?>
 </wcs:Capabilities>
 """
 
-DESCRIBE_201 = """<?xml version="1.0" encoding="UTF-8"?>
+
+def describe_201(bounds):
+    """WCS 2.0.1 ``DescribeCoverage`` for ``test_cov`` over `bounds`."""
+    minx, miny, maxx, maxy = bounds
+    nx, ny, ox, oy = _grid(bounds)
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
 <wcs:CoverageDescriptions xmlns:wcs="http://www.opengis.net/wcs/2.0"
     xmlns:gml="http://www.opengis.net/gml/3.2"
     xmlns:gmlcov="http://www.opengis.net/gmlcov/1.0"
@@ -120,8 +158,8 @@ DESCRIBE_201 = """<?xml version="1.0" encoding="UTF-8"?>
     <gml:boundedBy>
       <gml:Envelope srsName="http://www.opengis.net/def/crs/OGC/1.3/CRS84"
           axisLabels="Long Lat" uomLabels="deg deg" srsDimension="2">
-        <gml:lowerCorner>0 0</gml:lowerCorner>
-        <gml:upperCorner>10 10</gml:upperCorner>
+        <gml:lowerCorner>{minx} {miny}</gml:lowerCorner>
+        <gml:upperCorner>{maxx} {maxy}</gml:upperCorner>
       </gml:Envelope>
     </gml:boundedBy>
     <wcs:CoverageId>test_cov</wcs:CoverageId>
@@ -130,17 +168,17 @@ DESCRIBE_201 = """<?xml version="1.0" encoding="UTF-8"?>
         <gml:limits>
           <gml:GridEnvelope>
             <gml:low>0 0</gml:low>
-            <gml:high>99 99</gml:high>
+            <gml:high>{nx - 1} {ny - 1}</gml:high>
           </gml:GridEnvelope>
         </gml:limits>
         <gml:axisLabels>Long Lat</gml:axisLabels>
         <gml:origin>
           <gml:Point gml:id="p_test_cov" srsName="http://www.opengis.net/def/crs/OGC/1.3/CRS84">
-            <gml:pos>0.05 9.95</gml:pos>
+            <gml:pos>{ox} {oy}</gml:pos>
           </gml:Point>
         </gml:origin>
-        <gml:offsetVector srsName="http://www.opengis.net/def/crs/OGC/1.3/CRS84">0.1 0</gml:offsetVector>
-        <gml:offsetVector srsName="http://www.opengis.net/def/crs/OGC/1.3/CRS84">0 -0.1</gml:offsetVector>
+        <gml:offsetVector srsName="http://www.opengis.net/def/crs/OGC/1.3/CRS84">{_RES} 0</gml:offsetVector>
+        <gml:offsetVector srsName="http://www.opengis.net/def/crs/OGC/1.3/CRS84">0 -{_RES}</gml:offsetVector>
       </gml:RectifiedGrid>
     </gml:domainSet>
     <gmlcov:rangeType>
@@ -163,6 +201,7 @@ DESCRIBE_201 = """<?xml version="1.0" encoding="UTF-8"?>
 </wcs:CoverageDescriptions>
 """
 
+
 EXCEPTION_REPORT = """<?xml version="1.0" encoding="UTF-8"?>
 <ows:ExceptionReport xmlns:ows="http://www.opengis.net/ows/2.0" version="2.0.1">
   <ows:Exception exceptionCode="NoApplicableCode">
@@ -171,8 +210,8 @@ EXCEPTION_REPORT = """<?xml version="1.0" encoding="UTF-8"?>
 </ows:ExceptionReport>
 """
 
-_CAPS = {"1.0.0": CAPS_100, "2.0.1": CAPS_201}
-_DESCRIBE = {"1.0.0": DESCRIBE_100, "2.0.1": DESCRIBE_201}
+_CAPS = {"1.0.0": caps_100, "2.0.1": lambda bounds: CAPS_201}
+_DESCRIBE = {"1.0.0": describe_100, "2.0.1": describe_201}
 
 
 def _make_geotiff(width: int, height: int, minx: float, maxy: float) -> bytes:
@@ -223,11 +262,14 @@ def _window_from_bbox(qs: dict[str, str]) -> tuple[int, int, float, float]:
     return width, height, minx, maxy
 
 
-def make_handler(version: str, getcoverage_body: str | None):
+def make_handler(version: str, getcoverage_body: str | None, bounds=DEFAULT_BOUNDS):
     """Build a request handler class for `version`, recording every request path.
 
     When `getcoverage_body` is given, ``GetCoverage`` returns that XML body with
     HTTP 200 instead of a raster — used to test ``<ows:ExceptionReport>`` handling.
+    `bounds` is the lon/lat extent the coverage is advertised over; only the
+    discovery documents depend on it, since ``GetCoverage`` generates whatever
+    window it is asked for.
     """
 
     class Handler(http.server.BaseHTTPRequestHandler):
@@ -239,9 +281,9 @@ def make_handler(version: str, getcoverage_body: str | None):
             qs = {k.lower(): v[0] for k, v in parse_qs(query).items()}
             request = qs.get("request", "").lower()
             if request == "getcapabilities":
-                self._send(_CAPS[version])
+                self._send(_CAPS[version](bounds))
             elif request == "describecoverage":
-                self._send(_DESCRIBE[version])
+                self._send(_DESCRIBE[version](bounds))
             elif request == "getcoverage":
                 if getcoverage_body is not None:
                     self._send(getcoverage_body)
@@ -272,10 +314,20 @@ def make_handler(version: str, getcoverage_body: str | None):
 
 
 class WcsMock:
-    """A running mock WCS server. Use as a context manager; `url` is the endpoint."""
+    """A running mock WCS server. Use as a context manager; `url` is the endpoint.
 
-    def __init__(self, version: str = "2.0.1", getcoverage_body: str | None = None):
-        self._handler = make_handler(version, getcoverage_body)
+    `bounds` chooses the coverage extent: ``DEFAULT_BOUNDS`` (a regional grid over
+    ``[0, 10]``) or ``GLOBAL_BOUNDS`` (the whole globe, needed for an antimeridian
+    request to have data either side of the seam).
+    """
+
+    def __init__(
+        self,
+        version: str = "2.0.1",
+        getcoverage_body: str | None = None,
+        bounds=DEFAULT_BOUNDS,
+    ):
+        self._handler = make_handler(version, getcoverage_body, bounds)
         self._httpd = socketserver.ThreadingTCPServer(("127.0.0.1", 0), self._handler)
         port = self._httpd.server_address[1]
         self.url = f"http://127.0.0.1:{port}/wcs"

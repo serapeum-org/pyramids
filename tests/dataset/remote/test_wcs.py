@@ -383,9 +383,15 @@ class TestFromWcsValidation:
             )
 
     def test_bad_bbox_raises_before_network(self):
-        with pytest.raises(ValueError, match="minx < maxx"):
+        """A bbox inverted in *latitude* is refused before any request goes out.
+
+        Latitude only: a ``minx > maxx`` bbox is now read as crossing the
+        antimeridian rather than as inverted (#1088), so the X axis no longer
+        refuses. There is no seam in latitude, so ``miny >= maxy`` stays an error.
+        """
+        with pytest.raises(ValueError, match="miny < maxy"):
             Dataset.from_wcs(
-                "http://127.0.0.1:1/wcs", coverage="cov", bbox=(6.0, 51.0, 5.0, 52.0)
+                "http://127.0.0.1:1/wcs", coverage="cov", bbox=(5.0, 52.0, 6.0, 51.0)
             )
 
     @staticmethod

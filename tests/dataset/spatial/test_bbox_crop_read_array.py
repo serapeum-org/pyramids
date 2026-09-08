@@ -8,6 +8,7 @@ import os
 import geopandas as gpd
 import numpy as np
 import pytest
+from osgeo import gdal
 from shapely.geometry import box
 
 from pyramids.base.georeference import GeoReference
@@ -15,6 +16,7 @@ from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.dataset.engines.spatial import (
     _reaches_antimeridian_seam,
     _split_lon_bbox,
+    _stitch_lon_halves,
 )
 from pyramids.feature import FeatureCollection
 
@@ -1147,3 +1149,52 @@ class TestCutlineSegmentLength:
         )
         step = Spatial._cutline_segment_length(dataset, cutline)
         assert step is None or step > 0, f"a measured step must be positive, got {step}"
+
+
+class TestStitchKeepsBandFidelity:
+    """A seam-crossing crop must render like an ordinary one.
+
+    `_stitch_lon_halves` rebuilds through `Dataset.from_array`, which carries the
+    array, the geotransform and the no-data value -- and nothing else. Its WMS
+    counterpart copies the colour table, units and metadata explicitly, so the two
+    stitchers used to disagree about what a seam read is allowed to lose.
+    """
+
+    @staticmethod
+    def _half(origin_x: float, columns: int) -> Dataset:
+        """A one-band lon/lat raster at 0.5 degree cells.
+
+        Args:
+            origin_x: West edge in degrees.
+            columns: Pixel width.
+
+        Returns:
+            Dataset: The half.
+        """
+        mem = gdal.GetDriverByName("MEM").Create("", columns, 40, 1, gdal.GDT_Byte)
+        mem.SetGeoTransform((origin_x, 0.5, 0.0, 10.0, 0.0, -0.5))
+        return Dataset(mem, access="write")
+
+    def test_the_palette_units_and_metadata_survive(self):
+        """Everything the WMS stitcher keeps, this one keeps too."""
+        west = self._half(170.0, 20)
+        table = gdal.ColorTable()
+        table.SetColorEntry(1, (40, 50, 60, 255))
+        band = west.raster.GetRasterBand(1)
+        band.SetRasterColorTable(table)
+        band.SetColorInterpretation(gdal.GCI_PaletteIndex)
+        band.SetUnitType("class")
+        band.SetMetadata({"legend": "corine"})
+        west.raster.SetMetadata({"source": "crop"})
+
+        merged = _stitch_lon_halves(west, west, self._half(-180.0, 10))
+        merged_band = merged.raster.GetRasterBand(1)
+
+        assert merged_band.GetRasterColorTable() is not None, (
+            "the palette must survive a seam-crossing crop, as it does a "
+            "seam-crossing WMS read"
+        )
+        assert merged_band.GetRasterColorTable().GetColorEntry(1) == (40, 50, 60, 255)
+        assert merged_band.GetUnitType() == "class"
+        assert merged_band.GetMetadata() == {"legend": "corine"}
+        assert merged.raster.GetMetadata()["source"] == "crop"

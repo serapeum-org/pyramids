@@ -18,6 +18,15 @@ error: a ``RuntimeError`` (GDAL raises under ``gdal.UseExceptions()``) and a
 :func:`open_network_dataset` and :func:`translate_to_mem` own that sequence and
 that classification; the readers pass in their own exception class and the words
 that name the request, so the messages stay branded per protocol.
+
+The antimeridian split is here for the same reason. A ``bbox`` whose ``minx``
+exceeds its ``maxx`` crosses the 180 degree seam, and every reader serves it the
+same way: :func:`validate_bbox` with ``allow_antimeridian=True`` stops calling it
+inverted, :func:`seam_halves` cuts it into the one or two ``west < east`` boxes to
+actually request, and :func:`window_overlaps` drops a half that misses the
+coverage before it costs a request. What each reader still owns is the merge,
+because that is where the protocols differ -- a WMS divides a pixel width between
+the halves, a vector reader de-duplicates features across them.
 """
 
 from __future__ import annotations
@@ -27,15 +36,19 @@ from math import isfinite
 from typing import Any, cast
 
 from osgeo import gdal, osr
+from pyproj import CRS, Transformer
 
+from pyramids.base._bbox import split_antimeridian
 from pyramids.base._bbox import transform as bbox_transform
 from pyramids.base._errors import CoverageError, CRSError
 from pyramids.base._grid import grid_size
-from pyramids.base.crs import sr_from_user_input
+from pyramids.base.crs import crs_from_user_input, sr_from_user_input
 
 
 def validate_bbox(
     bbox: tuple[float, float, float, float],
+    *,
+    allow_antimeridian: bool = False,
 ) -> tuple[float, float, float, float]:
     """Validate a ``(minx, miny, maxx, maxy)`` bbox.
 
@@ -43,6 +56,14 @@ def validate_bbox(
         bbox: Four numbers, or anything `float()` accepts for each of them --
             a bbox read out of JSON arrives as strings often enough that
             coercing is worth more than refusing.
+        allow_antimeridian: Accept ``minx > maxx`` as a box crossing the 180
+            degree seam rather than an inverted one. Off by default, because
+            for most callers an inverted box is a mistake and silently reading
+            it as a wrap would hide it. A reader that can actually serve the
+            wrap -- by splitting it with :func:`seam_halves` and merging the
+            results, as :meth:`Dataset.crop` does -- passes `True`. The Y axis
+            is never wrapped: there is no seam in latitude, so ``miny >= maxy``
+            stays an error either way.
 
     Returns:
         tuple[float, float, float, float]: The bbox as floats.
@@ -50,7 +71,9 @@ def validate_bbox(
     Raises:
         ValueError: `bbox` is not four values, one of them is text `float()`
             cannot read, any of them is not finite, or the box is empty or
-            inverted on either axis.
+            inverted on either axis. With `allow_antimeridian`, ``minx > maxx``
+            is no longer inverted -- but ``minx == maxx`` still is, since a
+            zero-width box is empty whichever way it is read.
         TypeError: One of the four is a value `float()` refuses outright, such
             as `None` or a list. Raised by the coercion rather than by a check
             here -- the message names the type, which is what the caller needs.
@@ -83,9 +106,195 @@ def validate_bbox(
     # the failure is the server's and reads as a network problem.
     if not all(isfinite(v) for v in (minx, miny, maxx, maxy)):
         raise ValueError(f"bbox must be four finite numbers, got {bbox!r}")
-    if minx >= maxx or miny >= maxy:
+    wraps = allow_antimeridian and minx > maxx
+    if (minx >= maxx and not wraps) or miny >= maxy:
         raise ValueError(f"bbox must have minx < maxx and miny < maxy, got {bbox!r}")
     return minx, miny, maxx, maxy
+
+
+def _is_lonlat_degrees_from_greenwich(srs: osr.SpatialReference) -> bool:
+    """Whether ``180`` is this CRS's antimeridian and ``360`` its seam offset.
+
+    ``IsGeographic()`` alone does not settle either. A geographic CRS may count
+    its longitudes from a different prime meridian -- EPSG:4807 (NTF, Paris) puts
+    zero about 2.34 degrees east of Greenwich, so its antimeridian is not at 180 --
+    and may express them in grads rather than degrees, where the half-turn is 200.
+    Splitting such a bbox at 180 would cut it in the wrong place and then check the
+    halves against a 360 that is not the width of the world in those units.
+
+    Both are vanishingly rare as an OGC request CRS, which is why the check is a
+    refusal rather than a conversion: the caller is far likelier to have transposed
+    two corners than to genuinely want a wrap in grads from Paris.
+
+    Args:
+        srs: The CRS the bbox is expressed in.
+
+    Returns:
+        bool: True when the CRS is geographic, in degrees, and counted from
+            Greenwich.
+
+    Examples:
+        - Plain lon/lat qualifies, and so does CRS84:
+            ```python
+            >>> from pyramids.base.crs import sr_from_user_input
+            >>> from pyramids.base._coverage import _is_lonlat_degrees_from_greenwich
+            >>> _is_lonlat_degrees_from_greenwich(sr_from_user_input("EPSG:4326"))
+            True
+
+            ```
+        - A projected CRS does not, having no meridian to speak of:
+            ```python
+            >>> from pyramids.base.crs import sr_from_user_input
+            >>> from pyramids.base._coverage import _is_lonlat_degrees_from_greenwich
+            >>> _is_lonlat_degrees_from_greenwich(sr_from_user_input("EPSG:3857"))
+            False
+
+            ```
+        - Nor does a geographic CRS counted from Paris, whose antimeridian is not
+          at 180:
+            ```python
+            >>> from pyramids.base.crs import sr_from_user_input
+            >>> from pyramids.base._coverage import _is_lonlat_degrees_from_greenwich
+            >>> _is_lonlat_degrees_from_greenwich(sr_from_user_input("EPSG:4807"))
+            False
+
+            ```
+    """
+    if not srs.IsGeographic():
+        return False
+    # GetAngularUnits reports radians per unit: degrees are pi/180, grads pi/200.
+    degrees = abs(srs.GetAngularUnits() - 0.017453292519943295) < 1e-12
+    # The offset is the PRIMEM node's second value, in degrees. There is no
+    # GetPrimeMeridian on this binding, and a CRS carrying no PRIMEM at all is
+    # Greenwich by definition.
+    offset = srs.GetAttrValue("PRIMEM", 1)
+    try:
+        greenwich = offset is None or abs(float(offset)) < 1e-9
+    except ValueError:
+        greenwich = False
+    return bool(degrees and greenwich)
+
+
+def check_seam_bbox(bbox: tuple[float, float, float, float], crs: str) -> None:
+    """Refuse a ``minx > maxx`` bbox this reader cannot read as an antimeridian wrap.
+
+    A no-op for an ordinary box. For a wrapping one it asserts the two things the
+    seam split silently assumes, so a transposed or projected-CRS bbox fails with a
+    message naming the problem instead of producing a raster stitched at a seam
+    that is not there.
+
+    Every raster reader needs this, which is why it lives here rather than beside
+    one of them. Without it a wrapping bbox given in a projected CRS is cut at
+    ``+/-180`` *metres*: a transposed Web Mercator box around Scandinavia splits
+    into two windows over central Europe and comes back with no error at all,
+    where before the wrap was accepted it was a clean :class:`ValueError`. The
+    corner-range half matters just as much -- a half that overhangs ``180`` yields
+    an inverted window that :func:`window_overlaps` then discards, so the caller
+    silently receives a fraction of what they asked for.
+
+    Args:
+        bbox: The validated ``(minx, miny, maxx, maxy)``, possibly wrapping.
+        crs: The CRS ``bbox`` is expressed in (the WMS request CRS).
+
+    Raises:
+        ValueError: ``bbox`` wraps but ``crs`` is not geographic — the 180 degree
+            seam is a lon/lat feature, and in a projected CRS ``minx > maxx`` is
+            just an inverted box. Or it wraps but a corner lies outside
+            ``-180 .. 180``, where "west of the seam" and "east of it" stop
+            meaning anything.
+
+    Examples:
+        - An ordinary box passes in any CRS, projected included, because nothing
+          about it needs a seam:
+            ```python
+            >>> from pyramids.base._coverage import check_seam_bbox
+            >>> check_seam_bbox((5.0, 51.0, 6.0, 52.0), "EPSG:3857") is None
+            True
+
+            ```
+        - A wrapping box in a projected CRS is refused rather than stitched at a
+          seam that CRS does not have:
+            ```python
+            >>> from pyramids.base._coverage import check_seam_bbox
+            >>> box = (170.0, -10.0, -170.0, 10.0)
+            >>> check_seam_bbox(box, "EPSG:3857")  # doctest: +ELLIPSIS
+            Traceback (most recent call last):
+            ValueError: bbox (170.0, ...) has minx > maxx, ...it has no such seam...
+
+            ```
+        - So is a wrapping box reaching outside ``-180 .. 180``, where the two
+          sides of the seam stop being well defined:
+            ```python
+            >>> from pyramids.base._coverage import check_seam_bbox
+            >>> box = (190.0, -10.0, -170.0, 10.0)
+            >>> check_seam_bbox(box, "EPSG:4326")  # doctest: +ELLIPSIS
+            Traceback (most recent call last):
+            ValueError: an antimeridian bbox must have both corners within -18...
+
+            ```
+    """
+    minx, _, maxx, _ = bbox
+    if minx > maxx:
+        if not _is_lonlat_degrees_from_greenwich(sr_from_user_input(crs)):
+            raise ValueError(
+                f"bbox {bbox!r} has minx > maxx, which reads as a box crossing the "
+                f"180 degree seam - but crs={crs!r} is not a geographic (lon/lat) "
+                "CRS in degrees from Greenwich, so it has no such seam. Pass the "
+                "bbox in a lon/lat CRS, or give it as minx < maxx."
+            )
+        if minx > 180.0 or maxx < -180.0:
+            raise ValueError(
+                "an antimeridian bbox must have both corners within -180..180 "
+                f"degrees, got {bbox!r}"
+            )
+
+
+def seam_halves(
+    bbox: tuple[float, float, float, float],
+) -> list[tuple[float, float, float, float]]:
+    """The one or two ``west < east`` boxes a request should actually ask for.
+
+    A network reader has no grid to measure when it validates a bbox -- it is
+    fetching the grid. So unlike :func:`pyramids.dataset.engines.spatial._antimeridian_halves`,
+    which reads the seam out of a dataset it already holds, this splits at the
+    180 degree meridian, which is where the seam is for the geographic CRS an
+    OGC request declares.
+
+    Note:
+        This is, and must stay, a pass-through to
+        :func:`pyramids.base._bbox.split_antimeridian`. The two names are
+        deliberate -- `split_antimeridian` is the geometry primitive, re-exported
+        from `pyramids.feature.bbox` and used by the crop engine, while this is the
+        network readers' entry to the seam contract that lives beside
+        :func:`check_seam_bbox` and :func:`window_overlaps`. Keeping a second name
+        is only safe while it holds no logic of its own: any rule about *how* a
+        bbox splits belongs in the primitive, so the two cannot drift apart.
+
+    Args:
+        bbox: A validated ``(minx, miny, maxx, maxy)``, possibly wrapping.
+
+    Returns:
+        list[tuple[float, float, float, float]]: One box when it does not wrap,
+            two in west-to-east order when it does.
+
+    Examples:
+        - An ordinary box is handed back untouched, so a caller can split
+          unconditionally and only branch on the length:
+            ```python
+            >>> from pyramids.base._coverage import seam_halves
+            >>> seam_halves((10.0, -5.0, 20.0, 5.0))
+            [(10.0, -5.0, 20.0, 5.0)]
+
+            ```
+        - A wrapping box becomes the two halves either side of the seam:
+            ```python
+            >>> from pyramids.base._coverage import seam_halves
+            >>> seam_halves((170.0, -10.0, -170.0, 10.0))
+            [(170.0, -10.0, 180.0, 10.0), (-180.0, -10.0, -170.0, 10.0)]
+
+            ```
+    """
+    return split_antimeridian(bbox)
 
 
 def resolution_pair(
@@ -278,6 +487,172 @@ def native_resolution(src: gdal.Dataset) -> tuple[float, float]:
     return (abs(gt[1]), abs(gt[5]))
 
 
+def seam_offset(
+    bbox: tuple[float, float, float, float],
+    crs: str,
+    native_srs: Any,
+) -> float:
+    """The x distance between the -180 and +180 meridians in the layer's own CRS.
+
+    What every seam-alignment check needs to know the east half really does
+    continue where the west one stops: 360 for a geographic layer, the full world
+    width (about 40 075 017 m) for a Web-Mercator one, and -- importantly -- **0**
+    for a CRS whose x runs continuously across the antimeridian. Measured rather
+    than assumed, because all three raster readers window the source in *its* CRS,
+    not in the request's: a WMTS layer is cropped in the pyramid's CRS, a WCS or
+    OGC API coverage in the coverage's. Assuming 360 there makes the check compare
+    metres against degrees and reject every well-formed pair.
+
+    The measurement is the +180 and -180 meridians taken as **points** on the
+    bbox's own mid-latitude. Measuring instead across a world-spanning box, as this
+    once did, reports a regional CRS's distortion at its far edges rather than the
+    seam: UTM zone 60N came out at 29 238 222 m, when the true answer is 0 -- lon
+    179.9, 180 and -179.9 land at 822 836, 833 979 and 845 122 m, running straight
+    on through. UTM 60N and 1N are the natural CRSs for a coverage that actually
+    straddles the antimeridian (New Zealand, Fiji, the Aleutians), so getting 0
+    there is not an edge case; it is the main one.
+
+    Args:
+        bbox: The request bbox, used only for the latitude band the meridians are
+            measured across.
+        crs: The CRS ``bbox`` is expressed in.
+        native_srs: The layer's native spatial reference.
+
+    Returns:
+        float: The seam-to-seam x span in the native CRS's units, which is ``0``
+            for a CRS whose x runs continuously through the antimeridian.
+
+    Raises:
+        ValueError: Either meridian projects to a non-finite x in the native CRS,
+            so there is no offset to align the halves against.
+
+    Examples:
+        - A lon/lat layer measures the seam as the 360 degrees it is:
+            ```python
+            >>> from osgeo import osr
+            >>> from pyramids.base._coverage import seam_offset
+            >>> native = osr.SpatialReference()
+            >>> _ = native.ImportFromEPSG(4326)
+            >>> seam_offset((170.0, -10.0, -170.0, 10.0), "EPSG:4326", native)
+            360.0
+
+            ```
+        - A Web Mercator layer measures the same seam in metres, so the check the
+          offset feeds is done in the units the halves are actually cropped in:
+            ```python
+            >>> from osgeo import osr
+            >>> from pyramids.base._coverage import seam_offset
+            >>> native = osr.SpatialReference()
+            >>> _ = native.ImportFromEPSG(3857)
+            >>> round(seam_offset((170.0, -10.0, -170.0, 10.0), "EPSG:4326", native))
+            40075017
+
+            ```
+        - A UTM zone spanning the antimeridian has no jump there at all, so its two
+          halves tile with no offset and the check must not expect one:
+            ```python
+            >>> from osgeo import osr
+            >>> from pyramids.base._coverage import seam_offset
+            >>> native = osr.SpatialReference()
+            >>> _ = native.ImportFromEPSG(32660)
+            >>> round(seam_offset((170.0, -10.0, -170.0, 10.0), "EPSG:4326", native))
+            0
+
+            ```
+    """
+    _, miny, _, maxy = bbox
+    transformer = Transformer.from_crs(
+        crs_from_user_input(crs),
+        CRS.from_wkt(native_srs.ExportToWkt()),
+        always_xy=True,
+    )
+    # The two meridians as points on the bbox's own mid-latitude, not the width of
+    # a world-spanning box. Transforming the whole world into a regional CRS
+    # measures that CRS's distortion at its far edges rather than the seam.
+    middle = (miny + maxy) / 2.0
+    east_x, _ = transformer.transform(180.0, middle)
+    west_x, _ = transformer.transform(-180.0, middle)
+    offset = float(east_x - west_x)
+    if not isfinite(offset):
+        raise ValueError(
+            "the 180 degree meridian does not project into the coverage's CRS, so "
+            "an antimeridian read cannot be aligned against it; request a bbox "
+            "that does not cross the seam"
+        )
+    return offset
+
+
+def window_overlaps(projwin: list[float], src: gdal.Dataset) -> bool:
+    """Whether a native-CRS ``[ulx, uly, lrx, lry]`` window meets `src`'s own extent.
+
+    The seam readers split an antimeridian ``bbox`` into two halves and fetch each
+    one; a half that misses the coverage entirely is skipped rather than requested.
+    GDAL does not refuse such a window -- it warns ("Computed source window ...
+    falls completely outside source raster extent") and fills the result with
+    no-data -- so the point is not to avoid an error but to avoid paying for a
+    request whose answer is a block of nothing, and then concatenating that block
+    into the stitch as though it were data. This is the network equivalent of the
+    overlap test in
+    :func:`pyramids.dataset.engines.spatial._crop_seam_halves`, which reads the
+    extent off a dataset it already holds.
+
+    Note:
+        The extent is bounded by all four corners, so a rotated geotransform
+        (``gt[2]`` / ``gt[4]`` non-zero) is measured rather than under-reported --
+        two opposite corners are not enough, because a rotated grid reaches beyond
+        both of them on one axis. No reader can currently deliver a rotated source
+        here, since ``gdal.Translate(projWin=...)`` refuses a rotated geotransform
+        outright, so this is a defensive bound rather than a supported path.
+
+    Args:
+        projwin: ``[ulx, uly, lrx, lry]`` in `src`'s CRS, as
+            :func:`pyramids.base._coverage.native_projwin` returns it.
+        src: The opened coverage, read for its geotransform and pixel size.
+
+    Returns:
+        bool: True when the window and the source extent share area. Touching
+            edges do not count as overlap -- a zero-area intersection has no
+            pixels to read.
+
+    Examples:
+        - A window inside the raster overlaps, one beyond its east edge does not:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.base._coverage import window_overlaps
+            >>> src = gdal.GetDriverByName("MEM").Create("", 10, 10, 1)
+            >>> _ = src.SetGeoTransform((0.0, 1.0, 0.0, 10.0, 0.0, -1.0))
+            >>> window_overlaps([2.0, 8.0, 4.0, 6.0], src)
+            True
+            >>> window_overlaps([20.0, 8.0, 30.0, 6.0], src)
+            False
+
+            ```
+    """
+    gt = src.GetGeoTransform()
+    # All four corners, not two: on a rotated grid the axis-aligned extent is set
+    # by corners the diagonal does not touch, so an origin/far-corner pair
+    # under-reports one axis and drops halves that do have data. min/max over the
+    # four also makes the bound axis-order agnostic, which covers a south-up or
+    # west-positive grid without a separate case.
+    corners: list[tuple[float, float]] = [
+        (
+            float(gt[0] + x * gt[1] + y * gt[2]),
+            float(gt[3] + x * gt[4] + y * gt[5]),
+        )
+        for x, y in (
+            (0, 0),
+            (src.RasterXSize, 0),
+            (0, src.RasterYSize),
+            (src.RasterXSize, src.RasterYSize),
+        )
+    ]
+    minx, maxx = min(c[0] for c in corners), max(c[0] for c in corners)
+    miny, maxy = min(c[1] for c in corners), max(c[1] for c in corners)
+    win_minx, win_maxx = sorted((projwin[0], projwin[2]))
+    win_miny, win_maxy = sorted((projwin[3], projwin[1]))
+    return win_minx < maxx and win_maxx > minx and win_miny < maxy and win_maxy > miny
+
+
 def open_network_dataset(
     connection: str,
     *,
@@ -384,9 +759,10 @@ def translate_to_mem(
     colliding. Bounding the read is the **caller's** job, and the callers do not
     all bound it the same way -- the WCS and OGC coverage reads size through
     :func:`read_size`, while the WMS GetMap path sizes through its own
-    ``_output_size`` with no pixel ceiling, because the server has already been
-    told the size it should render. Where :func:`read_size` is used, it is
-    where the :data:`MAX_PX` ceiling is enforced.
+    ``_output_size``. Both now enforce the same :data:`MAX_PX` ceiling, but only
+    over a size they *derive* from a resolution: a ``size=`` the caller states
+    outright is taken verbatim on the WMS path, because a stated number cannot be
+    silently amplified the way a derived one can.
 
     Args:
         src: The opened network dataset to read from.
