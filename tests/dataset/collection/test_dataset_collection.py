@@ -424,17 +424,24 @@ def test_merge_rasters_free_function(
 ):
     """A default merge inherits its no-data instead of inventing one (#1086).
 
-    These fixtures are UInt16 and declare no no-data, so the mosaic must declare
-    none either. It used to stamp 0 -- which both masked any real 0 and, on an
-    integer band, was the only thing hiding the NaN that `init` puts in the VRT.
+    These fixtures are UInt16 and declare no no-data, so nothing is inherited and
+    the mosaic falls back to a marker the band can store and the data does not
+    use. It used to stamp 0, which masked any real 0 in the scene; what it must
+    not do now is stamp a value the tiles actually hold.
     """
     from pyramids.dataset.merge import merge_rasters
 
     merge_rasters(merge_input_raster, merge_output)
     assert merge_output.exists()
     src = gdal.Open(str(merge_output))
-    assert src.GetRasterBand(1).GetNoDataValue() is None, (
-        "no source declared a no-data value, so the mosaic must not invent one"
+    marker = src.GetRasterBand(1).GetNoDataValue()
+    values = np.asarray(src.ReadAsArray())
+    src = None
+    assert marker == pytest.approx(65535), (
+        f"a UInt16 mosaic should fall back to its dtype's maximum, got {marker}"
+    )
+    assert not (values == marker).all(), (
+        "the fallback marker must not be a value that swallows the whole mosaic"
     )
 
 
@@ -449,9 +456,9 @@ def test_merge_instance_method(
     src = gdal.Open(str(out))
     # DatasetCollection.merge is a thin wrapper over merge_rasters, so an
     # omitted no_data_value must mean the same thing on both (#1086). These
-    # fixtures declare none, so the mosaic must not invent one.
-    assert src.GetRasterBand(1).GetNoDataValue() is None, (
-        "collection.merge must inherit like merge_rasters, not stamp 0"
+    # fixtures declare none, so both fall back to the same storable marker.
+    assert src.GetRasterBand(1).GetNoDataValue() == pytest.approx(65535), (
+        "collection.merge must answer like merge_rasters, not stamp 0"
     )
 
 

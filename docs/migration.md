@@ -177,15 +177,36 @@ value.
 
 - **Sources agree** — the mosaic declares that value. Nothing else changes.
 - **Sources disagree** — the first one wins and a `UserWarning` names both, instead of silently picking.
-- **No source declares one** — the mosaic declares none, so nothing is masked. Previously it declared `0`; on an
-  integer band `0` was also the only thing hiding the `NaN` that `init` puts in the VRT, which the band cannot
-  store.
+- **No source declares one** — a marker is still chosen, because a mosaic generally has pixels no source covers
+  and leaving those undeclared makes them read as measurements. The choice is the value such a pixel already
+  holds where the output's data type can store it — `NaN` for a floating mosaic, and always for `method="min"`,
+  `"max"` and `"sum"`, which write `Float64`. An integer band has no `NaN`, so there the marker is instead a
+  value that band *can* store and that the mosaic's own cells do not use (`65535` for a `UInt16` scene holding
+  small numbers, `-9999` for a signed one), and the compositing step is filled with it so the gaps really hold
+  what the output declares. Only a mosaic whose data uses every value its type could spare is written without a
+  marker, and that warns. Previously all of this was `0`: on an integer band `0` was also the only thing hiding
+  the `NaN` that `init` puts in the VRT, which the band cannot store.
+
+Two consequences worth checking if you read raw arrays:
+
+- **The reduction methods' uncovered pixels changed value**, not just their declaration — they used to be `0.0`
+  and are now the inherited marker (e.g. `-9999.0`) or `NaN`.
+- **`method="min"`, `"max"` and `"sum"` over integer sources were wrong before and are now right.** Each source
+  was warped into its own data type before being folded, where the `NaN` marking its uncovered area was rounded
+  to `0`; those zeros then won every `fmin` and were added by every `sum`, so a mosaic of integer tiles that did
+  not tile contiguously came back all-zero whatever `no_data_value` said. Sources are now warped into the
+  `Float64` the reduction writes.
+
+Migrating:
 
 - **If you relied on the `0` default, pass it explicitly**: `merge_rasters(src, dst, no_data_value=0)` restores
   the old behavior exactly, and is worth a second look — it masks every genuine `0` in your inputs.
+- **If you want no marker at all, pass `no_data_value=None`.** Both write paths honour that, and neither stamps
+  anything.
 - **If you were passing `no_data_value=` already, nothing changes.** Every existing call is unaffected; only the
   omitted-argument case moved.
 - The value is read from the sources' band 1, in the order you pass them, so ordering decides a disagreement.
+- `DatasetCollection.merge` forwards the same default, so it answers identically.
 
 **The web-service readers accept a bbox that crosses the antimeridian.** Additive if you pass an ordinary box; a
 hard change if you relied on `minx > maxx` being rejected. `Dataset.from_wcs`, `from_wms`, `from_wmts` and

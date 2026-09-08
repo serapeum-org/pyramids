@@ -435,12 +435,46 @@ class TestMergeRastersInheritsNoData:
         return paths
 
     @staticmethod
+    def _gapped_tiles(tmp_path, dtype="float32"):
+        """Write two tiles declaring nothing, with a 2-column gap between them.
+
+        The union grid is 6 wide and holds 1..8; columns 2..3 are covered by no
+        source, which is what makes the mosaic's marker observable at all.
+        """
+        paths = []
+        for name, values, x0 in (
+            ("gw.tif", [[1, 2], [3, 4]], 0.0),
+            ("ge.tif", [[5, 6], [7, 8]], 4.0),
+        ):
+            ds = Dataset.from_array(
+                np.array(values, dtype=dtype),
+                geo_ref=GeoReference(
+                    top_left_corner=(x0, 2.0), cell_size=1.0, epsg=4326
+                ),
+            )
+            ds.to_file(tmp_path / name)
+            handle = gdal.Open(str(tmp_path / name), gdal.GA_Update)
+            handle.GetRasterBand(1).DeleteNoDataValue()
+            handle.FlushCache()
+            handle = None
+            paths.append(tmp_path / name)
+        return paths
+
+    @staticmethod
     def _masked_count(path):
         """Return how many cells of the mosaic read as masked."""
         ds = Dataset.read_file(str(path))
         masked = ds.read_array(masked=True)
         masked = masked[0] if masked.ndim == 3 else masked
         return int(masked.size - masked.count()), ds
+
+    @staticmethod
+    def _raw_marker(path):
+        """Return the marker GDAL reports for band 1, without pyramids in between."""
+        handle = gdal.Open(str(path))
+        raw = handle.GetRasterBand(1).GetNoDataValue()
+        handle = None
+        return raw
 
     def test_agreeing_sources_are_inherited_and_real_zero_survives(self, tmp_path):
         """The declared -9999 is inherited, so genuine 0 m cells stay readable.
@@ -461,34 +495,141 @@ class TestMergeRastersInheritsNoData:
             "stats() must report the true minimum of 0.0, not 3.0"
         )
 
-    def test_sources_declaring_none_yield_a_mosaic_declaring_none(self, tmp_path):
-        """No source declaring one means the mosaic invents none either.
+    def test_sources_declaring_none_still_leave_real_zeros_readable(self, tmp_path):
+        """No source declaring one must not cost the caller their real 0 cells.
 
         Test scenario:
             The Copernicus-DEM shape from #1086, whose tiles declare no no-data.
+            The mosaic marks its uncovered pixels -- NaN here, since these tiles
+            are float and NaN is what such a pixel would hold -- but the three
+            genuine 0.0 cells are not among them.
         """
         out = tmp_path / "m.tif"
         merge_rasters(self._tiles(tmp_path, None), out)
-        masked, _ds = self._masked_count(out)
-        handle = gdal.Open(str(out))
-        raw = handle.GetRasterBand(1).GetNoDataValue()
-        handle = None
-        assert raw is None, f"no marker should be stamped, got {raw}"
-        assert masked == 0, f"nothing should be masked, {masked} cells were"
+        masked, ds = self._masked_count(out)
+        raw = self._raw_marker(out)
+        assert raw is not None and np.isnan(raw), (
+            f"a float mosaic should declare the NaN its gaps hold, got {raw}"
+        )
+        assert masked == 0, f"no real cell should be masked, {masked} were"
+        assert float(ds.stats(approx_ok=False)["min"].iloc[0]) == pytest.approx(0.0), (
+            "stats() must still report the true minimum of 0.0"
+        )
 
-    def test_an_integer_mosaic_is_not_given_a_nan_marker(self, tmp_path):
+    def test_an_integer_mosaic_is_given_a_storable_marker_not_nan(self, tmp_path):
         """An integer band must not inherit the NaN `init` puts in the VRT.
 
         Test scenario:
             UInt16 tiles declaring no no-data. NaN cannot be stored in an integer
-            band, and the old `0` default was the only thing hiding it.
+            band, so the marker has to be a value the band can hold *and* the data
+            does not use -- 65535 here, the dtype's own maximum, since these tiles
+            hold 0..21. Leaving it unset instead is what let gap pixels read as a
+            real 0.
         """
         out = tmp_path / "m.tif"
         merge_rasters(self._tiles(tmp_path, None, dtype="uint16"), out)
-        handle = gdal.Open(str(out))
-        raw = handle.GetRasterBand(1).GetNoDataValue()
-        handle = None
-        assert raw is None, f"an integer band must not carry a NaN marker, got {raw}"
+        raw = self._raw_marker(out)
+        masked, _ds = self._masked_count(out)
+        assert raw == pytest.approx(65535), (
+            f"an integer band needs a storable marker it does not use, got {raw}"
+        )
+        assert masked == 0, f"no real cell should be masked, {masked} were"
+
+    @pytest.mark.parametrize(
+        "dtype, expected",
+        [("float32", float("nan")), ("uint16", 65535.0), ("int16", -9999.0)],
+    )
+    @pytest.mark.parametrize("method", ["last", "first", "min", "max", "sum"])
+    def test_a_gapped_mosaic_declares_what_its_gaps_hold(
+        self, tmp_path, dtype, expected, method
+    ):
+        """Uncovered pixels are marked, so they never read back as measurements.
+
+        Args:
+            dtype: The source tiles' data type.
+            expected: The marker a z-order mosaic of that dtype should declare.
+            method: Each overlap-resolution rule merge_rasters offers.
+
+        Test scenario:
+            Two tiles holding 1..8 with a two-column gap between them. Left
+            undeclared, an integer mosaic writes those gap pixels as a literal 0
+            -- indistinguishable from data, and enough to drag stats() from a
+            true mean of 4.5 down to 1.5. The reduction methods write Float64, so
+            their marker is NaN whatever the sources' dtype.
+        """
+        out = tmp_path / f"gap_{dtype}_{method}.tif"
+        merge_rasters(self._gapped_tiles(tmp_path, dtype), out, method=method)
+        masked, ds = self._masked_count(out)
+        raw = self._raw_marker(out)
+        wanted = float("nan") if method in ("min", "max", "sum") else expected
+        assert raw is not None, "a mosaic with gaps must declare a marker"
+        if np.isnan(wanted):
+            assert np.isnan(raw), f"expected a NaN marker, got {raw}"
+        else:
+            assert raw == pytest.approx(wanted), f"expected {wanted}, got {raw}"
+        assert masked == 4, f"the four gap cells should be masked, {masked} were"
+        stats = ds.stats(approx_ok=False)
+        assert float(stats["min"].iloc[0]) == pytest.approx(1.0), (
+            f"gap pixels leaked into stats(): min {stats['min'].iloc[0]}"
+        )
+        assert float(stats["mean"].iloc[0]) == pytest.approx(4.5), (
+            f"gap pixels leaked into stats(): mean {stats['mean'].iloc[0]}"
+        )
+
+    @pytest.mark.parametrize("method", ["last", "min"])
+    def test_an_explicit_none_asks_for_no_marker_on_either_path(self, tmp_path, method):
+        """``no_data_value=None`` means "no marker", and means it on both paths.
+
+        Args:
+            method: One z-order and one reduction rule, which reach the two
+                different write paths.
+
+        Test scenario:
+            Inheriting nothing chooses a marker; asking for none explicitly is a
+            different request, and the two write paths used to answer it
+            differently -- ``(None,)`` for z-order against ``(nan,)`` for the
+            reduction.
+        """
+        out = tmp_path / f"none_{method}.tif"
+        merge_rasters(
+            self._gapped_tiles(tmp_path, "float32"),
+            out,
+            no_data_value=None,
+            method=method,
+        )
+        assert self._raw_marker(out) is None, (
+            f"method={method} stamped a marker the caller declined"
+        )
+
+    def test_data_using_every_spare_value_warns_instead_of_masking_it(self, tmp_path):
+        """A mosaic with no free sentinel is written bare, and says so.
+
+        Test scenario:
+            A uint8 tile holding all 256 values leaves nothing that could mark a
+            gap without also masking real data. Choosing one anyway would be the
+            #1086 defect over again, so the marker is dropped and the caller is
+            told.
+        """
+        saturated = np.arange(256, dtype="uint8").reshape(16, 16)
+        Dataset.from_array(
+            saturated,
+            geo_ref=GeoReference(top_left_corner=(0.0, 16.0), cell_size=1.0, epsg=4326),
+        ).to_file(tmp_path / "full.tif")
+        Dataset.from_array(
+            np.ones((2, 2), dtype="uint8"),
+            geo_ref=GeoReference(top_left_corner=(40.0, 2.0), cell_size=1.0, epsg=4326),
+        ).to_file(tmp_path / "far.tif")
+        for name in ("full.tif", "far.tif"):
+            handle = gdal.Open(str(tmp_path / name), gdal.GA_Update)
+            handle.GetRasterBand(1).DeleteNoDataValue()
+            handle.FlushCache()
+            handle = None
+        out = tmp_path / "saturated.tif"
+        with pytest.warns(UserWarning, match="use every value that data type"):
+            merge_rasters([tmp_path / "full.tif", tmp_path / "far.tif"], out)
+        assert self._raw_marker(out) is None, (
+            "no value was free, so none should have been stamped"
+        )
 
     def test_a_declared_no_data_cell_stays_no_data(self, tmp_path):
         """A source cell that IS no-data is not leaked into the mosaic as data.
