@@ -63,6 +63,7 @@ from pyramids.base._coverage import read_size as _read_size
 from pyramids.base._coverage import resolution_pair as _resolution_pair
 from pyramids.base._coverage import resolve_native_srs as _resolve_native_srs
 from pyramids.base._coverage import seam_halves as _seam_halves
+from pyramids.base._coverage import seam_offset as _seam_offset
 from pyramids.base._coverage import translate_to_mem as _translate_to_mem
 from pyramids.base._coverage import validate_bbox as _validate_bbox
 from pyramids.base._coverage import window_overlaps as _window_overlaps
@@ -212,13 +213,108 @@ def _window_sizes(
 
             ```
     """
+    if len(projwins) < 2:
+        return [_read_size(projwin, res) for projwin in projwins]
     grid_res = res
-    if grid_res is None and len(projwins) > 1:
+    if grid_res is None:
         span_x = sum(abs(pw[2] - pw[0]) for pw in projwins)
         ulx, uly, _, lry = projwins[0]
-        width, height = _read_size([ulx, uly, ulx + span_x, lry], None)
-        grid_res = (span_x / width, abs(uly - lry) / height)
-    return [_read_size(projwin, grid_res) for projwin in projwins]
+        total, height = _read_size([ulx, uly, ulx + span_x, lry], None)
+        grid_res = (span_x / total, abs(uly - lry) / height)
+    # Round the west half, then take the east as the remainder of the combined
+    # width, exactly as `_seam_windows` does for WMS. Rounding each half on its own
+    # gives them cell sizes that differ in the sixth decimal, which the stitch
+    # cannot represent: it keeps the west geotransform, so the east half's declared
+    # edge drifts from where its data actually ends.
+    west, east = projwins
+    total, height = _read_size(
+        [west[0], west[1], west[0] + _span(west) + _span(east), west[3]], grid_res
+    )
+    west_width = max(1, min(total - 1, round(_span(west) / grid_res[0])))
+    return [(west_width, height), (total - west_width, height)]
+
+
+def _span(projwin: list[float]) -> float:
+    """The absolute x extent of a ``[ulx, uly, lrx, lry]`` window.
+
+    Args:
+        projwin: A native-CRS window.
+
+    Returns:
+        float: ``abs(lrx - ulx)``.
+
+    Examples:
+        - The width of an ordinary window:
+            ```python
+            >>> from pyramids.dataset._ogc_coverages import _span
+            >>> _span([170.0, 10.0, 180.0, -10.0])
+            10.0
+
+            ```
+        - Corner order does not matter, so a window read off a west-positive grid
+          measures the same:
+            ```python
+            >>> from pyramids.dataset._ogc_coverages import _span
+            >>> _span([180.0, 10.0, 170.0, -10.0])
+            10.0
+
+            ```
+    """
+    return abs(projwin[2] - projwin[0])
+
+
+def _align_to_sizes(
+    projwins: list[list[float]], sizes: list[tuple[int, int]]
+) -> list[list[float]]:
+    """Trim each window to the whole number of pixels it will actually be read at.
+
+    :func:`_window_sizes` gives the two halves of a seam read one cell size and
+    splits the combined width between them, which means neither half's requested
+    span is any longer an exact multiple of that cell size. `gdal.Translate` honours
+    the window and the size it is given, so leaving the spans untouched would make
+    it resample each half by a fraction of a pixel and hand back two grids that no
+    longer share one. Snapping the far edge to ``ulx + width * cell`` is what keeps
+    the promise the sizes make.
+
+    A single window is returned untouched: its size came straight from its own
+    span, so there is nothing to reconcile.
+
+    Args:
+        projwins: One or two ``[ulx, uly, lrx, lry]`` windows.
+        sizes: The ``(width, height)`` chosen for each, in the same order.
+
+    Returns:
+        list[list[float]]: The windows, with the far x edge snapped for a split
+            read.
+
+    Examples:
+        - A single window is handed back as it was:
+            ```python
+            >>> from pyramids.dataset._ogc_coverages import _align_to_sizes
+            >>> _align_to_sizes([[170.0, 10.0, 175.0, -10.0]], [(100, 400)])
+            [[170.0, 10.0, 175.0, -10.0]]
+
+            ```
+        - Two halves are snapped onto the cell size their widths imply, so both
+          report the same one:
+            ```python
+            >>> from pyramids.dataset._ogc_coverages import _align_to_sizes
+            >>> halves = [[170.0, 10.0, 180.0, -10.0], [-180.0, 10.0, -175.0, -10.0]]
+            >>> snapped = _align_to_sizes(halves, [(512, 1024), (256, 1024)])
+            >>> cells = [(w[2] - w[0]) / n for w, (n, _) in zip(snapped, [(512, 0), (256, 0)])]
+            >>> cells[0] == cells[1]
+            True
+
+            ```
+    """
+    if len(projwins) < 2:
+        return projwins
+    west, east = projwins
+    cell = _span(west) / sizes[0][0]
+    return [
+        [west[0], west[1], west[0] + sizes[0][0] * cell, west[3]],
+        [east[0], east[1], east[0] + sizes[1][0] * cell, east[3]],
+    ]
 
 
 def _fetch_windows(
@@ -284,6 +380,7 @@ def _fetch_windows(
                 # nothing to size.
                 projwins = [pw for pw in projwins if _window_overlaps(pw, src)]
             sizes = _window_sizes(projwins, res)
+            projwins = _align_to_sizes(projwins, sizes)
             for projwin, size in zip(projwins, sizes, strict=True):
                 mems.append(_translate_window(src, projwin, size, coverage))
         finally:
@@ -388,7 +485,15 @@ def from_ogc_coverages(
             # _stitch_lon_halves copies both halves into a new raster, so the parts
             # stay owned here and are closed by the finally. Its first argument is
             # only read for band names; the west half carries the same ones.
-            ds = _stitch_lon_halves(parts[0], parts[0], parts[1])
+            # The seam offset is measured in the coverage's own CRS: the halves are
+            # windowed in that CRS, so for a projected coverage they meet at the
+            # world width in metres, not at 360.
+            ds = _stitch_lon_halves(
+                parts[0],
+                parts[0],
+                parts[1],
+                _seam_offset(box, "EPSG:4326", native_srs),
+            )
     finally:
         for part in parts:
             part.close()

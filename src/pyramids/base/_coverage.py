@@ -413,6 +413,58 @@ def native_resolution(src: gdal.Dataset) -> tuple[float, float]:
     return (abs(gt[1]), abs(gt[5]))
 
 
+def seam_offset(
+    bbox: tuple[float, float, float, float],
+    crs: str,
+    native_srs: Any,
+) -> float:
+    """The x distance between the -180 and +180 meridians in the layer's own CRS.
+
+    What every seam-alignment check needs to know the east half really does
+    continue where the west one stops: 360 for a geographic layer, the full world
+    width (about 40 075 017 m) for a Web-Mercator one. Measured rather than
+    assumed, because all three raster readers window the source in *its* CRS, not
+    in the request's -- a WMTS layer is cropped in the pyramid's CRS, and a WCS or
+    OGC API coverage in the coverage's. Assuming 360 there makes the check compare
+    metres against degrees and reject every well-formed pair.
+
+    Args:
+        bbox: The request bbox, used only for the latitude band the meridians are
+            measured across.
+        crs: The CRS ``bbox`` is expressed in.
+        native_srs: The layer's native spatial reference.
+
+    Returns:
+        float: The seam-to-seam x span in the native CRS's units.
+
+    Examples:
+        - A lon/lat layer measures the seam as the 360 degrees it is:
+            ```python
+            >>> from osgeo import osr
+            >>> from pyramids.base._coverage import seam_offset
+            >>> native = osr.SpatialReference()
+            >>> _ = native.ImportFromEPSG(4326)
+            >>> seam_offset((170.0, -10.0, -170.0, 10.0), "EPSG:4326", native)
+            360.0
+
+            ```
+        - A Web Mercator layer measures the same seam in metres, so the check the
+          offset feeds is done in the units the halves are actually cropped in:
+            ```python
+            >>> from osgeo import osr
+            >>> from pyramids.base._coverage import seam_offset
+            >>> native = osr.SpatialReference()
+            >>> _ = native.ImportFromEPSG(3857)
+            >>> round(seam_offset((170.0, -10.0, -170.0, 10.0), "EPSG:4326", native))
+            40075017
+
+            ```
+    """
+    _, miny, _, maxy = bbox
+    world = native_projwin((-180.0, miny, 180.0, maxy), crs, native_srs)
+    return world[2] - world[0]
+
+
 def window_overlaps(projwin: list[float], src: gdal.Dataset) -> bool:
     """Whether a native-CRS ``[ulx, uly, lrx, lry]`` window meets `src`'s own extent.
 

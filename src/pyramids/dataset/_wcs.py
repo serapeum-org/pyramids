@@ -64,6 +64,7 @@ from pyramids.base._coverage import read_size as _read_size
 from pyramids.base._coverage import resolution_pair as _resolution_pair
 from pyramids.base._coverage import resolve_native_srs as _resolve_native_srs_neutral
 from pyramids.base._coverage import seam_halves as _seam_halves
+from pyramids.base._coverage import seam_offset as _seam_offset
 from pyramids.base._coverage import translate_to_mem as _translate_to_mem
 from pyramids.base._coverage import validate_bbox as _validate_bbox
 from pyramids.base._coverage import window_overlaps as _window_overlaps
@@ -824,6 +825,11 @@ def from_wcs(
             # skip the redundant client-side resample. 2.0.x has no request-side
             # resolution, so it resamples client-side in _finalize.
             finalize_res = None if (version or "2.0.0").startswith("1.0") else res
+            # Direct mode asks in `crs` and is answered in `crs`, and
+            # `check_seam_bbox` has already proven that geographic, so the halves
+            # are in degrees and the seam is 360 wide. There is no descriptor here
+            # to measure anything against.
+            stitch_offset = 360.0
         else:
             mems, native_srs = _from_wcs_discovery(
                 endpoint,
@@ -839,6 +845,10 @@ def from_wcs(
             )
             # WKT round-trips more faithfully than proj4 for exotic / compound CRS.
             native_wkt = native_srs.ExportToWkt()
+            # Discovery mode windows the coverage in the coverage's own CRS, which
+            # may be projected -- then the halves meet at the world width in metres,
+            # not at 360. Measured, not assumed.
+            stitch_offset = _seam_offset(box, crs, native_srs)
             for mem in mems:
                 mem.SetSpatialRef(native_srs)
                 parts.append(dataset_cls(mem, access="write"))
@@ -856,7 +866,10 @@ def from_wcs(
             # _stitch_lon_halves copies both halves into a new raster, so the parts
             # stay owned here and are closed by the finally. Its first argument is
             # only read for band names; the west half carries the same ones.
-            ds = _stitch_lon_halves(parts[0], parts[0], parts[1])
+            # The seam offset is measured in the coverage's own CRS: the halves are
+            # windowed in that CRS, so for a projected coverage they meet at the
+            # world width in metres, not at 360.
+            ds = _stitch_lon_halves(parts[0], parts[0], parts[1], stitch_offset)
     finally:
         for part in parts:
             part.close()

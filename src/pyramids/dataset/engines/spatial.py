@@ -92,22 +92,30 @@ def _resolve_resolution(
 
 
 def _check_lon_halves_concatenable(
-    west_part: RasterBase, east_part: RasterBase
+    west_part: RasterBase, east_part: RasterBase, seam_offset: float = 360.0
 ) -> None:
     """Assert the invariant that two longitude-adjacent crop halves are stitchable.
 
-    Both halves are cropped from the same source lattice, so equal row/band counts
-    and a shared cell boundary at the 180/360 seam are expected to hold — this is a
-    defensive guard that turns any future violation into a clear error instead of a
-    raw NumPy shape error or a silently shifted `np.concatenate` result.
+    Both halves are cropped from the same source lattice, so equal row/band counts,
+    one cell size and a shared cell boundary at the seam are expected to hold —
+    this is a defensive guard that turns any future violation into a clear error
+    instead of a raw NumPy shape error or a silently shifted `np.concatenate`
+    result.
 
     Args:
         west_part: Crop of the pre-seam half.
         east_part: Crop of the post-seam half (wrapped past the seam).
+        seam_offset: The distance from the west frame edge to the east one, in the
+            halves' own units. Defaults to `360.0`, which is right whenever the
+            halves are in degrees — every `Dataset.crop` and NetCDF path. A network
+            reader windows the source in the source's CRS, which may be projected,
+            and passes the measured value from
+            :func:`~pyramids.base._coverage.seam_offset` instead.
 
     Raises:
-        ValueError: The halves have mismatched row/band counts, or the grid has no
-            cell boundary at the seam so the halves are not seam-aligned.
+        ValueError: The halves have mismatched row/band counts, differ in cell
+            size, or the grid has no cell boundary at the seam so the halves are
+            not seam-aligned.
     """
     if west_part.rows != east_part.rows or west_part.band_count != east_part.band_count:
         raise ValueError(
@@ -115,14 +123,22 @@ def _check_lon_halves_concatenable(
             f"(rows {west_part.rows}/{east_part.rows}, "
             f"bands {west_part.band_count}/{east_part.band_count})"
         )
-    w_gt = west_part.geotransform
-    seam_gap = abs(
-        (w_gt[0] + west_part.columns * w_gt[1]) - (east_part.geotransform[0] + 360.0)
-    )
-    if seam_gap > 0.5 * abs(w_gt[1]):
+    w_gt, e_gt = west_part.geotransform, east_part.geotransform
+    cell_x = abs(w_gt[1])
+    # Cell size before seam gap: two halves rendered at different resolutions
+    # stitch into a raster whose geotransform describes only the west half's
+    # pixels, so the declared east edge drifts from where the data actually ends.
+    if abs(cell_x - abs(e_gt[1])) > 1e-6 * cell_x:
+        raise ValueError(
+            "antimeridian halves were produced at different resolutions "
+            f"({w_gt[1]} vs {e_gt[1]}); they cannot be stitched into one uniform "
+            "grid"
+        )
+    seam_gap = abs((w_gt[0] + west_part.columns * w_gt[1]) - (e_gt[0] + seam_offset))
+    if seam_gap > 0.5 * cell_x:
         raise ValueError(
             "antimeridian halves are not seam-aligned; the grid has no cell "
-            "boundary at the 180/360 seam, so the halves cannot be stitched"
+            "boundary at the seam, so the halves cannot be stitched"
         )
 
 
@@ -286,7 +302,9 @@ def _crop_seam_halves(
     return result
 
 
-def _stitch_lon_halves(ds: RasterBase, west_part: Any, east_part: Any) -> Dataset:
+def _stitch_lon_halves(
+    ds: RasterBase, west_part: Any, east_part: Any, seam_offset: float = 360.0
+) -> Dataset:
     """Concatenate two longitude-adjacent crops into one contiguous raster Dataset.
 
     `west_part` (pre-seam) sits to the left of `east_part` (wrapped past the seam);
@@ -299,6 +317,9 @@ def _stitch_lon_halves(ds: RasterBase, west_part: Any, east_part: Any) -> Datase
         ds: The dataset supplying the band names for the merged raster.
         west_part: Crop of the pre-seam half.
         east_part: Crop of the post-seam half.
+        seam_offset: The west-edge-to-east-edge distance in the halves' own units,
+            forwarded to :func:`_check_lon_halves_concatenable`. Defaults to
+            `360.0` for halves in degrees.
 
     Returns:
         Dataset: The concatenated raster.
@@ -308,7 +329,7 @@ def _stitch_lon_halves(ds: RasterBase, west_part: Any, east_part: Any) -> Datase
     # container).
     from pyramids.dataset.dataset import Dataset
 
-    _check_lon_halves_concatenable(west_part, east_part)
+    _check_lon_halves_concatenable(west_part, east_part, seam_offset)
     merged = np.concatenate([west_part.read_array(), east_part.read_array()], axis=-1)
     # epsg is None only for a no-EPSG CRS reported as such (a NetCDF
     # geostationary grid); from_array raises CRSError on None, so fall back to

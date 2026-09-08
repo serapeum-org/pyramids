@@ -22,10 +22,11 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from osgeo import gdal
+from osgeo import gdal, osr
 
-from pyramids.base._coverage import check_seam_bbox, window_overlaps
+from pyramids.base._coverage import check_seam_bbox, seam_offset, window_overlaps
 from pyramids.dataset import Dataset, _ogc_coverages, _wcs
+from pyramids.dataset.engines.spatial import _stitch_lon_halves
 from tests.dataset.remote.test_ogc_coverages import GLOBAL_BOUNDS as OGC_GLOBAL_BOUNDS
 from tests.dataset.remote.test_ogc_coverages import _serving
 from tests.dataset.remote.wcs_mock_server import GLOBAL_BOUNDS, WcsMock
@@ -249,6 +250,28 @@ class TestWindowSizes:
             (512, 1024)
         ]
 
+    def test_the_two_halves_land_on_exactly_one_cell_size(self):
+        """The halves must share a grid, not merely be sized from one.
+
+        Test scenario:
+            Rounding each half's width independently leaves them with cell sizes
+            differing in the sixth decimal -- measured at 0.01953125 against
+            0.019526627 before the fix, which puts the merged raster's declared
+            east edge about 87 m from where the data ends. The east width is now
+            the remainder of the combined width, and the windows are snapped to it.
+        """
+        halves = [[170.0, 10.0, 180.0, -10.0], [-180.0, 10.0, -176.7, -10.0]]
+        sizes = _ogc_coverages._window_sizes(halves, None)
+        snapped = _ogc_coverages._align_to_sizes(halves, sizes)
+        cells = [
+            (window[2] - window[0]) / width
+            for window, (width, _) in zip(snapped, sizes)
+        ]
+        assert cells[0] == pytest.approx(cells[1], rel=1e-12), (
+            f"the halves must share one cell size, got {cells}"
+        )
+        assert sizes[0][1] == sizes[1][1], "the halves must share one row count"
+
     def test_two_windows_share_one_resolution(self):
         """Both halves come back on one grid: equal height, widths summing to the cap."""
         west = [170.0, 10.0, 180.0, -10.0]
@@ -270,6 +293,95 @@ class TestWindowSizes:
             (100, 200),
             (50, 200),
         ]
+
+
+class TestTheSeamOffsetIsMeasuredNotAssumed:
+    """A coverage is windowed in its own CRS, which need not be degrees.
+
+    Both coverage readers window the source in the coverage's native CRS and then
+    stitch. The stitch guard used to hard-code a 360 seam offset, which is right
+    only for halves in degrees -- so for any coverage whose native CRS is projected
+    (Web Mercator, UTM, a national grid, polar stereographic) a seam read failed
+    every time, with a message blaming the caller's grid.
+    """
+
+    WORLD = 20037508.342789244
+
+    @staticmethod
+    def _half(origin_x: float, columns: int, cell: float, epsg: int) -> Dataset:
+        """A one-band raster whose geotransform is stamped before it is wrapped.
+
+        Args:
+            origin_x: The window's west edge in the CRS's own units.
+            columns: Pixel width.
+            cell: Pixel size in the CRS's own units.
+            epsg: The CRS to stamp.
+
+        Returns:
+            Dataset: The raster half.
+        """
+        mem = gdal.GetDriverByName("MEM").Create("", columns, 10, 1, gdal.GDT_Byte)
+        mem.SetGeoTransform((origin_x, cell, 0.0, 1_000_000.0, 0.0, -cell))
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(epsg)
+        mem.SetSpatialRef(srs)
+        return Dataset(mem, access="write")
+
+    def test_a_geographic_seam_measures_360_degrees(self):
+        """The default is still right for halves in degrees."""
+        native = osr.SpatialReference()
+        native.ImportFromEPSG(4326)
+        assert seam_offset(WRAP, "EPSG:4326", native) == pytest.approx(360.0)
+
+    def test_a_web_mercator_seam_measures_the_world_width(self):
+        """The same seam is about 40,075,017 m once the coverage is projected."""
+        native = osr.SpatialReference()
+        native.ImportFromEPSG(3857)
+        assert seam_offset(WRAP, "EPSG:4326", native) == pytest.approx(
+            2 * self.WORLD, rel=1e-6
+        )
+
+    def test_projected_halves_stitch_with_the_measured_offset(self):
+        """The case that failed for every projected coverage before the fix.
+
+        Test scenario:
+            Two halves in metres meeting exactly at the Web Mercator antimeridian.
+            With the measured offset they concatenate; the merged raster is as wide
+            as both and keeps the west half's origin.
+        """
+        west = self._half(self.WORLD - 100_000.0, 100, 1000.0, 3857)
+        east = self._half(-self.WORLD, 50, 1000.0, 3857)
+        merged = _stitch_lon_halves(west, west, east, 2 * self.WORLD)
+        assert merged.columns == 150, (
+            f"the stitch should be as wide as both halves, got {merged.columns}"
+        )
+        assert merged.geotransform[0] == pytest.approx(self.WORLD - 100_000.0)
+
+    def test_the_same_halves_are_refused_under_the_degree_default(self):
+        """Which is exactly what both readers used to do to every projected coverage.
+
+        Test scenario:
+            The companion to the previous case. Left at the 360 default the guard
+            compares metres against degrees, so a perfectly well-formed pair is
+            rejected -- the regression this finding was about.
+        """
+        west = self._half(self.WORLD - 100_000.0, 100, 1000.0, 3857)
+        east = self._half(-self.WORLD, 50, 1000.0, 3857)
+        with pytest.raises(ValueError, match="not seam-aligned"):
+            _stitch_lon_halves(west, west, east)
+
+    def test_halves_at_different_resolutions_are_refused(self):
+        """The check the shared guard was missing.
+
+        Test scenario:
+            Two halves whose cell sizes differ by more than a rounding wobble. The
+            stitch keeps the west geotransform, so accepting these would silently
+            misplace the east half's declared edge.
+        """
+        west = self._half(170.0, 100, 0.1, 4326)
+        east = self._half(-180.0, 50, 0.2, 4326)
+        with pytest.raises(ValueError, match="different resolutions"):
+            _stitch_lon_halves(west, west, east)
 
 
 class TestWcsDirect:

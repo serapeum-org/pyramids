@@ -54,6 +54,7 @@ from pyramids.base._coverage import read_size as _read_size
 from pyramids.base._coverage import resolution_pair as _resolution_pair
 from pyramids.base._coverage import resolve_native_srs as _resolve_native_srs_neutral
 from pyramids.base._coverage import seam_halves as _seam_halves
+from pyramids.base._coverage import seam_offset as _seam_offset
 from pyramids.base._coverage import translate_to_mem as _translate_to_mem
 from pyramids.base._coverage import validate_bbox as _validate_bbox
 from pyramids.base._errors import CoverageError, WMSError
@@ -400,55 +401,6 @@ def _render_wms(src: gdal.Dataset, layers: str) -> gdal.Dataset:
     return _translate_to_mem(
         src, error=WMSError, action="WMS GetMap", subject=repr(layers)
     )
-
-
-def _seam_offset(
-    bbox: tuple[float, float, float, float],
-    crs: str,
-    native_srs: Any,
-) -> float:
-    """The x distance between the -180 and +180 meridians in the layer's own CRS.
-
-    What ``_merge_lon_halves`` needs to check that the east half really does
-    continue where the west one stops: 360 for a geographic layer, the full world
-    width (about 40 075 017 m) for a Web-Mercator one. Measured rather than
-    assumed, because a WMTS layer is cropped in *its* CRS, not in the request's.
-
-    Args:
-        bbox: The request bbox, used only for the latitude band the meridians are
-            measured across.
-        crs: The CRS ``bbox`` is expressed in.
-        native_srs: The layer's native spatial reference.
-
-    Returns:
-        float: The seam-to-seam x span in the native CRS's units.
-
-    Examples:
-        - A lon/lat layer measures the seam as the 360 degrees it is:
-            ```python
-            >>> from osgeo import osr
-            >>> from pyramids.dataset._wms import _seam_offset
-            >>> native = osr.SpatialReference()
-            >>> _ = native.ImportFromEPSG(4326)
-            >>> _seam_offset((170.0, -10.0, -170.0, 10.0), "EPSG:4326", native)
-            360.0
-
-            ```
-        - A Web Mercator layer measures the same seam in metres, so the check the
-          offset feeds is done in the units the halves are actually cropped in:
-            ```python
-            >>> from osgeo import osr
-            >>> from pyramids.dataset._wms import _seam_offset
-            >>> native = osr.SpatialReference()
-            >>> _ = native.ImportFromEPSG(3857)
-            >>> round(_seam_offset((170.0, -10.0, -170.0, 10.0), "EPSG:4326", native))
-            40075017
-
-            ```
-    """
-    _, miny, _, maxy = bbox
-    world = _native_projwin((-180.0, miny, 180.0, maxy), crs, native_srs)
-    return world[2] - world[0]
 
 
 def _check_halves_concatenable(
