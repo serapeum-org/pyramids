@@ -350,6 +350,91 @@ class Analysis(_Engine["Dataset"]):
         domain_count = self._ds.rows * self._ds.columns - no_data_count
         return int(domain_count)
 
+    def domain_area(self, band: int = 0, unit: str = "m2") -> float:
+        """Ground area of the cells inside the domain -- the weighted count.
+
+        :meth:`count_domain_cells` weighs every cell the same, which on a
+        geographic grid is wrong by the ratio of the latitudes involved: a
+        1-degree cell at 80 degrees north covers 2 272 km2 and one at the
+        equator 12 309 km2, so counting them alike overstates a polar domain
+        by roughly four times. This asks the same question in ground units.
+
+        The cells are the same ones `count_domain_cells` counts -- whatever the
+        band's no-data sentinel does not mark -- so the two compose rather than
+        introducing a second idea of what "inside" means.
+
+        Args:
+            band: Band index. Default is 0.
+            unit: `m2` (default), `km2` or `ha`.
+
+        Returns:
+            float: The summed area of the band's valid cells.
+
+        Raises:
+            ValueError: The raster has no CRS, `unit` is not recognised, or the
+                raster is geographic and rotated. See :meth:`Cell.cell_area`.
+
+        Examples:
+            - A global 1-degree grid with no gaps covers the whole ellipsoid,
+              which is the check that the weighting is right:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> geo_ref = GeoReference(top_left_corner=(-180.0, 90.0), cell_size=1.0, epsg=4326)
+                >>> grid = Dataset.from_array(np.ones((180, 360), "float32"), geo_ref=geo_ref)
+                >>> round(grid.domain_area(unit="km2") / 1e6, 3)
+                510.066
+
+                ```
+            - Masking everything below 60 degrees north leaves the polar cap,
+              where an unweighted count would be nearly four times out:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> geo_ref = GeoReference(top_left_corner=(-180.0, 90.0), cell_size=1.0, epsg=4326)
+                >>> values = np.ones((180, 360), "float32")
+                >>> values[30:, :] = -9999.0
+                >>> cap = Dataset.from_array(values, geo_ref=geo_ref, no_data_value=-9999.0)
+                >>> round(cap.domain_area(unit="km2") / 1e6, 3)
+                34.414
+
+                ```
+            - The same cap counted rather than weighed, which is the error this
+              method removes -- nearly fourfold at that latitude:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> geo_ref = GeoReference(top_left_corner=(-180.0, 90.0), cell_size=1.0, epsg=4326)
+                >>> values = np.ones((180, 360), "float32")
+                >>> values[30:, :] = -9999.0
+                >>> cap = Dataset.from_array(values, geo_ref=geo_ref, no_data_value=-9999.0)
+                >>> nominal = float(cap.cell_area(unit="km2")[90, 0])
+                >>> round(cap.count_domain_cells() * nominal / cap.domain_area(unit="km2"), 1)
+                3.9
+
+                ```
+
+        See Also:
+            count_domain_cells: The unweighted count this refines.
+            Cell.cell_area: The per-cell areas this sums.
+        """
+        areas = self._ds.cell.cell_area(unit=unit)
+        no_data_value = self._ds.no_data_value[band]
+
+        def _sum(acc: float, strip: np.ndarray, window: list[int]) -> float:
+            # `window` is [xoff, yoff, xsize, ysize]; the rows it covers pick
+            # the matching slice of the per-row areas, so the strip and its
+            # weights stay aligned however the reader chooses to cut the band.
+            yoff, ysize = window[1], window[3]
+            weights = areas[yoff : yoff + ysize]
+            inside = ~is_stored_no_data(strip, no_data_value)
+            return acc + float((weights * inside).sum())
+
+        # Streamed in row strips for the same reason `count_domain_cells` is:
+        # a very large or `/vsicurl` band is never held whole, and a sum is
+        # order-independent so the tiled total matches the whole-band one.
+        return float(self._ds.io.stream_reduce(_sum, 0.0, band=band))
+
     def apply(
         self,
         func,

@@ -26,6 +26,37 @@ if TYPE_CHECKING:
     )
 
 
+# Square metres per unit of area. The names are the ones a caller writes, not
+# GDAL's or PROJ's spellings, because this is the surface a user types.
+_AREA_UNITS: dict[str, float] = {
+    "m2": 1.0,
+    "km2": 1e6,
+    "ha": 1e4,
+}
+
+
+def _area_scale(unit: str) -> float:
+    """Square metres in one `unit`.
+
+    Args:
+        unit: One of `m2`, `km2`, `ha`.
+
+    Returns:
+        float: The divisor that turns square metres into `unit`.
+
+    Raises:
+        ValueError: `unit` is not one this package converts to.
+    """
+    try:
+        scale = _AREA_UNITS[unit]
+    except KeyError:
+        raise ValueError(
+            f"unknown area unit {unit!r}; expected one of "
+            f"{', '.join(sorted(_AREA_UNITS))}"
+        ) from None
+    return scale
+
+
 class Cell(_Engine["Dataset"]):
     """Cell-geometry operations on a Dataset.
 
@@ -182,6 +213,144 @@ class Cell(_Engine["Dataset"]):
         crs = crs_spec(self._ds.epsg, self._ds.crs)
         if crs is not None:
             gdf.set_crs(crs_from_user_input(crs), inplace=True)
+
+    def cell_area(self, unit: str = "m2") -> np.ndarray:
+        """The ground area each cell covers, honouring the raster's own CRS.
+
+        `cell_size` answers in the CRS's units, which for a geographic raster
+        are degrees -- and a degree of longitude is 111 km at the equator and
+        19 km at 80 degrees north. Anything asking "how much ground is this"
+        therefore cannot use it, and `get_cell_polygons().area` does not help
+        either: those polygons are in the same degrees, so every cell on the
+        grid reports the identical area.
+
+        Two cases, decided by the CRS:
+
+        * **projected** -- the cell is a parallelogram in a linear unit, so its
+          area is the absolute determinant of the geotransform's linear part,
+          `|dx*dy - rx*ry|`, converted from the CRS's own linear unit. Constant
+          across the raster, rotation included.
+        * **geographic** -- the area is computed on the CRS's own ellipsoid
+          through :meth:`pyproj.Geod.polygon_area_perimeter`, not on a sphere
+          of an assumed radius. Every cell in a row shares a latitude band and
+          therefore an area, so this costs one geodesic call per row rather
+          than one per cell.
+
+        Args:
+            unit: `m2` (default), `km2` or `ha`.
+
+        Returns:
+            np.ndarray: Area per cell, shaped like the band. For a north-up
+            raster this is a **read-only broadcast view** over one value per
+            row -- multiplying by it works as usual, and `.copy()` gives a
+            writeable array if you need one. That keeps a global 1-degree grid
+            at 180 floats rather than 64 800.
+
+        Raises:
+            ValueError: The raster has no CRS, `unit` is not recognised, or the
+                raster is geographic *and* rotated -- a case where cells in one
+                row no longer share a latitude band, and which is better solved
+                by warping to a north-up grid or a projected CRS than by
+                spending a geodesic call on every cell.
+
+        Examples:
+            - A projected raster has one area for every cell, straight from the
+              geotransform:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> geo_ref = GeoReference(top_left_corner=(0.0, 0.0), cell_size=30.0, epsg=32636)
+                >>> raster = Dataset.from_array(np.ones((2, 2), "float32"), geo_ref=geo_ref)
+                >>> raster.cell_area().tolist()
+                [[900.0, 900.0], [900.0, 900.0]]
+
+                ```
+            - A geographic raster's cells shrink towards the pole, which is the
+              whole reason this method exists:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> geo_ref = GeoReference(top_left_corner=(0.0, 90.0), cell_size=1.0, epsg=4326)
+                >>> raster = Dataset.from_array(np.ones((90, 4), "float32"), geo_ref=geo_ref)
+                >>> areas = raster.cell_area(unit="km2")
+                >>> round(float(areas[89, 0]))     # the row touching the equator
+                12309
+                >>> round(float(areas[0, 0]))      # the row touching the pole
+                109
+
+                ```
+            - Rotation is refused rather than answered approximately, because a
+              row's cells no longer share a latitude band:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> geo_ref = GeoReference(geo=(0.0, 1.0, 0.2, 90.0, 0.2, -1.0), epsg=4326)
+                >>> raster = Dataset.from_array(np.ones((4, 4), "float32"), geo_ref=geo_ref)
+                >>> raster.cell_area()  # doctest: +ELLIPSIS
+                Traceback (most recent call last):
+                    ...
+                ValueError: a rotated geographic raster ... warp it to a north-up grid ...
+
+                ```
+
+        See Also:
+            Analysis.domain_area: The area-weighted sibling of
+                `count_domain_cells`, which sums this over a band's valid cells
+                without materialising it.
+        """
+        scale = _area_scale(unit)
+        geo = self._ds.geotransform
+        rotated = bool(geo[2]) or bool(geo[4])
+        crs = crs_from_user_input(self._ds.crs) if self._ds.crs else None
+        if crs is None:
+            raise ValueError(
+                "the raster declares no CRS, so its cells have no ground area; "
+                "set one with `set_crs` before asking"
+            )
+        if crs.is_geographic:
+            if rotated:
+                raise ValueError(
+                    "a rotated geographic raster has cells that do not share a "
+                    "latitude band, so its area cannot be resolved per row; "
+                    "warp it to a north-up grid or to a projected CRS first"
+                )
+            per_row = self._geodesic_row_areas(crs) / scale
+            areas = np.broadcast_to(
+                per_row[:, np.newaxis], (self._ds.rows, self._ds.columns)
+            )
+        else:
+            # `unit_conversion_factor` is metres per CRS unit, so it squares.
+            metres = crs.axis_info[0].unit_conversion_factor
+            determinant = abs(geo[1] * geo[5] - geo[2] * geo[4])
+            one = determinant * metres * metres / scale
+            areas = np.broadcast_to(np.float64(one), (self._ds.rows, self._ds.columns))
+        return areas
+
+    def _geodesic_row_areas(self, crs: Any) -> np.ndarray:
+        """Square metres of one cell in each row, on the CRS's own ellipsoid.
+
+        One `Geod` call per row rather than per cell: a north-up geographic
+        grid gives every cell in a row the same latitude band, and longitude
+        does not change a cell's area on an ellipsoid of revolution.
+
+        Args:
+            crs: The raster's CRS, already resolved.
+
+        Returns:
+            np.ndarray: One area per row, in square metres, top row first.
+        """
+        geod = crs.get_geod()
+        _, dx, _, top, _, dy = self._ds.geotransform
+        edges = top + np.arange(self._ds.rows + 1) * dy
+        west, east = 0.0, abs(dx)
+        areas = np.empty(self._ds.rows, dtype="float64")
+        for row in range(self._ds.rows):
+            upper, lower = edges[row], edges[row + 1]
+            area, _ = geod.polygon_area_perimeter(
+                [west, east, east, west], [upper, upper, lower, lower]
+            )
+            areas[row] = abs(area)
+        return areas
 
     def get_cell_polygons(self, domain_only: bool = False) -> GeoDataFrame:
         """Get a polygon shapely geometry for the raster cells.
