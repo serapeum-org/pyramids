@@ -9,7 +9,7 @@ here once — neither reader reaches into the other's internals — and the CRS
 resolver raises the protocol-neutral :class:`~pyramids.base._errors.CoverageError`,
 which each reader re-wraps into its own branded error (WCSError / OGCAPIError).
 
-The two GDAL calls those readers wrap around live here too. Every network reader
+The GDAL calls those readers wrap around live here too. Every network reader
 — WCS, WMS / WMTS (:mod:`pyramids.dataset._wms`) and OGC API – Coverages — opens a
 connection string with GDAL and then materialises a window of it into a ``MEM``
 dataset, and each has to turn the same two failure shapes into its own branded
@@ -18,6 +18,14 @@ error: a ``RuntimeError`` (GDAL raises under ``gdal.UseExceptions()``) and a
 :func:`open_network_dataset` and :func:`translate_to_mem` own that sequence and
 that classification; the readers pass in their own exception class and the words
 that name the request, so the messages stay branded per protocol.
+
+:func:`run_gdal_op` is the protocol-neutral generalisation of that shape to **any**
+GDAL call that hands back a dataset — ``BuildVRT``, ``Warp``, ``Translate``, a
+driver's ``Create`` — and the other two are expressed in terms of it. It has no
+coverage or network flavour: :mod:`pyramids.dataset.merge` uses it to mosaic local
+GeoTIFFs. Every message all three build is passed through
+:func:`pyramids.base.remote.redact_credentials` first, so a signed source URL
+reaching an error keeps its path and loses its secret (#1107).
 """
 
 from __future__ import annotations
@@ -297,7 +305,9 @@ def open_network_dataset(
     leaks a raw GDAL message with no idea which coverage or layer it was about.
 
     Args:
-        connection: The GDAL connection string / service descriptor to open.
+        connection: What to hand :func:`gdal.Open` — a service descriptor
+            (``<WCS_GDAL>``, ``<GDAL_WMS>``, ``WMTS:``, ``OGCAPI:``) for the
+            network readers, or a plain raster path / URL for any other caller.
         error: The reader's branded exception class (``WCSError``, ``WMSError``,
             ``OGCAPIError``, ...), called with a single message argument.
         subject: What is being opened, already worded for the message — e.g.
@@ -551,10 +561,9 @@ def translate_to_mem(
     # re-branding it as a service error would blame the server for it. Only the
     # translate itself is guarded.
     translate_options = gdal.TranslateOptions(format="MEM", **options)
-    try:
-        mem = gdal.Translate("", src, options=translate_options)
-    except RuntimeError as exc:
-        raise error(f"{action} failed for {subject}: {exc}") from exc
-    if mem is None:
-        raise error(f"{action} returned no raster for {subject}")
-    return mem
+    return run_gdal_op(
+        lambda: gdal.Translate("", src, options=translate_options),
+        error=error,
+        action=action,
+        subject=subject,
+    )
