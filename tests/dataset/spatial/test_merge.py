@@ -115,6 +115,42 @@ class TestMergeMethod:
         assert arr[0, 0] == pytest.approx(10.0), f"A-only column changed: {arr[0, 0]}"
         assert arr[0, 5] == pytest.approx(20.0), f"B-only column changed: {arr[0, 5]}"
 
+    @pytest.mark.parametrize(
+        "method, covered_a, covered_b",
+        [("min", 10.0, 20.0), ("max", 10.0, 20.0), ("sum", 10.0, 20.0)],
+    )
+    def test_integer_sources_reduce_to_their_own_values(
+        self, disjoint_pair, tmp_path, method, covered_a, covered_b
+    ):
+        """A reduction over integer tiles keeps their values instead of collapsing.
+
+        Args:
+            method: Each reduction rule.
+            covered_a: What raster A's columns should still hold.
+            covered_b: What raster B's columns should still hold.
+
+        Test scenario:
+            Two disjoint Int32 tiles. Each source used to be warped onto the strip
+            in its own data type, where the NaN marking the area it does not cover
+            cannot be stored and GDAL rounded it to 0. Those zeros then won every
+            `fmin` and were added by every `sum`, so the whole mosaic came back as
+            zeros -- data and gaps alike, whatever `no_data_value` said.
+        """
+        pa, pb = disjoint_pair
+        out = tmp_path / f"int_{method}.tif"
+        merge_rasters([pa, pb], out, method=method)
+        arr = Dataset.read_file(str(out)).read_array()
+        assert arr[0, 0] == pytest.approx(covered_a), (
+            f"{method}: raster A's own column reduced to {arr[0, 0]}"
+        )
+        assert arr[0, 11] == pytest.approx(covered_b), (
+            f"{method}: raster B's own column reduced to {arr[0, 11]}"
+        )
+        assert arr[0, 5] == pytest.approx(-9999.0), (
+            f"{method}: the uncovered column should hold the inherited marker, "
+            f"got {arr[0, 5]}"
+        )
+
     @pytest.mark.parametrize("method", ["min", "max", "sum"])
     def test_reduction_byte_identical_across_strip_sizes(
         self, tmp_path, monkeypatch, method

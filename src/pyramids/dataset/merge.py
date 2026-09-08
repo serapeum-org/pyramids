@@ -961,6 +961,16 @@ def _warp_onto_strip(
         height=ysize,
         srcNodata=src_nodata,
         dstNodata=float("nan"),
+        # Warp into the dtype the reduction writes, rather than into the source's
+        # and casting after. `dstNodata=nan` is the whole basis of the NaN-aware
+        # fold below, and an integer destination cannot hold it: GDAL rounds it to
+        # 0 ("destination nodata value has been rounded to 0") and the strip comes
+        # back with real zeros where it has no coverage. Those zeros then win every
+        # `fmin` and are added by every `sum`, so a min/max/sum mosaic of integer
+        # tiles that do not tile contiguously collapsed to all-zero -- whatever
+        # `no_data_value` said, since `covered` never saw a gap. The cast below is
+        # then a no-op rather than a second full-size copy.
+        outputType=gdal.GDT_Float64,
     )
     warped = run_gdal_op(
         partial(gdal.Warp, "", source.handle, options=warp_opts),
@@ -970,7 +980,7 @@ def _warp_onto_strip(
     )
     # np.asarray pins the type: GDAL's ReadAsArray is untyped, so without it the
     # float64 cube is inferred as Any and leaks out of the annotated return.
-    array = np.asarray(warped.ReadAsArray()).astype("float64")
+    array = np.asarray(warped.ReadAsArray()).astype("float64", copy=False)
     if array.ndim == 2:
         array = array[np.newaxis, ...]
     return array
