@@ -161,9 +161,19 @@ def _window_sizes(
     common grid: sizing each half on its own with no ``res`` would cap **each** at
     :data:`~pyramids.base._coverage.DEFAULT_MAX_PX` on its longer side, giving the
     two different pixel sizes and different row counts. So the combined span is
-    sized once and the resolution read back out of it, then applied to both halves
-    -- which also keeps the whole seam-crossing read inside the same pixel budget
-    an unwrapped read of the same width would get.
+    sized once and the resolution read back out of it -- which also keeps the whole
+    seam-crossing read inside the same pixel budget an unwrapped read of the same
+    width would get.
+
+    Deriving one resolution is necessary but not sufficient, and the difference is
+    where this used to go wrong. Rounding each half's width against that resolution
+    independently leaves the two on cell sizes that differ in the sixth decimal,
+    because neither span is an exact multiple of it. So the west width is rounded
+    and the **east takes the remainder** of the combined width, exactly as
+    :func:`pyramids.dataset._wms._seam_windows` does; the caller then passes both
+    through :func:`_align_to_sizes`, which trims each window to the whole number of
+    pixels it will actually be read at. Only after that do the halves genuinely
+    share one grid rather than merely share the number it was derived from.
 
     Args:
         projwins: One or two ``[ulx, uly, lrx, lry]`` windows in the coverage's

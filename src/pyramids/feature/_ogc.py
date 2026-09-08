@@ -321,7 +321,15 @@ def merge_seam_halves(
 
     * **Duplicates.** The halves are disjoint boxes, but a feature that actually
       straddles the seam intersects both and comes back from both requests. It is
-      dropped down to one occurrence by :func:`content_keys`.
+      dropped down to one occurrence by :func:`content_keys`. Note that the
+      de-duplication is over the whole concatenation, not over matched pairs, so a
+      row the *source* holds twice within a single half collapses too -- and only
+      when the bbox wraps, since a single-request read is passed through untouched.
+      Distinguishing the two would mean tagging each row with the half it came from
+      and dropping only cross-half matches; the simpler rule is kept because a
+      genuinely duplicated feature is far rarer than a seam-straddling one, and
+      because a caller who wants exact source multiplicity should not be asking
+      one request to span the antimeridian.
     * **The index.** Each request's frame is indexed from 0, so a concat that
       kept them would hand back a frame with every label twice. The result is
       re-indexed ``0..n-1``, which is what a single-box read returns anyway.
