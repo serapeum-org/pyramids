@@ -356,7 +356,7 @@ class Analysis(_Engine["Dataset"]):
         :meth:`count_domain_cells` weighs every cell the same, which on a
         geographic grid is wrong by the ratio of the latitudes involved: a
         1-degree cell just below 80 degrees north covers 2 272 km2 and one at the
-        equator 12 309 km2, so counting them alike overstates a polar domain
+        equator 12 308 km2, so counting them alike overstates a polar domain
         by roughly four times. This asks the same question in ground units.
 
         The cells are the same ones `count_domain_cells` counts -- whatever the
@@ -365,16 +365,21 @@ class Analysis(_Engine["Dataset"]):
 
         Args:
             band: Band index. Default is 0.
-            unit: `m2` (default), `km2` or `ha`.
+            unit: `m2` (default), `km2` or `ha`. Case and surrounding
+                whitespace are ignored, so `KM2` and `" km2 "` also work.
 
         Returns:
             float: The summed area of the band's valid cells.
 
         Raises:
-            ValueError: `band` is out of range for the dataset, the raster has
-                no CRS, `unit` is not recognised, or the raster is geographic
-                and rotated. See :meth:`Cell.cell_area` for the rest of the CRS
-                and geotransform conditions it defers to.
+            CRSError: The raster has no CRS. A `ValueError` subclass, so an
+                `except ValueError` still catches it.
+            ValueError: `band` is out of range for the dataset -- validated
+                before the areas are asked for, so a bad band on a raster that
+                also has no CRS is still reported as a bad band -- `unit` is
+                not recognised, or the raster is geographic and rotated. See
+                :meth:`Cell.cell_area` for the rest of the CRS and geotransform
+                conditions it defers to.
 
         Examples:
             - A global 1-degree grid with no gaps covers the whole ellipsoid,

@@ -48,24 +48,28 @@ def _area_scale(unit: str) -> float:
     """Square metres in one `unit`.
 
     Args:
-        unit: One of `m2`, `km2`, `ha`.
+        unit: One of `m2`, `km2`, `ha`. Matched after `strip().lower()`, so
+            `KM2` and `" km2 "` name the same unit as `km2`.
 
     Returns:
         float: The divisor that turns square metres into `unit`.
 
     Raises:
-        ValueError: `unit` is not one this package converts to.
+        ValueError: `unit` is not one this package converts to, or is not a
+            string at all -- `None` and `2` are refused the same way.
     """
     try:
         # Normalised first: `KM2` and `" km2"` are the same request as `km2`,
         # and refusing them buys nothing. `strip`/`lower` are attributes, so a
         # non-string argument still falls through to the refusal below.
         scale = _AREA_UNITS[unit.strip().lower()]
-    except (KeyError, TypeError, AttributeError):
-        # `TypeError` as well as `KeyError`: an unhashable argument -- a list,
-        # a dict -- fails the lookup before it can miss, and leaking numpy's
-        # "unhashable type" would contradict the documented `ValueError` that
-        # `None` and `2` already get.
+    except (KeyError, AttributeError):
+        # `AttributeError` as well as `KeyError`: anything that is not a string
+        # -- `None`, `2`, a list -- fails on `strip` before the lookup can miss
+        # it, and leaking that would contradict the `ValueError` this method
+        # documents. Normalising first is what makes `AttributeError` the way a
+        # non-string arrives, rather than the `TypeError` an unhashable key
+        # used to raise.
         raise ValueError(
             f"unknown area unit {unit!r}; expected one of "
             f"{', '.join(sorted(_AREA_UNITS))}"
@@ -255,7 +259,8 @@ class Cell(_Engine["Dataset"]):
           whole raster costs one vectorised pass over the row edges.
 
         Args:
-            unit: `m2` (default), `km2` or `ha`.
+            unit: `m2` (default), `km2` or `ha`. Case and surrounding
+                whitespace are ignored, so `KM2` and `" km2 "` also work.
 
         Returns:
             np.ndarray: Area per cell, shaped like the band, and always a
@@ -271,18 +276,21 @@ class Cell(_Engine["Dataset"]):
             doing so.
 
         Raises:
-            ValueError: The raster has no CRS, `unit` is not recognised, or the
-                raster is geographic *and* rotated -- a case where cells in one
-                row no longer share a latitude band, and which is better solved
-                by warping to a north-up grid or a projected CRS than by
-                spending a geodesic call on every cell. Also when the CRS is
-                neither geographic nor projected, so its axes are not a ground
-                plane -- a geocentric or engineering CRS, since pyproj reads
-                `is_geographic` and `is_projected` through a compound CRS to
-                its horizontal part; when a geographic CRS names no ellipsoid
-                to integrate over; when a row lies entirely beyond a pole; and
-                when the geotransform leaves the cells no extent -- a zero cell
-                size, or a rotation that collapses the parallelogram.
+            CRSError: The raster carries neither an EPSG code nor a WKT, so
+                nothing says what its coordinates measure. A `ValueError`
+                subclass, so an `except ValueError` still catches it.
+            ValueError: `unit` is not recognised, or the raster is geographic
+                *and* rotated -- a case where cells in one row no longer share
+                a latitude band, and which is better solved by warping to a
+                north-up grid or a projected CRS than by spending a geodesic
+                call on every cell. Also when the CRS is neither geographic nor
+                projected, so its axes are not a ground plane -- a geocentric
+                or engineering CRS, since pyproj reads `is_geographic` and
+                `is_projected` through a compound CRS to its horizontal part;
+                when a geographic CRS names no ellipsoid to integrate over, or
+                names a prolate one; when a row lies entirely beyond a pole;
+                and when the geotransform leaves the cells no extent -- a zero
+                cell size, or a rotation that collapses the parallelogram.
 
         Examples:
             - A projected raster has one area for every cell, straight from the
@@ -406,7 +414,8 @@ class Cell(_Engine["Dataset"]):
         Raises:
             ValueError: The CRS's datum names no ellipsoid, so there is no
                 figure of the earth to integrate over, or a row of the raster
-                lies entirely beyond a pole.
+                lies entirely beyond a pole. `_zone_areas` adds one more
+                refusal this propagates: a prolate ellipsoid.
         """
         geod = crs.get_geod()
         if geod is None:
@@ -456,11 +465,12 @@ class Cell(_Engine["Dataset"]):
             `a^2 (1 - e^2) [ sin/(2(1 - e^2 sin^2)) + arctanh(e sin)/(2e) ]`,
 
         so a band's area is that evaluated at two parallels and subtracted.
-        Subtracting it *as written* is the problem: the antiderivative is of
-        order 2.5e13 while a 1e-6-degree band covers about 3 m2, and the
-        difference of two nearly equal doubles keeps none of that. It reaches
-        exactly `0.0` near the pole at 1e-7 degrees, which then trips the
-        no-extent guard and refuses the raster.
+        Subtracting it *as written* is the problem: the antiderivative is
+        4.1e13 at the pole while the band against it at 1e-6 degrees covers
+        6.2e-03 m2 per radian of longitude, and the difference of two nearly
+        equal doubles keeps none of that. It reaches exactly `0.0` near the
+        pole at 1e-7 degrees, which then trips the no-extent guard and refuses
+        the raster.
 
         So the subtraction is done first, in closed form, and never evaluated:
 
@@ -479,7 +489,9 @@ class Cell(_Engine["Dataset"]):
 
         Returns:
             np.ndarray: One area per row, in square metres per radian of
-            longitude, in row order and always positive.
+            longitude, in row order and never negative -- `0.0` when a band's
+            two edges coincide, which the caller refuses as a cell with no
+            extent.
 
         Raises:
             ValueError: `f` is negative, describing a prolate figure that this

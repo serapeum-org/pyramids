@@ -2,7 +2,7 @@
 
 `cell_size` answers in the CRS's units and `count_domain_cells` weighs every
 cell alike, so neither can say how much ground a geographic raster covers -- a
-1-degree cell spans 12 309 km2 at the equator and 2 272 km2 in the band just
+1-degree cell spans 12 308 km2 at the equator and 2 272 km2 in the band just
 below 80 degrees north. `get_cell_polygons().area` cannot either: those polygons are in degrees,
 so every cell on the grid reports the same number.
 
@@ -723,7 +723,7 @@ class TestHowAUnitIsSpelled:
 
 
 class TestPrecisionAtSmallCellSizes:
-    """The antiderivative is 2.5e13; a sub-metre cell is a few square metres."""
+    """The antiderivative is 4.1e13 at the pole; the band beside it is 6.2e-03."""
 
     @pytest.mark.parametrize(
         "size, latitude",
