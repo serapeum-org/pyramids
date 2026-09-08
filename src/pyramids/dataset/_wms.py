@@ -46,6 +46,7 @@ from typing import TYPE_CHECKING, Any
 
 from osgeo import gdal
 
+from pyramids.base._coverage import MAX_PX
 from pyramids.base._coverage import check_seam_bbox as _check_seam_bbox
 from pyramids.base._coverage import native_projwin as _native_projwin
 from pyramids.base._coverage import native_resolution as _native_resolution
@@ -128,8 +129,9 @@ def _output_size(
         tuple[int, int]: The ``(width, height)`` to request, each at least 1 pixel.
 
     Raises:
-        ValueError: both or neither of ``size`` / ``resolution`` were given, or
-            ``size`` is not two positive integers.
+        ValueError: both or neither of ``size`` / ``resolution`` were given,
+            ``size`` is not two positive integers, or ``resolution`` over this
+            extent exceeds :data:`~pyramids.base._coverage.MAX_PX` on either axis.
 
     Examples:
         - A wrapping bbox is sized from the span it actually covers (20 degrees
@@ -157,9 +159,13 @@ def _output_size(
             )
         _, miny, _, maxy = bbox
         span_x = sum(half[2] - half[0] for half in _seam_halves(bbox))
-        # `max_px=None`: this is a local sizing decision, not the coverage
-        # readers' HTTP-fetch ceiling, so no cap applies here.
-        result = grid_size(span_x, maxy - miny, res, max_px=None)
+        # A GetMap is an HTTP fetch like any other, so it takes the same ceiling
+        # the coverage readers use. It matters more here than it used to: a
+        # transposed bbox is now read as a 359 degree wrap, and at a fine
+        # resolution that resolves to hundreds of thousands of columns -- two
+        # requests no server will serve, and half a gigabyte per half held in
+        # memory before the stitch copies both again.
+        result = grid_size(span_x, maxy - miny, res, max_px=MAX_PX)
     return result
 
 

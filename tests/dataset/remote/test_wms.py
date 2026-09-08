@@ -140,6 +140,40 @@ class TestOutputSize:
             _wms._output_size(BBOX, bad, None)
 
 
+class TestOutputSizeCeiling:
+    """A GetMap is bounded like every other network read.
+
+    Before a wrap was accepted, a `minx > maxx` bbox never reached the sizing path.
+    Now it does, and a transposed pair spans 359 degrees -- so without a ceiling an
+    ordinary typo becomes two requests of a few hundred thousand columns each.
+    """
+
+    def test_a_transposed_bbox_is_refused_rather_than_sized(self):
+        """The case the ceiling exists for.
+
+        Test scenario:
+            `(6, 51, 5, 52)` reads as a 359 degree wrap. At 0.001 degree pixels
+            that is 359,000 columns -- roughly half a gigabyte per half, and
+            another full copy to stitch them. It raises instead, and the message
+            names the way out.
+        """
+        with pytest.raises(
+            ValueError, match=r"exceeds the 25000 px limit: 359000x1000"
+        ):
+            _wms._output_size((6.0, 51.0, 5.0, 52.0), None, 0.001)
+
+    def test_an_ordinary_fine_read_is_still_allowed(self):
+        """The ceiling is generous enough not to bother a real request."""
+        assert _wms._output_size((5.0, 51.0, 6.0, 52.0), None, 0.001) == (1000, 1000)
+
+    def test_an_explicit_size_is_still_taken_verbatim(self):
+        """The cap applies to sizing from a resolution, not to a size the caller set."""
+        assert _wms._output_size((5.0, 51.0, 6.0, 52.0), (4096, 2048), None) == (
+            4096,
+            2048,
+        )
+
+
 class TestLayersValue:
     def test_string_passthrough(self):
         assert _wms._layers_value("OSM-WMS") == "OSM-WMS"
