@@ -50,7 +50,7 @@ import urllib.request
 from functools import lru_cache
 from math import ceil
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, NamedTuple, cast
 from xml.etree import ElementTree as ET  # nosec B405 - server XML; DoS accepted, no XXE
 
 from osgeo import gdal
@@ -578,21 +578,48 @@ def _open_getcoverage_bytes(payload: bytes, coverage: str) -> gdal.Dataset:
     return mem
 
 
+class _DirectRequest(NamedTuple):
+    """Everything a direct ``GetCoverage`` needs except the window itself.
+
+    These thirteen values travel together from :func:`from_wcs` to every window's
+    request, unchanged -- only the bbox differs between the two halves of a seam
+    read. Naming the group keeps the helpers that forward it to a readable
+    signature instead of a fourteen-parameter list where the one argument that
+    actually varies is lost among the ones that do not.
+
+    Attributes:
+        dataset_cls: The class each part is wrapped as.
+        endpoint: The WCS service URL.
+        coverage: The coverage identifier.
+        crs: The CRS the request windows are expressed in.
+        version: The WCS protocol version, or `None` for the default.
+        wcs_format: The requested response format, or `None`.
+        resolution: The caller's raw resolution, forwarded to the request.
+        subset_axes: WCS 2.0 axis labels, or `None` for the default.
+        coverage_crs: The CRS shim, or `None`.
+        auth: Optional basic-auth credentials.
+        timeout: HTTP timeout in seconds.
+        extra_params: Optional extra KVP overrides.
+    """
+
+    dataset_cls: type[Dataset]
+    endpoint: str
+    coverage: str
+    crs: str
+    version: str | None
+    wcs_format: str | None
+    resolution: float | tuple[float, float] | None
+    subset_axes: tuple[str, str] | None
+    coverage_crs: str | None
+    auth: tuple[str, str] | None
+    timeout: float
+    extra_params: dict[str, str] | None
+
+
 def _collect_direct_parts(
-    dataset_cls: type[Dataset],
-    endpoint: str,
-    coverage: str,
+    request: _DirectRequest,
     windows: list[tuple[float, float, float, float]],
-    crs: str,
-    version: str | None,
-    wcs_format: str | None,
-    resolution: float | tuple[float, float] | None,
     res: tuple[float, float] | None,
-    subset_axes: tuple[str, str] | None,
-    coverage_crs: str | None,
-    auth: tuple[str, str] | None,
-    timeout: float,
-    extra_params: dict[str, str] | None,
 ) -> tuple[list[Dataset], str | None, tuple[float, float] | None]:
     """Fetch every window through direct mode and report how to finalize them.
 
@@ -602,20 +629,9 @@ def _collect_direct_parts(
     coverage. Keeping both inline made the caller's branching hard to follow.
 
     Args:
-        dataset_cls: The class each part is wrapped as.
-        endpoint: The WCS service URL.
-        coverage: The coverage identifier.
+        request: The service and protocol parameters every window shares.
         windows: The one or two ``west < east`` boxes to request.
-        crs: The CRS `windows` are expressed in.
-        version: The WCS protocol version, or `None` for the default.
-        wcs_format: The requested response format, or `None`.
-        resolution: The caller's raw resolution, forwarded to the request.
-        res: The same resolution normalised to a pair, used for seam snapping.
-        subset_axes: WCS 2.0 axis labels, or `None` for the default.
-        coverage_crs: The CRS shim, or `None`.
-        auth: Optional basic-auth credentials.
-        timeout: HTTP timeout in seconds.
-        extra_params: Optional extra KVP overrides.
+        res: `request.resolution` normalised to a pair, used for seam snapping.
 
     Returns:
         tuple[list[Dataset], str | None, tuple[float, float] | None]: The fetched
@@ -638,25 +654,25 @@ def _collect_direct_parts(
     native_wkt: str | None = None
     for window in windows:
         part, native_wkt = _from_wcs_direct(
-            dataset_cls,
-            endpoint,
-            coverage,
+            request.dataset_cls,
+            request.endpoint,
+            request.coverage,
             window,
-            crs,
-            version,
-            wcs_format,
-            resolution,
-            subset_axes,
-            coverage_crs,
-            auth,
-            timeout,
-            extra_params,
+            request.crs,
+            request.version,
+            request.wcs_format,
+            request.resolution,
+            request.subset_axes,
+            request.coverage_crs,
+            request.auth,
+            request.timeout,
+            request.extra_params,
         )
         parts.append(part)
     # 1.0.0 direct sends RESX/RESY, so the server already grids to `res`; skip the
     # redundant client-side resample. 2.0.x has no request-side resolution, so it
     # resamples client-side in _finalize.
-    finalize_res = None if (version or "2.0.0").startswith("1.0") else res
+    finalize_res = None if (request.version or "2.0.0").startswith("1.0") else res
     return parts, native_wkt, finalize_res
 
 
@@ -961,20 +977,22 @@ def from_wcs(
     try:
         if direct:
             direct_parts, native_wkt, finalize_res = _collect_direct_parts(
-                dataset_cls,
-                endpoint,
-                coverage,
+                _DirectRequest(
+                    dataset_cls,
+                    endpoint,
+                    coverage,
+                    crs,
+                    version,
+                    wcs_format,
+                    resolution,
+                    subset_axes,
+                    coverage_crs,
+                    auth,
+                    timeout,
+                    extra_params,
+                ),
                 windows,
-                crs,
-                version,
-                wcs_format,
-                resolution,
                 res,
-                subset_axes,
-                coverage_crs,
-                auth,
-                timeout,
-                extra_params,
             )
             parts.extend(direct_parts)
             # Direct mode has no descriptor to measure against, so 360 is an
