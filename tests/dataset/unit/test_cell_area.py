@@ -273,6 +273,36 @@ class TestWhatCannotBeAnswered:
         with pytest.raises(ValueError, match="rotated geographic"):
             raster.cell_area()
 
+    @pytest.mark.parametrize(
+        "geo",
+        [
+            (0.0, 1.0, 0.2, 90.0, 0.0, -1.0),
+            (0.0, 1.0, 0.0, 90.0, 0.2, -1.0),
+        ],
+    )
+    def test_either_rotation_term_alone_is_enough_to_refuse(self, geo):
+        """Neither half of the guard is redundant, so neither may be dropped.
+
+        Args:
+            geo: A geotransform rotated on the x term only, then on the y term
+                only.
+
+        Test scenario:
+            The rotated raster above sets `geo[2]` and `geo[4]` together, so
+            either half of `bool(geo[2]) or bool(geo[4])` still catches it and
+            dropping the other changes nothing the suite can see. Each term
+            alone is enough to break the per-row shortcut, and `geo[4]` is the
+            dangerous one: `_parallel_row_areas` unpacks only `dx`, `top` and
+            `dy`, so a y-rotation that slipped past the guard would be ignored
+            outright and every row answered as though it were north-up.
+        """
+        raster = Dataset.from_array(
+            np.ones((4, 4), "float32"), geo_ref=GeoReference(geo=geo, epsg=4326)
+        )
+
+        with pytest.raises(ValueError, match="rotated geographic"):
+            raster.cell_area()
+
 
 class TestTheRefusalsAddedAfterReview:
     """Inputs that used to leak an internal error instead of a clear one."""
@@ -290,8 +320,10 @@ class TestTheRefusalsAddedAfterReview:
             `KeyError` -- leaving `unit=["km2"]` with numpy's "unhashable
             type" while `unit=None` got the documented message.
         """
+        grid = _global_grid()
+
         with pytest.raises(ValueError, match="unknown area unit"):
-            _global_grid().cell_area(unit=unit)
+            grid.cell_area(unit=unit)
 
     @pytest.mark.parametrize("method", ["domain_area", "count_domain_cells"])
     @pytest.mark.parametrize("band", [5, -1])
@@ -310,8 +342,10 @@ class TestTheRefusalsAddedAfterReview:
             are now refused up front, with the message the rest of the package
             already uses for a bad band.
         """
+        counter = getattr(_global_grid(), method)
+
         with pytest.raises(ValueError, match="out of range for a 1-band"):
-            getattr(_global_grid(), method)(band=band)
+            counter(band=band)
 
     def test_a_geocentric_crs_is_refused(self):
         """Axes that are not a ground plane have no cell area.
@@ -405,6 +439,25 @@ class TestTheRefusalsAddedAfterReview:
             raster.cell_area()
 
         assert "19 of its 200 rows" in str(caught.value)
+
+    def test_a_row_entirely_past_the_north_pole_is_refused_as_well(self):
+        """The guard has two halves and only its southern one was exercised.
+
+        Test scenario:
+            The raster above starts at 90 and runs off the *bottom*, so
+            `off = above | below` was only ever true through `below` -- the
+            `above` half could be deleted with the whole suite still green.
+            A raster georeferenced too far north is the ordinary way to reach
+            it, and clipping alone would hand those rows back as exact zeros
+            for the caller to sum as real ground.
+        """
+        geo_ref = GeoReference(geo=(-180.0, 1.0, 0.0, 95.0, 0.0, -1.0), epsg=4326)
+        raster = Dataset.from_array(np.ones((10, 8), "float32"), geo_ref=geo_ref)
+
+        with pytest.raises(ValueError, match="runs off the ellipsoid") as caught:
+            raster.cell_area()
+
+        assert "4 of its 10 rows" in str(caught.value)
 
     def test_the_clip_is_what_keeps_an_overshoot_from_reading_as_a_lower_row(self):
         """Past the pole the sine turns back down, so 100 degrees reads as 80.
@@ -606,6 +659,55 @@ class TestTheEdgesTheHappyPathMisses:
         assert raster.domain_area(band=0) == pytest.approx(float(areas.sum()))
         assert raster.domain_area(band=1) == pytest.approx(float(areas[1:, :].sum()))
 
+    def test_each_band_is_masked_by_its_own_sentinel(self):
+        """`band=` selects the sentinel too, not only which pixels are read.
+
+        Test scenario:
+            The bands above declare one sentinel between them, so reading
+            `no_data_value[0]` instead of `no_data_value[band]` answers them
+            both correctly and nothing notices. Here band 1 declares `-1` and
+            carries `-9999` as an ordinary value, which is band 0's sentinel:
+            the wrong lookup masks band 1's first row -- real data -- and keeps
+            its last row, which is the gap. The two answers must therefore
+            differ, and each must match the rows its own band keeps.
+        """
+        geo_ref = GeoReference(top_left_corner=(0.0, 10.0), cell_size=1.0, epsg=4326)
+        values = np.ones((2, 4, 4), dtype="float32")
+        values[0, 0, :] = -9999.0
+        values[1, 0, :] = -9999.0
+        values[1, 3, :] = -1.0
+        raster = Dataset.from_array(
+            values, geo_ref=geo_ref, no_data_value=[-9999.0, -1.0]
+        )
+
+        areas = raster.cell_area()
+        assert raster.domain_area(band=0) == pytest.approx(float(areas[1:, :].sum()))
+        assert raster.domain_area(band=1) == pytest.approx(float(areas[:3, :].sum()))
+
+    def test_an_east_to_west_grid_has_positive_areas(self):
+        """A negative `dx` walks the columns the other way; area has no sign.
+
+        Test scenario:
+            The horizontal twin of the south-up case. The longitude span comes
+            straight from the geotransform, so a raster whose columns run east
+            to west hands it a negative `dx`; without the magnitude every row
+            area turns negative and the no-extent guard refuses a perfectly
+            ordinary global grid. Column order cannot change a latitude band,
+            so the rows must match the west-to-east grid exactly and the total
+            must still be the ellipsoid.
+        """
+        geo_ref = GeoReference(geo=(180.0, -1.0, 0.0, 90.0, 0.0, -1.0), epsg=4326)
+        east_to_west = Dataset.from_array(
+            np.ones((180, 360), "float32"), geo_ref=geo_ref
+        )
+
+        areas = east_to_west.cell_area(unit="km2")
+
+        assert np.allclose(
+            areas[:, 0], _global_grid().cell_area(unit="km2")[:, 0], rtol=1e-12
+        )
+        assert float(areas.sum()) == pytest.approx(WGS84_ELLIPSOID_KM2, rel=1e-6)
+
     def test_a_band_declaring_no_sentinel_is_wholly_domain(self):
         """No sentinel means no gaps, so every cell counts.
 
@@ -708,8 +810,10 @@ class TestTheGuardsNoPublicInputReaches:
         """
         monkeypatch.setattr(CRS, "get_geod", lambda self: None)
 
+        grid = _global_grid()
+
         with pytest.raises(ValueError, match="declares no ellipsoid"):
-            _global_grid().cell_area()
+            grid.cell_area()
 
 
 class TestHowAUnitIsSpelled:
@@ -733,8 +837,10 @@ class TestHowAUnitIsSpelled:
         Args:
             spelling: A unit name that is not one of the three supported.
         """
+        grid = _global_grid()
+
         with pytest.raises(ValueError, match="unknown area unit"):
-            _global_grid().cell_area(unit=spelling)
+            grid.cell_area(unit=spelling)
 
 
 class TestPrecisionAtSmallCellSizes:
@@ -825,6 +931,81 @@ class TestACompoundCrs:
         raster = Dataset(handle)
 
         assert float(raster.cell_area()[0, 0]) == pytest.approx(expected, rel=1e-3)
+
+
+class TestANonDegreeAngularUnit:
+    """A geographic CRS whose axes are not degrees, and there are a few."""
+
+    def test_the_crs_says_what_the_geotransform_measures(self):
+        """The angular unit is read from the CRS, as the linear one is.
+
+        Test scenario:
+            EPSG:4807 (NTF Paris) measures latitude and longitude in **grads**,
+            so its pole sits at 100 and a full turn is 400. Every other raster
+            in this file is in degrees, which leaves `deg2rad` indistinguishable
+            from the CRS's own conversion factor -- and reading this grid as
+            degrees would put ten of its rows past the pole rather than merely
+            getting them slightly wrong. Its ungapped global grid must total the
+            surface area of the CRS's own ellipsoid (Clarke 1880 IGN, not
+            WGS84), derived here from the authalic closed form.
+        """
+        crs = CRS.from_epsg(4807)
+        assert crs.axis_info[0].unit_name == "grad", "EPSG:4807 must still be in grads"
+        geod = crs.get_geod()
+        eccentricity_squared = geod.f * (2.0 - geod.f)
+        eccentricity = np.sqrt(eccentricity_squared)
+        exact = (
+            2.0
+            * np.pi
+            * geod.a**2
+            * (
+                1.0
+                + (1.0 - eccentricity_squared)
+                / (2.0 * eccentricity)
+                * np.log((1.0 + eccentricity) / (1.0 - eccentricity))
+            )
+        )
+
+        handle = gdal.GetDriverByName("MEM").Create("", 400, 200, 1, gdal.GDT_Byte)
+        handle.SetGeoTransform((0.0, 1.0, 0.0, 100.0, 0.0, -1.0))
+        handle.SetProjection(crs.to_wkt())
+
+        total = float(Dataset(handle).cell_area().sum())
+
+        assert total == pytest.approx(exact, rel=1e-9)
+
+
+class TestWhichRefusalComesFirst:
+    """More than one thing can be wrong; the caller is told about theirs."""
+
+    @pytest.mark.parametrize(
+        ("kwargs", "message"),
+        [
+            ({"band": 5}, "out of range for a 1-band"),
+            ({"unit": "acres"}, "unknown area unit"),
+        ],
+    )
+    def test_the_argument_is_blamed_before_the_missing_crs(self, kwargs, message):
+        """A bad argument on an ungeoreferenced raster is still a bad argument.
+
+        Args:
+            kwargs: The argument at fault.
+            message: What the refusal has to name.
+
+        Test scenario:
+            `domain_area` documents that the band is validated before the areas
+            are asked for, precisely so a bad band on a raster that also has no
+            CRS is reported as a bad band. Every other band test uses a raster
+            that does have one, so moving `_require_band` below the `cell_area`
+            call changed nothing the suite could see. The unit is checked the
+            same way, ahead of anything the CRS decides.
+        """
+        handle = gdal.GetDriverByName("MEM").Create("", 2, 2, 1, gdal.GDT_Float32)
+        handle.SetGeoTransform((0.0, 1.0, 0.0, 0.0, 0.0, -1.0))
+        raster = Dataset(handle)
+
+        with pytest.raises(ValueError, match=message):
+            raster.domain_area(**kwargs)
 
 
 class TestWhatItCostsToAsk:
