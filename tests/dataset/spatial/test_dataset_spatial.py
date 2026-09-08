@@ -1965,6 +1965,38 @@ class TestCropFillValues:
 
         assert np.asarray(cropped.read_array()).shape == (3, 3)
 
+    def test_a_band_with_no_computable_range_falls_back_to_reading(self):
+        """GDAL refuses a range for a band with no valid pixels.
+
+        Test scenario:
+            `ComputeRasterMinMax` raises `Failed to compute min/max, no valid
+            pixels found in sampling` when every cell is the band's declared
+            no-data. The cheap range test cannot answer there, so it says so
+            and lets the caller fall back to reading the band rather than
+            letting a GDAL `RuntimeError` out of `crop`.
+        """
+        source = Dataset.from_array(
+            np.zeros((4, 4), dtype="uint8"), geo_ref=self.GEO, no_data_value=0
+        )
+
+        assert source.spatial._fill_outside_the_band_range(0, np.dtype("uint8")) is None
+
+    def test_a_band_with_no_valid_cells_falls_back_to_reading(self):
+        """GDAL refuses to compute a range it has no pixels for.
+
+        Test scenario:
+            `ComputeRasterMinMax` raises `Failed to compute min/max, no valid
+            pixels found in sampling` when every cell is the band's declared
+            no-data. The cheap range test cannot answer there, and letting the
+            `RuntimeError` out would turn a resolvable crop into a crash, so it
+            reports "no answer" and the caller reads the band instead.
+        """
+        source = Dataset.from_array(
+            np.zeros((4, 4), dtype="uint8"), geo_ref=self.GEO, no_data_value=0
+        )
+
+        assert source.spatial._fill_outside_the_band_range(0, np.dtype("uint8")) is None
+
     def test_a_band_holding_every_candidate_refuses(self):
         """The honest failure, rather than a colliding fill.
 
