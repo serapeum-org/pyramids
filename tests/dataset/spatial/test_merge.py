@@ -776,9 +776,8 @@ class TestSourceBounds:
         assert "tile_B04_0042.tif" in message, f"source not named: {message}"
         assert "403" in message, f"GDAL's own message not preserved: {message}"
         cause = excinfo.value.__cause__
-        assert cause is not None and "403" in str(cause), (
-            f"GDAL's own error should be chained as __cause__, got {cause!r}"
-        )
+        assert cause is not None, "GDAL's own error should be chained as __cause__"
+        assert "403" in str(cause), f"the chained cause lost GDAL's text: {cause!r}"
 
     def test_open_returning_none_raises(self, monkeypatch):
         """A ``None`` from ``gdal.Open`` is classified, not returned to the caller.
@@ -837,9 +836,8 @@ class TestPrepareSources:
         assert expected_position in message, f"wrong position marker: {message}"
         assert "403" in message, f"GDAL's own message not preserved: {message}"
         cause = excinfo.value.__cause__
-        assert cause is not None and "403" in str(cause), (
-            f"GDAL's own error should be chained as __cause__, got {cause!r}"
-        )
+        assert cause is not None, "GDAL's own error should be chained as __cause__"
+        assert "403" in str(cause), f"the chained cause lost GDAL's text: {cause!r}"
 
     def test_unopenable_signed_source_does_not_leak_its_credential(
         self, shared_crs_pair, monkeypatch

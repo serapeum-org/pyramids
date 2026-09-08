@@ -70,9 +70,10 @@ class TestRunGdalOp:
 
     def test_raising_call_is_branded_with_action_and_subject(self):
         """A raising call keeps GDAL's text and names what was attempted on what."""
+        operation = _raise_runtime_error("HTTP response code: 403")
         with pytest.raises(_DemoError) as excinfo:
             run_gdal_op(
-                _raise_runtime_error("HTTP response code: 403"),
+                operation,
                 error=_DemoError,
                 action="building the mosaic",
                 subject="sources ['tile.tif']",
@@ -143,9 +144,10 @@ class TestSharedHelpersRedactCredentials:
     def test_run_gdal_op_redacts_the_subject(self):
         """A credential in the subject is blanked, the rest of the URL kept."""
         signed = "'https://acct.blob.core.windows.net/c/t.tif?sig=SECRETTOKEN'"
+        operation = _raise_runtime_error("HTTP response code: 403")
         with pytest.raises(_DemoError) as excinfo:
             run_gdal_op(
-                _raise_runtime_error("HTTP response code: 403"),
+                operation,
                 error=_DemoError,
                 action="opening",
                 subject=f"source {signed}",
