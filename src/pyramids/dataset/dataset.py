@@ -23,6 +23,7 @@ from osgeo import gdal
 
 from pyramids import _io
 from pyramids.base._axes import AXIS_NAMES, X_AXIS_NAMES, Y_AXIS_NAMES
+from pyramids.base._domain import inherit_no_data
 from pyramids.base._errors import AlignmentError, ContainerRasterWarning, CRSError
 from pyramids.base._utils import (
     # Re-exported, not used here. The dtype catalogue was defined in this module's
@@ -5233,26 +5234,9 @@ class Dataset(RasterBase):
             out_names = _derive_band_names(resolved_paths)
 
         if no_data_value is _INHERIT_NO_DATA:
-            source_nd = [ds.no_data_value[0] for ds in datasets]
-            present = [v for v in source_nd if v is not None]
-            if not present:
-                resolved_nd: Any | None = None
-            else:
-                resolved_nd = source_nd[0] if source_nd[0] is not None else present[0]
-                # NaN != NaN, so plain set() over-reports disagreement for
-                # float-NaN sentinels (the GeoTIFF default for float rasters).
-                # Normalise NaN to a single key so we only warn when distinct
-                # *real* values are present.
-                distinct = {
-                    "__nan__" if isinstance(v, float) and np.isnan(v) else v
-                    for v in present
-                }
-                if len(distinct) > 1:
-                    warnings.warn(
-                        f"source rasters disagree on no-data value ({sorted(set(present))}); "
-                        f"using {resolved_nd!r}",
-                        stacklevel=2,
-                    )
+            resolved_nd: Any | None = inherit_no_data(
+                [ds.no_data_value[0] for ds in datasets]
+            )
         else:
             resolved_nd = no_data_value
 

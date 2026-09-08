@@ -895,3 +895,72 @@ __all__ = [
     "no_data_candidates",
     "occurs_in",
 ]
+
+
+def inherit_no_data(values: Sequence[float | None]) -> float | None:
+    """Resolve the no-data value an output should declare from what its sources declare.
+
+    Combining rasters has to answer "what does the result call no-data?".
+    Inventing a sentinel is the wrong answer: a fixed default collides with real
+    data the moment the sources contain it -- a 0 in an elevation or bathymetry
+    model is sea level, not a hole -- and it silently discards what the inputs
+    already said. So the answer is taken from the sources themselves.
+
+    The first declared value wins, so the caller's ordering decides. A source
+    declaring nothing simply defers to one that does; sources that disagree warn
+    rather than silently picking one.
+
+    Args:
+        values: Each source's declared no-data, in source order, with `None`
+            where a source declares none.
+
+    Returns:
+        float | None: The value the output should declare, or `None` when no
+        source declared one -- in which case nothing should be masked.
+
+    Warns:
+        UserWarning: The sources declare more than one distinct value.
+
+    Examples:
+        - Sources that agree hand that value back:
+            ```python
+            >>> from pyramids.base._domain import inherit_no_data
+            >>> inherit_no_data([-9999.0, -9999.0])
+            -9999.0
+
+            ```
+        - A source declaring nothing defers to one that does:
+            ```python
+            >>> from pyramids.base._domain import inherit_no_data
+            >>> inherit_no_data([None, -32768.0])
+            -32768.0
+
+            ```
+        - When no source declares one the result declares none, so a real 0
+          stays readable:
+            ```python
+            >>> from pyramids.base._domain import inherit_no_data
+            >>> print(inherit_no_data([None, None]))
+            None
+
+            ```
+    """
+    present = [value for value in values if value is not None]
+    if not present:
+        return None
+    first = values[0] if values else None
+    resolved = first if first is not None else present[0]
+    # NaN != NaN, so a plain set() over-reports disagreement for float-NaN
+    # sentinels (the GeoTIFF default for a float raster). Normalise NaN to one
+    # key so only distinct *real* values warn.
+    distinct = {
+        "__nan__" if isinstance(value, float) and np.isnan(value) else value
+        for value in present
+    }
+    if len(distinct) > 1:
+        warnings.warn(
+            f"source rasters disagree on no-data value ({sorted(set(present))}); "
+            f"using {resolved!r}",
+            stacklevel=3,
+        )
+    return resolved
