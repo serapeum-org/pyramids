@@ -228,7 +228,8 @@ class TestChangeNoDataValueToAnUnstorableSentinel:
     """
 
     @pytest.mark.parametrize(
-        "numpy_dtype", [np.uint8, np.uint16, np.uint32, np.int16, np.int32]
+        "numpy_dtype",
+        [np.uint8, np.uint16, np.uint32, np.uint64, np.int16, np.int32, np.int64],
     )
     def test_an_integer_band_refuses_an_unstorable_sentinel(self, numpy_dtype):
         """The rule, across the integer types.
@@ -239,7 +240,10 @@ class TestChangeNoDataValueToAnUnstorableSentinel:
         Test scenario:
             `None` resolves to NaN, which no integer band can hold. Refusing
             says so; answering with the maximum invents a sentinel the caller
-            never asked for, at the value their data most likely uses.
+            never asked for, at the value their data most likely uses. The
+            64-bit widths are here because they are the ones whose extremes do
+            not survive a `float64` round trip, so they are likeliest to
+            diverge -- and `docs/migration.md` names `uint64` in its table.
         """
         dataset = _raster(numpy_dtype)
 
