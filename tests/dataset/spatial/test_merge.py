@@ -709,8 +709,12 @@ class TestMergeRastersDstCrs:
 
         pa, pb = shared_crs_pair
         monkeypatch.setattr(merge_mod.gdal, "Open", lambda *a, **k: None)
-        with pytest.raises(RuntimeError, match="GDAL returned no dataset"):
+        with pytest.raises(RuntimeError) as excinfo:
             merge_rasters([pa, pb], tmp_path / "x.tif")
+        message = str(excinfo.value)
+        assert "GDAL returned no dataset" in message, message
+        assert Path(pa).name in message, f"the failing source is not named: {message}"
+        assert "1/2" in message, f"the source position is missing: {message}"
 
 
 class TestSourceBounds:
@@ -777,12 +781,13 @@ class TestSourceBounds:
         )
 
     def test_open_returning_none_raises(self, monkeypatch):
-        """A ``None`` from ``gdal.Open`` still raises, for exceptions-disabled callers.
+        """A ``None`` from ``gdal.Open`` is classified, not returned to the caller.
 
         Test scenario:
             A caller running with ``gdal.DontUseExceptions()`` gets ``None`` from a
-            failed open rather than an exception, so the ``is None`` guard is the
-            branch that fires. It is kept alongside the raising path (#1107).
+            failed open rather than an exception. ``open_network_dataset`` brands
+            that shape too, so ``_source_bounds`` never has to guard for it -- this
+            pins that classification as seen from ``_source_bounds`` (#1107).
         """
         monkeypatch.setattr(merge_mod.gdal, "Open", lambda *a, **k: None)
         with pytest.raises(
@@ -1374,7 +1379,7 @@ class TestMergeNoneGuards:
         pa, pb = overlapping_pair
         monkeypatch.setattr(gdal, "Translate", lambda *a, **k: None)
         out = str(tmp_path / "o.tif")
-        with pytest.raises(RuntimeError, match="writing the mosaic returned no raster"):
+        with pytest.raises(RuntimeError, match="writing the mosaic produced no output"):
             merge_rasters([pa, pb], out, no_data_value=-1.0, method="last")
 
     def test_reduce_warp_none_raises(self, overlapping_pair, tmp_path, monkeypatch):

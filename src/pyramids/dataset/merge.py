@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -381,17 +382,11 @@ def _source_bounds(
     if isinstance(path, gdal.Dataset):
         ds, opened = path, False
     else:
-        # open_network_dataset owns both failure shapes (ARC-331): GDAL raises
-        # under gdal.UseExceptions() but returns None when exceptions are off,
-        # and for a /vsicurl/ or /vsis3/ source GDAL's own message carries only
-        # the HTTP status -- not the URL. Naming it here is what #1107 asks for.
         source = str(path)
         ds = open_network_dataset(
             source, error=RuntimeError, subject=f"merge source {source!r}"
         )
         opened = True
-    if ds is None:  # pragma: no cover - open_network_dataset never returns None
-        raise RuntimeError(f"GDAL returned no dataset for merge source {path!r}")
     bounds = GeoTransform(*ds.GetGeoTransform()).extent(ds.RasterXSize, ds.RasterYSize)
     if opened:
         # Close the handle we opened; a caller-supplied gdal.Dataset is theirs to own.
@@ -676,7 +671,7 @@ def merge_rasters(
             VRTNodata=str(init),
         )
         vrt_ds = run_gdal_op(
-            lambda: gdal.BuildVRT("", ordered, options=vrt_opts),
+            partial(gdal.BuildVRT, "", ordered, options=vrt_opts),
             error=RuntimeError,
             action="building the source mosaic",
             subject=f"sources {src_paths!r}",
@@ -734,10 +729,11 @@ def merge_rasters(
             projWin=proj_win,
         )
         out_ds = run_gdal_op(
-            lambda: gdal.Translate(str(dst), vrt_ds, options=translate_opts),
+            partial(gdal.Translate, str(dst), vrt_ds, options=translate_opts),
             error=RuntimeError,
             action="writing the mosaic",
-            subject=f"{str(dst)!r}",
+            subject=f"destination {str(dst)!r}",
+            outcome="produced no output",
         )
         out_ds.FlushCache()
         out_ds = None
@@ -828,10 +824,11 @@ def _prepare_sources(
     opened: list = []
     source_srs: list[osr.SpatialReference] = []
     for index, path in enumerate(src_paths):
-        # open_network_dataset owns both failure shapes (ARC-331). Naming the
-        # source is what #1107 asks for: for a /vsicurl/ or /vsis3/ source GDAL's
-        # own message is just the HTTP status ("HTTP response code: 403") and
-        # names nothing. The index says how far the open got on a big mosaic.
+        # open_network_dataset (PR #1084) owns both GDAL failure shapes, and
+        # redacts. Naming the source is what #1107 asks for: for a /vsicurl/ or
+        # /vsis3/ source GDAL's own message is just the HTTP status ("HTTP
+        # response code: 403") and names nothing. The index says how far the
+        # open got on a big mosaic.
         dataset = open_network_dataset(
             path,
             error=RuntimeError,
@@ -867,14 +864,14 @@ def _prepare_sources(
         if srs.IsSame(target_srs):
             sources.append(dataset)
             continue
+        # Built outside the thunk: a bad option is the caller's mistake, and
+        # re-branding it would blame the source for an argument error. `partial`
+        # rather than a lambda so nothing closes over the loop variable.
+        warp_opts = gdal.WarpOptions(
+            format="VRT", dstSRS=target_wkt, resampleAlg=resample_alg
+        )
         warped = run_gdal_op(
-            lambda: gdal.Warp(
-                "",
-                dataset,
-                options=gdal.WarpOptions(
-                    format="VRT", dstSRS=target_wkt, resampleAlg=resample_alg
-                ),
-            ),
+            partial(gdal.Warp, "", dataset, options=warp_opts),
             error=RuntimeError,
             action="reprojecting to the target CRS",
             subject=f"source {index + 1}/{len(src_paths)} {path!r}",
@@ -943,7 +940,7 @@ def _warp_onto_strip(
         dstNodata=float("nan"),
     )
     warped = run_gdal_op(
-        lambda: gdal.Warp("", source.handle, options=warp_opts),
+        partial(gdal.Warp, "", source.handle, options=warp_opts),
         error=RuntimeError,
         action="warping onto the union grid",
         subject=f"source {source.label}",
@@ -1073,7 +1070,7 @@ def _merge_reduce(
     """
     sources = [_Source.of(source) for source in src_paths]
     template = run_gdal_op(
-        lambda: gdal.BuildVRT("", [source.handle for source in sources]),
+        partial(gdal.BuildVRT, "", [source.handle for source in sources]),
         error=RuntimeError,
         action="building the union mosaic",
         subject="sources [" + ", ".join(source.label for source in sources) + "]",
@@ -1105,14 +1102,25 @@ def _merge_reduce(
     # GTiff-specific and is applied only there.
     out_driver = resolve_output_driver(dst)
     out_options = ["COMPRESS=LZW"] if out_driver == "GTiff" else []
+    # Resolved before the thunk: an unknown driver yields None here, and
+    # `.Create` on it would raise AttributeError -- which run_gdal_op does not
+    # catch, so the failure would escape un-branded.
+    driver = gdal.GetDriverByName(out_driver)
     out_ds = run_gdal_op(
-        lambda: gdal.GetDriverByName(out_driver).Create(
-            dst, x_size, y_size, band_count, gdal.GDT_Float64, options=out_options
+        partial(
+            driver.Create,
+            dst,
+            x_size,
+            y_size,
+            band_count,
+            gdal.GDT_Float64,
+            options=out_options,
         ),
         error=RuntimeError,
         action="writing the reduced mosaic",
-        subject=f"{dst!r}",
+        subject=f"destination {dst!r}",
         hint="check the output path is writable",
+        outcome="produced no output",
     )
     out_ds.SetGeoTransform(geotransform)
     out_ds.SetProjection(projection)
