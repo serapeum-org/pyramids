@@ -197,6 +197,10 @@ geotransform continues past the seam (`170 .. 180` then `180 .. 190`) instead of
 - **`from_ogc_coverages` sizes the two halves together** when no `resolution` is given: the combined span is
   capped once and the resulting pixel size applied to both. Sizing each half against the cap on its own would
   give them different pixel sizes and row counts, which cannot be concatenated at all.
+- **A wrapping `from_wcs(direct=True)` read should pass `resolution=`.** Direct mode has no descriptor to read, so
+  the two halves are independent `GetCoverage` requests; with a `resolution` they are snapped onto one lattice,
+  and without one nothing constrains the server to grid them alike. A mismatch is refused with
+  `antimeridian halves were produced at different resolutions` rather than stitched into a misaligned raster.
 - **A seam read through `from_wcs` or `from_ogc_coverages` returns a plain `Dataset`**, even when called on a
   subclass, because those two merge by rebuilding through `Dataset.from_array`. `from_wms` and `from_wmts` stitch
   into a GDAL handle and wrap it with the class they were called on, so a subclass survives there. Only relevant

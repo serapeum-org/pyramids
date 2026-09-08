@@ -3408,7 +3408,12 @@ class Dataset(RasterBase):
                 single open connection, so they come from the same source lattice
                 and stitch without resampling, and a half that misses the coverage
                 is skipped rather than requested. ``output_crs``, ``resolution`` and
-                ``output`` are applied once, to the merged raster.
+                ``output`` are applied once, to the merged raster. In ``direct``
+                mode there is no shared connection: the halves are two separate
+                ``GetCoverage`` requests, snapped to ``resolution`` so they land on
+                one lattice. Pass a ``resolution`` for a wrapping ``direct`` read —
+                without one nothing constrains the server to grid the two halves
+                alike, and a mismatch is refused rather than stitched.
             crs: CRS of ``bbox``. Defaults to ``"EPSG:4326"``.
             output_crs: Optional CRS to reproject the result into (any form
                 :meth:`to_crs` accepts). ``None`` (default) keeps the coverage's

@@ -48,6 +48,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from functools import lru_cache
+from math import ceil
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 from xml.etree import ElementTree as ET  # nosec B405 - server XML; DoS accepted, no XXE
@@ -577,6 +578,64 @@ def _open_getcoverage_bytes(payload: bytes, coverage: str) -> gdal.Dataset:
     return mem
 
 
+def _snap_direct_halves(
+    windows: list[tuple[float, float, float, float]],
+    res: tuple[float, float],
+) -> list[tuple[float, float, float, float]]:
+    """Put two direct-mode seam halves on one lattice by snapping each to `res`.
+
+    The discovery path reads both halves off a single open coverage, so they share
+    a lattice by construction, and the WMS path divides one pixel width between
+    them. Direct mode has neither: it issues two independent ``GetCoverage``
+    requests and the server grids each from its own extent, so the west half's east
+    edge lands on 180 only by luck. A request of ``(170.3, -10, -170, 10)`` at
+    ``0.5`` degrees puts the seam 0.6 of a pixel out, and the alignment check then
+    refuses the pair.
+
+    Snapping each half outward to a whole number of ``res`` cells from the seam
+    makes both edges land on the same lattice, so the halves abut exactly. It grows
+    the request by under one cell per side, which is the same bargain
+    :func:`pyramids.dataset._wms._seam_windows` strikes.
+
+    Args:
+        windows: The two ``west < east`` halves, in west-to-east order.
+        res: The caller's ``(x_res, y_res)``, already normalised.
+
+    Returns:
+        list[tuple[float, float, float, float]]: The snapped halves.
+
+    Examples:
+        - A west half that does not end on a cell boundary is widened until it
+          does, so its east edge reaches the seam exactly:
+            ```python
+            >>> from pyramids.dataset._wcs import _snap_direct_halves
+            >>> halves = [(170.3, -10.0, 180.0, 10.0), (-180.0, -10.0, -170.0, 10.0)]
+            >>> west, east = _snap_direct_halves(halves, (0.5, 0.5))
+            >>> west
+            (170.0, -10.0, 180.0, 10.0)
+            >>> east
+            (-180.0, -10.0, -170.0, 10.0)
+
+            ```
+        - Halves already on the lattice are handed back unchanged:
+            ```python
+            >>> from pyramids.dataset._wcs import _snap_direct_halves
+            >>> halves = [(170.0, -10.0, 180.0, 10.0), (-180.0, -10.0, -175.0, 10.0)]
+            >>> _snap_direct_halves(halves, (0.5, 0.5))[0]
+            (170.0, -10.0, 180.0, 10.0)
+
+            ```
+    """
+    west, east = windows
+    cell = abs(res[0])
+    west_columns = ceil((180.0 - west[0]) / cell)
+    east_columns = ceil((east[2] + 180.0) / cell)
+    return [
+        (180.0 - west_columns * cell, west[1], 180.0, west[3]),
+        (-180.0, east[1], -180.0 + east_columns * cell, east[3]),
+    ]
+
+
 def _from_wcs_direct(
     dataset_cls: type[Dataset],
     endpoint: str,
@@ -819,6 +878,15 @@ def from_wcs(
     native_wkt: str | None = None
     try:
         if direct:
+            if len(windows) > 1 and res is not None:
+                # Direct mode issues two independent GetCoverage requests and the
+                # server grids each from its own extent, so the west half's east
+                # edge lands on 180 only by luck. Snapping both to the requested
+                # resolution puts them on one lattice. Without a resolution there
+                # is nothing to snap to and the alignment check is what catches a
+                # server that grids the halves differently -- loudly, which is the
+                # right outcome, but see `Dataset.from_wcs` on the caveat.
+                windows = _snap_direct_halves(windows, res)
             for window in windows:
                 part, native_wkt = _from_wcs_direct(
                     dataset_cls,
@@ -840,10 +908,12 @@ def from_wcs(
             # skip the redundant client-side resample. 2.0.x has no request-side
             # resolution, so it resamples client-side in _finalize.
             finalize_res = None if (version or "2.0.0").startswith("1.0") else res
-            # Direct mode asks in `crs` and is answered in `crs`, and
-            # `check_seam_bbox` has already proven that geographic, so the halves
-            # are in degrees and the seam is 360 wide. There is no descriptor here
-            # to measure anything against.
+            # Direct mode has no descriptor to measure against, so 360 is an
+            # assumption -- a reasonable one, because the request names `crs` and
+            # `check_seam_bbox` has proven that geographic, but the server is what
+            # decides the response CRS. A shim that ignores `CRS=` and answers in
+            # its own projected grid fails the alignment check loudly rather than
+            # stitching something wrong, which is the outcome to prefer here.
             stitch_offset = 360.0
         else:
             mems, native_srs = _from_wcs_discovery(
