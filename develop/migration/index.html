@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6901,6 +6901,30 @@ that leaked out of an empty table lookup. Only affects code catching the old typ
 </table>
 <h2 id="dataset"><a class="toclink" href="#dataset">dataset</a><a class="headerlink" href="#dataset" title="Permanent link">#</a></h2>
 <h3 id="unreleased_1"><a class="toclink" href="#unreleased_1">unreleased</a><a class="headerlink" href="#unreleased_1" title="Permanent link">#</a></h3>
+<p><strong><code>merge_rasters</code> inherits its no-data from the sources instead of defaulting to <code>0</code>.</strong> A hard behavior change,
+and the reason is that <code>0</code> is real data in most rasters worth merging: sea-level land in an elevation or
+bathymetry model, the zero crossing of an anomaly or difference raster. The old default stamped <code>0</code> on the
+mosaic, so every such cell disappeared from masked reads, from <code>stats()</code> and from any plot — a Copernicus DEM
+mosaic of the Nile Delta lost 45.9% of the scene to it. It also discarded whatever the sources declared, in
+both directions: their marker was not inherited, and a cell that <em>was</em> no-data arrived in the mosaic as a real
+value.</p>
+<p><code>no_data_value</code> now defaults to inheriting:</p>
+<ul>
+<li><strong>Sources agree</strong> — the mosaic declares that value. Nothing else changes.</li>
+<li><strong>Sources disagree</strong> — the first one wins and a <code>UserWarning</code> names both, instead of silently picking.</li>
+<li>
+<p><strong>No source declares one</strong> — the mosaic declares none, so nothing is masked. Previously it declared <code>0</code>; on an
+  integer band <code>0</code> was also the only thing hiding the <code>NaN</code> that <code>init</code> puts in the VRT, which the band cannot
+  store.</p>
+</li>
+<li>
+<p><strong>If you relied on the <code>0</code> default, pass it explicitly</strong>: <code>merge_rasters(src, dst, no_data_value=0)</code> restores
+  the old behavior exactly, and is worth a second look — it masks every genuine <code>0</code> in your inputs.</p>
+</li>
+<li><strong>If you were passing <code>no_data_value=</code> already, nothing changes.</strong> Every existing call is unaffected; only the
+  omitted-argument case moved.</li>
+<li>The value is read from the sources' band 1, in the order you pass them, so ordering decides a disagreement.</li>
+</ul>
 <p><strong>The web-service readers accept a bbox that crosses the antimeridian.</strong> Additive if you pass an ordinary box; a
 hard change if you relied on <code>minx &gt; maxx</code> being rejected. <code>Dataset.from_wcs</code>, <code>from_wms</code>, <code>from_wmts</code> and
 <code>from_ogc_coverages</code> used to raise <code>ValueError: bbox must have minx &lt; maxx and miny &lt; maxy</code> for
