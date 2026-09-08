@@ -371,8 +371,10 @@ class Analysis(_Engine["Dataset"]):
             float: The summed area of the band's valid cells.
 
         Raises:
-            ValueError: The raster has no CRS, `unit` is not recognised, or the
-                raster is geographic and rotated. See :meth:`Cell.cell_area`.
+            ValueError: `band` is out of range for the dataset, the raster has
+                no CRS, `unit` is not recognised, or the raster is geographic
+                and rotated. See :meth:`Cell.cell_area` for the rest of the CRS
+                and geotransform conditions it defers to.
 
         Examples:
             - A global 1-degree grid with no gaps covers the whole ellipsoid,

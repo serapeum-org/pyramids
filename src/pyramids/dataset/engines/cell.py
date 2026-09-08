@@ -265,7 +265,13 @@ class Cell(_Engine["Dataset"]):
                 raster is geographic *and* rotated -- a case where cells in one
                 row no longer share a latitude band, and which is better solved
                 by warping to a north-up grid or a projected CRS than by
-                spending a geodesic call on every cell.
+                spending a geodesic call on every cell. Also when the CRS
+                cannot be parsed at all; when it is neither geographic nor
+                projected, so its axes are not a ground plane (a geocentric,
+                engineering or compound CRS); when a geographic CRS names no
+                ellipsoid to integrate over; and when the geotransform leaves
+                the cells no extent -- a zero cell size, or a rotation that
+                collapses the parallelogram.
 
         Examples:
             - A projected raster has one area for every cell, straight from the
@@ -391,6 +397,10 @@ class Cell(_Engine["Dataset"]):
 
         Returns:
             np.ndarray: One area per row, in square metres, in row order.
+
+        Raises:
+            ValueError: The CRS's datum names no ellipsoid, so there is no
+                figure of the earth to integrate over.
         """
         geod = crs.get_geod()
         if geod is None:
