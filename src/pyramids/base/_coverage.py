@@ -111,6 +111,69 @@ def validate_bbox(
     return minx, miny, maxx, maxy
 
 
+def _is_lonlat_degrees_from_greenwich(srs: osr.SpatialReference) -> bool:
+    """Whether ``180`` is this CRS's antimeridian and ``360`` its seam offset.
+
+    ``IsGeographic()`` alone does not settle either. A geographic CRS may count
+    its longitudes from a different prime meridian -- EPSG:4807 (NTF, Paris) puts
+    zero about 2.34 degrees east of Greenwich, so its antimeridian is not at 180 --
+    and may express them in grads rather than degrees, where the half-turn is 200.
+    Splitting such a bbox at 180 would cut it in the wrong place and then check the
+    halves against a 360 that is not the width of the world in those units.
+
+    Both are vanishingly rare as an OGC request CRS, which is why the check is a
+    refusal rather than a conversion: the caller is far likelier to have transposed
+    two corners than to genuinely want a wrap in grads from Paris.
+
+    Args:
+        srs: The CRS the bbox is expressed in.
+
+    Returns:
+        bool: True when the CRS is geographic, in degrees, and counted from
+            Greenwich.
+
+    Examples:
+        - Plain lon/lat qualifies, and so does CRS84:
+            ```python
+            >>> from pyramids.base.crs import sr_from_user_input
+            >>> from pyramids.base._coverage import _is_lonlat_degrees_from_greenwich
+            >>> _is_lonlat_degrees_from_greenwich(sr_from_user_input("EPSG:4326"))
+            True
+
+            ```
+        - A projected CRS does not, having no meridian to speak of:
+            ```python
+            >>> from pyramids.base.crs import sr_from_user_input
+            >>> from pyramids.base._coverage import _is_lonlat_degrees_from_greenwich
+            >>> _is_lonlat_degrees_from_greenwich(sr_from_user_input("EPSG:3857"))
+            False
+
+            ```
+        - Nor does a geographic CRS counted from Paris, whose antimeridian is not
+          at 180:
+            ```python
+            >>> from pyramids.base.crs import sr_from_user_input
+            >>> from pyramids.base._coverage import _is_lonlat_degrees_from_greenwich
+            >>> _is_lonlat_degrees_from_greenwich(sr_from_user_input("EPSG:4807"))
+            False
+
+            ```
+    """
+    if not srs.IsGeographic():
+        return False
+    # GetAngularUnits reports radians per unit: degrees are pi/180, grads pi/200.
+    degrees = abs(srs.GetAngularUnits() - 0.017453292519943295) < 1e-12
+    # The offset is the PRIMEM node's second value, in degrees. There is no
+    # GetPrimeMeridian on this binding, and a CRS carrying no PRIMEM at all is
+    # Greenwich by definition.
+    offset = srs.GetAttrValue("PRIMEM", 1)
+    try:
+        greenwich = offset is None or abs(float(offset)) < 1e-9
+    except ValueError:
+        greenwich = False
+    return bool(degrees and greenwich)
+
+
 def check_seam_bbox(bbox: tuple[float, float, float, float], crs: str) -> None:
     """Refuse a ``minx > maxx`` bbox this reader cannot read as an antimeridian wrap.
 
@@ -171,12 +234,12 @@ def check_seam_bbox(bbox: tuple[float, float, float, float], crs: str) -> None:
     """
     minx, _, maxx, _ = bbox
     if minx > maxx:
-        if not sr_from_user_input(crs).IsGeographic():
+        if not _is_lonlat_degrees_from_greenwich(sr_from_user_input(crs)):
             raise ValueError(
                 f"bbox {bbox!r} has minx > maxx, which reads as a box crossing the "
                 f"180 degree seam - but crs={crs!r} is not a geographic (lon/lat) "
-                "CRS, so it has no such seam. Pass the bbox in a lon/lat CRS, or "
-                "give it as minx < maxx."
+                "CRS in degrees from Greenwich, so it has no such seam. Pass the "
+                "bbox in a lon/lat CRS, or give it as minx < maxx."
             )
         if minx > 180.0 or maxx < -180.0:
             raise ValueError(
