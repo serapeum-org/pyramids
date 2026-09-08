@@ -1027,9 +1027,9 @@ class Analysis(_Engine["Dataset"]):
                 raise ValueError(
                     f"the {np.dtype(dtype).name} result of `func` leaves no "
                     "free value to mark the cells its operands masked out -- "
-                    "every candidate sentinel occurs in the result; widen the "
-                    "result dtype, or pass `no_data_value=None` to combine "
-                    "every cell unmasked"
+                    "every candidate sentinel occurs in the result; pass "
+                    "`no_data_value=None` to combine every cell unmasked, or "
+                    "have `func` return a wider dtype"
                 )
         return sentinel
 

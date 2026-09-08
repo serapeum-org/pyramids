@@ -1399,8 +1399,8 @@ class Spatial(_Engine["Dataset"]):
                 raise NoDataValueError(
                     f"band {band + 1} is a {dtype.name} raster holding every "
                     "candidate sentinel, so no value is free to mark the cells "
-                    "the mask excludes; widen the dtype, or declare a no-data "
-                    "value the band does not use before cropping"
+                    "the mask excludes; declare a no-data value the band does "
+                    "not use before cropping, or store it in a wider dtype"
                 )
             # As a scalar of the band's own dtype, so a derived fill and a
             # declared one are the same kind of thing to every consumer.
