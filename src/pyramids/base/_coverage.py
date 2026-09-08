@@ -469,13 +469,23 @@ def window_overlaps(projwin: list[float], src: gdal.Dataset) -> bool:
     """Whether a native-CRS ``[ulx, uly, lrx, lry]`` window meets `src`'s own extent.
 
     The seam readers split an antimeridian ``bbox`` into two halves and fetch each
-    one; a half that misses the coverage entirely must be skipped rather than
-    requested, because GDAL refuses a window fully outside the raster ("Computed
-    -srcwin ... falls completely outside raster extent") and that refusal would
-    fail the whole read instead of yielding the one half that does have data. This
-    is the network equivalent of the overlap test in
+    one; a half that misses the coverage entirely is skipped rather than requested.
+    GDAL does not refuse such a window -- it warns ("Computed source window ...
+    falls completely outside source raster extent") and fills the result with
+    no-data -- so the point is not to avoid an error but to avoid paying for a
+    request whose answer is a block of nothing, and then concatenating that block
+    into the stitch as though it were data. This is the network equivalent of the
+    overlap test in
     :func:`pyramids.dataset.engines.spatial._crop_seam_halves`, which reads the
     extent off a dataset it already holds.
+
+    Note:
+        The extent is bounded by all four corners, so a rotated geotransform
+        (``gt[2]`` / ``gt[4]`` non-zero) is measured rather than under-reported --
+        two opposite corners are not enough, because a rotated grid reaches beyond
+        both of them on one axis. No reader can currently deliver a rotated source
+        here, since ``gdal.Translate(projWin=...)`` refuses a rotated geotransform
+        outright, so this is a defensive bound rather than a supported path.
 
     Args:
         projwin: ``[ulx, uly, lrx, lry]`` in `src`'s CRS, as
@@ -502,13 +512,22 @@ def window_overlaps(projwin: list[float], src: gdal.Dataset) -> bool:
             ```
     """
     gt = src.GetGeoTransform()
-    # Both far corners, so a rotated geotransform (gt[2] / gt[4] non-zero) is
-    # bounded rather than mis-measured; min/max then makes the result axis-order
-    # agnostic for a south-up or west-positive grid.
-    far_x = float(gt[0] + src.RasterXSize * gt[1] + src.RasterYSize * gt[2])
-    far_y = float(gt[3] + src.RasterXSize * gt[4] + src.RasterYSize * gt[5])
-    minx, maxx = sorted((float(gt[0]), far_x))
-    miny, maxy = sorted((float(gt[3]), far_y))
+    # All four corners, not two: on a rotated grid the axis-aligned extent is set
+    # by corners the diagonal does not touch, so an origin/far-corner pair
+    # under-reports one axis and drops halves that do have data. min/max over the
+    # four also makes the bound axis-order agnostic, which covers a south-up or
+    # west-positive grid without a separate case.
+    corners = [
+        (gt[0] + x * gt[1] + y * gt[2], gt[3] + x * gt[4] + y * gt[5])
+        for x, y in (
+            (0, 0),
+            (src.RasterXSize, 0),
+            (0, src.RasterYSize),
+            (src.RasterXSize, src.RasterYSize),
+        )
+    ]
+    minx, maxx = min(c[0] for c in corners), max(c[0] for c in corners)
+    miny, maxy = min(c[1] for c in corners), max(c[1] for c in corners)
     win_minx, win_maxx = sorted((projwin[0], projwin[2]))
     win_miny, win_maxy = sorted((projwin[3], projwin[1]))
     return win_minx < maxx and win_maxx > minx and win_miny < maxy and win_maxy > miny

@@ -118,10 +118,9 @@ class TestWindowOverlaps:
 
         Test scenario:
             With a rotation term (`gt[2] = 0.5`) a 10-column raster spans `0 .. 15`
-            in x, not `0 .. 10`: the far corner is
-            `gt[0] + width*gt[1] + height*gt[2]`. A window at `11 .. 14` therefore
-            does overlap. Measuring the extent from `gt[1]` alone would place the
-            east edge at `10` and skip a half that genuinely has data.
+            in x, not `0 .. 10`. A window at `11 .. 14` therefore does overlap.
+            Measuring the extent from `gt[1]` alone would place the east edge at
+            `10` and skip a half that genuinely has data.
         """
         rotated = self._src((0.0, 1.0, 0.5, 10.0, 0.5, -1.0))
         result = window_overlaps([11.0, 9.0, 14.0, 6.0], rotated)
@@ -142,6 +141,23 @@ class TestWindowOverlaps:
         result = window_overlaps([16.0, 9.0, 20.0, 6.0], rotated)
         assert not result, (
             "a window east of the rotated footprint should not overlap, got True"
+        )
+
+    def test_a_rotated_grid_is_bounded_on_the_axis_the_diagonal_misses(self):
+        """Two opposite corners do not bound a rotated grid; four do.
+
+        Test scenario:
+            The same rotated raster's true corners are `(0,10) (10,15) (5,0)
+            (15,5)`, so it spans `0 .. 15` in y. Taking only the origin and the
+            diagonally-opposite corner gives `5 .. 10` and misses a third of it: a
+            window at y `1 .. 2` holds real pixels and was reported as no overlap,
+            so a seam half over it was silently dropped.
+        """
+        rotated = self._src((0.0, 1.0, 0.5, 10.0, 0.5, -1.0))
+        result = window_overlaps([5.0, 2.0, 6.0, 1.0], rotated)
+        assert result, (
+            "a window inside the rotated footprint should overlap; the origin and "
+            "its diagonal alone bound y as 5..10 instead of 0..15"
         )
 
     def test_a_south_up_grid_is_not_read_as_empty(self):
