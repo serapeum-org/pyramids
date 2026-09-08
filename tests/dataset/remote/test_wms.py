@@ -476,6 +476,38 @@ class TestSeamWindows:
         assert west_box[2] == 180.0
         assert east_box[0] == -180.0
 
+    def test_a_wrap_needs_two_pixels_of_width(self):
+        """One pixel cannot straddle the seam, so asking for one is refused.
+
+        Test scenario:
+            At width 1 over a 20 degree wrap the resolution is 20 degrees and each
+            half is exactly half a pixel. `round()` sent the west half to zero
+            through banker's rounding, dropping 10 degrees that were requested and
+            adding 10 that were not -- the single window came back as
+            `-180 .. -160`. There is no honest one-pixel answer, so it raises.
+        """
+        with pytest.raises(ValueError, match="at least 2 pixels of width"):
+            _wms._seam_windows((170.0, -10.0, -170.0, 10.0), (1, 4))
+
+    def test_two_pixels_give_each_side_of_the_seam_one(self):
+        """The smallest width a wrap can be rendered at, split evenly."""
+        windows = _wms._seam_windows((170.0, -10.0, -170.0, 10.0), (2, 4))
+        assert [size for _, size in windows] == [(1, 4), (1, 4)]
+        assert [window[0] for window, _ in windows] == [170.0, -180.0]
+
+    def test_an_exact_half_pixel_half_is_kept_not_dropped(self):
+        """Rounding half up, so the boundary case keeps the half rather than losing it.
+
+        Test scenario:
+            A three-pixel wrap over equal spans puts each half at 1.5 pixels.
+            Banker's rounding would send one to 2 and leave the other at 1 by
+            accident of parity; rounding half up makes the west half the wider one
+            deterministically, and neither is dropped.
+        """
+        windows = _wms._seam_windows((170.0, -10.0, -170.0, 10.0), (3, 4))
+        assert [size[0] for _, size in windows] == [2, 1]
+        assert sum(size[0] for _, size in windows) == 3
+
     def test_sub_half_pixel_west_sliver_collapses_to_one_request(self):
         """A west side under half a pixel wide *is* the half-pixel snap: drop it."""
         windows = _wms._seam_windows((179.999, -10.0, -170.0, 10.0), (2000, 16))

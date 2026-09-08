@@ -208,6 +208,10 @@ def _seam_windows(
         list[tuple[tuple[float, float, float, float], tuple[int, int]]]: One
             ``(bbox, size)`` request, or two in west-to-east order.
 
+    Raises:
+        ValueError: `bbox` wraps but `size` is under two pixels wide, which cannot
+            give each side of the seam a pixel of its own.
+
     Examples:
         - An ordinary bbox is one request, unchanged:
             ```python
@@ -244,10 +248,21 @@ def _seam_windows(
     else:
         west_half, east_half = halves
         _, miny, _, maxy = bbox
+        if width < 2:
+            raise ValueError(
+                f"a bbox crossing the antimeridian is rendered as two requests, so "
+                f"it needs at least 2 pixels of width; got {width}. Ask for a wider "
+                f"size, or a finer resolution."
+            )
         res = ((west_half[2] - west_half[0]) + (east_half[2] - east_half[0])) / width
-        # round(), not floor/ceil: the seam lands on whichever pixel boundary is
-        # nearest, which is what bounds the window shift at half a pixel.
-        west_columns = round((west_half[2] - west_half[0]) / res)
+        # Nearest pixel boundary, which is what bounds the window shift at half a
+        # pixel -- but rounded half *up* rather than through `round()`, whose
+        # banker's rounding sends an exactly-half-a-pixel half to zero and drops
+        # it. At (170, -10, -170, 10) and a width of 1 that discarded the entire
+        # western half and moved the request 10 degrees east of anything asked
+        # for. A half now collapses only when its span is strictly under half a
+        # pixel, which is the documented rule.
+        west_columns = int((west_half[2] - west_half[0]) / res + 0.5)
         east_columns = width - west_columns
         west_window = (
             (180.0 - west_columns * res, miny, 180.0, maxy),
