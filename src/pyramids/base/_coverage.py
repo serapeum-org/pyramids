@@ -32,6 +32,7 @@ from pyramids.base._bbox import transform as bbox_transform
 from pyramids.base._errors import CoverageError, CRSError
 from pyramids.base._grid import grid_size
 from pyramids.base.crs import sr_from_user_input
+from pyramids.base.remote import redact_credentials
 
 
 def validate_bbox(
@@ -354,9 +355,11 @@ def open_network_dataset(
                 connection, gdal.OF_RASTER, open_options=list(open_options)
             )
     except RuntimeError as exc:
-        raise error(f"could not open {subject}: {exc}") from exc
+        # `subject` and GDAL's own text can both quote a signed URL, so scrub
+        # before the message escapes to a log handler or a traceback.
+        raise error(redact_credentials(f"could not open {subject}: {exc}")) from exc
     if src is None:
-        raise error(f"GDAL returned no dataset for {subject}")
+        raise error(redact_credentials(f"GDAL returned no dataset for {subject}"))
     return src
 
 

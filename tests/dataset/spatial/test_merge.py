@@ -699,7 +699,7 @@ class TestMergeRastersDstCrs:
 
         pa, pb = shared_crs_pair
         monkeypatch.setattr(merge_mod.gdal, "Open", lambda *a, **k: None)
-        with pytest.raises(RuntimeError, match="gdal.Open returned None"):
+        with pytest.raises(RuntimeError, match="GDAL returned no dataset"):
             merge_rasters([pa, pb], tmp_path / "x.tif")
 
 
@@ -776,7 +776,7 @@ class TestSourceBounds:
         """
         monkeypatch.setattr(merge_mod.gdal, "Open", lambda *a, **k: None)
         with pytest.raises(
-            RuntimeError, match="gdal.Open returned None for merge source"
+            RuntimeError, match="GDAL returned no dataset for merge source"
         ):
             _source_bounds("/no/such/raster/does-not-exist.tif")
 

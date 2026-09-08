@@ -17,6 +17,7 @@ import numpy as np
 from osgeo import gdal, osr
 from pyproj.exceptions import ProjError
 
+from pyramids.base._coverage import open_network_dataset
 from pyramids.base._utils import DEFAULT_RESAMPLING, resolve_resampling
 from pyramids.base.remote import redact_credentials, signer_cloud_config
 from pyramids.dataset._driver import resolve_output_driver
@@ -350,23 +351,17 @@ def _source_bounds(
     if isinstance(path, gdal.Dataset):
         ds, opened = path, False
     else:
-        # Name the source whichever way GDAL reports the failure: under
-        # gdal.UseExceptions() (pyramids' default) Open raises instead of
-        # returning None, and for a /vsicurl/ or /vsis3/ source GDAL's own
-        # message carries only the HTTP status -- not the URL. The `is None`
-        # guard below is kept for a caller running with gdal.DontUseExceptions()
-        # (#1107).
+        # open_network_dataset owns both failure shapes (ARC-331): GDAL raises
+        # under gdal.UseExceptions() but returns None when exceptions are off,
+        # and for a /vsicurl/ or /vsis3/ source GDAL's own message carries only
+        # the HTTP status -- not the URL. Naming it here is what #1107 asks for.
         source = str(path)
-        try:
-            ds, opened = gdal.Open(source), True
-        except RuntimeError as exc:
-            raise RuntimeError(
-                redact_credentials(f"could not open merge source {source!r}: {exc}")
-            ) from exc
-    if ds is None:
-        raise RuntimeError(
-            redact_credentials(f"gdal.Open returned None for merge source {path!r}.")
+        ds = open_network_dataset(
+            source, error=RuntimeError, subject=f"merge source {source!r}"
         )
+        opened = True
+    if ds is None:  # pragma: no cover - open_network_dataset never returns None
+        raise RuntimeError(f"GDAL returned no dataset for merge source {path!r}")
     bounds = GeoTransform(*ds.GetGeoTransform()).extent(ds.RasterXSize, ds.RasterYSize)
     if opened:
         # Close the handle we opened; a caller-supplied gdal.Dataset is theirs to own.
@@ -796,26 +791,15 @@ def _prepare_sources(
     opened: list = []
     source_srs: list[osr.SpatialReference] = []
     for index, path in enumerate(src_paths):
-        # Name the source whichever way GDAL reports the failure. Under
-        # gdal.UseExceptions() (pyramids' default) Open raises rather than
-        # returning None; for a /vsicurl/ or /vsis3/ source GDAL's message is
-        # just the HTTP status ("HTTP response code: 403"), naming no source at
-        # all. The index says how far the open got on a mosaic of many tiles.
-        # The `is None` guard below is kept for a caller who has turned
-        # exceptions off -- gdal.UseExceptions() is process-global, so that is
-        # theirs to change, not ours to assume (#1107).
-        try:
-            dataset = gdal.Open(path)
-        except RuntimeError as exc:
-            raise RuntimeError(
-                redact_credentials(
-                    f"could not open source {index + 1}/{len(src_paths)} {path!r}: {exc}"
-                )
-            ) from exc
-        if dataset is None:
-            raise RuntimeError(
-                redact_credentials(f"gdal.Open returned None for source {path!r}.")
-            )
+        # open_network_dataset owns both failure shapes (ARC-331). Naming the
+        # source is what #1107 asks for: for a /vsicurl/ or /vsis3/ source GDAL's
+        # own message is just the HTTP status ("HTTP response code: 403") and
+        # names nothing. The index says how far the open got on a big mosaic.
+        dataset = open_network_dataset(
+            path,
+            error=RuntimeError,
+            subject=f"source {index + 1}/{len(src_paths)} {path!r}",
+        )
         wkt = dataset.GetProjection()
         if not wkt:
             raise ValueError(
