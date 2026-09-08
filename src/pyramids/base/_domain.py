@@ -773,9 +773,7 @@ def _values_present_in_range(values: Any, floor: int, span: int) -> np.typing.ND
     return seen
 
 
-def _first_unused_in_range(
-    target: np.dtype, extremes: list[Any], values: Any
-) -> Any | None:
+def _first_unused_in_range(extremes: list[Any], values: Any) -> Any | None:
     """The value nearest the preferred extreme that `values` does not hold.
 
     The preferred candidates being taken is not a reason to refuse: a narrow
@@ -788,8 +786,9 @@ def _first_unused_in_range(
     there anyway.
 
     Args:
-        target: The dtype the value must be storable in.
-        extremes: That dtype's bounds, most preferred first.
+        extremes: The dtype's bounds, most preferred first. They carry the
+            whole question -- which values exist, and which end to answer from
+            -- so the dtype itself is not needed.
         values: The data the value must not occur in.
 
     Returns:
@@ -878,7 +877,7 @@ def free_no_data(dtype: np.dtype, candidates: Sequence[Any], values: Any) -> Any
             chosen = candidate.item() if hasattr(candidate, "item") else candidate
             break
     if chosen is None and extremes:
-        chosen = _first_unused_in_range(target, extremes, values)
+        chosen = _first_unused_in_range(extremes, values)
     return chosen
 
 
