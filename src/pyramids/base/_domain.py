@@ -30,6 +30,7 @@ the sentinel" rather than "is this cell near it".
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Sequence
 from typing import Any, overload
 
@@ -44,7 +45,9 @@ DEFAULT_NO_DATA_VALUE = -9999
 DEFAULT_RTOL: float = 0.001
 
 # Cells per slice when scanning a band for an unused value. Bounds the scan's
-# temporaries to a few megabytes whatever the raster's size.
+# transient peak to roughly 25 MB whatever the raster's size -- the `int64`
+# cast is 8 MB of it, the offset another, and the range test and its gather the
+# rest. The mask being filled stays at 64 KiB regardless.
 _SCAN_CHUNK: int = 1 << 20
 
 # `numpy.isclose`'s own default absolute tolerance, named so a caller can opt
@@ -552,7 +555,8 @@ def nan_bounds(values: Any) -> tuple[Any, Any]:
     `nanmin` / `nanmax` warn -- through `warnings.warn`, which `np.errstate`
     does not reach -- when every value is `NaN`, and there is nothing unusual
     about an all-`NaN` band: `crop` reaches one whenever a float raster is
-    entirely gaps. The answer in that case is that there are no bounds.
+    entirely gaps. The answer in that case is that there are no bounds, which
+    is what they return once the warning is silenced.
 
     Args:
         values: The array to measure.
@@ -582,11 +586,15 @@ def nan_bounds(values: Any) -> tuple[Any, Any]:
             ```
     """
     array = np.asarray(values)
-    empty = np.dtype(array.dtype).kind == "f" and bool(np.isnan(array).all())
-    if array.size == 0 or empty:
+    if array.size == 0:
         bounds = (np.float64(np.nan), np.float64(np.nan))
     else:
-        with np.errstate(invalid="ignore"):
+        # The warning is caught rather than pre-empted with `isnan(...).all()`:
+        # that test costs a full pass and a full-size boolean temporary on top
+        # of the two reductions, to answer a question `nanmin` is about to
+        # answer anyway by returning `NaN`.
+        with np.errstate(invalid="ignore"), warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
             bounds = (np.nanmin(array), np.nanmax(array))
     return bounds
 
@@ -723,7 +731,15 @@ def no_data_candidates(dtype: np.dtype, candidates: Sequence[Any] = ()) -> list[
     """
     target = np.dtype(dtype)
     offered = [*candidates, DEFAULT_NO_DATA_VALUE, *_dtype_extremes(target)]
-    return [value for value in offered if fits_dtype(value, target)]
+    storable = [value for value in offered if fits_dtype(value, target)]
+    # De-duplicated, since every repeat costs `free_no_data` another full pass
+    # over the values -- and repeats are the normal case: `combine` offers one
+    # sentinel per operand band, and the bands of a stack usually share one.
+    # Keyed on the stored value so `-9999` and `np.int16(-9999)` count once.
+    seen: dict[Any, Any] = {}
+    for value in storable:
+        seen.setdefault(target.type(value).item(), value)
+    return list(seen.values())
 
 
 def free_no_data(dtype: np.dtype, candidates: Sequence[Any], values: Any) -> Any | None:
@@ -748,8 +764,9 @@ def free_no_data(dtype: np.dtype, candidates: Sequence[Any], values: Any) -> Any
 
     Returns:
         Any | None: The chosen sentinel as a Python scalar -- never a numpy
-        one, whichever branch found it -- or `None` when every candidate either
-        does not fit `dtype` or already occurs in `values`.
+        one, whichever branch found it and whoever offered it -- or `None` when
+        every candidate either does not fit `dtype` or already occurs in
+        `values`.
 
     Examples:
         - The package default is taken when the data does not hold it:
@@ -776,7 +793,12 @@ def free_no_data(dtype: np.dtype, candidates: Sequence[Any], values: Any) -> Any
     chosen = None
     for candidate in no_data_candidates(target, candidates):
         if not occurs_in(values, candidate, bounds):
-            chosen = candidate
+            # `.item()`, so a caller's own candidate is answered in the same
+            # currency as the package default and the extremes.
+            # `Dataset.no_data_value` hands back numpy scalars and `combine`
+            # forwards them here, so without this the same logical answer
+            # reached the result's declaration as two different types.
+            chosen = candidate.item() if hasattr(candidate, "item") else candidate
             break
     if chosen is None and extremes:
         # The preferred candidates are all taken, but a narrow integer band
