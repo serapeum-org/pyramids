@@ -690,7 +690,16 @@ def _from_wcs_discovery(
                 # "neither half overlaps" for a bbox that never wrapped.
                 if len(windows) > 1 and not _window_overlaps(projwin, src):
                     continue
-                mems.append(_translate_window(src, projwin, coverage))
+                try:
+                    mems.append(_translate_window(src, projwin, coverage))
+                except BaseException:
+                    # A second window that fails must not strand the first. This
+                    # is the path the seam split introduced, and the rest of this
+                    # reader is explicit about ownership.
+                    for mem in mems:
+                        mem.Close()
+                    mems.clear()
+                    raise
         finally:
             # Release the opened coverage handle on every path, error or not
             # (mirrors from_wmts / from_ogc_coverages); a raise from resolve /
@@ -801,6 +810,8 @@ def from_wcs(
     windows = _seam_halves(box)
 
     parts: list[Dataset] = []
+    mems: list[gdal.Dataset] = []
+    adopted = 0
     native_wkt: str | None = None
     try:
         if direct:
@@ -852,6 +863,7 @@ def from_wcs(
             for mem in mems:
                 mem.SetSpatialRef(native_srs)
                 parts.append(dataset_cls(mem, access="write"))
+                adopted += 1
             finalize_res = res
         if not parts:
             raise ValueError(
@@ -873,6 +885,10 @@ def from_wcs(
     finally:
         for part in parts:
             part.close()
+        # A raise part-way through the adoption above leaves the tail of `mems`
+        # wrapped by nothing, so `parts` cannot close them.
+        for mem in mems[adopted:]:
+            mem.Close()
 
     return _finalize(ds, output_crs, finalize_res, resample, native_wkt, output)
 

@@ -381,8 +381,16 @@ def _fetch_windows(
                 projwins = [pw for pw in projwins if _window_overlaps(pw, src)]
             sizes = _window_sizes(projwins, res)
             projwins = _align_to_sizes(projwins, sizes)
-            for projwin, size in zip(projwins, sizes, strict=True):
-                mems.append(_translate_window(src, projwin, size, coverage))
+            try:
+                for projwin, size in zip(projwins, sizes, strict=True):
+                    mems.append(_translate_window(src, projwin, size, coverage))
+            except BaseException:
+                # A second window that fails must not strand the first: this is
+                # the path the seam split introduced, and the rest of this reader
+                # is explicit about ownership.
+                for mem in mems:
+                    mem.Close()
+                raise
         finally:
             # release the opened coverage handle on every path, error or not.
             src = None
@@ -468,10 +476,12 @@ def from_ogc_coverages(
     )
 
     parts: list[Dataset] = []
+    adopted = 0
     try:
         for mem in mems:
             mem.SetSpatialRef(native_srs)
             parts.append(dataset_cls(mem, access="write"))
+            adopted += 1
         if not parts:
             raise ValueError(
                 f"bbox {bbox!r} crosses the antimeridian but neither half overlaps "
@@ -497,6 +507,10 @@ def from_ogc_coverages(
     finally:
         for part in parts:
             part.close()
+        # A raise part-way through the adoption above leaves the tail of `mems`
+        # wrapped by nothing, so `parts` cannot close them.
+        for mem in mems[adopted:]:
+            mem.Close()
 
     if output_crs is not None:
         ds = ds.to_crs(output_crs, method=resample)
