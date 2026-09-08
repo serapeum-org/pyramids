@@ -552,6 +552,10 @@ def _storable_marker(
         stored: float | None = float(init)
     except (TypeError, ValueError):
         stored = None
+    # Annotated up front: the three branches below answer with an inherited
+    # float, a coerced `init`, or whatever `_unused_marker` finds, and mypy
+    # otherwise pins the variable to the first of those.
+    marker: Any | None
     if inherited is not None and fits_dtype(inherited, dtype):
         marker = inherited
     elif inherited is None and stored is not None and fits_dtype(stored, dtype):
