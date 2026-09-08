@@ -24,7 +24,12 @@ import numpy as np
 import pytest
 from osgeo import gdal, osr
 
-from pyramids.base._coverage import check_seam_bbox, seam_offset, window_overlaps
+from pyramids.base._coverage import (
+    _is_lonlat_degrees_from_greenwich,
+    check_seam_bbox,
+    seam_offset,
+    window_overlaps,
+)
 from pyramids.dataset import Dataset, _ogc_coverages, _wcs
 from pyramids.dataset.engines.spatial import _stitch_lon_halves
 from tests.dataset.remote.test_ogc_coverages import GLOBAL_BOUNDS as OGC_GLOBAL_BOUNDS
@@ -237,6 +242,31 @@ class TestTheSeamGuardReachesEveryRasterReader:
         """
         with pytest.raises(ValueError, match="degrees from Greenwich"):
             check_seam_bbox((170.0, -10.0, -170.0, 10.0), "EPSG:4807")
+
+    def test_an_unreadable_prime_meridian_is_treated_as_not_greenwich(self):
+        """A PRIMEM value that will not parse must not be assumed to be zero.
+
+        Test scenario:
+            The offset comes from the WKT's PRIMEM node as a string. Valid WKT
+            always carries a number there, so this is a defensive branch -- but the
+            safe reading of an unparseable one is "not Greenwich", because assuming
+            zero would put the seam at 180 for a CRS whose meridian is unknown.
+        """
+
+        class OddSrs:
+            @staticmethod
+            def IsGeographic():
+                return True
+
+            @staticmethod
+            def GetAngularUnits():
+                return 0.017453292519943295
+
+            @staticmethod
+            def GetAttrValue(node, index):
+                return "not-a-number"
+
+        assert _is_lonlat_degrees_from_greenwich(OddSrs()) is False
 
     def test_an_ordinary_bbox_passes_in_any_crs(self):
         """The guard is a no-op unless the box actually wraps."""
@@ -459,6 +489,32 @@ class TestTheSeamOffsetIsMeasuredNotAssumed:
         with pytest.raises(ValueError, match="not seam-aligned"):
             _stitch_lon_halves(west, west, east)
 
+    def test_a_meridian_that_will_not_project_is_refused(self, monkeypatch):
+        """A non-finite offset must not be fed into the alignment check.
+
+        Test scenario:
+            The seam is measured by transforming +180 and -180 into the coverage's
+            CRS. `transform_bounds` clamps to a CRS's area of use rather than
+            returning infinity, so this is hard to reach with a real CRS -- but an
+            infinite offset would make the alignment check compare against `nan`
+            and reject everything with a message about the grid. It raises with the
+            real reason instead.
+        """
+
+        class Infinite:
+            @staticmethod
+            def transform(x, y):
+                return float("inf"), y
+
+        monkeypatch.setattr(
+            "pyramids.base._coverage.Transformer.from_crs",
+            staticmethod(lambda *a, **k: Infinite()),
+        )
+        native = osr.SpatialReference()
+        native.ImportFromEPSG(4326)
+        with pytest.raises(ValueError, match="does not project"):
+            seam_offset(WRAP, "EPSG:4326", native)
+
     def test_halves_at_different_resolutions_are_refused(self):
         """The check the shared guard was missing.
 
@@ -633,6 +689,46 @@ class TestNothingIsStrandedWhenAHalfFails:
         gdal.GetDriverByName("OGCAPI") is None,
         reason="GDAL build lacks the OGCAPI driver",
     )
+    def test_coverages_closes_the_halves_it_could_not_adopt(self):
+        """The adoption sweep on the reader that fetches a whole list at once.
+
+        Test scenario:
+            The twin of the WCS case. `parts` closes what it wrapped; a raise
+            part-way through leaves the remaining `mems` entries wrapped by
+            nothing, so only the tail sweep drops their GDAL handle.
+        """
+        adopted_closed: list[int] = []
+        mem_closed: list[int] = []
+
+        class FailsOnSecond:
+            made = 0
+
+            def __init__(self, mem, access="read"):
+                FailsOnSecond.made += 1
+                original = mem.Close
+                mem.Close = lambda: (mem_closed.append(id(mem)), original())[1]
+                if FailsOnSecond.made > 1:
+                    raise RuntimeError("adoption exploded")
+                self._mem = mem
+
+            def close(self):
+                adopted_closed.append(id(self._mem))
+
+        with _serving(OGC_GLOBAL_BOUNDS) as url:
+            with pytest.raises(RuntimeError, match="adoption exploded"):
+                _ogc_coverages.from_ogc_coverages(
+                    FailsOnSecond, url, coverage="demo", bbox=WRAP, resolution=0.05
+                )
+        assert len(adopted_closed) == 1
+        assert len(mem_closed) == 1, (
+            f"the half that was never wrapped needs the tail sweep to close it; "
+            f"got {len(mem_closed)} raw close(s)"
+        )
+
+    @pytest.mark.skipif(
+        gdal.GetDriverByName("OGCAPI") is None,
+        reason="GDAL build lacks the OGCAPI driver",
+    )
     def test_coverages_closes_the_first_half_when_the_second_fetch_raises(
         self, monkeypatch
     ):
@@ -678,6 +774,58 @@ class TestWcsDirect:
             )
         assert merged.shape == (1, 200, 150)
         _assert_is_concatenation(merged, west, east)
+
+    def test_the_halves_are_snapped_onto_one_lattice(self):
+        """Direct mode has no shared connection, so the two halves must be snapped.
+
+        Test scenario:
+            Discovery reads both halves off one open coverage and the WMS path
+            divides one pixel width between them; direct mode issues two
+            independent GetCoverage requests, so the west half's east edge lands on
+            180 only by luck. A west edge of 170.3 at 0.5 degree cells is 0.6 of a
+            pixel out. Snapping widens it to 170.0, which is a whole number of
+            cells from the seam, and leaves the east half alone since it already
+            was.
+        """
+        halves = [(170.3, -10.0, 180.0, 10.0), (-180.0, -10.0, -170.0, 10.0)]
+        west, east = _wcs._snap_direct_halves(halves, (0.5, 0.5))
+        assert west == (170.0, -10.0, 180.0, 10.0), (
+            f"the west edge must land on a cell boundary from the seam, got {west}"
+        )
+        assert east == (-180.0, -10.0, -170.0, 10.0)
+        assert (180.0 - west[0]) % 0.5 == pytest.approx(0.0)
+        assert (east[2] + 180.0) % 0.5 == pytest.approx(0.0)
+
+    def test_a_direct_wrap_with_a_resolution_reaches_the_snapper(self, monkeypatch):
+        """The snapping is wired in, not merely available.
+
+        Test scenario:
+            Records the windows handed to the direct fetch. With a resolution and a
+            wrapping bbox whose west edge is off-lattice, the request that goes out
+            must be the snapped one -- otherwise the alignment check refuses a pair
+            the caller cannot see anything wrong with.
+        """
+        seen: list[tuple[float, float, float, float]] = []
+        real = _wcs._from_wcs_direct
+
+        def recording(dataset_cls, endpoint, coverage, window, *args, **kwargs):
+            seen.append(window)
+            return real(dataset_cls, endpoint, coverage, window, *args, **kwargs)
+
+        monkeypatch.setattr(_wcs, "_from_wcs_direct", recording)
+        with WcsMock(version="1.0.0", bounds=GLOBAL_BOUNDS) as server:
+            Dataset.from_wcs(
+                server.url,
+                coverage="test_cov",
+                bbox=(170.3, -10.0, -175.0, 10.0),
+                version="1.0.0",
+                direct=True,
+                resolution=0.5,
+            )
+        assert seen[0][0] == pytest.approx(170.0), (
+            f"the west half should have been snapped from 170.3 to 170.0, "
+            f"but {seen[0][0]} was requested"
+        )
 
     def test_one_request_per_half_carrying_that_half_s_subset(self):
         """The URL built for each half asks for that half, not for the wrap."""
