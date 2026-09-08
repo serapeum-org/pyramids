@@ -407,7 +407,8 @@ class Cell(_Engine["Dataset"]):
 
         Raises:
             ValueError: The CRS's datum names no ellipsoid, so there is no
-                figure of the earth to integrate over.
+                figure of the earth to integrate over, or a row of the raster
+                lies entirely beyond a pole.
         """
         geod = crs.get_geod()
         if geod is None:
@@ -425,6 +426,25 @@ class Cell(_Engine["Dataset"]):
         to_radians = crs.axis_info[0].unit_conversion_factor
         edges = (top + np.arange(self._ds.rows + 1) * dy) * to_radians
         span = abs(dx) * to_radians
+        pole = np.pi / 2
+        # A single edge past the pole is ordinary and handled by the clip in
+        # `_zone_integral`: a cell-centred global grid (ERA5's, say) puts its
+        # first edge half a cell beyond 90, and the half of that cell which
+        # exists is exactly what the clipped integral returns. A row with
+        # *both* edges outside is a different thing -- it describes ground that
+        # is not on the ellipsoid at all, and clipping would silently hand it
+        # back as a zero-area row for the caller to sum.
+        above = (edges[:-1] > pole) & (edges[1:] > pole)
+        below = (edges[:-1] < -pole) & (edges[1:] < -pole)
+        off = above | below
+        if off.any():
+            degrees = np.degrees(edges)
+            raise ValueError(
+                f"the raster's latitude extent runs off the ellipsoid: it "
+                f"spans {degrees[0]:.6g} to {degrees[-1]:.6g} degrees, so "
+                f"{int(off.sum())} of its {self._ds.rows} rows lie entirely "
+                "beyond a pole; crop or re-georeference it first"
+            )
         zones = self._zone_integral(edges, geod.a, geod.f)
         return np.abs(np.diff(zones)) * span
 
@@ -446,9 +466,13 @@ class Cell(_Engine["Dataset"]):
             np.ndarray: The integral at each latitude, in square metres per
             radian of longitude.
         """
-        # Clipped before the sine: a warp can leave a top edge one ULP beyond
-        # the pole, and `arctanh(e * sin(phi))` is `nan` there -- which would
-        # otherwise propagate silently through the whole row and the domain sum.
+        # Clipped before the sine, because past the pole the sine turns back
+        # down and the integral would answer for the wrong latitude: an edge at
+        # 100 degrees reads as 80 and yields a plausible 2.06e9 m2 for ground
+        # that does not exist. Nothing here can produce a `nan` -- `|e sin| < 1`
+        # always, so `arctanh` stays finite -- the hazard is a wrong number, not
+        # an obvious one. `_parallel_row_areas` refuses a row that is entirely
+        # outside; this keeps the routine honest for the half-cell that is not.
         sine = np.sin(np.clip(latitude, -np.pi / 2, np.pi / 2))
         eccentricity_squared = f * (2.0 - f)
         if eccentricity_squared <= 0.0:

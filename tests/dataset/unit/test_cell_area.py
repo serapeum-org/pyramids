@@ -323,20 +323,63 @@ class TestTheRefusalsAddedAfterReview:
         with pytest.raises(ValueError, match="no area"):
             raster.cell_area()
 
-    def test_a_pole_overshoot_does_not_become_nan(self):
-        """One ULP past the pole is routine after a warp.
+    def test_a_half_cell_past_the_pole_keeps_the_globe_exact(self):
+        """The cell-centred convention puts the first edge half a cell outside.
 
         Test scenario:
-            `arctanh(e * sin(phi))` is undefined beyond the pole, and the
-            resulting `nan` propagated through the whole row and into the
-            domain sum without a word. Latitudes are clipped first.
+            ERA5 and friends centre their top row on 90, so its upper edge sits
+            at 90.125. Only the half of that cell which exists is real ground,
+            which is exactly what clipping the edge to the pole integrates --
+            so the grid must still total the ellipsoid. Asserting merely that
+            the answer is finite, as this test first did, held whether or not
+            the clip was there at all: `arctanh(e sin(phi))` cannot be `nan`
+            for any real latitude, so there was never a `nan` to prevent.
         """
-        top = np.nextafter(90.0, 91.0)
-        geo_ref = GeoReference(geo=(-180.0, 1.0, 0.0, top, 0.0, -1.0), epsg=4326)
-        raster = Dataset.from_array(np.ones((180, 360), "float32"), geo_ref=geo_ref)
+        geo_ref = GeoReference(
+            geo=(-180.0, 0.25, 0.0, 90.125, 0.0, -0.25), epsg=4326
+        )
+        raster = Dataset.from_array(np.ones((721, 1440), "float32"), geo_ref=geo_ref)
 
-        assert np.all(np.isfinite(raster.cell_area()))
-        assert np.isfinite(raster.domain_area())
+        total = raster.cell_area(unit="km2").sum() / 1e6
+
+        assert total == pytest.approx(WGS84_ELLIPSOID_KM2 / 1e6, rel=1e-9)
+
+    def test_a_row_entirely_past_the_pole_is_refused_by_its_latitudes(self):
+        """Ground that is not on the ellipsoid is not ground of zero area.
+
+        Test scenario:
+            Clipping turns such a row into an exact 0.0, which used to reach
+            the degenerate-geotransform guard and refuse the whole raster --
+            all 180 well-defined rows with it -- while blaming the cell size
+            and the rotation terms, neither of which is wrong here.
+        """
+        geo_ref = GeoReference(geo=(-180.0, 1.0, 0.0, 90.0, 0.0, -1.0), epsg=4326)
+        raster = Dataset.from_array(np.ones((200, 360), "float32"), geo_ref=geo_ref)
+
+        with pytest.raises(ValueError, match="runs off the ellipsoid") as caught:
+            raster.cell_area()
+
+        assert "19 of its 200 rows" in str(caught.value)
+
+    def test_the_clip_is_what_keeps_an_overshoot_from_reading_as_a_lower_row(self):
+        """Past the pole the sine turns back down, so 100 degrees reads as 80.
+
+        Test scenario:
+            The hazard the clip addresses is a plausible wrong number, not a
+            `nan`. A raster whose rows straddle the pole keeps only the real
+            ground: the half-cell above 90 must contribute less than the full
+            cell below it, never the mirrored area of the 80-degree band.
+        """
+        geo_ref = GeoReference(geo=(-180.0, 1.0, 0.0, 90.5, 0.0, -1.0), epsg=4326)
+        raster = Dataset.from_array(np.ones((3, 360), "float32"), geo_ref=geo_ref)
+
+        areas = raster.cell_area(unit="km2")
+
+        # The 89.5-90 zone, not the 90-90.5 one reflected back down: were the
+        # clip removed, the top edge would read as 89.5 and the row would
+        # collapse to 0 instead.
+        assert float(areas[0, 0]) == pytest.approx(27.2172, rel=1e-5)
+        assert float(areas[0, 0]) < float(areas[1, 0])
 
 
 class TestDomainArea:
