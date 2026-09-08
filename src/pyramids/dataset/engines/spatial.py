@@ -1269,7 +1269,9 @@ class Spatial(_Engine["Dataset"]):
         )
         return dst_obj
 
-    def fill_gaps(self, mask, src_array: np.ndarray) -> np.typing.NDArray:
+    def fill_gaps(
+        self, mask, src_array: np.ndarray, fills: list | None = None
+    ) -> np.typing.NDArray:
         """Fill gaps in src_array using nearest neighbors where mask indicates valid cells.
 
         Args:
@@ -1277,10 +1279,20 @@ class Spatial(_Engine["Dataset"]):
                 Mask dataset or array used to determine valid cells.
             src_array (np.ndarray):
                 Source array whose gaps will be filled.
+            fills (list | None):
+                The value each band's absent cells actually hold. `crop`
+                resolves this before stamping it into `src_array`, and it is
+                not always the source's declaration -- a band that declares
+                `NaN` on an integer dtype, or nothing at all, holds a derived
+                value instead. Locating the gaps by the declaration would then
+                match nothing on an integer array and quietly fill none of
+                them. `None` falls back to the declaration, which is right for
+                every caller that has not written a fill of its own.
 
         Returns:
             np.ndarray: The source array with gaps filled where applicable.
         """
+        gap_value = self._ds.no_data_value[0] if fills is None else fills[0]
         # align function only equate the no of rows and columns only
         # match no_data_value inserts no_data_value in src raster to all places like mask
         # still places that has no_data_value in the src raster, but it is not no_data_value in the mask
@@ -1293,7 +1305,7 @@ class Spatial(_Engine["Dataset"]):
         mask_noval = mask.no_data_value[0]
 
         if isinstance(mask, RasterBase) and isinstance(self._ds, RasterBase):
-            src_no_data = is_no_data(src_array, self._ds.no_data_value[0])
+            src_no_data = is_no_data(src_array, gap_value)
             mask_no_data = is_no_data(mask_array, mask_noval)
             elem_src = src_array.size - np.count_nonzero(src_array[src_no_data])
             elem_mask = mask_array.size - np.count_nonzero(mask_array[mask_no_data])
@@ -1304,7 +1316,7 @@ class Spatial(_Engine["Dataset"]):
                 gap_rows, gap_cols = np.nonzero(src_no_data & ~mask_no_data)
                 src_array = Vectorize._nearest_neighbour(
                     src_array,
-                    self._ds.no_data_value[0],
+                    gap_value,
                     gap_rows.tolist(),
                     gap_cols.tolist(),
                 )
@@ -1421,9 +1433,9 @@ class Spatial(_Engine["Dataset"]):
             if fill is None:
                 raise NoDataValueError(
                     f"band {band + 1} is a {dtype.name} raster holding every "
-                    "candidate sentinel, so no value is free to mark the cells "
-                    "the mask excludes; declare a no-data value the band does "
-                    "not use before cropping, or store it in a wider dtype"
+                    "candidate sentinel, so no value is free to mark a cell as "
+                    "absent; declare a no-data value the band does not use "
+                    "before cropping, or store it in a wider dtype"
                 )
             # As a scalar of the band's own dtype, so a derived fill and a
             # declared one are the same kind of thing to every consumer.
@@ -1474,10 +1486,14 @@ class Spatial(_Engine["Dataset"]):
             return None
         try:
             minimum, maximum = raster_band.ComputeRasterMinMax(False)
-        except RuntimeError:
-            # GDAL declines to compute a range -- no valid cells to sample
-            # being the reachable case. Either way the question is unanswered
-            # here, and the caller reads the band instead.
+        except RuntimeError as error:
+            # Only the intended failure is answered quietly: a band with no
+            # valid cells has no range, and the caller reads instead. An I/O
+            # failure on a remote source, a corrupt block or a driver refusal
+            # would otherwise be turned into a silent full materialisation --
+            # the streaming behaviour lost for a reason nobody sees.
+            if "no valid pixels" not in str(error):
+                raise
             return None
         return next(
             (
@@ -1722,7 +1738,7 @@ class Spatial(_Engine["Dataset"]):
         self._apply_mask_nodata(src_array, mask_no_data, band_count, fills)
 
         if fill_gaps:
-            src_array = self.fill_gaps(mask, src_array)
+            src_array = self.fill_gaps(mask, src_array, fills)
 
         self._write_bands(dst_obj, src_array, band_count)
         return dst_obj

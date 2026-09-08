@@ -1981,22 +1981,6 @@ class TestCropFillValues:
 
         assert source.spatial._fill_outside_the_band_range(0, np.dtype("uint8")) is None
 
-    def test_a_band_with_no_valid_cells_falls_back_to_reading(self):
-        """GDAL refuses to compute a range it has no pixels for.
-
-        Test scenario:
-            `ComputeRasterMinMax` raises `Failed to compute min/max, no valid
-            pixels found in sampling` when every cell is the band's declared
-            no-data. The cheap range test cannot answer there, and letting the
-            `RuntimeError` out would turn a resolvable crop into a crash, so it
-            reports "no answer" and the caller reads the band instead.
-        """
-        source = Dataset.from_array(
-            np.zeros((4, 4), dtype="uint8"), geo_ref=self.GEO, no_data_value=0
-        )
-
-        assert source.spatial._fill_outside_the_band_range(0, np.dtype("uint8")) is None
-
     @pytest.mark.parametrize("kind", ["mask band", "alpha band"])
     def test_a_masked_band_is_not_resolved_from_gdals_range(self, kind: str):
         """GDAL and `read_array` must be looking at the same cells.

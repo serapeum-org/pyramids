@@ -1054,7 +1054,7 @@ class Analysis(_Engine["Dataset"]):
         Raises:
             ValueError: `requested` cannot be stored in `dtype`.
         """
-        if isinstance(requested, bool):
+        if isinstance(requested, (bool, np.bool_)):
             # `True` fits every numeric dtype as `1`, so it would silently become
             # a `1.0` sentinel. The operators already refuse a bool as the
             # additive identity; refusing it here keeps one rule.
