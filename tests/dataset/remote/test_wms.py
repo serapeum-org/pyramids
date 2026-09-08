@@ -738,32 +738,31 @@ class TestMergeLonHalves:
             _wms._merge_lon_halves(west, east, 360.0)
 
     def test_refuses_mismatched_rows_or_bands(self):
+        west, east = self._half(170.0, 20), self._half(-180.0, 20, rows=3)
         with pytest.raises(ValueError, match="not concatenable"):
-            _wms._merge_lon_halves(
-                self._half(170.0, 20), self._half(-180.0, 20, rows=3), 360.0
-            )
+            _wms._merge_lon_halves(west, east, 360.0)
 
     def test_refuses_different_resolutions(self):
+        west, east = self._half(170.0, 20), self._half(-180.0, 40, x_res=0.25)
         with pytest.raises(ValueError, match="different resolutions"):
-            _wms._merge_lon_halves(
-                self._half(170.0, 20), self._half(-180.0, 40, x_res=0.25), 360.0
-            )
+            _wms._merge_lon_halves(west, east, 360.0)
 
     def test_refuses_halves_that_do_not_share_a_top_edge(self):
+        west, east = self._half(170.0, 20), self._half(-180.0, 20, uly=20.0)
         with pytest.raises(ValueError, match="top edge"):
-            _wms._merge_lon_halves(
-                self._half(170.0, 20), self._half(-180.0, 20, uly=20.0), 360.0
-            )
+            _wms._merge_lon_halves(west, east, 360.0)
 
     def test_refuses_halves_that_do_not_meet_at_the_seam(self):
         """A west half stopping a pixel short of 180 is not stitchable."""
+        west, east = self._half(170.0, 18), self._half(-180.0, 18)
         with pytest.raises(ValueError, match="apart at the seam"):
-            _wms._merge_lon_halves(self._half(170.0, 18), self._half(-180.0, 18), 360.0)
+            _wms._merge_lon_halves(west, east, 360.0)
 
     def test_a_wrong_seam_offset_is_caught(self):
         """A projected layer checked against 360 degrees fails rather than stitching."""
+        west, east = self._half(170.0, 20), self._half(-180.0, 20)
         with pytest.raises(ValueError, match="apart at the seam"):
-            _wms._merge_lon_halves(self._half(170.0, 20), self._half(-180.0, 20), 1.0)
+            _wms._merge_lon_halves(west, east, 1.0)
 
 
 class _Part:

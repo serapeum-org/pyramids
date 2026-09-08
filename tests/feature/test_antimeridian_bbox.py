@@ -204,7 +204,8 @@ class TestTheReadIsSplitAtTheSeam:
         """Test scenario: a reader with no bbox must not acquire a spatial filter."""
         calls = _patch_oapif(monkeypatch, _world())
         FeatureCollection.from_ogc_features("https://h/api", collection="pts")
-        assert len(calls) == 1 and calls[0]["bbox"] is None
+        assert len(calls) == 1
+        assert calls[0]["bbox"] is None
 
     def test_the_union_of_both_halves_is_returned(self, monkeypatch):
         """Test scenario: everything inside the wrap, from either side of the seam."""
@@ -270,7 +271,8 @@ class TestTheReadIsSplitAtTheSeam:
         fc = FeatureCollection.from_ogc_features(
             "https://h/api", collection="pts", bbox=WRAP, output_crs="EPSG:3857"
         )
-        assert fc.crs.to_epsg() == 3857 and len(fc) == 5
+        assert fc.crs.to_epsg() == 3857
+        assert len(fc) == 5
 
     def test_the_attribute_filter_is_applied_to_both_halves(self, monkeypatch):
         """Test scenario: `where` is not a spatial filter, so both requests must carry it."""
@@ -380,7 +382,8 @@ class TestMergeSeamHalves:
         """Test scenario: a service with nothing east of the seam is normal, not an error."""
         world = _world()
         merged = _ogc.merge_seam_halves([world.iloc[0:0], world.iloc[[0]]], None)
-        assert list(merged["name"]) == ["east"] and merged.crs.to_epsg() == 4326
+        assert list(merged["name"]) == ["east"]
+        assert merged.crs.to_epsg() == 4326
 
     def test_it_handles_both_halves_empty(self):
         """Test scenario: an empty result must stay an empty frame, not a crash."""
@@ -632,8 +635,11 @@ class TestWhatTheFilterActuallyIs:
         assert any("bbox=-170,-10,170,10" in path for path in self._item_requests()), (
             f"expected the inverted envelope: {self._item_requests()}"
         )
-        assert "east" not in names and "far-west" not in names, (
-            f"the features inside the wrap were dropped, silently: {names}"
+        assert "east" not in names, (
+            f"the feature east of the seam was dropped, silently: {names}"
+        )
+        assert "far-west" not in names, (
+            f"the feature west of the seam was dropped, silently: {names}"
         )
         assert "elsewhere" in names, (
             f"and a feature 170 degrees away was returned instead: {names}"
@@ -712,4 +718,5 @@ class TestFishnetRefusesTheWrapOnPurpose:
     def test_an_ordinary_extent_is_untouched(self):
         """Test scenario: recording the refusal must not narrow what already worked."""
         polygons, rows, cols = _tess.fishnet_cells((0.0, 0.0, 1.0, 1.0), 0.5)
-        assert len(polygons) == 4 and (rows, cols) == ([0, 0, 1, 1], [0, 1, 0, 1])
+        assert len(polygons) == 4
+        assert (rows, cols) == ([0, 0, 1, 1], [0, 1, 0, 1])
