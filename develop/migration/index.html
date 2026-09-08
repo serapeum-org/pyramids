@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6901,6 +6901,47 @@ that leaked out of an empty table lookup. Only affects code catching the old typ
 </table>
 <h2 id="dataset"><a class="toclink" href="#dataset">dataset</a><a class="headerlink" href="#dataset" title="Permanent link">#</a></h2>
 <h3 id="unreleased_1"><a class="toclink" href="#unreleased_1">unreleased</a><a class="headerlink" href="#unreleased_1" title="Permanent link">#</a></h3>
+<p><strong>The web-service readers accept a bbox that crosses the antimeridian.</strong> Additive if you pass an ordinary box; a
+hard change if you relied on <code>minx &gt; maxx</code> being rejected. <code>Dataset.from_wcs</code>, <code>from_wms</code>, <code>from_wmts</code> and
+<code>from_ogc_coverages</code> used to raise <code>ValueError: bbox must have minx &lt; maxx and miny &lt; maxy</code> for
+<code>(170, -10, -170, 10)</code> — while <code>Dataset.crop</code> had served exactly that box for a long time, by splitting at the
+180 degree seam. The readers now split too: two requests, one per side, concatenated into one raster whose
+geotransform continues past the seam (<code>170 .. 180</code> then <code>180 .. 190</code>) instead of jumping back to <code>-180</code>.</p>
+<ul>
+<li><strong>A transposed longitude pair is no longer caught, and that is the price.</strong> A network reader has no grid to
+  measure the bbox against — it is fetching the grid — so <code>(6, 51, 5, 52)</code>, a west/east pair entered the wrong
+  way round, now reads as a 359 degree wrap and issues two large requests rather than raising. If you were
+  relying on that <code>ValueError</code> to catch swapped arguments, check the bbox yourself before the call. <strong>Latitude
+  is unaffected</strong>: <code>miny &gt;= maxy</code> is still an error, because there is no seam in latitude.</li>
+<li><strong>Two wrapping bboxes are refused rather than approximated</strong>, both on the <code>from_wms</code> / <code>from_wmts</code> side: one
+  with a projected <code>crs</code>, where there is no 180 degree meridian and <code>minx &gt; maxx</code> really is inverted; and one
+  with a corner outside <code>-180 .. 180</code>, where "west of the seam" stops meaning anything.</li>
+<li><strong><code>from_wms</code>'s <code>size</code> is the width of the whole result</strong>, divided between the two halves at one shared
+  resolution, with the seam snapped to the nearest pixel boundary. The two widths sum to the <code>size</code> you asked
+  for, odd or even, so a wrapping request returns the image dimensions a non-wrapping one would. A wrapping
+  request needs at least 2 pixels of width, since one pixel cannot straddle the seam.</li>
+<li><strong><code>from_wms(resolution=...)</code> is now capped at 25,000 px per axis.</strong> Hard change, and it applies to ordinary
+  non-wrapping reads too: <code>from_wms(bbox=(5, 51, 6, 52), resolution=0.00001)</code> used to return a 100,000 x 100,000
+  image and now raises <code>ValueError</code>. The cap exists because accepting a wrap made a transposed bbox silently
+  span 359 degrees — at a fine resolution that becomes two <code>GetMap</code> requests of a few hundred thousand columns
+  each, which no server will serve. <code>size=(width, height)</code> is <strong>not</strong> capped: a size you state outright cannot be
+  amplified by a mistake in <code>bbox</code>, so it is still taken verbatim. If you were relying on a very fine
+  <code>resolution</code>, pass <code>size=</code> instead.</li>
+<li><strong><code>from_wmts</code> measures the seam offset in the layer's native CRS</strong> rather than assuming 360 — about
+  40,075,017 m for a Web Mercator layer — and only computes it when there is a seam, so a non-wrapping read is
+  byte-identical to before.</li>
+<li><strong><code>from_ogc_coverages</code> sizes the two halves together</strong> when no <code>resolution</code> is given: the combined span is
+  capped once and the resulting pixel size applied to both. Sizing each half against the cap on its own would
+  give them different pixel sizes and row counts, which cannot be concatenated at all.</li>
+<li><strong>A wrapping <code>from_wcs(direct=True)</code> read should pass <code>resolution=</code>.</strong> Direct mode has no descriptor to read, so
+  the two halves are independent <code>GetCoverage</code> requests; with a <code>resolution</code> they are snapped onto one lattice,
+  and without one nothing constrains the server to grid them alike. A mismatch is refused with
+  <code>antimeridian halves were produced at different resolutions</code> rather than stitched into a misaligned raster.</li>
+<li><strong>A seam read through <code>from_wcs</code> or <code>from_ogc_coverages</code> returns a plain <code>Dataset</code></strong>, even when called on a
+  subclass, because those two merge by rebuilding through <code>Dataset.from_array</code>. <code>from_wms</code> and <code>from_wmts</code> stitch
+  into a GDAL handle and wrap it with the class they were called on, so a subclass survives there. Only relevant
+  if you call these classmethods on a <code>Dataset</code> subclass; nothing in <code>pyramids</code> does.</li>
+</ul>
 <p><strong>Two rasters can now be combined directly, and <code>Dataset</code> gained arithmetic operators.</strong> Additive — nothing that
 worked before behaves differently. <code>ds.combine(other, func)</code> runs a binary function over two aligned rasters and
 returns a <code>Dataset</code> on the left operand's grid, and <code>-</code>, <code>+</code>, <code>*</code>, <code>/</code> between two rasters are thin wrappers over
@@ -7012,14 +7053,21 @@ spirit: a format that supports <code>Create</code> gives <code>"write"</code>, a
 <code>.jpeg</code>, <code>.jp2</code> / <code>.j2k</code>, <code>.asc</code>) still gives <code>"read_only"</code>, because <code>CreateCopy</code> hands back a read-only
 dataset for those. If you relied on the copy being read-only as a guard, guard it yourself — there is no
 parameter to ask for the old mode.</p>
-<p><strong>A no-data value the band cannot store is no longer replaced with the dtype's maximum.</strong> Hard change, silent
-on the read path and loud on the write path. A <code>NaN</code> sentinel cannot be stored in an integer band, and the
-unsigned types wider than a byte used to answer that by substituting their own maximum: a <code>uint16</code> band asked
-for <code>NaN</code> came back declaring <code>65535</code>. Every genuinely-65535 cell in it — the saturated end of a scaled
-reflectance product, the void value of a DEM — was then out of domain, and <code>align</code> handed the raster to
-<code>gdal.ReprojectImage</code>, which rewrote those real 65535s to 65534 to keep them distinguishable from the sentinel.
-<code>uint8</code> was excluded from the substitution for exactly this reason (255 is white in 8-bit imagery); the wider
-types now follow the same rule, so there is one rule across all of them.</p>
+<p><strong><code>Dataset.no_data_value</code> can report a numpy scalar where it reported a Python <code>int</code>.</strong> Hard change, silent —
+the number is the same, only its type differs. It affects one case: an unsigned band <strong>wider than 8 bits</strong>
+(<code>uint16</code>, <code>uint32</code>, <code>uint64</code>) created with a <code>NaN</code> no-data, where pyramids substitutes the dtype's maximum
+because <code>NaN</code> cannot be stored there. That substituted sentinel is now built as a numpy scalar instead of a
+Python <code>int</code>, so it agrees in type as well as value with the sentinel picked when a <em>requested</em> no-data
+overflows the band — previously the same answer read back as <code>65535</code> from one path and a numpy scalar from the
+other, and the <code>==</code> pinning their agreement could not see the difference.</p>
+<p>What a caller sees, for a <code>uint16</code> band created with <code>no_data_value=np.nan</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Before</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">ds</span><span class="o">.</span><span class="n">no_data_value</span>      <span class="c1"># (65535,)                  &lt;- builtin int</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="c1"># After</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="n">ds</span><span class="o">.</span><span class="n">no_data_value</span>      <span class="c1"># (np.float64(65535.0),)</span>
+</code></pre></div>
+<p>Measured across the dtypes, with <code>Dataset.create(rows=3, columns=4, dtype=..., bands=1, no_data_value=...)</code>:</p>
 <table>
 <thead>
 <tr>
@@ -7031,21 +7079,26 @@ types now follow the same rule, so there is one rule across all of them.</p>
 <tbody>
 <tr>
 <td><code>uint16</code> + <code>NaN</code></td>
-<td><code>(65535,)</code></td>
-<td><code>(nan,)</code></td>
+<td><code>(65535,)</code> — <code>int</code></td>
+<td><code>(np.float64(65535.0),)</code></td>
 </tr>
 <tr>
 <td><code>uint32</code> + <code>NaN</code></td>
-<td><code>(4294967295,)</code></td>
-<td><code>(nan,)</code></td>
+<td><code>(4294967295,)</code> — <code>int</code></td>
+<td><code>(np.float64(4294967295.0),)</code></td>
 </tr>
 <tr>
 <td><code>uint64</code> + <code>NaN</code></td>
-<td><code>(18446744073709551615,)</code></td>
-<td><code>(nan,)</code></td>
+<td><code>(18446744073709551615,)</code> — <code>int</code></td>
+<td><code>(np.uint64(18446744073709551615),)</code></td>
 </tr>
 <tr>
-<td><code>uint8</code>, signed, floating + <code>NaN</code></td>
+<td><code>uint8</code> + <code>NaN</code></td>
+<td><code>(nan,)</code></td>
+<td><code>(nan,)</code> — unchanged</td>
+</tr>
+<tr>
+<td>signed / floating + <code>NaN</code></td>
 <td><code>(nan,)</code></td>
 <td><code>(nan,)</code> — unchanged</td>
 </tr>
@@ -7056,192 +7109,25 @@ types now follow the same rule, so there is one rule across all of them.</p>
 </tr>
 </tbody>
 </table>
-<p>Two knock-on effects to look for:</p>
+<p>Two things the shape of that table decides for you:</p>
 <ul>
-<li><strong><code>change_no_data_value(None)</code> on a <code>uint16</code> / <code>uint32</code> / <code>uint64</code> raster now raises <code>NoDataValueError</code></strong>,
-  where it used to succeed and leave the dtype maximum behind. <code>uint8</code> and the signed types already raised.
-  Pass a sentinel the band can hold, or leave the band without one.</li>
-<li><strong>A raster that declares no storable sentinel now really has no no-data</strong>, so <code>count_domain_cells</code>, <code>apply</code>,
-  <code>fill</code> and the statistics treat every cell as data. That is the honest answer for a band with no free value,
-  and it is what a <code>uint8</code> raster already did.</li>
-<li><strong><code>Dataset.create(..., no_data_value=np.nan)</code> returns a different canvas</strong>, not just a different declaration.
-  Creating a band fills it with the sentinel it just declared, so the substitution used to leave every cell
-  out of domain; with nothing storable to declare there is nothing meaningful to fill with, and the band keeps
-  the driver's zeros:</li>
+<li><strong><code>uint8</code> is excluded.</strong> A Byte band with a <code>NaN</code> no-data reports <code>(nan,)</code>, before and after — nothing is
+  substituted, because 255 is white in 8-bit imagery and fabricating it as a sentinel would put every white
+  pixel out of domain. Do not test this change on a Byte raster: it will not show there.</li>
+<li><strong>Only <code>NaN</code> triggers it.</strong> An <em>unset</em> no-data (<code>no_data_value=None</code>) reports <code>(None,)</code> on both sides. The
+  substitution is for a sentinel that cannot be stored, not for the absence of one.</li>
 </ul>
-<table>
-<thead>
-<tr>
-<th><code>create(rows=3, columns=4, dtype=…, no_data_value=np.nan)</code></th>
-<th>Before</th>
-<th>After</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>uint16</code></td>
-<td>declares <code>65535</code>, holds <code>65535</code>, 0 domain cells</td>
-<td>declares <code>NaN</code>, holds <code>0</code>, 12 domain cells</td>
-</tr>
-<tr>
-<td><code>uint32</code></td>
-<td>declares <code>4294967295</code>, holds that, 0 domain cells</td>
-<td>declares <code>NaN</code>, holds <code>0</code>, 12 domain cells</td>
-</tr>
-</tbody>
-</table>
-<p>If you used that call as an out-of-domain canvas and wrote only the cells you cared about, the untouched ones
-  are now real zeros that every consumer counts as data. Create the raster with a sentinel the dtype can hold
-  instead, and the old behaviour returns unchanged.</p>
-<p>What has <strong>not</strong> changed is the repair applied when a caller asks for a sentinel that overflows the band:
-<code>Dataset.from_array(uint8_array)</code> still warns that the default <code>-9999</code> is out of range and stores <code>255</code>. There
-the caller asked for a sentinel and it did not fit, so picking a storable one honours the request; the removed
-substitution fired when the caller asked for <em>no</em> sentinel, and answered a question nobody posed.</p>
-<p><strong><code>crop</code> derives the value it writes into masked cells, and declares it on the result.</strong> Hard change, and the
-fix for two bugs. Cropping has to put <em>something</em> in the cells the mask excludes, and it used to write the
-source's declared sentinel — which is why a multi-band <code>uint8</code> or <code>int16</code> crop raised
-<code>ValueError: cannot convert float NaN to integer</code> outright, and why a <code>uint16</code> crop silently relied on the
-substitution above.</p>
-<p>The cropped output now carries a fill chosen <strong>against the band's own data</strong>: the band's sentinel when it can
-store one, otherwise the first value that fits the dtype and occurs nowhere in the band (<code>NaN</code>, then <code>-9999</code>,
-then the dtype's extremes, then a scan of the remaining range for the narrow integer types). That value is set
-as the <strong>output's</strong> <code>no_data_value</code>, so the result says which cells are absent instead of leaving a bare <code>0</code> or
-a fabricated maximum indistinguishable from a measurement. A band that holds every candidate raises
-<code>NoDataValueError</code> naming the fix rather than reclassifying a real observation as a gap.</p>
-<p>A band that declares <strong>no</strong> sentinel is derived for too, on this path. That is not inventing a property the data
-lacked — the crop is what makes those cells absent — and what it replaces was collide-or-crash. Measured on the
-previous release, a raster-mask crop of a band declaring nothing:</p>
-<table>
-<thead>
-<tr>
-<th>dtype</th>
-<th>single band</th>
-<th>multi-band</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>uint16</code> / <code>uint32</code></td>
-<td><code>TypeError</code></td>
-<td>wrote <strong>and declared</strong> the dtype maximum</td>
-</tr>
-<tr>
-<td><code>uint8</code> / <code>int16</code></td>
-<td><code>TypeError</code></td>
-<td><code>TypeError</code></td>
-</tr>
-<tr>
-<td>floating</td>
-<td><code>NaN</code>, declared</td>
-<td><code>NaN</code>, declared</td>
-</tr>
-</tbody>
-</table>
-<p>Because the output now declares a sentinel the trim recognises, a raster-mask crop also removes rows and columns
-that the mask excluded entirely — so the result can be smaller than the mask's extent. That is not new behaviour,
-only newly reachable: a <code>float32</code> band, whose <code>NaN</code> was always storable, was trimmed the same way before. A 4x4
-raster masked along its first row and column comes back 3x3 for every dtype now, where the integer cases used to
-raise instead.</p>
-<p>The one case that completed is the one this issue exists for: <code>_check_no_data_value</code> turned the band's <code>None</code>
-into 65535, wrote it into the excluded cells and declared it, so every genuinely-65535 cell in the band became
-out-of-domain on the output. Every other integer case raised
-<code>TypeError: int() argument must be ... not 'NoneType'</code>, single- and multi-band alike. A floating band is
-unchanged — it gets <code>NaN</code>, which is what that path already wrote and declared.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># uint8 source asked for a NaN sentinel, data in 1..7</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">out</span> <span class="o">=</span> <span class="n">src</span><span class="o">.</span><span class="n">crop</span><span class="p">(</span><span class="n">mask</span><span class="p">)</span>
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="n">out</span><span class="o">.</span><span class="n">no_data_value</span>      <span class="c1"># (255.0,) -- derived, and declared</span>
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="c1"># Before: ValueError: cannot convert float NaN to integer (multi-band)</span>
-<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>
-<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="c1"># uint8 source declaring nothing at all</span>
-<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="n">out</span> <span class="o">=</span> <span class="n">src</span><span class="o">.</span><span class="n">crop</span><span class="p">(</span><span class="n">mask</span><span class="p">)</span>
-<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="n">out</span><span class="o">.</span><span class="n">no_data_value</span>      <span class="c1"># (255.0,) -- derived, and declared</span>
-<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="c1"># Before: TypeError: int() argument must be ... not 'NoneType'</span>
-</code></pre></div>
-<p>A polygon (cutline) crop is the same story from the other side, with one deliberate difference: a band that
-declares no sentinel is left alone there. That path does not write the excluded cells itself — GDAL fills them —
-so stamping a <code>-dstnodata</code> would put a sentinel on the output that the source never had, which the netCDF
-fan-out would then carry onto a rebuilt variable. Only a band with a sentinel it <em>cannot store</em> gets one.</p>
-<p>For that band, the border outside the cutline was GDAL's default <code>0</code> — a real observation on most bands, and
-declared nowhere. The trim that removes the fully-outside rows and columns works by reading the sentinel back,
-so it recognised nothing there and left the border in place: an integer raster came back larger than the same
-crop of a float one. It now gets the derived fill, is trimmed to the polygon, and declares what its border
-holds.</p>
-<table>
-<thead>
-<tr>
-<th><code>crop(polygon)</code> of an 8x8 raster asked for a <code>NaN</code> sentinel</th>
-<th>Before</th>
-<th>After</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>uint8</code> / <code>int16</code></td>
-<td>6x6, border of undeclared <code>0</code></td>
-<td>4x4, border declared</td>
-</tr>
-<tr>
-<td><code>uint16</code> / <code>uint32</code></td>
-<td>4x4, border declared <code>65535</code></td>
-<td>4x4, border declared — now derived</td>
-</tr>
-<tr>
-<td><code>int64</code></td>
-<td>6x6, border of undeclared <code>0</code></td>
-<td>4x4, border declared</td>
-</tr>
-<tr>
-<td><code>uint64</code></td>
-<td>6x6, border of undeclared <code>0</code></td>
-<td>6x6 — unchanged, see below</td>
-</tr>
-<tr>
-<td><code>float32</code> (a storable <code>NaN</code>)</td>
-<td>4x4</td>
-<td>4x4 — unchanged</td>
-</tr>
-</tbody>
-</table>
-<p><code>uint16</code> and <code>uint32</code> were already trimmed and already declared, because the substitution being removed had
-given them <code>65535</code> / <code>4294967295</code> before the crop ever ran. What changes for them is only where the value comes
-from: derived against the band's data rather than fabricated, so it can no longer be a value the band holds.</p>
-<p><code>uint64</code> is left alone deliberately. <code>-dstnodata</code> reaches GDAL as text it parses into a C double, and that
-dtype's maximum does not survive the trip — it arrives rounded to <code>2**63</code>, which GDAL announces and then writes
-into the pixels. Declaring the value we asked for would describe cells holding something else, so no fill is
-offered and the border stays undeclared.</p>
-<p>The declared sentinel of a well-formed raster is unchanged: a band that already declares a storable value keeps
-it, its data is never read to make the decision, and the warp options it produces are the ones it produced
-before.</p>
-<p><strong>A crop can now come back larger, for any raster whose cells come close to its sentinel.</strong> Hard change, silent,
-and unrelated to whether a fill was derived. The trim that removes wholly-excluded rows and columns asked
-<code>is_no_data</code>, whose operational <code>rtol</code> of 0.001 treats everything within a part per thousand of the sentinel as
-no-data; it now asks <code>is_stored_no_data</code>, the tolerance the storage forces. Cells that merely lie near the
-sentinel are data again, so fewer rows qualify for removal and the result only ever grows:</p>
-<table>
-<thead>
-<tr>
-<th><code>float32</code> declaring <code>-9999</code>, border holding <code>-9995</code></th>
-<th>Before</th>
-<th>After</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>crop(mask=polygon)</code></td>
-<td>2x2</td>
-<td>6x6</td>
-</tr>
-<tr>
-<td><code>crop(bbox=…)</code></td>
-<td>2x2</td>
-<td>6x6</td>
-</tr>
-</tbody>
-</table>
-<p>The old shape was reached by deleting real observations — elevation, depth and scaled-reflectance products sit
-in exactly that window — so the new one is the correct answer. But code that indexes, reprojects or asserts
-against a crop's shape will see it change. It applies to both crop routes and to bands with an ordinary,
-storable, declared sentinel.</p>
+<p><code>float64</code>, not <code>uint16</code>: GDAL's <code>SetNoDataValue</code> takes a C double and the value is round-tripped through it. The
+one exception is <code>uint64</code>, whose maximum has no exact <code>float64</code>, so it stays a numpy <code>uint64</code>. A band with a
+concrete no-data already reported a numpy scalar before this release.</p>
+<p>Anything comparing with <code>==</code>, or reading the value into numpy, needs no change. Change what needs a builtin:</p>
+<ul>
+<li><code>json.dumps(ds.no_data_value)</code> → <code>json.dumps([float(v) for v in ds.no_data_value])</code></li>
+<li><code>"%d" % nodata</code> and <code>is</code>-comparisons against small ints</li>
+<li>arithmetic where wrapping matters — only on the <code>uint64</code> row, whose value is a numpy <em>integer</em> scalar and
+  wraps at the dtype bound (<code>np.uint64(2**64 - 1) + 1 == 0</code>) instead of promoting. The <code>uint16</code> / <code>uint32</code> rows
+  are <code>float64</code> and do not wrap. <code>float(nodata)</code> first if you are doing arithmetic on any of them.</li>
+</ul>
 <p><strong><code>create_from_array</code> is now <code>from_array</code>, and takes a <code>GeoReference</code>.</strong> Hard change, no deprecation alias — the
 old name and the old flat keywords are gone. The same rename applies to <code>UgridDataset.create_from_arrays</code> -&gt;
 <code>from_arrays</code> (still plural: it takes three arrays, not one).</p>
@@ -7511,9 +7397,9 @@ sentinel picks up passing through <code>float32</code> storage or a driver's dec
 <li><strong>An integer sentinel is compared as an exact integer, not through a <code>float</code>.</strong> That matters only at the
   64-bit limits, where it is the whole answer: <code>float(2**63 - 1)</code> rounds <em>up</em> past <code>int64</code>'s maximum, so a band
   whose sentinel is its own dtype maximum would be judged unable to hold it and mask nothing at all — with
-  <code>fill</code> then overwriting the very cells it was told to leave alone. A 64-bit maximum is a sentinel a caller
-  reasonably declares, and the one a crop derives for a band that has none, so this is a path a 64-bit raster
-  reaches rather than a corner of one.</li>
+  <code>fill</code> then overwriting the very cells it was told to leave alone. <code>int64</code> and <code>uint64</code> maxima are exactly
+  the sentinels pyramids fabricates for an unsigned band with an unstorable no-data, so this is the ordinary
+  path for a 64-bit raster rather than a corner of one.</li>
 </ul>
 <p>For a caller, a cell within ~0.1% of the sentinel that used to be no-data to <code>count_domain_cells</code> / <code>apply</code> is now
 data; nothing that was masked before is unmasked <em>less</em> accurately, the change only ever keeps cells. On the test
@@ -7576,6 +7462,24 @@ Passing an explicit <code>bbox_crs</code> / <code>point_crs</code> against a ras
 ignored: there is no frame to transform into.</p>
 <h2 id="feature"><a class="toclink" href="#feature">feature</a><a class="headerlink" href="#feature" title="Permanent link">#</a></h2>
 <h3 id="unreleased_2"><a class="toclink" href="#unreleased_2">unreleased</a><a class="headerlink" href="#unreleased_2" title="Permanent link">#</a></h3>
+<p><strong><code>FeatureCollection.from_wfs</code> and <code>from_ogc_features</code> accept an antimeridian bbox.</strong> Same change as the raster
+readers, for the same reason, and with the same caveat about a transposed longitude pair no longer being caught.
+The vector side has a sharper motivation, though: a wrapping rect handed to OGR whole does <strong>not</strong> raise. It is
+silently normalised into its complement, so a filter written as <code>(170, -10, -170, 10)</code> — the 20 degrees around
+Fiji — quietly returned the other 340 degrees of the planet. The bbox is now split at the seam, each half
+requested on its own, and the two results merged with duplicates removed.</p>
+<ul>
+<li><strong>A wrapping bbox costs two requests.</strong> A non-wrapping one still costs exactly one; the split is a no-op for it.</li>
+<li><strong>Duplicates are removed by geometry and attributes, never by FID.</strong> A feature that straddles the seam comes
+  back from both halves, and servers assign FIDs per request, so the same feature can arrive under two different
+  ids — keying on the FID would drop real features rather than duplicate ones. Matching on the geometry's WKB
+  plus the attribute values is what actually de-duplicates it. The accepted cost: two rows the source genuinely
+  holds twice, identical in geometry <em>and</em> in every attribute, are indistinguishable and collapse to one. This
+  only applies to a wrapping bbox — a single-request read is passed through untouched.</li>
+<li><code>FeatureCollection.fishnet</code> still refuses a wrapping bbox. Its bounds are in the target <code>crs</code>, which may be
+  projected and so has no seam; there is no coherent column numbering across a wrap; and a cell containing ±180
+  would have to be a <code>MultiPolygon</code>.</li>
+</ul>
 <p><strong><code>pyramids.feature.bbox</code> no longer carries <code>Transformer</code> and <code>crs_from_user_input</code>.</strong> Both were incidental
 re-exports — names the module imported to implement <code>transform</code>, never advertised in its docs or <code>__all__</code>. The
 reprojection itself moved down to <code>pyramids.base._bbox</code> so <code>pyramids.base</code> could stop importing <code>pyramids.feature</code>
