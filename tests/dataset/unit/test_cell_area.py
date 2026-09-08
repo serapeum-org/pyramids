@@ -19,6 +19,7 @@ import pytest
 from osgeo import gdal
 from pyproj import CRS
 
+from pyramids.base._domain import is_stored_no_data
 from pyramids.dataset import Dataset, GeoReference
 
 pytestmark = pytest.mark.core
@@ -95,7 +96,10 @@ class TestCellAreaOnAGeographicGrid:
 
         equator = float(areas[90, 0])
         high_latitude = float(areas[10, 0])
-        assert equator > high_latitude * 5
+        # Bounded on both sides against the true ratio of ~5.42. A bare
+        # `> 5` sat almost on top of it, so it was closer to becoming flaky
+        # than to catching a change.
+        assert 5.3 < equator / high_latitude < 5.6
 
     def test_it_matches_the_exact_quadrilateral_area(self):
         """Pinned against the closed form derived here, not against the code.
@@ -183,8 +187,10 @@ class TestCellAreaOnAGeographicGrid:
         areas = _global_grid().cell_area()
 
         assert areas.shape == (180, 360)
-        assert areas.base is not None
-        assert areas.base.size <= 180
+        # Asked through the public flags rather than `.base`, a numpy
+        # internal: a broadcast view owns no data and cannot be written.
+        assert not areas.flags.owndata
+        assert not areas.flags.writeable
 
 
 class TestTheUnits:
@@ -194,7 +200,7 @@ class TestTheUnits:
         ("unit", "divisor"), [("m2", 1.0), ("km2", 1e6), ("ha", 1e4)]
     )
     def test_each_unit_scales_the_same_answer(self, unit: str, divisor: float):
-        """Args: unit: The requested unit. divisor: Square metres in it.
+        """Each unit is the square-metre answer divided by a constant.
 
         Args:
             unit: The requested unit.
@@ -250,6 +256,79 @@ class TestWhatCannotBeAnswered:
 
         with pytest.raises(ValueError, match="rotated geographic"):
             raster.cell_area()
+
+
+class TestTheRefusalsAddedAfterReview:
+    """Inputs that used to leak an internal error instead of a clear one."""
+
+    @pytest.mark.parametrize("unit", [["km2"], {"km2": 1}, None, 2])
+    def test_any_bad_unit_gives_the_same_refusal(self, unit):
+        """A dict lookup fails two ways; the caller should not see the difference.
+
+        Args:
+            unit: An argument that is not a unit this package converts to.
+
+        Test scenario:
+            An unhashable argument raises `TypeError` from the lookup itself
+            rather than missing it, so it escaped a guard that caught only
+            `KeyError` -- leaving `unit=["km2"]` with numpy's "unhashable
+            type" while `unit=None` got the documented message.
+        """
+        with pytest.raises(ValueError, match="unknown area unit"):
+            _global_grid().cell_area(unit=unit)
+
+    def test_a_band_out_of_range_is_named(self):
+        """Test scenario: indexing the sentinel tuple first gave `IndexError`."""
+        with pytest.raises(ValueError, match="out of range for a 1-band"):
+            _global_grid().domain_area(band=5)
+
+    def test_a_geocentric_crs_is_refused(self):
+        """Axes that are not a ground plane have no cell area.
+
+        Test scenario:
+            EPSG:4978 is geocentric -- metres from the earth's centre on three
+            axes. It is neither geographic nor projected, so it used to fall
+            into the projected branch and get the determinant of a
+            geotransform that describes nothing planar.
+        """
+        handle = gdal.GetDriverByName("MEM").Create("", 2, 2, 1, gdal.GDT_Float32)
+        handle.SetGeoTransform((0.0, 1.0, 0.0, 0.0, 0.0, -1.0))
+        handle.SetProjection(CRS.from_epsg(4978).to_wkt())
+        raster = Dataset(handle)
+
+        with pytest.raises(ValueError, match="neither geographic nor projected"):
+            raster.cell_area()
+
+    def test_a_degenerate_geotransform_is_refused(self):
+        """A cell with no extent is not a cell of zero area.
+
+        Test scenario:
+            A zero cell size, or a rotation that collapses the parallelogram,
+            gives a determinant of zero. Answering `0.0` would make
+            `domain_area` report no ground for a raster full of data.
+        """
+        handle = gdal.GetDriverByName("MEM").Create("", 2, 2, 1, gdal.GDT_Float32)
+        handle.SetGeoTransform((0.0, 10.0, 10.0, 0.0, 10.0, 10.0))
+        handle.SetProjection(CRS.from_epsg(32636).to_wkt())
+        raster = Dataset(handle)
+
+        with pytest.raises(ValueError, match="no area"):
+            raster.cell_area()
+
+    def test_a_pole_overshoot_does_not_become_nan(self):
+        """One ULP past the pole is routine after a warp.
+
+        Test scenario:
+            `arctanh(e * sin(phi))` is undefined beyond the pole, and the
+            resulting `nan` propagated through the whole row and into the
+            domain sum without a word. Latitudes are clipped first.
+        """
+        top = np.nextafter(90.0, 91.0)
+        geo_ref = GeoReference(geo=(-180.0, 1.0, 0.0, top, 0.0, -1.0), epsg=4326)
+        raster = Dataset.from_array(np.ones((180, 360), "float32"), geo_ref=geo_ref)
+
+        assert np.all(np.isfinite(raster.cell_area()))
+        assert np.isfinite(raster.domain_area())
 
 
 class TestDomainArea:
@@ -369,7 +448,11 @@ class TestDomainArea:
         raster = _global_grid(values, no_data=-9999.0)
 
         areas = raster.cell_area()
-        inside = ~np.isclose(np.asarray(raster.read_array()), -9999.0)
+        # The same predicate the implementation uses. `np.isclose` carries a
+        # relative tolerance of 1e-5 -- about +/-0.1 around this sentinel --
+        # so the two definitions agreed here only because the random values
+        # happen to live in [0, 1).
+        inside = ~is_stored_no_data(np.asarray(raster.read_array()), -9999.0)
         expected = float((areas * inside).sum())
 
         assert raster.domain_area() == pytest.approx(expected, rel=1e-9)
@@ -415,7 +498,12 @@ class TestTheEdgesTheHappyPathMisses:
         values[1, 0, :] = -9999.0
         raster = Dataset.from_array(values, geo_ref=geo_ref, no_data_value=-9999.0)
 
-        assert raster.domain_area(band=1) < raster.domain_area(band=0)
+        # Pinned to the rows each band actually keeps, not merely ordered: a
+        # band that returned 0.0 from an unrelated fault would satisfy
+        # `band1 < band0` while being entirely wrong.
+        areas = raster.cell_area()
+        assert raster.domain_area(band=0) == pytest.approx(float(areas.sum()))
+        assert raster.domain_area(band=1) == pytest.approx(float(areas[1:, :].sum()))
 
     def test_a_band_declaring_no_sentinel_is_wholly_domain(self):
         """No sentinel means no gaps, so every cell counts.
@@ -441,10 +529,19 @@ class TestTheEdgesTheHappyPathMisses:
             gives each band's lower edge first. `polygon_area_perimeter` signs
             its answer by winding order, which is why the magnitude is taken.
         """
-        geo_ref = GeoReference(geo=(0.0, 1.0, 0.0, -10.0, 0.0, 1.0), epsg=4326)
-        raster = Dataset.from_array(np.ones((4, 4), "float32"), geo_ref=geo_ref)
+        south_up = Dataset.from_array(
+            np.ones((4, 4), "float32"),
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, -10.0, 0.0, 1.0), epsg=4326),
+        )
+        north_up = Dataset.from_array(
+            np.ones((4, 4), "float32"),
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, -6.0, 0.0, -1.0), epsg=4326),
+        )
 
-        areas = raster.cell_area()
+        areas = south_up.cell_area()
 
         assert np.all(np.isfinite(areas))
-        assert np.all(areas > 0.0)
+        # The two describe the same four latitude bands in opposite order, so
+        # one is the other reversed. Asserting only "finite and positive" would
+        # pass for any answer at all.
+        assert np.allclose(areas[:, 0], north_up.cell_area()[::-1, 0], rtol=1e-12)
