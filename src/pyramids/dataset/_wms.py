@@ -564,6 +564,20 @@ def _merge_lon_halves(
             ```
     """
     _check_halves_concatenable(west, east, seam_offset)
+    band_types = {
+        west.GetRasterBand(i).DataType for i in range(1, west.RasterCount + 1)
+    }
+    if len(band_types) > 1:
+        # `Create` stamps one type on every band, and the raw copy below would
+        # then silently truncate the others -- a Float64 band written through a
+        # Byte buffer turns 3.25 into 3. GDAL's WMS and WMTS drivers make
+        # uniform-typed bands, so this is unreachable today; it is refused rather
+        # than left as a quiet numeric loss in a helper whose whole point is that
+        # a stitched raster matches an unstitched one.
+        raise ValueError(
+            f"antimeridian halves carry mixed band data types {sorted(band_types)}; "
+            "the stitch would truncate every band that is not the first"
+        )
     data_type = west.GetRasterBand(1).DataType
     merged = gdal.GetDriverByName("MEM").Create(
         "",
@@ -842,16 +856,29 @@ def from_wmts(
                 # that half as a block of no-data and concatenate it in as though
                 # it were data. Only for a split read: a lone window keeps GDAL's
                 # own lenient behaviour, unchanged.
+                projwins = [_native_projwin(half, crs, native_srs) for half in halves]
                 halves = [
                     half
-                    for half in halves
-                    if _window_overlaps(_native_projwin(half, crs, native_srs), src)
+                    for half, projwin in zip(halves, projwins, strict=True)
+                    if _window_overlaps(projwin, src)
                 ]
                 if not halves:
                     raise ValueError(
                         f"bbox {bbox!r} crosses the antimeridian but neither half "
                         f"overlaps the extent of layer {layer!r}"
                     )
+                # Budget the combined span once, as the coverage readers do.
+                # `_translate_window` checks the ceiling per half, so without this
+                # a wrapping read is bounded at MAX_PX on *each* side -- twice the
+                # intended peak, and then a third copy to stitch them.
+                spans = [abs(pw[2] - pw[0]) for pw in projwins]
+                combined = [
+                    projwins[0][0],
+                    projwins[0][1],
+                    projwins[0][0] + sum(spans),
+                    projwins[0][3],
+                ]
+                _read_size(combined, half_res or _native_resolution(src))
             mem = _collect_halves(crop_half, halves, offset)
         finally:
             src = None

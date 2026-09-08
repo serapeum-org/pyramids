@@ -715,6 +715,28 @@ class TestMergeLonHalves:
         assert merged_band.GetMetadata() == {"legend": "corine"}
         assert merged.GetMetadata() == {"source": "wms"}
 
+    def test_refuses_halves_whose_bands_carry_different_types(self):
+        """One `Create` type for every band would truncate the others silently.
+
+        Test scenario:
+            `Create` stamps a single data type across all bands, and the raw
+            `ReadRaster`/`WriteRaster` copy then pushes every band through that
+            one buffer type -- a Float64 band written as Byte turns 3.25 into 3,
+            with no error. GDAL's WMS and WMTS drivers make uniform-typed bands so
+            this is unreachable through them, but the helper's whole purpose is
+            that a stitched raster matches an unstitched one.
+        """
+        west = gdal.GetDriverByName("MEM").Create("", 20, 40, 2, gdal.GDT_Byte)
+        west.SetGeoTransform((170.0, 0.5, 0.0, 10.0, 0.0, -0.5))
+        mixed = gdal.GetDriverByName("MEM").Create("", 20, 40, 1, gdal.GDT_Float64)
+        # A two-band raster whose bands differ in type has to be built by hand.
+        west.AddBand(gdal.GDT_Float64)
+        east = gdal.GetDriverByName("MEM").Create("", 10, 40, 3, gdal.GDT_Byte)
+        east.SetGeoTransform((-180.0, 0.5, 0.0, 10.0, 0.0, -0.5))
+        assert mixed is not None
+        with pytest.raises(ValueError, match="mixed band data types"):
+            _wms._merge_lon_halves(west, east, 360.0)
+
     def test_refuses_mismatched_rows_or_bands(self):
         with pytest.raises(ValueError, match="not concatenable"):
             _wms._merge_lon_halves(
@@ -854,6 +876,32 @@ class TestFromWmtsAntimeridian:
         assert ds.columns == 20, (
             f"only the western half overlaps, so the result should be 20 columns "
             f"wide, got {ds.columns}"
+        )
+
+    def test_the_pixel_budget_is_spent_on_the_combined_span(self, monkeypatch):
+        """A wrapping read must not get the whole ceiling twice.
+
+        Test scenario:
+            `_translate_window` checks the ceiling per half, so a split read was
+            bounded at MAX_PX on *each* side -- twice the intended peak, and then a
+            third copy to stitch them. Both coverage readers budget the combined
+            span once and say so. This asserts the combined check happens by
+            recording the extents `_read_size` is asked about: one of them must
+            span both halves.
+        """
+        seen: list[float] = []
+        real = _wms._read_size
+
+        def recording(projwin, res):
+            seen.append(abs(projwin[2] - projwin[0]))
+            return real(projwin, res)
+
+        monkeypatch.setattr(_wms, "_read_size", recording)
+        monkeypatch.setattr(_wms, "_open", lambda *_a: _global_pyramid())
+        Dataset.from_wmts("https://c.xml", layer="L", bbox=WRAP, resolution=0.5)
+        assert max(seen) == pytest.approx(20.0), (
+            f"the combined 20 degree span must be budgeted once; the widest extent "
+            f"checked was {max(seen)}"
         )
 
     def test_a_layer_nowhere_near_the_seam_is_refused(self, monkeypatch):
