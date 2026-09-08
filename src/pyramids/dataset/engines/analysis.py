@@ -322,6 +322,26 @@ class Analysis(_Engine["Dataset"]):
 
         return list(vals)
 
+    def _require_band(self, band: int) -> None:
+        """Refuse a band index the dataset does not have.
+
+        Indexing the no-data sentinel tuple with an out-of-range band answers
+        `IndexError: tuple index out of range`, which names neither the band
+        nor the dataset. A negative index is worse: it selects a real band from
+        the other end and answers for the wrong one, unless something further
+        down happens to catch it.
+
+        Args:
+            band: The band index the caller asked for.
+
+        Raises:
+            ValueError: `band` is negative or beyond the last band.
+        """
+        if not 0 <= band < self._ds.band_count:
+            raise ValueError(
+                f"band {band} is out of range for a {self._ds.band_count}-band dataset."
+            )
+
     def count_domain_cells(self, band: int = 0) -> int:
         """Count cells inside the domain.
 
@@ -332,7 +352,11 @@ class Analysis(_Engine["Dataset"]):
         Returns:
             int:
                 Number of cells.
+
+        Raises:
+            ValueError: `band` is out of range for the dataset.
         """
+        self._require_band(band)
         no_data_value = self._ds.no_data_value[band]
 
         # Count the no-data cells directly rather than counting the *non-zero* values
@@ -425,14 +449,9 @@ class Analysis(_Engine["Dataset"]):
             count_domain_cells: The unweighted count this refines.
             Cell.cell_area: The per-cell areas this sums.
         """
-        if not 0 <= band < self._ds.band_count:
-            # Checked first, and before `cell_area`: indexing the sentinel tuple
-            # would otherwise answer `IndexError: tuple index out of range`, and
-            # asking for the row integration before validating the band made a
-            # bad band report a CRS problem when the raster had both.
-            raise ValueError(
-                f"band {band} is out of range for a {self._ds.band_count}-band dataset."
-            )
+        # Checked before `cell_area`, so a bad band does not pay for the row
+        # integration first, nor report a CRS problem when the raster has both.
+        self._require_band(band)
         areas = self._ds.cell.cell_area(unit=unit)
         # One weight per row. Every cell in a row shares an area, so the fold
         # needs the column only to count -- see `_sum`.

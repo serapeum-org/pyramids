@@ -293,10 +293,23 @@ class TestTheRefusalsAddedAfterReview:
         with pytest.raises(ValueError, match="unknown area unit"):
             _global_grid().cell_area(unit=unit)
 
-    def test_a_band_out_of_range_is_named(self):
-        """Test scenario: indexing the sentinel tuple first gave `IndexError`."""
+    @pytest.mark.parametrize("method", ["domain_area", "count_domain_cells"])
+    @pytest.mark.parametrize("band", [5, -1])
+    def test_a_band_out_of_range_is_named(self, method, band):
+        """Both counters refuse the same band the same way.
+
+        Args:
+            method: The weighted sum, then the unweighted count it refines.
+            band: Past the last band, then behind the first.
+
+        Test scenario:
+            Indexing the sentinel tuple gave `IndexError: tuple index out of
+            range`, naming neither the band nor the dataset. A negative index
+            was worse on the count: it selected a real band from the other end.
+            The message is the one the rest of the package already uses.
+        """
         with pytest.raises(ValueError, match="out of range for a 1-band"):
-            _global_grid().domain_area(band=5)
+            getattr(_global_grid(), method)(band=band)
 
     def test_a_geocentric_crs_is_refused(self):
         """Axes that are not a ground plane have no cell area.
