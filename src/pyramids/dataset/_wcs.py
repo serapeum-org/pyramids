@@ -862,8 +862,13 @@ def from_wcs(
             native_wkt = native_srs.ExportToWkt()
             # Discovery mode windows the coverage in the coverage's own CRS, which
             # may be projected -- then the halves meet at the world width in metres,
-            # not at 360. Measured, not assumed.
-            stitch_offset = _seam_offset(box, crs, native_srs)
+            # not at 360. Measured, not assumed -- and only when there is a seam to
+            # measure, as the other two readers already do: the whole-world
+            # transform is wasted work on an ordinary single-window read, and it
+            # can raise for a CRS the meridians do not project into.
+            stitch_offset = (
+                _seam_offset(box, crs, native_srs) if len(mems) > 1 else 360.0
+            )
             for mem in mems:
                 mem.SetSpatialRef(native_srs)
                 parts.append(dataset_cls(mem, access="write"))
