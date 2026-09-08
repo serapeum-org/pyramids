@@ -124,6 +124,49 @@ class TestInheritNoData:
             f"two NaN sources should resolve to NaN, got {resolved}"
         )
 
+    def test_numpy_nan_sentinels_do_not_count_as_disagreeing(self):
+        """A NaN that does not subclass `float` agrees with itself too.
+
+        Test scenario:
+            `Dataset.no_data_value` hands back numpy scalars, and `np.float32`
+            is not a `float`, so an `isinstance(value, float)` guard skipped the
+            NaN normalisation entirely and warned that two identical sources
+            disagreed.
+        """
+        for nan in (np.float64("nan"), np.float32("nan")):
+            resolved = _resolve_without_warning([nan, nan])
+            assert resolved is not None and np.isnan(resolved), (
+                f"two {type(nan).__name__} NaN sources should resolve to NaN, "
+                f"got {resolved}"
+            )
+
+    def test_numpy_scalars_resolve_like_python_floats(self):
+        """The values `from_band_files` actually supplies are numpy scalars.
+
+        Test scenario:
+            `Dataset.no_data_value` returns `np.float64` / `np.uint64`, so the
+            helper's real inputs are never the plain floats the other cases use.
+        """
+        resolved = _resolve_without_warning([np.float64(-9999.0), np.float64(-9999.0)])
+        assert resolved == pytest.approx(-9999.0), (
+            f"numpy scalars should inherit like floats, got {resolved!r}"
+        )
+
+    def test_the_warning_lists_the_values_in_source_order(self):
+        """The message must agree with itself about which value came first.
+
+        Test scenario:
+            Sorting the values put them in an order unrelated to the one that
+            decided the winner -- and, with a NaN among them, in no defined order
+            at all, since every comparison against NaN is False.
+        """
+        with pytest.warns(UserWarning) as caught:
+            inherit_no_data([-32768.0, -9999.0])
+        message = str(caught[0].message)
+        assert message.index("-32768.0") < message.index("-9999.0"), (
+            f"values should be listed in source order, got: {message}"
+        )
+
     def test_nan_alongside_a_real_value_does_disagree(self):
         """NaN and a real marker are genuinely different, so this warns.
 

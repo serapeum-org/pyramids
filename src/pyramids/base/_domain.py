@@ -890,22 +890,6 @@ def free_no_data(dtype: np.dtype, candidates: Sequence[Any], values: Any) -> Any
     return chosen
 
 
-__all__ = [
-    "DEFAULT_ATOL",
-    "DEFAULT_NO_DATA_VALUE",
-    "DEFAULT_RTOL",
-    "fits_dtype",
-    "free_no_data",
-    "inside_domain",
-    "is_nan_sentinel",
-    "is_no_data",
-    "is_stored_no_data",
-    "nan_bounds",
-    "no_data_candidates",
-    "occurs_in",
-]
-
-
 def inherit_no_data(values: Sequence[float | None]) -> float | None:
     """Resolve the no-data value an output should declare from what its sources declare.
 
@@ -963,21 +947,39 @@ def inherit_no_data(values: Sequence[float | None]) -> float | None:
           stacked output's marker.
     """
     present = [value for value in values if value is not None]
-    if not present:
-        return None
-    first = values[0] if values else None
-    resolved = first if first is not None else present[0]
+    # The first *declared* value, which is the first entry once the sources that
+    # declare nothing have been dropped -- they defer rather than disagree.
+    resolved = present[0] if present else None
     # NaN != NaN, so a plain set() over-reports disagreement for float-NaN
-    # sentinels (the GeoTIFF default for a float raster). Normalise NaN to one
-    # key so only distinct *real* values warn.
-    distinct = {
-        "__nan__" if isinstance(value, float) and np.isnan(value) else value
-        for value in present
-    }
+    # sentinels (the GeoTIFF default for a float raster). `is_nan_sentinel` and
+    # not `isinstance(value, float) and isnan(value)`: `np.float32("nan")` does
+    # not subclass `float`, so that guard let a NaN through to be compared with
+    # itself and warn.
+    distinct = {"nan" if is_nan_sentinel(value) else value for value in present}
     if len(distinct) > 1:
+        # Listed in source order rather than sorted: every comparison against NaN
+        # is False, so `sorted` leaves one wherever the set iteration happened to
+        # put it -- and the message's whole job is to say which value came first.
+        listed = ", ".join(repr(value) for value in present)
         warnings.warn(
-            f"source rasters disagree on no-data value ({sorted(set(present))}); "
-            f"using {resolved!r}",
+            f"source rasters disagree on no-data value ({listed}); using {resolved!r}",
             stacklevel=3,
         )
     return resolved
+
+
+__all__ = [
+    "DEFAULT_ATOL",
+    "DEFAULT_NO_DATA_VALUE",
+    "DEFAULT_RTOL",
+    "fits_dtype",
+    "free_no_data",
+    "inherit_no_data",
+    "inside_domain",
+    "is_nan_sentinel",
+    "is_no_data",
+    "is_stored_no_data",
+    "nan_bounds",
+    "no_data_candidates",
+    "occurs_in",
+]
