@@ -27,6 +27,26 @@ routes through the same polygon path. The same `bbox=` / `epsg=` pair
 is accepted by `DatasetCollection.crop` (built once and reused across
 timesteps) and by `Dataset.read_array` (for a windowed read).
 
+
+### What a crop declares
+
+The result declares the value its excluded cells hold, which is not always the source's. A band whose own
+sentinel is storable keeps it. A band whose sentinel cannot be stored — `NaN` on an integer band — has one
+derived against its own data: the first value that fits the dtype and occurs nowhere in the band. A floating
+band always gets `NaN`.
+
+A band that declares *nothing* depends on the mask. A raster mask writes the excluded cells itself, so it
+derives a fill and declares it; a polygon mask lets GDAL fill them, so the source's declaration — none — stands.
+`Int64` and `UInt64` are left alone on the polygon route as well, because `-dstnodata` reaches GDAL as a C
+double that a value beyond `2**53` does not survive.
+
+Two consequences worth knowing before you index against a result:
+
+- the output can be **smaller** than the mask's extent, because rows and columns lying entirely outside it are
+  trimmed once the result declares a sentinel the trim recognises;
+- `crop` raises `NoDataValueError` when a band holds every candidate sentinel and no value is free to mark a
+  cell as absent. It does **not** derive from `ValueError`.
+
 ```python
 from pyramids.dataset import Dataset
 

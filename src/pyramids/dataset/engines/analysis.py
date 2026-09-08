@@ -20,7 +20,13 @@ from hpc.indexing import get_indices2, get_pixels2
 from osgeo import gdal
 from pandas import DataFrame
 
-from pyramids.base._domain import is_nan_sentinel, is_stored_no_data
+from pyramids.base._domain import (
+    fits_dtype,
+    free_no_data,
+    is_nan_sentinel,
+    is_stored_no_data,
+    occurs_in,
+)
 from pyramids.base._errors import (
     AlignmentError,
     NoDataCollisionWarning,
@@ -39,7 +45,7 @@ from pyramids.dataset._plot_helpers import (
     RgbSpec,
     render_array,
 )
-from pyramids.dataset.abstract_dataset import DEFAULT_NO_DATA_VALUE, RasterBase
+from pyramids.dataset.abstract_dataset import RasterBase
 from pyramids.dataset.window import Window
 from pyramids.feature import FeatureCollection
 
@@ -93,50 +99,6 @@ class _DeriveNoData:
 
 
 _DERIVE_NO_DATA = _DeriveNoData()
-
-
-def _fits_dtype(value: Any, dtype: np.dtype) -> bool:
-    """Whether `dtype` can hold `value` as a distinguishable no-data sentinel.
-
-    A range test, not an exactness one: a float sentinel that `dtype` rounds --
-    `0.1` into `float32` -- still marks its own cells, because the value written
-    and the value compared against go through the same cast. What the test
-    rejects is a sentinel the dtype cannot represent *as itself*: `NaN` in an
-    integer band, `-9999` in a `uint8` one, `1e40` in a `float32` one (it lands
-    on `inf`, which would then mark every genuinely infinite cell). Stamping any
-    of those would mark real cells as no-data, or mark nothing at all.
-
-    Args:
-        value: The candidate sentinel. Callers decide what a missing sentinel
-            means before asking; a `None` reaching here does not fit.
-        dtype: The numpy dtype of the band the sentinel would be stored in.
-
-    Returns:
-        bool: `True` when the sentinel is representable in `dtype`.
-    """
-    target = np.dtype(dtype)
-    # `.item()` first: NEP 50 compares a *Python* scalar in the target dtype
-    # (weak) and a *numpy* scalar in its own (strong), so `0.1` fitted a
-    # `float32` band while the byte-identical `np.float64(0.1)` did not -- and
-    # `Dataset.no_data_value` hands back numpy scalars, so a caller forwarding a
-    # sentinel between rasters was on the losing side.
-    if hasattr(value, "item") and np.ndim(value) == 0:
-        value = value.item()
-    if value is None:
-        fits = False
-    elif is_nan_sentinel(value):
-        # `is_nan_sentinel`, not `isinstance(value, float) and isnan(value)`:
-        # `np.float32("nan")` does not subclass `float` and fell through to the
-        # comparison below, where `nan == nan` is False by definition.
-        fits = bool(np.issubdtype(target, np.floating))
-    else:
-        with np.errstate(invalid="ignore", over="ignore"):
-            try:
-                stored = np.asarray(value).astype(target)
-                fits = bool(stored == value) and bool(np.isfinite(stored))
-            except (ValueError, OverflowError, TypeError):
-                fits = False
-    return fits
 
 
 @dataclass(frozen=True)
@@ -614,7 +576,9 @@ class Analysis(_Engine["Dataset"]):
                 * integer result that masked nothing — no sentinel at all;
                 * integer result that masked something — the first of the
                   operands' own sentinels, the package default, then the dtype's
-                  extremes that both fits and occurs nowhere in the result.
+                  extremes that both fits and occurs nowhere in the result --
+                  and, for the narrow integer widths, the rest of the range
+                  after those.
 
                 Pass an explicit value to choose it — it is honoured, with a
                 :class:`~pyramids.errors.NoDataCollisionWarning` if the result
@@ -1017,7 +981,12 @@ class Analysis(_Engine["Dataset"]):
         * otherwise the first candidate that fits the dtype and occurs nowhere
           in the result, searched through the operands' own sentinels, then the
           package default, then the dtype's extremes (max before min for an
-          unsigned dtype, whose min is the very usable `0`).
+          unsigned dtype, whose min is the very usable `0`). For the narrow
+          integer widths the search continues into the rest of the range rather
+          than refusing there, walking inward from the preferred extreme, so an
+          `int8` result holding every candidate is answered as long as any of
+          its 256 values is unused. `int32` and wider still refuse once the
+          candidates are gone.
 
         Args:
             requested: The caller's `no_data_value`, or `_DERIVE_NO_DATA` when
@@ -1038,7 +1007,7 @@ class Analysis(_Engine["Dataset"]):
         """
         if requested is not _DERIVE_NO_DATA:
             sentinel = cls._requested_no_data(requested, dtype)
-            if cls._occurs_in(values, sentinel):
+            if occurs_in(values, sentinel):
                 warnings.warn(
                     f"the requested no-data value {sentinel!r} is also a value "
                     "`func` computed, so those cells read back as gaps; pass a "
@@ -1060,7 +1029,15 @@ class Analysis(_Engine["Dataset"]):
         elif not excluded:
             sentinel = None
         else:
-            sentinel = cls._free_no_data(dtype, candidates, values)
+            sentinel = free_no_data(dtype, candidates, values)
+            if sentinel is None:
+                raise ValueError(
+                    f"the {np.dtype(dtype).name} result of `func` leaves no "
+                    "free value to mark the cells its operands masked out -- "
+                    "every candidate sentinel occurs in the result; pass "
+                    "`no_data_value=None` to combine every cell unmasked, or "
+                    "have `func` return a wider dtype"
+                )
         return sentinel
 
     @staticmethod
@@ -1077,7 +1054,7 @@ class Analysis(_Engine["Dataset"]):
         Raises:
             ValueError: `requested` cannot be stored in `dtype`.
         """
-        if isinstance(requested, bool):
+        if isinstance(requested, (bool, np.bool_)):
             # `True` fits every numeric dtype as `1`, so it would silently become
             # a `1.0` sentinel. The operators already refuse a bool as the
             # additive identity; refusing it here keeps one rule.
@@ -1085,7 +1062,7 @@ class Analysis(_Engine["Dataset"]):
                 f"the no-data value {requested!r} is a bool; pass the number you "
                 "mean, or `None` for a result with no sentinel"
             )
-        if not _fits_dtype(requested, dtype):
+        if not fits_dtype(requested, dtype):
             raise ValueError(
                 f"the no-data value {requested!r} cannot be stored in the "
                 f"{np.dtype(dtype).name} result of `func`; pass an explicit "
@@ -1093,84 +1070,6 @@ class Analysis(_Engine["Dataset"]):
                 "result with no sentinel"
             )
         return requested
-
-    @classmethod
-    def _free_no_data(
-        cls, dtype: np.dtype, candidates: Sequence[Any], values: Any
-    ) -> Any:
-        """First sentinel that fits `dtype` and occurs nowhere in `values`.
-
-        Args:
-            dtype: The dtype `func` produced.
-            candidates: The operands' sentinels, in preference order, tried
-                before the package default and the dtype's extremes.
-            values: The values `func` computed.
-
-        Returns:
-            Any: The chosen sentinel.
-
-        Raises:
-            ValueError: Every candidate either does not fit or collides.
-        """
-        target = np.dtype(dtype)
-        extremes: list[Any] = []
-        if np.issubdtype(target, np.integer):
-            info = np.iinfo(target)
-            # Signed: `min` is the conventional sentinel and far from any real
-            # measurement. Unsigned: `min` is 0 -- the likeliest value for a
-            # future write, a mosaic fill or a legitimate observation to take,
-            # and declaring it no-data would turn every later zero into a gap.
-            # 255 / 65535 is also what the package's own band fallback picks.
-            extremes = [info.min, info.max] if info.min < 0 else [info.max, info.min]
-        chosen = None
-        for candidate in [*candidates, DEFAULT_NO_DATA_VALUE, *extremes]:
-            if _fits_dtype(candidate, target) and not cls._occurs_in(values, candidate):
-                chosen = candidate
-                break
-        if chosen is None:
-            raise ValueError(
-                f"the {target.name} result of `func` leaves no free value to "
-                "mark the cells its operands masked out -- every candidate "
-                "sentinel occurs in the result; widen the result dtype, or pass "
-                "`no_data_value=None` to combine every cell unmasked"
-            )
-        return chosen
-
-    @staticmethod
-    def _occurs_in(values: Any, sentinel: Any) -> bool:
-        """Whether any computed value would read back as `sentinel`.
-
-        Args:
-            values: The values `func` computed.
-            sentinel: The candidate sentinel.
-
-        Returns:
-            bool: `True` when at least one value matches the sentinel under the
-            same tolerance a reader would apply.
-        """
-        array = np.asarray(values)
-        occurs = False
-        if array.size:
-            # Prefilter on the extremes before allocating a full boolean array:
-            # `_free_no_data` asks this once per candidate, so a 12-band stack
-            # is otherwise ~27 full-size allocations. A sentinel outside the
-            # result's range cannot occur in it, and the common candidates
-            # (-9999, a dtype extreme) usually are.
-            #
-            # `nanmin`/`nanmax`, and a finiteness check on the bounds: plain
-            # `min`/`max` propagate a `NaN`, and every comparison against `NaN`
-            # is False, so a single `NaN` anywhere in the result -- `0/0` in a
-            # normalised difference is enough -- made the prefilter answer "no
-            # collision" for every finite sentinel and silenced the warning.
-            with np.errstate(invalid="ignore"):
-                comparable = np.isfinite(np.asarray(sentinel, dtype="float64"))
-                low = np.nanmin(array) if array.size else np.nan
-                high = np.nanmax(array) if array.size else np.nan
-            in_range = not (
-                comparable and np.isfinite(low) and np.isfinite(high)
-            ) or bool(low <= sentinel <= high)
-            occurs = in_range and bool(is_stored_no_data(array, sentinel).any())
-        return occurs
 
     def fill(
         self, value: float | int, inplace: bool = False, path: str | Path | None = None

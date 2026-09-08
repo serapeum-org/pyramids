@@ -80,63 +80,6 @@ def _is_read_only_error(error: BaseException) -> bool:
     return _GDAL_READ_ONLY_MESSAGE in str(error)
 
 
-def _substitutes_dtype_max(dtype: Any) -> bool:
-    """True when an unstorable `None` / NaN sentinel becomes this dtype's maximum.
-
-    Every unsigned integer type except `uint8`. NaN cannot be stored in any of
-    them, so something has to stand in -- but *what* stands in is only safe
-    when it is a value the data is unlikely to contain, and for 8-bit imagery
-    255 is white. Fabricating it as a sentinel on a raster that declares none
-    makes every white pixel out-of-domain, and `resample` / `align` then hand
-    it to `gdal.ReprojectImage`, which rewrites the real 255s to 254 to keep
-    them distinguishable.
-
-    That is not a new rule. It is what the code did before this branch, by
-    accident: the test was `dtype.startswith("u")` and Byte's dtype string is
-    `"byte"`, so Byte fell through to the pass-through branch. Replacing the
-    string test with an honest dtype test was right -- string-sniffing a type
-    name is not a check -- but it silently swept Byte in with the rest.
-    Restoring the exclusion keeps the better mechanism and the older, safer
-    answer.
-
-    Whether `uint16` and friends should also stop fabricating a maximum is a
-    real question, and the same one this branch answered "no sentinel" to for
-    the netCDF fan-out and the Zarr writer. It is a change to no-data policy
-    rather than to duplication, so it is not made here.
-
-    Args:
-        dtype: The band's numpy dtype, or its name.
-
-    Returns:
-        bool: True when the dtype maximum is the right stand-in.
-
-    Examples:
-        - The wider unsigned types substitute their maximum:
-            ```python
-            >>> from pyramids.dataset.engines.bands import _substitutes_dtype_max
-            >>> _substitutes_dtype_max("uint16"), _substitutes_dtype_max("uint32")
-            (True, True)
-
-            ```
-        - Byte does not, because 255 is ordinary data:
-            ```python
-            >>> from pyramids.dataset.engines.bands import _substitutes_dtype_max
-            >>> _substitutes_dtype_max("uint8")
-            False
-
-            ```
-        - Nor does anything signed or floating:
-            ```python
-            >>> from pyramids.dataset.engines.bands import _substitutes_dtype_max
-            >>> _substitutes_dtype_max("int16"), _substitutes_dtype_max("float32")
-            (False, False)
-
-            ```
-    """
-    as_dtype = np.dtype(dtype)
-    return np.issubdtype(as_dtype, np.unsignedinteger) and as_dtype != np.uint8
-
-
 class Bands(_Engine["Dataset"]):
     """Mixin providing band metadata, attribute table, and color table operations."""
 
@@ -1668,43 +1611,69 @@ class Bands(_Engine["Dataset"]):
         """Coerce one band's no-data value to its dtype.
 
         Non-``None``/``NaN`` values cast to the band's numpy dtype (may raise
-        ``OverflowError`` when out of range); ``None``/``NaN`` on an unsigned band
-        uses the dtype max, and passes through unchanged otherwise.
+        ``OverflowError`` when out of range); ``None``/``NaN`` passes through
+        unchanged, whatever the dtype.
+
+        A `None` here means "this band declares no sentinel", and no dtype
+        fabricates one to stand in. An integer band cannot store `NaN`, so the
+        request is refused downstream with `NoDataValueError` rather than
+        answered with a number the band's real data may already hold: the
+        wider unsigned types used to substitute their maximum, which turned a
+        `uint16` DEM holding 65535 into a raster with no domain at all. Byte
+        was excluded from that substitution first, because 255 is white in
+        8-bit imagery and `align` rewrote every white pixel to 254; the same
+        argument holds for 65535 and 4294967295, only less often.
+
+        That makes one rule across the three writers: none of them answers an
+        unstorable request with a storable number. They still differ in how
+        they say so -- `NetCDF._storable_no_data` collapses it to `None`, since
+        a rebuilt variable declares one scalar, while this path and the Zarr
+        writer hand the request back unchanged. Either way the band ends up
+        with nothing that marks a cell, which is the answer that matters.
+
+        `_fallback_no_data` still substitutes, and deliberately: it runs when
+        the caller *asked* for a sentinel that overflows the band, where
+        picking a storable one is a repair rather than an invention.
+
+        Args:
+            i: Index of the band the value belongs to.
+            val: The requested sentinel, or `None` / `NaN` for none.
+
+        Returns:
+            Any: The value as a scalar of the band's dtype, or `val` unchanged
+            when it is `None` / `NaN`.
+
+        Raises:
+            OverflowError: `val` is a number the band's dtype cannot hold.
         """
         # if not None or np.nan
         if val is not None and not np.isnan(val):
             # cast to the band dtype (raises OverflowError when out of range)
             result = self._ds.numpy_dtype[i](val)
-        elif _substitutes_dtype_max(self._ds.numpy_dtype[i]):
-            # None/np.nan on an unsigned band would misbehave -- NaN is not
-            # storable there -- so the dtype max stands in. Asked of the dtype
-            # rather than of `dtype[i].startswith("u")`, which was a string
-            # test on a name; but Byte is deliberately excluded, see
-            # `_substitutes_dtype_max`.
-            #
-            # `_fallback_no_data` below asks the same way, and the two must
-            # agree on the *type* as well as the value, since both flow into
-            # `Dataset.no_data_value` and out to GDAL. A Python `int` here and
-            # a numpy scalar there made the same answer read back as `(255,)`
-            # from one path and a numpy scalar from the other, which the `==`
-            # pinning their agreement cannot see.
-            # Cast for the same reason `_fallback_no_data` casts: the
-            # `np.issubdtype` above narrows at runtime but the numpy stubs do
-            # not follow it.
-            np_dtype = np.dtype(self._ds.numpy_dtype[i])
-            unsigned_dtype = cast("np.dtype[np.unsignedinteger]", np_dtype)
-            result = np_dtype.type(np.iinfo(unsigned_dtype).max)
         else:
-            # None/np.nan on any non-unsigned dtype: pass through unchanged.
+            # None/np.nan on any dtype: pass through unchanged. An integer band
+            # cannot hold it, and the write refuses rather than inventing one.
             result = val
         return result
 
     def _fallback_no_data(self, i: int) -> Any:
         """Pick a dtype-valid no-data sentinel when the requested value overflows.
 
-        The dtype max for unsigned ints (matching the None/NaN branch), the dtype
-        min for signed ints too small to hold the default, and the default for
-        floats (which can always represent it).
+        The dtype max for unsigned ints, the dtype min for signed ints too small
+        to hold the default, and the default for floats (which can always
+        represent it).
+
+        Substituting is right here and wrong in :meth:`_coerce_band_no_data`,
+        which no longer does it: this path runs because the caller *asked* for
+        a sentinel the band cannot hold, so choosing a storable one honours the
+        request. There, the caller asked for *no* sentinel, and inventing one
+        answers a question nobody posed.
+
+        Args:
+            i: Index of the band whose dtype decides the substitute.
+
+        Returns:
+            Any: A sentinel storable in that band's dtype.
         """
         np_dtype = np.dtype(self._ds.numpy_dtype[i])
         # np.issubdtype narrows at runtime but isn't recognised by the numpy
@@ -1743,9 +1712,8 @@ class Bands(_Engine["Dataset"]):
 
         Returns:
             list: A new list with each entry coerced to the
-            corresponding band's numpy dtype (or the dtype's max
-            for unsigned integer bands when the input is `None` /
-            `NaN`).
+            corresponding band's numpy dtype. `None` / `NaN` passes
+            through unchanged; no dtype fabricates a sentinel for it.
         """
         no_data_value = list(no_data_value)
         # convert the no_data_value based on the dtype of each raster band.

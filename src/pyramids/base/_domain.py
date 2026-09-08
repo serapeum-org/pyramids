@@ -30,11 +30,25 @@ the sentinel" rather than "is this cell near it".
 
 from __future__ import annotations
 
-from typing import overload
+import warnings
+from collections.abc import Sequence
+from typing import Any, overload
 
 import numpy as np
 
+# The package-wide default sentinel. It lives here, in the module that owns
+# the no-data domain, rather than in `abstract_dataset` which imports from
+# `base/`; `abstract_dataset` re-exports it so every existing import path
+# keeps working.
+DEFAULT_NO_DATA_VALUE = -9999
+
 DEFAULT_RTOL: float = 0.001
+
+# Cells per slice when scanning a band for an unused value. Bounds the scan's
+# transient peak to roughly 25 MB whatever the raster's size -- the `int64`
+# cast is 8 MB of it, the offset another, and the range test and its gather the
+# rest. The mask being filled stays at 64 KiB regardless.
+_SCAN_CHUNK: int = 1 << 20
 
 # `numpy.isclose`'s own default absolute tolerance, named so a caller can opt
 # out of it (`atol=0.0`) without restating a magic number.
@@ -460,11 +474,424 @@ def is_nan_sentinel(no_data_value: float | None) -> bool:
     return result
 
 
+def fits_dtype(value: Any, dtype: np.dtype) -> bool:
+    """Whether `dtype` can hold `value` as a distinguishable no-data sentinel.
+
+    A range test, not an exactness one: a float sentinel that `dtype` rounds --
+    `0.1` into `float32` -- still marks its own cells, because the value written
+    and the value compared against go through the same cast. What the test
+    rejects is a sentinel the dtype cannot represent *as itself*: `NaN` in an
+    integer band, `-9999` in a `uint8` one, `1e40` in a `float32` one (it lands
+    on `inf`, which would then mark every genuinely infinite cell). Stamping any
+    of those would mark real cells as no-data, or mark nothing at all.
+
+    Args:
+        value: The candidate sentinel. Callers decide what a missing sentinel
+            means before asking; neither a `None` nor a bool fits.
+        dtype: The numpy dtype of the band the sentinel would be stored in.
+
+    Returns:
+        bool: `True` when the sentinel is representable in `dtype`.
+
+    Examples:
+        - An integer band cannot carry `NaN`, a float one can:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base._domain import fits_dtype
+            >>> fits_dtype(np.nan, np.dtype("int32")), fits_dtype(np.nan, np.dtype("float32"))
+            (False, True)
+
+            ```
+        - `-9999` fits a signed band but not an unsigned one:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base._domain import fits_dtype
+            >>> fits_dtype(-9999, np.dtype("int32")), fits_dtype(-9999, np.dtype("uint8"))
+            (True, False)
+
+            ```
+        - A bool never fits, though it would cast cleanly to `0` or `1`:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base._domain import fits_dtype
+            >>> fits_dtype(True, np.dtype("uint8"))
+            False
+
+            ```
+    """
+    target = np.dtype(dtype)
+    # `.item()` first: NEP 50 compares a *Python* scalar in the target dtype
+    # (weak) and a *numpy* scalar in its own (strong), so `0.1` fitted a
+    # `float32` band while the byte-identical `np.float64(0.1)` did not -- and
+    # `Dataset.no_data_value` hands back numpy scalars, so a caller forwarding a
+    # sentinel between rasters was on the losing side.
+    if hasattr(value, "item") and np.ndim(value) == 0:
+        value = value.item()
+    if value is None or isinstance(value, (bool, np.bool_)):
+        # A bool fits every numeric dtype as `0` or `1`, so accepting one
+        # would let `True` become a `1` sentinel and put every genuine 1 in
+        # the band out of domain. `Analysis._requested_no_data` rejects it
+        # with its own message before asking; the crop path asks directly,
+        # and would have stamped it.
+        fits = False
+    elif is_nan_sentinel(value):
+        # `is_nan_sentinel`, not `isinstance(value, float) and isnan(value)`:
+        # `np.float32("nan")` does not subclass `float` and fell through to the
+        # comparison below, where `nan == nan` is False by definition.
+        fits = bool(np.issubdtype(target, np.floating))
+    else:
+        with np.errstate(invalid="ignore", over="ignore"):
+            try:
+                stored = np.asarray(value).astype(target)
+                fits = bool(stored == value) and bool(np.isfinite(stored))
+            except (ValueError, OverflowError, TypeError):
+                fits = False
+    return fits
+
+
+def nan_bounds(values: Any) -> tuple[Any, Any]:
+    """The array's smallest and largest values, ignoring `NaN`.
+
+    `nanmin` / `nanmax` warn -- through `warnings.warn`, which `np.errstate`
+    does not reach -- when every value is `NaN`, and there is nothing unusual
+    about an all-`NaN` band: `crop` reaches one whenever a float raster is
+    entirely gaps. The answer in that case is that there are no bounds, which
+    is what they return once the warning is silenced.
+
+    Args:
+        values: The array to measure.
+
+    Returns:
+        tuple[Any, Any]: `(min, max)` over the non-`NaN` values, or
+        `(nan, nan)` when there are none.
+
+    Examples:
+        - The `NaN` is ignored rather than propagated, which plain `min` and
+          `max` would do:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base._domain import nan_bounds
+            >>> nan_bounds(np.array([3.0, np.nan, 1.0]))
+            (np.float64(1.0), np.float64(3.0))
+
+            ```
+        - An all-`NaN` array has no bounds, and says so without warning:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base._domain import nan_bounds
+            >>> low, high = nan_bounds(np.full(4, np.nan))
+            >>> bool(np.isnan(low)), bool(np.isnan(high))
+            (True, True)
+
+            ```
+    """
+    array = np.asarray(values)
+    if array.size == 0:
+        bounds = (np.float64(np.nan), np.float64(np.nan))
+    else:
+        # The warning is caught rather than pre-empted with `isnan(...).all()`:
+        # that test costs a full pass and a full-size boolean temporary on top
+        # of the two reductions, to answer a question `nanmin` is about to
+        # answer anyway by returning `NaN`.
+        with np.errstate(invalid="ignore"), warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            bounds = (np.nanmin(array), np.nanmax(array))
+    return bounds
+
+
+def occurs_in(
+    values: Any, sentinel: Any, bounds: tuple[Any, Any] | None = None
+) -> bool:
+    """Whether any value in `values` would read back as `sentinel`.
+
+    Args:
+        values: The array to search.
+        sentinel: The candidate sentinel.
+        bounds: The array's `(min, max)` ignoring `NaN`, when the caller
+            already has them. Asking once and reusing the answer matters to
+            :func:`free_no_data`, which tests several candidates against the
+            same array and would otherwise make a full pass per candidate --
+            the prefilter costing more than the comparison it avoids.
+
+    Returns:
+        bool: `True` when at least one value matches the sentinel under the same
+        tolerance a reader would apply.
+
+    Examples:
+        - A value the band holds rules that sentinel out:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base._domain import occurs_in
+            >>> occurs_in(np.array([1, 2, 255], "uint8"), 255)
+            True
+
+            ```
+        - One outside the data's range cannot occur in it:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base._domain import occurs_in
+            >>> occurs_in(np.array([1, 2, 3], "uint8"), 255)
+            False
+
+            ```
+        - A `NaN` in the data does not hide a finite collision, which a plain
+          `min`/`max` prefilter would (every comparison against `NaN` is False):
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base._domain import occurs_in
+            >>> occurs_in(np.array([1.0, np.nan, -9999.0]), -9999.0)
+            True
+
+            ```
+
+    See Also:
+        free_no_data: Uses this to reject a candidate the data already holds.
+        is_stored_no_data: The element-wise comparison this delegates to.
+    """
+    array = np.asarray(values)
+    occurs = False
+    if array.size:
+        # Prefilter on the extremes before allocating a full boolean array: a
+        # caller asking about many candidates would otherwise pay a full-size
+        # allocation each time, and a sentinel outside the data's range cannot
+        # occur in it.
+        #
+        # `nanmin`/`nanmax`, and a finiteness check on the bounds: plain
+        # `min`/`max` propagate a `NaN`, and every comparison against `NaN` is
+        # False, so a single `NaN` anywhere -- `0/0` in a normalised difference
+        # is enough -- made the prefilter answer "no collision" for every finite
+        # sentinel.
+        with np.errstate(invalid="ignore"):
+            comparable = np.isfinite(np.asarray(sentinel, dtype="float64"))
+            low, high = nan_bounds(array) if bounds is None else bounds
+        in_range = not (comparable and np.isfinite(low) and np.isfinite(high)) or bool(
+            low <= sentinel <= high
+        )
+        occurs = in_range and bool(is_stored_no_data(array, sentinel).any())
+    return occurs
+
+
+def _dtype_extremes(target: np.dtype) -> list[Any]:
+    """The dtype's own bounds, in the order they should be tried.
+
+    Args:
+        target: The dtype the sentinel must be storable in.
+
+    Returns:
+        list[Any]: `[min, max]` for a signed integer dtype, `[max, min]` for an
+        unsigned one, and empty for everything else.
+    """
+    extremes: list[Any] = []
+    if np.issubdtype(target, np.integer):
+        info = np.iinfo(target)
+        # Signed: `min` is the conventional sentinel and far from any real
+        # measurement. Unsigned: `min` is 0 -- the likeliest value for a future
+        # write, a mosaic fill or a legitimate observation to take -- so the
+        # maximum is tried first, which is also what the package's own band
+        # fallback picks for those dtypes.
+        extremes = [info.min, info.max] if info.min < 0 else [info.max, info.min]
+    return extremes
+
+
+def no_data_candidates(dtype: np.dtype, candidates: Sequence[Any] = ()) -> list[Any]:
+    """The sentinels tried for a band of `dtype`, in preference order.
+
+    Only those the dtype can actually store: the caller's own candidates, then
+    the package default, then the dtype's extremes.
+
+    Exposed so a caller that can answer "does the band contain this" more
+    cheaply than by reading it -- from the band's own statistics, say -- asks
+    the same questions in the same order as :func:`free_no_data` would.
+
+    Args:
+        dtype: The dtype the sentinel must be storable in.
+        candidates: Preferred sentinels, tried before the package default.
+
+    Returns:
+        list[Any]: The storable candidates, most preferred first.
+
+    Examples:
+        - An unsigned band cannot hold the package default, and reaches for its
+          maximum before its minimum:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base._domain import no_data_candidates
+            >>> no_data_candidates(np.dtype("uint8"))
+            [255, 0]
+
+            ```
+        - A signed band keeps the default first, then its own bounds:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base._domain import no_data_candidates
+            >>> no_data_candidates(np.dtype("int16"))
+            [-9999, -32768, 32767]
+
+            ```
+    """
+    target = np.dtype(dtype)
+    offered = [*candidates, DEFAULT_NO_DATA_VALUE, *_dtype_extremes(target)]
+    storable = [value for value in offered if fits_dtype(value, target)]
+    # De-duplicated, since every repeat costs `free_no_data` another full pass
+    # over the values -- and repeats are the normal case: `combine` offers one
+    # sentinel per operand band, and the bands of a stack usually share one.
+    # Keyed on the stored value so `-9999` and `np.int16(-9999)` count once.
+    seen: dict[Any, Any] = {}
+    for value in storable:
+        seen.setdefault(target.type(value).item(), value)
+    return list(seen.values())
+
+
+def _values_present_in_range(values: Any, floor: int, span: int) -> np.typing.NDArray:
+    """A mask over `[floor, floor + span)` marking which of them `values` holds.
+
+    Args:
+        values: The data to survey.
+        floor: The lowest value the mask covers.
+        span: How many consecutive values it covers.
+
+    Returns:
+        np.ndarray: A boolean mask, `True` where the value occurs.
+    """
+    seen = np.zeros(span, dtype=bool)
+    raw = np.asarray(values).ravel()
+    # In slices, not all at once: the cast below widens every cell to 8 bytes
+    # and the comparisons add two boolean temporaries, so a whole-array pass
+    # peaked at many times the band's own size. The mask being filled is at
+    # most 64 KiB either way.
+    for start in range(0, raw.size, _SCAN_CHUNK):
+        chunk = raw[start : start + _SCAN_CHUNK]
+        if np.issubdtype(chunk.dtype, np.floating):
+            # A float array reaching an integer target: `NaN` and the
+            # infinities have no integer to cast to, and numpy warns and
+            # yields a garbage index rather than raising.
+            chunk = chunk[np.isfinite(chunk)]
+        with np.errstate(invalid="ignore", over="ignore"):
+            present = chunk.astype("int64") - floor
+        inside = present[(present >= 0) & (present < span)]
+        seen[inside] = True
+    return seen
+
+
+def _first_unused_in_range(extremes: list[Any], values: Any) -> Any | None:
+    """The value nearest the preferred extreme that `values` does not hold.
+
+    The preferred candidates being taken is not a reason to refuse: a narrow
+    integer band still has thousands of values the data never uses. The whole
+    range is enumerated when it is small enough to hold as a mask -- a `uint16`
+    needs 64 KiB -- and a free value taken from the end the dtype prefers.
+
+    Wider integer types are left to their extremes. Their ranges cannot be
+    enumerated, and a collision on every candidate is vanishingly unlikely
+    there anyway.
+
+    Args:
+        extremes: The dtype's bounds, most preferred first. They carry the
+            whole question -- which values exist, and which end to answer from
+            -- so the dtype itself is not needed.
+        values: The data the value must not occur in.
+
+    Returns:
+        Any | None: The free value as a Python `int`, or `None` when the range
+        is too wide to enumerate or every value in it is taken.
+    """
+    preferred, opposite = extremes[0], extremes[1]
+    floor = min(preferred, opposite)
+    span = max(preferred, opposite) - floor + 1
+    chosen = None
+    if span <= 65536:
+        unused = np.flatnonzero(~_values_present_in_range(values, floor, span))
+        if unused.size:
+            # From the preferred extreme inwards, not from the bottom of the
+            # range. `extremes` is ordered deliberately -- an unsigned band
+            # offers its maximum first because `0` is the likelier real
+            # observation -- and starting at the floor threw that away,
+            # answering `1` for a `uint8` band holding `0` and `255`. `crop`
+            # declares the value it gets, so a later write of `1` into the
+            # result would silently become a gap.
+            index = unused[-1] if preferred > opposite else unused[0]
+            # A Python `int`, like every other branch returns: the candidates
+            # and the `np.iinfo` extremes are Python scalars, and a numpy one
+            # here made the same logical answer reach `Dataset.no_data_value`
+            # as two different types depending on which branch found it.
+            chosen = int(index) + floor
+    return chosen
+
+
+def free_no_data(dtype: np.dtype, candidates: Sequence[Any], values: Any) -> Any | None:
+    """First sentinel that fits `dtype` and occurs nowhere in `values`.
+
+    The one honest way to mark cells as absent in a band that declares no
+    sentinel: rather than inventing a number and hoping (`0`, or the dtype
+    maximum), take one the data provably does not contain, so no real
+    observation is reclassified as a gap.
+
+    Failure is reported by returning `None` rather than by raising, because the
+    remedy belongs to the caller and the two differ: `combine` can be told to
+    leave every cell unmasked, while a crop needs a wider dtype or an explicit
+    sentinel. `None` is unambiguous here -- it never fits a dtype, so it can
+    never be a successful answer.
+
+    Args:
+        dtype: The dtype the sentinel must be storable in.
+        candidates: Preferred sentinels, tried before the package default and
+            the dtype's extremes.
+        values: The data the sentinel must not collide with.
+
+    Returns:
+        Any | None: The chosen sentinel as a Python scalar -- never a numpy
+        one, whichever branch found it and whoever offered it -- or `None` when
+        every candidate either does not fit `dtype` or already occurs in
+        `values`.
+
+    Examples:
+        - The package default is taken when the data does not hold it:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base._domain import free_no_data
+            >>> free_no_data(np.dtype("int32"), [], np.array([1, 2, 3]))
+            -9999
+
+            ```
+        - An unsigned band reaches for its maximum before its minimum, since
+          `0` is the likelier real observation:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base._domain import free_no_data
+            >>> free_no_data(np.dtype("uint8"), [], np.array([1, 2, 3], "uint8"))
+            255
+
+            ```
+    """
+    target = np.dtype(dtype)
+    extremes = _dtype_extremes(target)
+    bounds = nan_bounds(values)
+    chosen = None
+    for candidate in no_data_candidates(target, candidates):
+        if not occurs_in(values, candidate, bounds):
+            # `.item()`, so a caller's own candidate is answered in the same
+            # currency as the package default and the extremes.
+            # `Dataset.no_data_value` hands back numpy scalars and `combine`
+            # forwards them here, so without this the same logical answer
+            # reached the result's declaration as two different types.
+            chosen = candidate.item() if hasattr(candidate, "item") else candidate
+            break
+    if chosen is None and extremes:
+        chosen = _first_unused_in_range(extremes, values)
+    return chosen
+
+
 __all__ = [
     "DEFAULT_ATOL",
+    "DEFAULT_NO_DATA_VALUE",
     "DEFAULT_RTOL",
+    "fits_dtype",
+    "free_no_data",
     "inside_domain",
     "is_nan_sentinel",
     "is_no_data",
     "is_stored_no_data",
+    "nan_bounds",
+    "no_data_candidates",
+    "occurs_in",
 ]

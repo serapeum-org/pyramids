@@ -24,6 +24,7 @@ import numpy as np
 import pytest
 from shapely.geometry import box
 
+from pyramids.dataset import Dataset, GeoReference
 from pyramids.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
@@ -297,6 +298,34 @@ class TestTheFanOutInventsNoNoDataSentinel:
 
         assert set(cropped.no_data_value) == {None}, (
             f"a sentinel was invented: {set(cropped.no_data_value)}"
+        )
+
+    def test_a_raster_mask_crop_declares_the_fill_it_wrote(self):
+        """The other crop path, and it does not answer the same way.
+
+        Test scenario:
+            A polygon crop leaves an undeclared variable undeclared, because
+            GDAL fills the cells outside the cutline and nothing forces the
+            question. A raster-mask crop writes those cells itself, into an
+            array with no way to hold "absent", so it puts a derived value
+            there and declares it -- and the fan-out carries that onto the
+            rebuilt variable exactly as it carries anything else the crop
+            declares. Pinned because the divergence is real and easy to change
+            by accident in either direction.
+        """
+        container = NetCDF.read_file(str(INTEGER))
+        source = container.get_variable("air")
+        assert set(source.no_data_value) == {None}, "fixture must declare no no-data"
+        geo_ref = GeoReference(geo=source.geotransform, epsg=source.epsg)
+        cells = np.ones((source.rows, source.columns), dtype="uint8")
+        cells[0, 0] = 0
+        mask = Dataset.from_array(cells, geo_ref=geo_ref, no_data_value=0)
+
+        cropped = container.crop(mask).get_variable("air")
+
+        assert set(cropped.no_data_value) == {-9999.0}
+        assert set(source.crop(mask).no_data_value) == set(cropped.no_data_value), (
+            "the container route and the per-variable route must agree"
         )
 
     def test_the_data_itself_is_untouched(self):

@@ -2538,27 +2538,71 @@ class Dataset(RasterBase):
         values; mutating the returned object never propagates to
         the underlying state.
 
-        **The entries are numbers, not necessarily Python `int`s.** An
-        unsigned band *wider than 8 bits* created with a `NaN` no-data takes
-        the dtype maximum, because `NaN` cannot be stored there, and that
-        substituted sentinel is now built as a numpy scalar rather than a
-        Python `int`, so that it agrees in *type* as well as value with the
-        fallback used when a requested sentinel overflows the band. A uint16
-        band that used to report `(65535,)` reports `(np.float64(65535.0),)`
-        — float64 because GDAL's `SetNoDataValue` takes a C double and the
-        value is round-tripped through it.
+        **The entries are numbers, not necessarily Python `int`s.** No dtype
+        fabricates a sentinel on a caller's behalf: a `NaN` asked of an integer
+        band is reported back as `NaN` and an **unset** no-data as `None`,
+        whatever the dtype, rather than being answered with a number the band's
+        real data may already hold. Writing such a sentinel to the band is the
+        step that refuses — `change_no_data_value(None)` on any integer raster
+        raises `NoDataValueError`, since there is nothing storable to write.
 
-        Two cases the example deliberately avoids, because neither
-        substitutes: a **Byte** band, which reports `(nan,)` (255 is ordinary
-        data in 8-bit imagery, see `bands._substitutes_dtype_max`), and an
-        **unset** no-data, which reports `(None,)` whatever the dtype.
+        A sentinel that is set still round-trips through GDAL's
+        `SetNoDataValue`, which takes a C double, so a `uint16` band asked for
+        `65535` reports `(np.float64(65535.0),)`. Compare with `==` rather than
+        `is`, and call `float(...)` / `int(...)` before anything that needs a
+        builtin (JSON, `%` formatting of an `int`). `uint64` is the one row
+        that stays a numpy *integer*, since its maximum has no exact float64:
+        it reports `np.uint64(2**64 - 1)`. See `docs/migration.md`,
+        dataset / unreleased.
 
-        Compare with `==` rather than `is`, and call `float(...)` /
-        `int(...)` before anything that needs a builtin (JSON, `%` formatting
-        of an `int`). Arithmetic wraps at the dtype bound instead of promoting
-        only on the one row that stays a numpy *integer*: `uint64`, whose
-        maximum has no exact float64, reports `np.uint64(2**64 - 1)`. See
-        `docs/migration.md`, dataset / unreleased.
+        Returns:
+            tuple: One entry per band, in band order -- a number, or `None` for
+            a band that declares no sentinel.
+
+        Examples:
+            - A band created with a sentinel reports it, through GDAL's C
+              double:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+                >>> raster = Dataset.from_array(
+                ...     np.ones((4, 4), "float32"), geo_ref=geo_ref, no_data_value=-9999.0
+                ... )
+                >>> raster.no_data_value
+                (np.float64(-9999.0),)
+
+                ```
+            - An integer band asked for `NaN` reports `NaN`, not a fabricated
+              maximum, so nothing in it is marked absent:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+                >>> raster = Dataset.create(
+                ...     rows=4, columns=4, bands=1, dtype="uint16",
+                ...     no_data_value=np.nan, geo_ref=geo_ref,
+                ... )
+                >>> bool(np.isnan(raster.no_data_value[0]))
+                True
+
+                ```
+            - One entry per band, so a two-band raster reports a pair:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+                >>> raster = Dataset.from_array(
+                ...     np.ones((2, 4, 4), "float32"), geo_ref=geo_ref, no_data_value=0.0
+                ... )
+                >>> len(raster.no_data_value)
+                2
+
+                ```
+
+        See Also:
+            change_no_data_value: Rewrites the cells as well as the
+                declaration, and refuses a sentinel the band cannot store.
         """
         return tuple(self._no_data_value)
 

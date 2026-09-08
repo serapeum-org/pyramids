@@ -18,9 +18,11 @@ import pandas as pd
 from pyproj import CRS
 
 from pyramids import _io
+from pyramids.base._domain import free_no_data, is_stored_no_data
 from pyramids.base._errors import (
     AlignmentError,
     DriverNotExistError,
+    NoDataValueError,
     OptionalPackageDoesNotExist,
 )
 from pyramids.base._file_manager import CachingFileManager, gdal_raster_open
@@ -576,6 +578,70 @@ def _target_epsg(to_epsg: int | str | Any) -> int | None:
         # the original defensive breadth for an input that is not CRS-like at all,
         # which this helper has always answered `None` for rather than propagating.
         return None
+
+
+def _agree_on_one_sentinel(datasets: list[Dataset]) -> None:
+    """Give every timestep of a stack the same no-data value, in place.
+
+    A collection declares one sentinel -- `base.no_data_value` -- and everything
+    that reads the stack through it (reductions, `count_domain_cells`,
+    `to_netcdf`, `to_zarr`, plotting) applies that one value to every step. So
+    a stack whose steps disagree is read wrongly rather than incompletely: with
+    `t0` declaring `-9999` and `t1` declaring `-32768`, a genuine `-9999`
+    observation in `t1` reads as a gap and `t1`'s actual gaps read as data.
+
+    `crop` is what produces such a stack. It derives a fill against each
+    raster's own values, so two timesteps of the same variable get different
+    answers whenever one of them happens to contain the other's fill. The steps
+    are reconciled here instead of at each call site: a value free across every
+    step is chosen, each step's own fill cells are rewritten to it, and all of
+    them then declare it.
+
+    A stack whose steps already agree -- every per-timestep operation that
+    inherits its sentinel rather than deriving one -- returns immediately, so
+    this is only paid for where it is needed. So does one where any step
+    declares nothing, since there is no fill to reconcile and imposing one
+    would invent a sentinel the sources never had.
+
+    Args:
+        datasets: One `Dataset` per timestep, modified in place.
+
+    Raises:
+        NoDataValueError: No value is free across every timestep, so the stack
+            cannot be given a sentinel that does not collide with real data.
+    """
+    if len(datasets) < 2:
+        return
+    declared = [ds.no_data_value for ds in datasets]
+    if any(value is None for row in declared for value in row):
+        return
+    for band in range(datasets[0].band_count):
+        fills = [row[band] for row in declared]
+        if all(is_stored_no_data(np.asarray(fills[0]), other) for other in fills[1:]):
+            continue
+        arrays = [np.asarray(ds.read_array(band=band)) for ds in datasets]
+        # Judged against real observations only: each step's own fill cells are
+        # the thing being replaced, so counting them would rule out every
+        # candidate already in use and force a needless third value.
+        real = np.concatenate(
+            [
+                array[~is_stored_no_data(array, fill)].ravel()
+                for array, fill in zip(arrays, fills, strict=True)
+            ]
+        )
+        dtype = np.dtype(datasets[0].numpy_dtype[band])
+        agreed = free_no_data(dtype, fills, real)
+        if agreed is None:
+            raise NoDataValueError(
+                f"the timesteps of this {dtype.name} stack declare different "
+                "no-data values and no value is free across all of them, so "
+                "the stack cannot be read through one sentinel; declare a "
+                "no-data value the data does not use before cropping"
+            )
+        for dataset, array, fill in zip(datasets, arrays, fills, strict=True):
+            array[is_stored_no_data(array, fill)] = agreed
+            dataset.write_array(array, band=band)
+            dataset.bands._change_no_data_value_attr(band, dtype.type(agreed))
 
 
 class DatasetCollection:
@@ -3649,7 +3715,16 @@ class DatasetCollection:
 
         Returns:
             DatasetCollection: A collection over `datasets`.
+
+        Notes:
+            The timesteps are reconciled onto one sentinel first -- see
+            :func:`_agree_on_one_sentinel`. A per-timestep operation that
+            inherits its sentinel leaves them already agreeing, so this costs
+            nothing for `to_crs` and `align`; `crop`, which derives a fill
+            against each raster's own values, can produce a stack that
+            disagrees.
         """
+        _agree_on_one_sentinel(datasets)
         collection = DatasetCollection(
             datasets[0], time_length=len(datasets), datasets=datasets
         )

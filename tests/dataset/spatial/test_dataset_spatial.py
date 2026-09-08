@@ -13,9 +13,10 @@ from osgeo import gdal, osr
 from pyproj import CRS as PyprojCRS
 from shapely.geometry import Polygon, box
 
+from pyramids.base._errors import NoDataValueError
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
-from pyramids.dataset.engines.spatial import Spatial
+from pyramids.dataset.engines.spatial import Spatial, _survives_a_c_double
 from pyramids.feature import FeatureCollection
 
 pytestmark = pytest.mark.core
@@ -1568,3 +1569,590 @@ class TestCropBoundsTheReadToTheCrop:
         dataset = self._large_source()
         with pytest.raises(TypeError, match="FeatureCollection or GeoDataFrame"):
             dataset.spatial._crop_with_polygon_warp("not a feature", touch=True)
+
+
+class TestCropFillValues:
+    """What goes into the cells a crop excludes, when the band declares nothing.
+
+    A rectangular array has no way to hold an absent cell, so the excluded ones
+    need a number even when the band's honest answer to "what is your sentinel"
+    is *none*. Writing the declared sentinel is what used to happen, and it
+    failed two ways: an integer band declaring `NaN` raised
+    `ValueError: cannot convert float NaN to integer` outright, and a `uint16`
+    one only worked because the sentinel had been fabricated as 65535 upstream.
+
+    The fill is now derived against the band's own data and declared on the
+    output, so the result says which cells are absent rather than leaving a
+    number indistinguishable from a measurement.
+    """
+
+    GEO = GeoReference(geo=(0.0, 1.0, 0.0, 4.0, 0.0, -1.0), epsg=4326)
+
+    def _mask(self, dtype: str) -> Dataset:
+        """A 4x4 mask whose top-left cell is no-data.
+
+        Args:
+            dtype: The mask band dtype name.
+
+        Returns:
+            Dataset: A mask excluding exactly one cell.
+        """
+        values = np.ones((4, 4), dtype=dtype)
+        values[0, 0] = 0
+        return Dataset.from_array(values, geo_ref=self.GEO, no_data_value=0)
+
+    def _source(self, values: np.ndarray) -> Dataset:
+        """A raster that declares an unstorable `NaN` sentinel.
+
+        Args:
+            values: The band values, 2-D for one band or 3-D for several.
+
+        Returns:
+            Dataset: The source raster with `NaN` declared per band.
+        """
+        source = Dataset.from_array(values, geo_ref=self.GEO, no_data_value=None)
+        source.no_data_value = [np.nan] * source.band_count
+        return source
+
+    @pytest.mark.parametrize("dtype", ["uint8", "uint16", "int16", "float32"])
+    def test_a_single_band_crop_declares_the_fill_it_wrote(self, dtype: str):
+        """The output says which cells are absent, on every dtype.
+
+        Args:
+            dtype: The source band dtype name.
+
+        Test scenario:
+            The masked cell holds the output's own `no_data_value`, so a reader
+            can tell it from a measurement. `uint8` and `int16` raised before
+            this; `uint16` worked only via the removed substitution.
+        """
+        source = self._source(np.full((4, 4), 7, dtype=dtype))
+
+        cropped = source.crop(self._mask(dtype))
+
+        fill = cropped.no_data_value[0]
+        masked_cell = np.asarray(cropped.read_array())[0, 0]
+        assert masked_cell == fill or (np.isnan(fill) and np.isnan(masked_cell)), (
+            f"masked cell {masked_cell} is not the declared fill {fill}"
+        )
+
+    @pytest.mark.parametrize("dtype", ["uint8", "int16"])
+    def test_a_multi_band_crop_no_longer_raises(self, dtype: str):
+        """The crash, pinned as a pass.
+
+        Args:
+            dtype: An integer band dtype.
+
+        Test scenario:
+            The multi-band arm wrote the declared sentinel straight into an
+            integer array, so a band declaring `NaN` raised `ValueError:
+            cannot convert float NaN to integer` and cropping such a raster
+            was simply impossible.
+        """
+        source = self._source(np.full((2, 4, 4), 7, dtype=dtype))
+
+        cropped = source.crop(self._mask(dtype))
+
+        values = np.asarray(cropped.read_array())
+        assert values.shape[0] == 2
+        for band in range(2):
+            assert values[band][0, 0] == cropped.no_data_value[band]
+
+    def test_the_fill_avoids_a_value_the_band_holds(self):
+        """The reason the fill is derived rather than fixed.
+
+        Test scenario:
+            A `uint8` band saturated at 255 cannot take 255 as its fill without
+            marking every saturated cell absent -- the exact defect Byte was
+            excluded from the substitution for. rasterio's `mask()` writes a
+            fixed `0` here, which collides just as readily on a band that holds
+            zeros.
+        """
+        values = np.full((4, 4), 255, dtype="uint8")
+        source = self._source(values)
+
+        cropped = source.crop(self._mask("uint8"))
+
+        fill = cropped.no_data_value[0]
+        assert fill != 255
+        unmasked = np.asarray(cropped.read_array())[1:]
+        assert not (unmasked == fill).any(), "the fill collides with real data"
+
+    def test_a_band_with_a_storable_sentinel_keeps_it(self):
+        """Nothing is derived for a well-formed raster.
+
+        Test scenario:
+            The declared sentinel is storable, so it is the fill and the band's
+            values are never read to decide. This is the path every ordinary
+            crop takes, and it is unchanged.
+        """
+        values = np.full((4, 4), 7, dtype="int16")
+        source = Dataset.from_array(values, geo_ref=self.GEO, no_data_value=-32768)
+
+        cropped = source.crop(self._mask("int16"))
+
+        assert cropped.no_data_value[0] == -32768
+        assert np.asarray(cropped.read_array())[0, 0] == -32768
+
+    @pytest.mark.parametrize("dtype", ["uint8", "uint16", "int16", "float32"])
+    def test_a_polygon_crop_answers_the_same_way(self, dtype: str):
+        """`crop` should not depend on which kind of mask it was handed.
+
+        Args:
+            dtype: The source band dtype name.
+
+        Test scenario:
+            The cutline path warps rather than masking in memory, and GDAL's
+            default fill is `0` -- a real observation on most bands, declared
+            nowhere. The integer rasters therefore kept a border of fill cells
+            the trim could not recognise, while the float one, whose `NaN`
+            sentinel is storable, was trimmed to the polygon. All four now
+            agree, and each declares the value its border holds.
+        """
+        geo = GeoReference(geo=(0.0, 1.0, 0.0, 8.0, 0.0, -1.0), epsg=4326)
+        source = Dataset.from_array(
+            np.arange(64, dtype=dtype).reshape(8, 8), geo_ref=geo, no_data_value=None
+        )
+        source.no_data_value = [np.nan]
+        polygon = gpd.GeoDataFrame(geometry=[box(1.0, 1.0, 5.0, 5.0)], crs=4326)
+
+        cropped = source.crop(polygon)
+
+        values = np.asarray(cropped.read_array())
+        fill = cropped.no_data_value[0]
+        assert values.shape == (4, 4), f"{dtype} was not trimmed to the polygon"
+        assert values[0, 0] == 25, "the trim removed the wrong rows"
+        assert np.isnan(fill) or fill != 0, "the fill is GDAL's undeclared zero"
+
+    @pytest.mark.parametrize("dtype", ["uint8", "int16", "float32"])
+    def test_a_band_that_declares_nothing_gets_a_declared_fill(self, dtype: str):
+        """The crop is what makes those cells absent, so it records it.
+
+        Args:
+            dtype: The source band dtype name.
+
+        Test scenario:
+            Deriving here is not inventing a property the data lacked, and what
+            it replaces was collide-or-crash. Only a *multi-band* `uint16` /
+            `uint32` crop completed: the unsigned substitution turned the
+            band's `None` into 65535, wrote it into the excluded cells and
+            declared it, putting every genuinely-65535 cell out of domain.
+            Every other integer case raised `TypeError` on the assignment.
+        """
+        source = Dataset.from_array(
+            np.full((4, 4), 7, dtype=dtype), geo_ref=self.GEO, no_data_value=None
+        )
+        assert source.no_data_value == (None,), "fixture must declare no sentinel"
+
+        cropped = source.crop(self._mask(dtype))
+
+        fill = cropped.no_data_value[0]
+        masked_cell = np.asarray(cropped.read_array())[0, 0]
+        assert fill is not None, "the excluded cells were written but not declared"
+        assert masked_cell == fill or (np.isnan(fill) and np.isnan(masked_cell)), (
+            f"masked cell {masked_cell} is not the declared fill {fill}"
+        )
+
+    @pytest.mark.parametrize(
+        "carries_its_own_gaps",
+        [False, True],
+        ids=["no NaN in the band", "a NaN already in the band"],
+    )
+    def test_a_float_band_that_declares_nothing_still_gets_nan(
+        self, carries_its_own_gaps: bool
+    ):
+        """`NaN`, whether or not the band already holds one.
+
+        Args:
+            carries_its_own_gaps: Whether the source already contains a `NaN`.
+
+        Test scenario:
+            A cell the crop excludes and a cell that was already `NaN` are
+            both "no measurement", so a band carrying its own gaps is not a
+            collision to route around. Treating it as one handed the band
+            `-9999` instead, which turned those pre-existing gaps into data on
+            the output -- and the earlier version of this test used a NaN-free
+            band, so it could not see that.
+        """
+        values = np.full((4, 4), 7.0, dtype="float32")
+        if carries_its_own_gaps:
+            values[3, 3] = np.nan
+        source = Dataset.from_array(values, geo_ref=self.GEO, no_data_value=None)
+
+        cropped = source.crop(self._mask("float32"))
+
+        assert np.isnan(cropped.no_data_value[0])
+        assert np.isnan(np.asarray(cropped.read_array())[0, 0])
+
+    def test_a_float_band_holding_nan_and_the_default_still_crops(self):
+        """Two "taken" candidates used to exhaust the float search entirely.
+
+        Test scenario:
+            A raster carrying both `NaN` and a legacy `-9999` fill is an
+            ordinary artefact of a half-finished no-data conversion. Floating
+            dtypes have no extremes list and no bounded scan, so once both
+            candidates were ruled out the crop refused with `NoDataValueError`
+            -- a hard new failure where `main` succeeded.
+        """
+        values = np.full((4, 4), 5.0, dtype="float32")
+        values[3, 3] = np.nan
+        values[2, 2] = -9999.0
+        source = Dataset.from_array(values, geo_ref=self.GEO, no_data_value=None)
+
+        cropped = source.crop(self._mask("float32"))
+
+        assert np.isnan(cropped.no_data_value[0])
+        assert np.asarray(cropped.read_array()).shape == (4, 4)
+
+    def test_a_polygon_crop_invents_nothing_for_an_undeclared_band(self):
+        """Where GDAL writes the cells, no sentinel is claimed for them.
+
+        Test scenario:
+            The cutline path parts company with the raster-mask one here, and
+            deliberately: it does not write the excluded cells itself, so
+            stamping `-dstnodata` would put a sentinel on the output that the
+            source never had. The netCDF fan-out rebuilds each variable from
+            what the crop declares, which is the invention
+            `NetCDF._storable_no_data` exists to refuse.
+        """
+        geo = GeoReference(geo=(0.0, 1.0, 0.0, 8.0, 0.0, -1.0), epsg=4326)
+        source = Dataset.from_array(
+            np.arange(64, dtype="uint8").reshape(8, 8), geo_ref=geo, no_data_value=None
+        )
+        polygon = gpd.GeoDataFrame(geometry=[box(1.0, 1.0, 5.0, 5.0)], crs=4326)
+
+        cropped = source.crop(polygon)
+
+        fill = cropped.no_data_value[0]
+        assert fill is None or np.isnan(fill), (
+            f"a storable sentinel was invented for an undeclared band: {fill}"
+        )
+
+    def test_a_mixed_raster_leaves_the_cutline_warp_alone(self):
+        """`-dstnodata` takes a value per band and cannot spell "none".
+
+        Test scenario:
+            One band declaring an unstorable sentinel and another declaring
+            nothing cannot be expressed in a single `-dstnodata`, and filling
+            the gap with a derived value for the undeclared band is the
+            invention the cutline path must not make. The warp is left exactly
+            as it was.
+        """
+        raster = gdal.GetDriverByName("MEM").Create("", 4, 4, 2, gdal.GDT_Byte)
+        raster.SetGeoTransform((0.0, 1.0, 0.0, 4.0, 0.0, -1.0))
+        raster.GetRasterBand(1).WriteArray(np.ones((4, 4), dtype="uint8"))
+        raster.GetRasterBand(2).WriteArray(np.ones((4, 4), dtype="uint8"))
+        # Band by band through GDAL: the `no_data_value` setter normalises the
+        # list, so a raster mixing a declared and an undeclared band -- which a
+        # file on disk can easily be -- cannot be built through it.
+        raster.GetRasterBand(1).SetNoDataValue(float("nan"))
+        source = Dataset(raster)
+        assert source.no_data_value[1] is None, "band 2 must declare nothing"
+
+        assert source.spatial._derived_crop_fills() is None
+
+    @pytest.mark.parametrize(
+        ("fills", "expected"),
+        [
+            ([np.uint8(255), np.uint8(0)], "255 0"),
+            ([np.float32("nan")], "nan"),
+            ([np.float32(1.5)], "1.5"),
+            ([np.uint64(2**64 - 1)], "18446744073709551615"),
+        ],
+    )
+    def test_the_warp_nodata_rendering(self, fills, expected: str):
+        """One value per band, and an integer rendered as an integer.
+
+        Args:
+            fills: The per-band fills to render.
+            expected: The `-dstnodata` argument GDAL should receive.
+
+        Test scenario:
+            The binding stringifies whatever it is handed, so a Python list
+            would arrive as `"[255, 0]"`. The `uint64` row is why integers do
+            not go through `float`: its maximum has no exact `float64`, and
+            the round trip would hand GDAL a value one larger than the dtype
+            can hold.
+        """
+        assert Spatial._warp_nodata(fills) == expected
+
+    @pytest.mark.parametrize(
+        ("dtype", "near_value"),
+        [("int16", -9995), ("float32", -9995.0)],
+        ids=["int16 four counts away", "float32 0.04% away"],
+    )
+    def test_data_near_the_fill_survives_the_trim(self, dtype: str, near_value):
+        """The fill is proved free at storage tolerance; the trim must agree.
+
+        Args:
+            dtype: The source band dtype name.
+            near_value: A real value close to, but not equal to, the fill.
+
+        Test scenario:
+            The trim that removes fully-excluded rows and columns asked with
+            `is_no_data`'s operational `rtol` of 0.001, while the search that
+            chose the fill proved it free at storage tolerance. Everything
+            within a part per thousand of `-9999` was therefore deleted --
+            interior rows included -- so a band of `-9995` came back as a
+            single cell, or raised "crop produced no valid pixels". Elevation,
+            depth and scaled-reflectance products sit in exactly that window.
+        """
+        values = np.full((4, 4), near_value, dtype=dtype)
+        values[0, 0] = 1
+        source = Dataset.from_array(values, geo_ref=self.GEO, no_data_value=None)
+
+        cropped = source.crop(self._mask(dtype))
+
+        kept = np.asarray(cropped.read_array())
+        assert kept.shape == (4, 4), f"real data was trimmed away: {kept.shape}"
+        assert int((kept == near_value).sum()) == 15
+
+    def test_a_fill_outside_the_band_range_costs_no_read(self, monkeypatch):
+        """The streaming crop must not materialise the band to pick a fill.
+
+        Args:
+            monkeypatch: pytest fixture, used to count `read_array` calls.
+
+        Test scenario:
+            `_crop_aligned_tiled` exists so neither the full source nor the
+            full destination is held in memory, and resolving the fill by
+            reading the band undid that for exactly the large rasters it
+            protects. A candidate below the band's minimum or above its maximum
+            occurs nowhere in it, and GDAL answers that from the band's own
+            streamed statistics -- so a `uint8` raster whose values stop at 7
+            gets its `255` without a single Python-side read.
+        """
+        values = np.full((8, 8), 7, dtype="uint8")
+        source = Dataset.from_array(values, geo_ref=self.GEO, no_data_value=None)
+        source.no_data_value = [np.nan]
+        calls = []
+        original = Dataset.read_array
+        monkeypatch.setattr(
+            Dataset,
+            "read_array",
+            lambda self, *a, **k: (calls.append(1), original(self, *a, **k))[1],
+        )
+
+        fills = source.spatial._crop_fill_values()
+
+        assert fills == [255]
+        assert calls == [], f"the band was read {len(calls)} times to pick a fill"
+
+    @pytest.mark.parametrize("dtype", ["uint8", "int16", "float32"])
+    def test_fully_excluded_border_rows_are_trimmed(self, dtype: str):
+        """The output can be smaller than the mask's extent, on every dtype.
+
+        Args:
+            dtype: The source band dtype name.
+
+        Test scenario:
+            The trim that removes wholly-excluded rows and columns works by
+            reading the output's sentinel back, so it only ever fired for a
+            band whose sentinel was storable -- `float32` was trimmed this way
+            already, while the integer cases raised before reaching it. Now
+            that every band declares what its excluded cells hold, all three
+            agree, and callers will start depending on the shape.
+        """
+        cells = np.ones((4, 4), dtype=dtype)
+        cells[0, :] = 0
+        cells[:, 0] = 0
+        mask = Dataset.from_array(cells, geo_ref=self.GEO, no_data_value=0)
+        source = Dataset.from_array(
+            np.full((4, 4), 7, dtype=dtype), geo_ref=self.GEO, no_data_value=None
+        )
+
+        cropped = source.crop(mask)
+
+        assert np.asarray(cropped.read_array()).shape == (3, 3)
+
+    def test_a_band_whose_every_cell_is_no_data_falls_back_to_reading(self):
+        """A declared sentinel means GDAL and `read_array` disagree already.
+
+        Test scenario:
+            The band's mask reports `NODATA` rather than `ALL_VALID`, so the
+            range is not consulted at all -- which is also what keeps
+            `ComputeRasterMinMax`'s "no valid pixels" refusal out of reach,
+            since every band that gets past the mask check has valid cells by
+            definition.
+        """
+        source = Dataset.from_array(
+            np.zeros((4, 4), dtype="uint8"), geo_ref=self.GEO, no_data_value=0
+        )
+
+        assert source.spatial._fill_outside_the_band_range(0, np.dtype("uint8")) is None
+
+    @pytest.mark.parametrize("kind", ["mask band", "alpha band"])
+    def test_a_masked_band_is_not_resolved_from_gdals_range(self, kind: str):
+        """GDAL and `read_array` must be looking at the same cells.
+
+        Args:
+            kind: Which flavour of mask hides the value.
+
+        Test scenario:
+            `ComputeRasterMinMax` skips whatever the band's mask marks invalid
+            and `read_array` ignores masks entirely, so GDAL's range omits
+            values the band genuinely holds. Deriving a fill from it picked
+            `255` for a band whose hidden cell *is* `255`, and the crop then
+            declared a value two cells held -- the exact defect the derivation
+            exists to avoid. The shortcut is taken only when the mask says
+            every cell counts.
+        """
+        values = np.arange(100, dtype="uint8").reshape(10, 10) % 10
+        values[0, 0] = 255
+        bands = 1 if kind == "mask band" else 2
+        raster = gdal.GetDriverByName("MEM").Create("", 10, 10, bands, gdal.GDT_Byte)
+        raster.SetGeoTransform((0.0, 1.0, 0.0, 10.0, 0.0, -1.0))
+        raster.GetRasterBand(1).WriteArray(values)
+        hidden = np.full((10, 10), 255, dtype="uint8")
+        hidden[0, 0] = 0
+        if kind == "mask band":
+            raster.CreateMaskBand(gdal.GMF_PER_DATASET)
+            raster.GetRasterBand(1).GetMaskBand().WriteArray(hidden)
+        else:
+            raster.GetRasterBand(2).WriteArray(hidden)
+            raster.GetRasterBand(2).SetColorInterpretation(gdal.GCI_AlphaBand)
+        source = Dataset(raster)
+
+        fill = source.spatial._crop_fill_values()[0]
+
+        held = np.asarray(source.read_array(band=0))
+        assert not (held == fill).any(), f"the fill {fill} is a value the band holds"
+
+    @pytest.mark.parametrize(
+        ("dtype", "declares", "shape"),
+        [
+            ("uint16", True, (4, 4)),
+            ("int32", True, (4, 4)),
+            ("int64", True, (4, 4)),
+            ("uint64", False, (6, 6)),
+        ],
+    )
+    def test_a_cutline_crop_across_the_integer_widths(
+        self, dtype: str, declares: bool, shape: tuple
+    ):
+        """The 64-bit widths do not behave like the rest, in two ways.
+
+        Args:
+            dtype: The source band dtype name.
+            declares: Whether the output should carry a sentinel.
+            shape: The expected trimmed shape.
+
+        Test scenario:
+            An `Int64` / `UInt64` warp result reports no no-data through either
+            accessor even with `<NoDataValue>` in its VRT XML, so reading the
+            value back left those widths declaring nothing and the border
+            untrimmed. It is set from what was asked for instead.
+
+            `uint64` is different again: its maximum cannot survive the C
+            double GDAL parses `-dstnodata` into, and arrives rounded to
+            `2**63`, which is what lands in the pixels. Declaring the value we
+            asked for would describe cells holding something else, so no fill
+            is offered and the border stays undeclared -- as it was before this
+            branch.
+        """
+        geo = GeoReference(geo=(0.0, 1.0, 0.0, 8.0, 0.0, -1.0), epsg=4326)
+        source = Dataset.from_array(
+            np.arange(64, dtype=dtype).reshape(8, 8), geo_ref=geo, no_data_value=None
+        )
+        source.no_data_value = [np.nan]
+        polygon = gpd.GeoDataFrame(geometry=[box(2.0, 2.0, 6.0, 6.0)], crs=4326)
+
+        cropped = source.crop(polygon)
+
+        assert np.asarray(cropped.read_array()).shape == shape
+        sentinel = cropped.no_data_value[0]
+        assert (sentinel is not None) is declares
+
+    def test_a_raster_with_per_band_sentinels_is_still_trimmed(self):
+        """The trim asks each band its own sentinel, not band 0's.
+
+        Test scenario:
+            Asking band 0's of every band was harmless while they all declared
+            the same value, and stopped being so once a fill is derived per
+            band. A raster whose second band declares `0` while its first is
+            handed `-9999` had its whole border judged against `-9999`, which
+            matched nothing in band 2, so the row was never wholly no-data and
+            nothing was trimmed -- 6x6 where a uniform raster gave 4x4.
+        """
+        raster = gdal.GetDriverByName("MEM").Create("", 8, 8, 2, gdal.GDT_Int16)
+        raster.SetGeoTransform((0.0, 1.0, 0.0, 8.0, 0.0, -1.0))
+        for band in (1, 2):
+            raster.GetRasterBand(band).WriteArray(
+                np.arange(64, dtype="int16").reshape(8, 8) + 1
+            )
+        raster.GetRasterBand(1).SetNoDataValue(float("nan"))
+        raster.GetRasterBand(2).SetNoDataValue(0.0)
+        source = Dataset(raster)
+        polygon = gpd.GeoDataFrame(geometry=[box(2.0, 2.0, 6.0, 6.0)], crs=4326)
+
+        cropped = source.crop(polygon)
+
+        assert np.asarray(cropped.read_array()).shape == (2, 4, 4)
+
+    @pytest.mark.parametrize(
+        ("value", "survives"),
+        [
+            (-9999, True),
+            (0, True),
+            (np.int64(-(2**63)), True),
+            (np.uint64(2**64 - 1), False),
+            (np.int64(2**63 - 1), False),
+            (np.float32("nan"), True),
+            (1.5, True),
+        ],
+    )
+    def test_which_fills_survive_the_warp_channel(self, value, survives: bool):
+        """`-dstnodata` is text GDAL parses into a C double.
+
+        Args:
+            value: The candidate fill.
+            survives: Whether GDAL receives exactly this value.
+
+        Test scenario:
+            An integer beyond 2**53 reaches the warp as a different number, so
+            it is refused rather than declared. `-(2**63)` is a power of two
+            and survives; `2**63 - 1` and `2**64 - 1` do not. A float is
+            already a double, and `NaN` is carried by name.
+        """
+        assert _survives_a_c_double(value) is survives
+
+    def test_a_uint64_fill_the_channel_can_carry_is_declared(self):
+        """`UInt64` is refused for its maximum, not for its dtype.
+
+        Test scenario:
+            The candidates for an unsigned band are its maximum then its
+            minimum. A `uint64` band that already holds the maximum falls
+            through to `0`, which survives the C double exactly -- so the crop
+            declares it, through the accessor that dtype requires, and is
+            trimmed like any other width.
+        """
+        geo = GeoReference(geo=(0.0, 1.0, 0.0, 8.0, 0.0, -1.0), epsg=4326)
+        values = np.arange(1, 65, dtype="uint64").reshape(8, 8)
+        values[0, 0] = np.iinfo("uint64").max
+        source = Dataset.from_array(values, geo_ref=geo, no_data_value=None)
+        source.no_data_value = [np.nan]
+        polygon = gpd.GeoDataFrame(geometry=[box(2.0, 2.0, 6.0, 6.0)], crs=4326)
+
+        cropped = source.crop(polygon)
+
+        assert cropped.no_data_value[0] == 0
+        assert np.asarray(cropped.read_array()).shape == (4, 4)
+
+    def test_a_band_holding_every_candidate_refuses(self):
+        """The honest failure, rather than a colliding fill.
+
+        Test scenario:
+            A `uint8` band covering all 256 values leaves nothing free to mark
+            the excluded cells with. Raising names the fix; writing a value
+            anyway would reclassify a real observation as a gap.
+        """
+        geo = GeoReference(geo=(0.0, 1.0, 0.0, 16.0, 0.0, -1.0), epsg=4326)
+        values = np.arange(256, dtype="uint8").reshape(16, 16)
+        source = Dataset.from_array(values, geo_ref=geo, no_data_value=None)
+        source.no_data_value = [np.nan]
+        mask_values = np.ones((16, 16), dtype="uint8")
+        mask_values[0, 0] = 0
+        mask = Dataset.from_array(mask_values, geo_ref=geo, no_data_value=0)
+
+        with pytest.raises(NoDataValueError, match="no value is free to mark"):
+            source.crop(mask)

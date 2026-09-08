@@ -295,54 +295,144 @@ spirit: a format that supports `Create` gives `"write"`, and a write-by-copy-onl
 dataset for those. If you relied on the copy being read-only as a guard, guard it yourself — there is no
 parameter to ask for the old mode.
 
-**`Dataset.no_data_value` can report a numpy scalar where it reported a Python `int`.** Hard change, silent —
-the number is the same, only its type differs. It affects one case: an unsigned band **wider than 8 bits**
-(`uint16`, `uint32`, `uint64`) created with a `NaN` no-data, where pyramids substitutes the dtype's maximum
-because `NaN` cannot be stored there. That substituted sentinel is now built as a numpy scalar instead of a
-Python `int`, so it agrees in type as well as value with the sentinel picked when a *requested* no-data
-overflows the band — previously the same answer read back as `65535` from one path and a numpy scalar from the
-other, and the `==` pinning their agreement could not see the difference.
-
-What a caller sees, for a `uint16` band created with `no_data_value=np.nan`:
-
-```python
-# Before
-ds.no_data_value      # (65535,)                  <- builtin int
-
-# After
-ds.no_data_value      # (np.float64(65535.0),)
-```
-
-Measured across the dtypes, with `Dataset.create(rows=3, columns=4, dtype=..., bands=1, no_data_value=...)`:
+**A no-data value the band cannot store is no longer replaced with the dtype's maximum.** Hard change, silent
+on the read path and loud on the write path. A `NaN` sentinel cannot be stored in an integer band, and the
+unsigned types wider than a byte used to answer that by substituting their own maximum: a `uint16` band asked
+for `NaN` came back declaring `65535`. Every genuinely-65535 cell in it — the saturated end of a scaled
+reflectance product, the void value of a DEM — was then out of domain, and `align` handed the raster to
+`gdal.ReprojectImage`, which rewrote those real 65535s to 65534 to keep them distinguishable from the sentinel.
+`uint8` was excluded from the substitution for exactly this reason (255 is white in 8-bit imagery); the wider
+types now follow the same rule, so there is one rule across all of them.
 
 | dtype and no-data | Before | After |
 |---|---|---|
-| `uint16` + `NaN` | `(65535,)` — `int` | `(np.float64(65535.0),)` |
-| `uint32` + `NaN` | `(4294967295,)` — `int` | `(np.float64(4294967295.0),)` |
-| `uint64` + `NaN` | `(18446744073709551615,)` — `int` | `(np.uint64(18446744073709551615),)` |
-| `uint8` + `NaN` | `(nan,)` | `(nan,)` — unchanged |
-| signed / floating + `NaN` | `(nan,)` | `(nan,)` — unchanged |
+| `uint16` + `NaN` | `(65535,)` | `(nan,)` |
+| `uint32` + `NaN` | `(4294967295,)` | `(nan,)` |
+| `uint64` + `NaN` | `(18446744073709551615,)` | `(nan,)` |
+| `uint8`, signed, floating + `NaN` | `(nan,)` | `(nan,)` — unchanged |
 | any dtype, `no_data_value=None` | `(None,)` | `(None,)` — unchanged |
 
-Two things the shape of that table decides for you:
+Two knock-on effects to look for:
 
-- **`uint8` is excluded.** A Byte band with a `NaN` no-data reports `(nan,)`, before and after — nothing is
-  substituted, because 255 is white in 8-bit imagery and fabricating it as a sentinel would put every white
-  pixel out of domain. Do not test this change on a Byte raster: it will not show there.
-- **Only `NaN` triggers it.** An *unset* no-data (`no_data_value=None`) reports `(None,)` on both sides. The
-  substitution is for a sentinel that cannot be stored, not for the absence of one.
+- **`change_no_data_value(None)` on a `uint16` / `uint32` / `uint64` raster now raises `NoDataValueError`**,
+  where it used to succeed and leave the dtype maximum behind. `uint8` and the signed types already raised.
+  Pass a sentinel the band can hold, or leave the band without one.
+- **A raster that declares no storable sentinel now really has no no-data**, so `count_domain_cells`, `apply`,
+  `fill` and the statistics treat every cell as data. That is the honest answer for a band with no free value,
+  and it is what a `uint8` raster already did.
+- **`Dataset.create(..., no_data_value=np.nan)` returns a different canvas**, not just a different declaration.
+  Creating a band fills it with the sentinel it just declared, so the substitution used to leave every cell
+  out of domain; with nothing storable to declare there is nothing meaningful to fill with, and the band keeps
+  the driver's zeros:
 
-`float64`, not `uint16`: GDAL's `SetNoDataValue` takes a C double and the value is round-tripped through it. The
-one exception is `uint64`, whose maximum has no exact `float64`, so it stays a numpy `uint64`. A band with a
-concrete no-data already reported a numpy scalar before this release.
+  | `create(rows=3, columns=4, dtype=…, no_data_value=np.nan)` | Before | After |
+  |---|---|---|
+  | `uint16` | declares `65535`, holds `65535`, 0 domain cells | declares `NaN`, holds `0`, 12 domain cells |
+  | `uint32` | declares `4294967295`, holds that, 0 domain cells | declares `NaN`, holds `0`, 12 domain cells |
 
-Anything comparing with `==`, or reading the value into numpy, needs no change. Change what needs a builtin:
+  If you used that call as an out-of-domain canvas and wrote only the cells you cared about, the untouched ones
+  are now real zeros that every consumer counts as data. Create the raster with a sentinel the dtype can hold
+  instead, and the old behaviour returns unchanged.
 
-- `json.dumps(ds.no_data_value)` → `json.dumps([float(v) for v in ds.no_data_value])`
-- `"%d" % nodata` and `is`-comparisons against small ints
-- arithmetic where wrapping matters — only on the `uint64` row, whose value is a numpy *integer* scalar and
-  wraps at the dtype bound (`np.uint64(2**64 - 1) + 1 == 0`) instead of promoting. The `uint16` / `uint32` rows
-  are `float64` and do not wrap. `float(nodata)` first if you are doing arithmetic on any of them.
+What has **not** changed is the repair applied when a caller asks for a sentinel that overflows the band:
+`Dataset.from_array(uint8_array)` still warns that the default `-9999` is out of range and stores `255`. There
+the caller asked for a sentinel and it did not fit, so picking a storable one honours the request; the removed
+substitution fired when the caller asked for *no* sentinel, and answered a question nobody posed.
+
+**`crop` derives the value it writes into masked cells, and declares it on the result.** Hard change, and the
+fix for two bugs. Cropping has to put *something* in the cells the mask excludes, and it used to write the
+source's declared sentinel — which is why a multi-band `uint8` or `int16` crop raised
+`ValueError: cannot convert float NaN to integer` outright, and why a `uint16` crop silently relied on the
+substitution above.
+
+The cropped output now carries a fill chosen **against the band's own data**: the band's sentinel when it can
+store one, otherwise the first value that fits the dtype and occurs nowhere in the band (`NaN`, then `-9999`,
+then the dtype's extremes, then a scan of the remaining range for the narrow integer types). That value is set
+as the **output's** `no_data_value`, so the result says which cells are absent instead of leaving a bare `0` or
+a fabricated maximum indistinguishable from a measurement. A band that holds every candidate raises
+`NoDataValueError` naming the fix rather than reclassifying a real observation as a gap.
+
+A band that declares **no** sentinel is derived for too, on this path. That is not inventing a property the data
+lacked — the crop is what makes those cells absent — and what it replaces was collide-or-crash. Measured on the
+previous release, a raster-mask crop of a band declaring nothing:
+
+| dtype | single band | multi-band |
+|---|---|---|
+| `uint16` / `uint32` | `TypeError` | wrote **and declared** the dtype maximum |
+| `uint8` / `int16` | `TypeError` | `TypeError` |
+| floating | `NaN`, declared | `NaN`, declared |
+
+Because the output now declares a sentinel the trim recognises, a raster-mask crop also removes rows and columns
+that the mask excluded entirely — so the result can be smaller than the mask's extent. That is not new behaviour,
+only newly reachable: a `float32` band, whose `NaN` was always storable, was trimmed the same way before. A 4x4
+raster masked along its first row and column comes back 3x3 for every dtype now, where the integer cases used to
+raise instead.
+
+The one case that completed is the one this issue exists for: `_check_no_data_value` turned the band's `None`
+into 65535, wrote it into the excluded cells and declared it, so every genuinely-65535 cell in the band became
+out-of-domain on the output. Every other integer case raised
+`TypeError: int() argument must be ... not 'NoneType'`, single- and multi-band alike. A floating band is
+unchanged — it gets `NaN`, which is what that path already wrote and declared.
+
+```python
+# uint8 source asked for a NaN sentinel, data in 1..7
+out = src.crop(mask)
+out.no_data_value      # (255.0,) -- derived, and declared
+# Before: ValueError: cannot convert float NaN to integer (multi-band)
+
+# uint8 source declaring nothing at all
+out = src.crop(mask)
+out.no_data_value      # (255.0,) -- derived, and declared
+# Before: TypeError: int() argument must be ... not 'NoneType'
+```
+
+A polygon (cutline) crop is the same story from the other side, with one deliberate difference: a band that
+declares no sentinel is left alone there. That path does not write the excluded cells itself — GDAL fills them —
+so stamping a `-dstnodata` would put a sentinel on the output that the source never had, which the netCDF
+fan-out would then carry onto a rebuilt variable. Only a band with a sentinel it *cannot store* gets one.
+
+For that band, the border outside the cutline was GDAL's default `0` — a real observation on most bands, and
+declared nowhere. The trim that removes the fully-outside rows and columns works by reading the sentinel back,
+so it recognised nothing there and left the border in place: an integer raster came back larger than the same
+crop of a float one. It now gets the derived fill, is trimmed to the polygon, and declares what its border
+holds.
+
+| `crop(polygon)` of an 8x8 raster asked for a `NaN` sentinel | Before | After |
+|---|---|---|
+| `uint8` / `int16` | 6x6, border of undeclared `0` | 4x4, border declared |
+| `uint16` / `uint32` | 4x4, border declared `65535` | 4x4, border declared — now derived |
+| `int64` | 6x6, border of undeclared `0` | 4x4, border declared |
+| `uint64` | 6x6, border of undeclared `0` | 6x6 — unchanged, see below |
+| `float32` (a storable `NaN`) | 4x4 | 4x4 — unchanged |
+
+`uint16` and `uint32` were already trimmed and already declared, because the substitution being removed had
+given them `65535` / `4294967295` before the crop ever ran. What changes for them is only where the value comes
+from: derived against the band's data rather than fabricated, so it can no longer be a value the band holds.
+
+`uint64` is left alone deliberately. `-dstnodata` reaches GDAL as text it parses into a C double, and that
+dtype's maximum does not survive the trip — it arrives rounded to `2**63`, which GDAL announces and then writes
+into the pixels. Declaring the value we asked for would describe cells holding something else, so no fill is
+offered and the border stays undeclared.
+
+The declared sentinel of a well-formed raster is unchanged: a band that already declares a storable value keeps
+it, its data is never read to make the decision, and the warp options it produces are the ones it produced
+before.
+
+**A crop can now come back larger, for any raster whose cells come close to its sentinel.** Hard change, silent,
+and unrelated to whether a fill was derived. The trim that removes wholly-excluded rows and columns asked
+`is_no_data`, whose operational `rtol` of 0.001 treats everything within a part per thousand of the sentinel as
+no-data; it now asks `is_stored_no_data`, the tolerance the storage forces. Cells that merely lie near the
+sentinel are data again, so fewer rows qualify for removal and the result only ever grows:
+
+| `float32` declaring `-9999`, border holding `-9995` | Before | After |
+|---|---|---|
+| `crop(mask=polygon)` | 2x2 | 6x6 |
+| `crop(bbox=…)` | 2x2 | 6x6 |
+
+The old shape was reached by deleting real observations — elevation, depth and scaled-reflectance products sit
+in exactly that window — so the new one is the correct answer. But code that indexes, reprojects or asserts
+against a crop's shape will see it change. It applies to both crop routes and to bands with an ordinary,
+storable, declared sentinel.
 
 **`create_from_array` is now `from_array`, and takes a `GeoReference`.** Hard change, no deprecation alias — the
 old name and the old flat keywords are gone. The same rename applies to `UgridDataset.create_from_arrays` ->
@@ -616,9 +706,9 @@ Two consequences of "the band's own" worth stating, because the obvious reading 
 - **An integer sentinel is compared as an exact integer, not through a `float`.** That matters only at the
   64-bit limits, where it is the whole answer: `float(2**63 - 1)` rounds *up* past `int64`'s maximum, so a band
   whose sentinel is its own dtype maximum would be judged unable to hold it and mask nothing at all — with
-  `fill` then overwriting the very cells it was told to leave alone. `int64` and `uint64` maxima are exactly
-  the sentinels pyramids fabricates for an unsigned band with an unstorable no-data, so this is the ordinary
-  path for a 64-bit raster rather than a corner of one.
+  `fill` then overwriting the very cells it was told to leave alone. A 64-bit maximum is a sentinel a caller
+  reasonably declares, and the one a crop derives for a band that has none, so this is a path a 64-bit raster
+  reaches rather than a corner of one.
 
 For a caller, a cell within ~0.1% of the sentinel that used to be no-data to `count_domain_cells` / `apply` is now
 data; nothing that was masked before is unmasked *less* accurately, the change only ever keeps cells. On the test
