@@ -28,6 +28,14 @@ if TYPE_CHECKING:
     )
 
 
+# A degenerate geotransform -- a zero cell size, or a rotation that collapses
+# the parallelogram -- describes cells with no extent. Answering 0.0 would make
+# `domain_area` report no ground for a raster full of data.
+_NO_EXTENT = (
+    "the raster's geotransform gives its cells no area; check the cell size "
+    "and rotation terms"
+)
+
 # Square metres per unit of area. The names are the ones a caller writes, not
 # GDAL's or PROJ's spellings, because this is the surface a user types.
 _AREA_UNITS: dict[str, float] = {
@@ -344,6 +352,12 @@ class Cell(_Engine["Dataset"]):
                     "warp it to a north-up grid or to a projected CRS first"
                 )
             per_row = self._parallel_row_areas(crs) / scale
+            # Checked before the broadcast, not after. `per_row > 0.0` on the
+            # expanded view would allocate one byte per pixel -- 400 MB on a
+            # 20000x20000 raster, and a `MemoryError` on the out-of-core grids
+            # this method exists to serve -- to test `rows` distinct numbers.
+            if not np.all(per_row > 0.0):
+                raise ValueError(_NO_EXTENT)
             areas = np.broadcast_to(
                 per_row[:, np.newaxis], (self._ds.rows, self._ds.columns)
             )
@@ -352,6 +366,8 @@ class Cell(_Engine["Dataset"]):
             metres = crs.axis_info[0].unit_conversion_factor
             determinant = abs(geo[1] * geo[5] - geo[2] * geo[4])
             one = determinant * metres * metres / scale
+            if not one > 0.0:
+                raise ValueError(_NO_EXTENT)
             areas = np.broadcast_to(np.float64(one), (self._ds.rows, self._ds.columns))
         else:
             # Geocentric, engineering and compound CRSs reach here. Their axes
@@ -362,15 +378,6 @@ class Cell(_Engine["Dataset"]):
                 f"the raster's CRS is neither geographic nor projected "
                 f"({crs.type_name}), so its cells have no ground area; "
                 "reproject it to a projected or geographic CRS first"
-            )
-        if not np.all(np.asarray(areas) > 0.0):
-            # A degenerate geotransform -- a zero cell size, or a rotation that
-            # collapses the parallelogram -- describes cells with no extent.
-            # Returning 0.0 would make `domain_area` answer 0 for a raster full
-            # of data.
-            raise ValueError(
-                "the raster's geotransform gives its cells no area; check the "
-                "cell size and rotation terms"
             )
         return areas
 

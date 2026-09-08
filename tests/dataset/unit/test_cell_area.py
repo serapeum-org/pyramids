@@ -14,6 +14,8 @@ true ellipsoid surface area exactly where the spherical one is 0.00005 % out.
 
 from __future__ import annotations
 
+import tracemalloc
+
 import numpy as np
 import pytest
 from osgeo import gdal
@@ -635,3 +637,45 @@ class TestTheGuardsNoPublicInputReaches:
 
         with pytest.raises(ValueError, match="declares no ellipsoid"):
             _global_grid().cell_area()
+
+
+class TestWhatItCostsToAsk:
+    """The view is the design; a guard that expands it is a defect."""
+
+    @pytest.mark.parametrize(
+        "epsg, geo, ceiling_kb",
+        [
+            (4326, (-180.0, 0.01, 0.0, 90.0, 0.0, -0.009), 4096),
+            (32636, (0.0, 30.0, 0.0, 0.0, 0.0, -30.0), 64),
+        ],
+    )
+    def test_a_huge_raster_costs_rows_not_pixels(self, epsg, geo, ceiling_kb):
+        """A 20000x20000 grid must not allocate per pixel anywhere in the call.
+
+        Args:
+            epsg: The CRS, to take each branch in turn.
+            geo: Its geotransform.
+            ceiling_kb: Generous cap that still excludes a dense array.
+
+        Test scenario:
+            Validating `areas > 0.0` on the broadcast result rather than on the
+            `rows` values behind it allocated a dense boolean -- 400 MB here,
+            and a `MemoryError` at Copernicus GLO-30 sizes -- before returning
+            a view whose whole purpose is to avoid exactly that. The projected
+            branch is the sharper probe: its only real array is a 0-d scalar,
+            so anything above a few kilobytes can only be the guard.
+        """
+        handle = gdal.GetDriverByName("MEM").Create("", 20000, 20000, 1, gdal.GDT_Byte)
+        handle.SetGeoTransform(geo)
+        handle.SetProjection(CRS.from_epsg(epsg).to_wkt())
+        raster = Dataset(handle)
+
+        tracemalloc.start()
+        try:
+            areas = raster.cell_area()
+            peak = tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+
+        assert areas.shape == (20000, 20000)
+        assert peak < ceiling_kb * 1024
