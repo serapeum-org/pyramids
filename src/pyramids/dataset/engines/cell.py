@@ -393,6 +393,13 @@ class Cell(_Engine["Dataset"]):
             np.ndarray: One area per row, in square metres, in row order.
         """
         geod = crs.get_geod()
+        if geod is None:
+            # A geographic CRS whose datum names no ellipsoid: there is no
+            # figure of the earth to integrate over, so there is no area.
+            raise ValueError(
+                "the raster's geographic CRS declares no ellipsoid, so its "
+                "cells have no ground area; reproject it to one that does"
+            )
         _, dx, _, top, _, dy = self._ds.geotransform
         # The geotransform speaks the CRS's angular unit, which is degrees for
         # every ordinary geographic CRS but grads for a few (EPSG:4807). The
@@ -430,9 +437,9 @@ class Cell(_Engine["Dataset"]):
         if eccentricity_squared <= 0.0:
             # A spherical datum: the general form divides by `e`, and the limit
             # as it vanishes is simply `a^2 sin(phi)`.
-            return a * a * sine
+            return np.asarray(a * a * sine, dtype="float64")
         eccentricity = np.sqrt(eccentricity_squared)
-        return (
+        integral = (
             a
             * a
             * (1.0 - eccentricity_squared)
@@ -441,6 +448,7 @@ class Cell(_Engine["Dataset"]):
                 + np.arctanh(eccentricity * sine) / (2.0 * eccentricity)
             )
         )
+        return np.asarray(integral, dtype="float64")
 
     def get_cell_polygons(self, domain_only: bool = False) -> GeoDataFrame:
         """Get a polygon shapely geometry for the raster cells.
