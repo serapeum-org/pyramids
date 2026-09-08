@@ -422,9 +422,13 @@ class Analysis(_Engine["Dataset"]):
         no_data_value = self._ds.no_data_value[band]
 
         def _sum(acc: float, strip: np.ndarray, window: list[int]) -> float:
-            # `window` is [xoff, yoff, xsize, ysize]; the rows it covers pick
-            # the matching slice of the per-row areas, so the strip and its
-            # weights stay aligned however the reader chooses to cut the band.
+            # `window` is [xoff, yoff, xsize, ysize]. Only the row offset and
+            # height are read, which ties this to `stream_reduce`'s contract of
+            # full-width strips: a tiled window would hand over a strip
+            # narrower than its weights and the multiply would refuse to
+            # broadcast. That is the right failure -- silently weighing a tile
+            # by another column's areas would not be -- but it is a coupling,
+            # not the shape-independence an earlier comment here claimed.
             yoff, ysize = window[1], window[3]
             weights = areas[yoff : yoff + ysize]
             inside = ~is_stored_no_data(strip, no_data_value)

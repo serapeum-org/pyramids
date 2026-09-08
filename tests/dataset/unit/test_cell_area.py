@@ -312,6 +312,48 @@ class TestDomainArea:
 
         assert raster.domain_area() == 0.0
 
+    def test_a_raster_taller_than_one_strip_weighs_each_row(self):
+        """The row offset only matters once the reader makes a second call.
+
+        Test scenario:
+            `stream_reduce` cuts the band into 256-row strips, so every raster
+            shorter than that arrives in a single call with `yoff == 0` and the
+            slice `areas[0:rows]` is a no-op. A 0.25 degree global grid is 720
+            rows -- three strips -- and is the size issue #1085 names as the
+            live case. Ignoring `yoff` here answers 385 731 207 km2 instead of
+            the ellipsoid's 510 065 622, a 24 % error that no shorter raster
+            can reveal.
+        """
+        geo_ref = GeoReference(
+            top_left_corner=(-180.0, 90.0), cell_size=0.25, epsg=4326
+        )
+        grid = Dataset.from_array(np.ones((720, 1440), "float32"), geo_ref=geo_ref)
+
+        assert grid.rows > 256, "the raster must span more than one strip"
+        assert grid.domain_area(unit="km2") == pytest.approx(
+            WGS84_ELLIPSOID_KM2, rel=1e-6
+        )
+
+    def test_a_tall_partial_domain_is_weighed_strip_by_strip(self):
+        """A gap in the last strip must still be weighed by its own latitudes.
+
+        Test scenario:
+            The globe total is symmetric, so a mis-sliced weighting can still
+            land on it by cancellation. Masking a band that falls in the third
+            strip removes that escape: the answer has to match the rows that
+            actually survive.
+        """
+        geo_ref = GeoReference(
+            top_left_corner=(-180.0, 90.0), cell_size=0.25, epsg=4326
+        )
+        values = np.ones((720, 1440), dtype="float32")
+        values[600:, :] = -9999.0
+        grid = Dataset.from_array(values, geo_ref=geo_ref, no_data_value=-9999.0)
+
+        areas = grid.cell_area(unit="km2")
+        expected = float(areas[:600, :].sum())
+        assert grid.domain_area(unit="km2") == pytest.approx(expected, rel=1e-12)
+
     def test_it_matches_a_whole_band_sum_despite_streaming(self):
         """The strips must line up with the rows they weigh.
 
