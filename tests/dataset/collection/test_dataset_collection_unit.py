@@ -1935,3 +1935,84 @@ class TestToCrsEager:
         monkeypatch.setattr(builtins, "__import__", fake_import)
         with pytest.raises(OptionalPackageDoesNotExist, match="lazy"):
             col.to_crs(3857, compute=False)
+
+
+class TestCroppedTimestepsAgreeOnOneSentinel:
+    """A stack is read through one no-data value, so its steps must share it."""
+
+    GEO = GeoReference(geo=(0.0, 1.0, 0.0, 4.0, 0.0, -1.0), epsg=4326)
+
+    def _stack(self) -> DatasetCollection:
+        """Two undeclared `int16` timesteps, the second holding a real -9999.
+
+        Returns:
+            DatasetCollection: The two-step stack.
+        """
+        first = np.arange(16, dtype="int16").reshape(4, 4)
+        second = np.arange(16, dtype="int16").reshape(4, 4)
+        second[3, 3] = -9999
+        steps = [
+            Dataset.from_array(values, geo_ref=self.GEO, no_data_value=None)
+            for values in (first, second)
+        ]
+        return DatasetCollection(steps[0], time_length=len(steps), datasets=steps)
+
+    def _mask(self) -> Dataset:
+        """A mask excluding the top-left cell.
+
+        Returns:
+            Dataset: The mask raster.
+        """
+        cells = np.ones((4, 4), dtype="int16")
+        cells[0, 0] = 0
+        return Dataset.from_array(cells, geo_ref=self.GEO, no_data_value=0)
+
+    def test_every_timestep_declares_the_same_value(self):
+        """The steps derive different fills, and are reconciled onto one.
+
+        Test scenario:
+            `crop` derives a fill against each raster's own values, so the
+            second step -- which already contains `-9999` -- gets `-32768`
+            while the first gets `-9999`. Read through the collection's single
+            declared sentinel, the second step's genuine `-9999` observation
+            became a gap and its actual fill became data.
+        """
+        cropped = self._stack().crop(self._mask())
+
+        declared = {step.no_data_value[0] for step in cropped.datasets}
+        assert len(declared) == 1, f"timesteps disagree: {declared}"
+        assert cropped.base.no_data_value[0] in declared
+
+    def test_the_real_observation_is_not_reclassified(self):
+        """The point of agreeing: no step's data becomes a gap.
+
+        Test scenario:
+            The agreed sentinel has to be free across every timestep, not just
+            the one it was derived from -- otherwise reconciling would simply
+            move the collision from one step to another.
+        """
+        cropped = self._stack().crop(self._mask())
+
+        agreed = cropped.datasets[0].no_data_value[0]
+        second = np.asarray(cropped.datasets[1].read_array())
+        assert (second == -9999).any(), "the real -9999 observation was overwritten"
+        assert agreed != -9999
+
+    def test_an_already_agreeing_stack_is_untouched(self):
+        """Nothing is paid where nothing needs reconciling.
+
+        Test scenario:
+            Every per-timestep operation that inherits its sentinel rather than
+            deriving one leaves the steps already agreeing, so the reconciler
+            must return before reading any band.
+        """
+        values = np.arange(16, dtype="float32").reshape(4, 4)
+        steps = [
+            Dataset.from_array(values.copy(), geo_ref=self.GEO, no_data_value=-9999.0)
+            for _ in range(2)
+        ]
+        stack = DatasetCollection(steps[0], time_length=2, datasets=steps)
+
+        cropped = stack.crop(self._mask())
+
+        assert {step.no_data_value[0] for step in cropped.datasets} == {-9999.0}
