@@ -78,13 +78,20 @@ class TestCellAreaOnAProjectedGrid:
         assert np.allclose(areas, abs(30.0 * -30.0 - 10.0 * 10.0))
 
     def test_a_projected_cell_does_not_vary_by_row(self):
-        """Test scenario: only a geographic grid varies with latitude."""
+        """Test scenario: only a geographic grid varies with latitude.
+
+        The value is asserted alongside the uniformity. The projected branch
+        broadcasts a single scalar, so one distinct value is guaranteed by
+        construction whatever that scalar is -- returning twice the correct
+        area passed this test until the `allclose` was added.
+        """
         geo_ref = GeoReference(top_left_corner=(0.0, 0.0), cell_size=30.0, epsg=32636)
         raster = Dataset.from_array(np.ones((5, 5), "float32"), geo_ref=geo_ref)
 
         areas = raster.cell_area()
 
         assert len(np.unique(areas)) == 1
+        assert np.allclose(areas, 900.0)
 
 
 class TestCellAreaOnAGeographicGrid:
@@ -433,7 +440,11 @@ class TestDomainArea:
         nominal = float(cap.cell_area(unit="km2")[90, 0])
         naive = cap.count_domain_cells() * nominal
 
-        assert naive / weighted > 3.5
+        # Bounded both ways around the true ~3.9 that the `domain_area`
+        # doctest pins exactly. A bare `> 3.5` was satisfied by anything that
+        # drove `weighted` toward zero, which is the failure most worth
+        # catching here.
+        assert 3.8 < naive / weighted < 4.0
 
     def test_a_fully_masked_band_has_no_area(self):
         """Test scenario: no valid cell, no ground -- and no division by zero."""
@@ -499,10 +510,11 @@ class TestDomainArea:
         raster = _global_grid(values, no_data=-9999.0)
 
         areas = raster.cell_area()
-        # The same predicate the implementation uses. `np.isclose` carries a
-        # relative tolerance of 1e-5 -- about +/-0.1 around this sentinel --
-        # so the two definitions agreed here only because the random values
-        # happen to live in [0, 1).
+        # The same predicate the implementation uses, rather than a second
+        # idea of what counts as no-data: `is_stored_no_data` gives integer
+        # bands no tolerance at all and floating ones single precision's `eps`
+        # with no absolute term, which an `np.isclose` reference would not
+        # reproduce.
         inside = ~is_stored_no_data(np.asarray(raster.read_array()), -9999.0)
         expected = float((areas * inside).sum())
 
