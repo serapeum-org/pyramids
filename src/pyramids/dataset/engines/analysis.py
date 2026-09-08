@@ -419,6 +419,14 @@ class Analysis(_Engine["Dataset"]):
             Cell.cell_area: The per-cell areas this sums.
         """
         areas = self._ds.cell.cell_area(unit=unit)
+        if not 0 <= band < self._ds.band_count:
+            # Checked before indexing the sentinel tuple, which would otherwise
+            # answer `IndexError: tuple index out of range` -- the docstring
+            # promises `ValueError`, and `read_array` already phrases this one
+            # well for the caller.
+            raise ValueError(
+                f"band {band} is out of range for a {self._ds.band_count}-band dataset."
+            )
         no_data_value = self._ds.no_data_value[band]
 
         def _sum(acc: float, strip: np.ndarray, window: list[int]) -> float:

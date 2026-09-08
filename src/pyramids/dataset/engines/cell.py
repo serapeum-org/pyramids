@@ -16,6 +16,7 @@ from geopandas.geodataframe import GeoDataFrame
 from hpc.indexing import get_indices2, locate_values
 from pandas import DataFrame
 from pyproj import CRS
+from pyproj.exceptions import CRSError
 
 from pyramids.base.crs import crs_from_user_input, crs_spec
 from pyramids.dataset.engines._base import _Engine
@@ -50,7 +51,11 @@ def _area_scale(unit: str) -> float:
     """
     try:
         scale = _AREA_UNITS[unit]
-    except KeyError:
+    except (KeyError, TypeError):
+        # `TypeError` as well as `KeyError`: an unhashable argument -- a list,
+        # a dict -- fails the lookup before it can miss, and leaking numpy's
+        # "unhashable type" would contradict the documented `ValueError` that
+        # `None` and `2` already get.
         raise ValueError(
             f"unknown area unit {unit!r}; expected one of "
             f"{', '.join(sorted(_AREA_UNITS))}"
@@ -243,11 +248,17 @@ class Cell(_Engine["Dataset"]):
             unit: `m2` (default), `km2` or `ha`.
 
         Returns:
-            np.ndarray: Area per cell, shaped like the band. For a north-up
-            raster this is a **read-only broadcast view** over one value per
-            row -- multiplying by it works as usual, and `.copy()` gives a
-            writeable array if you need one. That keeps a global 1-degree grid
-            at 180 floats rather than 64 800.
+            np.ndarray: Area per cell, shaped like the band, and always a
+            **read-only broadcast view** -- over one value per row for a
+            geographic raster, over a single value for a projected one, rotated
+            or not. Reading and arithmetic behave as usual (`values * areas`);
+            assigning into it raises, so call `.copy()` for a writeable array.
+
+            The view is what keeps a global 1-degree grid at 180 stored floats
+            rather than 64 800, but only while it stays a view: `nbytes`
+            reports the expanded size, and pickling, `np.save` and `reshape`
+            all materialise the full array. `domain_area` sums it without
+            doing so.
 
         Raises:
             ValueError: The raster has no CRS, `unit` is not recognised, or the
@@ -304,12 +315,21 @@ class Cell(_Engine["Dataset"]):
         scale = _area_scale(unit)
         geo = self._ds.geotransform
         rotated = bool(geo[2]) or bool(geo[4])
-        crs = crs_from_user_input(self._ds.crs) if self._ds.crs else None
-        if crs is None:
+        if not self._ds.crs:
             raise ValueError(
                 "the raster declares no CRS, so its cells have no ground area; "
                 "set one with `set_crs` before asking"
             )
+        try:
+            crs = crs_from_user_input(self._ds.crs)
+        except CRSError as error:
+            # Re-raised in this method's own terms: a `CRSError` surfacing from
+            # `cell_area` reads as a bug in the area code rather than as a
+            # raster whose projection cannot be parsed.
+            raise ValueError(
+                "the raster's CRS could not be interpreted, so its cells have "
+                f"no ground area: {error}"
+            ) from error
         if crs.is_geographic:
             if rotated:
                 raise ValueError(
