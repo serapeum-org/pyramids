@@ -392,13 +392,10 @@ class Cell(_Engine["Dataset"]):
         rows telescope away exactly, which is why an ungapped-globe check
         cannot see it at any cell size.
 
-        So the area is integrated in closed form instead. The ellipsoidal area
-        element is `a^2 (1 - e^2) cos(phi) / (1 - e^2 sin^2 phi)^2`, whose
-        antiderivative in latitude is the `_zone_integral` below; the answer is
-        that difference times the longitude span -- taken in a form that never
-        evaluates the antiderivative itself, so it stays exact at any cell
-        size. See `_zone_areas`. Vectorised over rows, and it needs no
-        geodesic call at all.
+        So the area is integrated in closed form instead: `_zone_areas` gives
+        the ellipsoidal area between each pair of parallels, and the answer is
+        that times the longitude span. Vectorised over rows, exact at any cell
+        size, and it needs no geodesic call at all.
 
         Args:
             crs: The raster's CRS, already resolved.
