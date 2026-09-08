@@ -742,6 +742,83 @@ def no_data_candidates(dtype: np.dtype, candidates: Sequence[Any] = ()) -> list[
     return list(seen.values())
 
 
+def _values_present_in_range(values: Any, floor: int, span: int) -> np.typing.NDArray:
+    """A mask over `[floor, floor + span)` marking which of them `values` holds.
+
+    Args:
+        values: The data to survey.
+        floor: The lowest value the mask covers.
+        span: How many consecutive values it covers.
+
+    Returns:
+        np.ndarray: A boolean mask, `True` where the value occurs.
+    """
+    seen = np.zeros(span, dtype=bool)
+    raw = np.asarray(values).ravel()
+    # In slices, not all at once: the cast below widens every cell to 8 bytes
+    # and the comparisons add two boolean temporaries, so a whole-array pass
+    # peaked at many times the band's own size. The mask being filled is at
+    # most 64 KiB either way.
+    for start in range(0, raw.size, _SCAN_CHUNK):
+        chunk = raw[start : start + _SCAN_CHUNK]
+        if np.issubdtype(chunk.dtype, np.floating):
+            # A float array reaching an integer target: `NaN` and the
+            # infinities have no integer to cast to, and numpy warns and
+            # yields a garbage index rather than raising.
+            chunk = chunk[np.isfinite(chunk)]
+        with np.errstate(invalid="ignore", over="ignore"):
+            present = chunk.astype("int64") - floor
+        inside = present[(present >= 0) & (present < span)]
+        seen[inside] = True
+    return seen
+
+
+def _first_unused_in_range(
+    target: np.dtype, extremes: list[Any], values: Any
+) -> Any | None:
+    """The value nearest the preferred extreme that `values` does not hold.
+
+    The preferred candidates being taken is not a reason to refuse: a narrow
+    integer band still has thousands of values the data never uses. The whole
+    range is enumerated when it is small enough to hold as a mask -- a `uint16`
+    needs 64 KiB -- and a free value taken from the end the dtype prefers.
+
+    Wider integer types are left to their extremes. Their ranges cannot be
+    enumerated, and a collision on every candidate is vanishingly unlikely
+    there anyway.
+
+    Args:
+        target: The dtype the value must be storable in.
+        extremes: That dtype's bounds, most preferred first.
+        values: The data the value must not occur in.
+
+    Returns:
+        Any | None: The free value as a Python `int`, or `None` when the range
+        is too wide to enumerate or every value in it is taken.
+    """
+    preferred, opposite = extremes[0], extremes[1]
+    floor = min(preferred, opposite)
+    span = max(preferred, opposite) - floor + 1
+    chosen = None
+    if span <= 65536:
+        unused = np.flatnonzero(~_values_present_in_range(values, floor, span))
+        if unused.size:
+            # From the preferred extreme inwards, not from the bottom of the
+            # range. `extremes` is ordered deliberately -- an unsigned band
+            # offers its maximum first because `0` is the likelier real
+            # observation -- and starting at the floor threw that away,
+            # answering `1` for a `uint8` band holding `0` and `255`. `crop`
+            # declares the value it gets, so a later write of `1` into the
+            # result would silently become a gap.
+            index = unused[-1] if preferred > opposite else unused[0]
+            # A Python `int`, like every other branch returns: the candidates
+            # and the `np.iinfo` extremes are Python scalars, and a numpy one
+            # here made the same logical answer reach `Dataset.no_data_value`
+            # as two different types depending on which branch found it.
+            chosen = int(index) + floor
+    return chosen
+
+
 def free_no_data(dtype: np.dtype, candidates: Sequence[Any], values: Any) -> Any | None:
     """First sentinel that fits `dtype` and occurs nowhere in `values`.
 
@@ -801,51 +878,7 @@ def free_no_data(dtype: np.dtype, candidates: Sequence[Any], values: Any) -> Any
             chosen = candidate.item() if hasattr(candidate, "item") else candidate
             break
     if chosen is None and extremes:
-        # The preferred candidates are all taken, but a narrow integer band
-        # still has thousands of values the data never uses -- refusing after
-        # trying two or three of them would be giving up early. Enumerate the
-        # whole range when it is small enough to hold as a mask (a `uint16`
-        # needs 64 KiB) and take a value the band does not contain. Wider
-        # integer types are left to the extremes: their range cannot be
-        # enumerated, and a collision on every candidate is vanishingly
-        # unlikely there anyway.
-        preferred, opposite = extremes[0], extremes[1]
-        floor = min(preferred, opposite)
-        span = max(preferred, opposite) - floor + 1
-        if span <= 65536:
-            seen = np.zeros(span, dtype=bool)
-            raw = np.asarray(values).ravel()
-            # In slices, not all at once: the cast below widens every cell to
-            # 8 bytes and the comparisons add two boolean temporaries, so a
-            # whole-array pass peaked at many times the band's own size. The
-            # mask being filled is at most 64 KiB either way.
-            for start in range(0, raw.size, _SCAN_CHUNK):
-                chunk = raw[start : start + _SCAN_CHUNK]
-                if np.issubdtype(chunk.dtype, np.floating):
-                    # A float array reaching an integer target: `NaN` and the
-                    # infinities have no integer to cast to, and numpy warns
-                    # and yields a garbage index rather than raising.
-                    chunk = chunk[np.isfinite(chunk)]
-                with np.errstate(invalid="ignore", over="ignore"):
-                    present = chunk.astype("int64") - floor
-                inside = present[(present >= 0) & (present < span)]
-                seen[inside] = True
-            unused = np.flatnonzero(~seen)
-            if unused.size:
-                # From the preferred extreme inwards, not from the bottom of
-                # the range. `extremes` is ordered deliberately -- an unsigned
-                # band offers its maximum first because `0` is the likelier
-                # real observation -- and starting the scan at the floor threw
-                # that away, answering `1` for a `uint8` band holding `0` and
-                # `255`. `crop` declares the value it gets, so a later write of
-                # `1` into the result would silently become a gap.
-                index = unused[-1] if preferred > opposite else unused[0]
-                # A Python `int`, like every other branch returns: the
-                # candidates and the `np.iinfo` extremes are Python scalars,
-                # and a numpy one here made the same logical answer reach
-                # `Dataset.no_data_value` as two different types depending on
-                # which branch found it.
-                chosen = int(index) + floor
+        chosen = _first_unused_in_range(target, extremes, values)
     return chosen
 
 
