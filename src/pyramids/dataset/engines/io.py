@@ -477,6 +477,23 @@ def _stack_bands(
 
 
 class IO(_Engine["Dataset"]):
+    """Mixin providing array, file, streaming and overview IO for Dataset.
+
+    Owns the reads (`read_array`, `read_windows`, `get_tile`,
+    `get_block_arrangement`), the writes (`write_array`, `to_file`, `to_bytes`,
+    `to_raster`, `to_xyz`, `to_terrain_rgb`), the block-wise passes
+    (`stream_transform`, `stream_reduce`, `map_blocks`) and the overview family
+    (`overview_count`, `create_overviews`, `recreate_overviews`, `get_overview`,
+    `get_overview_dataset`, `read_overview_array`). `Dataset` exposes a
+    same-named facade for each, so `ds.read_array(...)` and
+    `ds.io.read_array(...)` are equivalent.
+
+    `read_array` returns the band's stored values and does not consult a GDAL
+    mask or alpha band, so a caller comparing it against something GDAL
+    computed -- band statistics, a warp -- is comparing two different views of
+    the raster.
+    """
+
     @under_gdal_env
     def read_array(
         self,
