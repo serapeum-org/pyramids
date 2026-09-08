@@ -18,7 +18,7 @@ import pandas as pd
 from pyproj import CRS
 
 from pyramids import _io
-from pyramids.base._domain import free_no_data, is_stored_no_data
+from pyramids.base._domain import INHERIT_NO_DATA, free_no_data, is_stored_no_data
 from pyramids.base._errors import (
     AlignmentError,
     DriverNotExistError,
@@ -49,7 +49,7 @@ from pyramids.dataset._reduce_ops import resolve_dask_op
 from pyramids.dataset._stac import from_point as _from_point
 from pyramids.dataset._stac import from_stac as _from_stac
 from pyramids.dataset.abstract_dataset import CATALOG
-from pyramids.dataset.dataset import _INHERIT_NO_DATA, Dataset
+from pyramids.dataset.dataset import Dataset
 from pyramids.dataset.grid import Grid
 from pyramids.dataset.merge import merge_rasters
 from pyramids.dataset.ops._geobox_zarr import (
@@ -3773,7 +3773,7 @@ class DatasetCollection:
     def merge(
         self,
         dst: str | Path,
-        no_data_value: Any = _INHERIT_NO_DATA,
+        no_data_value: Any = INHERIT_NO_DATA,
         init: float | int | str = "nan",
         n: float | int | str = "nan",
         method: str = "last",

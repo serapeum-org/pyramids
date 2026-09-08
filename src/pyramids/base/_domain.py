@@ -53,6 +53,30 @@ DEFAULT_NO_DATA_VALUE = -9999
 
 DEFAULT_RTOL: float = 0.001
 
+
+class _Inherit:
+    """The type of :data:`INHERIT_NO_DATA`, so it names itself where it is rendered.
+
+    A bare `object()` reprs as its address, and this sentinel is a *default*: it
+    reaches generated API docs as `no_data_value=<object object at 0x...>`, a
+    line that says nothing and changes every build.
+    """
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        """Return the word the signature should read as."""
+        return "inherit"
+
+
+# Sentinel for "the caller passed nothing, so take the value from the sources",
+# which every entry point offering the choice must tell apart from an explicit
+# `None` ("stamp no marker at all"). It lives beside `inherit_no_data`, the
+# function that answers it: while it lived in `dataset.py` the one caller
+# `dataset.py` imports -- `engines.io.stream_transform` -- could not import it
+# back without a cycle, and kept a second sentinel of its own.
+INHERIT_NO_DATA = _Inherit()
+
 # Cells per slice when scanning a band for an unused value. Bounds the scan's
 # transient peak to roughly 25 MB whatever the raster's size -- the `int64`
 # cast is 8 MB of it, the offset another, and the range test and its gather the
@@ -974,6 +998,7 @@ __all__ = [
     "DEFAULT_RTOL",
     "fits_dtype",
     "free_no_data",
+    "INHERIT_NO_DATA",
     "inherit_no_data",
     "inside_domain",
     "is_nan_sentinel",

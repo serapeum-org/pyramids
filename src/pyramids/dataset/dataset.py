@@ -23,7 +23,7 @@ from osgeo import gdal
 
 from pyramids import _io
 from pyramids.base._axes import AXIS_NAMES, X_AXIS_NAMES, Y_AXIS_NAMES
-from pyramids.base._domain import inherit_no_data
+from pyramids.base._domain import INHERIT_NO_DATA, inherit_no_data
 from pyramids.base._errors import AlignmentError, ContainerRasterWarning, CRSError
 from pyramids.base._utils import (
     # Re-exported, not used here. The dtype catalogue was defined in this module's
@@ -260,11 +260,6 @@ def register_dataset_accessor(name: str) -> Callable[[type], type]:
 
     return decorator
 
-
-# Sentinel for `Dataset.from_band_files(no_data_value=...)` so the helper can
-# tell "caller didn't pass one — inherit from the source rasters" apart from
-# "caller explicitly passed `None`" (which means "stamp no no-data sentinel").
-_INHERIT_NO_DATA = object()
 
 # Default CRS for the ``bbox`` of the web-service readers (from_wcs / from_wms /
 # from_wmts): lon/lat WGS 84.
@@ -4506,7 +4501,7 @@ class Dataset(RasterBase):
         *,
         dtype: str | None = None,
         bands: int | None = None,
-        no_data_value: Any = _INHERIT_NO_DATA,
+        no_data_value: Any = INHERIT_NO_DATA,
         path: str | Path | None = None,
         options: list[str] | None = None,
     ) -> Dataset:
@@ -4615,7 +4610,7 @@ class Dataset(RasterBase):
             template.gdal_dtype[0] if dtype is None else numpy_to_gdal_dtype(dtype)
         )
         n_bands = template.band_count if bands is None else bands
-        if no_data_value is not _INHERIT_NO_DATA:
+        if no_data_value is not INHERIT_NO_DATA:
             nodata = no_data_value
         else:
             template_nd = template.no_data_value
@@ -5076,7 +5071,7 @@ class Dataset(RasterBase):
         *,
         band_names: list[str] | None = None,
         align: bool = False,
-        no_data_value: Any = _INHERIT_NO_DATA,
+        no_data_value: Any = INHERIT_NO_DATA,
         path: str | Path | None = None,
     ) -> Dataset:
         """Stack N single-band rasters into one multi-band :class:`Dataset`.
@@ -5233,7 +5228,7 @@ class Dataset(RasterBase):
         else:
             out_names = _derive_band_names(resolved_paths)
 
-        if no_data_value is _INHERIT_NO_DATA:
+        if no_data_value is INHERIT_NO_DATA:
             resolved_nd: Any | None = inherit_no_data(
                 [ds.no_data_value[0] for ds in datasets]
             )
@@ -5360,7 +5355,7 @@ class Dataset(RasterBase):
         member_glob: str = "*",
         band_names: list[str] | None = None,
         align: bool = False,
-        no_data_value: Any = _INHERIT_NO_DATA,
+        no_data_value: Any = INHERIT_NO_DATA,
         path: str | Path | None = None,
     ) -> Dataset:
         """Open every raster in an archive and merge them into one multi-band Dataset.

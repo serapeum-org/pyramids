@@ -22,6 +22,7 @@ from pyproj.exceptions import ProjError
 
 from pyramids.base._coverage import open_network_dataset, run_gdal_op
 from pyramids.base._domain import (
+    INHERIT_NO_DATA,
     fits_dtype,
     free_no_data,
     inherit_no_data,
@@ -34,7 +35,7 @@ from pyramids.base._utils import (
 )
 from pyramids.base.remote import redact_credentials, signer_cloud_config
 from pyramids.dataset._driver import resolve_output_driver
-from pyramids.dataset.dataset import _INHERIT_NO_DATA, Dataset
+from pyramids.dataset.dataset import Dataset
 from pyramids.dataset.transform import GeoTransform
 from pyramids.feature.bbox import normalise_longitude
 from pyramids.feature.bbox import transform as bbox_transform
@@ -552,7 +553,7 @@ def _declare_uncovered(
 def merge_rasters(
     src: Sequence[str | Path],
     dst: str | Path,
-    no_data_value: Any = _INHERIT_NO_DATA,
+    no_data_value: Any = INHERIT_NO_DATA,
     init: float | int | str = "nan",
     n: float | int | str = "nan",
     method: str = "last",
@@ -830,7 +831,7 @@ def merge_rasters(
         # shared CRS — so mismatched sources must be warped first or they would
         # mis-align silently. `_keepalive` holds the in-memory warped VRTs so
         # GDAL does not free them while the mosaic is built.
-        inheriting = no_data_value is _INHERIT_NO_DATA
+        inheriting = no_data_value is INHERIT_NO_DATA
         sources, _keepalive = _prepare_sources(src_paths, dst_crs, resampling)
         if inheriting:
             # Read it off the handles _prepare_sources already opened rather
@@ -1393,7 +1394,7 @@ def stack_bands(
     *,
     band_names: list[str] | None = None,
     align: bool = False,
-    no_data_value: Any = _INHERIT_NO_DATA,
+    no_data_value: Any = INHERIT_NO_DATA,
     path: str | Path | None = None,
     signer: Any = None,
 ) -> Dataset:
