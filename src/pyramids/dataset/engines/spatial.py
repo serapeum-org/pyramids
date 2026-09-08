@@ -356,6 +356,21 @@ def _survives_a_c_double(value: Any) -> bool:
 
 
 class Spatial(_Engine["Dataset"]):
+    """Mixin providing CRS, resampling, alignment and cropping operations for Dataset.
+
+    Owns `set_crs`, `to_crs`, `warped_view`, `wrap_longitude`, `resample`,
+    `fill_gaps`, `same_grid`, `align` and `crop`. `Dataset` exposes a same-named
+    facade for each, so `ds.crop(...)` and `ds.spatial.crop(...)` are
+    equivalent.
+
+    `crop` is the **single owner of the crop fill policy**: a rectangular array
+    has no way to hold an absent cell, so the cells a mask excludes need a
+    number, and it is not always the source's declared sentinel. See
+    :meth:`_crop_fill_values` for how one is derived when the band declares
+    nothing storable, and :meth:`_derived_crop_fills` for why the cutline route
+    answers that question differently from the raster-mask one.
+    """
+
     def _get_crs(self) -> str:
         """Get coordinate reference system."""
         return str(self._ds.raster.GetProjection())
