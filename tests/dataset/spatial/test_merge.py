@@ -328,7 +328,9 @@ class TestMergeMethod:
 
         pa, pb = overlapping_pair
         monkeypatch.setattr(merge_mod.gdal, "BuildVRT", lambda *a, **k: None)
-        with pytest.raises(RuntimeError, match="gdal.BuildVRT returned None"):
+        with pytest.raises(
+            RuntimeError, match="building the source mosaic returned no raster"
+        ):
             merge_rasters([pa, pb], tmp_path / "x.tif", method="last")
 
     def test_failed_vrt_reduce_raises(self, overlapping_pair, tmp_path, monkeypatch):
@@ -342,7 +344,9 @@ class TestMergeMethod:
 
         pa, pb = overlapping_pair
         monkeypatch.setattr(merge_mod.gdal, "BuildVRT", lambda *a, **k: None)
-        with pytest.raises(RuntimeError, match="gdal.BuildVRT returned None"):
+        with pytest.raises(
+            RuntimeError, match="building the union mosaic returned no raster"
+        ):
             merge_rasters([pa, pb], tmp_path / "x.tif", method="sum")
 
 
@@ -662,7 +666,9 @@ class TestMergeRastersDstCrs:
 
         pa, pb = shared_crs_pair
         monkeypatch.setattr(merge_mod.gdal, "Warp", lambda *a, **k: None)
-        with pytest.raises(RuntimeError, match="gdal.Warp returned None"):
+        with pytest.raises(
+            RuntimeError, match="reprojecting to the target CRS returned no raster"
+        ):
             merge_rasters([pa, pb], tmp_path / "x.tif", dst_crs=3857)
 
     def test_raising_warp_names_the_source(
@@ -685,7 +691,9 @@ class TestMergeRastersDstCrs:
         with pytest.raises(RuntimeError) as excinfo:
             merge_rasters([pa, pb], tmp_path / "x.tif", dst_crs=3857)
         message = str(excinfo.value)
-        assert "could not reproject source" in message, f"unexpected message: {message}"
+        assert "reprojecting to the target CRS failed for source" in message, (
+            f"unexpected message: {message}"
+        )
         assert "failed to transform" in message, f"GDAL message not kept: {message}"
 
     def test_open_failure_raises(self, shared_crs_pair, tmp_path, monkeypatch):
@@ -1364,7 +1372,7 @@ class TestMergeNoneGuards:
         pa, pb = overlapping_pair
         monkeypatch.setattr(gdal, "Translate", lambda *a, **k: None)
         out = str(tmp_path / "o.tif")
-        with pytest.raises(RuntimeError, match="Translate returned None"):
+        with pytest.raises(RuntimeError, match="writing the mosaic returned no raster"):
             merge_rasters([pa, pb], out, no_data_value=-1.0, method="last")
 
     def test_reduce_warp_none_raises(self, overlapping_pair, tmp_path, monkeypatch):
@@ -1372,7 +1380,9 @@ class TestMergeNoneGuards:
         pa, pb = overlapping_pair
         monkeypatch.setattr(gdal, "Warp", lambda *a, **k: None)
         out = str(tmp_path / "o.tif")
-        with pytest.raises(RuntimeError, match="Warp returned None"):
+        with pytest.raises(
+            RuntimeError, match="warping onto the union grid returned no raster"
+        ):
             _merge_reduce([pa, pb], out, "min", -1.0, "nan")
 
 

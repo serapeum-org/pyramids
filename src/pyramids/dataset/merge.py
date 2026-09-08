@@ -17,7 +17,7 @@ import numpy as np
 from osgeo import gdal, osr
 from pyproj.exceptions import ProjError
 
-from pyramids.base._coverage import open_network_dataset
+from pyramids.base._coverage import open_network_dataset, run_gdal_op
 from pyramids.base._utils import DEFAULT_RESAMPLING, resolve_resampling
 from pyramids.base.remote import redact_credentials, signer_cloud_config
 from pyramids.dataset._driver import resolve_output_driver
@@ -45,6 +45,11 @@ _GRID_SNAP_TOLERANCE = 1e-6
 # +inf loses every fmin, -inf loses every fmax, 0 is the additive identity. Cells that
 # never receive a sample keep this value and are replaced by the fill at the end.
 _REDUCE_IDENTITY = {"min": np.inf, "max": -np.inf, "sum": 0.0}
+
+
+_READABLE_RASTERS_HINT = (
+    "check that all paths are readable rasters with consistent band counts and CRS"
+)
 
 
 def _validated_bbox(bbox: Sequence[float]) -> tuple[float, float, float, float]:
@@ -639,13 +644,13 @@ def merge_rasters(
             srcNodata=str(n),
             VRTNodata=str(init),
         )
-        vrt_ds = gdal.BuildVRT("", ordered, options=vrt_opts)
-        if vrt_ds is None:
-            raise RuntimeError(
-                f"gdal.BuildVRT returned None for sources {src_paths!r}; "
-                "check that all paths are readable rasters with consistent "
-                "band counts and CRS."
-            )
+        vrt_ds = run_gdal_op(
+            lambda: gdal.BuildVRT("", ordered, options=vrt_opts),
+            error=RuntimeError,
+            action="building the source mosaic",
+            subject=f"sources {src_paths!r}",
+            hint=_READABLE_RASTERS_HINT,
+        )
         proj_win = None
         if bbox is not None:
             # Resolve the window here, in the mosaic's own CRS, and hand Translate a
@@ -697,11 +702,12 @@ def merge_rasters(
             noData=str(no_data_value),
             projWin=proj_win,
         )
-        out_ds = gdal.Translate(str(dst), vrt_ds, options=translate_opts)
-        if out_ds is None:
-            raise RuntimeError(
-                f"gdal.Translate returned None writing the mosaic to {str(dst)!r}."
-            )
+        out_ds = run_gdal_op(
+            lambda: gdal.Translate(str(dst), vrt_ds, options=translate_opts),
+            error=RuntimeError,
+            action="writing the mosaic",
+            subject=f"{str(dst)!r}",
+        )
         out_ds.FlushCache()
         out_ds = None
         vrt_ds = None
@@ -830,30 +836,18 @@ def _prepare_sources(
         if srs.IsSame(target_srs):
             sources.append(dataset)
             continue
-        # Same two failure shapes as the open above: gdal.UseExceptions() makes
-        # Warp raise, so name the source there too rather than letting the
-        # reproject half of this function fail anonymously (#1107).
-        try:
-            warped = gdal.Warp(
+        warped = run_gdal_op(
+            lambda: gdal.Warp(
                 "",
                 dataset,
                 options=gdal.WarpOptions(
                     format="VRT", dstSRS=target_wkt, resampleAlg=resample_alg
                 ),
-            )
-        except RuntimeError as exc:
-            raise RuntimeError(
-                redact_credentials(
-                    f"could not reproject source {path!r} to the target CRS: {exc}"
-                )
-            ) from exc
-        if warped is None:
-            raise RuntimeError(
-                redact_credentials(
-                    f"gdal.Warp returned None reprojecting source {path!r} to the "
-                    "target CRS."
-                )
-            )
+            ),
+            error=RuntimeError,
+            action="reprojecting to the target CRS",
+            subject=f"source {path!r}",
+        )
         sources.append(warped)
     return sources, sources
 
@@ -917,11 +911,12 @@ def _warp_onto_strip(
         srcNodata=src_nodata,
         dstNodata=float("nan"),
     )
-    warped = gdal.Warp("", path, options=warp_opts)
-    if warped is None:
-        raise RuntimeError(
-            f"gdal.Warp returned None warping source {path!r} onto the union grid."
-        )
+    warped = run_gdal_op(
+        lambda: gdal.Warp("", path, options=warp_opts),
+        error=RuntimeError,
+        action="warping onto the union grid",
+        subject=f"source {path!r}",
+    )
     # np.asarray pins the type: GDAL's ReadAsArray is untyped, so without it the
     # float64 cube is inferred as Any and leaks out of the annotated return.
     array = np.asarray(warped.ReadAsArray()).astype("float64")
@@ -1043,13 +1038,13 @@ def _merge_reduce(
     Raises:
         RuntimeError: GDAL failed to build the union mosaic or to warp a source.
     """
-    template = gdal.BuildVRT("", src_paths)
-    if template is None:
-        raise RuntimeError(
-            f"gdal.BuildVRT returned None for sources {src_paths!r}; "
-            "check that all paths are readable rasters with consistent "
-            "band counts and CRS."
-        )
+    template = run_gdal_op(
+        lambda: gdal.BuildVRT("", src_paths),
+        error=RuntimeError,
+        action="building the union mosaic",
+        subject=f"sources {src_paths!r}",
+        hint=_READABLE_RASTERS_HINT,
+    )
     geotransform = template.GetGeoTransform()
     projection = template.GetProjection()
     x_size, y_size = template.RasterXSize, template.RasterYSize
@@ -1076,14 +1071,15 @@ def _merge_reduce(
     # GTiff-specific and is applied only there.
     out_driver = resolve_output_driver(dst)
     out_options = ["COMPRESS=LZW"] if out_driver == "GTiff" else []
-    out_ds = gdal.GetDriverByName(out_driver).Create(
-        dst, x_size, y_size, band_count, gdal.GDT_Float64, options=out_options
+    out_ds = run_gdal_op(
+        lambda: gdal.GetDriverByName(out_driver).Create(
+            dst, x_size, y_size, band_count, gdal.GDT_Float64, options=out_options
+        ),
+        error=RuntimeError,
+        action="writing the reduced mosaic",
+        subject=f"{dst!r}",
+        hint="check the output path is writable",
     )
-    if out_ds is None:
-        raise RuntimeError(
-            f"gdal.Create returned None writing the reduced mosaic to {dst!r}; "
-            f"check the output path is writable ({gdal.GetLastErrorMsg()!r})."
-        )
     out_ds.SetGeoTransform(geotransform)
     out_ds.SetProjection(projection)
     for band_index in range(band_count):

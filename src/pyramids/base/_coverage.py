@@ -22,7 +22,7 @@ that name the request, so the messages stay branded per protocol.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from math import isfinite
 from typing import Any, cast
 
@@ -361,6 +361,94 @@ def open_network_dataset(
     if src is None:
         raise error(redact_credentials(f"GDAL returned no dataset for {subject}"))
     return src
+
+
+def run_gdal_op(
+    operation: Callable[[], gdal.Dataset | None],
+    *,
+    error: type[Exception],
+    action: str,
+    subject: str,
+    hint: str | None = None,
+) -> gdal.Dataset:
+    """Run a GDAL dataset-producing call, re-branding both failure shapes as `error`.
+
+    The generalisation of :func:`open_network_dataset` beyond ``gdal.Open``: every
+    GDAL entry point that hands back a dataset -- ``BuildVRT``, ``Warp``,
+    ``Translate``, a driver's ``Create`` -- fails the same two ways. Under
+    ``gdal.UseExceptions()`` it raises ``RuntimeError``; with exceptions off it
+    returns ``None``. A bare call guarded only by ``if x is None`` therefore carries
+    diagnostic text that can never be printed, and the raising path escapes with
+    GDAL's own message, which for a remote source names nothing.
+
+    Args:
+        operation: A zero-argument callable performing the GDAL call.
+        error: The exception class to raise.
+        action: What was being attempted, e.g. ``"building the source mosaic"``.
+        subject: What it was attempted on, already quoted by the caller.
+        hint: Optional trailing advice appended after a semicolon.
+
+    Returns:
+        osgeo.gdal.Dataset: The dataset the call produced.
+
+    Raises:
+        Exception: An instance of `error` -- GDAL raised, or returned no dataset.
+
+    Examples:
+        - GDAL raising is re-branded, naming the action and subject and keeping
+          GDAL's own text:
+            ```python
+            >>> from pyramids.base._coverage import run_gdal_op
+            >>> class DemoError(Exception):
+            ...     pass
+            >>> def boom():
+            ...     raise RuntimeError("HTTP response code: 403")
+            >>> try:
+            ...     run_gdal_op(
+            ...         boom,
+            ...         error=DemoError,
+            ...         action="building the mosaic",
+            ...         subject="sources ['tile.tif']",
+            ...     )
+            ... except DemoError as exc:
+            ...     print(exc)
+            building the mosaic failed for sources ['tile.tif']: HTTP response code: 403
+
+            ```
+        - A `None` return (what GDAL does with exceptions off, and what
+          ``BuildVRT`` does for a source it skips) is branded the same way, with
+          the optional hint appended:
+            ```python
+            >>> from pyramids.base._coverage import run_gdal_op
+            >>> class DemoError(Exception):
+            ...     pass
+            >>> try:
+            ...     run_gdal_op(
+            ...         lambda: None,
+            ...         error=DemoError,
+            ...         action="building the mosaic",
+            ...         subject="sources ['tile.tif']",
+            ...         hint="check the paths are readable rasters",
+            ...     )
+            ... except DemoError as exc:
+            ...     print(exc)
+            building the mosaic returned no raster for sources ['tile.tif']; check the paths are readable rasters
+
+            ```
+    """
+    try:
+        result = operation()
+    except RuntimeError as exc:
+        message = f"{action} failed for {subject}: {exc}"
+        raise error(
+            redact_credentials(message if hint is None else f"{message}; {hint}")
+        ) from exc
+    if result is None:
+        message = f"{action} returned no raster for {subject}"
+        raise error(
+            redact_credentials(message if hint is None else f"{message}; {hint}")
+        )
+    return result
 
 
 def translate_to_mem(
