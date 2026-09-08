@@ -259,6 +259,16 @@ def seam_halves(
     180 degree meridian, which is where the seam is for the geographic CRS an
     OGC request declares.
 
+    Note:
+        This is, and must stay, a pass-through to
+        :func:`pyramids.base._bbox.split_antimeridian`. The two names are
+        deliberate -- `split_antimeridian` is the geometry primitive, re-exported
+        from `pyramids.feature.bbox` and used by the crop engine, while this is the
+        network readers' entry to the seam contract that lives beside
+        :func:`check_seam_bbox` and :func:`window_overlaps`. Keeping a second name
+        is only safe while it holds no logic of its own: any rule about *how* a
+        bbox splits belongs in the primitive, so the two cannot drift apart.
+
     Args:
         bbox: A validated ``(minx, miny, maxx, maxy)``, possibly wrapping.
 
