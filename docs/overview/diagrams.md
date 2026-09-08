@@ -495,12 +495,12 @@ classDiagram
         +rats · stats helpers
     }
     class engines_Analysis {
-        +stats · count_domain_cells
+        +stats · count_domain_cells · domain_area
         +overlay · histogram
         +plot
     }
     class engines_Cell {
-        +get_cell_coords · get_cell_polygons · get_cell_points
+        +get_cell_coords · get_cell_polygons · get_cell_points · cell_area
         +map_to_array_coordinates · array_to_map_coordinates
     }
     class engines_Vectorize {
