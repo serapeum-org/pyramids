@@ -17,6 +17,7 @@ from geopandas.geodataframe import GeoDataFrame
 from osgeo import gdal, osr
 from pyproj import Transformer
 
+from pyramids.base._bbox import split_antimeridian
 from pyramids.base._domain import is_no_data
 from pyramids.base._utils import DEFAULT_RESAMPLING, resolve_resampling
 from pyramids.base.crs import (
@@ -33,7 +34,6 @@ from pyramids.base.crs import (
 from pyramids.dataset.abstract_dataset import RasterBase
 from pyramids.feature import FeatureCollection
 from pyramids.feature import _ogr as _feature_ogr
-from pyramids.feature.bbox import split_antimeridian
 
 if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
