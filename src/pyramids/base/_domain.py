@@ -484,7 +484,7 @@ def fits_dtype(value: Any, dtype: np.dtype) -> bool:
 
     Args:
         value: The candidate sentinel. Callers decide what a missing sentinel
-            means before asking; a `None` reaching here does not fit.
+            means before asking; neither a `None` nor a bool fits.
         dtype: The numpy dtype of the band the sentinel would be stored in.
 
     Returns:
@@ -507,6 +507,14 @@ def fits_dtype(value: Any, dtype: np.dtype) -> bool:
             (True, False)
 
             ```
+        - A bool never fits, though it would cast cleanly to `0` or `1`:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base._domain import fits_dtype
+            >>> fits_dtype(True, np.dtype("uint8"))
+            False
+
+            ```
     """
     target = np.dtype(dtype)
     # `.item()` first: NEP 50 compares a *Python* scalar in the target dtype
@@ -516,7 +524,12 @@ def fits_dtype(value: Any, dtype: np.dtype) -> bool:
     # sentinel between rasters was on the losing side.
     if hasattr(value, "item") and np.ndim(value) == 0:
         value = value.item()
-    if value is None:
+    if value is None or isinstance(value, (bool, np.bool_)):
+        # A bool fits every numeric dtype as `0` or `1`, so accepting one
+        # would let `True` become a `1` sentinel and put every genuine 1 in
+        # the band out of domain. `Analysis._requested_no_data` rejects it
+        # with its own message before asking; the crop path asks directly,
+        # and would have stamped it.
         fits = False
     elif is_nan_sentinel(value):
         # `is_nan_sentinel`, not `isinstance(value, float) and isnan(value)`:
