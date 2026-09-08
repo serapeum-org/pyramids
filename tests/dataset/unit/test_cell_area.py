@@ -20,7 +20,6 @@ import numpy as np
 import pytest
 from osgeo import gdal
 from pyproj import CRS
-
 from pyproj.exceptions import CRSError
 
 from pyramids.base._domain import is_stored_no_data
