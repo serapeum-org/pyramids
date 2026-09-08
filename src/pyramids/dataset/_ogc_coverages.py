@@ -257,6 +257,12 @@ def _window_sizes(
     return [(west_width, height), (total - west_width, height)]
 
 
+# The CRS an OGC API - Coverages bbox is contractually expressed in. Named rather
+# than repeated so the three places that assume it are visibly the same
+# assumption, not three independent guesses.
+CRS84 = "EPSG:4326"
+
+
 def _span(projwin: list[float]) -> float:
     """The absolute x extent of a ``[ulx, uly, lrx, lry]`` window.
 
@@ -396,7 +402,7 @@ def _fetch_windows(
                     f"OGC API coverage {coverage!r} has no resolvable spatial reference; "
                     "the service advertised no usable CRS for the coverage"
                 ) from exc
-            projwins = [_native_projwin(w, "EPSG:4326", native_srs) for w in windows]
+            projwins = [_native_projwin(w, CRS84, native_srs) for w in windows]
             if len(projwins) > 1:
                 # Overlap-filtered before fetching, as _crop_seam_halves does,
                 # but only for a split request. A lone window is left to GDAL,
@@ -481,7 +487,7 @@ def from_ogc_coverages(
     # This reader's bbox is contractually CRS84, so the projected half of the
     # guard cannot fire -- the corner-range half can, and an overhanging half
     # would otherwise be dropped without a word.
-    _check_seam_bbox(box, "EPSG:4326")
+    _check_seam_bbox(box, CRS84)
     res = _resolution_pair(resolution)
     # One window normally, two when the bbox wraps the seam. Splitting
     # unconditionally keeps the ordinary request on exactly the path it had.
@@ -527,7 +533,7 @@ def from_ogc_coverages(
                 parts[0],
                 parts[0],
                 parts[1],
-                _seam_offset(box, "EPSG:4326", native_srs),
+                _seam_offset(box, CRS84, native_srs),
             )
     finally:
         for part in parts:

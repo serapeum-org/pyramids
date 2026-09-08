@@ -578,6 +578,88 @@ def _open_getcoverage_bytes(payload: bytes, coverage: str) -> gdal.Dataset:
     return mem
 
 
+def _collect_direct_parts(
+    dataset_cls: type[Dataset],
+    endpoint: str,
+    coverage: str,
+    windows: list[tuple[float, float, float, float]],
+    crs: str,
+    version: str | None,
+    wcs_format: str | None,
+    resolution: float | tuple[float, float] | None,
+    res: tuple[float, float] | None,
+    subset_axes: tuple[str, str] | None,
+    coverage_crs: str | None,
+    auth: tuple[str, str] | None,
+    timeout: float,
+    extra_params: dict[str, str] | None,
+) -> tuple[list[Dataset], str | None, tuple[float, float] | None]:
+    """Fetch every window through direct mode and report how to finalize them.
+
+    Split out of :func:`from_wcs` because the two request modes share only their
+    bookkeeping: direct mode issues one independent ``GetCoverage`` per window and
+    has no descriptor, while discovery mode reads every window off one open
+    coverage. Keeping both inline made the caller's branching hard to follow.
+
+    Args:
+        dataset_cls: The class each part is wrapped as.
+        endpoint: The WCS service URL.
+        coverage: The coverage identifier.
+        windows: The one or two ``west < east`` boxes to request.
+        crs: The CRS `windows` are expressed in.
+        version: The WCS protocol version, or `None` for the default.
+        wcs_format: The requested response format, or `None`.
+        resolution: The caller's raw resolution, forwarded to the request.
+        res: The same resolution normalised to a pair, used for seam snapping.
+        subset_axes: WCS 2.0 axis labels, or `None` for the default.
+        coverage_crs: The CRS shim, or `None`.
+        auth: Optional basic-auth credentials.
+        timeout: HTTP timeout in seconds.
+        extra_params: Optional extra KVP overrides.
+
+    Returns:
+        tuple[list[Dataset], str | None, tuple[float, float] | None]: The fetched
+            parts, the native CRS as WKT, and the resolution `_finalize` should
+            resample to (`None` when the server has already gridded to it).
+
+    Raises:
+        WCSError: A request failed or returned a non-raster body.
+    """
+    if len(windows) > 1 and res is not None:
+        # Direct mode issues two independent GetCoverage requests and the server
+        # grids each from its own extent, so the west half's east edge lands on 180
+        # only by luck. Snapping both to the requested resolution puts them on one
+        # lattice. Without a resolution there is nothing to snap to and the
+        # alignment check is what catches a server that grids the halves
+        # differently -- loudly, which is the right outcome, but see
+        # `Dataset.from_wcs` on the caveat.
+        windows = _snap_direct_halves(windows, res)
+    parts: list[Dataset] = []
+    native_wkt: str | None = None
+    for window in windows:
+        part, native_wkt = _from_wcs_direct(
+            dataset_cls,
+            endpoint,
+            coverage,
+            window,
+            crs,
+            version,
+            wcs_format,
+            resolution,
+            subset_axes,
+            coverage_crs,
+            auth,
+            timeout,
+            extra_params,
+        )
+        parts.append(part)
+    # 1.0.0 direct sends RESX/RESY, so the server already grids to `res`; skip the
+    # redundant client-side resample. 2.0.x has no request-side resolution, so it
+    # resamples client-side in _finalize.
+    finalize_res = None if (version or "2.0.0").startswith("1.0") else res
+    return parts, native_wkt, finalize_res
+
+
 def _snap_direct_halves(
     windows: list[tuple[float, float, float, float]],
     res: tuple[float, float],
@@ -878,36 +960,23 @@ def from_wcs(
     native_wkt: str | None = None
     try:
         if direct:
-            if len(windows) > 1 and res is not None:
-                # Direct mode issues two independent GetCoverage requests and the
-                # server grids each from its own extent, so the west half's east
-                # edge lands on 180 only by luck. Snapping both to the requested
-                # resolution puts them on one lattice. Without a resolution there
-                # is nothing to snap to and the alignment check is what catches a
-                # server that grids the halves differently -- loudly, which is the
-                # right outcome, but see `Dataset.from_wcs` on the caveat.
-                windows = _snap_direct_halves(windows, res)
-            for window in windows:
-                part, native_wkt = _from_wcs_direct(
-                    dataset_cls,
-                    endpoint,
-                    coverage,
-                    window,
-                    crs,
-                    version,
-                    wcs_format,
-                    resolution,
-                    subset_axes,
-                    coverage_crs,
-                    auth,
-                    timeout,
-                    extra_params,
-                )
-                parts.append(part)
-            # 1.0.0 direct sends RESX/RESY, so the server already grids to `res`;
-            # skip the redundant client-side resample. 2.0.x has no request-side
-            # resolution, so it resamples client-side in _finalize.
-            finalize_res = None if (version or "2.0.0").startswith("1.0") else res
+            direct_parts, native_wkt, finalize_res = _collect_direct_parts(
+                dataset_cls,
+                endpoint,
+                coverage,
+                windows,
+                crs,
+                version,
+                wcs_format,
+                resolution,
+                res,
+                subset_axes,
+                coverage_crs,
+                auth,
+                timeout,
+                extra_params,
+            )
+            parts.extend(direct_parts)
             # Direct mode has no descriptor to measure against, so 360 is an
             # assumption -- a reasonable one, because the request names `crs` and
             # `check_seam_bbox` has proven that geographic, but the server is what
