@@ -49,7 +49,7 @@ from pyramids.dataset._reduce_ops import resolve_dask_op
 from pyramids.dataset._stac import from_point as _from_point
 from pyramids.dataset._stac import from_stac as _from_stac
 from pyramids.dataset.abstract_dataset import CATALOG
-from pyramids.dataset.dataset import Dataset
+from pyramids.dataset.dataset import _INHERIT_NO_DATA, Dataset
 from pyramids.dataset.grid import Grid
 from pyramids.dataset.merge import merge_rasters
 from pyramids.dataset.ops._geobox_zarr import (
@@ -3773,7 +3773,7 @@ class DatasetCollection:
     def merge(
         self,
         dst: str | Path,
-        no_data_value: float | int | str = "0",
+        no_data_value: Any = _INHERIT_NO_DATA,
         init: float | int | str = "nan",
         n: float | int | str = "nan",
         method: str = "last",
@@ -3795,7 +3795,11 @@ class DatasetCollection:
             dst (str | Path):
                 Path to the output raster.
             no_data_value (float | int | str):
-                Assign a specified nodata value to output bands.
+                Assign a specified nodata value to output bands. Omitted means
+                inherit it from the sources, exactly as
+                :func:`~pyramids.dataset.merge.merge_rasters` does -- this
+                method is a thin wrapper over it, so the two must not disagree
+                about what an omitted argument means (#1086).
             init (float | int | str):
                 Pre-initialize the output image bands with these
                 values. However, it is not marked as the nodata

@@ -447,7 +447,12 @@ def test_merge_instance_method(
     cube.merge(out)
     assert out.exists()
     src = gdal.Open(str(out))
-    assert src.GetRasterBand(1).GetNoDataValue() == 0
+    # DatasetCollection.merge is a thin wrapper over merge_rasters, so an
+    # omitted no_data_value must mean the same thing on both (#1086). These
+    # fixtures declare none, so the mosaic must not invent one.
+    assert src.GetRasterBand(1).GetNoDataValue() is None, (
+        "collection.merge must inherit like merge_rasters, not stamp 0"
+    )
 
 
 def test_merge_instance_method_in_memory_collection(tmp_path: Path):
@@ -466,8 +471,15 @@ def test_merge_instance_method_in_memory_collection(tmp_path: Path):
     out = tmp_path / "merged_in_memory.tif"
     cube.merge(out)
     assert out.exists()
-    src = gdal.Open(str(out))
-    assert src.GetRasterBand(1).GetNoDataValue() == 0
+    merged = Dataset.read_file(str(out))
+    # The raster is all zeros. Stamping 0 as the marker -- which this test used
+    # to assert -- masks every pixel of it (#1086); inheriting the source's own
+    # marker keeps the data readable.
+    masked = merged.read_array(masked=True)
+    masked = masked[0] if masked.ndim == 3 else masked
+    assert int(masked.size - masked.count()) == 0, (
+        "an all-zero raster must survive a merge, not be masked out entirely"
+    )
 
 
 def test_overlay(rasters_folder_path: str, germany_classes: Path):
