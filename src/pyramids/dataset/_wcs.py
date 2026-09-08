@@ -681,25 +681,29 @@ def _from_wcs_discovery(
         src = _open_service(descriptor, coverage)
         try:
             native_srs = _resolve_native_srs(src, coverage_crs)
-            for window in windows:
-                projwin = _native_projwin(window, crs, native_srs)
-                # Overlap-filtered before fetching, as _crop_seam_halves does,
-                # but only for a split request. A lone window is left to GDAL,
-                # which warns and fills a miss with no-data rather than raising;
-                # filtering it too would turn that long-standing outcome into
-                # "neither half overlaps" for a bbox that never wrapped.
-                if len(windows) > 1 and not _window_overlaps(projwin, src):
-                    continue
-                try:
+            # Every projection first, before any raster exists. `_native_projwin`
+            # raises for a window that does not project to a finite native extent,
+            # and doing that here means no half can already be in hand when it
+            # does -- which is what a try around the fetch alone failed to cover.
+            projwins = [_native_projwin(window, crs, native_srs) for window in windows]
+            # Overlap-filtered before fetching, as _crop_seam_halves does, but only
+            # for a split request. A lone window is left to GDAL, which warns and
+            # fills a miss with no-data rather than raising; filtering it too would
+            # turn that long-standing outcome into "neither half overlaps" for a
+            # bbox that never wrapped.
+            if len(projwins) > 1:
+                projwins = [pw for pw in projwins if _window_overlaps(pw, src)]
+            try:
+                for projwin in projwins:
                     mems.append(_translate_window(src, projwin, coverage))
-                except BaseException:
-                    # A second window that fails must not strand the first. This
-                    # is the path the seam split introduced, and the rest of this
-                    # reader is explicit about ownership.
-                    for mem in mems:
-                        mem.Close()
-                    mems.clear()
-                    raise
+            except BaseException:
+                # A second window that fails must not strand the first. This is the
+                # path the seam split introduced, and the rest of this reader is
+                # explicit about ownership.
+                for mem in mems:
+                    mem.Close()
+                mems.clear()
+                raise
         finally:
             # Release the opened coverage handle on every path, error or not
             # (mirrors from_wmts / from_ogc_coverages); a raise from resolve /

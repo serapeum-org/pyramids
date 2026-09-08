@@ -315,6 +315,32 @@ class TestWindowSizes:
         # Same pixel size on both, which is what makes them stitchable.
         assert 10.0 / w_width == pytest.approx(5.0 / e_width)
 
+    def test_a_resolution_too_coarse_to_split_is_refused(self):
+        """Two windows cannot share one pixel, so the sizing must say so.
+
+        Test scenario:
+            A resolution coarse enough that the *combined* span sizes to a single
+            pixel left the east half with `total - west_width == 0` columns, and a
+            zero-width window reached `gdal.Translate` verbatim -- which failed
+            with "has negative width and/or height", naming neither the seam nor
+            the resolution. Worse than the refusal this branch replaced.
+        """
+        halves = [[170.0, 10.0, 180.0, -10.0], [-180.0, 10.0, -175.0, -10.0]]
+        with pytest.raises(ValueError, match="at least 2 pixels of width"):
+            _ogc_coverages._window_sizes(halves, (15.0, 15.0))
+
+    @pytest.mark.skipif(
+        gdal.GetDriverByName("OGCAPI") is None,
+        reason="GDAL build lacks the OGCAPI driver",
+    )
+    def test_the_coarse_refusal_reaches_the_public_reader(self):
+        """The same request through the public API, which is where it was found."""
+        with _serving(OGC_GLOBAL_BOUNDS) as url:
+            with pytest.raises(ValueError, match="at least 2 pixels of width"):
+                Dataset.from_ogc_coverages(
+                    url, coverage="demo", bbox=WRAP, resolution=15.0
+                )
+
     def test_explicit_resolution_is_used_for_both(self):
         west = [170.0, 10.0, 180.0, -10.0]
         east = [-180.0, 10.0, -175.0, -10.0]
@@ -466,6 +492,49 @@ class TestNothingIsStrandedWhenAHalfFails:
         assert len(closed) == 1, (
             f"the successfully fetched half should be closed on the way out, "
             f"got {len(closed)} close(s)"
+        )
+
+    def test_wcs_closes_the_first_half_when_the_second_will_not_project(
+        self, monkeypatch
+    ):
+        """Projection failure is a documented raise, and it happens before the fetch.
+
+        Test scenario:
+            `_native_projwin` raises for a window that does not project to a finite
+            native extent -- this reader's own Raises block says so. It used to sit
+            one line above the try that closes what was already fetched, so on the
+            second window the west half's MEM raster was orphaned. Every projection
+            now happens before any raster exists, so there is nothing to strand.
+        """
+        closed: list[int] = []
+        real_translate = _wcs._translate_window
+
+        def tracking(*args, **kwargs):
+            mem = real_translate(*args, **kwargs)
+            original = mem.Close
+            mem.Close = lambda: (closed.append(id(mem)), original())[1]
+            return mem
+
+        calls = {"n": 0}
+        real_projwin = _wcs._native_projwin
+
+        def failing_projwin(*args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] > 1:
+                raise ValueError("second window does not project")
+            return real_projwin(*args, **kwargs)
+
+        monkeypatch.setattr(_wcs, "_translate_window", tracking)
+        monkeypatch.setattr(_wcs, "_native_projwin", failing_projwin)
+
+        with WcsMock(version="1.0.0", bounds=GLOBAL_BOUNDS) as server:
+            with pytest.raises(ValueError, match="does not project"):
+                Dataset.from_wcs(
+                    server.url, coverage="test_cov", bbox=WRAP, version="1.0.0"
+                )
+        assert closed == [], (
+            "projecting every window before fetching any means no raster exists "
+            f"when a projection fails; {len(closed)} were fetched and closed"
         )
 
     def test_wcs_closes_the_halves_it_could_not_adopt(self):

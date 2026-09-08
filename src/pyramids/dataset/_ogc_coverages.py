@@ -240,6 +240,17 @@ def _window_sizes(
     total, height = _read_size(
         [west[0], west[1], west[0] + _span(west) + _span(east), west[3]], grid_res
     )
+    if total < 2:
+        # The same floor `_seam_windows` puts on a WMS wrap, and for the same
+        # reason: two requests cannot share one pixel, so a resolution this coarse
+        # has no honest answer. Without it the east half takes `total - 1 == 0`
+        # columns and GDAL rejects the zero-width window with a message naming
+        # neither the seam nor the resolution.
+        raise ValueError(
+            f"a bbox crossing the antimeridian is read as two windows, so it needs "
+            f"at least 2 pixels of width; resolution {grid_res[0]} over this bbox "
+            f"gives {total}. Pass a finer resolution."
+        )
     west_width = max(1, min(total - 1, round(_span(west) / grid_res[0])))
     return [(west_width, height), (total - west_width, height)]
 
