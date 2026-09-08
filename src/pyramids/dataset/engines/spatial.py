@@ -419,7 +419,40 @@ def _stitch_lon_halves(
         no_data_value=west_part.no_data_value,
     )
     out.band_names = ds.band_names
+    _carry_band_metadata(west_part, out)
     return out
+
+
+def _carry_band_metadata(source: Any, target: Dataset) -> None:
+    """Copy the per-band description that survives a raw stitch but not a rebuild.
+
+    `_stitch_lon_halves` rebuilds through `Dataset.from_array`, which carries the
+    array, the geotransform and the no-data value and nothing else. Its WMS
+    counterpart copies the colour table, colour interpretation, units and metadata
+    explicitly, so a stitched map renders exactly like an unstitched one; this
+    brings the crop/coverage path to the same standard rather than leaving the two
+    stitchers disagreeing about what a seam read is allowed to lose.
+
+    Args:
+        source: The west half, whose band properties are authoritative.
+        target: The freshly built stitched raster, modified in place.
+
+    Returns:
+        None
+    """
+    src_raster, dst_raster = source.raster, target.raster
+    dst_raster.SetMetadata(src_raster.GetMetadata())
+    for index in range(1, min(src_raster.RasterCount, dst_raster.RasterCount) + 1):
+        src_band = src_raster.GetRasterBand(index)
+        dst_band = dst_raster.GetRasterBand(index)
+        dst_band.SetColorInterpretation(src_band.GetColorInterpretation())
+        color_table = src_band.GetRasterColorTable()
+        if color_table is not None:
+            dst_band.SetRasterColorTable(color_table)
+        unit = src_band.GetUnitType()
+        if unit:
+            dst_band.SetUnitType(unit)
+        dst_band.SetMetadata(src_band.GetMetadata())
 
 
 class Spatial(_Engine["Dataset"]):
