@@ -279,6 +279,19 @@ Two knock-on effects to look for:
 - **A raster that declares no storable sentinel now really has no no-data**, so `count_domain_cells`, `apply`,
   `fill` and the statistics treat every cell as data. That is the honest answer for a band with no free value,
   and it is what a `uint8` raster already did.
+- **`Dataset.create(..., no_data_value=np.nan)` returns a different canvas**, not just a different declaration.
+  Creating a band fills it with the sentinel it just declared, so the substitution used to leave every cell
+  out of domain; with nothing storable to declare there is nothing meaningful to fill with, and the band keeps
+  the driver's zeros:
+
+  | `create(rows=3, columns=4, dtype=…, no_data_value=np.nan)` | Before | After |
+  |---|---|---|
+  | `uint16` | declares `65535`, holds `65535`, 0 domain cells | declares `NaN`, holds `0`, 12 domain cells |
+  | `uint32` | declares `4294967295`, holds that, 0 domain cells | declares `NaN`, holds `0`, 12 domain cells |
+
+  If you used that call as an out-of-domain canvas and wrote only the cells you cared about, the untouched ones
+  are now real zeros that every consumer counts as data. Create the raster with a sentinel the dtype can hold
+  instead, and the old behaviour returns unchanged.
 
 What has **not** changed is the repair applied when a caller asks for a sentinel that overflows the band:
 `Dataset.from_array(uint8_array)` still warns that the default `-9999` is out of range and stores `255`. There
@@ -321,11 +334,15 @@ out-of-domain on the output. Every other integer case raised
 unchanged — it gets `NaN`, which is what that path already wrote and declared.
 
 ```python
-# uint8 source with no storable sentinel, data in 1..7
+# uint8 source asked for a NaN sentinel, data in 1..7
 out = src.crop(mask)
 out.no_data_value      # (255.0,) -- derived, and declared
-# Before: ValueError: cannot convert float NaN to integer (multi-band),
-#         or a masked cell holding a value the output never declared.
+# Before: ValueError: cannot convert float NaN to integer (multi-band)
+
+# uint8 source declaring nothing at all
+out = src.crop(mask)
+out.no_data_value      # (255.0,) -- derived, and declared
+# Before: TypeError: int() argument must be ... not 'NoneType'
 ```
 
 A polygon (cutline) crop is the same story from the other side, with one deliberate difference: a band that
@@ -339,14 +356,42 @@ so it recognised nothing there and left the border in place: an integer raster c
 crop of a float one. It now gets the derived fill, is trimmed to the polygon, and declares what its border
 holds.
 
-| `crop(polygon)` of an 8x8 raster whose sentinel is unstorable | Before | After |
+| `crop(polygon)` of an 8x8 raster asked for a `NaN` sentinel | Before | After |
 |---|---|---|
-| `uint8` / `uint16` / `int16` | 6x6, border of undeclared `0` | 4x4, border declared |
+| `uint8` / `int16` | 6x6, border of undeclared `0` | 4x4, border declared |
+| `uint16` / `uint32` | 4x4, border declared `65535` | 4x4, border declared — now derived |
+| `int64` | 6x6, border of undeclared `0` | 4x4, border declared |
+| `uint64` | 6x6, border of undeclared `0` | 6x6 — unchanged, see below |
 | `float32` (a storable `NaN`) | 4x4 | 4x4 — unchanged |
+
+`uint16` and `uint32` were already trimmed and already declared, because the substitution being removed had
+given them `65535` / `4294967295` before the crop ever ran. What changes for them is only where the value comes
+from: derived against the band's data rather than fabricated, so it can no longer be a value the band holds.
+
+`uint64` is left alone deliberately. `-dstnodata` reaches GDAL as text it parses into a C double, and that
+dtype's maximum does not survive the trip — it arrives rounded to `2**63`, which GDAL announces and then writes
+into the pixels. Declaring the value we asked for would describe cells holding something else, so no fill is
+offered and the border stays undeclared.
 
 The declared sentinel of a well-formed raster is unchanged: a band that already declares a storable value keeps
 it, its data is never read to make the decision, and the warp options it produces are the ones it produced
 before.
+
+**A crop can now come back larger, for any raster whose cells come close to its sentinel.** Hard change, silent,
+and unrelated to whether a fill was derived. The trim that removes wholly-excluded rows and columns asked
+`is_no_data`, whose operational `rtol` of 0.001 treats everything within a part per thousand of the sentinel as
+no-data; it now asks `is_stored_no_data`, the tolerance the storage forces. Cells that merely lie near the
+sentinel are data again, so fewer rows qualify for removal and the result only ever grows:
+
+| `float32` declaring `-9999`, border holding `-9995` | Before | After |
+|---|---|---|
+| `crop(mask=polygon)` | 2x2 | 6x6 |
+| `crop(bbox=…)` | 2x2 | 6x6 |
+
+The old shape was reached by deleting real observations — elevation, depth and scaled-reflectance products sit
+in exactly that window — so the new one is the correct answer. But code that indexes, reprojects or asserts
+against a crop's shape will see it change. It applies to both crop routes and to bands with an ordinary,
+storable, declared sentinel.
 
 **`create_from_array` is now `from_array`, and takes a `GeoReference`.** Hard change, no deprecation alias — the
 old name and the old flat keywords are gone. The same rename applies to `UgridDataset.create_from_arrays` ->

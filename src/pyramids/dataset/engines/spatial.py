@@ -2889,19 +2889,30 @@ class Spatial(_Engine["Dataset"]):
         Note:
             **The result declares the value its excluded cells hold, which is not
             always the source's.** A band whose own sentinel is storable keeps it and
-            nothing changes. A band whose sentinel cannot be stored (`NaN` on an
-            integer band), or which declares none at all, has one derived against its
-            own data -- the first value that fits the dtype and occurs nowhere in the
-            band -- written into the excluded cells and declared on the output, so
-            they cannot be read back as measurements. A floating band always gets
-            `NaN`.
+            nothing changes. A band whose sentinel cannot be stored -- `NaN` on an
+            integer band -- has one derived against its own data: the first value that
+            fits the dtype and occurs nowhere in the band, written into the excluded
+            cells and declared on the output, so they cannot be read back as
+            measurements. A floating band always gets `NaN`.
 
-            The `bbox=` windowed fast path is the exception: it reads a pixel
-            rectangle and excludes no cell inside it, so it writes no fill and leaves
-            the source's declaration alone. The same box falling back to the cutline
-            warp *does* exclude cells, and declares what it wrote -- so the two routes
-            can report different `no_data_value` for one source, and only for a band
-            whose sentinel was unstorable to begin with.
+            A band that declares **nothing** depends on which mask is used, because
+            the two routes are forced to decide different things:
+
+            - a raster ``mask`` writes the excluded cells itself, into an array with
+              no way to hold "absent", so it derives a fill and declares it;
+            - a polygon / ``FeatureCollection`` mask lets GDAL fill them, so nothing
+              forces the question and the source's own declaration -- none -- stands.
+
+            The ``bbox=`` windowed fast path excludes no cell inside the rectangle it
+            reads, so it writes no fill and declares nothing new. The same box falling
+            back to the cutline warp *does* exclude cells; two routes to one region can
+            therefore report a different ``no_data_value``, for a band whose sentinel
+            was unstorable to begin with.
+
+            `Int64` and `UInt64` are a further exception on the cutline route.
+            ``-dstnodata`` reaches GDAL as a C double, which a value beyond 2**53 does
+            not survive, so no fill is offered for one and the border is left
+            undeclared.
 
         Raises:
             NoDataValueError: A band holds every candidate sentinel, so no value is
