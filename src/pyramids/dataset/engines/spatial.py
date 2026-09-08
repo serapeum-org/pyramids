@@ -2793,6 +2793,31 @@ class Spatial(_Engine["Dataset"]):
             fall back to the cutline warp, run all-touched so the result matches the
             windowed path; ``touch=False`` keeps the entirely-inside cutline crop.
 
+        Note:
+            **The result declares the value its excluded cells hold, which is not
+            always the source's.** A band whose own sentinel is storable keeps it and
+            nothing changes. A band whose sentinel cannot be stored (`NaN` on an
+            integer band), or which declares none at all, has one derived against its
+            own data -- the first value that fits the dtype and occurs nowhere in the
+            band -- written into the excluded cells and declared on the output, so
+            they cannot be read back as measurements. A floating band always gets
+            `NaN`.
+
+            The `bbox=` windowed fast path is the exception: it reads a pixel
+            rectangle and excludes no cell inside it, so it writes no fill and leaves
+            the source's declaration alone. The same box falling back to the cutline
+            warp *does* exclude cells, and declares what it wrote -- so the two routes
+            can report different `no_data_value` for one source, and only for a band
+            whose sentinel was unstorable to begin with.
+
+        Raises:
+            NoDataValueError: A band holds every candidate sentinel, so no value is
+                free to mark the cells the mask excludes. Note this does **not**
+                derive from ``ValueError``.
+            AlignmentError: A raster ``mask`` does not share the dataset's grid.
+            TypeError: ``mask`` is not a ``Dataset``, ``FeatureCollection`` or
+                ``GeoDataFrame``.
+
         Examples:
             - Crop the raster using a polygon mask.
 
