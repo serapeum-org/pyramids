@@ -58,6 +58,7 @@ from pyramids.base._coverage import seam_halves as _seam_halves
 from pyramids.base._coverage import seam_offset as _seam_offset
 from pyramids.base._coverage import translate_to_mem as _translate_to_mem
 from pyramids.base._coverage import validate_bbox as _validate_bbox
+from pyramids.base._coverage import window_overlaps as _window_overlaps
 from pyramids.base._errors import CoverageError, WMSError
 from pyramids.base._grid import grid_size
 from pyramids.base._ogc_api import gdal_http_config as _gdal_http_config
@@ -496,9 +497,10 @@ def _merge_lon_halves(
     past the seam (``170 .. 180`` then ``180 .. 190``) instead of jumping back to
     -180 mid-raster — the same convention
     :func:`pyramids.dataset.engines.spatial._stitch_lon_halves` gives a stitched
-    :meth:`Dataset.crop`. The pixels are copied as raw bytes so the band count,
-    data type, no-data value and colour interpretation of a rendered map survive
-    the stitch.
+    :meth:`Dataset.crop`. The pixels are copied as raw bytes, and the west half's
+    band descriptions, metadata, units, no-data value, colour interpretation and
+    **colour table** are copied with them, so the same layer renders identically
+    whether or not the request happened to cross the seam.
 
     Args:
         west: The pre-seam half.
@@ -557,9 +559,22 @@ def _merge_lon_halves(
     )
     merged.SetGeoTransform(west.GetGeoTransform())
     merged.SetProjection(west.GetProjection())
+    merged.SetMetadata(west.GetMetadata())
     for index in range(1, west.RasterCount + 1):
         source, target = west.GetRasterBand(index), merged.GetRasterBand(index)
         target.SetColorInterpretation(source.GetColorInterpretation())
+        # The palette in particular: a WMS is the rendered-map reader, so a
+        # paletted image/png with bands=1 is an ordinary answer. Copying the
+        # interpretation without the table is worse than copying neither -- the
+        # band then declares itself GCI_PaletteIndex with nothing to look up.
+        color_table = source.GetRasterColorTable()
+        if color_table is not None:
+            target.SetRasterColorTable(color_table)
+        target.SetDescription(source.GetDescription())
+        target.SetMetadata(source.GetMetadata())
+        unit = source.GetUnitType()
+        if unit:
+            target.SetUnitType(unit)
         no_data = source.GetNoDataValue()
         if no_data is not None:
             target.SetNoDataValue(no_data)
@@ -591,7 +606,8 @@ def _collect_halves(fetch: Any, windows: list[Any], seam_offset: float) -> gdal.
         gdal.Dataset: The single fetch, or the stitched pair.
 
     Raises:
-        ValueError: Two halves were fetched but do not tile a continuous raster.
+        ValueError: `windows` is empty, or two halves were fetched but do not tile
+            a continuous raster.
 
     Examples:
         - One window is handed straight back, still open for the caller to use:
@@ -624,6 +640,8 @@ def _collect_halves(fetch: Any, windows: list[Any], seam_offset: float) -> gdal.
 
             ```
     """
+    if not windows:
+        raise ValueError("_collect_halves needs at least one window, got none")
     parts: list[gdal.Dataset] = []
     try:
         for window in windows:
@@ -803,6 +821,22 @@ def from_wmts(
             # whole-world transform it needs is meaningless (and can be non-finite)
             # for a layer whose CRS does not span both meridians.
             offset = _seam_offset(window, crs, native_srs) if split else 0.0
+            if split:
+                # Drop a half that misses the pyramid, as the WCS and OGC API
+                # Coverages readers do. A regional layer would otherwise return
+                # that half as a block of no-data and concatenate it in as though
+                # it were data. Only for a split read: a lone window keeps GDAL's
+                # own lenient behaviour, unchanged.
+                halves = [
+                    half
+                    for half in halves
+                    if _window_overlaps(_native_projwin(half, crs, native_srs), src)
+                ]
+                if not halves:
+                    raise ValueError(
+                        f"bbox {bbox!r} crosses the antimeridian but neither half "
+                        f"overlaps the extent of layer {layer!r}"
+                    )
             mem = _collect_halves(crop_half, halves, offset)
         finally:
             src = None

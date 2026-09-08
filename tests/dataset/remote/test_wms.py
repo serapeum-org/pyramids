@@ -636,6 +636,46 @@ class TestMergeLonHalves:
         assert merged.GetRasterBand(1).GetColorInterpretation() == gdal.GCI_RedBand
         assert merged.GetRasterBand(2).ReadAsArray().min() == 20
 
+    def test_keeps_the_colour_table_and_band_metadata(self):
+        """A paletted map must not lose its palette because the bbox crossed 180.
+
+        Test scenario:
+            WMS is the rendered-map reader, so a single-band paletted PNG is an
+            ordinary response. Copying `ColorInterpretation` without the table left
+            the merged band declaring `GCI_PaletteIndex` with nothing to look up --
+            worse than dropping both -- and the band description, units and
+            metadata went with it. A non-wrapping read kept all of it, so the same
+            layer rendered differently either side of the seam.
+        """
+        west = gdal.GetDriverByName("MEM").Create("", 20, 40, 1, gdal.GDT_Byte)
+        west.SetGeoTransform((170.0, 0.5, 0.0, 10.0, 0.0, -0.5))
+        table = gdal.ColorTable()
+        table.SetColorEntry(0, (10, 20, 30, 255))
+        table.SetColorEntry(1, (40, 50, 60, 255))
+        band = west.GetRasterBand(1)
+        band.SetRasterColorTable(table)
+        band.SetColorInterpretation(gdal.GCI_PaletteIndex)
+        band.SetDescription("landcover")
+        band.SetUnitType("class")
+        band.SetMetadata({"legend": "corine"})
+        west.SetMetadata({"source": "wms"})
+
+        east = gdal.GetDriverByName("MEM").Create("", 10, 40, 1, gdal.GDT_Byte)
+        east.SetGeoTransform((-180.0, 0.5, 0.0, 10.0, 0.0, -0.5))
+
+        merged = _wms._merge_lon_halves(west, east, 360.0)
+        merged_band = merged.GetRasterBand(1)
+
+        assert merged_band.GetRasterColorTable() is not None, (
+            "the palette must survive the stitch; without it the band declares "
+            "GCI_PaletteIndex with nothing to look up"
+        )
+        assert merged_band.GetRasterColorTable().GetColorEntry(1) == (40, 50, 60, 255)
+        assert merged_band.GetDescription() == "landcover"
+        assert merged_band.GetUnitType() == "class"
+        assert merged_band.GetMetadata() == {"legend": "corine"}
+        assert merged.GetMetadata() == {"source": "wms"}
+
     def test_refuses_mismatched_rows_or_bands(self):
         with pytest.raises(ValueError, match="not concatenable"):
             _wms._merge_lon_halves(
@@ -684,6 +724,18 @@ class TestCollectHalves:
         part = _Part("only", closed)
         assert _wms._collect_halves(lambda w: part, ["only"], 360.0) is part
         assert closed == []
+
+    def test_an_empty_window_list_is_refused_by_name(self):
+        """The invariant the callers rely on, stated rather than assumed.
+
+        Test scenario:
+            With no windows the loop never runs, the single-window branch is false
+            and the merge indexes an empty list -- an `IndexError` naming nothing.
+            Now that the WMTS reader filters halves by overlap, an empty list is
+            reachable, so it fails with a message instead.
+        """
+        with pytest.raises(ValueError, match="at least one window"):
+            _wms._collect_halves(lambda window: None, [], 360.0)
 
     def test_both_halves_are_closed_once_merged(self, monkeypatch):
         closed: list[str] = []
@@ -747,6 +799,36 @@ class TestFromWmtsAntimeridian:
         ds = Dataset.from_wmts("https://c.xml", layer="L", bbox=WRAP)
         assert ds.columns == 40
         assert ds.geotransform[1] == pytest.approx(0.5)
+
+    def test_a_half_that_misses_the_layer_is_not_requested(self, monkeypatch):
+        """A regional pyramid returns only the half it actually covers.
+
+        Test scenario:
+            A layer reaching the seam from the west only. Without the overlap
+            filter the eastern half comes back as a block of no-data and is
+            concatenated in as though it were data -- while the WCS and OGC API
+            Coverages readers drop it. All three now answer the same way.
+        """
+        regional = _longitude_raster(170.0, 10.0, 0.5, -0.5, (20, 40), 1)
+        monkeypatch.setattr(_wms, "_open", lambda *_a: regional)
+        ds = Dataset.from_wmts("https://c.xml", layer="L", bbox=WRAP, resolution=0.5)
+        assert ds.columns == 20, (
+            f"only the western half overlaps, so the result should be 20 columns "
+            f"wide, got {ds.columns}"
+        )
+
+    def test_a_layer_nowhere_near_the_seam_is_refused(self, monkeypatch):
+        """Neither half overlaps, so there is nothing honest to return.
+
+        Test scenario:
+            The same refusal `from_wcs` and `from_ogc_coverages` already give. A
+            European pyramid cannot serve a wrap; before the filter it returned two
+            no-data blocks stitched together.
+        """
+        regional = _longitude_raster(0.0, 10.0, 0.5, -0.5, (20, 40), 1)
+        monkeypatch.setattr(_wms, "_open", lambda *_a: regional)
+        with pytest.raises(ValueError, match="neither half overlaps"):
+            Dataset.from_wmts("https://c.xml", layer="L", bbox=WRAP, resolution=0.5)
 
     def test_non_wrapping_bbox_is_unchanged(self, fake_wmts):
         ds = Dataset.from_wmts(
