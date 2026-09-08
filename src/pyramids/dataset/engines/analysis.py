@@ -420,29 +420,37 @@ class Analysis(_Engine["Dataset"]):
             count_domain_cells: The unweighted count this refines.
             Cell.cell_area: The per-cell areas this sums.
         """
-        areas = self._ds.cell.cell_area(unit=unit)
         if not 0 <= band < self._ds.band_count:
-            # Checked before indexing the sentinel tuple, which would otherwise
-            # answer `IndexError: tuple index out of range` -- the docstring
-            # promises `ValueError`, and `read_array` already phrases this one
-            # well for the caller.
+            # Checked first, and before `cell_area`: indexing the sentinel tuple
+            # would otherwise answer `IndexError: tuple index out of range`, and
+            # asking for the row integration before validating the band made a
+            # bad band report a CRS problem when the raster had both.
             raise ValueError(
                 f"band {band} is out of range for a {self._ds.band_count}-band dataset."
             )
+        areas = self._ds.cell.cell_area(unit=unit)
+        # One weight per row. Every cell in a row shares an area, so the fold
+        # needs the column only to count -- see `_sum`.
+        per_row = areas[:, 0]
         no_data_value = self._ds.no_data_value[band]
 
         def _sum(acc: float, strip: np.ndarray, window: list[int]) -> float:
             # `window` is [xoff, yoff, xsize, ysize]. Only the row offset and
             # height are read, which ties this to `stream_reduce`'s contract of
-            # full-width strips: a tiled window would hand over a strip
-            # narrower than its weights and the multiply would refuse to
-            # broadcast. That is the right failure -- silently weighing a tile
-            # by another column's areas would not be -- but it is a coupling,
-            # not the shape-independence an earlier comment here claimed.
+            # full-width strips: a tiled window would count columns it was not
+            # given the weights for. That is a coupling, not the
+            # shape-independence an earlier comment here claimed.
+            #
+            # Counting per row and then taking one dot product costs `ysize`
+            # numbers. Multiplying the strip by its weights instead would
+            # allocate a dense float64 the size of the strip -- 205 MB per
+            # strip on a 100 000-column band, eight times what the unweighted
+            # `count_domain_cells` needs -- purely to scale by a value that is
+            # constant along each row.
             yoff, ysize = window[1], window[3]
-            weights = areas[yoff : yoff + ysize]
             inside = ~is_stored_no_data(strip, no_data_value)
-            return acc + float((weights * inside).sum())
+            counts = np.count_nonzero(inside, axis=1)
+            return acc + float(counts @ per_row[yoff : yoff + ysize])
 
         # Streamed in row strips for the same reason `count_domain_cells` is:
         # a very large or `/vsicurl` band is never held whole, and a sum is
