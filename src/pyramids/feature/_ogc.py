@@ -39,7 +39,7 @@ import geopandas as gpd
 import pandas as pd
 from osgeo import gdal
 
-from pyramids.base._coverage import seam_halves, validate_bbox
+from pyramids.base._coverage import check_seam_bbox, seam_halves, validate_bbox
 from pyramids.base._ogc_api import gdal_http_config, not_advertised
 
 if TYPE_CHECKING:
@@ -206,7 +206,9 @@ def read_kwargs(
     Raises:
         ValueError: ``bbox`` is not a 4-tuple, holds a non-finite corner or is
             inverted (``minx >= maxx`` other than a wrap, or ``miny >= maxy``),
-            or ``max_features`` is less than 1.
+            or ``max_features`` is less than 1. A wrapping ``bbox`` reaching
+            outside ``-180 .. 180`` is refused too -- including one given in a
+            projected CRS, whose coordinates fall far outside that range.
 
     Examples:
         - An ordinary box becomes a single ``bbox`` filter:
@@ -236,6 +238,16 @@ def read_kwargs(
     kwargs: dict[str, Any] = {}
     if bbox is not None:
         kwargs["bbox"] = validate_bbox(bbox, allow_antimeridian=True)
+        # The same guard the raster readers apply, for the same reason and with
+        # more at stake here: an out-of-range wrap splits into an *inverted* first
+        # half, and an inverted rect handed to OGR is exactly the silent
+        # normalisation this module's split exists to prevent. `EPSG:4326` because
+        # OGC API - Features is CRS84 by contract; for WFS the layer's own CRS may
+        # be projected, and then its coordinates fall well outside -180..180, so
+        # the corner-range half of the check refuses the wrap anyway -- which is
+        # the right answer, since a projected CRS has no 180 degree seam to split
+        # at.
+        check_seam_bbox(kwargs["bbox"], "EPSG:4326")
     if where is not None:
         kwargs["where"] = where
     if max_features is not None:

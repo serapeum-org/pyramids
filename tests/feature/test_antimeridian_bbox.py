@@ -142,6 +142,34 @@ class TestTheWrapIsNoLongerRefused:
         with pytest.raises(ValueError, match="minx < maxx and miny < maxy"):
             _ogc.read_kwargs((1.0, 4.0, 3.0, 2.0), None, None)
 
+    def test_a_wrap_reaching_past_the_seam_is_refused(self):
+        """An out-of-range wrap splits into an inverted rect, which OGR normalises.
+
+        Test scenario:
+            `(190, -10, -170, 10)` yields a first half of `(190, ..., 180)` --
+            west > east. Handing that to OGR is precisely the silent inversion the
+            split exists to prevent: the filter goes out as `180, -10, 190, 10`,
+            matches nothing on a CRS84 service, and the caller quietly receives
+            only the eastern half. The raster readers already refused it; there is
+            no reason for the two sides to disagree.
+        """
+        with pytest.raises(ValueError, match="within -180..180"):
+            _ogc.read_kwargs((190.0, -10.0, -170.0, 10.0), None, None)
+
+    def test_a_wrap_in_a_projected_crs_is_refused_by_its_coordinates(self):
+        """A projected bbox has no 180 degree seam, and its numbers say so.
+
+        Test scenario:
+            `read_kwargs` never learns the CRS, but it does not need to: a
+            wrapping bbox in metres carries coordinates far outside -180..180, so
+            the corner-range half of the guard refuses it -- which is the right
+            answer, since splitting it at 180 would be meaningless.
+        """
+        with pytest.raises(ValueError, match="within -180..180"):
+            _ogc.read_kwargs(
+                (2_000_000.0, 6_000_000.0, 1_000_000.0, 6_100_000.0), None, None
+            )
+
     def test_a_zero_width_box_is_still_refused(self):
         """Test scenario: `minx == maxx` is empty whichever way it is read, wrap or not."""
         with pytest.raises(ValueError, match="minx < maxx"):
