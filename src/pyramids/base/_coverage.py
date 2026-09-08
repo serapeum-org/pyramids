@@ -517,8 +517,11 @@ def window_overlaps(projwin: list[float], src: gdal.Dataset) -> bool:
     # under-reports one axis and drops halves that do have data. min/max over the
     # four also makes the bound axis-order agnostic, which covers a south-up or
     # west-positive grid without a separate case.
-    corners = [
-        (gt[0] + x * gt[1] + y * gt[2], gt[3] + x * gt[4] + y * gt[5])
+    corners: list[tuple[float, float]] = [
+        (
+            float(gt[0] + x * gt[1] + y * gt[2]),
+            float(gt[3] + x * gt[4] + y * gt[5]),
+        )
         for x, y in (
             (0, 0),
             (src.RasterXSize, 0),
