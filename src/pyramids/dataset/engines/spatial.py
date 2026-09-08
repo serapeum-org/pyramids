@@ -332,6 +332,29 @@ def _stitch_lon_halves(ds: RasterBase, west_part: Any, east_part: Any) -> Datase
     return out
 
 
+def _survives_a_c_double(value: Any) -> bool:
+    """Whether `value` round-trips through the C double GDAL parses it into.
+
+    `gdal.WarpOptions(dstNodata=...)` takes text and parses it as a double, so
+    an integer beyond 2**53 reaches the warp as a different number. A float is
+    already one, and `NaN` is carried by name.
+
+    Args:
+        value: The candidate fill.
+
+    Returns:
+        bool: `True` when GDAL will receive exactly this value.
+    """
+    if isinstance(value, (float, np.floating)):
+        survives = True
+    else:
+        try:
+            survives = int(float(value)) == int(value)
+        except (OverflowError, ValueError):
+            survives = False
+    return survives
+
+
 class Spatial(_Engine["Dataset"]):
     def _get_crs(self) -> str:
         """Get coordinate reference system."""
@@ -1508,7 +1531,41 @@ class Spatial(_Engine["Dataset"]):
             not fits_dtype(declared[band], np.dtype(self._ds.numpy_dtype[band]))
             for band in range(self._ds.band_count)
         )
-        return self._crop_fill_values() if needed else None
+        fills = self._crop_fill_values() if needed else None
+        if fills is not None and not all(_survives_a_c_double(f) for f in fills):
+            # `-dstnodata` is text GDAL parses into a C double, and a 64-bit
+            # integer beyond 2**53 does not survive that: a `uint64` band's
+            # maximum arrives rounded to 2**63, which GDAL says out loud and
+            # then writes into the pixels. Declaring the value we asked for
+            # would describe cells that hold something else, so the warp is
+            # left alone instead -- an undeclared border, as before this
+            # branch, rather than a declaration that lies.
+            fills = None
+        return fills
+
+    @staticmethod
+    def _declare_fills(dst_obj: Any, fills: list) -> None:
+        """Record the fill on each band of a warp result, without writing cells.
+
+        `Bands._set_no_data_value` would also `Fill()` the band, which a warped
+        VRT refuses; only the declaration is wanted here, the pixels having
+        been written by the warp itself.
+
+        Args:
+            dst_obj: The warp result to declare the fills on.
+            fills: One fill value per band, in band order.
+        """
+        for index, fill in enumerate(fills):
+            band = dst_obj.raster.GetRasterBand(index + 1)
+            # The 64-bit integer types have their own accessors, and the plain
+            # one raises for them rather than falling back.
+            if band.DataType == gdal.GDT_Int64:
+                band.SetNoDataValueAsInt64(int(fill))
+            elif band.DataType == gdal.GDT_UInt64:
+                band.SetNoDataValueAsUInt64(int(fill))
+            else:
+                band.SetNoDataValue(float(fill))
+            dst_obj._no_data_value[index] = fill
 
     @staticmethod
     def _warp_nodata(fills: list) -> str:
@@ -1518,9 +1575,11 @@ class Spatial(_Engine["Dataset"]):
         reach GDAL as `"[255, 255]"`. GDAL wants one value per band, separated
         by spaces.
 
-        An integer fill is rendered as an integer rather than through `float`:
-        a `uint64` band's maximum has no exact `float64`, so the round trip
-        would hand GDAL a value one larger than the dtype can hold.
+        An integer fill is rendered as an integer rather than through `float`,
+        so nothing is lost on this side of the exchange. GDAL parses the text
+        back into a C double regardless, which is why a fill that cannot
+        survive that is filtered out before it reaches here -- rendering it
+        faithfully would not have saved it.
 
         Args:
             fills: One fill value per band.
@@ -2497,14 +2556,17 @@ class Spatial(_Engine["Dataset"]):
                     error_message="GDAL could not crop the dataset with the cutline.",
                 ),
             )
-            # `-dstnodata` already stamps the fill on the warp output's bands,
-            # and the output is a VRT that refuses a write, so the value is
-            # read back from there rather than set again. The trim below needs
-            # it: it finds the rows and columns lying entirely outside the
-            # cutline by reading the sentinel back, and with an unstorable one
-            # it matched nothing and trimmed nothing -- an integer raster kept
-            # a border of fill cells that the same crop of a float raster
-            # removed.
+            if fills is not None:
+                # Declared here rather than read back off the warp. GDAL does
+                # stamp `-dstnodata` on the output's bands for most widths, but
+                # an `Int64` / `UInt64` VRT reports no no-data at all through
+                # either accessor even with `<NoDataValue>` in its XML -- so
+                # those two came back declaring nothing, and the trim below,
+                # which finds the rows and columns lying entirely outside the
+                # cutline by reading the sentinel back, left the border in
+                # place. Setting it from what we asked for makes every width
+                # answer the same way.
+                self._declare_fills(dst_obj, fills)
             if touch:
                 dst_obj = Spatial._correct_wrap_cutline_error(dst_obj)
 

@@ -2034,6 +2034,51 @@ class TestCropFillValues:
         held = np.asarray(source.read_array(band=0))
         assert not (held == fill).any(), f"the fill {fill} is a value the band holds"
 
+    @pytest.mark.parametrize(
+        ("dtype", "declares", "shape"),
+        [
+            ("uint16", True, (4, 4)),
+            ("int32", True, (4, 4)),
+            ("int64", True, (4, 4)),
+            ("uint64", False, (6, 6)),
+        ],
+    )
+    def test_a_cutline_crop_across_the_integer_widths(
+        self, dtype: str, declares: bool, shape: tuple
+    ):
+        """The 64-bit widths do not behave like the rest, in two ways.
+
+        Args:
+            dtype: The source band dtype name.
+            declares: Whether the output should carry a sentinel.
+            shape: The expected trimmed shape.
+
+        Test scenario:
+            An `Int64` / `UInt64` warp result reports no no-data through either
+            accessor even with `<NoDataValue>` in its VRT XML, so reading the
+            value back left those widths declaring nothing and the border
+            untrimmed. It is set from what was asked for instead.
+
+            `uint64` is different again: its maximum cannot survive the C
+            double GDAL parses `-dstnodata` into, and arrives rounded to
+            `2**63`, which is what lands in the pixels. Declaring the value we
+            asked for would describe cells holding something else, so no fill
+            is offered and the border stays undeclared -- as it was before this
+            branch.
+        """
+        geo = GeoReference(geo=(0.0, 1.0, 0.0, 8.0, 0.0, -1.0), epsg=4326)
+        source = Dataset.from_array(
+            np.arange(64, dtype=dtype).reshape(8, 8), geo_ref=geo, no_data_value=None
+        )
+        source.no_data_value = [np.nan]
+        polygon = gpd.GeoDataFrame(geometry=[box(2.0, 2.0, 6.0, 6.0)], crs=4326)
+
+        cropped = source.crop(polygon)
+
+        assert np.asarray(cropped.read_array()).shape == shape
+        sentinel = cropped.no_data_value[0]
+        assert (sentinel is not None) is declares
+
     def test_a_band_holding_every_candidate_refuses(self):
         """The honest failure, rather than a colliding fill.
 
