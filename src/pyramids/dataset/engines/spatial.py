@@ -17,6 +17,7 @@ from geopandas.geodataframe import GeoDataFrame
 from osgeo import gdal, osr
 from pyproj import Transformer
 
+from pyramids.base._bbox import split_antimeridian
 from pyramids.base._domain import is_no_data
 from pyramids.base._utils import DEFAULT_RESAMPLING, resolve_resampling
 from pyramids.base.crs import (
@@ -33,7 +34,6 @@ from pyramids.base.crs import (
 from pyramids.dataset.abstract_dataset import RasterBase
 from pyramids.feature import FeatureCollection
 from pyramids.feature import _ogr as _feature_ogr
-from pyramids.feature.bbox import split_antimeridian
 
 if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
@@ -92,22 +92,70 @@ def _resolve_resolution(
 
 
 def _check_lon_halves_concatenable(
-    west_part: RasterBase, east_part: RasterBase
+    west_part: RasterBase, east_part: RasterBase, seam_offset: float = 360.0
 ) -> None:
     """Assert the invariant that two longitude-adjacent crop halves are stitchable.
 
-    Both halves are cropped from the same source lattice, so equal row/band counts
-    and a shared cell boundary at the 180/360 seam are expected to hold — this is a
-    defensive guard that turns any future violation into a clear error instead of a
-    raw NumPy shape error or a silently shifted `np.concatenate` result.
+    Both halves are cropped from the same source lattice, so equal row/band counts,
+    one cell size and a shared cell boundary at the seam are expected to hold —
+    this is a defensive guard that turns any future violation into a clear error
+    instead of a raw NumPy shape error or a silently shifted `np.concatenate`
+    result.
 
     Args:
         west_part: Crop of the pre-seam half.
         east_part: Crop of the post-seam half (wrapped past the seam).
+        seam_offset: The distance from the west frame edge to the east one, in the
+            halves' own units. Defaults to `360.0`, which is right whenever the
+            halves are in degrees — every `Dataset.crop` and NetCDF path. A network
+            reader windows the source in the source's CRS, which may be projected,
+            and passes the measured value from
+            :func:`~pyramids.base._coverage.seam_offset` instead.
 
     Raises:
-        ValueError: The halves have mismatched row/band counts, or the grid has no
-            cell boundary at the seam so the halves are not seam-aligned.
+        ValueError: The halves have mismatched row/band counts, differ in cell
+            size, or the grid has no cell boundary at the seam so the halves are
+            not seam-aligned.
+
+    Examples:
+        - Two halves in degrees meeting at 180 pass under the default offset:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.dataset import Dataset
+            >>> from pyramids.dataset.engines.spatial import (
+            ...     _check_lon_halves_concatenable,
+            ... )
+            >>> def half(x, columns, cell):
+            ...     mem = gdal.GetDriverByName("MEM").Create("", columns, 4, 1)
+            ...     mem.SetGeoTransform((x, cell, 0.0, 10.0, 0.0, -cell))
+            ...     return Dataset(mem, access="write")
+            >>> west, east = half(170.0, 20, 0.5), half(-180.0, 10, 0.5)
+            >>> _check_lon_halves_concatenable(west, east) is None
+            True
+
+            ```
+        - The same pair in metres needs the offset measured in metres; leaving it
+          at 360 compares metres against degrees and rejects a well-formed pair:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.dataset import Dataset
+            >>> from pyramids.dataset.engines.spatial import (
+            ...     _check_lon_halves_concatenable,
+            ... )
+            >>> def half(x, columns, cell):
+            ...     mem = gdal.GetDriverByName("MEM").Create("", columns, 4, 1)
+            ...     mem.SetGeoTransform((x, cell, 0.0, 10.0, 0.0, -cell))
+            ...     return Dataset(mem, access="write")
+            >>> world = 20037508.342789244
+            >>> west = half(world - 100000.0, 100, 1000.0)
+            >>> east = half(-world, 50, 1000.0)
+            >>> _check_lon_halves_concatenable(west, east, 2 * world) is None
+            True
+            >>> _check_lon_halves_concatenable(west, east)
+            Traceback (most recent call last):
+            ValueError: antimeridian halves are not seam-aligned...
+
+            ```
     """
     if west_part.rows != east_part.rows or west_part.band_count != east_part.band_count:
         raise ValueError(
@@ -115,14 +163,22 @@ def _check_lon_halves_concatenable(
             f"(rows {west_part.rows}/{east_part.rows}, "
             f"bands {west_part.band_count}/{east_part.band_count})"
         )
-    w_gt = west_part.geotransform
-    seam_gap = abs(
-        (w_gt[0] + west_part.columns * w_gt[1]) - (east_part.geotransform[0] + 360.0)
-    )
-    if seam_gap > 0.5 * abs(w_gt[1]):
+    w_gt, e_gt = west_part.geotransform, east_part.geotransform
+    cell_x = abs(w_gt[1])
+    # Cell size before seam gap: two halves rendered at different resolutions
+    # stitch into a raster whose geotransform describes only the west half's
+    # pixels, so the declared east edge drifts from where the data actually ends.
+    if abs(cell_x - abs(e_gt[1])) > 1e-6 * cell_x:
+        raise ValueError(
+            "antimeridian halves were produced at different resolutions "
+            f"({w_gt[1]} vs {e_gt[1]}); they cannot be stitched into one uniform "
+            "grid"
+        )
+    seam_gap = abs((w_gt[0] + west_part.columns * w_gt[1]) - (e_gt[0] + seam_offset))
+    if seam_gap > 0.5 * cell_x:
         raise ValueError(
             "antimeridian halves are not seam-aligned; the grid has no cell "
-            "boundary at the 180/360 seam, so the halves cannot be stitched"
+            "boundary at the seam, so the halves cannot be stitched"
         )
 
 
@@ -286,7 +342,9 @@ def _crop_seam_halves(
     return result
 
 
-def _stitch_lon_halves(ds: RasterBase, west_part: Any, east_part: Any) -> Dataset:
+def _stitch_lon_halves(
+    ds: RasterBase, west_part: Any, east_part: Any, seam_offset: float = 360.0
+) -> Dataset:
     """Concatenate two longitude-adjacent crops into one contiguous raster Dataset.
 
     `west_part` (pre-seam) sits to the left of `east_part` (wrapped past the seam);
@@ -299,16 +357,55 @@ def _stitch_lon_halves(ds: RasterBase, west_part: Any, east_part: Any) -> Datase
         ds: The dataset supplying the band names for the merged raster.
         west_part: Crop of the pre-seam half.
         east_part: Crop of the post-seam half.
+        seam_offset: The west-edge-to-east-edge distance in the halves' own units,
+            forwarded to :func:`_check_lon_halves_concatenable`. Defaults to
+            `360.0` for halves in degrees.
 
     Returns:
         Dataset: The concatenated raster.
+
+    Examples:
+        - The stitch is as wide as both halves and keeps the west half's origin, so
+          longitude runs past the seam instead of jumping back to -180:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.dataset import Dataset
+            >>> from pyramids.dataset.engines.spatial import _stitch_lon_halves
+            >>> def half(x, columns):
+            ...     mem = gdal.GetDriverByName("MEM").Create("", columns, 4, 1)
+            ...     mem.SetGeoTransform((x, 0.5, 0.0, 10.0, 0.0, -0.5))
+            ...     return Dataset(mem, access="write")
+            >>> west, east = half(170.0, 20), half(-180.0, 10)
+            >>> merged = _stitch_lon_halves(west, west, east)
+            >>> merged.columns
+            30
+            >>> merged.geotransform[0]
+            170.0
+
+            ```
+        - So the east edge lands past 180, which is what makes the result one
+          continuous raster rather than two:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.dataset import Dataset
+            >>> from pyramids.dataset.engines.spatial import _stitch_lon_halves
+            >>> def half(x, columns):
+            ...     mem = gdal.GetDriverByName("MEM").Create("", columns, 4, 1)
+            ...     mem.SetGeoTransform((x, 0.5, 0.0, 10.0, 0.0, -0.5))
+            ...     return Dataset(mem, access="write")
+            >>> merged = _stitch_lon_halves(half(170.0, 20), half(170.0, 20), half(-180.0, 10))
+            >>> gt = merged.geotransform
+            >>> gt[0] + merged.columns * gt[1]
+            185.0
+
+            ```
     """
     # Local import breaks the engines <-> Dataset cycle; the merged result must be a
     # plain raster Dataset (from_array on a variable view would build a NetCDF
     # container).
     from pyramids.dataset.dataset import Dataset
 
-    _check_lon_halves_concatenable(west_part, east_part)
+    _check_lon_halves_concatenable(west_part, east_part, seam_offset)
     merged = np.concatenate([west_part.read_array(), east_part.read_array()], axis=-1)
     # epsg is None only for a no-EPSG CRS reported as such (a NetCDF
     # geostationary grid); from_array raises CRSError on None, so fall back to
@@ -322,7 +419,86 @@ def _stitch_lon_halves(ds: RasterBase, west_part: Any, east_part: Any) -> Datase
         no_data_value=west_part.no_data_value,
     )
     out.band_names = ds.band_names
+    _carry_band_metadata(west_part, out)
     return out
+
+
+def _carry_band_metadata(source: Any, target: Dataset) -> None:
+    """Copy the per-band description that survives a raw stitch but not a rebuild.
+
+    `_stitch_lon_halves` rebuilds through `Dataset.from_array`, which carries the
+    array, the geotransform and the no-data value and nothing else. Its WMS
+    counterpart copies the colour table, colour interpretation, units and metadata
+    explicitly, so a stitched map renders exactly like an unstitched one; this
+    brings the crop/coverage path to the same standard rather than leaving the two
+    stitchers disagreeing about what a seam read is allowed to lose.
+
+    Args:
+        source: The west half, whose band properties are authoritative.
+        target: The freshly built stitched raster, modified in place.
+
+    Returns:
+        None
+
+    Examples:
+        - A palette and a unit on the west half survive onto the stitched result,
+          so a seam-crossing crop renders like an ordinary one:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.dataset import Dataset
+            >>> from pyramids.dataset.engines.spatial import _carry_band_metadata
+            >>> def raster(columns):
+            ...     mem = gdal.GetDriverByName("MEM").Create("", columns, 4, 1)
+            ...     mem.SetGeoTransform((0.0, 1.0, 0.0, 4.0, 0.0, -1.0))
+            ...     return Dataset(mem, access="write")
+            >>> west = raster(4)
+            >>> table = gdal.ColorTable()
+            >>> table.SetColorEntry(1, (10, 20, 30, 255))
+            >>> band = west.raster.GetRasterBand(1)
+            >>> band.SetRasterColorTable(table)
+            0
+            >>> band.SetUnitType("class")
+            0
+            >>> merged = raster(6)
+            >>> _carry_band_metadata(west, merged)
+            >>> merged.raster.GetRasterBand(1).GetUnitType()
+            'class'
+            >>> merged.raster.GetRasterBand(1).GetRasterColorTable().GetColorEntry(1)
+            (10, 20, 30, 255)
+
+            ```
+        - A half carrying nothing leaves the target as it was, so the copy is safe
+          for the ordinary case it runs on every crop:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.dataset import Dataset
+            >>> from pyramids.dataset.engines.spatial import _carry_band_metadata
+            >>> def raster(columns):
+            ...     mem = gdal.GetDriverByName("MEM").Create("", columns, 4, 1)
+            ...     mem.SetGeoTransform((0.0, 1.0, 0.0, 4.0, 0.0, -1.0))
+            ...     return Dataset(mem, access="write")
+            >>> merged = raster(6)
+            >>> _carry_band_metadata(raster(4), merged)
+            >>> merged.raster.GetRasterBand(1).GetRasterColorTable() is None
+            True
+            >>> merged.raster.GetRasterBand(1).GetUnitType()
+            ''
+
+            ```
+    """
+    src_raster, dst_raster = source.raster, target.raster
+    dst_raster.SetMetadata(src_raster.GetMetadata())
+    for index in range(1, min(src_raster.RasterCount, dst_raster.RasterCount) + 1):
+        src_band = src_raster.GetRasterBand(index)
+        dst_band = dst_raster.GetRasterBand(index)
+        dst_band.SetColorInterpretation(src_band.GetColorInterpretation())
+        color_table = src_band.GetRasterColorTable()
+        if color_table is not None:
+            dst_band.SetRasterColorTable(color_table)
+        unit = src_band.GetUnitType()
+        if unit:
+            dst_band.SetUnitType(unit)
+        dst_band.SetMetadata(src_band.GetMetadata())
 
 
 class Spatial(_Engine["Dataset"]):

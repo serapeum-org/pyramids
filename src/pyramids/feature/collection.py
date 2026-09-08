@@ -1520,7 +1520,13 @@ class FeatureCollection(GeoDataFrame):
             bbox: Optional ``(minx, miny, maxx, maxy)`` spatial filter, interpreted
                 in the feature type's **native CRS** (which WFS layers advertise;
                 usually ``EPSG:4326``, lon/lat). Only intersecting features are
-                returned. ``None`` (default) fetches all features.
+                returned. ``None`` (default) fetches all features. ``minx > maxx``
+                reads as a filter crossing the antimeridian: it costs two requests,
+                one per side of the 180 degree seam, whose features are merged and
+                de-duplicated. That split is what makes the filter mean what it says
+                -- handed to OGR whole, a wrapping rect raises nothing and is
+                silently normalised into its complement, so ``(170, -10, -170, 10)``
+                would quietly fetch the other 340 degrees.
             output_crs: Optional CRS to reproject the result into (any form
                 :meth:`to_crs` accepts). ``None`` (default) keeps the server's CRS.
             where: Optional OGR/SQL attribute filter (e.g. ``"PERSONS > 1000000"``)
@@ -1619,7 +1625,9 @@ class FeatureCollection(GeoDataFrame):
                 the layer in; that is CRS84 (lon/lat) because OGC API – Features
                 serves GeoJSON, so CRS84 coordinates are correct for the current
                 driver. Only intersecting features are returned. ``None`` (default)
-                fetches all features.
+                fetches all features. As in :meth:`from_wfs`, ``minx > maxx`` reads as
+                a filter crossing the antimeridian and is served as two requests
+                either side of the 180 degree seam, merged and de-duplicated.
             output_crs: Optional CRS to reproject the result into (any form
                 :meth:`to_crs` accepts). ``None`` (default) keeps the service's CRS.
             where: Optional OGR/SQL attribute filter (e.g. ``"scalerank <= 2"``)

@@ -181,6 +181,37 @@ def fishnet_cells(
     slightly past ``bounds`` so every cell is a true square. The grid has ``ceil(width / cell_size)`` columns and
     ``ceil(height / cell_size)`` rows.
 
+    Note:
+        **A ``minx > maxx`` bounds is refused, deliberately, and this is settled — not an oversight.**
+        Elsewhere in pyramids a ``west > east`` box is read as crossing the 180 degree seam:
+        :meth:`Dataset.crop` splits and stitches it, and the OGC readers
+        (:func:`pyramids.feature._ogc.read_kwargs`) split it into two requests and union the features.
+        A fishnet is refused instead, for four reasons that do not apply to either of those:
+
+        1. ``bounds`` is **not a lon/lat box**. It is "the extent the grid covers, in the units of ``crs``",
+           and ``crs`` may be projected or ``None``. There is no seam at ±180 in metres, and no seam at all
+           in a CRS-less grid, so ``minx > maxx`` there is an inverted box and nothing else. Reading it as a
+           wrap would turn a caller's typo into a silent globe-spanning grid.
+        2. **The cell numbering has no coherent answer.** Columns are laid from ``minx`` and indexed
+           ``0..nx-1``. Two halves split at the seam start their columns at ``west`` and at ``-180``, and the
+           two runs only line up into one monotonic sequence when the wrap width is an exact multiple of
+           ``cell_size``. Otherwise the seam falls mid-cell and the ``col`` column either restarts or lies.
+        3. **The straddling cell is not a polygon.** A cell containing ±180 would have to be a MultiPolygon
+           in the ``-180..180`` convention, breaking the one-square-per-row/col contract the ``row`` / ``col``
+           columns index and the "every cell is a true square" invariant this function promises.
+        4. The OGC readers get away with it because there the wrap is only a *query filter*: two result sets
+           unioned, with no geometry of their own to keep coherent. A fishnet's output **is** the geometry.
+
+        A caller who wants a grid across the seam should build the two halves explicitly — pass each of
+        :func:`pyramids.base._coverage.seam_halves`' boxes to a separate call and concatenate — accepting
+        that ``col`` restarts at 0 in the second half, which is the honest description of what that grid is.
+
+        For the same reason this check is **not** collapsed onto
+        :func:`pyramids.base._coverage.validate_bbox` the way ``read_kwargs`` was. That validator is about a
+        lon/lat request bbox: it names the argument ``bbox``, coerces strings, and has an antimeridian mode.
+        This one is about a grid extent in arbitrary CRS units, and its refusal names ``fishnet`` and
+        ``bounds``. Same inequality, different rule.
+
     Args:
         bounds: ``(minx, miny, maxx, maxy)`` extent the grid covers.
         cell_size: Side length of each square cell, in the bounds' units.
@@ -190,8 +221,9 @@ def fishnet_cells(
         integer row / column indices.
 
     Raises:
-        ValueError: If ``cell_size`` is not positive, or ``bounds`` is degenerate (``minx >= maxx`` or
-            ``miny >= maxy``).
+        ValueError: If ``cell_size`` is not positive, or ``bounds`` is degenerate or inverted on either axis
+            (``minx >= maxx`` or ``miny >= maxy``). See the Note: ``minx > maxx`` is refused here rather than
+            read as an antimeridian crossing.
 
     Examples:
         - A 2x2 grid over the unit square:
@@ -202,6 +234,14 @@ def fishnet_cells(
             4
             >>> rows, cols
             ([0, 0, 1, 1], [0, 1, 0, 1])
+
+            ```
+        - A ``minx > maxx`` extent is refused rather than wrapped across the seam:
+            ```python
+            >>> from pyramids.feature.tessellation import fishnet_cells
+            >>> fishnet_cells((170.0, -10.0, -170.0, 10.0), 1.0)
+            Traceback (most recent call last):
+            ValueError: fishnet: bounds must satisfy minx < maxx and miny < maxy, got (170.0, -10.0, -170.0, 10.0)
 
             ```
     """
