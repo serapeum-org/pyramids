@@ -422,12 +422,20 @@ def test_merge_rasters_free_function(
     merge_input_raster: List[str],
     merge_output: Path,
 ):
+    """A default merge inherits its no-data instead of inventing one (#1086).
+
+    These fixtures are UInt16 and declare no no-data, so the mosaic must declare
+    none either. It used to stamp 0 -- which both masked any real 0 and, on an
+    integer band, was the only thing hiding the NaN that `init` puts in the VRT.
+    """
     from pyramids.dataset.merge import merge_rasters
 
     merge_rasters(merge_input_raster, merge_output)
     assert merge_output.exists()
     src = gdal.Open(str(merge_output))
-    assert src.GetRasterBand(1).GetNoDataValue() == 0
+    assert src.GetRasterBand(1).GetNoDataValue() is None, (
+        "no source declared a no-data value, so the mosaic must not invent one"
+    )
 
 
 def test_merge_instance_method(

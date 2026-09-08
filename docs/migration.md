@@ -165,6 +165,28 @@ that leaked out of an empty table lookup. Only affects code catching the old typ
 
 ### unreleased
 
+**`merge_rasters` inherits its no-data from the sources instead of defaulting to `0`.** A hard behavior change,
+and the reason is that `0` is real data in most rasters worth merging: sea-level land in an elevation or
+bathymetry model, the zero crossing of an anomaly or difference raster. The old default stamped `0` on the
+mosaic, so every such cell disappeared from masked reads, from `stats()` and from any plot — a Copernicus DEM
+mosaic of the Nile Delta lost 45.9% of the scene to it. It also discarded whatever the sources declared, in
+both directions: their marker was not inherited, and a cell that *was* no-data arrived in the mosaic as a real
+value.
+
+`no_data_value` now defaults to inheriting:
+
+- **Sources agree** — the mosaic declares that value. Nothing else changes.
+- **Sources disagree** — the first one wins and a `UserWarning` names both, instead of silently picking.
+- **No source declares one** — the mosaic declares none, so nothing is masked. Previously it declared `0`; on an
+  integer band `0` was also the only thing hiding the `NaN` that `init` puts in the VRT, which the band cannot
+  store.
+
+- **If you relied on the `0` default, pass it explicitly**: `merge_rasters(src, dst, no_data_value=0)` restores
+  the old behavior exactly, and is worth a second look — it masks every genuine `0` in your inputs.
+- **If you were passing `no_data_value=` already, nothing changes.** Every existing call is unaffected; only the
+  omitted-argument case moved.
+- The value is read from the sources' band 1, in the order you pass them, so ordering decides a disagreement.
+
 **The web-service readers accept a bbox that crosses the antimeridian.** Additive if you pass an ordinary box; a
 hard change if you relied on `minx > maxx` being rejected. `Dataset.from_wcs`, `from_wms`, `from_wmts` and
 `from_ogc_coverages` used to raise `ValueError: bbox must have minx < maxx and miny < maxy` for

@@ -20,6 +20,7 @@ from osgeo import gdal, osr
 from pyproj.exceptions import ProjError
 
 from pyramids.base._coverage import open_network_dataset, run_gdal_op
+from pyramids.base._domain import inherit_no_data
 from pyramids.base._utils import DEFAULT_RESAMPLING, resolve_resampling
 from pyramids.base.remote import redact_credentials, signer_cloud_config
 from pyramids.dataset._driver import resolve_output_driver
@@ -404,7 +405,7 @@ _cloud_config = signer_cloud_config
 def merge_rasters(
     src: Sequence[str | Path],
     dst: str | Path,
-    no_data_value: float | int | str = "0",
+    no_data_value: Any = _INHERIT_NO_DATA,
     init: float | int | str = "nan",
     n: float | int | str = "nan",
     method: str = "last",
@@ -449,7 +450,16 @@ def merge_rasters(
             z-order path only. Write a GTiff and convert.
         no_data_value (float | int | str):
             Stamped on the output bands as the nodata marker. For the reduction
-            methods it also fills pixels with no source coverage.
+            methods it also fills pixels with no source coverage. Omitted means
+            **inherit from the sources**: the first value they declare wins, and
+            a disagreement warns. When no source declares one, nothing real is
+            masked: the z-order methods stamp no marker at all, and the
+            reduction methods -- which must fill uncovered pixels with
+            something -- declare NaN, which no real cell holds. Passing a value
+            explicitly overrides all of that --
+            but note that any real cell holding that value becomes unreadable,
+            which is why 0 is a poor choice for an elevation, bathymetry,
+            anomaly or difference raster (#1086).
         init (float | int | str):
             Reported value for pixels with no source coverage in the VRT (z-order
             methods only). Maps to :func:`gdal.BuildVRTOptions` ``VRTNodata``.
@@ -651,6 +661,12 @@ def merge_rasters(
         # mis-align silently. `_keepalive` holds the in-memory warped VRTs so
         # GDAL does not free them while the mosaic is built.
         sources, _keepalive = _prepare_sources(src_paths, dst_crs, resampling)
+        if no_data_value is _INHERIT_NO_DATA:
+            # Read it off the handles _prepare_sources already opened rather
+            # than reopening: each open is billable under Requester-Pays.
+            no_data_value = inherit_no_data(
+                [handle.GetRasterBand(1).GetNoDataValue() for handle in sources]
+            )
 
         if method in _REDUCE_METHODS:
             # Pair each handle with its path so a failure on the reduce path
@@ -722,11 +738,16 @@ def merge_rasters(
         # asymmetry the shared resolution above exists to remove.
         out_driver = resolve_output_driver(dst)
         # LZW is a GTiff creation option; other drivers reject it.
+        # "none" *removes* the marker rather than omitting the option: the VRT
+        # above carries `init` (NaN by default) as VRTNodata, so merely leaving
+        # noData unset would stamp NaN -- invalid on an integer band, which is
+        # exactly the "sentinel the band cannot store" defect. Stamping a marker
+        # no source asked for is what made a real 0 unreadable (#1086).
         translate_opts = gdal.TranslateOptions(
             format=out_driver,
             creationOptions=["COMPRESS=LZW"] if out_driver == "GTiff" else [],
-            noData=str(no_data_value),
             projWin=proj_win,
+            noData="none" if no_data_value is None else str(no_data_value),
         )
         out_ds = run_gdal_op(
             partial(gdal.Translate, str(dst), vrt_ds, options=translate_opts),
@@ -1032,7 +1053,7 @@ def _merge_reduce(
     src_paths: list,
     dst: str,
     method: str,
-    no_data_value: float | int | str,
+    no_data_value: float | int | str | None,
     n: float | int | str,
     bbox: Sequence[float] | None = None,
     bbox_crs: int | str | None = None,
@@ -1056,7 +1077,9 @@ def _merge_reduce(
             :func:`_prepare_sources`).
         dst: Output raster path.
         method: One of ``"min"``, ``"max"``, ``"sum"``.
-        no_data_value: Output no-data value and no-coverage fill.
+        no_data_value: Output no-data value and no-coverage fill. ``None``
+            means no source declared one, so uncovered pixels are filled with
+            NaN and that is what the output declares.
         n: Source pixel value to treat as no-data (``"nan"`` means none).
         bbox: Optional ``(west, south, east, north)`` window. When given, the union
             grid is clipped to it before the output is created, so only the window
@@ -1091,7 +1114,10 @@ def _merge_reduce(
         )
 
     src_nodata = None if str(n).lower() == "nan" else float(n)
-    fill = float(no_data_value)
+    # The reduction always needs *some* fill for uncovered pixels, and the
+    # output is Float64, so NaN is the neutral choice when no source declared a
+    # no-data value -- it cannot collide with real data the way 0 did (#1086).
+    fill = float("nan") if no_data_value is None else float(no_data_value)
     # Extent of every source, computed once, to skip sources a strip cannot touch.
     src_bounds = [_source_bounds(source.handle) for source in sources]
 

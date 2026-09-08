@@ -370,6 +370,163 @@ def disjoint_pair(tmp_path):
     return pa, pb
 
 
+class TestMergeRastersInheritsNoData:
+    """The default no-data is inherited from the sources, never invented (#1086)."""
+
+    @staticmethod
+    def _tiles(tmp_path, no_data, dtype="float32"):
+        """Write two adjacent tiles whose 0.0 cells are real data."""
+        west = np.array([[0.0, 0.0], [3.0, 7.0]], dtype=dtype)
+        east = np.array([[0.0, 12.0], [9.0, 21.0]], dtype=dtype)
+        paths = []
+        for name, arr, x0 in (("w.tif", west, 0.0), ("e.tif", east, 2.0)):
+            ds = Dataset.from_array(
+                arr,
+                geo_ref=GeoReference(
+                    top_left_corner=(x0, 2.0), cell_size=1.0, epsg=4326
+                ),
+            )
+            ds.to_file(tmp_path / name)
+            handle = gdal.Open(str(tmp_path / name), gdal.GA_Update)
+            band = handle.GetRasterBand(1)
+            if no_data is None:
+                band.DeleteNoDataValue()
+            else:
+                band.SetNoDataValue(no_data)
+            handle.FlushCache()
+            handle = None
+            paths.append(tmp_path / name)
+        return paths
+
+    @staticmethod
+    def _masked_count(path):
+        """Return how many cells of the mosaic read as masked."""
+        ds = Dataset.read_file(str(path))
+        masked = ds.read_array(masked=True)
+        masked = masked[0] if masked.ndim == 3 else masked
+        return int(masked.size - masked.count()), ds
+
+    def test_agreeing_sources_are_inherited_and_real_zero_survives(self, tmp_path):
+        """The declared -9999 is inherited, so genuine 0 m cells stay readable.
+
+        Test scenario:
+            The exact case from #1086: two elevation tiles declaring -9999 whose
+            0.0 cells are sea-level land. The old default stamped 0, masking all
+            three of them and making stats() report a minimum of 3.0.
+        """
+        out = tmp_path / "m.tif"
+        merge_rasters(self._tiles(tmp_path, -9999.0), out)
+        masked, ds = self._masked_count(out)
+        assert ds.no_data_value[0] == pytest.approx(-9999.0), (
+            f"the sources' -9999 should be inherited, got {ds.no_data_value[0]}"
+        )
+        assert masked == 0, f"no real cell should be masked, {masked} were"
+        assert float(ds.stats(approx_ok=False)["min"].iloc[0]) == pytest.approx(0.0), (
+            "stats() must report the true minimum of 0.0, not 3.0"
+        )
+
+    def test_sources_declaring_none_yield_a_mosaic_declaring_none(self, tmp_path):
+        """No source declaring one means the mosaic invents none either.
+
+        Test scenario:
+            The Copernicus-DEM shape from #1086, whose tiles declare no no-data.
+        """
+        out = tmp_path / "m.tif"
+        merge_rasters(self._tiles(tmp_path, None), out)
+        masked, _ds = self._masked_count(out)
+        handle = gdal.Open(str(out))
+        raw = handle.GetRasterBand(1).GetNoDataValue()
+        handle = None
+        assert raw is None, f"no marker should be stamped, got {raw}"
+        assert masked == 0, f"nothing should be masked, {masked} cells were"
+
+    def test_an_integer_mosaic_is_not_given_a_nan_marker(self, tmp_path):
+        """An integer band must not inherit the NaN `init` puts in the VRT.
+
+        Test scenario:
+            UInt16 tiles declaring no no-data. NaN cannot be stored in an integer
+            band, and the old `0` default was the only thing hiding it.
+        """
+        out = tmp_path / "m.tif"
+        merge_rasters(self._tiles(tmp_path, None, dtype="uint16"), out)
+        handle = gdal.Open(str(out))
+        raw = handle.GetRasterBand(1).GetNoDataValue()
+        handle = None
+        assert raw is None, f"an integer band must not carry a NaN marker, got {raw}"
+
+    def test_a_declared_no_data_cell_stays_no_data(self, tmp_path):
+        """A source cell that IS no-data is not leaked into the mosaic as data.
+
+        Test scenario:
+            The other half of #1086: the sources' declared value used to be
+            ignored on the way in too, so a -9999 hole arrived as a real -9999.
+        """
+        paths = self._tiles(tmp_path, -9999.0)
+        holed = np.array([[-9999.0, 5.0], [3.0, 7.0]], dtype="float32")
+        ds = Dataset.from_array(
+            holed,
+            geo_ref=GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326),
+        )
+        ds.to_file(paths[0])
+        handle = gdal.Open(str(paths[0]), gdal.GA_Update)
+        handle.GetRasterBand(1).SetNoDataValue(-9999.0)
+        handle.FlushCache()
+        handle = None
+
+        out = tmp_path / "m.tif"
+        merge_rasters(paths, out)
+        masked, mosaic = self._masked_count(out)
+        values = np.asarray(mosaic.read_array(), dtype="float64")
+        values = values[0] if values.ndim == 3 else values
+        # The masked count alone does not discriminate: the old `0` default
+        # masked the one real 0.0 cell and produced the same total.
+        assert mosaic.no_data_value[0] == pytest.approx(-9999.0), (
+            f"the sources' marker should be inherited, got {mosaic.no_data_value[0]}"
+        )
+        assert masked == 1, f"the declared no-data cell should stay masked, {masked}"
+        assert float(np.nanmin(values[values != -9999.0])) == pytest.approx(0.0), (
+            "the real 0.0 cell must remain readable data"
+        )
+
+    def test_disagreeing_sources_warn_and_take_the_first(self, tmp_path):
+        """A disagreement is surfaced rather than silently resolved."""
+        west, east = self._tiles(tmp_path, -9999.0)
+        handle = gdal.Open(str(east), gdal.GA_Update)
+        handle.GetRasterBand(1).SetNoDataValue(-32768.0)
+        handle.FlushCache()
+        handle = None
+        out = tmp_path / "m.tif"
+        with pytest.warns(UserWarning, match="disagree on no-data value"):
+            merge_rasters([west, east], out)
+        ds = Dataset.read_file(str(out))
+        assert ds.no_data_value[0] == pytest.approx(-9999.0), (
+            "the first source's value should win"
+        )
+
+    def test_an_explicit_value_still_overrides(self, tmp_path):
+        """Passing a value keeps working, masking whatever holds it."""
+        out = tmp_path / "m.tif"
+        merge_rasters(self._tiles(tmp_path, -9999.0), out, no_data_value=0)
+        masked, ds = self._masked_count(out)
+        assert ds.no_data_value[0] == pytest.approx(0.0), "explicit 0 must be honoured"
+        assert masked == 3, f"an explicit 0 masks the three real zeros, got {masked}"
+
+    @pytest.mark.parametrize("method", ["last", "first", "min", "max", "sum"])
+    def test_every_method_inherits(self, tmp_path, method):
+        """Inheritance is not specific to the default z-order path.
+
+        Args:
+            method: Each overlap-resolution rule merge_rasters offers.
+        """
+        out = tmp_path / f"m_{method}.tif"
+        merge_rasters(self._tiles(tmp_path, -9999.0), out, method=method)
+        masked, ds = self._masked_count(out)
+        assert ds.no_data_value[0] == pytest.approx(-9999.0), (
+            f"method={method} did not inherit, got {ds.no_data_value[0]}"
+        )
+        assert masked == 0, f"method={method} masked {masked} real cells"
+
+
 class TestMergeRastersInputContracts:
     """Input/output contracts of ``merge_rasters`` beyond the overlap rule."""
 
