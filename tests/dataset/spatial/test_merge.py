@@ -11,6 +11,7 @@ covers the reproject-before-composite behaviour and its ``_prepare_sources`` /
 
 from __future__ import annotations
 
+import inspect
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -19,6 +20,7 @@ import pytest
 from osgeo import gdal
 
 import pyramids.dataset.merge as merge_mod
+from pyramids.base._domain import INHERIT_NO_DATA
 from pyramids.base.crs import reproject_coordinates
 from pyramids.base.georeference import GeoReference
 from pyramids.base.remote import CloudConfig
@@ -27,8 +29,12 @@ from pyramids.dataset.merge import (
     _as_srs,
     _cloud_config,
     _merge_reduce,
+    _mosaic_value_range,
     _prepare_sources,
     _source_bounds,
+    _source_nodata,
+    _storable_marker,
+    _unused_marker,
     merge_rasters,
     stack_bands,
 )
@@ -861,6 +867,228 @@ class TestMergeRastersInheritsNoData:
             f"method={method} did not inherit, got {ds.no_data_value[0]}"
         )
         assert masked == 0, f"method={method} masked {masked} real cells"
+
+    def test_passing_the_sentinel_explicitly_matches_the_default(self, tmp_path):
+        """``no_data_value=INHERIT_NO_DATA`` is the default spelled out.
+
+        Test scenario:
+            The sentinel is what tells "nothing was passed" apart from an
+            explicit ``None``, so passing it has to inherit the sources' marker
+            rather than decline one the way ``None`` does.
+        """
+        out = tmp_path / "sentinel.tif"
+        merge_rasters(
+            self._tiles(tmp_path, -9999.0), out, no_data_value=INHERIT_NO_DATA
+        )
+        assert self._raw_marker(out) == pytest.approx(-9999.0), (
+            f"the sentinel should inherit, got {self._raw_marker(out)}"
+        )
+
+    def test_the_default_reads_as_inherit_in_the_signature(self):
+        """The rendered default says what it does, for the generated API docs.
+
+        Test scenario:
+            A bare ``object()`` sentinel reaches the docs as
+            ``no_data_value=<object object at 0x...>`` -- a line that says
+            nothing and changes on every build.
+        """
+        rendered = str(inspect.signature(merge_rasters).parameters["no_data_value"])
+        assert rendered.endswith("= inherit"), (
+            f"the default should render as 'inherit', got {rendered!r}"
+        )
+
+
+def _mem_mosaic(bands, no_data=None):
+    """Build an in-memory Float32 dataset holding `bands`, for the marker helpers.
+
+    Args:
+        bands: One 2-D array-like per band, all of the same shape.
+        no_data: The marker every band declares, or `None` to declare none.
+
+    Returns:
+        gdal.Dataset: The in-memory dataset.
+    """
+    first = np.asarray(bands[0], dtype="float32")
+    handle = gdal.GetDriverByName("MEM").Create(
+        "", first.shape[1], first.shape[0], len(bands), gdal.GDT_Float32
+    )
+    for index, values in enumerate(bands):
+        band = handle.GetRasterBand(index + 1)
+        if no_data is not None:
+            band.SetNoDataValue(float(no_data))
+        band.WriteArray(np.asarray(values, dtype="float32"))
+    return handle
+
+
+@pytest.fixture(scope="function")
+def unmarked_tiles(tmp_path):
+    """Two adjacent float32 tiles declaring no no-data, opened for the marker helpers.
+
+    The union grid is 6 wide and holds 1..8, with a two-column gap between the
+    tiles -- the shape `_storable_marker` exists to mark.
+
+    Returns:
+        tuple[list, list[str]]: The open GDAL handles and their paths.
+    """
+    paths = []
+    for name, values, x0 in (
+        ("uw.tif", [[1, 2], [3, 4]], 0.0),
+        ("ue.tif", [[5, 6], [7, 8]], 4.0),
+    ):
+        Dataset.from_array(
+            np.array(values, dtype="float32"),
+            geo_ref=GeoReference(top_left_corner=(x0, 2.0), cell_size=1.0, epsg=4326),
+        ).to_file(tmp_path / name)
+        handle = gdal.Open(str(tmp_path / name), gdal.GA_Update)
+        handle.GetRasterBand(1).DeleteNoDataValue()
+        handle.FlushCache()
+        handle = None
+        paths.append(str(tmp_path / name))
+    return [gdal.Open(path) for path in paths], paths
+
+
+class TestSourceNodata:
+    """Tests for ``_source_nodata``, which reads ``n=`` as an override or as none."""
+
+    @pytest.mark.parametrize("value", ["nan", "NaN", float("nan"), np.float32("nan")])
+    def test_a_nan_spelling_means_no_override(self, value):
+        """Every spelling of NaN leaves each source with its own declared marker.
+
+        Args:
+            value: A way of spelling the default ``n="nan"``.
+
+        Test scenario:
+            A blanket ``srcNodata`` *replaces* what each source declares, so the
+            default has to mean "no override" rather than "ignore NaN cells" --
+            otherwise a mosaic of tiles declaring -9999 and -32768 composites
+            both of their holes as real measurements.
+        """
+        resolved = _source_nodata(value)
+        assert resolved is None, (
+            f"{value!r} should mean 'no override', got {resolved!r}"
+        )
+
+    @pytest.mark.parametrize(
+        "value, expected", [(-9999, -9999.0), ("-32768", -32768.0), (0, 0.0)]
+    )
+    def test_an_explicit_value_becomes_a_float_override(self, value, expected):
+        """Anything else is an override, coerced to the float GDAL wants.
+
+        Args:
+            value: The caller's ``n=``, as a number or its string spelling.
+            expected: The float the compositor should be handed.
+        """
+        resolved = _source_nodata(value)
+        assert resolved == pytest.approx(expected), (
+            f"{value!r} should override with {expected}, got {resolved!r}"
+        )
+
+
+class TestMosaicValueRange:
+    """Tests for ``_mosaic_value_range``, the survey a sentinel is chosen against."""
+
+    def test_the_range_spans_every_band(self):
+        """The answer covers all bands, so a sentinel free in band 1 is not enough.
+
+        Test scenario:
+            Band 1 holds 1..4 and band 2 holds -5..10; only a value outside
+            -5..10 is genuinely unused by the mosaic.
+        """
+        mosaic = _mem_mosaic([[[1.0, 2.0], [3.0, 4.0]], [[10.0, -5.0], [6.0, 7.0]]])
+        assert _mosaic_value_range(mosaic) == (-5.0, 10.0), (
+            f"the range must span both bands, got {_mosaic_value_range(mosaic)}"
+        )
+
+    def test_a_band_with_no_valid_cells_is_skipped(self):
+        """A band that is entirely no-data constrains nothing rather than failing.
+
+        Test scenario:
+            GDAL raises instead of answering when a band holds no valid pixel to
+            measure; the remaining band still has to decide the range.
+        """
+        mosaic = _mem_mosaic(
+            [np.full((2, 2), -9999.0), [[1.0, 2.0], [3.0, 4.0]]], no_data=-9999.0
+        )
+        assert _mosaic_value_range(mosaic) == (1.0, 4.0), (
+            f"the empty band should be skipped, got {_mosaic_value_range(mosaic)}"
+        )
+
+    def test_a_mosaic_with_no_valid_cells_has_no_range(self):
+        """An all-no-data mosaic rules out no sentinel at all.
+
+        Test scenario:
+            Every band raises, so there is no minimum or maximum to test a
+            candidate against and the caller has to fall back.
+        """
+        mosaic = _mem_mosaic([np.full((2, 2), -9999.0)], no_data=-9999.0)
+        assert _mosaic_value_range(mosaic) is None, (
+            f"an unmeasurable mosaic has no range, got {_mosaic_value_range(mosaic)}"
+        )
+
+
+class TestUnusedMarker:
+    """Tests for ``_unused_marker``, which picks a sentinel the data does not use."""
+
+    def test_a_candidate_outside_the_data_is_chosen(self):
+        """The range test alone clears the package default in the ordinary case.
+
+        Test scenario:
+            The mosaic holds 1..4, so -9999 cannot occur in it and is cleared
+            without the mosaic ever being read into an array.
+        """
+        mosaic = _mem_mosaic([[[1.0, 2.0], [3.0, 4.0]]])
+        chosen = _unused_marker(mosaic, np.dtype("float32"))
+        assert chosen == pytest.approx(-9999.0), (
+            f"a candidate outside 1..4 should be taken, got {chosen!r}"
+        )
+
+    def test_an_unmeasurable_mosaic_takes_the_first_candidate(self):
+        """With no range to test against, the preferred candidate is taken as-is.
+
+        Test scenario:
+            An all-no-data mosaic gives no bounds, and a uint8 band prefers its
+            own maximum over 0 -- the value a future write or fill would take.
+        """
+        mosaic = _mem_mosaic([np.full((2, 2), -9999.0)], no_data=-9999.0)
+        chosen = _unused_marker(mosaic, np.dtype("uint8"))
+        assert chosen == 255, f"uint8 should reach for 255 first, got {chosen!r}"
+
+    def test_a_dtype_with_no_storable_candidate_yields_none(self):
+        """A dtype that can hold no sentinel gets none, rather than an index error.
+
+        Test scenario:
+            ``bool`` offers neither the package default nor integer extremes, so
+            the candidate list is empty. GDAL has no boolean band, so this pins
+            the guard rather than a mosaic a caller could build.
+        """
+        mosaic = _mem_mosaic([np.full((2, 2), -9999.0)], no_data=-9999.0)
+        chosen = _unused_marker(mosaic, np.dtype(bool))
+        assert chosen is None, f"no candidate fits a bool band, got {chosen!r}"
+
+
+class TestStorableMarker:
+    """Tests for ``_storable_marker``, which settles what an inheriting mosaic declares."""
+
+    @pytest.mark.parametrize("init", [None, "none", "not-a-number"])
+    def test_an_uncoercible_init_still_yields_a_storable_sentinel(
+        self, unmarked_tiles, init
+    ):
+        """An ``init`` that is not a number cannot leave the mosaic unmarked.
+
+        Args:
+            init: An uncovered-pixel value ``float()`` refuses.
+
+        Test scenario:
+            ``init`` is only usable as the marker when it coerces to a number the
+            dtype can store; when it does not, the sentinel search has to run
+            instead of the marker being dropped -- dropping it is what leaves gap
+            pixels reading as ordinary data (#1086).
+        """
+        ordered, paths = unmarked_tiles
+        marker = _storable_marker(ordered, paths, init, None)
+        assert marker == pytest.approx(-9999.0), (
+            f"init={init!r} should fall through to a storable sentinel, got {marker!r}"
+        )
 
 
 class TestMergeRastersInputContracts:

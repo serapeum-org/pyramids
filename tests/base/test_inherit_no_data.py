@@ -19,7 +19,7 @@ import warnings
 import numpy as np
 import pytest
 
-from pyramids.base._domain import inherit_no_data
+from pyramids.base._domain import INHERIT_NO_DATA, inherit_no_data
 
 pytestmark = pytest.mark.core
 
@@ -186,3 +186,19 @@ class TestInheritNoData:
         before = list(values)
         _resolve_without_warning(values)
         assert values == before, f"input was mutated: {before} -> {values}"
+
+
+class TestInheritNoDataSentinel:
+    """Tests for `INHERIT_NO_DATA`, the "the caller passed nothing" marker."""
+
+    def test_it_renders_as_the_word_inherit(self):
+        """The sentinel names itself wherever it is rendered.
+
+        Test scenario:
+            It is a *default*, so it reaches generated API docs and `help()`. A
+            bare `object()` shows up there as `<object object at 0x...>` -- a
+            line that says nothing and changes on every build.
+        """
+        assert repr(INHERIT_NO_DATA) == "inherit", (
+            f"the sentinel should name itself, got {repr(INHERIT_NO_DATA)}"
+        )
