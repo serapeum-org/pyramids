@@ -16,9 +16,8 @@ from geopandas.geodataframe import GeoDataFrame
 from hpc.indexing import get_indices2, locate_values
 from pandas import DataFrame
 from pyproj import CRS
-from pyproj.exceptions import CRSError
 
-from pyramids.base.crs import crs_from_user_input, crs_spec
+from pyramids.base.crs import crs_from_user_input, crs_spec, require_crs_spec
 from pyramids.dataset.engines._base import _Engine
 from pyramids.feature import FeatureCollection, create_points, create_polygon
 
@@ -273,13 +272,14 @@ class Cell(_Engine["Dataset"]):
                 raster is geographic *and* rotated -- a case where cells in one
                 row no longer share a latitude band, and which is better solved
                 by warping to a north-up grid or a projected CRS than by
-                spending a geodesic call on every cell. Also when the CRS
-                cannot be parsed at all; when it is neither geographic nor
-                projected, so its axes are not a ground plane (a geocentric,
-                engineering or compound CRS); when a geographic CRS names no
-                ellipsoid to integrate over; and when the geotransform leaves
-                the cells no extent -- a zero cell size, or a rotation that
-                collapses the parallelogram.
+                spending a geodesic call on every cell. Also when the CRS is
+                neither geographic nor projected, so its axes are not a ground
+                plane -- a geocentric or engineering CRS, since pyproj reads
+                `is_geographic` and `is_projected` through a compound CRS to
+                its horizontal part; when a geographic CRS names no ellipsoid
+                to integrate over; when a row lies entirely beyond a pole; and
+                when the geotransform leaves the cells no extent -- a zero cell
+                size, or a rotation that collapses the parallelogram.
 
         Examples:
             - A projected raster has one area for every cell, straight from the
@@ -329,21 +329,16 @@ class Cell(_Engine["Dataset"]):
         scale = _area_scale(unit)
         geo = self._ds.geotransform
         rotated = bool(geo[2]) or bool(geo[4])
-        if not self._ds.crs:
-            raise ValueError(
-                "the raster declares no CRS, so its cells have no ground area; "
-                "set one with `set_crs` before asking"
-            )
-        try:
-            crs = crs_from_user_input(self._ds.crs)
-        except CRSError as error:
-            # Re-raised in this method's own terms: a `CRSError` surfacing from
-            # `cell_area` reads as a bug in the area code rather than as a
-            # raster whose projection cannot be parsed.
-            raise ValueError(
-                "the raster's CRS could not be interpreted, so its cells have "
-                f"no ground area: {error}"
-            ) from error
+        # The same route `_attach_crs` takes, for the same reasons: the EPSG
+        # code when it resolves and the WKT otherwise (#943), with `None`
+        # meaning the raster truly has no CRS rather than an empty string
+        # that every downstream constructor rejects opaquely (#979). Resolving
+        # from `self._ds.crs` alone would let one raster answer through
+        # `get_cell_polygons` and fail here. `require_crs_spec` raises the
+        # project's `CRSError`, itself a `ValueError`, naming the fix.
+        crs = crs_from_user_input(
+            require_crs_spec(self._ds.epsg, self._ds.crs, "compute cell area")
+        )
         if crs.is_geographic:
             if rotated:
                 raise ValueError(
@@ -370,10 +365,12 @@ class Cell(_Engine["Dataset"]):
                 raise ValueError(_NO_EXTENT)
             areas = np.broadcast_to(np.float64(one), (self._ds.rows, self._ds.columns))
         else:
-            # Geocentric, engineering and compound CRSs reach here. Their axes
-            # are not a ground plane, so a determinant of the geotransform is
-            # not an area of anything -- better to say so than to return a
-            # number that looks like one.
+            # Geocentric and engineering CRSs reach here. Their axes are not a
+            # ground plane, so a determinant of the geotransform is not an area
+            # of anything -- better to say so than to return a number that
+            # looks like one. A compound CRS does not reach here: pyproj reads
+            # `is_geographic` / `is_projected` through to its horizontal part,
+            # so a DEM with a vertical datum takes the branch it should.
             raise ValueError(
                 f"the raster's CRS is neither geographic nor projected "
                 f"({crs.type_name}), so its cells have no ground area; "

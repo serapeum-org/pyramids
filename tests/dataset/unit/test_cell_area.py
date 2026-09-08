@@ -20,11 +20,9 @@ import numpy as np
 import pytest
 from osgeo import gdal
 from pyproj import CRS
-from pyproj.exceptions import CRSError
 
 from pyramids.base._domain import is_stored_no_data
 from pyramids.dataset import Dataset, GeoReference
-from pyramids.dataset.engines import cell as cell_engine
 
 pytestmark = pytest.mark.core
 
@@ -248,7 +246,9 @@ class TestWhatCannotBeAnswered:
         handle.SetGeoTransform((0.0, 1.0, 0.0, 0.0, 0.0, -1.0))
         raster = Dataset(handle)
 
-        with pytest.raises(ValueError, match="declares no CRS"):
+        # `require_crs_spec` phrases it, so the message names the operation
+        # and the fix; `CRSError` is a `ValueError`, so the contract holds.
+        with pytest.raises(ValueError, match="cannot compute cell area"):
             raster.cell_area()
 
     def test_a_rotated_geographic_raster_is_refused(self):
@@ -641,33 +641,14 @@ class TestASphericalDatum:
 
 
 class TestTheGuardsNoPublicInputReaches:
-    """Two defensive branches, forced open.
+    """A defensive branch, forced open.
 
-    Neither is reachable through the public API as the code stands: `crs` is
-    always a string GDAL itself serialised, and pyproj parsed every CRS GDAL
-    would store when this was probed; and `get_geod()` returned an ellipsoid
-    for every geographic CRS tried, including a datum naming none. They are
-    typed and written as defence in depth -- `get_geod()` is declared
-    `Geod | None` -- so the tests force the state rather than producing it,
-    and assert only that the refusal is the documented one.
+    `get_geod()` returned an ellipsoid for every geographic CRS tried,
+    including a datum naming none, so nothing public reaches this. It is kept
+    because the return is typed `Geod | None`; the test forces the state
+    rather than producing it, and asserts only that the refusal is the
+    documented one.
     """
-
-    def test_an_uninterpretable_crs_is_refused_in_this_method_s_terms(
-        self, monkeypatch
-    ):
-        """A `CRSError` escaping `cell_area` would read as a bug in the area code.
-
-        Args:
-            monkeypatch: Forces the parser to fail, which no raster does here.
-        """
-
-        def _refuse(_):
-            raise CRSError("could not interpret 'nonsense' as a CRS")
-
-        monkeypatch.setattr(cell_engine, "crs_from_user_input", _refuse)
-
-        with pytest.raises(ValueError, match="could not be interpreted"):
-            _global_grid().cell_area()
 
     def test_a_geographic_crs_without_an_ellipsoid_is_refused(self, monkeypatch):
         """There is no figure of the earth to integrate over.
@@ -679,6 +660,39 @@ class TestTheGuardsNoPublicInputReaches:
 
         with pytest.raises(ValueError, match="declares no ellipsoid"):
             _global_grid().cell_area()
+
+
+class TestACompoundCrs:
+    """A DEM carrying a vertical datum is still a horizontal grid."""
+
+    @pytest.mark.parametrize(
+        "epsg, geo, expected",
+        [
+            (5972, (0.0, 30.0, 0.0, 0.0, 0.0, -30.0), 900.0),
+            (9518, (0.0, 1.0, 0.0, 1.0, 0.0, -1.0), 12308.0e6),
+        ],
+    )
+    def test_it_takes_the_branch_its_horizontal_part_names(self, epsg, geo, expected):
+        """Compound CRSs answer; they do not fall into the geocentric refusal.
+
+        Args:
+            epsg: A compound CRS -- projected, then geographic.
+            geo: Its geotransform.
+            expected: The area of one cell in square metres.
+
+        Test scenario:
+            The refusal branch's comment used to claim compound CRSs reached
+            it, which would have refused every DEM with a vertical datum.
+            pyproj reads `is_geographic` and `is_projected` through to the
+            horizontal part, so they do not -- and nothing in the suite said
+            so either way.
+        """
+        handle = gdal.GetDriverByName("MEM").Create("", 2, 2, 1, gdal.GDT_Float32)
+        handle.SetGeoTransform(geo)
+        handle.SetProjection(CRS.from_epsg(epsg).to_wkt())
+        raster = Dataset(handle)
+
+        assert float(raster.cell_area()[0, 0]) == pytest.approx(expected, rel=1e-3)
 
 
 class TestWhatItCostsToAsk:
