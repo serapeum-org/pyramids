@@ -36,12 +36,13 @@ from math import isfinite
 from typing import Any, cast
 
 from osgeo import gdal, osr
+from pyproj import CRS, Transformer
 
 from pyramids.base._bbox import split_antimeridian
 from pyramids.base._bbox import transform as bbox_transform
 from pyramids.base._errors import CoverageError, CRSError
 from pyramids.base._grid import grid_size
-from pyramids.base.crs import sr_from_user_input
+from pyramids.base.crs import crs_from_user_input, sr_from_user_input
 
 
 def validate_bbox(
@@ -495,11 +496,21 @@ def seam_offset(
 
     What every seam-alignment check needs to know the east half really does
     continue where the west one stops: 360 for a geographic layer, the full world
-    width (about 40 075 017 m) for a Web-Mercator one. Measured rather than
-    assumed, because all three raster readers window the source in *its* CRS, not
-    in the request's -- a WMTS layer is cropped in the pyramid's CRS, and a WCS or
+    width (about 40 075 017 m) for a Web-Mercator one, and -- importantly -- **0**
+    for a CRS whose x runs continuously across the antimeridian. Measured rather
+    than assumed, because all three raster readers window the source in *its* CRS,
+    not in the request's: a WMTS layer is cropped in the pyramid's CRS, a WCS or
     OGC API coverage in the coverage's. Assuming 360 there makes the check compare
     metres against degrees and reject every well-formed pair.
+
+    The measurement is the +180 and -180 meridians taken as **points** on the
+    bbox's own mid-latitude. Measuring instead across a world-spanning box, as this
+    once did, reports a regional CRS's distortion at its far edges rather than the
+    seam: UTM zone 60N came out at 29 238 222 m, when the true answer is 0 -- lon
+    179.9, 180 and -179.9 land at 822 836, 833 979 and 845 122 m, running straight
+    on through. UTM 60N and 1N are the natural CRSs for a coverage that actually
+    straddles the antimeridian (New Zealand, Fiji, the Aleutians), so getting 0
+    there is not an edge case; it is the main one.
 
     Args:
         bbox: The request bbox, used only for the latitude band the meridians are
@@ -532,10 +543,38 @@ def seam_offset(
             40075017
 
             ```
+        - A UTM zone spanning the antimeridian has no jump there at all, so its two
+          halves tile with no offset and the check must not expect one:
+            ```python
+            >>> from osgeo import osr
+            >>> from pyramids.base._coverage import seam_offset
+            >>> native = osr.SpatialReference()
+            >>> _ = native.ImportFromEPSG(32660)
+            >>> round(seam_offset((170.0, -10.0, -170.0, 10.0), "EPSG:4326", native))
+            0
+
+            ```
     """
     _, miny, _, maxy = bbox
-    world = native_projwin((-180.0, miny, 180.0, maxy), crs, native_srs)
-    return world[2] - world[0]
+    transformer = Transformer.from_crs(
+        crs_from_user_input(crs),
+        CRS.from_wkt(native_srs.ExportToWkt()),
+        always_xy=True,
+    )
+    # The two meridians as points on the bbox's own mid-latitude, not the width of
+    # a world-spanning box. Transforming the whole world into a regional CRS
+    # measures that CRS's distortion at its far edges rather than the seam.
+    middle = (miny + maxy) / 2.0
+    east_x, _ = transformer.transform(180.0, middle)
+    west_x, _ = transformer.transform(-180.0, middle)
+    offset = float(east_x - west_x)
+    if not isfinite(offset):
+        raise ValueError(
+            "the 180 degree meridian does not project into the coverage's CRS, so "
+            "an antimeridian read cannot be aligned against it; request a bbox "
+            "that does not cross the seam"
+        )
+    return offset
 
 
 def window_overlaps(projwin: list[float], src: gdal.Dataset) -> bool:

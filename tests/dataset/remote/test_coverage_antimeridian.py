@@ -396,6 +396,29 @@ class TestTheSeamOffsetIsMeasuredNotAssumed:
             2 * self.WORLD, rel=1e-6
         )
 
+    def test_a_utm_zone_on_the_seam_measures_no_offset_at_all(self):
+        """UTM 60N runs continuously through 180, so its halves need no offset.
+
+        Test scenario:
+            UTM zones 60N and 1N are the natural CRSs for a coverage that actually
+            straddles the antimeridian -- New Zealand, Fiji, the Aleutians. Their x
+            does not jump there: lon 179.9, 180 and -179.9 land at 822 836,
+            833 979 and 845 122 m, running straight on. Measuring across a
+            world-spanning box reported 29 238 222 m instead, so the alignment
+            check rejected halves that genuinely tile, blaming the data.
+        """
+        native = osr.SpatialReference()
+        native.ImportFromEPSG(32660)
+        assert seam_offset(WRAP, "EPSG:4326", native) == pytest.approx(0.0, abs=1.0)
+
+    def test_halves_of_a_utm_coverage_stitch_end_to_end(self):
+        """And with that offset the continuous halves concatenate."""
+        west = self._half(700_000.0, 100, 1000.0, 32660)
+        east = self._half(800_000.0, 50, 1000.0, 32660)
+        merged = _stitch_lon_halves(west, west, east, 0.0)
+        assert merged.columns == 150
+        assert merged.geotransform[0] == pytest.approx(700_000.0)
+
     def test_projected_halves_stitch_with_the_measured_offset(self):
         """The case that failed for every projected coverage before the fix.
 
