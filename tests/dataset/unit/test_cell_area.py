@@ -315,6 +315,30 @@ class TestTheRefusalsAddedAfterReview:
         with pytest.raises(ValueError, match="neither geographic nor projected"):
             raster.cell_area()
 
+    @pytest.mark.parametrize(
+        "geo",
+        [(-180.0, 1.0, 0.0, 60.0, 0.0, 0.0), (-180.0, 0.0, 0.0, 60.0, 0.0, -1.0)],
+    )
+    def test_a_geographic_grid_with_no_extent_is_refused_too(self, geo):
+        """The geographic branch has its own guard, on its own quantity.
+
+        Args:
+            geo: A geotransform with no row height, then none with any width.
+
+        Test scenario:
+            A zero row height collapses every latitude band, and a zero cell
+            width collapses the longitude span; either way the row areas are
+            all 0.0. The check runs on those `rows` numbers rather than on the
+            broadcast result, so it has to be exercised on this branch and not
+            only on the projected one.
+        """
+        raster = Dataset.from_array(
+            np.ones((4, 4), "float32"), geo_ref=GeoReference(geo=geo, epsg=4326)
+        )
+
+        with pytest.raises(ValueError, match="no area"):
+            raster.cell_area()
+
     def test_a_degenerate_geotransform_is_refused(self):
         """A cell with no extent is not a cell of zero area.
 
