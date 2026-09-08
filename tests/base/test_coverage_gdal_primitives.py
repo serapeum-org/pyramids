@@ -19,11 +19,24 @@ from __future__ import annotations
 import pytest
 from osgeo import gdal
 
-from pyramids.base._coverage import open_network_dataset, translate_to_mem
+from pyramids.base._coverage import (
+    open_network_dataset,
+    run_gdal_op,
+    translate_to_mem,
+)
 from pyramids.dataset import _ogc_coverages, _wcs, _wms
 from pyramids.errors import OGCAPIError, WCSError, WMSError
 
 pytestmark = pytest.mark.core
+
+
+def _raise_runtime_error(message: str):
+    """Return a zero-argument call that fails the way GDAL does."""
+
+    def _operation():
+        raise RuntimeError(message)
+
+    return _operation
 
 
 class _DemoError(Exception):
@@ -50,6 +63,126 @@ def _return_none(*_args, **_kwargs):
 def _refuse(*_args, **_kwargs):
     """Fail loudly if the wrong GDAL entry point is reached."""
     raise AssertionError("the wrong GDAL entry point was called")
+
+
+class TestRunGdalOp:
+    """The generalisation of the open/translate shape to any GDAL dataset call."""
+
+    def test_raising_call_is_branded_with_action_and_subject(self):
+        """A raising call keeps GDAL's text and names what was attempted on what."""
+        with pytest.raises(_DemoError) as excinfo:
+            run_gdal_op(
+                _raise_runtime_error("HTTP response code: 403"),
+                error=_DemoError,
+                action="building the mosaic",
+                subject="sources ['tile.tif']",
+            )
+        assert str(excinfo.value) == (
+            "building the mosaic failed for sources ['tile.tif']: "
+            "HTTP response code: 403"
+        ), f"unexpected message: {excinfo.value}"
+        assert isinstance(excinfo.value.__cause__, RuntimeError), (
+            "GDAL's error should be chained, not replaced"
+        )
+
+    def test_none_return_is_branded_too(self):
+        """A ``None`` return -- what GDAL does with exceptions off -- also raises."""
+        with pytest.raises(_DemoError) as excinfo:
+            run_gdal_op(
+                lambda: None,
+                error=_DemoError,
+                action="building the mosaic",
+                subject="sources ['tile.tif']",
+            )
+        assert str(excinfo.value) == (
+            "building the mosaic returned no raster for sources ['tile.tif']"
+        ), f"unexpected message: {excinfo.value}"
+
+    @pytest.mark.parametrize(
+        "operation", [_raise_runtime_error("boom"), lambda: None], ids=["raise", "none"]
+    )
+    def test_hint_is_appended_on_both_failure_shapes(self, operation):
+        """The optional hint reaches the message whichever way the call failed.
+
+        Args:
+            operation: A call that fails by raising, and one that returns None.
+
+        Test scenario:
+            The raise-plus-hint composition had no test at all, so a hint could
+            have been silently dropped on the branch that matters most.
+        """
+        with pytest.raises(_DemoError) as excinfo:
+            run_gdal_op(
+                operation,
+                error=_DemoError,
+                action="building the mosaic",
+                subject="sources ['tile.tif']",
+                hint="check the paths are readable rasters",
+            )
+        assert str(excinfo.value).endswith("; check the paths are readable rasters"), (
+            f"hint missing: {excinfo.value}"
+        )
+
+    def test_a_successful_call_is_returned_untouched(self):
+        """The helper is transparent when the call succeeds."""
+        dataset = gdal.GetDriverByName("MEM").Create("", 2, 3, 1)
+        result = run_gdal_op(
+            lambda: dataset,
+            error=_DemoError,
+            action="building the mosaic",
+            subject="sources ['tile.tif']",
+        )
+        assert (result.RasterXSize, result.RasterYSize) == (2, 3), (
+            "the helper must hand back the dataset the call produced"
+        )
+
+
+class TestSharedHelpersRedactCredentials:
+    """A signed URL must not reach a message either helper builds."""
+
+    def test_run_gdal_op_redacts_the_subject(self):
+        """A credential in the subject is blanked, the rest of the URL kept."""
+        signed = "'https://acct.blob.core.windows.net/c/t.tif?sig=SECRETTOKEN'"
+        with pytest.raises(_DemoError) as excinfo:
+            run_gdal_op(
+                _raise_runtime_error("HTTP response code: 403"),
+                error=_DemoError,
+                action="opening",
+                subject=f"source {signed}",
+            )
+        message = str(excinfo.value)
+        assert "SECRETTOKEN" not in message, f"credential leaked: {message}"
+        assert "<redacted>" in message, f"not redacted: {message}"
+        assert "t.tif" in message, f"the source should still be named: {message}"
+
+    def test_open_network_dataset_redacts_the_subject(self):
+        """The open helper redacts too (the readers rely on it)."""
+        signed = "'/vsicurl/https://acct.blob.core.windows.net/c/t.tif?sig=SECRETTOKEN'"
+        with pytest.raises(_DemoError) as excinfo:
+            open_network_dataset(
+                "/vsimem/definitely-absent.tif",
+                error=_DemoError,
+                subject=f"coverage {signed}",
+            )
+        message = str(excinfo.value)
+        assert "SECRETTOKEN" not in message, f"credential leaked: {message}"
+        assert "<redacted>" in message, f"not redacted: {message}"
+
+    def test_translate_to_mem_redacts_too(self):
+        """`translate_to_mem` shares the redaction, not just the wording."""
+        signed = "'https://acct.blob.core.windows.net/c/t.tif?sig=SECRETTOKEN'"
+        src = gdal.GetDriverByName("MEM").Create("", 8, 8, 1)
+        with pytest.raises(_DemoError) as excinfo:
+            translate_to_mem(
+                src,
+                error=_DemoError,
+                action="demo read",
+                subject=f"coverage {signed}",
+                bandList=[5],
+            )
+        message = str(excinfo.value)
+        assert "SECRETTOKEN" not in message, f"credential leaked: {message}"
+        assert "<redacted>" in message, f"not redacted: {message}"
 
 
 class TestOpenNetworkDataset:
