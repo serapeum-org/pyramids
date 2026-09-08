@@ -6922,7 +6922,7 @@ value.</p>
   marker, and that warns. Previously all of this was <code>0</code>: on an integer band <code>0</code> was also the only thing hiding
   the <code>NaN</code> that <code>init</code> puts in the VRT, which the band cannot store.</li>
 </ul>
-<p>Two consequences worth checking if you read raw arrays:</p>
+<p>Related behaviour that changed with it:</p>
 <ul>
 <li><strong>The reduction methods' uncovered pixels changed value</strong>, not just their declaration — they used to be <code>0.0</code>
   and are now the inherited marker (e.g. <code>-9999.0</code>) or <code>NaN</code>.</li>
@@ -6931,6 +6931,17 @@ value.</p>
   to <code>0</code>; those zeros then won every <code>fmin</code> and were added by every <code>sum</code>, so a mosaic of integer tiles that did
   not tile contiguously came back all-zero whatever <code>no_data_value</code> said. Sources are now warped into the
   <code>Float64</code> the reduction writes.</li>
+<li><strong>The marker now reaches the pixels it marks.</strong> Uncovered pixels used to hold <code>init</code> (<code>NaN</code> by default) while
+  the mosaic declared something else, so a mosaic inheriting <code>-9999</code> declared <code>-9999</code> over gaps holding <code>NaN</code>
+  and <code>read_array(masked=True)</code> masked none of them. The gaps are now filled with whatever is declared.</li>
+<li><strong>An inherited value the output band cannot store is replaced, with a warning.</strong> Integer sources can declare
+  <code>NaN</code> — <code>Dataset.no_data_value</code> reports it for an integer raster asked for one — and GDAL then refused the
+  marker outright ("Nodata value was not set to output band"), leaving the mosaic unmarked.</li>
+<li><strong>Each source's own no-data now marks that source's holes.</strong> <code>n</code> is an override, and its default <code>"nan"</code> was
+  passed to <code>gdal.BuildVRT</code> as one, replacing every source's declaration. Tiles that declared different values
+  therefore had all but the winner's holes composited as real measurements — a tile declaring <code>-32768</code> beside
+  one declaring <code>-9999</code> read its holes back as <code>-32768</code>. The default now means "no override". If you were
+  relying on <code>n</code>'s default to ignore <code>NaN</code> cells in sources that declare nothing, pass <code>n=</code> explicitly.</li>
 </ul>
 <p>Migrating:</p>
 <ul>

@@ -14497,7 +14497,7 @@ to construct one.")``.
 <a id="__codelineno-0-3773" name="__codelineno-0-3773"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">merge</span><span class="p">(</span>
 <a id="__codelineno-0-3774" name="__codelineno-0-3774"></a>        <span class="bp">self</span><span class="p">,</span>
 <a id="__codelineno-0-3775" name="__codelineno-0-3775"></a>        <span class="n">dst</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
-<a id="__codelineno-0-3776" name="__codelineno-0-3776"></a>        <span class="n">no_data_value</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="n">_INHERIT_NO_DATA</span><span class="p">,</span>
+<a id="__codelineno-0-3776" name="__codelineno-0-3776"></a>        <span class="n">no_data_value</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="n">INHERIT_NO_DATA</span><span class="p">,</span>
 <a id="__codelineno-0-3777" name="__codelineno-0-3777"></a>        <span class="n">init</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"nan"</span><span class="p">,</span>
 <a id="__codelineno-0-3778" name="__codelineno-0-3778"></a>        <span class="n">n</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"nan"</span><span class="p">,</span>
 <a id="__codelineno-0-3779" name="__codelineno-0-3779"></a>        <span class="n">method</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"last"</span><span class="p">,</span>
@@ -24816,7 +24816,7 @@ local / threaded scheduler.</p>
 
 
 <h4 id="pyramids.dataset.collection.DatasetCollection.merge" class="doc doc-heading"><a href="#pyramids.dataset.collection.DatasetCollection.merge" class="toclink">
-            <code class="highlight language-python"><span class="n">merge</span><span class="p">(</span><span class="n">dst</span><span class="p">,</span> <span class="n">no_data_value</span><span class="o">=</span><span class="n">_INHERIT_NO_DATA</span><span class="p">,</span> <span class="n">init</span><span class="o">=</span><span class="s1">'nan'</span><span class="p">,</span> <span class="n">n</span><span class="o">=</span><span class="s1">'nan'</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s1">'last'</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">bbox</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">bbox_crs</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+            <code class="highlight language-python"><span class="n">merge</span><span class="p">(</span><span class="n">dst</span><span class="p">,</span> <span class="n">no_data_value</span><span class="o">=</span><span class="n">INHERIT_NO_DATA</span><span class="p">,</span> <span class="n">init</span><span class="o">=</span><span class="s1">'nan'</span><span class="p">,</span> <span class="n">n</span><span class="o">=</span><span class="s1">'nan'</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s1">'last'</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">bbox</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">bbox_crs</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
 
 </a><a href="#pyramids.dataset.collection.DatasetCollection.merge" class="headerlink" title="Permanent link">#</a></h4>
 
@@ -24877,7 +24877,7 @@ about what an omitted argument means (#1086).</p>
               </div>
             </td>
             <td>
-                  <code><span title="pyramids.dataset.dataset._INHERIT_NO_DATA">_INHERIT_NO_DATA</span></code>
+                  <code><span title="pyramids.base._domain.INHERIT_NO_DATA">INHERIT_NO_DATA</span></code>
             </td>
           </tr>
           <tr class="doc-section-item">
@@ -25142,7 +25142,7 @@ before any I/O.</p>
 <span class="normal"><a href="#__codelineno-0-3872">3872</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-3773" name="__codelineno-0-3773"></a><span class="k">def</span><span class="w"> </span><span class="nf">merge</span><span class="p">(</span>
 <a id="__codelineno-0-3774" name="__codelineno-0-3774"></a>    <span class="bp">self</span><span class="p">,</span>
 <a id="__codelineno-0-3775" name="__codelineno-0-3775"></a>    <span class="n">dst</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
-<a id="__codelineno-0-3776" name="__codelineno-0-3776"></a>    <span class="n">no_data_value</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="n">_INHERIT_NO_DATA</span><span class="p">,</span>
+<a id="__codelineno-0-3776" name="__codelineno-0-3776"></a>    <span class="n">no_data_value</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="n">INHERIT_NO_DATA</span><span class="p">,</span>
 <a id="__codelineno-0-3777" name="__codelineno-0-3777"></a>    <span class="n">init</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"nan"</span><span class="p">,</span>
 <a id="__codelineno-0-3778" name="__codelineno-0-3778"></a>    <span class="n">n</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"nan"</span><span class="p">,</span>
 <a id="__codelineno-0-3779" name="__codelineno-0-3779"></a>    <span class="n">method</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"last"</span><span class="p">,</span>
