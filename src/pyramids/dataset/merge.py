@@ -413,6 +413,25 @@ def _source_bounds(
 _cloud_config = signer_cloud_config
 
 
+def _source_nodata(n: float | int | str) -> float | None:
+    """The value to treat as source no-data, or `None` to use each source's own.
+
+    The default `n="nan"` does not mean "ignore NaN cells" -- it has to mean "no
+    override", because handing GDAL a blanket value *replaces* every source's own
+    declaration with it. A mosaic of tiles declaring -9999 and -32768 then
+    composited both holes as real measurements, and only the winner's were masked
+    afterwards by the inherited marker. Left unset, each source's declared value
+    marks that source's own holes, which is what makes the two markers agree.
+
+    Args:
+        n: The caller's source-no-data value; `"nan"` (the default) means none.
+
+    Returns:
+        float | None: The override, or `None` to leave each source with its own.
+    """
+    return None if str(n).lower() == "nan" else float(n)
+
+
 def _mosaic_value_range(mosaic: gdal.Dataset) -> tuple[float, float] | None:
     """The smallest and largest values the mosaic's cells hold, across every band.
 
@@ -666,7 +685,11 @@ def merge_rasters(
         n (float | int | str):
             Source pixels matching this value are ignored — both when building
             the VRT mosaic (z-order) and when reducing (the value is treated as
-            source no-data).
+            source no-data). It is an **override**: whatever is passed replaces
+            every source's own declared marker, so a mosaic of tiles declaring
+            different values would have all of their holes composited as real
+            measurements. The default ``"nan"`` therefore means "no override",
+            and each source's declared value marks that source's own holes.
         method (str):
             Overlap-resolution rule: one of ``"first"``, ``"last"`` (default),
             ``"min"``, ``"max"``, ``"sum"``.
@@ -841,14 +864,12 @@ def merge_rasters(
     # the repeat is free and keeps each path readable on its own.
     resolve_output_driver(dst)
 
-    # SMELL: `init` and `n` default to the string `"nan"`, which
-    # round-trips through GDAL as float NaN. For integer-typed
-    # rasters (e.g. UInt16) GDAL emits a warning per band:
-    # `Band data type of <T> cannot represent the specified NoData
-    # value of nan`. The defaults are kept for backwards-compat
-    # with the previous gdal_merge.main-based signature; callers
-    # that hit integer rasters should pass an explicit numeric
-    # value instead of relying on the default.
+    # `init` and `n` both default to the string `"nan"`, which round-trips
+    # through GDAL as float NaN -- a value no integer band can store. Neither
+    # reaches such a band as itself any more: `n` means "no override" and is not
+    # passed on at all (see `_source_nodata`), and `init` gives way to a storable
+    # marker (see `_storable_marker`). The spellings are kept for
+    # backwards-compat with the previous gdal_merge.main-based signature.
     src_paths = [str(p) for p in src]
     if signer is not None:
         # Apply the signer's href rewrite to every source (e.g. graft a SAS
@@ -918,7 +939,7 @@ def merge_rasters(
                 # integer one -- and would mask nothing.
                 vrt_fill = str(resolved_no_data)
         vrt_opts = gdal.BuildVRTOptions(
-            srcNodata=str(n),
+            srcNodata=_source_nodata(n),
             VRTNodata=vrt_fill,
         )
         vrt_ds = run_gdal_op(
@@ -1364,7 +1385,7 @@ def _merge_reduce(
             geotransform, x_size, y_size, projection, bbox, bbox_crs
         )
 
-    src_nodata = None if str(n).lower() == "nan" else float(n)
+    src_nodata = _source_nodata(n)
     # The reduction always needs *some* fill for uncovered pixels, and the
     # output is Float64, so NaN is the neutral choice when the caller asked for
     # no marker -- it cannot collide with real data the way 0 did (#1086). It is

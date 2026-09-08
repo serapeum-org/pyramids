@@ -789,6 +789,56 @@ class TestMergeRastersInheritsNoData:
             "the first source's value should win"
         )
 
+    @pytest.mark.parametrize("method", ["last", "min"])
+    def test_every_source_s_own_hole_is_skipped_not_just_the_winner_s(
+        self, tmp_path, method
+    ):
+        """A hole is a hole in whichever source declared it.
+
+        Args:
+            method: One z-order and one reduction rule, so both write paths
+                answer alike.
+
+        Test scenario:
+            Tile A declares -9999 and tile B declares -32768, and each has a
+            hole. The z-order path passed `srcNodata="nan"` to `gdal.BuildVRT`,
+            which *replaces* every source's own declaration -- so both holes
+            composited as real measurements and only the winner's value was
+            masked afterwards by the inherited marker. B's -32768 hole came out
+            as a readable -32768.
+        """
+        west = np.array([[1.0, -9999.0], [3.0, 4.0]], dtype="float32")
+        east = np.array([[5.0, -32768.0], [7.0, 8.0]], dtype="float32")
+        paths = []
+        for name, arr, x0, marker in (
+            ("dw.tif", west, 0.0, -9999.0),
+            ("de.tif", east, 2.0, -32768.0),
+        ):
+            Dataset.from_array(
+                arr,
+                geo_ref=GeoReference(
+                    top_left_corner=(x0, 2.0), cell_size=1.0, epsg=4326
+                ),
+            ).to_file(tmp_path / name)
+            handle = gdal.Open(str(tmp_path / name), gdal.GA_Update)
+            handle.GetRasterBand(1).SetNoDataValue(marker)
+            handle.FlushCache()
+            handle = None
+            paths.append(tmp_path / name)
+
+        out = tmp_path / f"holes_{method}.tif"
+        with pytest.warns(UserWarning, match="disagree on no-data value"):
+            merge_rasters(paths, out, method=method)
+        masked, ds = self._masked_count(out)
+        values = np.asarray(ds.read_array(), dtype="float64")
+        values = values[0] if values.ndim == 3 else values
+        assert masked == 2, (
+            f"both sources' holes should be masked, {masked} were: {values.tolist()}"
+        )
+        assert -32768.0 not in values, (
+            f"the second source's hole leaked as data: {values.tolist()}"
+        )
+
     def test_an_explicit_value_still_overrides(self, tmp_path):
         """Passing a value keeps working, masking whatever holds it."""
         out = tmp_path / "m.tif"
