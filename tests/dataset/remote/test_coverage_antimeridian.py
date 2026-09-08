@@ -225,6 +225,19 @@ class TestTheSeamGuardReachesEveryRasterReader:
         with pytest.raises(ValueError, match="within -180..180"):
             check_seam_bbox((190.0, -10.0, -170.0, 10.0), "EPSG:4326")
 
+    def test_a_geographic_crs_off_greenwich_is_refused(self):
+        """`IsGeographic()` alone does not put the seam at 180.
+
+        Test scenario:
+            EPSG:4807 (NTF, Paris) is geographic, but counts longitude from a
+            meridian 2.34 degrees east of Greenwich and expresses it in grads,
+            where the half-turn is 200. Splitting at 180 would cut such a bbox in
+            the wrong place and then measure the halves against a 360 that is not
+            the width of the world in those units.
+        """
+        with pytest.raises(ValueError, match="degrees from Greenwich"):
+            check_seam_bbox((170.0, -10.0, -170.0, 10.0), "EPSG:4807")
+
     def test_an_ordinary_bbox_passes_in_any_crs(self):
         """The guard is a no-op unless the box actually wraps."""
         assert check_seam_bbox((0.0, 0.0, 1e6, 1e6), "EPSG:3857") is None
@@ -398,6 +411,140 @@ class TestTheSeamOffsetIsMeasuredNotAssumed:
         east = self._half(-180.0, 50, 0.2, 4326)
         with pytest.raises(ValueError, match="different resolutions"):
             _stitch_lon_halves(west, west, east)
+
+
+class TestNothingIsStrandedWhenAHalfFails:
+    """A seam read fetches twice and adopts twice; either can raise part-way.
+
+    Before the split there was one window to fetch and one raster to adopt, so
+    neither loop could fail with something already in hand. Both can now, and the
+    rest of these readers is deliberately explicit about ownership -- a dedicated
+    finally in `_collect_halves`, `src = None` in three finally blocks, `parts`
+    closed in a finally. These two loops were the lapse.
+    """
+
+    @staticmethod
+    def _tracking_translate(monkeypatch, module, closed: list[int]):
+        """Replace the module's `_translate_window` with one that fails second.
+
+        Args:
+            monkeypatch: pytest's monkeypatch fixture.
+            module: The reader module to patch.
+            closed: Collects the id of every raster the reader closes.
+
+        Returns:
+            None
+        """
+        calls = {"n": 0}
+        real = module._translate_window
+
+        def fake(*args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] > 1:
+                raise RuntimeError("second half exploded")
+            mem = real(*args, **kwargs)
+            original_close = mem.Close
+
+            def close():
+                closed.append(id(mem))
+                original_close()
+
+            mem.Close = close
+            return mem
+
+        monkeypatch.setattr(module, "_translate_window", fake)
+
+    def test_wcs_closes_the_first_half_when_the_second_fetch_raises(self, monkeypatch):
+        """The first MEM raster must not be left to the garbage collector."""
+        closed: list[int] = []
+        self._tracking_translate(monkeypatch, _wcs, closed)
+        with WcsMock(version="1.0.0", bounds=GLOBAL_BOUNDS) as server:
+            with pytest.raises(RuntimeError, match="second half exploded"):
+                Dataset.from_wcs(
+                    server.url, coverage="test_cov", bbox=WRAP, version="1.0.0"
+                )
+        assert len(closed) == 1, (
+            f"the successfully fetched half should be closed on the way out, "
+            f"got {len(closed)} close(s)"
+        )
+
+    def test_wcs_closes_the_halves_it_could_not_adopt(self):
+        """A raise during adoption leaves the untouched tail wrapped by nothing.
+
+        Test scenario:
+            `parts` closes what it wrapped, but a raise part-way through means the
+            remaining `mems` entries were never wrapped, so nothing else would
+            close them. `from_wcs` takes `dataset_cls`, so a stub that fails on its
+            second construction reaches the path directly.
+        """
+        adopted_closed: list[int] = []
+        mem_closed: list[int] = []
+
+        class FailsOnSecond:
+            made = 0
+
+            def __init__(self, mem, access="read"):
+                FailsOnSecond.made += 1
+                # Track the raw handle's own Close, which is what the sweep must
+                # call for the half that was never wrapped.
+                original = mem.Close
+                mem.Close = lambda: (mem_closed.append(id(mem)), original())[1]
+                if FailsOnSecond.made > 1:
+                    raise RuntimeError("adoption exploded")
+                self._mem = mem
+
+            def close(self):
+                adopted_closed.append(id(self._mem))
+
+        with WcsMock(version="1.0.0", bounds=GLOBAL_BOUNDS) as server:
+            with pytest.raises(RuntimeError, match="adoption exploded"):
+                _wcs.from_wcs(
+                    FailsOnSecond,
+                    server.url,
+                    coverage="test_cov",
+                    bbox=WRAP,
+                    crs="EPSG:4326",
+                    version="1.0.0",
+                    output_crs=None,
+                    resolution=None,
+                    coverage_crs=None,
+                    wcs_format=None,
+                    output=None,
+                    resample="nearest",
+                    direct=False,
+                    subset_axes=None,
+                    auth=None,
+                    timeout=60.0,
+                    extra_params=None,
+                )
+        assert len(adopted_closed) == 1, (
+            f"the one part that was adopted is closed by `parts`, got "
+            f"{len(adopted_closed)}"
+        )
+        assert len(mem_closed) == 1, (
+            f"the half that was never wrapped has nothing else to close it, so "
+            f"the mems tail sweep must; got {len(mem_closed)} raw close(s)"
+        )
+
+    @pytest.mark.skipif(
+        gdal.GetDriverByName("OGCAPI") is None,
+        reason="GDAL build lacks the OGCAPI driver",
+    )
+    def test_coverages_closes_the_first_half_when_the_second_fetch_raises(
+        self, monkeypatch
+    ):
+        """The same guarantee on the reader that fetches a whole list at once."""
+        closed: list[int] = []
+        self._tracking_translate(monkeypatch, _ogc_coverages, closed)
+        with _serving(OGC_GLOBAL_BOUNDS) as url:
+            with pytest.raises(RuntimeError, match="second half exploded"):
+                Dataset.from_ogc_coverages(
+                    url, coverage="demo", bbox=WRAP, resolution=0.05
+                )
+        assert len(closed) == 1, (
+            f"the successfully fetched half should be closed on the way out, "
+            f"got {len(closed)} close(s)"
+        )
 
 
 class TestWcsDirect:

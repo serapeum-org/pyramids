@@ -495,18 +495,25 @@ class TestSeamWindows:
         assert [size for _, size in windows] == [(1, 4), (1, 4)]
         assert [window[0] for window, _ in windows] == [170.0, -180.0]
 
-    def test_an_exact_half_pixel_half_is_kept_not_dropped(self):
-        """Rounding half up, so the boundary case keeps the half rather than losing it.
+    def test_a_half_pixel_boundary_rounds_up_not_to_even(self):
+        """Banker's rounding is parity-dependent; the seam split must not be.
 
         Test scenario:
-            A three-pixel wrap over equal spans puts each half at 1.5 pixels.
-            Banker's rounding would send one to 2 and leave the other at 1 by
-            accident of parity; rounding half up makes the west half the wider one
-            deterministically, and neither is dropped.
+            Five pixels over two equal 10 degree halves puts each at exactly 2.5.
+            `round()` takes 2.5 to 2 -- to even -- giving the *east* half the extra
+            pixel, while 1.5 at three pixels goes to 2 and gives it to the west.
+            Which half grows would then depend on the requested width's parity.
+            Rounding half up always gives it to the west, and the widths still sum
+            to what was asked for.
         """
-        windows = _wms._seam_windows((170.0, -10.0, -170.0, 10.0), (3, 4))
-        assert [size[0] for _, size in windows] == [2, 1]
-        assert sum(size[0] for _, size in windows) == 3
+        five = _wms._seam_windows((170.0, -10.0, -170.0, 10.0), (5, 4))
+        assert [size[0] for _, size in five] == [3, 2], (
+            "half-up must give the extra pixel to the west half; banker's "
+            "rounding takes 2.5 to 2 and gives it to the east"
+        )
+        three = _wms._seam_windows((170.0, -10.0, -170.0, 10.0), (3, 4))
+        assert [size[0] for _, size in three] == [2, 1]
+        assert sum(size[0] for _, size in five) == 5
 
     def test_sub_half_pixel_west_sliver_collapses_to_one_request(self):
         """A west side under half a pixel wide *is* the half-pixel snap: drop it."""
