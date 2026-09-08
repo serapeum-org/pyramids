@@ -2079,6 +2079,32 @@ class TestCropFillValues:
         sentinel = cropped.no_data_value[0]
         assert (sentinel is not None) is declares
 
+    def test_a_raster_with_per_band_sentinels_is_still_trimmed(self):
+        """The trim asks each band its own sentinel, not band 0's.
+
+        Test scenario:
+            Asking band 0's of every band was harmless while they all declared
+            the same value, and stopped being so once a fill is derived per
+            band. A raster whose second band declares `0` while its first is
+            handed `-9999` had its whole border judged against `-9999`, which
+            matched nothing in band 2, so the row was never wholly no-data and
+            nothing was trimmed -- 6x6 where a uniform raster gave 4x4.
+        """
+        raster = gdal.GetDriverByName("MEM").Create("", 8, 8, 2, gdal.GDT_Int16)
+        raster.SetGeoTransform((0.0, 1.0, 0.0, 8.0, 0.0, -1.0))
+        for band in (1, 2):
+            raster.GetRasterBand(band).WriteArray(
+                np.arange(64, dtype="int16").reshape(8, 8) + 1
+            )
+        raster.GetRasterBand(1).SetNoDataValue(float("nan"))
+        raster.GetRasterBand(2).SetNoDataValue(0.0)
+        source = Dataset(raster)
+        polygon = gpd.GeoDataFrame(geometry=[box(2.0, 2.0, 6.0, 6.0)], crs=4326)
+
+        cropped = source.crop(polygon)
+
+        assert np.asarray(cropped.read_array()).shape == (2, 4, 4)
+
     def test_a_band_holding_every_candidate_refuses(self):
         """The honest failure, rather than a colliding fill.
 

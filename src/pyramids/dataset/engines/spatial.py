@@ -2617,7 +2617,7 @@ class Spatial(_Engine["Dataset"]):
             https://github.com/serapeum-org/pyramids/issues/74
         """
         big_array = src.read_array()
-        value_to_remove = src.no_data_value[0]
+        declared = src.no_data_value
         # Not `==`: a NaN sentinel never equals itself, so `==` marks nothing
         # and the all-no-data frame GDAL leaves after a cutline warp survives
         # -- an oversized crop carrying a no-data border.
@@ -2632,7 +2632,21 @@ class Spatial(_Engine["Dataset"]):
         # of the band's values at storage tolerance, so that is the tolerance
         # the consumer has to ask with, or it deletes data the search
         # deliberately preserved.
-        no_data_mask = is_stored_no_data(big_array, value_to_remove)
+        if big_array.ndim == 3:
+            # Per band, with each band's own sentinel. Asking band 0's of all
+            # of them was harmless while every band declared the same value,
+            # and stopped being so once a fill is derived per band: a raster
+            # whose second band declares `0` while its first declares `-9999`
+            # had its whole border judged against `-9999`, matched nothing in
+            # band 2, and was never trimmed at all.
+            no_data_mask = np.stack(
+                [
+                    is_stored_no_data(band_values, declared[index])
+                    for index, band_values in enumerate(big_array)
+                ]
+            )
+        else:
+            no_data_mask = is_stored_no_data(big_array, declared[0])
         # Find rows and columns to be removed
         if big_array.ndim == 2:
             rows_to_remove = np.all(no_data_mask, axis=1)
