@@ -116,6 +116,46 @@ def _check_lon_halves_concatenable(
         ValueError: The halves have mismatched row/band counts, differ in cell
             size, or the grid has no cell boundary at the seam so the halves are
             not seam-aligned.
+
+    Examples:
+        - Two halves in degrees meeting at 180 pass under the default offset:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.dataset import Dataset
+            >>> from pyramids.dataset.engines.spatial import (
+            ...     _check_lon_halves_concatenable,
+            ... )
+            >>> def half(x, columns, cell):
+            ...     mem = gdal.GetDriverByName("MEM").Create("", columns, 4, 1)
+            ...     mem.SetGeoTransform((x, cell, 0.0, 10.0, 0.0, -cell))
+            ...     return Dataset(mem, access="write")
+            >>> west, east = half(170.0, 20, 0.5), half(-180.0, 10, 0.5)
+            >>> _check_lon_halves_concatenable(west, east) is None
+            True
+
+            ```
+        - The same pair in metres needs the offset measured in metres; leaving it
+          at 360 compares metres against degrees and rejects a well-formed pair:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.dataset import Dataset
+            >>> from pyramids.dataset.engines.spatial import (
+            ...     _check_lon_halves_concatenable,
+            ... )
+            >>> def half(x, columns, cell):
+            ...     mem = gdal.GetDriverByName("MEM").Create("", columns, 4, 1)
+            ...     mem.SetGeoTransform((x, cell, 0.0, 10.0, 0.0, -cell))
+            ...     return Dataset(mem, access="write")
+            >>> world = 20037508.342789244
+            >>> west = half(world - 100000.0, 100, 1000.0)
+            >>> east = half(-world, 50, 1000.0)
+            >>> _check_lon_halves_concatenable(west, east, 2 * world) is None
+            True
+            >>> _check_lon_halves_concatenable(west, east)
+            Traceback (most recent call last):
+            ValueError: antimeridian halves are not seam-aligned...
+
+            ```
     """
     if west_part.rows != east_part.rows or west_part.band_count != east_part.band_count:
         raise ValueError(
@@ -323,6 +363,42 @@ def _stitch_lon_halves(
 
     Returns:
         Dataset: The concatenated raster.
+
+    Examples:
+        - The stitch is as wide as both halves and keeps the west half's origin, so
+          longitude runs past the seam instead of jumping back to -180:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.dataset import Dataset
+            >>> from pyramids.dataset.engines.spatial import _stitch_lon_halves
+            >>> def half(x, columns):
+            ...     mem = gdal.GetDriverByName("MEM").Create("", columns, 4, 1)
+            ...     mem.SetGeoTransform((x, 0.5, 0.0, 10.0, 0.0, -0.5))
+            ...     return Dataset(mem, access="write")
+            >>> west, east = half(170.0, 20), half(-180.0, 10)
+            >>> merged = _stitch_lon_halves(west, west, east)
+            >>> merged.columns
+            30
+            >>> merged.geotransform[0]
+            170.0
+
+            ```
+        - So the east edge lands past 180, which is what makes the result one
+          continuous raster rather than two:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.dataset import Dataset
+            >>> from pyramids.dataset.engines.spatial import _stitch_lon_halves
+            >>> def half(x, columns):
+            ...     mem = gdal.GetDriverByName("MEM").Create("", columns, 4, 1)
+            ...     mem.SetGeoTransform((x, 0.5, 0.0, 10.0, 0.0, -0.5))
+            ...     return Dataset(mem, access="write")
+            >>> merged = _stitch_lon_halves(half(170.0, 20), half(170.0, 20), half(-180.0, 10))
+            >>> gt = merged.geotransform
+            >>> gt[0] + merged.columns * gt[1]
+            185.0
+
+            ```
     """
     # Local import breaks the engines <-> Dataset cycle; the merged result must be a
     # plain raster Dataset (from_array on a variable view would build a NetCDF
