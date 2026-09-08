@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +46,30 @@ _GRID_SNAP_TOLERANCE = 1e-6
 # +inf loses every fmin, -inf loses every fmax, 0 is the additive identity. Cells that
 # never receive a sample keep this value and are replaced by the fill at the end.
 _REDUCE_IDENTITY = {"min": np.inf, "max": -np.inf, "sum": 0.0}
+
+
+@dataclass(frozen=True)
+class _Source:
+    """A merge source paired with the name to report it by when GDAL fails on it.
+
+    ``_prepare_sources`` hands the reduction path open :class:`gdal.Dataset`
+    handles, whose ``repr`` is a SWIG proxy address. Naming the source is the
+    whole point of #1107, so the label travels with the handle instead of being
+    recovered from it.
+
+    Attributes:
+        label: Display name, already quoted/positioned by the caller, e.g.
+            ``"1/2 'tile.tif'"``.
+        handle: The path string or open :class:`gdal.Dataset` GDAL is given.
+    """
+
+    label: str
+    handle: Any
+
+    @classmethod
+    def of(cls, source: Any) -> _Source:
+        """Return `source` as a `_Source`, labelling a bare path by its repr."""
+        return source if isinstance(source, cls) else cls(f"{source!r}", source)
 
 
 _READABLE_RASTERS_HINT = (
@@ -633,7 +658,13 @@ def merge_rasters(
         sources, _keepalive = _prepare_sources(src_paths, dst_crs, resampling)
 
         if method in _REDUCE_METHODS:
-            _merge_reduce(sources, str(dst), method, no_data_value, n, bbox, bbox_crs)
+            # Pair each handle with its path so a failure on the reduce path
+            # names the source, not a SWIG proxy address (#1107).
+            labelled = [
+                _Source(f"{index + 1}/{len(src_paths)} {path!r}", handle)
+                for index, (path, handle) in enumerate(zip(src_paths, sources))
+            ]
+            _merge_reduce(labelled, str(dst), method, no_data_value, n, bbox, bbox_crs)
             return
 
         # z-order: "last" keeps natural order (last source wins); "first"
@@ -832,7 +863,7 @@ def _prepare_sources(
     # path strings and dataset objects.
     target_wkt = target_srs.ExportToWkt()
     sources: list = []
-    for path, dataset, srs in zip(src_paths, opened, source_srs):
+    for index, (path, dataset, srs) in enumerate(zip(src_paths, opened, source_srs)):
         if srs.IsSame(target_srs):
             sources.append(dataset)
             continue
@@ -846,7 +877,7 @@ def _prepare_sources(
             ),
             error=RuntimeError,
             action="reprojecting to the target CRS",
-            subject=f"source {path!r}",
+            subject=f"source {index + 1}/{len(src_paths)} {path!r}",
         )
         sources.append(warped)
     return sources, sources
@@ -882,7 +913,7 @@ def _source_misses_strip(
 
 
 def _warp_onto_strip(
-    path: Any,
+    source: _Source,
     strip_bounds: Sequence[float],
     x_size: int,
     ysize: int,
@@ -891,7 +922,7 @@ def _warp_onto_strip(
     """Warp one source onto a strip's window and read it as a 3-D float64 cube.
 
     Args:
-        path: Source path or an already-open :class:`gdal.Dataset`.
+        source: The source to warp, paired with the label to report it by.
         strip_bounds: The strip's ``(west, south, east, north)`` window.
         x_size: Strip width in pixels.
         ysize: Strip height in pixels.
@@ -912,10 +943,10 @@ def _warp_onto_strip(
         dstNodata=float("nan"),
     )
     warped = run_gdal_op(
-        lambda: gdal.Warp("", path, options=warp_opts),
+        lambda: gdal.Warp("", source.handle, options=warp_opts),
         error=RuntimeError,
         action="warping onto the union grid",
-        subject=f"source {path!r}",
+        subject=f"source {source.label}",
     )
     # np.asarray pins the type: GDAL's ReadAsArray is untyped, so without it the
     # float64 cube is inferred as Any and leaks out of the annotated return.
@@ -965,7 +996,8 @@ def _reduce_strip(
     low.
 
     Args:
-        src_paths: Source rasters (paths or open datasets).
+        src_paths: Sources as :class:`_Source` pairs, or bare paths/open
+            datasets (labelled by their repr).
         src_bounds: Each source's ``(west, south, east, north)`` extent.
         strip_bounds: The strip's ``[west, south, east, north]`` output bounds.
         strip_lat: The strip's ``(south, north)`` latitude band for the overlap prune.
@@ -986,10 +1018,10 @@ def _reduce_strip(
     # count, only test presence below, so a bool cube (1 byte/px) replaces int64.
     covered = np.zeros(shape, dtype=bool)
 
-    for path, bounds in zip(src_paths, src_bounds):
+    for source, bounds in zip(src_paths, src_bounds):
         if _source_misses_strip(bounds, strip_lat, strip_bounds):
             continue
-        array = _warp_onto_strip(path, strip_bounds, x_size, ysize, src_nodata)
+        array = _warp_onto_strip(source, strip_bounds, x_size, ysize, src_nodata)
         valid = ~np.isnan(array)
         covered |= valid
         _fold_into(acc, array, valid, method)
@@ -1021,7 +1053,8 @@ def _merge_reduce(
     Pixels with no source coverage are written as ``no_data_value``.
 
     Args:
-        src_paths: Source rasters as path strings or already-open
+        src_paths: Sources as :class:`_Source` pairs (so a failure names the
+            source rather than a SWIG proxy), or bare path strings / already-open
             :class:`gdal.Dataset` objects (e.g. reprojected warped VRTs from
             :func:`_prepare_sources`).
         dst: Output raster path.
@@ -1038,11 +1071,12 @@ def _merge_reduce(
     Raises:
         RuntimeError: GDAL failed to build the union mosaic or to warp a source.
     """
+    sources = [_Source.of(source) for source in src_paths]
     template = run_gdal_op(
-        lambda: gdal.BuildVRT("", src_paths),
+        lambda: gdal.BuildVRT("", [source.handle for source in sources]),
         error=RuntimeError,
         action="building the union mosaic",
-        subject=f"sources {src_paths!r}",
+        subject="sources [" + ", ".join(source.label for source in sources) + "]",
         hint=_READABLE_RASTERS_HINT,
     )
     geotransform = template.GetGeoTransform()
@@ -1062,7 +1096,7 @@ def _merge_reduce(
     src_nodata = None if str(n).lower() == "nan" else float(n)
     fill = float(no_data_value)
     # Extent of every source, computed once, to skip sources a strip cannot touch.
-    src_bounds = [_source_bounds(path) for path in src_paths]
+    src_bounds = [_source_bounds(source.handle) for source in sources]
 
     # Resolve from the extension so that one `dst` does not yield two different
     # formats depending on an unrelated argument: this reduction path hardcoded
@@ -1096,7 +1130,7 @@ def _merge_reduce(
             strip_north,
         ]
         reduced = _reduce_strip(
-            src_paths,
+            sources,
             src_bounds,
             strip_bounds,
             (strip_south, strip_north),

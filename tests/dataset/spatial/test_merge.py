@@ -344,10 +344,12 @@ class TestMergeMethod:
 
         pa, pb = overlapping_pair
         monkeypatch.setattr(merge_mod.gdal, "BuildVRT", lambda *a, **k: None)
-        with pytest.raises(
-            RuntimeError, match="building the union mosaic returned no raster"
-        ):
+        with pytest.raises(RuntimeError) as excinfo:
             merge_rasters([pa, pb], tmp_path / "x.tif", method="sum")
+        message = str(excinfo.value)
+        assert "building the union mosaic returned no raster" in message, message
+        assert Path(pa).name in message, f"sources are not named: {message}"
+        assert "Swig Object" not in message, f"a SWIG proxy leaked: {message}"
 
 
 @pytest.fixture(scope="function")
@@ -1380,10 +1382,37 @@ class TestMergeNoneGuards:
         pa, pb = overlapping_pair
         monkeypatch.setattr(gdal, "Warp", lambda *a, **k: None)
         out = str(tmp_path / "o.tif")
-        with pytest.raises(
-            RuntimeError, match="warping onto the union grid returned no raster"
-        ):
+        with pytest.raises(RuntimeError) as excinfo:
             _merge_reduce([pa, pb], out, "min", -1.0, "nan")
+        message = str(excinfo.value)
+        assert "warping onto the union grid returned no raster" in message, message
+        assert Path(pa).name in message, f"the failing source is not named: {message}"
+
+    def test_reduce_path_names_the_failing_source(
+        self, overlapping_pair, tmp_path, monkeypatch
+    ):
+        """The reduce methods name the source, like the z-order methods do.
+
+        Test scenario:
+            ``merge_rasters`` hands ``_merge_reduce`` open ``gdal.Dataset``
+            handles, whose repr is a SWIG proxy address. Before the labels were
+            threaded through, a failure on ``method="min"`` reported that proxy
+            instead of the file -- #1107's own complaint surviving on half the
+            public ``method`` surface. The message must name the file and carry
+            its ``1/2`` position, and must not leak a proxy repr.
+        """
+
+        def _raise(*_args, **_kwargs):
+            raise RuntimeError("Too many points failed to transform")
+
+        pa, pb = overlapping_pair
+        monkeypatch.setattr(merge_mod.gdal, "Warp", _raise)
+        with pytest.raises(RuntimeError) as excinfo:
+            merge_rasters([pa, pb], tmp_path / "o.tif", method="min")
+        message = str(excinfo.value)
+        assert Path(pa).name in message, f"the failing source is not named: {message}"
+        assert "1/2" in message, f"the source position is missing: {message}"
+        assert "Swig Object" not in message, f"a SWIG proxy leaked: {message}"
 
 
 class TestMergeRastersBbox:
