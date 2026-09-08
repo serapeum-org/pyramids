@@ -3,7 +3,7 @@
 spread across `dataset.engines.analysis`, `dataset.engines.spatial`,
 `dataset.engines.bands`, and `dataset.collection`.
 
-Three helpers are exposed:
+The masking helpers are:
 
 * :func:`is_no_data` — Boolean mask of cells equal to the no-data
   sentinel (within a tolerance the caller chooses).
@@ -13,6 +13,15 @@ Three helpers are exposed:
 * :func:`is_stored_no_data` — the same mask, asked with the only
   tolerance the *storage* forces, for readers that must not drop real
   data that merely lies near the sentinel.
+
+Alongside them the module answers the question *which* value should be
+the sentinel, which is where a wrong answer silently destroys data:
+
+* :func:`inherit_no_data` — take it from what the sources declare, for
+  an output combining several rasters. Inventing one instead is how a
+  merge came to mask real 0 m terrain (#1086).
+* :func:`free_no_data` — pick a value the dtype can store and the data
+  does not already use, for the cases where one must be chosen.
 
 Both treat `no_data_value=None` and `no_data_value=NaN` as
 "look for NaN cells", so individual call-sites no longer need to
@@ -944,6 +953,14 @@ def inherit_no_data(values: Sequence[float | None]) -> float | None:
             None
 
             ```
+
+    See Also:
+        - :func:`free_no_data`: Chooses a value the dtype can store when one
+          must be invented rather than inherited.
+        - :func:`pyramids.dataset.merge.merge_rasters`: Uses this for the
+          mosaic's marker.
+        - :meth:`pyramids.dataset.Dataset.from_band_files`: Uses it for the
+          stacked output's marker.
     """
     present = [value for value in values if value is not None]
     if not present:

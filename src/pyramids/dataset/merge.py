@@ -592,7 +592,9 @@ def merge_rasters(
             ... )
 
             ```
-        - Default last-wins compositing (unchanged from the previous behaviour):
+        - Default last-wins compositing. The overlap rule is unchanged, but the
+          mosaic's no-data marker is now inherited from the sources rather than
+          set to 0 (#1086):
             ```python
             >>> merge_rasters(["tile_a.tif", "tile_b.tif"], "mosaic.tif")  # doctest: +SKIP
 
