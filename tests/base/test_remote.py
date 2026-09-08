@@ -870,6 +870,41 @@ class TestRedactCredentials:
         assert "SECRET" not in out, f"token survived: {out}"
         assert "header.Authorization=<redacted>" in out, out
 
+    def test_space_separated_scheme_and_token_is_blanked_whole(self):
+        """An unencoded `Bearer <token>` loses the token, not just the scheme.
+
+        Test scenario:
+            The value pattern stops at whitespace, which is right for a query
+            option but left the secret in an HTTP header value: `Bearer abc123`
+            redacted only the word `Bearer` and printed the token. A leading
+            auth scheme is now consumed together with what follows it.
+        """
+        text = "Can't open /vsicurl?header.Authorization=Bearer abc123SECRET"
+        out = redact_credentials(text)
+        assert "abc123SECRET" not in out, f"token survived: {out}"
+        assert "header.Authorization=<redacted>" in out, out
+
+    @pytest.mark.parametrize("scheme", ["Bearer", "Basic", "Digest", "Token"])
+    def test_every_auth_scheme_is_consumed_with_its_token(self, scheme):
+        """Each recognised scheme takes its credential with it.
+
+        Args:
+            scheme: An HTTP auth scheme that precedes the credential.
+        """
+        out = redact_credentials(
+            f"/vsicurl?header.Authorization={scheme} SUPERSECRET&url=https://h/a.tif"
+        )
+        assert "SUPERSECRET" not in out, f"{scheme} token survived: {out}"
+        assert "url=https://h/a.tif" in out, f"the rest was mangled: {out}"
+
+    def test_a_scheme_word_does_not_swallow_following_prose(self):
+        """Redaction stops at the next space, so a trailing sentence survives."""
+        out = redact_credentials(
+            "Can't open /vsicurl?header.Authorization=Bearer abc123. Skipping it"
+        )
+        assert "abc123" not in out, f"token survived: {out}"
+        assert out.endswith(" Skipping it"), f"prose was swallowed: {out}"
+
     def test_sas_query_parameter_is_blanked(self):
         """A SAS-style `sig=` parameter is caught as well."""
         out = redact_credentials("https://h/a.tif?sv=2021&sig=SECRET")

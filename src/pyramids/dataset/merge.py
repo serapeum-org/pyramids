@@ -10,6 +10,8 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -17,8 +19,9 @@ import numpy as np
 from osgeo import gdal, osr
 from pyproj.exceptions import ProjError
 
+from pyramids.base._coverage import open_network_dataset, run_gdal_op
 from pyramids.base._utils import DEFAULT_RESAMPLING, resolve_resampling
-from pyramids.base.remote import signer_cloud_config
+from pyramids.base.remote import redact_credentials, signer_cloud_config
 from pyramids.dataset._driver import resolve_output_driver
 from pyramids.dataset.dataset import _INHERIT_NO_DATA, Dataset
 from pyramids.dataset.transform import GeoTransform
@@ -44,6 +47,35 @@ _GRID_SNAP_TOLERANCE = 1e-6
 # +inf loses every fmin, -inf loses every fmax, 0 is the additive identity. Cells that
 # never receive a sample keep this value and are replaced by the fill at the end.
 _REDUCE_IDENTITY = {"min": np.inf, "max": -np.inf, "sum": 0.0}
+
+
+@dataclass(frozen=True)
+class _Source:
+    """A merge source paired with the name to report it by when GDAL fails on it.
+
+    ``_prepare_sources`` hands the reduction path open :class:`gdal.Dataset`
+    handles, whose ``repr`` is a SWIG proxy address. Naming the source is the
+    whole point of #1107, so the label travels with the handle instead of being
+    recovered from it.
+
+    Attributes:
+        label: Display name, already quoted/positioned by the caller, e.g.
+            ``"1/2 'tile.tif'"``.
+        handle: The path string or open :class:`gdal.Dataset` GDAL is given.
+    """
+
+    label: str
+    handle: Any
+
+    @classmethod
+    def of(cls, source: Any) -> _Source:
+        """Return `source` as a `_Source`, labelling a bare path by its repr."""
+        return source if isinstance(source, cls) else cls(f"{source!r}", source)
+
+
+_READABLE_RASTERS_HINT = (
+    "check that all paths are readable rasters with consistent band counts and CRS"
+)
 
 
 def _validated_bbox(bbox: Sequence[float]) -> tuple[float, float, float, float]:
@@ -343,14 +375,18 @@ def _source_bounds(
         east, north)``.
 
     Raises:
-        RuntimeError: The path could not be opened.
+        RuntimeError: The path could not be opened -- the message names the
+            source and chains GDAL's own error, which for a ``/vsicurl/`` or
+            ``/vsis3/`` source carries only the HTTP status and no URL.
     """
     if isinstance(path, gdal.Dataset):
         ds, opened = path, False
     else:
-        ds, opened = gdal.Open(str(path)), True
-    if ds is None:
-        raise RuntimeError(f"gdal.Open returned None for merge source {path!r}.")
+        source = str(path)
+        ds = open_network_dataset(
+            source, error=RuntimeError, subject=f"merge source {source!r}"
+        )
+        opened = True
     bounds = GeoTransform(*ds.GetGeoTransform()).extent(ds.RasterXSize, ds.RasterYSize)
     if opened:
         # Close the handle we opened; a caller-supplied gdal.Dataset is theirs to own.
@@ -526,7 +562,9 @@ def merge_rasters(
             reprojected, selects no whole pixel, does not overlap the mosaic, or
             cannot be projected into its CRS.
         RuntimeError: GDAL failed to open a source, reproject it, or build the
-            source mosaic.
+            source mosaic. When a source is at fault the message names it and
+            its position in `src`, and chains GDAL's own error; any credential
+            in a signed URL is redacted.
         DriverNotExistError: `dst` has no extension, or one the driver catalog
             does not know.
         FileFormatNotSupportedError: `dst`'s extension maps to a
@@ -615,7 +653,13 @@ def merge_rasters(
         sources, _keepalive = _prepare_sources(src_paths, dst_crs, resampling)
 
         if method in _REDUCE_METHODS:
-            _merge_reduce(sources, str(dst), method, no_data_value, n, bbox, bbox_crs)
+            # Pair each handle with its path so a failure on the reduce path
+            # names the source, not a SWIG proxy address (#1107).
+            labelled = [
+                _Source(f"{index + 1}/{len(src_paths)} {path!r}", handle)
+                for index, (path, handle) in enumerate(zip(src_paths, sources))
+            ]
+            _merge_reduce(labelled, str(dst), method, no_data_value, n, bbox, bbox_crs)
             return
 
         # z-order: "last" keeps natural order (last source wins); "first"
@@ -626,13 +670,13 @@ def merge_rasters(
             srcNodata=str(n),
             VRTNodata=str(init),
         )
-        vrt_ds = gdal.BuildVRT("", ordered, options=vrt_opts)
-        if vrt_ds is None:
-            raise RuntimeError(
-                f"gdal.BuildVRT returned None for sources {src_paths!r}; "
-                "check that all paths are readable rasters with consistent "
-                "band counts and CRS."
-            )
+        vrt_ds = run_gdal_op(
+            partial(gdal.BuildVRT, "", ordered, options=vrt_opts),
+            error=RuntimeError,
+            action="building the source mosaic",
+            subject=f"sources {src_paths!r}",
+            hint=_READABLE_RASTERS_HINT,
+        )
         proj_win = None
         if bbox is not None:
             # Resolve the window here, in the mosaic's own CRS, and hand Translate a
@@ -684,11 +728,13 @@ def merge_rasters(
             noData=str(no_data_value),
             projWin=proj_win,
         )
-        out_ds = gdal.Translate(str(dst), vrt_ds, options=translate_opts)
-        if out_ds is None:
-            raise RuntimeError(
-                f"gdal.Translate returned None writing the mosaic to {str(dst)!r}."
-            )
+        out_ds = run_gdal_op(
+            partial(gdal.Translate, str(dst), vrt_ds, options=translate_opts),
+            error=RuntimeError,
+            action="writing the mosaic",
+            subject=f"destination {str(dst)!r}",
+            outcome="produced no output",
+        )
         out_ds.FlushCache()
         out_ds = None
         vrt_ds = None
@@ -767,22 +813,34 @@ def _prepare_sources(
         ValueError: ``dst_crs`` (or ``resampling``) could not be parsed, or a
             source carries no CRS.
         RuntimeError: A source could not be opened, or a reprojecting
-            :func:`gdal.Warp` failed.
+            :func:`gdal.Warp` failed. Either way the message names the source
+            and redacts any credential in it; when GDAL raised (the usual case
+            under :func:`gdal.UseExceptions`) it also carries the source's
+            position in ``src_paths`` and chains GDAL's own error.
     """
     resample_alg = resolve_resampling(resampling)
 
     # Open each source once; read its CRS from that same handle.
     opened: list = []
     source_srs: list[osr.SpatialReference] = []
-    for path in src_paths:
-        dataset = gdal.Open(path)
-        if dataset is None:
-            raise RuntimeError(f"gdal.Open returned None for source {path!r}.")
+    for index, path in enumerate(src_paths):
+        # open_network_dataset (PR #1084) owns both GDAL failure shapes, and
+        # redacts. Naming the source is what #1107 asks for: for a /vsicurl/ or
+        # /vsis3/ source GDAL's own message is just the HTTP status ("HTTP
+        # response code: 403") and names nothing. The index says how far the
+        # open got on a big mosaic.
+        dataset = open_network_dataset(
+            path,
+            error=RuntimeError,
+            subject=f"source {index + 1}/{len(src_paths)} {path!r}",
+        )
         wkt = dataset.GetProjection()
         if not wkt:
             raise ValueError(
-                f"source {path!r} has no CRS; every source must carry a CRS to "
-                "be merged/reprojected."
+                redact_credentials(
+                    f"source {path!r} has no CRS; every source must carry a CRS "
+                    "to be merged/reprojected."
+                )
             )
         srs = osr.SpatialReference()
         srs.ImportFromWkt(wkt)
@@ -802,21 +860,22 @@ def _prepare_sources(
     # path strings and dataset objects.
     target_wkt = target_srs.ExportToWkt()
     sources: list = []
-    for dataset, srs in zip(opened, source_srs):
+    for index, (path, dataset, srs) in enumerate(zip(src_paths, opened, source_srs)):
         if srs.IsSame(target_srs):
             sources.append(dataset)
             continue
-        warped = gdal.Warp(
-            "",
-            dataset,
-            options=gdal.WarpOptions(
-                format="VRT", dstSRS=target_wkt, resampleAlg=resample_alg
-            ),
+        # Built outside the thunk: a bad option is the caller's mistake, and
+        # re-branding it would blame the source for an argument error. `partial`
+        # rather than a lambda so nothing closes over the loop variable.
+        warp_opts = gdal.WarpOptions(
+            format="VRT", dstSRS=target_wkt, resampleAlg=resample_alg
         )
-        if warped is None:
-            raise RuntimeError(
-                "gdal.Warp returned None reprojecting a source to the target CRS."
-            )
+        warped = run_gdal_op(
+            partial(gdal.Warp, "", dataset, options=warp_opts),
+            error=RuntimeError,
+            action="reprojecting to the target CRS",
+            subject=f"source {index + 1}/{len(src_paths)} {path!r}",
+        )
         sources.append(warped)
     return sources, sources
 
@@ -851,7 +910,7 @@ def _source_misses_strip(
 
 
 def _warp_onto_strip(
-    path: Any,
+    source: _Source,
     strip_bounds: Sequence[float],
     x_size: int,
     ysize: int,
@@ -860,7 +919,7 @@ def _warp_onto_strip(
     """Warp one source onto a strip's window and read it as a 3-D float64 cube.
 
     Args:
-        path: Source path or an already-open :class:`gdal.Dataset`.
+        source: The source to warp, paired with the label to report it by.
         strip_bounds: The strip's ``(west, south, east, north)`` window.
         x_size: Strip width in pixels.
         ysize: Strip height in pixels.
@@ -880,11 +939,12 @@ def _warp_onto_strip(
         srcNodata=src_nodata,
         dstNodata=float("nan"),
     )
-    warped = gdal.Warp("", path, options=warp_opts)
-    if warped is None:
-        raise RuntimeError(
-            f"gdal.Warp returned None warping source {path!r} onto the union grid."
-        )
+    warped = run_gdal_op(
+        partial(gdal.Warp, "", source.handle, options=warp_opts),
+        error=RuntimeError,
+        action="warping onto the union grid",
+        subject=f"source {source.label}",
+    )
     # np.asarray pins the type: GDAL's ReadAsArray is untyped, so without it the
     # float64 cube is inferred as Any and leaks out of the annotated return.
     array = np.asarray(warped.ReadAsArray()).astype("float64")
@@ -933,7 +993,8 @@ def _reduce_strip(
     low.
 
     Args:
-        src_paths: Source rasters (paths or open datasets).
+        src_paths: Sources as :class:`_Source` pairs, or bare paths/open
+            datasets (labelled by their repr).
         src_bounds: Each source's ``(west, south, east, north)`` extent.
         strip_bounds: The strip's ``[west, south, east, north]`` output bounds.
         strip_lat: The strip's ``(south, north)`` latitude band for the overlap prune.
@@ -954,10 +1015,10 @@ def _reduce_strip(
     # count, only test presence below, so a bool cube (1 byte/px) replaces int64.
     covered = np.zeros(shape, dtype=bool)
 
-    for path, bounds in zip(src_paths, src_bounds):
+    for source, bounds in zip(src_paths, src_bounds):
         if _source_misses_strip(bounds, strip_lat, strip_bounds):
             continue
-        array = _warp_onto_strip(path, strip_bounds, x_size, ysize, src_nodata)
+        array = _warp_onto_strip(source, strip_bounds, x_size, ysize, src_nodata)
         valid = ~np.isnan(array)
         covered |= valid
         _fold_into(acc, array, valid, method)
@@ -989,7 +1050,8 @@ def _merge_reduce(
     Pixels with no source coverage are written as ``no_data_value``.
 
     Args:
-        src_paths: Source rasters as path strings or already-open
+        src_paths: Sources as :class:`_Source` pairs (so a failure names the
+            source rather than a SWIG proxy), or bare path strings / already-open
             :class:`gdal.Dataset` objects (e.g. reprojected warped VRTs from
             :func:`_prepare_sources`).
         dst: Output raster path.
@@ -1006,13 +1068,14 @@ def _merge_reduce(
     Raises:
         RuntimeError: GDAL failed to build the union mosaic or to warp a source.
     """
-    template = gdal.BuildVRT("", src_paths)
-    if template is None:
-        raise RuntimeError(
-            f"gdal.BuildVRT returned None for sources {src_paths!r}; "
-            "check that all paths are readable rasters with consistent "
-            "band counts and CRS."
-        )
+    sources = [_Source.of(source) for source in src_paths]
+    template = run_gdal_op(
+        partial(gdal.BuildVRT, "", [source.handle for source in sources]),
+        error=RuntimeError,
+        action="building the union mosaic",
+        subject="sources [" + ", ".join(source.label for source in sources) + "]",
+        hint=_READABLE_RASTERS_HINT,
+    )
     geotransform = template.GetGeoTransform()
     projection = template.GetProjection()
     x_size, y_size = template.RasterXSize, template.RasterYSize
@@ -1030,7 +1093,7 @@ def _merge_reduce(
     src_nodata = None if str(n).lower() == "nan" else float(n)
     fill = float(no_data_value)
     # Extent of every source, computed once, to skip sources a strip cannot touch.
-    src_bounds = [_source_bounds(path) for path in src_paths]
+    src_bounds = [_source_bounds(source.handle) for source in sources]
 
     # Resolve from the extension so that one `dst` does not yield two different
     # formats depending on an unrelated argument: this reduction path hardcoded
@@ -1039,14 +1102,26 @@ def _merge_reduce(
     # GTiff-specific and is applied only there.
     out_driver = resolve_output_driver(dst)
     out_options = ["COMPRESS=LZW"] if out_driver == "GTiff" else []
-    out_ds = gdal.GetDriverByName(out_driver).Create(
-        dst, x_size, y_size, band_count, gdal.GDT_Float64, options=out_options
+    # Resolved before the thunk: an unknown driver yields None here, and
+    # `.Create` on it would raise AttributeError -- which run_gdal_op does not
+    # catch, so the failure would escape un-branded.
+    driver = gdal.GetDriverByName(out_driver)
+    out_ds = run_gdal_op(
+        partial(
+            driver.Create,
+            dst,
+            x_size,
+            y_size,
+            band_count,
+            gdal.GDT_Float64,
+            options=out_options,
+        ),
+        error=RuntimeError,
+        action="writing the reduced mosaic",
+        subject=f"destination {dst!r}",
+        hint="check the output path is writable",
+        outcome="produced no output",
     )
-    if out_ds is None:
-        raise RuntimeError(
-            f"gdal.Create returned None writing the reduced mosaic to {dst!r}; "
-            f"check the output path is writable ({gdal.GetLastErrorMsg()!r})."
-        )
     out_ds.SetGeoTransform(geotransform)
     out_ds.SetProjection(projection)
     for band_index in range(band_count):
@@ -1063,7 +1138,7 @@ def _merge_reduce(
             strip_north,
         ]
         reduced = _reduce_strip(
-            src_paths,
+            sources,
             src_bounds,
             strip_bounds,
             (strip_south, strip_north),

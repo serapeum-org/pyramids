@@ -808,8 +808,16 @@ _CREDENTIAL_OPTION_NAMES = (
 )
 """Option names whose value is a credential, matched case-insensitively."""
 
+_AUTH_SCHEMES = ("Bearer", "Basic", "Digest", "Token", "AWS4-HMAC-SHA256")
+"""Auth schemes whose credential follows a space (`Authorization=Bearer <token>`)."""
+
+_CREDENTIAL_VALUE = (
+    r"(?:(?:" + "|".join(_AUTH_SCHEMES) + r")\s+[^&\s\"\']*|[^&\s\"\']*)"
+)
+"""One credential value: a scheme-plus-token pair, else text up to the delimiter."""
+
 _CREDENTIAL_OPTION_RE = re.compile(
-    r"(?i)(?<=[?&])(" + "|".join(_CREDENTIAL_OPTION_NAMES) + r")=([^&\s\"\']*)"
+    r"(?i)(?<=[?&])(" + "|".join(_CREDENTIAL_OPTION_NAMES) + r")=" + _CREDENTIAL_VALUE
 )
 """Matches a credential option inside a `/vsicurl?...` path or a URL query string.
 

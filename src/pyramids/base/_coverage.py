@@ -9,7 +9,7 @@ here once — neither reader reaches into the other's internals — and the CRS
 resolver raises the protocol-neutral :class:`~pyramids.base._errors.CoverageError`,
 which each reader re-wraps into its own branded error (WCSError / OGCAPIError).
 
-The two GDAL calls those readers wrap around live here too. Every network reader
+The GDAL calls those readers wrap around live here too. Every network reader
 — WCS, WMS / WMTS (:mod:`pyramids.dataset._wms`) and OGC API – Coverages — opens a
 connection string with GDAL and then materialises a window of it into a ``MEM``
 dataset, and each has to turn the same two failure shapes into its own branded
@@ -18,6 +18,14 @@ error: a ``RuntimeError`` (GDAL raises under ``gdal.UseExceptions()``) and a
 :func:`open_network_dataset` and :func:`translate_to_mem` own that sequence and
 that classification; the readers pass in their own exception class and the words
 that name the request, so the messages stay branded per protocol.
+
+:func:`run_gdal_op` is the protocol-neutral generalisation of that shape to **any**
+GDAL call that hands back a dataset — ``BuildVRT``, ``Warp``, ``Translate``, a
+driver's ``Create`` — and the other two are expressed in terms of it. It has no
+coverage or network flavour: :mod:`pyramids.dataset.merge` uses it to mosaic local
+GeoTIFFs. Every message all three build is passed through
+:func:`pyramids.base.remote.redact_credentials` first, so a signed source URL
+reaching an error keeps its path and loses its secret (#1107).
 
 The antimeridian split is here for the same reason. A ``bbox`` whose ``minx``
 exceeds its ``maxx`` crosses the 180 degree seam, and every reader serves it the
@@ -31,7 +39,7 @@ the halves, a vector reader de-duplicates features across them.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from math import isfinite
 from typing import Any, cast
 
@@ -43,6 +51,7 @@ from pyramids.base._bbox import transform as bbox_transform
 from pyramids.base._errors import CoverageError, CRSError
 from pyramids.base._grid import grid_size
 from pyramids.base.crs import crs_from_user_input, sr_from_user_input
+from pyramids.base.remote import redact_credentials
 
 
 def validate_bbox(
@@ -671,7 +680,9 @@ def open_network_dataset(
     leaks a raw GDAL message with no idea which coverage or layer it was about.
 
     Args:
-        connection: The GDAL connection string / service descriptor to open.
+        connection: What to hand :func:`gdal.Open` — a service descriptor
+            (``<WCS_GDAL>``, ``<GDAL_WMS>``, ``WMTS:``, ``OGCAPI:``) for the
+            network readers, or a plain raster path / URL for any other caller.
         error: The reader's branded exception class (``WCSError``, ``WMSError``,
             ``OGCAPIError``, ...), called with a single message argument.
         subject: What is being opened, already worded for the message — e.g.
@@ -729,10 +740,149 @@ def open_network_dataset(
                 connection, gdal.OF_RASTER, open_options=list(open_options)
             )
     except RuntimeError as exc:
-        raise error(f"could not open {subject}: {exc}") from exc
+        # `subject` and GDAL's own text can both quote a signed URL, so scrub
+        # before the message escapes to a log handler or a traceback.
+        raise error(redact_credentials(f"could not open {subject}: {exc}")) from exc
     if src is None:
-        raise error(f"GDAL returned no dataset for {subject}")
+        raise error(redact_credentials(f"GDAL returned no dataset for {subject}"))
     return src
+
+
+def run_gdal_op(
+    operation: Callable[[], gdal.Dataset | None],
+    *,
+    error: type[Exception],
+    action: str,
+    subject: str,
+    hint: str | None = None,
+    outcome: str = "returned no raster",
+) -> gdal.Dataset:
+    """Run a GDAL dataset-producing call, re-branding both failure shapes as `error`.
+
+    The generalisation of :func:`open_network_dataset` beyond ``gdal.Open``: every
+    GDAL entry point that hands back a dataset -- ``BuildVRT``, ``Warp``,
+    ``Translate``, a driver's ``Create`` -- fails the same two ways. Under
+    ``gdal.UseExceptions()`` it raises ``RuntimeError``; with exceptions off it
+    returns ``None``. A bare call guarded only by ``if x is None`` therefore carries
+    diagnostic text that can never be printed, and the raising path escapes with
+    GDAL's own message, which for a remote source names nothing.
+
+    Build the options object and resolve the driver *before* the call and keep only
+    the GDAL call itself in `operation`: a bad keyword is the caller's mistake, and
+    re-branding it would blame the source for an argument error.
+
+    Every message is passed through
+    :func:`pyramids.base.remote.redact_credentials`, so a signed URL in `subject`
+    or in GDAL's own text keeps its path and loses its secret.
+
+    Args:
+        operation: A zero-argument callable performing the GDAL call. Prefer
+            :func:`functools.partial` over a lambda closing over a loop variable.
+        error: The exception class to raise.
+        action: What was being attempted, e.g. ``"building the source mosaic"``.
+        subject: What it was attempted on, already quoted by the caller.
+        hint: Optional trailing advice appended after a semicolon.
+        outcome: How to describe a ``None`` return. Defaults to
+            ``"returned no raster"``; a call that writes a file reads better with
+            something like ``"produced no output"``.
+
+    Returns:
+        osgeo.gdal.Dataset: The dataset the call produced.
+
+    Raises:
+        error: GDAL raised while running `operation`, or returned no dataset.
+
+    Examples:
+        - A successful call is handed straight back:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.base._coverage import run_gdal_op
+            >>> made = run_gdal_op(
+            ...     lambda: gdal.GetDriverByName("MEM").Create("", 4, 3, 1),
+            ...     error=RuntimeError,
+            ...     action="building the mosaic",
+            ...     subject="sources ['tile.tif']",
+            ... )
+            >>> (made.RasterXSize, made.RasterYSize)
+            (4, 3)
+
+            ```
+        - GDAL raising is re-branded, naming the action and subject, keeping GDAL's
+          own text and appending the hint:
+            ```python
+            >>> from pyramids.base._coverage import run_gdal_op
+            >>> class DemoError(Exception):
+            ...     pass
+            >>> def boom():
+            ...     raise RuntimeError("HTTP response code: 403")
+            >>> try:
+            ...     run_gdal_op(
+            ...         boom,
+            ...         error=DemoError,
+            ...         action="building the mosaic",
+            ...         subject="sources ['t.tif']",
+            ...         hint="check the paths are readable",
+            ...     )
+            ... except DemoError as exc:
+            ...     print(exc)
+            building the mosaic failed for sources ['t.tif']: HTTP response code: 403; check the paths are readable
+
+            ```
+        - A `None` return -- what GDAL does with exceptions off, and what
+          ``BuildVRT`` does when *no* source is usable -- is branded the same way:
+            ```python
+            >>> from pyramids.base._coverage import run_gdal_op
+            >>> class DemoError(Exception):
+            ...     pass
+            >>> try:
+            ...     run_gdal_op(
+            ...         lambda: None,
+            ...         error=DemoError,
+            ...         action="writing the mosaic",
+            ...         subject="'out.tif'",
+            ...         outcome="produced no output",
+            ...     )
+            ... except DemoError as exc:
+            ...     print(exc)
+            writing the mosaic produced no output for 'out.tif'
+
+            ```
+        - A credential in the subject is blanked, the path kept:
+            ```python
+            >>> from pyramids.base._coverage import run_gdal_op
+            >>> class DemoError(Exception):
+            ...     pass
+            >>> def boom():
+            ...     raise RuntimeError("HTTP response code: 403")
+            >>> try:
+            ...     run_gdal_op(
+            ...         boom,
+            ...         error=DemoError,
+            ...         action="opening",
+            ...         subject="source 'https://h/t.tif?sig=SECRET'",
+            ...     )
+            ... except DemoError as exc:
+            ...     print(exc)
+            opening failed for source 'https://h/t.tif?sig=<redacted>': HTTP response code: 403
+
+            ```
+    """
+
+    def _brand(message: str) -> str:
+        """Append the hint, scrub any credential, and hand back the final text."""
+        return redact_credentials(message if hint is None else f"{message}; {hint}")
+
+    try:
+        result = operation()
+    except RuntimeError as exc:
+        raise error(_brand(f"{action} failed for {subject}: {exc}")) from exc
+    if result is None:
+        # The None branch has no exception to chain, so GDAL's last error is the
+        # only diagnostic left; it is empty when the driver declined quietly.
+        last = gdal.GetLastErrorMsg()
+        detail = f"{action} {outcome} for {subject}"
+        raise error(_brand(detail if not last else f"{detail} ({last})"))
+    return result
 
 
 def translate_to_mem(
@@ -836,10 +986,9 @@ def translate_to_mem(
     # re-branding it as a service error would blame the server for it. Only the
     # translate itself is guarded.
     translate_options = gdal.TranslateOptions(format="MEM", **options)
-    try:
-        mem = gdal.Translate("", src, options=translate_options)
-    except RuntimeError as exc:
-        raise error(f"{action} failed for {subject}: {exc}") from exc
-    if mem is None:
-        raise error(f"{action} returned no raster for {subject}")
-    return mem
+    return run_gdal_op(
+        lambda: gdal.Translate("", src, options=translate_options),
+        error=error,
+        action=action,
+        subject=subject,
+    )

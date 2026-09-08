@@ -61,12 +61,14 @@ import warnings
 import weakref
 from collections.abc import Iterable
 from contextlib import AbstractContextManager
+from functools import partial
 from typing import Any
 from urllib.parse import quote
 
 from osgeo import gdal
 
 from pyramids.base._artifacts import register_vsimem, unregister_vsimem
+from pyramids.base._coverage import run_gdal_op
 from pyramids.base.remote import (
     CloudConfig,
     _to_vsi,
@@ -439,31 +441,47 @@ def _redacting_error_handler(err_class: int, err_num: int, err_msg: str) -> None
     logger.warning("GDAL[%s] %s", err_num, redact_credentials(str(err_msg)))
 
 
-def _build_vrt(vrt_path: str, vsi_paths: list[str], separate: bool) -> Any:
+def _build_vrt(vrt_path: str, vsi_paths: list[str], separate: bool, asset: str) -> Any:
     """Run `gdal.BuildVRT` with GDAL's own messages redacted.
 
     A source that fails to open makes GDAL print the full source path — token
     and all, for a header-signed build. The redacting handler is *pushed* for
     the duration of the call (see :func:`_redacting_error_handler` for why a
     process-wide one does not work), then popped, so the rest of the process
-    keeps whatever error handling it had.
+    keeps whatever error handling it had. That handler scrubs what GDAL writes
+    to its *log*; :func:`~pyramids.base._coverage.run_gdal_op` scrubs the
+    exception text and brands both GDAL failure shapes, so neither a raise nor
+    a `None` return escapes unnamed.
 
     Args:
         vrt_path: The `/vsimem` path to build into.
         vsi_paths: The source paths, in order.
         separate: Whether each source becomes its own band.
+        asset: The asset key, named in the error when the build fails.
 
     Returns:
-        The built `gdal.Dataset`, or `None` when GDAL could use no source.
+        The built `gdal.Dataset`.
+
+    Raises:
+        RuntimeError: GDAL raised, or could use no source.
     """
+    # Built outside the guarded call: a bad option is the caller's mistake.
+    vrt_options = gdal.BuildVRTOptions(separate=separate)
     gdal.PushErrorHandler(_redacting_error_handler)
     try:
-        vrt_ds = gdal.BuildVRT(
-            vrt_path, vsi_paths, options=gdal.BuildVRTOptions(separate=separate)
+        return run_gdal_op(
+            partial(gdal.BuildVRT, vrt_path, vsi_paths, options=vrt_options),
+            error=RuntimeError,
+            action="gdal.BuildVRT",
+            subject=f"asset {asset!r} over {len(vsi_paths)} item(s)",
+            hint=(
+                "check that every source is a readable raster with a consistent "
+                "band count and CRS"
+            ),
+            outcome="returned None",
         )
     finally:
         gdal.PopErrorHandler()
-    return vrt_ds
 
 
 def _check_dropped_sources(
@@ -619,13 +637,7 @@ def build_vrt_from_stac(
     # source's `.aux.xml` / world-file sidecars. Remoteness is decided on the
     # hrefs, not the rewritten paths, which `is_remote` does not classify.
     with _source_config(hrefs, gdal_env):
-        vrt_ds = _build_vrt(vrt_path, vsi_paths, separate)
-        if vrt_ds is None:
-            raise RuntimeError(
-                f"gdal.BuildVRT returned None for asset {asset!r} over "
-                f"{len(vsi_paths)} item(s); check that every source is a "
-                "readable raster with a consistent band count and CRS."
-            )
+        vrt_ds = _build_vrt(vrt_path, vsi_paths, separate, asset)
         # GDAL lists exactly the sources it kept, so the difference against what
         # was requested is what it silently skipped.
         dropped = _dropped_sources(sources, vrt_ds.GetFileList() or ())

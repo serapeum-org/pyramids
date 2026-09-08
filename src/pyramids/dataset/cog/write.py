@@ -10,10 +10,12 @@ dataset's lifecycle.
 from __future__ import annotations
 
 import logging
+from functools import partial
 from pathlib import Path
 
 from osgeo import gdal
 
+from pyramids.base._coverage import run_gdal_op
 from pyramids.base._errors import DriverNotExistError, FailedToSaveError
 from pyramids.dataset.cog.options import (
     CreationOptions,
@@ -112,14 +114,12 @@ def translate_to_cog(
     logger.debug("translate_to_cog: %s -> %s", src.GetDescription(), dest)
     src.FlushCache()
 
-    dst: gdal.Dataset | None
-    try:
-        dst = driver.CreateCopy(dest, src, 0, options=gdal_opts)
-    except RuntimeError as exc:
-        raise FailedToSaveError(
-            f"GDAL COG CreateCopy failed for {path}: {exc}"
-        ) from exc
-
-    if dst is None:
-        raise FailedToSaveError(f"GDAL COG CreateCopy returned None for {path}")
-    return dst
+    # run_gdal_op owns both GDAL failure shapes and redacts the message, so a
+    # header-signed destination cannot put its token in the error (#1107).
+    return run_gdal_op(
+        partial(driver.CreateCopy, dest, src, 0, options=gdal_opts),
+        error=FailedToSaveError,
+        action="GDAL COG CreateCopy",
+        subject=f"{path}",
+        outcome="returned None",
+    )

@@ -328,7 +328,9 @@ class TestMergeMethod:
 
         pa, pb = overlapping_pair
         monkeypatch.setattr(merge_mod.gdal, "BuildVRT", lambda *a, **k: None)
-        with pytest.raises(RuntimeError, match="gdal.BuildVRT returned None"):
+        with pytest.raises(
+            RuntimeError, match="building the source mosaic returned no raster"
+        ):
             merge_rasters([pa, pb], tmp_path / "x.tif", method="last")
 
     def test_failed_vrt_reduce_raises(self, overlapping_pair, tmp_path, monkeypatch):
@@ -342,8 +344,12 @@ class TestMergeMethod:
 
         pa, pb = overlapping_pair
         monkeypatch.setattr(merge_mod.gdal, "BuildVRT", lambda *a, **k: None)
-        with pytest.raises(RuntimeError, match="gdal.BuildVRT returned None"):
+        with pytest.raises(RuntimeError) as excinfo:
             merge_rasters([pa, pb], tmp_path / "x.tif", method="sum")
+        message = str(excinfo.value)
+        assert "building the union mosaic returned no raster" in message, message
+        assert Path(pa).name in message, f"sources are not named: {message}"
+        assert "Swig Object" not in message, f"a SWIG proxy leaked: {message}"
 
 
 @pytest.fixture(scope="function")
@@ -366,6 +372,27 @@ def disjoint_pair(tmp_path):
 
 class TestMergeRastersInputContracts:
     """Input/output contracts of ``merge_rasters`` beyond the overlap rule."""
+
+    def test_unopenable_source_is_named_end_to_end(self, tmp_path):
+        """A real failed open through ``merge_rasters`` names the source.
+
+        Test scenario:
+            No mocking -- real GDAL under ``gdal.UseExceptions()`` raises for a
+            missing source, and the wrapper must name it and its ``1/2``
+            position. This pins the catch type: if GDAL ever raised something
+            other than ``RuntimeError`` the wrapper would stop catching it and
+            this test would fail, which the monkeypatched tests cannot detect
+            (#1107).
+        """
+        good = write_raster(
+            tmp_path / "good.tif", np.ones((4, 4), dtype="float32"), (0, 4)
+        )
+        missing = str(tmp_path / "absent_tile.tif")
+        with pytest.raises(RuntimeError) as excinfo:
+            merge_rasters([missing, str(good)], tmp_path / "out.tif")
+        message = str(excinfo.value)
+        assert "absent_tile.tif" in message, f"source not named: {message}"
+        assert "1/2" in message, f"source position not reported: {message}"
 
     def test_zorder_init_fills_uncovered_pixels(self, disjoint_pair, tmp_path):
         """``init`` fills pixels no source covers on the z-order path.
@@ -641,8 +668,35 @@ class TestMergeRastersDstCrs:
 
         pa, pb = shared_crs_pair
         monkeypatch.setattr(merge_mod.gdal, "Warp", lambda *a, **k: None)
-        with pytest.raises(RuntimeError, match="gdal.Warp returned None"):
+        with pytest.raises(
+            RuntimeError, match="reprojecting to the target CRS returned no raster"
+        ):
             merge_rasters([pa, pb], tmp_path / "x.tif", dst_crs=3857)
+
+    def test_raising_warp_names_the_source(
+        self, shared_crs_pair, tmp_path, monkeypatch
+    ):
+        """A raising ``gdal.Warp`` names the source it could not reproject.
+
+        Test scenario:
+            Under ``gdal.UseExceptions()`` Warp raises rather than returning
+            None, so the reproject half of ``_prepare_sources`` must name the
+            source too -- the ``Raises:`` contract covers the whole function,
+            not just the open (#1107).
+        """
+        pa, pb = shared_crs_pair
+
+        def _raise(*_args, **_kwargs):
+            raise RuntimeError("Too many points failed to transform")
+
+        monkeypatch.setattr(merge_mod.gdal, "Warp", _raise)
+        with pytest.raises(RuntimeError) as excinfo:
+            merge_rasters([pa, pb], tmp_path / "x.tif", dst_crs=3857)
+        message = str(excinfo.value)
+        assert "reprojecting to the target CRS failed for source" in message, (
+            f"unexpected message: {message}"
+        )
+        assert "failed to transform" in message, f"GDAL message not kept: {message}"
 
     def test_open_failure_raises(self, shared_crs_pair, tmp_path, monkeypatch):
         """A None from gdal.Open while reading source CRS raises RuntimeError.
@@ -655,8 +709,12 @@ class TestMergeRastersDstCrs:
 
         pa, pb = shared_crs_pair
         monkeypatch.setattr(merge_mod.gdal, "Open", lambda *a, **k: None)
-        with pytest.raises(RuntimeError, match="gdal.Open returned None"):
+        with pytest.raises(RuntimeError) as excinfo:
             merge_rasters([pa, pb], tmp_path / "x.tif")
+        message = str(excinfo.value)
+        assert "GDAL returned no dataset" in message, message
+        assert Path(pa).name in message, f"the failing source is not named: {message}"
+        assert "1/2" in message, f"the source position is missing: {message}"
 
 
 class TestSourceBounds:
@@ -693,12 +751,123 @@ class TestSourceBounds:
             A non-existent path cannot be opened, so the extent lookup fails loudly
             rather than returning a bogus extent.
         """
-        with pytest.raises(RuntimeError):
+        with pytest.raises(RuntimeError, match="could not open merge source"):
+            _source_bounds("/no/such/raster/does-not-exist.tif")
+
+    def test_raising_open_names_the_source(self, monkeypatch):
+        """A raising ``gdal.Open`` still reports which source could not be opened.
+
+        Test scenario:
+            Under ``gdal.UseExceptions()`` (pyramids' default) ``gdal.Open``
+            raises instead of returning None, so the ``is None`` guard never
+            runs. For a remote source GDAL's message is a bare HTTP status that
+            names nothing, so ``_source_bounds`` must add the source itself and
+            chain GDAL's original message (#1107).
+        """
+        remote = "/vsicurl/https://example.invalid/tile_B04_0042.tif"
+
+        def _raise(*_args, **_kwargs):
+            raise RuntimeError("HTTP response code: 403")
+
+        monkeypatch.setattr(merge_mod.gdal, "Open", _raise)
+        with pytest.raises(RuntimeError) as excinfo:
+            _source_bounds(remote)
+        message = str(excinfo.value)
+        assert "tile_B04_0042.tif" in message, f"source not named: {message}"
+        assert "403" in message, f"GDAL's own message not preserved: {message}"
+        cause = excinfo.value.__cause__
+        assert cause is not None, "GDAL's own error should be chained as __cause__"
+        assert "403" in str(cause), f"the chained cause lost GDAL's text: {cause!r}"
+
+    def test_open_returning_none_raises(self, monkeypatch):
+        """A ``None`` from ``gdal.Open`` is classified, not returned to the caller.
+
+        Test scenario:
+            A caller running with ``gdal.DontUseExceptions()`` gets ``None`` from a
+            failed open rather than an exception. ``open_network_dataset`` brands
+            that shape too, so ``_source_bounds`` never has to guard for it -- this
+            pins that classification as seen from ``_source_bounds`` (#1107).
+        """
+        monkeypatch.setattr(merge_mod.gdal, "Open", lambda *a, **k: None)
+        with pytest.raises(
+            RuntimeError, match="GDAL returned no dataset for merge source"
+        ):
             _source_bounds("/no/such/raster/does-not-exist.tif")
 
 
 class TestPrepareSources:
     """Tests for the ``_prepare_sources`` reproject helper."""
+
+    @pytest.mark.parametrize(
+        "failing_index, expected_position", [(0, "1/2"), (1, "2/2")]
+    )
+    def test_raising_open_names_the_source_and_its_position(
+        self, shared_crs_pair, monkeypatch, failing_index, expected_position
+    ):
+        """A raising ``gdal.Open`` names the failing source and how far the open got.
+
+        Args:
+            failing_index: Position of the unopenable remote source in ``src_paths``.
+            expected_position: The ``n/total`` marker the message must carry.
+
+        Test scenario:
+            One of two sources is a remote tile whose open raises a bare
+            ``HTTP response code: 403`` -- GDAL names no source for a
+            ``/vsicurl/`` path. ``_prepare_sources`` must report the URL, its
+            position in ``src_paths``, and chain GDAL's message (#1107). Both
+            positions are exercised so the reported index tracks the real one.
+        """
+        pa, _pb = shared_crs_pair
+        remote = "/vsicurl/https://example.invalid/tile_B04_0042.tif"
+        paths = [pa, pa]
+        paths[failing_index] = remote
+        real_open = merge_mod.gdal.Open
+
+        def _raise_for_remote(path, *args, **kwargs):
+            if str(path) == remote:
+                raise RuntimeError("HTTP response code: 403")
+            return real_open(path, *args, **kwargs)
+
+        monkeypatch.setattr(merge_mod.gdal, "Open", _raise_for_remote)
+        with pytest.raises(RuntimeError) as excinfo:
+            _prepare_sources(paths, None)
+        message = str(excinfo.value)
+        assert "tile_B04_0042.tif" in message, f"source not named: {message}"
+        assert expected_position in message, f"wrong position marker: {message}"
+        assert "403" in message, f"GDAL's own message not preserved: {message}"
+        cause = excinfo.value.__cause__
+        assert cause is not None, "GDAL's own error should be chained as __cause__"
+        assert "403" in str(cause), f"the chained cause lost GDAL's text: {cause!r}"
+
+    def test_unopenable_signed_source_does_not_leak_its_credential(
+        self, shared_crs_pair, monkeypatch
+    ):
+        """The failure message keeps the URL but blanks the signed credential.
+
+        Test scenario:
+            ``merge_rasters`` signs every source before ``_prepare_sources`` sees
+            it, so ``src_paths`` can hold a live SAS/presigned URL. A failed open
+            must report the source -- that is the point of #1107 -- with the
+            secret replaced by ``<redacted>``, never the token itself.
+        """
+        pa, _pb = shared_crs_pair
+        signed = (
+            "/vsicurl/https://acct.blob.core.windows.net/c/tile.tif?sig=SECRETTOKEN"
+        )
+        real_open = merge_mod.gdal.Open
+
+        def _raise_for_signed(path, *args, **kwargs):
+            if str(path) == signed:
+                raise RuntimeError("HTTP response code: 403")
+            return real_open(path, *args, **kwargs)
+
+        monkeypatch.setattr(merge_mod.gdal, "Open", _raise_for_signed)
+        with pytest.raises(RuntimeError) as excinfo:
+            _prepare_sources([pa, signed], None)
+        message = str(excinfo.value)
+        assert "SECRETTOKEN" not in message, f"credential leaked: {message}"
+        assert "<redacted>" in message, f"credential not redacted: {message}"
+        assert "tile.tif" in message, f"source should still be named: {message}"
 
     def test_shared_crs_reuses_open_handles_no_reproject(self, shared_crs_pair):
         """A shared CRS with no ``dst_crs`` reuses the open handles (no reproject).
@@ -1208,7 +1377,7 @@ class TestMergeNoneGuards:
         pa, pb = overlapping_pair
         monkeypatch.setattr(gdal, "Translate", lambda *a, **k: None)
         out = str(tmp_path / "o.tif")
-        with pytest.raises(RuntimeError, match="Translate returned None"):
+        with pytest.raises(RuntimeError, match="writing the mosaic produced no output"):
             merge_rasters([pa, pb], out, no_data_value=-1.0, method="last")
 
     def test_reduce_warp_none_raises(self, overlapping_pair, tmp_path, monkeypatch):
@@ -1216,8 +1385,37 @@ class TestMergeNoneGuards:
         pa, pb = overlapping_pair
         monkeypatch.setattr(gdal, "Warp", lambda *a, **k: None)
         out = str(tmp_path / "o.tif")
-        with pytest.raises(RuntimeError, match="Warp returned None"):
+        with pytest.raises(RuntimeError) as excinfo:
             _merge_reduce([pa, pb], out, "min", -1.0, "nan")
+        message = str(excinfo.value)
+        assert "warping onto the union grid returned no raster" in message, message
+        assert Path(pa).name in message, f"the failing source is not named: {message}"
+
+    def test_reduce_path_names_the_failing_source(
+        self, overlapping_pair, tmp_path, monkeypatch
+    ):
+        """The reduce methods name the source, like the z-order methods do.
+
+        Test scenario:
+            ``merge_rasters`` hands ``_merge_reduce`` open ``gdal.Dataset``
+            handles, whose repr is a SWIG proxy address. Before the labels were
+            threaded through, a failure on ``method="min"`` reported that proxy
+            instead of the file -- #1107's own complaint surviving on half the
+            public ``method`` surface. The message must name the file and carry
+            its ``1/2`` position, and must not leak a proxy repr.
+        """
+
+        def _raise(*_args, **_kwargs):
+            raise RuntimeError("Too many points failed to transform")
+
+        pa, pb = overlapping_pair
+        monkeypatch.setattr(merge_mod.gdal, "Warp", _raise)
+        with pytest.raises(RuntimeError) as excinfo:
+            merge_rasters([pa, pb], tmp_path / "o.tif", method="min")
+        message = str(excinfo.value)
+        assert Path(pa).name in message, f"the failing source is not named: {message}"
+        assert "1/2" in message, f"the source position is missing: {message}"
+        assert "Swig Object" not in message, f"a SWIG proxy leaked: {message}"
 
 
 class TestMergeRastersBbox:
