@@ -628,6 +628,17 @@ def merge_rasters(
             difference raster (#1086). Passing ``None`` explicitly asks for no
             marker at all, on either path.
 
+            The value is read from each source's **band 1**, and one marker is
+            stamped on every band of the output. A multi-band merge therefore
+            keeps band 1's answer throughout: where band 1 declares nothing and
+            band 2 declares a marker, nothing is inherited, and where the bands
+            declare different markers, band 1's is stamped over band 2's. For a
+            GeoTIFF that costs nothing, because the format has no per-band marker
+            to lose -- ``TIFFTAG_GDAL_NODATA`` holds one value for the whole
+            dataset, and GDAL warns that setting a second "will be used for all
+            bands on re-opening". It is observable only for sources that do carry
+            one per band, such as a VRT.
+
             When **no source declares one**, a marker is still chosen rather
             than omitted: a mosaic generally has pixels no source covers, and
             leaving those undeclared makes them read as real data -- a literal
@@ -637,11 +648,15 @@ def merge_rasters(
             (`init`, so ``NaN`` by default on a floating mosaic, and always for
             the reduction methods, which write Float64); where it cannot -- an
             integer band has no ``NaN`` -- a sentinel the dtype can store and
-            the mosaic's own cells do not use is chosen instead, and the
-            compositing step is filled with it so the gaps really hold what the
-            output declares. Only a
-            mosaic whose data uses every value its dtype could spare is written
-            without a marker, and that warns.
+            the mosaic's own cells do not use is chosen instead. Whichever it
+            is, the compositing step is filled with it, so the gaps really hold
+            what the output declares. Only a mosaic whose data uses every value
+            its dtype could spare is written without a marker, and that warns.
+
+            An inherited value the output band cannot store -- a ``NaN`` from
+            integer sources, which :attr:`~pyramids.dataset.Dataset.no_data_value`
+            does report -- would be dropped by GDAL and leave the mosaic
+            unmarked, so it warns and gives way to a storable one.
         init (float | int | str):
             Reported value for pixels with no source coverage in the VRT (z-order
             methods only). Maps to :func:`gdal.BuildVRTOptions` ``VRTNodata``.
@@ -855,10 +870,14 @@ def merge_rasters(
         # GDAL does not free them while the mosaic is built.
         inheriting = no_data_value is INHERIT_NO_DATA
         sources, _keepalive = _prepare_sources(src_paths, dst_crs, resampling)
+        # Under its own name rather than rebound onto the parameter, so that
+        # `no_data_value` keeps meaning "what the caller asked for" throughout --
+        # including the sentinel, which `inheriting` above is the only reading of.
+        resolved_no_data = no_data_value
         if inheriting:
             # Read it off the handles _prepare_sources already opened rather
             # than reopening: each open is billable under Requester-Pays.
-            no_data_value = inherit_no_data(
+            resolved_no_data = inherit_no_data(
                 [handle.GetRasterBand(1).GetNoDataValue() for handle in sources]
             )
 
@@ -869,12 +888,14 @@ def merge_rasters(
                 _Source(f"{index + 1}/{len(src_paths)} {path!r}", handle)
                 for index, (path, handle) in enumerate(zip(src_paths, sources))
             ]
-            if inheriting and no_data_value is None:
+            if inheriting and resolved_no_data is None:
                 # Nothing to inherit. The reduction writes Float64, so NaN is
                 # storable and no real cell can hold it -- the same rule the
                 # z-order path applies, answered by the dtype it writes.
-                no_data_value = float("nan")
-            _merge_reduce(labelled, str(dst), method, no_data_value, n, bbox, bbox_crs)
+                resolved_no_data = float("nan")
+            _merge_reduce(
+                labelled, str(dst), method, resolved_no_data, n, bbox, bbox_crs
+            )
             return
 
         # z-order: "last" keeps natural order (last source wins); "first"
@@ -886,14 +907,16 @@ def merge_rasters(
             # Whether or not a value was inherited, the mosaic's uncovered pixels
             # have to be accounted for -- and the value has to be one this output
             # band can actually hold.
-            no_data_value = _storable_marker(ordered, src_paths, init, no_data_value)
-            if no_data_value is not None:
+            resolved_no_data = _storable_marker(
+                ordered, src_paths, init, resolved_no_data
+            )
+            if resolved_no_data is not None:
                 # Fill with what the output is about to declare. Where `init` is
                 # already that value this is a no-op; otherwise the marker would
                 # be stamped over gaps holding something else -- NaN on a float
                 # mosaic inheriting -9999, or the 0 GDAL substitutes on an
                 # integer one -- and would mask nothing.
-                vrt_fill = str(no_data_value)
+                vrt_fill = str(resolved_no_data)
         vrt_opts = gdal.BuildVRTOptions(
             srcNodata=str(n),
             VRTNodata=vrt_fill,
@@ -962,7 +985,7 @@ def merge_rasters(
             format=out_driver,
             creationOptions=["COMPRESS=LZW"] if out_driver == "GTiff" else [],
             projWin=proj_win,
-            noData="none" if no_data_value is None else str(no_data_value),
+            noData=("none" if resolved_no_data is None else str(resolved_no_data)),
         )
         out_ds = run_gdal_op(
             partial(gdal.Translate, str(dst), vrt_ds, options=translate_opts),

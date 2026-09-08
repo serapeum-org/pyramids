@@ -714,6 +714,66 @@ class TestMergeRastersInheritsNoData:
             "the real 0.0 cell must remain readable data"
         )
 
+    def test_only_band_ones_marker_is_inherited(self, tmp_path):
+        """One marker is stamped on every band, and band 1 decides which.
+
+        Test scenario:
+            Two-band VRT sources whose band 1 declares nothing and whose band 2
+            declares -9999. Nothing is inherited, so the mosaic falls back to a
+            chosen marker and band 2's value is dropped. The sources are VRTs
+            because GeoTIFF cannot express the case at all -- its
+            `TIFFTAG_GDAL_NODATA` holds one value for the whole dataset, and GDAL
+            says so ("This value will be used for all bands on re-opening") --
+            which is also why the output side of this cannot be fixed by reading
+            more bands. Pinned so a future per-band implementation has something
+            to flip.
+        """
+        paths = []
+        for name, base, x0 in (("mw", 1.0, 0.0), ("me", 5.0, 2.0)):
+            Dataset.from_array(
+                np.stack(
+                    [
+                        np.full((2, 2), base, dtype="float32"),
+                        np.full((2, 2), base + 10.0, dtype="float32"),
+                    ]
+                ),
+                geo_ref=GeoReference(
+                    top_left_corner=(x0, 2.0), cell_size=1.0, epsg=4326
+                ),
+            ).to_file(tmp_path / f"{name}.tif")
+            source = gdal.Open(str(tmp_path / f"{name}.tif"))
+            vrt = gdal.GetDriverByName("VRT").CreateCopy(
+                str(tmp_path / f"{name}.vrt"), source
+            )
+            vrt.GetRasterBand(1).DeleteNoDataValue()
+            vrt.GetRasterBand(2).SetNoDataValue(-9999.0)
+            vrt.FlushCache()
+            vrt = None
+            source = None
+            paths.append(tmp_path / f"{name}.vrt")
+
+        handle = gdal.Open(str(paths[0]))
+        declared = [
+            handle.GetRasterBand(index + 1).GetNoDataValue() for index in range(2)
+        ]
+        handle = None
+        assert declared == [None, -9999.0], (
+            f"the source must actually declare per-band markers, got {declared}"
+        )
+
+        out = tmp_path / "multiband.tif"
+        merge_rasters(paths, out)
+        handle = gdal.Open(str(out))
+        markers = [
+            handle.GetRasterBand(index + 1).GetNoDataValue()
+            for index in range(handle.RasterCount)
+        ]
+        handle = None
+        assert len(markers) == 2, f"expected a two-band mosaic, got {len(markers)}"
+        assert all(value is not None and np.isnan(value) for value in markers), (
+            f"band 1 declares nothing, so both bands take the fallback: {markers}"
+        )
+
     def test_disagreeing_sources_warn_and_take_the_first(self, tmp_path):
         """A disagreement is surfaced rather than silently resolved."""
         west, east = self._tiles(tmp_path, -9999.0)
