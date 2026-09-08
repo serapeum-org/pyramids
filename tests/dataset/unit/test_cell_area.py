@@ -23,6 +23,7 @@ from pyproj import CRS
 
 from pyramids.base._domain import is_stored_no_data
 from pyramids.dataset import Dataset, GeoReference
+from pyramids.dataset.engines.cell import Cell
 
 pytestmark = pytest.mark.core
 
@@ -342,9 +343,7 @@ class TestTheRefusalsAddedAfterReview:
             the clip was there at all: `arctanh(e sin(phi))` cannot be `nan`
             for any real latitude, so there was never a `nan` to prevent.
         """
-        geo_ref = GeoReference(
-            geo=(-180.0, 0.25, 0.0, 90.125, 0.0, -0.25), epsg=4326
-        )
+        geo_ref = GeoReference(geo=(-180.0, 0.25, 0.0, 90.125, 0.0, -0.25), epsg=4326)
         raster = Dataset.from_array(np.ones((721, 1440), "float32"), geo_ref=geo_ref)
 
         total = raster.cell_area(unit="km2").sum() / 1e6
@@ -672,6 +671,63 @@ class TestTheGuardsNoPublicInputReaches:
 
         with pytest.raises(ValueError, match="declares no ellipsoid"):
             _global_grid().cell_area()
+
+
+class TestPrecisionAtSmallCellSizes:
+    """The antiderivative is 2.5e13; a sub-metre cell is a few square metres."""
+
+    @pytest.mark.parametrize(
+        "size, latitude",
+        [(2.8e-4, 60.0), (2.8e-4, 89.99), (1e-5, 89.999), (1e-7, 89.99999)],
+    )
+    def test_a_fine_grid_keeps_its_relative_precision(self, size, latitude):
+        """Differencing the antiderivative as written loses the answer entirely.
+
+        Args:
+            size: Cell size in degrees, down past any real raster.
+            latitude: Where the band sits; cancellation is worst at the pole.
+
+        Test scenario:
+            Evaluating the antiderivative at both parallels and subtracting
+            gave 5e-05 relative error at 1e-5 degrees and returned exactly 0.0
+            at 1e-7 -- which then tripped the no-extent guard and refused the
+            raster. Subtracting in closed form instead keeps every digit.
+            Checked here against the ellipsoid's own area element, integrated
+            numerically, rather than against another closed form.
+        """
+        scipy_integrate = pytest.importorskip("scipy.integrate")
+        geod = CRS.from_epsg(4326).get_geod()
+        semi_major, eccentricity_squared = geod.a, geod.f * (2.0 - geod.f)
+
+        def element(phi):
+            return (
+                semi_major
+                * semi_major
+                * (1.0 - eccentricity_squared)
+                * np.cos(phi)
+                / (1.0 - eccentricity_squared * np.sin(phi) ** 2) ** 2
+            )
+
+        low, high = np.radians(latitude), np.radians(latitude + size)
+        exact = scipy_integrate.quad(element, low, high, epsabs=0, epsrel=1e-13)[0]
+
+        answer = float(Cell._zone_areas(np.array([high, low]), geod.a, geod.f)[0])
+
+        assert answer == pytest.approx(exact, rel=1e-12)
+
+    def test_a_prolate_ellipsoid_is_refused_rather_than_read_as_a_sphere(self):
+        """A negative flattening gives a negative `e^2`, not a sphere.
+
+        Test scenario:
+            The spherical branch was entered on `e^2 <= 0`, so a prolate figure
+            silently received the spherical answer. No geodetic datum is
+            prolate, which is the reason to refuse rather than to derive the
+            `arctan` form it would need.
+        """
+        edges = np.radians(np.array([1.0, 0.0]))
+
+        with pytest.raises(ValueError, match="prolate"):
+            Cell._zone_areas(edges, 6378137.0, -0.003)
 
 
 class TestACompoundCrs:

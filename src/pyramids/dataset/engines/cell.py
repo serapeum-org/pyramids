@@ -393,8 +393,10 @@ class Cell(_Engine["Dataset"]):
         So the area is integrated in closed form instead. The ellipsoidal area
         element is `a^2 (1 - e^2) cos(phi) / (1 - e^2 sin^2 phi)^2`, whose
         antiderivative in latitude is the `_zone_integral` below; the answer is
-        that difference times the longitude span. Exact, vectorised over rows,
-        and it needs no geodesic call at all.
+        that difference times the longitude span -- taken in a form that never
+        evaluates the antiderivative itself, so it stays exact at any cell
+        size. See `_zone_areas`. Vectorised over rows, and it needs no
+        geodesic call at all.
 
         Args:
             crs: The raster's CRS, already resolved.
@@ -425,7 +427,7 @@ class Cell(_Engine["Dataset"]):
         span = abs(dx) * to_radians
         pole = np.pi / 2
         # A single edge past the pole is ordinary and handled by the clip in
-        # `_zone_integral`: a cell-centred global grid (ERA5's, say) puts its
+        # `_zone_areas`: a cell-centred global grid (ERA5's, say) puts its
         # first edge half a cell beyond 90, and the half of that cell which
         # exists is exactly what the clipped integral returns. A row with
         # *both* edges outside is a different thing -- it describes ground that
@@ -442,26 +444,47 @@ class Cell(_Engine["Dataset"]):
                 f"{int(off.sum())} of its {self._ds.rows} rows lie entirely "
                 "beyond a pole; crop or re-georeference it first"
             )
-        zones = self._zone_integral(edges, geod.a, geod.f)
-        return np.abs(np.diff(zones)) * span
+        return self._zone_areas(edges, geod.a, geod.f) * span
 
     @staticmethod
-    def _zone_integral(latitude: np.ndarray, a: float, f: float) -> np.ndarray:
-        """Area of the ellipsoid south of `latitude`, per radian of longitude.
+    def _zone_areas(edges: np.ndarray, a: float, f: float) -> np.ndarray:
+        """Area between consecutive parallels, per radian of longitude.
 
-        The antiderivative of the ellipsoidal area element. Differencing it
-        between two parallels and multiplying by the longitude span gives the
-        exact area of the quadrilateral between them -- which is the shape a
-        raster cell actually is.
+        The ellipsoidal area element is
+        `a^2 (1 - e^2) cos(phi) / (1 - e^2 sin^2 phi)^2`. Its antiderivative in
+        latitude is
+
+            `a^2 (1 - e^2) [ sin/(2(1 - e^2 sin^2)) + arctanh(e sin)/(2e) ]`,
+
+        so a band's area is that evaluated at two parallels and subtracted.
+        Subtracting it *as written* is the problem: the antiderivative is of
+        order 2.5e13 while a 1e-6-degree band covers about 3 m2, and the
+        difference of two nearly equal doubles keeps none of that. It reaches
+        exactly `0.0` near the pole at 1e-7 degrees, which then trips the
+        no-extent guard and refuses the raster.
+
+        So the subtraction is done first, in closed form, and never evaluated:
+
+        * `sin(u) - sin(l) = 2 cos((u+l)/2) sin((u-l)/2)`, exact for any gap;
+        * the rational term differences to
+          `(sin u - sin l)(1 + e^2 sin u sin l) / (2 (1 - e^2 sin^2 u)(1 - e^2 sin^2 l))`;
+        * `arctanh x - arctanh y = arctanh((x - y)/(1 - xy))`.
+
+        Every one carries the small quantity through as a factor, so the answer
+        keeps full relative precision at any cell size.
 
         Args:
-            latitude: Latitudes in **radians**.
+            edges: Row edge latitudes in **radians**, `rows + 1` of them.
             a: The ellipsoid's semi-major axis, in metres.
             f: Its flattening; `0.0` for a sphere.
 
         Returns:
-            np.ndarray: The integral at each latitude, in square metres per
-            radian of longitude.
+            np.ndarray: One area per row, in square metres per radian of
+            longitude, in row order and always positive.
+
+        Raises:
+            ValueError: `f` is negative, describing a prolate figure that this
+                closed form does not cover.
         """
         # Clipped before the sine, because past the pole the sine turns back
         # down and the integral would answer for the wrong latitude: an edge at
@@ -470,23 +493,46 @@ class Cell(_Engine["Dataset"]):
         # always, so `arctanh` stays finite -- the hazard is a wrong number, not
         # an obvious one. `_parallel_row_areas` refuses a row that is entirely
         # outside; this keeps the routine honest for the half-cell that is not.
-        sine = np.sin(np.clip(latitude, -np.pi / 2, np.pi / 2))
-        eccentricity_squared = f * (2.0 - f)
-        if eccentricity_squared <= 0.0:
-            # A spherical datum: the general form divides by `e`, and the limit
-            # as it vanishes is simply `a^2 sin(phi)`.
-            return np.asarray(a * a * sine, dtype="float64")
-        eccentricity = np.sqrt(eccentricity_squared)
-        integral = (
-            a
-            * a
-            * (1.0 - eccentricity_squared)
-            * (
-                sine / (2.0 * (1.0 - eccentricity_squared * sine * sine))
-                + np.arctanh(eccentricity * sine) / (2.0 * eccentricity)
-            )
+        latitude = np.clip(edges, -np.pi / 2, np.pi / 2)
+        upper, lower = latitude[:-1], latitude[1:]
+        sine_difference = (
+            2.0 * np.cos((upper + lower) / 2.0) * np.sin((upper - lower) / 2.0)
         )
-        return np.asarray(integral, dtype="float64")
+        eccentricity_squared = f * (2.0 - f)
+        if f < 0.0:
+            # Guarded separately from the sphere: a prolate figure gives a
+            # negative `e^2`, whose `arctanh` form turns into an `arctan` one.
+            # No geodetic datum is prolate, so refusing beats quietly handing
+            # back the spherical answer, which is what `e^2 <= 0` used to do.
+            raise ValueError(
+                f"the CRS's ellipsoid is prolate (flattening {f}), which cell "
+                "area is not derived for; reproject to an oblate or spherical "
+                "datum first"
+            )
+        if eccentricity_squared == 0.0:
+            # A spherical datum -- every major weather model ships GRIB on one.
+            # Both terms above tend to `(sin u - sin l)/2` as `e` vanishes, so
+            # the general form's division by `e` is avoided rather than
+            # approached.
+            areas = a * a * sine_difference
+        else:
+            sine_upper, sine_lower = np.sin(upper), np.sin(lower)
+            eccentricity = np.sqrt(eccentricity_squared)
+            product = eccentricity_squared * sine_upper * sine_lower
+            rational = (
+                sine_difference
+                * (1.0 + product)
+                / (
+                    2.0
+                    * (1.0 - eccentricity_squared * sine_upper * sine_upper)
+                    * (1.0 - eccentricity_squared * sine_lower * sine_lower)
+                )
+            )
+            inverse = np.arctanh(eccentricity * sine_difference / (1.0 - product)) / (
+                2.0 * eccentricity
+            )
+            areas = a * a * (1.0 - eccentricity_squared) * (rational + inverse)
+        return np.asarray(np.abs(areas), dtype="float64")
 
     def get_cell_polygons(self, domain_only: bool = False) -> GeoDataFrame:
         """Get a polygon shapely geometry for the raster cells.
