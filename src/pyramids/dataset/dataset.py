@@ -3593,7 +3593,10 @@ class Dataset(RasterBase):
                 exclusive with ``resolution``; exactly one is required.
             resolution: Output pixel size in ``crs`` units — a scalar (square) or
                 ``(x_res, y_res)`` pair — divided into the bbox extent to size the
-                image. Mutually exclusive with ``size``.
+                image. Mutually exclusive with ``size``. The derived size is capped
+                at :data:`~pyramids.base._coverage.MAX_PX` per axis; ``size``
+                itself is not, since a number the caller states cannot be amplified
+                by a mistake in ``bbox`` the way a derived one can.
             image_format: WMS ``FORMAT`` MIME type. Defaults to ``"image/png"``.
             version: WMS protocol version. Defaults to ``"1.3.0"``.
             bands: Number of bands to request (``3`` RGB, ``4`` RGBA). Defaults to
@@ -3610,10 +3613,13 @@ class Dataset(RasterBase):
             Dataset: The rendered map window.
 
         Raises:
-            ValueError: ``bbox`` is malformed, ``layers`` is empty, or ``size`` /
-                ``resolution`` was not given exactly once. A wrapping ``bbox`` is
-                malformed when ``crs`` is projected, or when a corner falls outside
-                ``-180 .. 180`` and "west of the seam" stops meaning anything.
+            ValueError: ``bbox`` is malformed, ``layers`` is empty, ``size`` /
+                ``resolution`` was not given exactly once, or ``resolution`` over
+                this ``bbox`` exceeds
+                :data:`~pyramids.base._coverage.MAX_PX` on either axis. A wrapping
+                ``bbox`` is malformed when ``crs`` is projected, or when a corner
+                falls outside ``-180 .. 180`` and "west of the seam" stops meaning
+                anything.
             pyramids.errors.WMSError: The server could not be reached or returned a
                 non-raster body.
 

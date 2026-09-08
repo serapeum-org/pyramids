@@ -715,9 +715,10 @@ def translate_to_mem(
     colliding. Bounding the read is the **caller's** job, and the callers do not
     all bound it the same way -- the WCS and OGC coverage reads size through
     :func:`read_size`, while the WMS GetMap path sizes through its own
-    ``_output_size`` with no pixel ceiling, because the server has already been
-    told the size it should render. Where :func:`read_size` is used, it is
-    where the :data:`MAX_PX` ceiling is enforced.
+    ``_output_size``. Both now enforce the same :data:`MAX_PX` ceiling, but only
+    over a size they *derive* from a resolution: a ``size=`` the caller states
+    outright is taken verbatim on the WMS path, because a stated number cannot be
+    silently amplified the way a derived one can.
 
     Args:
         src: The opened network dataset to read from.

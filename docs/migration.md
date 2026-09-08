@@ -182,7 +182,15 @@ geotransform continues past the seam (`170 .. 180` then `180 .. 190`) instead of
   with a corner outside `-180 .. 180`, where "west of the seam" stops meaning anything.
 - **`from_wms`'s `size` is the width of the whole result**, divided between the two halves at one shared
   resolution, with the seam snapped to the nearest pixel boundary. The two widths sum to the `size` you asked
-  for, odd or even, so a wrapping request returns the image dimensions a non-wrapping one would.
+  for, odd or even, so a wrapping request returns the image dimensions a non-wrapping one would. A wrapping
+  request needs at least 2 pixels of width, since one pixel cannot straddle the seam.
+- **`from_wms(resolution=...)` is now capped at 25,000 px per axis.** Hard change, and it applies to ordinary
+  non-wrapping reads too: `from_wms(bbox=(5, 51, 6, 52), resolution=0.00001)` used to return a 100,000 x 100,000
+  image and now raises `ValueError`. The cap exists because accepting a wrap made a transposed bbox silently
+  span 359 degrees — at a fine resolution that becomes two `GetMap` requests of a few hundred thousand columns
+  each, which no server will serve. `size=(width, height)` is **not** capped: a size you state outright cannot be
+  amplified by a mistake in `bbox`, so it is still taken verbatim. If you were relying on a very fine
+  `resolution`, pass `size=` instead.
 - **`from_wmts` measures the seam offset in the layer's native CRS** rather than assuming 360 — about
   40,075,017 m for a Web Mercator layer — and only computes it when there is a seam, so a non-wrapping read is
   byte-identical to before.
