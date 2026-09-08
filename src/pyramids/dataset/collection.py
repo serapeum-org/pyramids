@@ -3794,12 +3794,19 @@ class DatasetCollection:
         Args:
             dst (str | Path):
                 Path to the output raster.
-            no_data_value (float | int | str):
-                Assign a specified nodata value to output bands. Omitted means
-                inherit it from the sources, exactly as
+            no_data_value (float | int | str | None):
+                Nodata marker stamped on the output bands. Omitted means
+                inherit it from the timesteps, exactly as
                 :func:`~pyramids.dataset.merge.merge_rasters` does -- this
                 method is a thin wrapper over it, so the two must not disagree
-                about what an omitted argument means (#1086).
+                about what an omitted argument means (#1086). The first
+                timestep that declares a value wins, a disagreement warns, and
+                when none declares one a marker the output's data type can hold
+                is settled on so that the pixels no timestep covers are not
+                written as ordinary data. Pass a value to override that, or
+                ``None`` for no marker at all. See `merge_rasters` for what
+                fills the uncovered pixels in each case -- with an explicit
+                value on a z-order `method`, that is `init`, not this.
             init (float | int | str):
                 Pre-initialize the output image bands with these
                 values. However, it is not marked as the nodata

@@ -22,11 +22,15 @@ the sentinel, which is where a wrong answer silently destroys data:
   merge came to mask real 0 m terrain (#1086).
 * :func:`free_no_data` — pick a value the dtype can store and the data
   does not already use, for the cases where one must be chosen.
+* :data:`INHERIT_NO_DATA` — the default that means "the caller passed
+  nothing, so ask the sources", told apart from an explicit `None`
+  ("declare no sentinel at all").
 
-Both treat `no_data_value=None` and `no_data_value=NaN` as
-"look for NaN cells", so individual call-sites no longer need to
-guard with bespoke `if val is None: np.isnan(...) else: np.isclose(...)`
-branches.
+The three masking helpers — :func:`is_no_data`, :func:`inside_domain`
+and :func:`is_stored_no_data` — all treat `no_data_value=None` and
+`no_data_value=NaN` as "look for NaN cells", so individual call-sites no
+longer need to guard with bespoke
+`if val is None: np.isnan(...) else: np.isclose(...)` branches.
 
 The default `rtol=0.001` matches the tolerance used at the bulk
 of the historical call-sites; sites with a tighter tolerance pass
@@ -59,7 +63,44 @@ class _Inherit:
 
     A bare `object()` reprs as its address, and this sentinel is a *default*: it
     reaches generated API docs as `no_data_value=<object object at 0x...>`, a
-    line that says nothing and changes every build.
+    line that says nothing and changes every build. The instance is immutable
+    and stateless -- `__slots__ = ()` -- because identity is all any caller ever
+    asks of it.
+
+    Examples:
+        - The instance names itself rather than reporting an address:
+            ```python
+            >>> from pyramids.base._domain import INHERIT_NO_DATA
+            >>> repr(INHERIT_NO_DATA)
+            'inherit'
+
+            ```
+        - Which is what a signature carrying it as a default reads as, in
+          `help()` and in the generated API docs alike:
+            ```python
+            >>> import inspect
+            >>> from pyramids.base._domain import INHERIT_NO_DATA
+            >>> def merge(no_data_value=INHERIT_NO_DATA): pass
+            >>> str(inspect.signature(merge))
+            '(no_data_value=inherit)'
+
+            ```
+        - Telling the three states a `no_data_value=` argument can be in
+          apart, which is the whole reason a sentinel is needed:
+            ```python
+            >>> from pyramids.base._domain import INHERIT_NO_DATA
+            >>> def describe(no_data_value=INHERIT_NO_DATA):
+            ...     if no_data_value is INHERIT_NO_DATA:
+            ...         return "ask the sources"
+            ...     return "declare nothing" if no_data_value is None else "declare it"
+            >>> describe()
+            'ask the sources'
+            >>> describe(None)
+            'declare nothing'
+            >>> describe(-9999.0)
+            'declare it'
+
+            ```
     """
 
     __slots__ = ()
@@ -69,13 +110,24 @@ class _Inherit:
         return "inherit"
 
 
-# Sentinel for "the caller passed nothing, so take the value from the sources",
-# which every entry point offering the choice must tell apart from an explicit
-# `None` ("stamp no marker at all"). It lives beside `inherit_no_data`, the
-# function that answers it: while it lived in `dataset.py` the one caller
-# `dataset.py` imports -- `engines.io.stream_transform` -- could not import it
-# back without a cycle, and kept a second sentinel of its own.
 INHERIT_NO_DATA = _Inherit()
+"""Default meaning "the caller passed nothing, so take the value from the sources".
+
+Every entry point offering the choice must tell it apart from an explicit
+`None`, which means the opposite: "stamp no marker at all". Test for it with
+`is` against this one exported instance: it carries no state, so its identity
+is the only thing about it that means anything.
+
+It lives beside :func:`inherit_no_data`, the function that answers it: while it
+lived in `dataset.py` the one caller `dataset.py` imports --
+`engines.io.stream_transform` -- could not import it back without a cycle, and
+kept a second sentinel of its own.
+
+See Also:
+    - :func:`inherit_no_data`: Resolves the sentinel this default defers to.
+    - :func:`pyramids.dataset.merge.merge_rasters`: Takes it as its
+      `no_data_value` default.
+"""
 
 # Cells per slice when scanning a band for an unused value. Bounds the scan's
 # transient peak to roughly 25 MB whatever the raster's size -- the `int64`
@@ -925,18 +977,27 @@ def inherit_no_data(values: Sequence[float | None]) -> float | None:
 
     The first declared value wins, so the caller's ordering decides. A source
     declaring nothing simply defers to one that does; sources that disagree warn
-    rather than silently picking one.
+    rather than silently picking one. Sources that all declare `NaN` -- what a
+    floating GeoTIFF commonly carries -- agree, even though `NaN != NaN` would
+    say otherwise, so that case is quiet.
+
+    Resolving the value is all this does. It neither checks that the output's
+    dtype can store the answer nor arranges for uncovered pixels to hold it;
+    both are the caller's, and :func:`pyramids.dataset.merge._storable_marker`
+    is where the mosaic path settles them.
 
     Args:
         values: Each source's declared no-data, in source order, with `None`
-            where a source declares none.
+            where a source declares none. GDAL hands these back as C doubles,
+            so an integer band's sentinel arrives as a float.
 
     Returns:
         float | None: The value the output should declare, or `None` when no
         source declared one -- in which case nothing should be masked.
 
     Warns:
-        UserWarning: The sources declare more than one distinct value.
+        UserWarning: The sources declare more than one distinct value. The
+            message lists them in source order and names the winner.
 
     Examples:
         - Sources that agree hand that value back:
@@ -959,6 +1020,32 @@ def inherit_no_data(values: Sequence[float | None]) -> float | None:
             >>> from pyramids.base._domain import inherit_no_data
             >>> print(inherit_no_data([None, None]))
             None
+
+            ```
+        - Sources that all use `NaN` agree, so nothing is warned about:
+            ```python
+            >>> import warnings
+            >>> import numpy as np
+            >>> from pyramids.base._domain import inherit_no_data
+            >>> with warnings.catch_warnings(record=True) as caught:
+            ...     warnings.simplefilter("always")
+            ...     resolved = inherit_no_data([float("nan"), np.float32("nan")])
+            >>> bool(np.isnan(resolved)), len(caught)
+            (True, 0)
+
+            ```
+        - Disagreeing sources hand back the first declared value and say which
+          ones they were:
+            ```python
+            >>> import warnings
+            >>> from pyramids.base._domain import inherit_no_data
+            >>> with warnings.catch_warnings(record=True) as caught:
+            ...     warnings.simplefilter("always")
+            ...     resolved = inherit_no_data([-9999.0, -32768.0])
+            >>> resolved
+            -9999.0
+            >>> str(caught[0].message)
+            'source rasters disagree on no-data value (-9999.0, -32768.0); using -9999.0'
 
             ```
 

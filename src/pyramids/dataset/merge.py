@@ -423,11 +423,35 @@ def _source_nodata(n: float | int | str) -> float | None:
     afterwards by the inherited marker. Left unset, each source's declared value
     marks that source's own holes, which is what makes the two markers agree.
 
+    The test is on the *spelling*, so `"nan"`, `"NaN"` and `float("nan")` all
+    mean "no override"; anything else is coerced to a float, since that is what
+    both consumers -- :func:`gdal.BuildVRTOptions`' ``srcNodata`` and
+    :func:`gdal.WarpOptions`' ``srcNodata`` -- take.
+
     Args:
         n: The caller's source-no-data value; `"nan"` (the default) means none.
 
     Returns:
         float | None: The override, or `None` to leave each source with its own.
+
+    Raises:
+        ValueError: `n` is a string that names no number.
+
+    Examples:
+        - The default asks for no override, so each source keeps its own:
+            ```python
+            >>> from pyramids.dataset.merge import _source_nodata
+            >>> print(_source_nodata("nan"))
+            None
+
+            ```
+        - Any other value is coerced to the float GDAL wants:
+            ```python
+            >>> from pyramids.dataset.merge import _source_nodata
+            >>> _source_nodata(-9999)
+            -9999.0
+
+            ```
     """
     return None if str(n).lower() == "nan" else float(n)
 
@@ -439,6 +463,12 @@ def _mosaic_value_range(mosaic: gdal.Dataset) -> tuple[float, float] | None:
     never stamped on it. GDAL walks the mosaic block by block, so this costs a
     read of the sources but never a copy of them in memory -- and it answers for
     the whole mosaic what would otherwise take a full array per candidate.
+
+    The range covers the cells GDAL counts as data: `ComputeRasterMinMax` skips
+    any that hold the band's own declared no-data. That is the right answer for
+    the caller -- a cell already marked absent is not one a new sentinel could
+    collide with -- but it does mean the range is not the raw span of the bytes
+    on disk.
 
     Args:
         mosaic: The composited VRT.
@@ -470,13 +500,30 @@ def _mosaic_value_range(mosaic: gdal.Dataset) -> tuple[float, float] | None:
 def _unused_marker(mosaic: gdal.Dataset, dtype: np.dtype) -> Any | None:
     """A sentinel `dtype` can store that the mosaic's own cells do not already use.
 
+    The candidates, and the order they are tried in, come from
+    :func:`~pyramids.base._domain.no_data_candidates`: the package default
+    ``-9999`` first where the dtype can hold it, then the dtype's own extremes,
+    an unsigned band offering its maximum before its `0`. Asking in that order
+    here and in :func:`~pyramids.base._domain.free_no_data` is what makes a
+    mosaic's marker the same one a single raster would have been given.
+
+    Two questions are asked of the data, cheapest first: whether a candidate
+    falls outside the mosaic's own minimum and maximum (one streamed pass, and
+    enough in the ordinary case), and only if none does, whether it occurs
+    anywhere in the mosaic's cells (a full read).
+
     Args:
         mosaic: The composited VRT.
         dtype: The dtype the sentinel must be storable in.
 
     Returns:
         Any | None: The chosen sentinel, or `None` when the data uses every value
-        the dtype could spare.
+        the dtype could spare. A mosaic that is entirely no-data, whose range is
+        therefore unanswerable, takes the first candidate, and `None` when the
+        dtype offers none.
+
+    Raises:
+        RuntimeError: GDAL failed to read the mosaic while resolving the range.
     """
     candidates = no_data_candidates(dtype)
     bounds = _mosaic_value_range(mosaic)
@@ -514,11 +561,15 @@ def _storable_marker(
 
     1. **What the sources declared**, when the mosaic's dtype can store it. It
        usually can -- the sources and the mosaic share a dtype. What it cannot
-       store is a `NaN` inherited onto an integer band, which
-       :attr:`~pyramids.dataset.Dataset.no_data_value` reports for an integer
-       raster asked for one: GDAL then refuses the marker outright ("Nodata value
-       was not set to output band"), leaving the same undeclared gaps. That warns
-       and falls through.
+       store is a `NaN` inherited onto an integer band, which is a real state:
+       GDAL accepts `SetNoDataValue(nan)` on an integer band and reports it back
+       unchanged, and so does
+       :attr:`~pyramids.dataset.Dataset.no_data_value`, which never fabricates a
+       storable number in its place. Stamping it on the output is what fails --
+       :func:`gdal.Translate` answers "Nodata value was not set to output band,
+       as it cannot be represented on its data type" and writes the band with no
+       marker at all, leaving the same undeclared gaps. That warns and falls
+       through.
     2. **The value uncovered pixels would otherwise hold**, `init` -- free and
        exactly right for the default `"nan"` on a floating mosaic, the common case.
     3. **A sentinel the dtype can store and the data does not use**, when neither
@@ -533,17 +584,29 @@ def _storable_marker(
             type and skips any source that disagrees, so this is the mosaic's own
             type rather than an approximation of it.
         src_paths: The source paths, for the error message on a failed build.
-        init: The caller's uncovered-pixel value.
+        init: The caller's uncovered-pixel value. A value `float()` cannot read
+            is treated as no answer, and step 3 decides instead.
         inherited: What the sources declared, or `None` when none of them did.
 
     Returns:
         Any | None: The value to declare and fill gaps with, or `None` when the
         data leaves none free -- which warns.
 
+    Raises:
+        RuntimeError: GDAL failed to build or read the bare probe mosaic step 3
+            measures. Only step 3 opens anything; steps 1 and 2 answer from the
+            arguments alone.
+
     Warns:
         UserWarning: The sources' own value cannot be stored in the mosaic's data
             type; or the mosaic's cells use every value that type could spare, so
             it is written with no marker at all.
+
+    See Also:
+        - :func:`pyramids.base._domain.inherit_no_data`: Produces `inherited`,
+          resolving what the sources declare without regard to what the output
+          can store.
+        - :func:`_unused_marker`: Answers step 3.
     """
     # Band 1 decides the dtype, as it does for the inheritance itself, and
     # `gdal.Translate` stamps one marker on every band either way.
@@ -573,9 +636,13 @@ def _storable_marker(
         # exists only to be measured, and the default `"nan"` for either is what
         # GDAL answers with "Band data type of <T> cannot represent the specified
         # NoData value of nan" on the very integer bands this branch serves.
-        # Dropping both leaves uncovered pixels reading as 0 and keeps every
-        # source cell in view, which can only make the collision test more
-        # cautious -- never less.
+        # A bare VRT still takes the sources' own declaration onto its band, and
+        # `ComputeRasterMinMax` then skips the cells holding it -- but that costs
+        # this branch nothing either way. Reached with `inherited is None`, no
+        # source declared anything, so the probe declares nothing, uncovered
+        # pixels read as 0, and every cell is in view. Reached with `inherited`
+        # set, it is by definition a value this dtype cannot store, so no cell
+        # holds it and none is skipped.
         probe = run_gdal_op(
             partial(gdal.BuildVRT, "", ordered),
             error=RuntimeError,
@@ -642,14 +709,24 @@ def merge_rasters(
             `.asc` is the one this costs: it was writable before, through the
             z-order path only. Write a GTiff and convert.
         no_data_value (float | int | str | None):
-            Stamped on the output bands as the nodata marker, and the value
-            pixels with no source coverage are filled with. Omitted means
+            Stamped on the output bands as the nodata marker. Omitted means
             **inherit from the sources**: the first value they declare wins, and
             a disagreement warns. Passing a value explicitly overrides that --
             but note that any real cell holding it becomes unreadable, which is
             why 0 is a poor choice for an elevation, bathymetry, anomaly or
             difference raster (#1086). Passing ``None`` explicitly asks for no
             marker at all, on either path.
+
+            **What fills the pixels no source covers depends on which of those
+            you did.** Omitted, the settled marker fills them too, so the gaps
+            really hold what the band declares — that is the whole point of
+            inheriting. Passed explicitly, only the reduction methods fill with
+            it; the z-order methods fill with `init`, which defaults to ``NaN``
+            and is a value no integer band can store. ``no_data_value=-1`` on an
+            integer mosaic therefore writes a band declaring ``-1`` whose gaps
+            hold ``0`` — a declared marker masking nothing (measured). When you
+            override the marker on a z-order merge of integer sources, pass the
+            same value as `init`.
 
             The value is read from each source's **band 1**, and one marker is
             stamped on every band of the output. A multi-band merge therefore
@@ -666,34 +743,51 @@ def merge_rasters(
             than omitted: a mosaic generally has pixels no source covers, and
             leaving those undeclared makes them read as real data -- a literal
             `0` on an integer mosaic, which then poisons
-            :meth:`~pyramids.dataset.Dataset.stats`. The choice is the value
-            those pixels already hold where the output's dtype can store it
-            (`init`, so ``NaN`` by default on a floating mosaic, and always for
-            the reduction methods, which write Float64); where it cannot -- an
-            integer band has no ``NaN`` -- a sentinel the dtype can store and
-            the mosaic's own cells do not use is chosen instead. Whichever it
-            is, the compositing step is filled with it, so the gaps really hold
-            what the output declares. Only a mosaic whose data uses every value
-            its dtype could spare is written without a marker, and that warns.
+            :meth:`~pyramids.dataset.Dataset.stats`. The reduction methods
+            write Float64 and take ``NaN``, which no real cell can hold. The
+            z-order methods take the value those pixels would otherwise hold,
+            `init` — so ``NaN`` too on a floating mosaic, the common case —
+            and where the dtype cannot store it, a sentinel it can store and
+            the mosaic's own cells do not use: ``-9999`` where the dtype holds
+            it and the data does not, then the dtype's own extremes — an
+            unsigned band offering its maximum before its `0`, since `0` is the
+            likelier real observation. A signed integer mosaic of sources
+            declaring nothing therefore comes back declaring ``-9999`` and an
+            unsigned one its maximum -- ``65535`` for ``UInt16`` -- with the
+            gaps holding it either way. Only a mosaic whose data uses every value its
+            dtype could spare is written without a marker, and that warns.
 
             An inherited value the output band cannot store -- a ``NaN`` from
-            integer sources, which :attr:`~pyramids.dataset.Dataset.no_data_value`
-            does report -- would be dropped by GDAL and leave the mosaic
-            unmarked, so it warns and gives way to a storable one.
+            integer sources, which GDAL both accepts and reports back -- would
+            be dropped by :func:`gdal.Translate` and leave the mosaic unmarked,
+            so it warns and gives way to a storable one.
         init (float | int | str):
             Reported value for pixels with no source coverage in the VRT (z-order
-            methods only). Maps to :func:`gdal.BuildVRTOptions` ``VRTNodata``.
-            The default ``"nan"`` is what a floating mosaic inheriting no marker
-            ends up declaring; on an integer mosaic, which cannot store it, it is
-            replaced by the storable sentinel described under `no_data_value`.
+            methods only — the reduction methods never read it). Maps to
+            :func:`gdal.BuildVRTOptions` ``VRTNodata``.
+
+            It is the fallback, not the last word: while `no_data_value` is
+            being inherited, whatever marker gets settled on is filled into the
+            gaps instead, so `init` is what survives only when that marker turns
+            out to be `init` itself. Sources declaring ``-9999`` and an
+            ``init=5`` yield gaps holding ``-9999`` (measured). The default
+            ``"nan"`` is therefore what a floating mosaic inheriting nothing
+            ends up declaring, and on an integer mosaic — which cannot store it
+            — the storable sentinel described under `no_data_value` takes its
+            place. `init` has the gaps to itself only when `no_data_value` was
+            passed explicitly, which is the case that needs the two to agree.
         n (float | int | str):
             Source pixels matching this value are ignored — both when building
-            the VRT mosaic (z-order) and when reducing (the value is treated as
-            source no-data). It is an **override**: whatever is passed replaces
-            every source's own declared marker, so a mosaic of tiles declaring
-            different values would have all of their holes composited as real
-            measurements. The default ``"nan"`` therefore means "no override",
-            and each source's declared value marks that source's own holes.
+            the VRT mosaic (z-order, as ``srcNodata``) and when warping onto the
+            union grid (the reduction methods, likewise). It is an **override**,
+            applied to every source alike, and it *replaces* each source's own
+            declaration rather than adding to it: over tiles declaring ``-9999``
+            and ``-32768``, ``n=-9999`` composites the second tile's holes as
+            real ``-32768`` measurements (measured). The default ``"nan"``
+            therefore means "no override" — the spelling is matched, so
+            ``"NaN"`` and ``float("nan")`` mean it too — and each source's own
+            declared value marks that source's own holes, which is what lets the
+            gaps and the inherited marker agree.
         method (str):
             Overlap-resolution rule: one of ``"first"``, ``"last"`` (default),
             ``"min"``, ``"max"``, ``"sum"``.
@@ -781,13 +875,19 @@ def merge_rasters(
         None
 
     Note:
-        The z-order methods (``"first"``/``"last"``) preserve each source's data
-        type via ``BuildVRT`` + ``Translate``. The reduction methods
-        (``"min"``/``"max"``/``"sum"``) align every source onto the union grid
-        with ``gdal.Warp`` (nearest resampling — exact for already-aligned tiles)
-        and write a single-precision-safe **Float64** output regardless of the
-        source dtype, so they may differ in dtype from a z-order merge of the
-        same integer inputs.
+        The z-order methods (``"first"``/``"last"``) preserve the data type via
+        ``BuildVRT`` + ``Translate`` — specifically the **first** source's, since
+        that is the one ``BuildVRT`` takes its band type from; a source whose
+        band type disagrees is skipped, with a GDAL warning naming it. The
+        reduction methods (``"min"``/``"max"``/``"sum"``) align every source onto
+        the union grid with ``gdal.Warp`` (nearest resampling — exact for
+        already-aligned tiles) and write a single-precision-safe **Float64**
+        output regardless of the source dtype, so they may differ in dtype from a
+        z-order merge of the same integer inputs. The warp itself is asked for
+        Float64 as well, so that the ``NaN`` marking a strip's uncovered pixels
+        survives it: rounded into an integer destination it would come back as a
+        real ``0`` (or the type's minimum for Int32) and be folded into the
+        result as data.
 
     Raises:
         TypeError: ``resampling`` is not a string, or ``bbox`` is not four numbers
@@ -809,9 +909,12 @@ def merge_rasters(
 
     Warns:
         UserWarning: The sources declare more than one distinct no-data value
-            (the first wins, and both are named); or none of them declares one
-            and the mosaic's cells use every value its dtype could spare as a
-            marker, so it is written without one.
+            (the first wins, and all of them are named); or the value they
+            declare is one the output's data type cannot store, so a storable
+            one is chosen in its place; or the mosaic's cells use every value
+            its dtype could spare as a marker, so it is written without one.
+            All three arise only while the marker is being inherited — passing
+            `no_data_value` explicitly settles the question and silences them.
 
     Examples:
         - Mosaic two tiles, keeping the larger value wherever they overlap:
@@ -830,6 +933,28 @@ def merge_rasters(
           set to 0 (#1086):
             ```python
             >>> merge_rasters(["tile_a.tif", "tile_b.tif"], "mosaic.tif")  # doctest: +SKIP
+
+            ```
+        - Override the inherited marker on a z-order merge of integer tiles.
+          `init` has to be given the same value, or the gaps hold ``0`` while
+          the band declares ``-1``:
+            ```python
+            >>> merge_rasters(  # doctest: +SKIP
+            ...     ["tile_a.tif", "tile_b.tif"],
+            ...     "mosaic.tif",
+            ...     no_data_value=-1,
+            ...     init=-1,
+            ... )
+
+            ```
+        - Ask for no marker at all, so every value in the mosaic stays readable
+          — including a real 0 m in an elevation model:
+            ```python
+            >>> merge_rasters(  # doctest: +SKIP
+            ...     ["dem_a.tif", "dem_b.tif"],
+            ...     "dem.tif",
+            ...     no_data_value=None,
+            ... )
 
             ```
         - Mosaic tiles from two UTM zones into a single CRS:
@@ -1003,7 +1128,7 @@ def merge_rasters(
         # noData unset would stamp NaN -- invalid on an integer band, which is
         # exactly the "sentinel the band cannot store" defect. It is reached
         # only when the caller asked for no marker by passing `None`, or when
-        # `_declare_uncovered` found the data using every value it could have
+        # `_storable_marker` found the data using every value it could have
         # chosen (and said so); inheriting nothing otherwise yields a marker
         # rather than removing one.
         translate_opts = gdal.TranslateOptions(
@@ -1202,15 +1327,23 @@ def _warp_onto_strip(
 ) -> np.ndarray:
     """Warp one source onto a strip's window and read it as a 3-D float64 cube.
 
+    The warp is asked for a Float64 destination whatever the source's own type,
+    because the strip's contract is that everything the source does not cover
+    comes back as ``NaN`` — which only a floating destination can hold. Cells
+    the source declares as no-data are turned into ``NaN`` too, so the fold that
+    follows has one question to ask of a cell rather than two.
+
     Args:
         source: The source to warp, paired with the label to report it by.
         strip_bounds: The strip's ``(west, south, east, north)`` window.
         x_size: Strip width in pixels.
         ysize: Strip height in pixels.
-        src_nodata: The sources' no-data value, or `None`.
+        src_nodata: A value to treat as no-data in every source, overriding what
+            each declares, or `None` to leave each with its own.
 
     Returns:
-        np.ndarray: The warped strip, always ``(bands, rows, cols)``, no-data as NaN.
+        np.ndarray: The warped strip, always ``(bands, rows, cols)`` even for a
+        single-band source, in float64, with no-data and no coverage alike as NaN.
 
     Raises:
         RuntimeError: :func:`gdal.Warp` failed for this source.
@@ -1224,13 +1357,15 @@ def _warp_onto_strip(
         dstNodata=float("nan"),
         # Warp into the dtype the reduction writes, rather than into the source's
         # and casting after. `dstNodata=nan` is the whole basis of the NaN-aware
-        # fold below, and an integer destination cannot hold it: GDAL rounds it to
-        # 0 ("destination nodata value has been rounded to 0") and the strip comes
-        # back with real zeros where it has no coverage. Those zeros then win every
-        # `fmin` and are added by every `sum`, so a min/max/sum mosaic of integer
-        # tiles that do not tile contiguously collapsed to all-zero -- whatever
-        # `no_data_value` said, since `covered` never saw a gap. The cast below is
-        # then a no-op rather than a second full-size copy.
+        # fold below, and an integer destination cannot hold it: GDAL rounds it
+        # into the type instead ("destination nodata value has been rounded to
+        # 0, UInt16 being an integer datatype" -- 0 for Byte, UInt16, Int16 and
+        # UInt32, and -2147483648 for Int32) and the strip comes back with those
+        # as real values where it has no coverage. They then win every `fmin`
+        # and are added by every `sum`, so a min/max/sum mosaic of integer tiles
+        # that do not tile contiguously collapsed to all-zero -- whatever
+        # `no_data_value` said, since `covered` never saw a gap. The cast below
+        # is then a no-op rather than a second full-size copy.
         outputType=gdal.GDT_Float64,
     )
     warped = run_gdal_op(
@@ -1341,7 +1476,9 @@ def _merge_reduce(
     output. Sources whose extent does not overlap a strip's latitude band are
     skipped (they would warp to all-no-data). Nearest-neighbour warping onto the
     exact union grid makes the strip reduction byte-identical to a whole-grid pass.
-    Pixels with no source coverage are written as ``no_data_value``.
+    Pixels with no source coverage are written as `no_data_value`, or as ``NaN``
+    when that is `None`. The output is Float64 whatever the sources' dtype, since
+    the fold works in NaN-aware floating point throughout.
 
     Args:
         src_paths: Sources as :class:`_Source` pairs (so a failure names the
@@ -1482,8 +1619,13 @@ def stack_bands(
             file names.
         align: When ``True``, resample mismatched inputs onto ``files[0]``'s
             grid instead of raising :class:`~pyramids.base._errors.AlignmentError`.
-        no_data_value: No-data value for the output bands; omitted means
-            "inherit from the source rasters".
+        no_data_value: No-data value stamped on the output bands. Omitted means
+            **inherit from the source rasters**: the first file that declares
+            one wins, a disagreement warns, and if none declares one the output
+            declares none either. Pass a value to override that, or ``None`` for
+            "declare no sentinel at all". It is the same rule
+            :func:`merge_rasters` follows, resolved by the same
+            :func:`~pyramids.base._domain.inherit_no_data`.
         path: Output path, whose extension selects the driver (``.tif`` ->
             GTiff, ``.nc`` -> netCDF, …); ``None`` keeps the result in memory.
             `COMPRESS=LZW` is applied only when the extension resolves to
@@ -1509,6 +1651,50 @@ def stack_bands(
             catalog does not know.
         FileFormatNotSupportedError: `path`'s extension maps to a
             write-by-copy-only format, whichever write path the inputs take.
+
+    Warns:
+        UserWarning: The inputs declare more than one distinct no-data value,
+            while `no_data_value` is being inherited. The first file's wins.
+
+    Examples:
+        - Stack a Landsat scene's per-band GeoTIFFs; the band names come from
+          the file names:
+            ```python
+            >>> from pyramids.dataset.merge import stack_bands
+            >>> scene = stack_bands(  # doctest: +SKIP
+            ...     ["scene.B2.tif", "scene.B3.tif", "scene.B4.tif"]
+            ... )
+            >>> scene.band_names  # doctest: +SKIP
+            ['B2', 'B3', 'B4']
+
+            ```
+        - Name the bands and write the stack straight to disk:
+            ```python
+            >>> from pyramids.dataset.merge import stack_bands
+            >>> stack_bands(  # doctest: +SKIP
+            ...     ["b2.tif", "b3.tif", "b4.tif"],
+            ...     band_names=["blue", "green", "red"],
+            ...     path="stack.tif",
+            ... )
+
+            ```
+        - Resample mismatched inputs onto the first file's grid, and declare no
+          sentinel on the result:
+            ```python
+            >>> from pyramids.dataset.merge import stack_bands
+            >>> stack_bands(  # doctest: +SKIP
+            ...     ["b2.tif", "coarse_b11.tif"],
+            ...     align=True,
+            ...     no_data_value=None,
+            ... )
+
+            ```
+
+    See Also:
+        - :meth:`pyramids.dataset.Dataset.from_band_files`: The method this
+          delegates to, with the full contract and runnable examples.
+        - :func:`merge_rasters`: Mosaics rasters that tile the same area,
+          rather than stacking rasters that share a grid.
     """
     if signer is not None:
         files = [signer.sign_href(str(f)) for f in files]
