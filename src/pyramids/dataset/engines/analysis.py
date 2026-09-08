@@ -576,7 +576,9 @@ class Analysis(_Engine["Dataset"]):
                 * integer result that masked nothing — no sentinel at all;
                 * integer result that masked something — the first of the
                   operands' own sentinels, the package default, then the dtype's
-                  extremes that both fits and occurs nowhere in the result.
+                  extremes that both fits and occurs nowhere in the result --
+                  and, for the narrow integer widths, the rest of the range
+                  after those.
 
                 Pass an explicit value to choose it — it is honoured, with a
                 :class:`~pyramids.errors.NoDataCollisionWarning` if the result
@@ -979,7 +981,12 @@ class Analysis(_Engine["Dataset"]):
         * otherwise the first candidate that fits the dtype and occurs nowhere
           in the result, searched through the operands' own sentinels, then the
           package default, then the dtype's extremes (max before min for an
-          unsigned dtype, whose min is the very usable `0`).
+          unsigned dtype, whose min is the very usable `0`). For the narrow
+          integer widths the search continues into the rest of the range rather
+          than refusing there, walking inward from the preferred extreme, so an
+          `int8` result holding every candidate is answered as long as any of
+          its 256 values is unused. `int32` and wider still refuse once the
+          candidates are gone.
 
         Args:
             requested: The caller's `no_data_value`, or `_DERIVE_NO_DATA` when

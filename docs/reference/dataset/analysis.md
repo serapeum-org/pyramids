@@ -93,6 +93,12 @@ raster every consumer reads as empty. `combine` therefore derives the sentinel
   the dtype and occurs nowhere in the result, searched through the operands' own
   sentinels (every band, left operand first), then `-9999`, then the dtype's
   extremes — max before min for an unsigned dtype, whose min is the very usable `0`.
+  For the narrow integer widths (`int8`, `uint8`, `int16`, `uint16`) the search does
+  not stop there: the rest of the range is enumerated and the first unused value
+  taken, walking inward from the preferred extreme, so a result holding every
+  candidate still gets an answer. `int32` and wider refuse once the candidates are
+  exhausted, their ranges being too large to enumerate and a collision on all of
+  them correspondingly unlikely.
 
 An explicit `no_data_value=` is always honoured, with a `NoDataCollisionWarning`
 when the result holds it. `no_data_value=None` turns masking off entirely: every
