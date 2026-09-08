@@ -1997,6 +1997,43 @@ class TestCropFillValues:
 
         assert source.spatial._fill_outside_the_band_range(0, np.dtype("uint8")) is None
 
+    @pytest.mark.parametrize("kind", ["mask band", "alpha band"])
+    def test_a_masked_band_is_not_resolved_from_gdals_range(self, kind: str):
+        """GDAL and `read_array` must be looking at the same cells.
+
+        Args:
+            kind: Which flavour of mask hides the value.
+
+        Test scenario:
+            `ComputeRasterMinMax` skips whatever the band's mask marks invalid
+            and `read_array` ignores masks entirely, so GDAL's range omits
+            values the band genuinely holds. Deriving a fill from it picked
+            `255` for a band whose hidden cell *is* `255`, and the crop then
+            declared a value two cells held -- the exact defect the derivation
+            exists to avoid. The shortcut is taken only when the mask says
+            every cell counts.
+        """
+        values = np.arange(100, dtype="uint8").reshape(10, 10) % 10
+        values[0, 0] = 255
+        bands = 1 if kind == "mask band" else 2
+        raster = gdal.GetDriverByName("MEM").Create("", 10, 10, bands, gdal.GDT_Byte)
+        raster.SetGeoTransform((0.0, 1.0, 0.0, 10.0, 0.0, -1.0))
+        raster.GetRasterBand(1).WriteArray(values)
+        hidden = np.full((10, 10), 255, dtype="uint8")
+        hidden[0, 0] = 0
+        if kind == "mask band":
+            raster.CreateMaskBand(gdal.GMF_PER_DATASET)
+            raster.GetRasterBand(1).GetMaskBand().WriteArray(hidden)
+        else:
+            raster.GetRasterBand(2).WriteArray(hidden)
+            raster.GetRasterBand(2).SetColorInterpretation(gdal.GCI_AlphaBand)
+        source = Dataset(raster)
+
+        fill = source.spatial._crop_fill_values()[0]
+
+        held = np.asarray(source.read_array(band=0))
+        assert not (held == fill).any(), f"the fill {fill} is a value the band holds"
+
     def test_a_band_holding_every_candidate_refuses(self):
         """The honest failure, rather than a colliding fill.
 

@@ -1418,6 +1418,17 @@ class Spatial(_Engine["Dataset"]):
         every cell to 8 bytes. The `uint8` DEM whose values stop at 7 gets its
         `255` here, and never reads.
 
+        That equivalence holds only while GDAL and pyramids are looking at the
+        same cells. `ComputeRasterMinMax` skips whatever the band's mask marks
+        invalid, and `Dataset.read_array` ignores masks entirely, so on a
+        mask-banded or alpha-banded raster GDAL's range omits values the band
+        genuinely holds -- and the fill derived from it would be one of them,
+        which is the defect this whole path exists to avoid. The shortcut is
+        therefore taken only when the mask says every cell counts. A band with
+        an unstorable sentinel reports exactly that, since GDAL cannot register
+        a `NaN` no-data on an integer band, so the case this was written for
+        keeps its fast path.
+
         That matters most on the path this is called from. `_crop_aligned_tiled`
         exists so neither the full source nor the full destination is held in
         memory, and resolving the fill by materialising the band would have
@@ -1429,15 +1440,21 @@ class Spatial(_Engine["Dataset"]):
 
         Returns:
             Any: The first storable candidate outside the band's range, or
-            `None` when every candidate falls inside it (or the range cannot be
-            computed, as for a band with no valid cells at all).
+            `None` when the range cannot be trusted (a mask or alpha band),
+            cannot be computed (no valid cells to sample), or contains every
+            candidate. In each of those the caller falls back to reading.
         """
+        raster_band = self._ds._raster.GetRasterBand(band + 1)
+        if raster_band.GetMaskFlags() != gdal.GMF_ALL_VALID:
+            # A mask or alpha band hides cells from GDAL that `read_array`
+            # returns, so its range is not an answer about this band.
+            return None
         try:
-            minimum, maximum = self._ds._raster.GetRasterBand(
-                band + 1
-            ).ComputeRasterMinMax(False)
+            minimum, maximum = raster_band.ComputeRasterMinMax(False)
         except RuntimeError:
-            # No valid cells to compute a range from; let the caller read.
+            # GDAL declines to compute a range -- no valid cells to sample
+            # being the reachable case. Either way the question is unanswered
+            # here, and the caller reads the band instead.
             return None
         return next(
             (
