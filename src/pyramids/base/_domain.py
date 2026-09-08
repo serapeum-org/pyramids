@@ -837,6 +837,7 @@ __all__ = [
     "is_nan_sentinel",
     "is_no_data",
     "is_stored_no_data",
+    "nan_bounds",
     "no_data_candidates",
     "occurs_in",
 ]
