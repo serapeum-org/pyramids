@@ -133,8 +133,21 @@ class TestPureHelpers:
             _oapif._read_kwargs((1.0, 2.0, 3.0), None, None)
 
     def test_read_kwargs_rejects_inverted_bbox(self):
+        """An inverted *latitude* range is still refused — latitude has no seam.
+
+        The x-axis half of this assertion used to live here too: `(3, 2, 1, 4)`
+        was refused as inverted. It is now read as a box wrapping the 180 degree
+        meridian, the same reading `Dataset.crop` gives it — see
+        `test_antimeridian_bbox.py` for what the readers do with it.
+        """
         with pytest.raises(ValueError, match="minx < maxx"):
-            _oapif._read_kwargs((3.0, 2.0, 1.0, 4.0), None, None)
+            _oapif._read_kwargs((1.0, 4.0, 3.0, 2.0), None, None)
+
+    def test_read_kwargs_accepts_a_wrapping_bbox(self):
+        """`minx > maxx` is recorded as the caller wrote it; `read_ogc_layer` splits it."""
+        assert _oapif._read_kwargs((170.0, -10.0, -170.0, 10.0), None, None) == {
+            "bbox": (170.0, -10.0, -170.0, 10.0)
+        }
 
     def test_collection_ids_prefers_id_then_name(self):
         doc = {"collections": [{"id": "a"}, {"name": "b"}, {"title": "no-id"}, "junk"]}

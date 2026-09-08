@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import warnings
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any, TypeAlias, cast
@@ -826,12 +827,27 @@ def is_cf_time_units(units: str | bytes | None) -> bool:
 # origin at or after it therefore puts every offset on the side where the two
 # agree, which is what makes the integer path below safe to take; an earlier
 # origin on a mixed calendar stays on `cftime`, which knows about the ten
-# missing days.
+# missing days. Note this `>=` is not the same threshold as the one deciding
+# which class `cftime` hands back: that one is strictly later, so an origin of
+# exactly 1582-10-15 is safe for the integer path yet still decodes to
+# `DatetimeGregorian` when the fallback is reached for some other reason.
 _GREGORIAN_CUTOVER = datetime(1582, 10, 15)
 # Bound on the nanosecond magnitudes the integer path will handle. Deliberately
 # under `int64`'s 9.223e18 so the check -- made in float64, where the rounding
 # error at this scale is ~1e3 ns -- cannot pass a value that then overflows.
 _NS_LIMIT = 9.0e18
+# The `int64` nanosecond limit `_NS_LIMIT` guards against, in calendar coordinates, for
+# the `cftime` path -- which holds decoded datetimes rather than nanosecond offsets and so
+# cannot compare against a magnitude. Taken in full (+/-9.223e18) rather than at
+# `_NS_LIMIT`'s conservative 9.0e18: this comparison is exact, so it needs no headroom for
+# float error. Rounded inward to whole microseconds, because a `datetime` carries no
+# nanoseconds: that makes the bound conservative by under a microsecond at each end, which
+# costs a sliver of range and never admits a value that would wrap.
+# `test_bounds_match_int64_nanoseconds` pins it to the derivation.
+_DT64_NS_BOUNDS = (
+    (1677, 9, 21, 0, 12, 43, 145225),
+    (2262, 4, 11, 23, 47, 16, 854775),
+)
 
 
 def _gregorian_scale_and_origin(
@@ -874,6 +890,133 @@ def _gregorian_scale_and_origin(
                 + elapsed.microseconds * 1_000,
             )
     return resolved
+
+
+def _num2date(
+    values: np.ndarray,
+    units: str,
+    calendar: str,
+    standard: bool,
+    context: str | None,
+) -> Any:
+    """Call `cftime.num2date`, turning its failures into an error that names the axis.
+
+    `cftime` raises a bare `ValueError` naming neither the axis nor the store. The commonest
+    case is a `"months since ..."` axis on anything but `360_day`: a calendar month has no
+    fixed length, so `cftime` refuses the unit, while `is_cf_time_units` -- which is purely
+    syntactic and never sees the calendar -- has already admitted the string (#1117). The
+    other case is an offset landing outside `datetime`'s year 1 to 9999, which `cftime`
+    reports as an overflow rather than returning a datetime for.
+
+    Args:
+        values: The numeric offsets to decode.
+        units: The CF `"<period> since <origin>"` string.
+        calendar: The CF calendar name.
+        standard: Whether `calendar` is a Gregorian-family one.
+        context: Optional name of the axis, for the message.
+
+    Returns:
+        np.ndarray | np.ma.MaskedArray: The `cftime` result -- a masked array when some
+            value could not be decoded (a `NaN` or an `inf` offset), and a plain array
+            when every one of them decoded.
+
+    Raises:
+        ValueError: `cftime` cannot decode this axis -- an unsupported units/calendar pair
+            (a `"months since ..."` axis on anything but `360_day`, an unparseable origin, a
+            period it does not know), or an offset landing outside `datetime`'s year 1-9999.
+            An offset large enough to overflow a 64-bit integer arrives as an
+            `OverflowError` and is normalised to `ValueError` too, so a caller has one
+            failure type to catch. Re-raised rather than allowed through, so the message
+            names the axis, units and calendar, with the original chained.
+    """
+    try:
+        decoded = cftime.num2date(
+            values, units, calendar, only_use_cftime_datetimes=not standard
+        )
+    except (ValueError, OverflowError) as error:
+        axis = f"{context!r} " if context else ""
+        hint = ""
+        # Gated on the calendar as well as the unit: on `360_day` the unit *is* supported,
+        # so a failure there has some other cause and the hint would contradict itself.
+        if units.strip().lower().startswith("month") and calendar.lower() != "360_day":
+            hint = (
+                " A calendar month has no fixed length, so this unit is only defined on "
+                "the 360_day calendar."
+            )
+        raise ValueError(
+            f"cannot decode time axis {axis}({units!r}) with calendar "
+            f"{calendar!r}: {error}.{hint}"
+        ) from error
+    return decoded
+
+
+def _blank_missing(
+    decoded: np.typing.NDArray, missing: np.typing.NDArray
+) -> np.typing.NDArray:
+    """Put `None` where `cftime` could not decode a value, in an object array.
+
+    The `datetime64` path spells a missing value `NaT`; an object array of datetimes has no
+    such spelling, so `None` carries it instead. Without this the position holds the origin,
+    which reads as a real timestamp (#1116).
+
+    Args:
+        decoded: The decoded object array.
+        missing: The mask `cftime` returned alongside it.
+
+    Returns:
+        np.ndarray: `decoded`, with the masked positions blanked. Returned unchanged when
+            nothing is masked, which is the common case.
+    """
+    blanked = decoded
+    if missing.any():
+        blanked = decoded.astype(object)
+        blanked[missing] = None
+    return blanked
+
+
+def _fits_datetime64_ns(decoded: np.typing.NDArray) -> bool:
+    """Whether every decoded datetime is representable as `datetime64[ns]`.
+
+    `astype("datetime64[ns]")` does not raise on a date outside the type's range -- it
+    wraps, silently, into a plausible-looking date on the other side of the epoch (#1087).
+    So the range has to be checked before the cast rather than caught after it.
+
+    `cftime` refuses to compare a `DatetimeGregorian` with a `datetime` when the decoded
+    value itself falls before the 1582 Gregorian reform, because the two calendars disagree
+    there; the bound's own date does not enter into it, and a value on or after the reform
+    compares against any `datetime`. That refusal is not a problem: the reform predates
+    this type's floor, so a date `cftime` will not compare is necessarily below 1677 and
+    out of range anyway. Treating the `TypeError` as "does not fit" is therefore the right
+    answer and not merely a safe one -- `test_the_gregorian_reform_predates_the_floor` pins
+    the invariant that makes it so.
+
+    Args:
+        decoded: The datetimes `cftime` produced, as an object array.
+
+    Returns:
+        bool: `True` when the whole array fits, so the cast is exact; `False` when any
+            value is out of range, cannot be compared, or is not a datetime at all, in
+            which case keeping the `cftime` objects is the lossless answer.
+    """
+    low, high = _DT64_NS_BOUNDS
+    floor, ceiling = datetime(*low), datetime(*high)
+    fits = True
+    for value in decoded.ravel():
+        # Screened per element, so the `except` can only ever absorb the one `TypeError` it
+        # is meant for: anything non-datetime would otherwise read as "does not fit" and be
+        # reported as an out-of-range date, which is a misdiagnosis rather than a safe
+        # default. Screening and comparing in one pass keeps the short-circuit -- a bad
+        # first element ends the scan rather than sweeping the whole axis twice.
+        if not isinstance(value, (datetime, cftime.datetime)):
+            fits = False
+        else:
+            try:
+                fits = bool(floor <= value <= ceiling)
+            except TypeError:
+                fits = False
+        if not fits:
+            break
+    return fits
 
 
 def _decode_gregorian_ns(
@@ -945,10 +1088,81 @@ def _exact_ns_offsets(
     return offsets
 
 
+def _decode_via_cftime(
+    values: np.ndarray,
+    text: str,
+    calendar: str,
+    standard: bool,
+    context: str | None,
+) -> np.typing.NDArray:
+    """Decode through `cftime`, when the exact integer path cannot take the axis.
+
+    Split out of `decode_cf_time` so that function stays a router between the two decode
+    paths: everything here is the second path's own business -- honouring the mask, deciding
+    whether the result fits `datetime64[ns]`, and saying so when it does not.
+
+    Args:
+        values: The numeric offsets to decode.
+        text: The CF `"<period> since <origin>"` string.
+        calendar: The CF calendar name.
+        standard: Whether `calendar` is a Gregorian-family one, which is what decides
+            whether the result is a candidate for `datetime64[ns]` at all.
+        context: Optional name of the axis, for the warning.
+
+    Returns:
+        np.ndarray: For a Gregorian-family calendar, `datetime64[ns]` when every present
+            value fits it, else an object array. For any other calendar, always an object
+            array -- those decode to `cftime` datetimes that no range check could cast.
+            Either object array carries `None` where a value was missing.
+
+    Raises:
+        ValueError: Propagated from `_num2date` when `cftime` cannot decode the axis at
+            all -- most often a `"months since ..."` axis on anything but `360_day`.
+    """
+    raw = _num2date(values, text, calendar, standard, context)
+    # `cftime` masks the positions it could not decode -- a `NaN` or an `inf`
+    # offset -- and `np.asarray` drops that mask, leaving the fill value, which
+    # is the origin. Read as a real timestamp, that is a missing timestep
+    # silently becoming a date (#1116). Keep the mask and honour it below.
+    missing = np.ma.getmaskarray(np.ma.asarray(raw))
+    decoded = np.asarray(raw)
+    if standard:
+        # Range-checked, not try/except: the cast does not raise on an
+        # out-of-range date, it wraps (#1087). Out of range the decoded
+        # objects are kept as-is -- lossless, and already what a
+        # non-standard calendar returns. Masked positions are excluded: they
+        # hold the origin, so on a pre-1582 epoch they would fail the check and
+        # blame a range problem for what is a missing value.
+        present = decoded[~missing] if missing.any() else decoded
+        if _fits_datetime64_ns(present):
+            decoded = decoded.astype("datetime64[ns]")
+            if missing.any():
+                decoded = np.where(missing, np.datetime64("NaT", "ns"), decoded)
+        else:
+            # `UserWarning`, not `RuntimeWarning`: GDAL floods the latter,
+            # so the common "ignore RuntimeWarning" recipe around a GDAL
+            # read would silence a data-integrity warning.
+            axis = f"{context!r} " if context else ""
+            warnings.warn(
+                f"time axis {axis}({text!r}) decodes to dates outside the "
+                f"1677-09-21 to 2262-04-11 range datetime64[ns] can represent; "
+                f"returning the decoded datetime objects instead, because casting "
+                f"would silently wrap them to the wrong dates.",
+                UserWarning,
+                # 3, not 2: this sits one frame deeper than `decode_cf_time` now.
+                stacklevel=3,
+            )
+            decoded = _blank_missing(decoded, missing)
+    else:
+        decoded = _blank_missing(decoded, missing)
+    return decoded
+
+
 def decode_cf_time(
     values: np.ndarray,
     unit: str | bytes | None,
     calendar: str = "standard",
+    context: str | None = None,
 ) -> np.typing.NDArray:
     """Decode numeric CF time offsets to datetimes.
 
@@ -961,21 +1175,78 @@ def decode_cf_time(
     nanoseconds, rather than through ``cftime``. Behaviour differs from earlier releases
     in two ways, both of them consequences of dropping ``cftime``'s microsecond floor:
     a ``"nanoseconds since …"`` axis decodes instead of raising, and a ``NaN`` offset
-    decodes to ``NaT`` instead of to the origin. Anything the integer path cannot take
-    exactly -- an unparseable origin, a period such as ``"months"``, an instant outside
-    ``datetime64[ns]``'s 1678-2262 range, or a pre-1582 origin on a mixed
-    Julian/Gregorian calendar -- still goes to ``cftime``, unchanged.
+    decodes to ``NaT`` instead of to the origin. Both decode paths agree about missing
+    values: the ``cftime`` fallback honours the mask ``cftime`` returns, so a ``NaN`` or an
+    ``inf`` offset is missing there too rather than silently reading as the origin (#1116).
+
+    Anything the integer path cannot take exactly -- an unparseable origin, a period such as
+    ``"months"``, an instant the integer nanosecond scale cannot reach, or a pre-1582 origin
+    on a mixed Julian/Gregorian calendar -- still goes to ``cftime``. That reach is not a
+    fixed span of years: the gate sums the offset's magnitude and the origin's distance from
+    1970, so a far-from-1970 epoch shortens it (off ``days since 1900-01-01`` it gives out in
+    March 2115). That is a wider range than the integer path's, not a narrower one: a date
+    ``cftime`` decodes is still cast to ``datetime64[ns]`` whenever it fits, so 2255-2262 --
+    past the integer scale but inside the type -- comes back as ``datetime64`` all the same.
 
     Args:
         values: The numeric values already read for the coordinate.
         unit: The coordinate's CF unit string (e.g. ``"days since 1979-01-01"``),
             or the bytes an undecoded attribute arrives as.
         calendar: The CF calendar name. Defaults to ``"standard"``.
+        context: Optional name of the axis being decoded, used only so the out-of-range
+            warning can say *which* axis it is about. A store with several time axes
+            otherwise warns with nothing but the units string to tell them apart.
 
     Returns:
-        np.ndarray: Decoded datetimes for a time axis, else ``values`` unchanged.
+        np.ndarray: Decoded datetimes for a time axis, else ``values`` unchanged. For a
+            time axis the dtype depends on the dates: ``datetime64[ns]`` when every one of
+            them is representable in that type, and an object array otherwise -- either
+            because the calendar is not a standard one, or because a date falls outside
+            ``datetime64[ns]``'s 1677-09-21 to 2262-04-11 range, which is warned about
+            (#1087). The choice is array-wide, since one array has one dtype: a single
+            out-of-range value keeps its in-range neighbours as objects too. A value
+            ``cftime`` could not decode -- a ``NaN`` or an ``inf`` offset -- comes back as
+            ``NaT`` in a ``datetime64`` result and as ``None`` in an object one, since an
+            object array of datetimes has no ``NaT`` (#1116).
+            What that object array holds is ``cftime``'s own choice, not this
+            function's, and it is made once per array from the units origin rather than per
+            value: ``cftime.real_datetime`` (a ``datetime.datetime`` subclass, which
+            ``pandas`` coerces to ``datetime64[us]``) when the proleptic Gregorian rules
+            already cover that origin -- a ``proleptic_gregorian`` calendar, or a
+            mixed-calendar origin strictly after the 1582 reform -- and a true ``cftime``
+            datetime such as ``DatetimeGregorian`` when they do not, which means a
+            mixed-calendar origin no later than the reform date itself
+            (``days since 1582-10-15`` already gives ``DatetimeGregorian``). Being an
+            array-wide choice, such an axis stays ``DatetimeGregorian`` even in the
+            offsets that land after the reform.
+
+    Raises:
+        ValueError: ``cftime`` cannot decode this axis -- most often a ``"months since …"``
+            axis on anything but ``360_day``, since a calendar month has no fixed length,
+            and otherwise an unparseable origin or an offset landing outside ``datetime``'s
+            year 1 to 9999.
+            An offset so large the scale overflows a 64-bit integer arrives from ``cftime``
+            as an ``OverflowError`` and is normalised to this one type, so callers have a
+            single failure to catch. Re-raised with the axis, units and calendar named,
+            because ``cftime``'s own message identifies none of them (#1117).
 
     Examples:
+        - A date past what ``datetime64[ns]`` holds keeps its real value, and says so:
+            ```python
+            >>> import warnings
+            >>> import numpy as np
+            >>> from pyramids.netcdf.utils import decode_cf_time
+            >>> with warnings.catch_warnings(record=True) as caught:
+            ...     warnings.simplefilter("always")
+            ...     decoded = decode_cf_time(
+            ...         np.array([400_000]), "days since 1970-01-01", "standard"
+            ...     )
+            >>> decoded.dtype, decoded[0].year
+            (dtype('O'), 3065)
+            >>> caught[0].category.__name__
+            'UserWarning'
+
+            ```
         - The resolution the collection writer counts in, read back with its
           sub-microsecond digits intact:
             ```python
@@ -1009,16 +1280,7 @@ def decode_cf_time(
         if exact is not None:
             decoded = exact
         else:
-            decoded = np.asarray(
-                cftime.num2date(
-                    values, text, calendar, only_use_cftime_datetimes=not standard
-                )
-            )
-            if standard:
-                try:
-                    decoded = decoded.astype("datetime64[ns]")
-                except (ValueError, TypeError):
-                    pass
+            decoded = _decode_via_cftime(values, text, calendar, standard, context)
     return decoded
 
 

@@ -165,6 +165,47 @@ that leaked out of an empty table lookup. Only affects code catching the old typ
 
 ### unreleased
 
+**The web-service readers accept a bbox that crosses the antimeridian.** Additive if you pass an ordinary box; a
+hard change if you relied on `minx > maxx` being rejected. `Dataset.from_wcs`, `from_wms`, `from_wmts` and
+`from_ogc_coverages` used to raise `ValueError: bbox must have minx < maxx and miny < maxy` for
+`(170, -10, -170, 10)` — while `Dataset.crop` had served exactly that box for a long time, by splitting at the
+180 degree seam. The readers now split too: two requests, one per side, concatenated into one raster whose
+geotransform continues past the seam (`170 .. 180` then `180 .. 190`) instead of jumping back to `-180`.
+
+- **A transposed longitude pair is no longer caught, and that is the price.** A network reader has no grid to
+  measure the bbox against — it is fetching the grid — so `(6, 51, 5, 52)`, a west/east pair entered the wrong
+  way round, now reads as a 359 degree wrap and issues two large requests rather than raising. If you were
+  relying on that `ValueError` to catch swapped arguments, check the bbox yourself before the call. **Latitude
+  is unaffected**: `miny >= maxy` is still an error, because there is no seam in latitude.
+- **Two wrapping bboxes are refused rather than approximated**, both on the `from_wms` / `from_wmts` side: one
+  with a projected `crs`, where there is no 180 degree meridian and `minx > maxx` really is inverted; and one
+  with a corner outside `-180 .. 180`, where "west of the seam" stops meaning anything.
+- **`from_wms`'s `size` is the width of the whole result**, divided between the two halves at one shared
+  resolution, with the seam snapped to the nearest pixel boundary. The two widths sum to the `size` you asked
+  for, odd or even, so a wrapping request returns the image dimensions a non-wrapping one would. A wrapping
+  request needs at least 2 pixels of width, since one pixel cannot straddle the seam.
+- **`from_wms(resolution=...)` is now capped at 25,000 px per axis.** Hard change, and it applies to ordinary
+  non-wrapping reads too: `from_wms(bbox=(5, 51, 6, 52), resolution=0.00001)` used to return a 100,000 x 100,000
+  image and now raises `ValueError`. The cap exists because accepting a wrap made a transposed bbox silently
+  span 359 degrees — at a fine resolution that becomes two `GetMap` requests of a few hundred thousand columns
+  each, which no server will serve. `size=(width, height)` is **not** capped: a size you state outright cannot be
+  amplified by a mistake in `bbox`, so it is still taken verbatim. If you were relying on a very fine
+  `resolution`, pass `size=` instead.
+- **`from_wmts` measures the seam offset in the layer's native CRS** rather than assuming 360 — about
+  40,075,017 m for a Web Mercator layer — and only computes it when there is a seam, so a non-wrapping read is
+  byte-identical to before.
+- **`from_ogc_coverages` sizes the two halves together** when no `resolution` is given: the combined span is
+  capped once and the resulting pixel size applied to both. Sizing each half against the cap on its own would
+  give them different pixel sizes and row counts, which cannot be concatenated at all.
+- **A wrapping `from_wcs(direct=True)` read should pass `resolution=`.** Direct mode has no descriptor to read, so
+  the two halves are independent `GetCoverage` requests; with a `resolution` they are snapped onto one lattice,
+  and without one nothing constrains the server to grid them alike. A mismatch is refused with
+  `antimeridian halves were produced at different resolutions` rather than stitched into a misaligned raster.
+- **A seam read through `from_wcs` or `from_ogc_coverages` returns a plain `Dataset`**, even when called on a
+  subclass, because those two merge by rebuilding through `Dataset.from_array`. `from_wms` and `from_wmts` stitch
+  into a GDAL handle and wrap it with the class they were called on, so a subclass survives there. Only relevant
+  if you call these classmethods on a `Dataset` subclass; nothing in `pyramids` does.
+
 **Two rasters can now be combined directly, and `Dataset` gained arithmetic operators.** Additive — nothing that
 worked before behaves differently. `ds.combine(other, func)` runs a binary function over two aligned rasters and
 returns a `Dataset` on the left operand's grid, and `-`, `+`, `*`, `/` between two rasters are thin wrappers over
@@ -740,6 +781,24 @@ ignored: there is no frame to transform into.
 
 ### unreleased
 
+**`FeatureCollection.from_wfs` and `from_ogc_features` accept an antimeridian bbox.** Same change as the raster
+readers, for the same reason, and with the same caveat about a transposed longitude pair no longer being caught.
+The vector side has a sharper motivation, though: a wrapping rect handed to OGR whole does **not** raise. It is
+silently normalised into its complement, so a filter written as `(170, -10, -170, 10)` — the 20 degrees around
+Fiji — quietly returned the other 340 degrees of the planet. The bbox is now split at the seam, each half
+requested on its own, and the two results merged with duplicates removed.
+
+- **A wrapping bbox costs two requests.** A non-wrapping one still costs exactly one; the split is a no-op for it.
+- **Duplicates are removed by geometry and attributes, never by FID.** A feature that straddles the seam comes
+  back from both halves, and servers assign FIDs per request, so the same feature can arrive under two different
+  ids — keying on the FID would drop real features rather than duplicate ones. Matching on the geometry's WKB
+  plus the attribute values is what actually de-duplicates it. The accepted cost: two rows the source genuinely
+  holds twice, identical in geometry *and* in every attribute, are indistinguishable and collapse to one. This
+  only applies to a wrapping bbox — a single-request read is passed through untouched.
+- `FeatureCollection.fishnet` still refuses a wrapping bbox. Its bounds are in the target `crs`, which may be
+  projected and so has no seam; there is no coherent column numbering across a wrap; and a cell containing ±180
+  would have to be a `MultiPolygon`.
+
 **`pyramids.feature.bbox` no longer carries `Transformer` and `crs_from_user_input`.** Both were incidental
 re-exports — names the module imported to implement `transform`, never advertised in its docs or `__all__`. The
 reprojection itself moved down to `pyramids.base._bbox` so `pyramids.base` could stop importing `pyramids.feature`
@@ -779,6 +838,51 @@ replace the georeference wholesale.
 ## netcdf
 
 ### unreleased
+
+**A time axis outside `datetime64[ns]`'s range now decodes to `cftime` objects instead of wrapping.**
+Soft change, warned — a `UserWarning` names the axis and its units. Only arrays that were previously **wrong** change:
+`decode_cf_time` cast to `datetime64[ns]` under a guard that cannot fire, because a date beyond the type's
+1677-09-21 to 2262-04-11 range does not raise on the cast, it wraps.
+
+```python
+import numpy as np
+from pyramids.netcdf.utils import decode_cf_time
+
+decode_cf_time(np.array([400_000]), "days since 1970-01-01", "standard")
+# before -> np.datetime64('1896-01-21T00:50:52.580896768')   # the date is year 3065
+# after  -> cftime.real_datetime(3065, 3, 1)                 # + UserWarning
+```
+
+**A missing timestep is now `NaT` rather than the epoch.** `cftime` marks the offsets it cannot decode — a
+`NaN` or an `inf` — and that mark used to be dropped, leaving the fill value, which is the origin, so a missing
+timestep read back as a real date. It is now `NaT` in a `datetime64` result and `None` in an object one. Values
+change wherever an axis has missing offsets, and they change from wrong to right; the integer decode path has
+always behaved this way, so only the `cftime` path moves.
+
+**A `"months since …"` axis on a non-`360_day` calendar now raises a clearer error.** It always raised — a
+calendar month has no fixed length, so `cftime` allows the unit only on `360_day` — but the `ValueError` came
+from inside `cftime`, naming neither the axis nor the store. It now names the axis, units and calendar and
+chains the original. Nothing that previously succeeded now fails.
+
+Both bounds are affected, and no large offset is needed to reach one: a store written against a
+`days since 0001-01-01` epoch is out of range at offset **zero**. Its in-range dates are unaffected — a
+20th-century date on that epoch still decodes to `datetime64[ns]` exactly as before.
+
+**Which object you get back is `cftime`'s choice, and it decides what still works downstream.** It follows the
+**origin**, not the dates: when proleptic Gregorian rules already cover the origin — a `proleptic_gregorian`
+calendar, or a mixed-calendar origin after the 1582 reform — you get `cftime.real_datetime`, a `datetime`
+subclass, so `pandas` gives `datetime64[us]` and `to_dataframe` / `to_parquet` / `to_csv` all keep working and
+now carry the *correct* date. That covers the common far-future case above. A pre-1582 origin on a mixed
+calendar yields a true `cftime` datetime instead, for every value on the axis — including its post-1582 ones.
+
+**`LabeledDataset.to_parquet` raises on that second case**, where it previously wrote a file full of wrapped
+dates. Parquet has no type for a `cftime` datetime, so the write now fails with a `FailedToSaveError` naming the
+offending columns rather than an `ArrowInvalid` from inside pyarrow. This was already the behaviour for a
+non-standard calendar (`360_day`, `noleap`), which has always produced `cftime` objects — the change is that the
+error explains itself. Use `to_csv`, which writes these stores unchanged, or select an in-range window first.
+
+If you need `datetime64` regardless, the values were never trustworthy in this range; convert deliberately from
+the returned objects, or read the axis with a calendar-aware library. Everything inside the range is unchanged.
 
 **`str(nc)` is a different shape, and the summary now depends on whether you hold a container or a variable.**
 Hard change, silent — nothing raises and nothing warns. Anything scraping the old text (log parsing, notebook

@@ -37,7 +37,7 @@ from shapely.ops import unary_union
 # it is gone. The move also took `pyproj.Transformer` and `crs_from_user_input`
 # out of this module's namespace -- neither was ever advertised here (see
 # `__all__` below); their homes are `pyproj` and `pyramids.base.crs`.
-from pyramids.base._bbox import Bbox, transform
+from pyramids.base._bbox import Bbox, split_antimeridian, transform
 
 _CONVENTIONS = ("-180..180", "0..360")
 
@@ -71,51 +71,6 @@ __all__ = [
     "to_shapely",
     "transform",
 ]
-
-
-def split_antimeridian(bbox: Bbox) -> list[Bbox]:
-    """Split a bbox into one or two bboxes, severing the antimeridian.
-
-    Returns the input unchanged (as a single-element list) when `west <= east`.
-    When `west > east` the bbox is treated as crossing the 180 deg meridian
-    and is split into an eastern `(west, south, 180, north)` and a western
-    `(-180, south, east, north)` half.
-
-    Args:
-        bbox: A `(west, south, east, north)` tuple in degrees.
-
-    Returns:
-        A list of one bbox (no crossing) or two bboxes (crossing), each with
-        `west <= east`.
-
-    Examples:
-        - A bbox that does not cross the antimeridian is returned as-is:
-            ```python
-            >>> split_antimeridian((-10.0, -5.0, 10.0, 5.0))
-            [(-10.0, -5.0, 10.0, 5.0)]
-
-            ```
-        - A crossing bbox is split into an eastern and a western half:
-            ```python
-            >>> split_antimeridian((175.0, -22.0, -175.0, -12.0))
-            [(175.0, -22.0, 180.0, -12.0), (-180.0, -22.0, -175.0, -12.0)]
-
-            ```
-        - The two halves can be fed to separate spatial queries:
-            ```python
-            >>> halves = split_antimeridian((170.0, 0.0, -170.0, 10.0))
-            >>> [round(h[2] - h[0], 1) for h in halves]
-            [10.0, 10.0]
-
-            ```
-    """
-    west, south, east, north = bbox
-    if west <= east:
-        return [(west, south, east, north)]
-    return [
-        (west, south, 180.0, north),
-        (-180.0, south, east, north),
-    ]
 
 
 def normalise_longitude(bbox: Bbox, convention: str = "-180..180") -> Bbox:

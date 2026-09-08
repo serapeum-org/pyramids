@@ -10,9 +10,14 @@ Coercion is deliberately kept: a bbox read out of JSON arrives as strings often
 enough that accepting them is worth more than refusing them.
 
 The vector readers take the same `bbox=` argument through
-`pyramids.feature._ogc.read_kwargs`, which duplicates the arity and ordering block
-word for word, so the finiteness check has to be made in both places or the
-refusal depends on which reader the caller reached for.
+`pyramids.feature._ogc.read_kwargs`, which duplicated the arity and ordering block
+word for word, so the finiteness check had to be made in both places or the
+refusal depended on which reader the caller reached for. That copy is gone:
+`read_kwargs` now calls `validate_bbox` itself, with `allow_antimeridian=True`
+so a `west > east` bbox reaches the seam split instead of a refusal. The
+`TestTheVectorTwinRefusesItToo` cases below still run against `read_kwargs`,
+which is now the point — they pin that the vector reader really does reach the
+one validator.
 """
 
 from __future__ import annotations
@@ -136,10 +141,12 @@ class TestTheVectorTwinRefusesItToo:
 
     `validate_bbox` guards the raster readers (WCS, WMS/WMTS, OGC API –
     Coverages); `pyramids.feature._ogc.read_kwargs` guards the vector ones
-    (WFS, OGC API – Features) and duplicates the same arity and ordering block
-    with verbatim identical messages. A finite check on one of the two leaves
+    (WFS, OGC API – Features) and used to duplicate the same arity and ordering
+    block with verbatim identical messages. A finite check on one of the two left
     `from_wfs(bbox=(1, 2, nan, 4))` handing `nan` to the OGR driver, which is
-    the same failure one module over.
+    the same failure one module over. `read_kwargs` now delegates to
+    `validate_bbox`, so these assertions pin the delegation rather than the
+    agreement of two copies.
     """
 
     @pytest.mark.parametrize(
@@ -186,6 +193,14 @@ class TestTheVectorTwinRefusesItToo:
         }
 
     def test_the_ordering_check_still_fires(self):
-        """The finiteness check runs first, so ordering keeps its own message."""
+        """The finiteness check runs first, so ordering keeps its own message.
+
+        The box is inverted in *latitude* now. It used to be inverted in
+        longitude — `(3, 2, 1, 4)` — but `read_kwargs` calls the shared
+        `validate_bbox` with `allow_antimeridian=True`, so `minx > maxx` is read
+        as a box crossing the 180 degree seam and split into two requests rather
+        than refused. Latitude has no seam, so `miny >= maxy` still raises, and
+        it still raises this sentence.
+        """
         with pytest.raises(ValueError, match="minx < maxx"):
-            read_kwargs((3.0, 2.0, 1.0, 4.0), None, None)
+            read_kwargs((1.0, 4.0, 3.0, 2.0), None, None)
