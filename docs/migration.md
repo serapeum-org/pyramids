@@ -187,7 +187,7 @@ value.
   marker, and that warns. Previously all of this was `0`: on an integer band `0` was also the only thing hiding
   the `NaN` that `init` puts in the VRT, which the band cannot store.
 
-Two consequences worth checking if you read raw arrays:
+Related behaviour that changed with it:
 
 - **The reduction methods' uncovered pixels changed value**, not just their declaration — they used to be `0.0`
   and are now the inherited marker (e.g. `-9999.0`) or `NaN`.
@@ -196,6 +196,17 @@ Two consequences worth checking if you read raw arrays:
   to `0`; those zeros then won every `fmin` and were added by every `sum`, so a mosaic of integer tiles that did
   not tile contiguously came back all-zero whatever `no_data_value` said. Sources are now warped into the
   `Float64` the reduction writes.
+- **The marker now reaches the pixels it marks.** Uncovered pixels used to hold `init` (`NaN` by default) while
+  the mosaic declared something else, so a mosaic inheriting `-9999` declared `-9999` over gaps holding `NaN`
+  and `read_array(masked=True)` masked none of them. The gaps are now filled with whatever is declared.
+- **An inherited value the output band cannot store is replaced, with a warning.** Integer sources can declare
+  `NaN` — `Dataset.no_data_value` reports it for an integer raster asked for one — and GDAL then refused the
+  marker outright ("Nodata value was not set to output band"), leaving the mosaic unmarked.
+- **Each source's own no-data now marks that source's holes.** `n` is an override, and its default `"nan"` was
+  passed to `gdal.BuildVRT` as one, replacing every source's declaration. Tiles that declared different values
+  therefore had all but the winner's holes composited as real measurements — a tile declaring `-32768` beside
+  one declaring `-9999` read its holes back as `-32768`. The default now means "no override". If you were
+  relying on `n`'s default to ignore `NaN` cells in sources that declare nothing, pass `n=` explicitly.
 
 Migrating:
 
