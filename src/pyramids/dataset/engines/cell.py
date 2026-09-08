@@ -57,8 +57,11 @@ def _area_scale(unit: str) -> float:
         ValueError: `unit` is not one this package converts to.
     """
     try:
-        scale = _AREA_UNITS[unit]
-    except (KeyError, TypeError):
+        # Normalised first: `KM2` and `" km2"` are the same request as `km2`,
+        # and refusing them buys nothing. `strip`/`lower` are attributes, so a
+        # non-string argument still falls through to the refusal below.
+        scale = _AREA_UNITS[unit.strip().lower()]
+    except (KeyError, TypeError, AttributeError):
         # `TypeError` as well as `KeyError`: an unhashable argument -- a list,
         # a dict -- fails the lookup before it can miss, and leaking numpy's
         # "unhashable type" would contradict the documented `ValueError` that
@@ -328,7 +331,6 @@ class Cell(_Engine["Dataset"]):
         """
         scale = _area_scale(unit)
         geo = self._ds.geotransform
-        rotated = bool(geo[2]) or bool(geo[4])
         # The same route `_attach_crs` takes, for the same reasons: the EPSG
         # code when it resolves and the WKT otherwise (#943), with `None`
         # meaning the raster truly has no CRS rather than an empty string
@@ -340,7 +342,7 @@ class Cell(_Engine["Dataset"]):
             require_crs_spec(self._ds.epsg, self._ds.crs, "compute cell area")
         )
         if crs.is_geographic:
-            if rotated:
+            if bool(geo[2]) or bool(geo[4]):
                 raise ValueError(
                     "a rotated geographic raster has cells that do not share a "
                     "latitude band, so its area cannot be resolved per row; "

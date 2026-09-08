@@ -220,6 +220,7 @@ classDiagram
         +read_array()
         +get_variables()
         +count_domain_cells()
+        +cell_area()
         +domain_area()
         +get_band_names()
         +extract()

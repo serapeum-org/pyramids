@@ -2,8 +2,8 @@
 
 `cell_size` answers in the CRS's units and `count_domain_cells` weighs every
 cell alike, so neither can say how much ground a geographic raster covers -- a
-1-degree cell spans 12 309 km2 at the equator and 2 272 km2 at 80 degrees
-north. `get_cell_polygons().area` cannot either: those polygons are in degrees,
+1-degree cell spans 12 309 km2 at the equator and 2 272 km2 in the band just
+below 80 degrees north. `get_cell_polygons().area` cannot either: those polygons are in degrees,
 so every cell on the grid reports the same number.
 
 The area is taken on the CRS's own ellipsoid rather than a sphere of an assumed
@@ -671,6 +671,31 @@ class TestTheGuardsNoPublicInputReaches:
 
         with pytest.raises(ValueError, match="declares no ellipsoid"):
             _global_grid().cell_area()
+
+
+class TestHowAUnitIsSpelled:
+    """The spelling a caller types is not always the dictionary's."""
+
+    @pytest.mark.parametrize("spelling", ["km2", "KM2", "Km2", " km2 "])
+    def test_case_and_surrounding_space_are_ignored(self, spelling):
+        """Refusing `KM2` bought nothing; it is plainly the same request.
+
+        Args:
+            spelling: A way of writing the same unit.
+        """
+        areas = _global_grid().cell_area(unit=spelling)
+
+        assert float(areas[90, 0]) == pytest.approx(12308.46, rel=1e-5)
+
+    @pytest.mark.parametrize("spelling", ["km^2", "sq km", "acre", ""])
+    def test_a_unit_this_package_does_not_convert_is_still_refused(self, spelling):
+        """Normalising the spelling must not turn into guessing the intent.
+
+        Args:
+            spelling: A unit name that is not one of the three supported.
+        """
+        with pytest.raises(ValueError, match="unknown area unit"):
+            _global_grid().cell_area(unit=spelling)
 
 
 class TestPrecisionAtSmallCellSizes:

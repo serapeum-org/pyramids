@@ -355,7 +355,7 @@ class Analysis(_Engine["Dataset"]):
 
         :meth:`count_domain_cells` weighs every cell the same, which on a
         geographic grid is wrong by the ratio of the latitudes involved: a
-        1-degree cell at 80 degrees north covers 2 272 km2 and one at the
+        1-degree cell just below 80 degrees north covers 2 272 km2 and one at the
         equator 12 309 km2, so counting them alike overstates a polar domain
         by roughly four times. This asks the same question in ground units.
 
