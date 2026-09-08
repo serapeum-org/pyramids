@@ -16,7 +16,7 @@ from shapely.geometry import Polygon, box
 from pyramids.base._errors import NoDataValueError
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
-from pyramids.dataset.engines.spatial import Spatial
+from pyramids.dataset.engines.spatial import Spatial, _survives_a_c_double
 from pyramids.feature import FeatureCollection
 
 pytestmark = pytest.mark.core
@@ -1965,15 +1965,15 @@ class TestCropFillValues:
 
         assert np.asarray(cropped.read_array()).shape == (3, 3)
 
-    def test_a_band_with_no_computable_range_falls_back_to_reading(self):
-        """GDAL refuses a range for a band with no valid pixels.
+    def test_a_band_whose_every_cell_is_no_data_falls_back_to_reading(self):
+        """A declared sentinel means GDAL and `read_array` disagree already.
 
         Test scenario:
-            `ComputeRasterMinMax` raises `Failed to compute min/max, no valid
-            pixels found in sampling` when every cell is the band's declared
-            no-data. The cheap range test cannot answer there, so it says so
-            and lets the caller fall back to reading the band rather than
-            letting a GDAL `RuntimeError` out of `crop`.
+            The band's mask reports `NODATA` rather than `ALL_VALID`, so the
+            range is not consulted at all -- which is also what keeps
+            `ComputeRasterMinMax`'s "no valid pixels" refusal out of reach,
+            since every band that gets past the mask check has valid cells by
+            definition.
         """
         source = Dataset.from_array(
             np.zeros((4, 4), dtype="uint8"), geo_ref=self.GEO, no_data_value=0
@@ -2088,6 +2088,55 @@ class TestCropFillValues:
         cropped = source.crop(polygon)
 
         assert np.asarray(cropped.read_array()).shape == (2, 4, 4)
+
+    @pytest.mark.parametrize(
+        ("value", "survives"),
+        [
+            (-9999, True),
+            (0, True),
+            (np.int64(-(2**63)), True),
+            (np.uint64(2**64 - 1), False),
+            (np.int64(2**63 - 1), False),
+            (np.float32("nan"), True),
+            (1.5, True),
+        ],
+    )
+    def test_which_fills_survive_the_warp_channel(self, value, survives: bool):
+        """`-dstnodata` is text GDAL parses into a C double.
+
+        Args:
+            value: The candidate fill.
+            survives: Whether GDAL receives exactly this value.
+
+        Test scenario:
+            An integer beyond 2**53 reaches the warp as a different number, so
+            it is refused rather than declared. `-(2**63)` is a power of two
+            and survives; `2**63 - 1` and `2**64 - 1` do not. A float is
+            already a double, and `NaN` is carried by name.
+        """
+        assert _survives_a_c_double(value) is survives
+
+    def test_a_uint64_fill_the_channel_can_carry_is_declared(self):
+        """`UInt64` is refused for its maximum, not for its dtype.
+
+        Test scenario:
+            The candidates for an unsigned band are its maximum then its
+            minimum. A `uint64` band that already holds the maximum falls
+            through to `0`, which survives the C double exactly -- so the crop
+            declares it, through the accessor that dtype requires, and is
+            trimmed like any other width.
+        """
+        geo = GeoReference(geo=(0.0, 1.0, 0.0, 8.0, 0.0, -1.0), epsg=4326)
+        values = np.arange(1, 65, dtype="uint64").reshape(8, 8)
+        values[0, 0] = np.iinfo("uint64").max
+        source = Dataset.from_array(values, geo_ref=geo, no_data_value=None)
+        source.no_data_value = [np.nan]
+        polygon = gpd.GeoDataFrame(geometry=[box(2.0, 2.0, 6.0, 6.0)], crs=4326)
+
+        cropped = source.crop(polygon)
+
+        assert cropped.no_data_value[0] == 0
+        assert np.asarray(cropped.read_array()).shape == (4, 4)
 
     def test_a_band_holding_every_candidate_refuses(self):
         """The honest failure, rather than a colliding fill.

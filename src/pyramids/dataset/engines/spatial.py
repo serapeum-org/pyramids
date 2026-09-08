@@ -348,10 +348,10 @@ def _survives_a_c_double(value: Any) -> bool:
     if isinstance(value, (float, np.floating)):
         survives = True
     else:
-        try:
-            survives = int(float(value)) == int(value)
-        except (OverflowError, ValueError):
-            survives = False
+        # No guard around the cast: every value reaching here is a fill, which
+        # `fits_dtype` has already established is a finite number of the band's
+        # own dtype, so the only question left is whether the double keeps it.
+        survives = int(float(value)) == int(value)
     return survives
 
 
@@ -1475,26 +1475,25 @@ class Spatial(_Engine["Dataset"]):
 
         Returns:
             Any: The first storable candidate outside the band's range, or
-            `None` when the range cannot be trusted (a mask or alpha band),
-            cannot be computed (no valid cells to sample), or contains every
-            candidate. In each of those the caller falls back to reading.
+            `None` when the range cannot be trusted (a mask or alpha band) or
+            contains every candidate. In both the caller falls back to reading.
+
+        Raises:
+            RuntimeError: GDAL could not read the band to compute its range.
         """
         raster_band = self._ds._raster.GetRasterBand(band + 1)
         if raster_band.GetMaskFlags() != gdal.GMF_ALL_VALID:
             # A mask or alpha band hides cells from GDAL that `read_array`
             # returns, so its range is not an answer about this band.
             return None
-        try:
-            minimum, maximum = raster_band.ComputeRasterMinMax(False)
-        except RuntimeError as error:
-            # Only the intended failure is answered quietly: a band with no
-            # valid cells has no range, and the caller reads instead. An I/O
-            # failure on a remote source, a corrupt block or a driver refusal
-            # would otherwise be turned into a silent full materialisation --
-            # the streaming behaviour lost for a reason nobody sees.
-            if "no valid pixels" not in str(error):
-                raise
-            return None
+        # No `try` around this. The one failure worth answering quietly -- a
+        # band with no valid cells to sample -- cannot happen past the mask
+        # check above, which only lets through bands where every cell is
+        # valid. What is left is an I/O failure on a remote source, a corrupt
+        # block or a driver refusal, and turning one of those into a silent
+        # full materialisation would lose the streaming behaviour for a reason
+        # nobody sees.
+        minimum, maximum = raster_band.ComputeRasterMinMax(False)
         return next(
             (
                 candidate

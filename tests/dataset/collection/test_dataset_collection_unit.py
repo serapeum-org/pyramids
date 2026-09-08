@@ -25,10 +25,14 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
-from pyramids.base._errors import AlignmentError, OptionalPackageDoesNotExist
+from pyramids.base._errors import (
+    AlignmentError,
+    NoDataValueError,
+    OptionalPackageDoesNotExist,
+)
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset, DatasetCollection
-from pyramids.dataset.collection import _target_epsg
+from pyramids.dataset.collection import _agree_on_one_sentinel, _target_epsg
 from tests.dataset.collection._helpers import make_int16_collection
 
 pytestmark = pytest.mark.core
@@ -2016,3 +2020,64 @@ class TestCroppedTimestepsAgreeOnOneSentinel:
         cropped = stack.crop(self._mask())
 
         assert {step.no_data_value[0] for step in cropped.datasets} == {-9999.0}
+
+    def test_a_single_step_stack_is_left_alone(self):
+        """Nothing to reconcile with fewer than two timesteps.
+
+        Test scenario:
+            The reconciler returns before reading anything, so a one-step
+            collection keeps whatever its single crop derived.
+        """
+        step = Dataset.from_array(
+            np.arange(16, dtype="int16").reshape(4, 4),
+            geo_ref=self.GEO,
+            no_data_value=None,
+        )
+        stack = DatasetCollection(step, time_length=1, datasets=[step])
+
+        cropped = stack.crop(self._mask())
+
+        assert cropped.datasets[0].no_data_value[0] == -9999
+
+    def test_a_stack_with_an_undeclared_step_is_left_alone(self):
+        """There is no fill to reconcile, and none to invent.
+
+        Test scenario:
+            A step declaring nothing has no sentinel cells to rewrite, and
+            imposing the other steps' value on it would put a sentinel on a
+            raster whose source never had one.
+        """
+        steps = [
+            Dataset.from_array(
+                np.arange(16, dtype="int16").reshape(4, 4),
+                geo_ref=self.GEO,
+                no_data_value=value,
+            )
+            for value in (-9999, None)
+        ]
+
+        _agree_on_one_sentinel(steps)
+
+        assert [step.no_data_value[0] for step in steps] == [-9999, None]
+
+    def test_a_stack_with_no_free_value_refuses(self):
+        """Better to say so than to pick a sentinel that collides.
+
+        Test scenario:
+            Two `int8` steps between them holding every value the dtype can
+            represent leave nothing free, so no single sentinel can mark a gap
+            without claiming one of their observations.
+        """
+        # Every value the dtype can represent, in both steps: each one's own
+        # sentinel is then a real observation in the other, so neither is free
+        # and the scan finds nothing left.
+        full = np.arange(-128, 128, dtype="int8").reshape(16, 16)
+        first, second = full, full.copy()
+        geo_ref = GeoReference(geo=(0.0, 1.0, 0.0, 16.0, 0.0, -1.0), epsg=4326)
+        steps = [
+            Dataset.from_array(values, geo_ref=geo_ref, no_data_value=sentinel)
+            for values, sentinel in ((first, -128), (second, 127))
+        ]
+
+        with pytest.raises(NoDataValueError, match="no value is free across"):
+            _agree_on_one_sentinel(steps)
