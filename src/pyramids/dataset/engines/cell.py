@@ -15,6 +15,7 @@ import numpy as np
 from geopandas.geodataframe import GeoDataFrame
 from hpc.indexing import get_indices2, locate_values
 from pandas import DataFrame
+from pyproj import CRS
 
 from pyramids.base.crs import crs_from_user_input, crs_spec
 from pyramids.dataset.engines._base import _Engine
@@ -230,11 +231,13 @@ class Cell(_Engine["Dataset"]):
           area is the absolute determinant of the geotransform's linear part,
           `|dx*dy - rx*ry|`, converted from the CRS's own linear unit. Constant
           across the raster, rotation included.
-        * **geographic** -- the area is computed on the CRS's own ellipsoid
-          through :meth:`pyproj.Geod.polygon_area_perimeter`, not on a sphere
-          of an assumed radius. Every cell in a row shares a latitude band and
-          therefore an area, so this costs one geodesic call per row rather
-          than one per cell.
+        * **geographic** -- the area is integrated in closed form over the
+          CRS's own ellipsoid, not taken on a sphere of an assumed radius and
+          not approximated by a geodesic polygon. A cell is bounded by
+          parallels, which are not geodesics, so a geodesic routine bows its
+          north and south edges poleward and biases every partial domain. Every
+          cell in a row shares a latitude band and therefore an area, so the
+          whole raster costs one vectorised pass over the row edges.
 
         Args:
             unit: `m2` (default), `km2` or `ha`.
@@ -274,7 +277,7 @@ class Cell(_Engine["Dataset"]):
                 >>> raster = Dataset.from_array(np.ones((90, 4), "float32"), geo_ref=geo_ref)
                 >>> areas = raster.cell_area(unit="km2")
                 >>> round(float(areas[89, 0]))     # the row touching the equator
-                12309
+                12308
                 >>> round(float(areas[0, 0]))      # the row touching the pole
                 109
 
@@ -314,43 +317,110 @@ class Cell(_Engine["Dataset"]):
                     "latitude band, so its area cannot be resolved per row; "
                     "warp it to a north-up grid or to a projected CRS first"
                 )
-            per_row = self._geodesic_row_areas(crs) / scale
+            per_row = self._parallel_row_areas(crs) / scale
             areas = np.broadcast_to(
                 per_row[:, np.newaxis], (self._ds.rows, self._ds.columns)
             )
-        else:
+        elif crs.is_projected:
             # `unit_conversion_factor` is metres per CRS unit, so it squares.
             metres = crs.axis_info[0].unit_conversion_factor
             determinant = abs(geo[1] * geo[5] - geo[2] * geo[4])
             one = determinant * metres * metres / scale
             areas = np.broadcast_to(np.float64(one), (self._ds.rows, self._ds.columns))
+        else:
+            # Geocentric, engineering and compound CRSs reach here. Their axes
+            # are not a ground plane, so a determinant of the geotransform is
+            # not an area of anything -- better to say so than to return a
+            # number that looks like one.
+            raise ValueError(
+                f"the raster's CRS is neither geographic nor projected "
+                f"({crs.type_name}), so its cells have no ground area; "
+                "reproject it to a projected or geographic CRS first"
+            )
+        if not np.all(np.asarray(areas) > 0.0):
+            # A degenerate geotransform -- a zero cell size, or a rotation that
+            # collapses the parallelogram -- describes cells with no extent.
+            # Returning 0.0 would make `domain_area` answer 0 for a raster full
+            # of data.
+            raise ValueError(
+                "the raster's geotransform gives its cells no area; check the "
+                "cell size and rotation terms"
+            )
         return areas
 
-    def _geodesic_row_areas(self, crs: Any) -> np.ndarray:
+    def _parallel_row_areas(self, crs: CRS) -> np.ndarray:
         """Square metres of one cell in each row, on the CRS's own ellipsoid.
 
-        One `Geod` call per row rather than per cell: a north-up geographic
-        grid gives every cell in a row the same latitude band, and longitude
-        does not change a cell's area on an ellipsoid of revolution.
+        A raster cell is bounded by two **parallels** and two meridians, and a
+        parallel is not a geodesic anywhere but the equator. Asking a geodesic
+        polygon routine for the area therefore bows each north and south edge
+        poleward, and the residual does not cancel within the cell: it biases
+        every partial domain, by 2.6e-05 per cell at 1 degree and 3.7e-02 at
+        30. It hides in a global total, where the bulges of vertically adjacent
+        rows telescope away exactly, which is why an ungapped-globe check
+        cannot see it at any cell size.
+
+        So the area is integrated in closed form instead. The ellipsoidal area
+        element is `a^2 (1 - e^2) cos(phi) / (1 - e^2 sin^2 phi)^2`, whose
+        antiderivative in latitude is the `_zone_integral` below; the answer is
+        that difference times the longitude span. Exact, vectorised over rows,
+        and it needs no geodesic call at all.
 
         Args:
             crs: The raster's CRS, already resolved.
 
         Returns:
-            np.ndarray: One area per row, in square metres, top row first.
+            np.ndarray: One area per row, in square metres, in row order.
         """
         geod = crs.get_geod()
         _, dx, _, top, _, dy = self._ds.geotransform
-        edges = top + np.arange(self._ds.rows + 1) * dy
-        west, east = 0.0, abs(dx)
-        areas = np.empty(self._ds.rows, dtype="float64")
-        for row in range(self._ds.rows):
-            upper, lower = edges[row], edges[row + 1]
-            area, _ = geod.polygon_area_perimeter(
-                [west, east, east, west], [upper, upper, lower, lower]
+        # The geotransform speaks the CRS's angular unit, which is degrees for
+        # every ordinary geographic CRS but grads for a few (EPSG:4807). The
+        # factor converts to radians, so the latitudes have to travel through
+        # it too rather than being handed to `deg2rad`.
+        to_radians = crs.axis_info[0].unit_conversion_factor
+        edges = (top + np.arange(self._ds.rows + 1) * dy) * to_radians
+        span = abs(dx) * to_radians
+        zones = self._zone_integral(edges, geod.a, geod.f)
+        return np.abs(np.diff(zones)) * span
+
+    @staticmethod
+    def _zone_integral(latitude: np.ndarray, a: float, f: float) -> np.ndarray:
+        """Area of the ellipsoid south of `latitude`, per radian of longitude.
+
+        The antiderivative of the ellipsoidal area element. Differencing it
+        between two parallels and multiplying by the longitude span gives the
+        exact area of the quadrilateral between them -- which is the shape a
+        raster cell actually is.
+
+        Args:
+            latitude: Latitudes in **radians**.
+            a: The ellipsoid's semi-major axis, in metres.
+            f: Its flattening; `0.0` for a sphere.
+
+        Returns:
+            np.ndarray: The integral at each latitude, in square metres per
+            radian of longitude.
+        """
+        # Clipped before the sine: a warp can leave a top edge one ULP beyond
+        # the pole, and `arctanh(e * sin(phi))` is `nan` there -- which would
+        # otherwise propagate silently through the whole row and the domain sum.
+        sine = np.sin(np.clip(latitude, -np.pi / 2, np.pi / 2))
+        eccentricity_squared = f * (2.0 - f)
+        if eccentricity_squared <= 0.0:
+            # A spherical datum: the general form divides by `e`, and the limit
+            # as it vanishes is simply `a^2 sin(phi)`.
+            return a * a * sine
+        eccentricity = np.sqrt(eccentricity_squared)
+        return (
+            a
+            * a
+            * (1.0 - eccentricity_squared)
+            * (
+                sine / (2.0 * (1.0 - eccentricity_squared * sine * sine))
+                + np.arctanh(eccentricity * sine) / (2.0 * eccentricity)
             )
-            areas[row] = abs(area)
-        return areas
+        )
 
     def get_cell_polygons(self, domain_only: bool = False) -> GeoDataFrame:
         """Get a polygon shapely geometry for the raster cells.

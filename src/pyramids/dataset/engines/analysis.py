@@ -396,7 +396,7 @@ class Analysis(_Engine["Dataset"]):
                 >>> values[30:, :] = -9999.0
                 >>> cap = Dataset.from_array(values, geo_ref=geo_ref, no_data_value=-9999.0)
                 >>> round(cap.domain_area(unit="km2") / 1e6, 3)
-                34.414
+                34.416
 
                 ```
             - The same cap counted rather than weighed, which is the error this

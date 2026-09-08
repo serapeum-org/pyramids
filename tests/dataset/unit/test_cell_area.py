@@ -97,23 +97,54 @@ class TestCellAreaOnAGeographicGrid:
         high_latitude = float(areas[10, 0])
         assert equator > high_latitude * 5
 
-    def test_it_matches_an_independent_geodesic_computation(self):
-        """Pinned against pyproj directly, not against a remembered constant.
+    def test_it_matches_the_exact_quadrilateral_area(self):
+        """Pinned against the closed form derived here, not against the code.
 
         Test scenario:
-            The implementation asks `Geod` once per row; this asks it again,
-            here, cell by cell for a handful of rows. They must agree exactly,
-            which is what rules out an off-by-one in the row edges.
+            A cell is bounded by parallels and meridians, so its exact area is
+            the ellipsoidal area element integrated between its two latitudes.
+            Re-deriving that here, independently of the implementation, is what
+            rules out both an off-by-one in the row edges and a return to a
+            geodesic polygon -- which bows the north and south edges poleward
+            and is wrong by 2.6e-05 per cell even at 1 degree.
+        """
+        areas = _global_grid().cell_area()
+        geod = CRS.from_epsg(4326).get_geod()
+        a, f = geod.a, geod.f
+        e2 = f * (2.0 - f)
+        e = np.sqrt(e2)
+
+        def zone(degrees: float) -> float:
+            """Area south of a latitude, per radian of longitude."""
+            s = np.sin(np.deg2rad(degrees))
+            return (
+                a
+                * a
+                * (1 - e2)
+                * (s / (2 * (1 - e2 * s * s)) + np.arctanh(e * s) / (2 * e))
+            )
+
+        for row in (0, 45, 90, 179):
+            top = 90.0 - row
+            expected = np.deg2rad(1.0) * (zone(top) - zone(top - 1.0))
+            assert float(areas[row, 0]) == pytest.approx(expected, rel=1e-12)
+
+    def test_a_geodesic_polygon_would_not_pass(self):
+        """The defect the closed form replaces, pinned so it cannot return.
+
+        Test scenario:
+            `Geod.polygon_area_perimeter` joins the corners with geodesics, and
+            a parallel is not one. The bias is small per cell and cancels
+            exactly over a whole globe -- which is why an ungapped-globe check
+            cannot catch it and this test must.
         """
         areas = _global_grid().cell_area()
         geod = CRS.from_epsg(4326).get_geod()
 
-        for row in (0, 45, 90, 179):
-            top = 90.0 - row
-            expected, _ = geod.polygon_area_perimeter(
-                [0.0, 1.0, 1.0, 0.0], [top, top, top - 1.0, top - 1.0]
-            )
-            assert float(areas[row, 0]) == pytest.approx(abs(expected), rel=1e-12)
+        geodesic, _ = geod.polygon_area_perimeter(
+            [0.0, 1.0, 1.0, 0.0], [90.0, 90.0, 89.0, 89.0]
+        )
+        assert float(areas[0, 0]) != pytest.approx(abs(geodesic), rel=1e-6)
 
     def test_the_ellipsoid_is_used_rather_than_a_sphere(self):
         """The difference is 0.45 % at the equator -- larger than a rounding.
@@ -308,7 +339,9 @@ class TestDomainArea:
         values[0, :] = -9999.0
         raster = Dataset.from_array(values, geo_ref=geo_ref, no_data_value=-9999.0)
 
-        assert raster.domain_area() == pytest.approx(raster.count_domain_cells() * 900.0)
+        assert raster.domain_area() == pytest.approx(
+            raster.count_domain_cells() * 900.0
+        )
 
 
 class TestTheEdgesTheHappyPathMisses:
