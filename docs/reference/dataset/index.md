@@ -29,7 +29,7 @@ flowchart TB
     DS -->|ds.spatial| SP["<b>Spatial</b> · spatial.md<br/>crop · to_crs · warped_view<br/>resample · align · wrap_longitude"]
     DS -->|ds.analysis| AN["<b>Analysis</b> · analysis.md<br/>stats · extract · sample · overlay<br/>proximity · masks · footprint · plot"]
     DS -->|ds.bands| BA["<b>Bands</b> · band_metadata.md<br/>attribute tables · colours<br/>add_band · change_no_data_value"]
-    DS -->|ds.cell| CE["<b>Cell</b> · cell.md<br/>get_cell_coords / _polygons / _points<br/>cell_area · map ↔ array coordinates"]
+    DS -->|ds.cell| CE["<b>Cell</b> · cell.md<br/>get_cell_coords / _polygons / _points<br/>cell_area · map ↔ array"]
     DS -->|ds.georef| GE["<b>Georef</b> · georef.md<br/>GCPs · RPCs · orthorectify<br/>set_gcps · georeference"]
     DS -->|ds.vectorize| VE["<b>Vectorize</b> · vectorize.md<br/>contour · to_feature_collection<br/>cluster · translate"]
     DS -->|ds.cog| CG["<b>COG</b> · cog/ section<br/>to_cog · validate_cog · info<br/>read_part · preview · read_tile"]
