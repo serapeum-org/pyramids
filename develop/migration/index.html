@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6912,18 +6912,36 @@ value.</p>
 <ul>
 <li><strong>Sources agree</strong> — the mosaic declares that value. Nothing else changes.</li>
 <li><strong>Sources disagree</strong> — the first one wins and a <code>UserWarning</code> names both, instead of silently picking.</li>
-<li>
-<p><strong>No source declares one</strong> — the mosaic declares none, so nothing is masked. Previously it declared <code>0</code>; on an
-  integer band <code>0</code> was also the only thing hiding the <code>NaN</code> that <code>init</code> puts in the VRT, which the band cannot
-  store.</p>
-</li>
-<li>
-<p><strong>If you relied on the <code>0</code> default, pass it explicitly</strong>: <code>merge_rasters(src, dst, no_data_value=0)</code> restores
-  the old behavior exactly, and is worth a second look — it masks every genuine <code>0</code> in your inputs.</p>
-</li>
+<li><strong>No source declares one</strong> — a marker is still chosen, because a mosaic generally has pixels no source covers
+  and leaving those undeclared makes them read as measurements. The choice is the value such a pixel already
+  holds where the output's data type can store it — <code>NaN</code> for a floating mosaic, and always for <code>method="min"</code>,
+  <code>"max"</code> and <code>"sum"</code>, which write <code>Float64</code>. An integer band has no <code>NaN</code>, so there the marker is instead a
+  value that band <em>can</em> store and that the mosaic's own cells do not use (<code>65535</code> for a <code>UInt16</code> scene holding
+  small numbers, <code>-9999</code> for a signed one), and the compositing step is filled with it so the gaps really hold
+  what the output declares. Only a mosaic whose data uses every value its type could spare is written without a
+  marker, and that warns. Previously all of this was <code>0</code>: on an integer band <code>0</code> was also the only thing hiding
+  the <code>NaN</code> that <code>init</code> puts in the VRT, which the band cannot store.</li>
+</ul>
+<p>Two consequences worth checking if you read raw arrays:</p>
+<ul>
+<li><strong>The reduction methods' uncovered pixels changed value</strong>, not just their declaration — they used to be <code>0.0</code>
+  and are now the inherited marker (e.g. <code>-9999.0</code>) or <code>NaN</code>.</li>
+<li><strong><code>method="min"</code>, <code>"max"</code> and <code>"sum"</code> over integer sources were wrong before and are now right.</strong> Each source
+  was warped into its own data type before being folded, where the <code>NaN</code> marking its uncovered area was rounded
+  to <code>0</code>; those zeros then won every <code>fmin</code> and were added by every <code>sum</code>, so a mosaic of integer tiles that did
+  not tile contiguously came back all-zero whatever <code>no_data_value</code> said. Sources are now warped into the
+  <code>Float64</code> the reduction writes.</li>
+</ul>
+<p>Migrating:</p>
+<ul>
+<li><strong>If you relied on the <code>0</code> default, pass it explicitly</strong>: <code>merge_rasters(src, dst, no_data_value=0)</code> restores
+  the old behavior exactly, and is worth a second look — it masks every genuine <code>0</code> in your inputs.</li>
+<li><strong>If you want no marker at all, pass <code>no_data_value=None</code>.</strong> Both write paths honour that, and neither stamps
+  anything.</li>
 <li><strong>If you were passing <code>no_data_value=</code> already, nothing changes.</strong> Every existing call is unaffected; only the
   omitted-argument case moved.</li>
 <li>The value is read from the sources' band 1, in the order you pass them, so ordering decides a disagreement.</li>
+<li><code>DatasetCollection.merge</code> forwards the same default, so it answers identically.</li>
 </ul>
 <p><strong>The web-service readers accept a bbox that crosses the antimeridian.</strong> Additive if you pass an ordinary box; a
 hard change if you relied on <code>minx &gt; maxx</code> being rejected. <code>Dataset.from_wcs</code>, <code>from_wms</code>, <code>from_wmts</code> and
