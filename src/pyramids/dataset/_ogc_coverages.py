@@ -187,7 +187,9 @@ def _window_sizes(
     Raises:
         ValueError: A window exceeds the pixel ceiling, or `res` has a
             non-positive axis (both raised by
-            :func:`~pyramids.base._coverage.read_size`).
+            :func:`~pyramids.base._coverage.read_size`); or `res` is so coarse that
+            the combined span sizes to under two pixels, which cannot be split
+            between two windows.
 
     Examples:
         - One window with an explicit resolution is sized straight from it:

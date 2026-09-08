@@ -519,7 +519,12 @@ def seam_offset(
         native_srs: The layer's native spatial reference.
 
     Returns:
-        float: The seam-to-seam x span in the native CRS's units.
+        float: The seam-to-seam x span in the native CRS's units, which is ``0``
+            for a CRS whose x runs continuously through the antimeridian.
+
+    Raises:
+        ValueError: Either meridian projects to a non-finite x in the native CRS,
+            so there is no offset to align the halves against.
 
     Examples:
         - A lon/lat layer measures the seam as the 360 degrees it is:

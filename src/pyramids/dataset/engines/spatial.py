@@ -439,6 +439,52 @@ def _carry_band_metadata(source: Any, target: Dataset) -> None:
 
     Returns:
         None
+
+    Examples:
+        - A palette and a unit on the west half survive onto the stitched result,
+          so a seam-crossing crop renders like an ordinary one:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.dataset import Dataset
+            >>> from pyramids.dataset.engines.spatial import _carry_band_metadata
+            >>> def raster(columns):
+            ...     mem = gdal.GetDriverByName("MEM").Create("", columns, 4, 1)
+            ...     mem.SetGeoTransform((0.0, 1.0, 0.0, 4.0, 0.0, -1.0))
+            ...     return Dataset(mem, access="write")
+            >>> west = raster(4)
+            >>> table = gdal.ColorTable()
+            >>> table.SetColorEntry(1, (10, 20, 30, 255))
+            >>> band = west.raster.GetRasterBand(1)
+            >>> band.SetRasterColorTable(table)
+            0
+            >>> band.SetUnitType("class")
+            0
+            >>> merged = raster(6)
+            >>> _carry_band_metadata(west, merged)
+            >>> merged.raster.GetRasterBand(1).GetUnitType()
+            'class'
+            >>> merged.raster.GetRasterBand(1).GetRasterColorTable().GetColorEntry(1)
+            (10, 20, 30, 255)
+
+            ```
+        - A half carrying nothing leaves the target as it was, so the copy is safe
+          for the ordinary case it runs on every crop:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.dataset import Dataset
+            >>> from pyramids.dataset.engines.spatial import _carry_band_metadata
+            >>> def raster(columns):
+            ...     mem = gdal.GetDriverByName("MEM").Create("", columns, 4, 1)
+            ...     mem.SetGeoTransform((0.0, 1.0, 0.0, 4.0, 0.0, -1.0))
+            ...     return Dataset(mem, access="write")
+            >>> merged = raster(6)
+            >>> _carry_band_metadata(raster(4), merged)
+            >>> merged.raster.GetRasterBand(1).GetRasterColorTable() is None
+            True
+            >>> merged.raster.GetRasterBand(1).GetUnitType()
+            ''
+
+            ```
     """
     src_raster, dst_raster = source.raster, target.raster
     dst_raster.SetMetadata(src_raster.GetMetadata())
