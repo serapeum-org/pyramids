@@ -167,6 +167,21 @@ class TestInheritNoData:
             f"values should be listed in source order, got: {message}"
         )
 
+    def test_the_warning_does_not_repeat_a_value(self):
+        """Two sources agreeing and a third dissenting name two values, not three.
+
+        Test scenario:
+            Source order is what decides the winner, so the message lists the
+            values in that order -- but listing every source's answer repeats the
+            majority value once per source that holds it.
+        """
+        with pytest.warns(UserWarning) as caught:
+            inherit_no_data([-9999.0, -9999.0, -32768.0])
+        message = str(caught[0].message)
+        assert message.count("-9999.0") == 2, (
+            f"-9999.0 should appear once in the list and once as the winner: {message}"
+        )
+
     def test_nan_alongside_a_real_value_does_disagree(self):
         """NaN and a real marker are genuinely different, so this warns.
 

@@ -1071,7 +1071,16 @@ def inherit_no_data(values: Sequence[float | None]) -> float | None:
         # Listed in source order rather than sorted: every comparison against NaN
         # is False, so `sorted` leaves one wherever the set iteration happened to
         # put it -- and the message's whole job is to say which value came first.
-        listed = ", ".join(repr(value) for value in present)
+        # De-duplicated on the way, so three sources declaring -9999, -9999 and
+        # -32768 name two values rather than repeating one of them.
+        seen: list[Any] = []
+        for value in present:
+            if not any(
+                other is value or (other == value and type(other) is type(value))
+                for other in seen
+            ):
+                seen.append(value)
+        listed = ", ".join(repr(value) for value in seen)
         warnings.warn(
             f"source rasters disagree on no-data value ({listed}); using {resolved!r}",
             stacklevel=3,

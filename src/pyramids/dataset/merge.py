@@ -448,6 +448,10 @@ def _is_nan_spelling(value: float | int | str) -> bool:
 # The float the module's `"nan"` defaults resolve to, named once.
 NAN = float("nan")
 
+# GDAL's own words for "this band holds no data to measure", which is the one
+# failure `_mosaic_value_range` treats as an answer rather than an error.
+_NO_VALID_PIXELS = "no valid pixels found"
+
 _MAX_TILED_SOURCES = 512
 
 
@@ -577,15 +581,26 @@ def _mosaic_value_range(mosaic: gdal.Dataset) -> tuple[float, float] | None:
     high: float | None = None
     for index in range(mosaic.RasterCount):
         try:
-            # `False` asks for the exact range rather than an approximation from
-            # overviews, which a VRT does not have anyway.
+            # `False` asks for the exact range rather than an approximation. The
+            # approximation is not merely less precise, it is unusable here: it
+            # reads a decimated sample, and a sentinel has to be proven absent
+            # from every cell, not from a sample. Measured on a VRT over two
+            # tiles carrying overviews -- which a VRT does inherit, so there is
+            # no "no overviews anyway" to fall back on -- the approximate range
+            # was (0.0, 163.0) where the exact one was (0.0, 255.0), and a
+            # sentinel of 255 chosen from it would have masked real cells.
             band_low, band_high = mosaic.GetRasterBand(index + 1).ComputeRasterMinMax(
                 False
             )
-        except RuntimeError:
+        except RuntimeError as exc:
             # A band holding nothing but no-data has no minimum, and GDAL says so
             # by raising (exceptions are enabled package-wide). Such a band
-            # constrains no candidate, so it is skipped rather than fatal.
+            # constrains no candidate, so it is skipped. Every other RuntimeError
+            # from this call is a failed read -- a truncated remote object, an
+            # expired credential mid-scan -- and skipping those would choose a
+            # marker from whatever bands happened to answer, or from none at all.
+            if _NO_VALID_PIXELS not in str(exc):
+                raise
             continue
         low = band_low if low is None else min(low, band_low)
         high = band_high if high is None else max(high, band_high)
@@ -648,6 +663,60 @@ def _unused_marker(
             # then enumerates a narrow dtype's whole range exactly.
             chosen = free_no_data(dtype, preferred, np.asarray(mosaic.ReadAsArray()))
     return chosen
+
+
+def _requested_no_data(no_data_value: Any) -> Any:
+    """Read the caller's `no_data_value`, refusing one that would vanish silently.
+
+    Everything that is not the sentinel or `None` is handed to
+    :func:`gdal.Translate` as ``-a_nodata``, which answers an unparsable value
+    with "Nodata value was not set to output band" and writes no marker at all --
+    an unmarked mosaic from a typo, which is the defect this module exists to
+    close. `"inherit"` is the likeliest such typo, since the signature's default
+    renders as exactly that word, so it is accepted as the sentinel it names
+    rather than refused.
+
+    Args:
+        no_data_value: Whatever the caller passed, including the default sentinel.
+
+    Returns:
+        Any: The sentinel, `None`, or the value unchanged.
+
+    Raises:
+        ValueError: The value is neither the sentinel, nor `None`, nor a number.
+
+    Examples:
+        - The word the default renders as means the default:
+            ```python
+            >>> from pyramids.base._domain import INHERIT_NO_DATA
+            >>> from pyramids.dataset.merge import _requested_no_data
+            >>> _requested_no_data("inherit") is INHERIT_NO_DATA
+            True
+
+            ```
+        - Anything else that is not a number is refused rather than dropped:
+            ```python
+            >>> from pyramids.dataset.merge import _requested_no_data
+            >>> _requested_no_data("nodata")
+            Traceback (most recent call last):
+                ...
+            ValueError: no_data_value='nodata' is not a number...
+
+            ```
+    """
+    requested = no_data_value
+    if isinstance(no_data_value, str) and no_data_value.strip().lower() == "inherit":
+        requested = INHERIT_NO_DATA
+    elif no_data_value is not INHERIT_NO_DATA and no_data_value is not None:
+        try:
+            float(no_data_value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"no_data_value={no_data_value!r} is not a number. Pass a value "
+                "the output band can hold, None for no marker at all, or omit it "
+                "(or pass 'inherit') to take the marker from the sources."
+            ) from exc
+    return requested
 
 
 def _explicit_fill(ordered: list, init: float | int | str, marker: Any) -> str | None:
@@ -1206,12 +1275,13 @@ def merge_rasters(
         # shared CRS — so mismatched sources must be warped first or they would
         # mis-align silently. `_keepalive` holds the in-memory warped VRTs so
         # GDAL does not free them while the mosaic is built.
-        inheriting = no_data_value is INHERIT_NO_DATA
+        requested = _requested_no_data(no_data_value)
+        inheriting = requested is INHERIT_NO_DATA
         sources, _keepalive = _prepare_sources(src_paths, dst_crs, resampling)
         # Under its own name rather than rebound onto the parameter, so that
         # `no_data_value` keeps meaning "what the caller asked for" throughout --
         # including the sentinel, which `inheriting` above is the only reading of.
-        resolved_no_data = no_data_value
+        resolved_no_data = requested
         if inheriting:
             # Read it off the handles _prepare_sources already opened rather
             # than reopening: each open is billable under Requester-Pays.

@@ -31,8 +31,10 @@ from pyramids.dataset.merge import (
     _merge_reduce,
     _mosaic_value_range,
     _prepare_sources,
+    _requested_no_data,
     _source_bounds,
     _source_nodata,
+    _sources_tile_their_union,
     _storable_marker,
     _unused_marker,
     merge_rasters,
@@ -1156,6 +1158,34 @@ class TestMosaicValueRange:
             f"an unmeasurable mosaic has no range, got {_mosaic_value_range(mosaic)}"
         )
 
+    def test_a_read_failure_is_not_mistaken_for_an_empty_band(self):
+        """Only "no valid pixels" means empty; anything else is a failed read.
+
+        Test scenario:
+            A truncated remote object or an expired credential raises from the
+            same call as an all-no-data band. Swallowing those chose a marker
+            from whatever bands happened to answer -- or from none at all.
+        """
+
+        class _Failing:
+            """A band whose statistics call fails for a reason that is not emptiness."""
+
+            def ComputeRasterMinMax(self, approx_ok):  # noqa: N802
+                """Fail the way a truncated read does."""
+                raise RuntimeError("IReadBlock failed at X offset 0, Y offset 0")
+
+        class _Mosaic:
+            """A one-band mosaic whose band cannot be measured."""
+
+            RasterCount = 1
+
+            def GetRasterBand(self, index):  # noqa: N802
+                """Return the failing band."""
+                return _Failing()
+
+        with pytest.raises(RuntimeError, match="IReadBlock"):
+            _mosaic_value_range(_Mosaic())
+
 
 class TestUnusedMarker:
     """Tests for ``_unused_marker``, which picks a sentinel the data does not use."""
@@ -1219,6 +1249,97 @@ class TestStorableMarker:
         marker = _storable_marker(ordered, paths, init, None)
         assert marker == pytest.approx(-9999.0), (
             f"init={init!r} should fall through to a storable sentinel, got {marker!r}"
+        )
+
+
+class TestRequestedNoData:
+    """Tests for ``_requested_no_data``, the gate on what a caller may pass."""
+
+    @pytest.mark.parametrize("spelling", ["inherit", "Inherit", " inherit "])
+    def test_the_word_the_default_renders_as_means_the_default(self, spelling):
+        """`no_data_value="inherit"` is the default spelled out, not a typo.
+
+        Args:
+            spelling: A way of writing the word the signature displays.
+
+        Test scenario:
+            The default renders as `no_data_value=inherit` in `help()` and in the
+            generated docs, which invites passing the string. Handed to GDAL it
+            produced a silently unmarked mosaic.
+        """
+        assert _requested_no_data(spelling) is INHERIT_NO_DATA, (
+            f"{spelling!r} should resolve to the sentinel"
+        )
+
+    @pytest.mark.parametrize("value", ["nodata", "", "none "])
+    def test_a_string_that_names_no_number_is_refused(self, value):
+        """A value GDAL would drop is refused, rather than dropped.
+
+        Args:
+            value: A string that is neither the sentinel's word nor a number.
+
+        Test scenario:
+            `gdal.Translate` answers an unparsable `-a_nodata` with "Nodata value
+            was not set to output band" and writes no marker -- the defect this
+            module exists to close, arriving through a typo.
+        """
+        with pytest.raises(ValueError, match="is not a number"):
+            _requested_no_data(value)
+
+    @pytest.mark.parametrize("value", [0, -9999, -1.5, "0", None])
+    def test_a_number_or_none_passes_through_unchanged(self, value):
+        """Everything the output can actually carry is left alone.
+
+        Args:
+            value: A marker, or `None` for no marker at all.
+        """
+        assert _requested_no_data(value) == value or (
+            value is None and _requested_no_data(value) is None
+        ), f"{value!r} should pass through unchanged"
+
+
+class TestSourcesTileTheirUnion:
+    """Tests for ``_sources_tile_their_union``, which decides whether to survey."""
+
+    @pytest.mark.parametrize(
+        "bounds, tiled",
+        [
+            ([(0.0, 0.0, 2.0, 2.0), (2.0, 0.0, 4.0, 2.0)], True),
+            ([(0.0, 0.0, 2.0, 2.0), (3.0, 0.0, 5.0, 2.0)], False),
+            ([(0.0, 0.0, 2.0, 2.0), (0.0, 2.0, 2.0, 4.0)], True),
+            ([(0.0, 0.0, 4.0, 4.0), (1.0, 1.0, 3.0, 3.0)], True),
+            ([(0.0, 0.0, 2.0, 2.0), (2.0, 2.0, 4.0, 4.0)], False),
+            ([], False),
+        ],
+    )
+    def test_footprints_answer_without_reading_a_pixel(self, bounds, tiled):
+        """Coverage is decided from the rectangles alone.
+
+        Args:
+            bounds: The sources' extents.
+            tiled: Whether they leave no gap between them.
+
+        Test scenario:
+            Includes the diagonal pair, whose bounding box is covered only in two
+            of its four quadrants -- the case a bounding-box comparison gets
+            wrong.
+        """
+        assert _sources_tile_their_union(bounds) is tiled, (
+            f"{bounds} should answer {tiled}"
+        )
+
+    def test_too_many_sources_answer_cautiously(self, monkeypatch):
+        """Past the cut-off the cheap answer is 'assume a gap', never 'assume none'.
+
+        Test scenario:
+            The cut grid is quadratic in the number of sources, so it stops being
+            cheap; answering `False` costs a survey, while answering `True` would
+            skip one that was needed.
+        """
+        monkeypatch.setattr(merge_mod, "_MAX_TILED_SOURCES", 1)
+        bounds = [(0.0, 0.0, 2.0, 2.0), (2.0, 0.0, 4.0, 2.0)]
+        assert _sources_tile_their_union(bounds) is False, (
+            "past the cut-off the answer must be the cautious one"
         )
 
 
