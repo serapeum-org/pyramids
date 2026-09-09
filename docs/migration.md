@@ -185,10 +185,12 @@ value.
   scene holding small numbers, `-9999` for a signed one), and the compositing step is filled with it so the gaps
   really hold what the output declares. Only a mosaic whose data uses every value its type could spare is
   written without a marker, and that warns.
-- **No source declares one, and the sources tile their area** — nothing is declared, because there is nothing to
-  mark. Choosing a value would mean reading every source to prove it unused, which is the expensive half of the
-  paragraph above and buys nothing when no pixel is uncovered. Whether they tile is answered from the
-  footprints, without reading a pixel.
+- **No source declares one, the sources tile their area, and the band has no `NaN`** — nothing is declared,
+  because there is nothing to mark. Choosing a value would mean reading every source to prove it unused, which
+  is the expensive half of the paragraph above and buys nothing when no pixel is uncovered. Whether they tile is
+  answered from the footprints, without reading a pixel. This case is the integer z-order mosaic only: a
+  floating one still declares `NaN`, and so do `method="min"`, `"max"` and `"sum"` whatever the footprints,
+  because `NaN` costs nothing to prove unused.
 
 Previously all of this was `0`: on an integer band `0` was also the only thing hiding the `NaN` that `init` puts
 in the VRT, which the band cannot store.
@@ -225,7 +227,9 @@ Related behaviour that changed with it:
 Migrating:
 
 - **If you relied on the `0` default, pass it explicitly**: `merge_rasters(src, dst, no_data_value=0)` restores
-  the old behavior exactly, and is worth a second look — it masks every genuine `0` in your inputs.
+  the old declaration, and is worth a second look — it masks every genuine `0` in your inputs. It does not
+  restore the old *pixels*: the three changes in the third bullet below apply whatever you pass, so the gaps now
+  hold `0` rather than `init`. Add `init=` alongside it to keep the old fill.
 - **If you want no marker at all, pass `no_data_value=None`.** Both write paths honour that, and neither stamps
   anything.
 - **If you were passing `no_data_value=` already, the marker is unaffected — but the pixels can still change.**

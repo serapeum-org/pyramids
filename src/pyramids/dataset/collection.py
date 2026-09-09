@@ -3800,13 +3800,17 @@ class DatasetCollection:
                 :func:`~pyramids.dataset.merge.merge_rasters` does -- this
                 method is a thin wrapper over it, so the two must not disagree
                 about what an omitted argument means (#1086). The first
-                timestep that declares a value wins, a disagreement warns, and
-                when none declares one a marker the output's data type can hold
-                is settled on so that the pixels no timestep covers are not
-                written as ordinary data. Pass a value to override that, or
-                ``None`` for no marker at all. See `merge_rasters` for what
-                fills the uncovered pixels in each case -- with an explicit
-                value on a z-order `method`, that is `init`, not this.
+                timestep that declares a value wins, and a disagreement warns.
+                When none declares one, what happens turns on the timesteps'
+                footprints: a collection whose timesteps share one grid covers
+                every pixel of it, so there is nothing for a marker to mark and
+                an integer mosaic is written declaring nothing (measured). A
+                floating one still declares ``NaN``, as do ``method="min"``,
+                ``"max"`` and ``"sum"``, which write Float64. Only timesteps
+                that leave a gap between them earn a chosen sentinel. Pass a
+                value to override all of that, or ``None`` for no marker at all.
+                Whichever marker is settled on also fills the pixels no timestep
+                covers, so `init` keeps them only when you name it yourself.
             init (float | int | str):
                 Pre-initialize the output image bands with these
                 values. However, it is not marked as the nodata

@@ -1326,26 +1326,51 @@ class TestUnusedMarker:
 class TestStorableMarker:
     """Tests for ``_storable_marker``, which settles what an inheriting mosaic declares."""
 
-    @pytest.mark.parametrize("init", [None, "none", "not-a-number"])
-    def test_an_uncoercible_init_still_yields_a_storable_sentinel(
-        self, unmarked_tiles, init
-    ):
-        """An ``init`` that is not a number cannot leave the mosaic unmarked.
-
-        Args:
-            init: An uncovered-pixel value ``float()`` refuses.
+    def test_a_nan_init_expresses_no_preference(self, unmarked_tiles):
+        """The default `init` leaves the choice to the search, on a band that has no NaN.
 
         Test scenario:
-            ``init`` is only usable as the marker when it coerces to a number the
-            dtype can store; when it does not, the sentinel search has to run
-            instead of the marker being dropped -- dropping it is what leaves gap
-            pixels reading as ordinary data (#1086).
+            These tiles are float, so question 2 would normally answer `NaN`
+            outright; asking the helper with an integer dtype forces the search,
+            which must then pick the package default rather than treating the
+            string `"nan"` as a preference.
         """
         ordered, paths = unmarked_tiles
-        marker = _storable_marker(ordered, paths, init, None)
-        assert marker == pytest.approx(-9999.0), (
-            f"init={init!r} should fall through to a storable sentinel, got {marker!r}"
+        marker = _storable_marker(ordered, paths, "nan", None)
+        assert marker is not None and np.isnan(marker), (
+            f"a float mosaic should settle on NaN, got {marker!r}"
         )
+
+    @pytest.mark.parametrize("init", [None, "none", "not-a-number"])
+    def test_an_init_that_names_no_number_is_refused(self, tmp_path, init):
+        """`init` is validated where `no_data_value` and `n` are, not by GDAL later.
+
+        Args:
+            init: An uncovered-pixel value `float()` refuses.
+
+        Test scenario:
+            `init` becomes `VRTNodata` whenever no settled marker replaces it, and
+            GDAL answers an unparsable one by failing the whole mosaic ("Invalid
+            -vrtnodata value"). Whether it gets that far depends on the output's
+            data type and on whether the sources leave a gap, so the same argument
+            worked or died depending on the data.
+        """
+        west = Dataset.from_array(
+            np.array([[1, 2], [3, 4]], dtype="int32"),
+            geo_ref=GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326),
+        )
+        west.to_file(tmp_path / "iw.tif")
+        east = Dataset.from_array(
+            np.array([[5, 6], [7, 8]], dtype="int32"),
+            geo_ref=GeoReference(top_left_corner=(2.0, 2.0), cell_size=1.0, epsg=4326),
+        )
+        east.to_file(tmp_path / "ie.tif")
+        with pytest.raises(ValueError, match="is not a number"):
+            merge_rasters(
+                [tmp_path / "iw.tif", tmp_path / "ie.tif"],
+                tmp_path / "bad_init.tif",
+                init=init,
+            )
 
 
 class TestExplicitFill:
