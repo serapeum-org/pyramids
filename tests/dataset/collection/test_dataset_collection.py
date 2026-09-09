@@ -424,10 +424,10 @@ def test_merge_rasters_free_function(
 ):
     """A default merge inherits its no-data instead of inventing one (#1086).
 
-    These fixtures are UInt16 and declare no no-data, so nothing is inherited and
-    the mosaic falls back to a marker the band can store and the data does not
-    use. It used to stamp 0, which masked any real 0 in the scene; what it must
-    not do now is stamp a value the tiles actually hold.
+    These fixtures are UInt16, declare no no-data, and tile their area with no
+    gap between them. Nothing is inherited and nothing is uncovered, so no marker
+    is invented at all -- where the old default stamped 0 and masked every real 0
+    in the scene.
     """
     from pyramids.dataset.merge import merge_rasters
 
@@ -437,11 +437,11 @@ def test_merge_rasters_free_function(
     marker = src.GetRasterBand(1).GetNoDataValue()
     values = np.asarray(src.ReadAsArray())
     src = None
-    assert marker == pytest.approx(65535), (
-        f"a UInt16 mosaic should fall back to its dtype's maximum, got {marker}"
+    assert marker is None, (
+        f"a gapless mosaic whose sources declare nothing needs no marker, got {marker}"
     )
-    assert not (values == marker).all(), (
-        "the fallback marker must not be a value that swallows the whole mosaic"
+    assert values.size and values.max() > 0, (
+        "the mosaic should still hold the sources' data"
     )
 
 
@@ -456,8 +456,8 @@ def test_merge_instance_method(
     src = gdal.Open(str(out))
     # DatasetCollection.merge is a thin wrapper over merge_rasters, so an
     # omitted no_data_value must mean the same thing on both (#1086). These
-    # fixtures declare none, so both fall back to the same storable marker.
-    assert src.GetRasterBand(1).GetNoDataValue() == pytest.approx(65535), (
+    # fixtures declare none and leave no gap, so neither invents a marker.
+    assert src.GetRasterBand(1).GetNoDataValue() is None, (
         "collection.merge must answer like merge_rasters, not stamp 0"
     )
 

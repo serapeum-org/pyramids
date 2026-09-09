@@ -531,24 +531,99 @@ class TestMergeRastersInheritsNoData:
             "stats() must still report the true minimum of 0.0"
         )
 
-    def test_an_integer_mosaic_is_given_a_storable_marker_not_nan(self, tmp_path):
-        """An integer band must not inherit the NaN `init` puts in the VRT.
+    def test_a_contiguous_integer_mosaic_is_left_unmarked_never_nan(self, tmp_path):
+        """Tiles that leave no gap need no marker, and must not be given a NaN one.
 
         Test scenario:
-            UInt16 tiles declaring no no-data. NaN cannot be stored in an integer
-            band, so the marker has to be a value the band can hold *and* the data
-            does not use -- 65535 here, the dtype's own maximum, since these tiles
-            hold 0..21. Leaving it unset instead is what let gap pixels read as a
-            real 0.
+            UInt16 tiles declaring no no-data and sharing an edge. There is no
+            uncovered pixel for a marker to mark, so none is chosen -- and in
+            particular not the NaN `init` puts in the VRT, which an integer band
+            cannot store and which used to be the value that made gap pixels read
+            as a real 0. The gapped case, where a marker *is* needed, is
+            `test_a_gapped_mosaic_declares_what_its_gaps_hold`.
         """
         out = tmp_path / "m.tif"
         merge_rasters(self._tiles(tmp_path, None, dtype="uint16"), out)
         raw = self._raw_marker(out)
-        masked, _ds = self._masked_count(out)
-        assert raw == pytest.approx(65535), (
-            f"an integer band needs a storable marker it does not use, got {raw}"
-        )
+        masked, ds = self._masked_count(out)
+        assert raw is None, f"a gapless mosaic needs no marker, got {raw}"
         assert masked == 0, f"no real cell should be masked, {masked} were"
+        assert float(ds.stats(approx_ok=False)["min"].iloc[0]) == pytest.approx(0.0), (
+            "the genuine 0 cells must still be readable"
+        )
+
+    def test_a_gapless_mosaic_is_not_surveyed(self, tmp_path, monkeypatch):
+        """Choosing a marker reads every source, so it is not done when unnecessary.
+
+        Test scenario:
+            Contiguous UInt16 tiles declaring nothing. Proving a sentinel unused
+            means an exact `ComputeRasterMinMax` over every source and, when no
+            candidate clears that, reading the whole mosaic into memory -- billed
+            per byte for a `/vsicurl/` or Requester-Pays source. With no gap to
+            mark there is nothing to prove, and the survey must not run at all.
+        """
+        surveys = []
+        monkeypatch.setattr(
+            merge_mod,
+            "_mosaic_value_range",
+            lambda mosaic: surveys.append("range") or None,
+        )
+        monkeypatch.setattr(
+            merge_mod,
+            "_unused_marker",
+            lambda *args, **kwargs: surveys.append("marker") or None,
+        )
+        merge_rasters(self._tiles(tmp_path, None, dtype="uint16"), tmp_path / "m.tif")
+        assert surveys == [], f"a gapless mosaic was surveyed anyway: {surveys}"
+
+    def test_a_numeric_init_the_data_uses_is_refused(self, tmp_path):
+        """`init` is a preference, not an instruction, or it re-creates #1086.
+
+        Test scenario:
+            Gapped tiles holding a genuine 0.0, merged with `init=0`. Taken on
+            trust that becomes the mosaic's marker and every real zero disappears
+            from masked reads and from `stats()` -- the exact defect this branch
+            closes, reached through a different argument. It is offered to the
+            sentinel search as the preferred candidate instead, so the data vetoes
+            it and the caller is told.
+        """
+        tiles = self._gapped_tiles(tmp_path, "float32")
+        handle = gdal.Open(str(tiles[0]), gdal.GA_Update)
+        handle.GetRasterBand(1).WriteArray(
+            np.array([[0.0, 2.0], [3.0, 4.0]], "float32")
+        )
+        handle.FlushCache()
+        handle = None
+
+        out = tmp_path / "init_zero.tif"
+        with pytest.warns(UserWarning, match="cannot mark the mosaic"):
+            merge_rasters(tiles, out, init=0)
+        masked, ds = self._masked_count(out)
+        marker = self._raw_marker(out)
+        values = np.asarray(ds.read_array(), dtype="float64")
+        values = values[0] if values.ndim == 3 else values
+        assert marker == pytest.approx(-9999.0), (
+            f"a value the data does not use should be chosen, got {marker}"
+        )
+        assert masked == 4, f"only the four gap cells should be masked, {masked} were"
+        assert values[0][0] == pytest.approx(0.0), (
+            "the genuine 0.0 cell must survive as data"
+        )
+
+    def test_a_numeric_init_the_data_does_not_use_is_honoured(self, tmp_path):
+        """A preference the data leaves free is still the caller's to make.
+
+        Test scenario:
+            The same gapped tiles with `init=77`, a value they do not hold. It is
+            tried first and taken, so refusing one is about collision only.
+        """
+        out = tmp_path / "init_free.tif"
+        merge_rasters(self._gapped_tiles(tmp_path, "float32"), out, init=77)
+        masked, _ds = self._masked_count(out)
+        assert self._raw_marker(out) == pytest.approx(77.0), (
+            "an init the data does not use should be honoured"
+        )
+        assert masked == 4, f"the four gap cells should be masked, {masked} were"
 
     @pytest.mark.parametrize(
         "dtype, expected",

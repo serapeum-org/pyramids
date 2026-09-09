@@ -413,6 +413,101 @@ def _source_bounds(
 _cloud_config = signer_cloud_config
 
 
+def _is_nan_spelling(value: float | int | str) -> bool:
+    """Whether `value` is one of the ways this module's defaults spell NaN.
+
+    `n` and `init` both default to the string `"nan"`, and both read that as "the
+    caller said nothing" rather than as a value. Matching on the spelling is what
+    makes `"NaN"` and `float("nan")` mean it too.
+
+    Args:
+        value: The `n` or `init` a caller passed, or the default.
+
+    Returns:
+        bool: `True` when the value is a NaN in any of those spellings.
+
+    Examples:
+        - Every spelling of the default answers alike:
+            ```python
+            >>> from pyramids.dataset.merge import _is_nan_spelling
+            >>> [_is_nan_spelling(v) for v in ("nan", "NaN", float("nan"))]
+            [True, True, True]
+
+            ```
+        - A real value is not one of them:
+            ```python
+            >>> from pyramids.dataset.merge import _is_nan_spelling
+            >>> _is_nan_spelling(0)
+            False
+
+            ```
+    """
+    return str(value).lower() == "nan"
+
+
+# The float the module's `"nan"` defaults resolve to, named once.
+NAN = float("nan")
+
+_MAX_TILED_SOURCES = 512
+
+
+def _sources_tile_their_union(bounds: list[tuple[float, float, float, float]]) -> bool:
+    """Whether the sources cover every point of the area they span, leaving no gap.
+
+    Answered from the footprints alone, without reading a pixel -- which is the
+    whole point, since it decides whether reading is necessary. A mosaic with no
+    uncovered pixel has nothing for a marker to mark, and proving a marker unused
+    costs a full survey of every source.
+
+    The rectangles are compared on the grid their own edges define: every source
+    edge becomes a cut line, which turns "is every point covered" into "is every
+    cell of a small boolean grid covered". That is exact for the axis-aligned
+    footprints :func:`gdal.BuildVRT` composites, and float noise on a shared edge
+    can only answer `False` -- a sliver cell nothing covers -- which costs a
+    survey rather than skipping one that was needed.
+
+    Args:
+        bounds: Each source's ``(west, south, east, north)`` extent.
+
+    Returns:
+        bool: `True` when the footprints leave no gap between them; `False` when
+        they do, when there are none, or when there are more than
+        `_MAX_TILED_SOURCES` of them -- past which the cut grid is no longer
+        small, and the cautious answer is the cheap one.
+
+    Examples:
+        - Two tiles sharing an edge cover the strip they span:
+            ```python
+            >>> from pyramids.dataset.merge import _sources_tile_their_union
+            >>> _sources_tile_their_union([(0.0, 0.0, 2.0, 2.0), (2.0, 0.0, 4.0, 2.0)])
+            True
+
+            ```
+        - Two that do not leave the column between them uncovered:
+            ```python
+            >>> from pyramids.dataset.merge import _sources_tile_their_union
+            >>> _sources_tile_their_union([(0.0, 0.0, 2.0, 2.0), (3.0, 0.0, 5.0, 2.0)])
+            False
+
+            ```
+    """
+    tiled = False
+    if bounds and len(bounds) <= _MAX_TILED_SOURCES:
+        xs = np.unique(
+            np.asarray([(box[0], box[2]) for box in bounds], dtype="float64")
+        )
+        ys = np.unique(
+            np.asarray([(box[1], box[3]) for box in bounds], dtype="float64")
+        )
+        cells = np.zeros((ys.size - 1, xs.size - 1), dtype=bool)
+        for west, south, east, north in bounds:
+            columns = np.searchsorted(xs, (west, east))
+            rows = np.searchsorted(ys, (south, north))
+            cells[rows[0] : rows[1], columns[0] : columns[1]] = True
+        tiled = bool(cells.all())
+    return tiled
+
+
 def _source_nodata(n: float | int | str) -> float | None:
     """The value to treat as source no-data, or `None` to use each source's own.
 
@@ -453,7 +548,7 @@ def _source_nodata(n: float | int | str) -> float | None:
 
             ```
     """
-    return None if str(n).lower() == "nan" else float(n)
+    return None if _is_nan_spelling(n) else float(n)
 
 
 def _mosaic_value_range(mosaic: gdal.Dataset) -> tuple[float, float] | None:
@@ -497,15 +592,24 @@ def _mosaic_value_range(mosaic: gdal.Dataset) -> tuple[float, float] | None:
     return None if low is None or high is None else (low, high)
 
 
-def _unused_marker(mosaic: gdal.Dataset, dtype: np.dtype) -> Any | None:
+def _unused_marker(
+    mosaic: gdal.Dataset, dtype: np.dtype, preferred: Sequence[Any] = ()
+) -> Any | None:
     """A sentinel `dtype` can store that the mosaic's own cells do not already use.
 
     The candidates, and the order they are tried in, come from
-    :func:`~pyramids.base._domain.no_data_candidates`: the package default
-    ``-9999`` first where the dtype can hold it, then the dtype's own extremes,
-    an unsigned band offering its maximum before its `0`. Asking in that order
-    here and in :func:`~pyramids.base._domain.free_no_data` is what makes a
-    mosaic's marker the same one a single raster would have been given.
+    :func:`~pyramids.base._domain.no_data_candidates`: the caller's own
+    `preferred` values first, then the package default ``-9999`` where the dtype
+    can hold it, then the dtype's own extremes, an unsigned band offering its
+    maximum before its `0`. Asking in that order here and in
+    :func:`~pyramids.base._domain.free_no_data` is what makes a mosaic's marker
+    the same one a single raster would have been given.
+
+    A preferred value is a preference, not an instruction: it is range-tested
+    like every other candidate, and passed over when the data uses it. That is
+    the whole guarantee -- a sentinel is one the data provably does not contain
+    -- and a value taken on trust would reintroduce the defect this exists to
+    fix.
 
     Two questions are asked of the data, cheapest first: whether a candidate
     falls outside the mosaic's own minimum and maximum (one streamed pass, and
@@ -515,6 +619,8 @@ def _unused_marker(mosaic: gdal.Dataset, dtype: np.dtype) -> Any | None:
     Args:
         mosaic: The composited VRT.
         dtype: The dtype the sentinel must be storable in.
+        preferred: Values to try before the package's own, most preferred first.
+            One the dtype cannot store is dropped rather than refused.
 
     Returns:
         Any | None: The chosen sentinel, or `None` when the data uses every value
@@ -525,7 +631,7 @@ def _unused_marker(mosaic: gdal.Dataset, dtype: np.dtype) -> Any | None:
     Raises:
         RuntimeError: GDAL failed to read the mosaic while resolving the range.
     """
-    candidates = no_data_candidates(dtype)
+    candidates = no_data_candidates(dtype, preferred)
     bounds = _mosaic_value_range(mosaic)
     if bounds is None:
         chosen = candidates[0] if candidates else None
@@ -540,7 +646,7 @@ def _unused_marker(mosaic: gdal.Dataset, dtype: np.dtype) -> Any | None:
             # cannot clear one and the mosaic has to be read. It takes data
             # spanning the dtype's own extremes to reach here, and `free_no_data`
             # then enumerates a narrow dtype's whole range exactly.
-            chosen = free_no_data(dtype, (), np.asarray(mosaic.ReadAsArray()))
+            chosen = free_no_data(dtype, preferred, np.asarray(mosaic.ReadAsArray()))
     return chosen
 
 
@@ -556,10 +662,10 @@ def _storable_marker(
     covers are still written, and leaving them undeclared turns them into ordinary
     data -- on an integer mosaic a literal `0`, indistinguishable from a real
     measurement and pulled straight into
-    :meth:`~pyramids.dataset.Dataset.stats`. So a marker is always settled on; what
-    varies is which one, in three steps:
+    :meth:`~pyramids.dataset.Dataset.stats`. So a marker is settled on whenever
+    there is something for it to mark, in four questions asked in this order:
 
-    1. **What the sources declared**, when the mosaic's dtype can store it. It
+    1. **What did the sources declare**, when the mosaic's dtype can store it? It
        usually can -- the sources and the mosaic share a dtype. What it cannot
        store is a `NaN` inherited onto an integer band, which is a real state:
        GDAL accepts `SetNoDataValue(nan)` on an integer band and reports it back
@@ -570,10 +676,24 @@ def _storable_marker(
        as it cannot be represented on its data type" and writes the band with no
        marker at all, leaving the same undeclared gaps. That warns and falls
        through.
-    2. **The value uncovered pixels would otherwise hold**, `init` -- free and
-       exactly right for the default `"nan"` on a floating mosaic, the common case.
-    3. **A sentinel the dtype can store and the data does not use**, when neither
-       of those is storable.
+    2. **Is `init` already `NaN`, on a band that can hold it?** Then the pixels
+       are marked by the value they already carry, no real cell can collide with
+       it, and nothing has to be read to know that. This is the floating mosaic,
+       and the common case.
+    3. **Do the sources leave any pixel uncovered at all?** When no source
+       declared a marker and their footprints tile the area they span, there is
+       nothing for one to mark. Choosing a value anyway would mean surveying every
+       source to prove it unused -- reading a whole mosaic to mark nothing -- so
+       the answer is no marker. :func:`gdal.BuildVRT` composites axis-aligned
+       footprints, so :func:`_sources_tile_their_union` settles this from the
+       geotransforms alone.
+    4. **Which value can the dtype store that the data does not use?** The survey
+       runs only here. `init` is offered to it as the *preferred* candidate rather
+       than taken on trust: a numeric `init` the data already holds would
+       otherwise become the mosaic's marker and mask that data, and `init=0` over
+       an elevation mosaic is #1086 exactly, reached through a different argument.
+       Refusing it warns, because the caller's uncovered pixels then hold the
+       chosen value instead of the one they asked for.
 
     Whichever it is, the caller fills the mosaic's gaps with it, so the pixels the
     marker exists to cover really do hold it.
@@ -584,45 +704,53 @@ def _storable_marker(
             type and skips any source that disagrees, so this is the mosaic's own
             type rather than an approximation of it.
         src_paths: The source paths, for the error message on a failed build.
-        init: The caller's uncovered-pixel value. A value `float()` cannot read
-            is treated as no answer, and step 3 decides instead.
+        init: The caller's uncovered-pixel value. A value `float()` cannot read is
+            treated as no preference, and question 4 decides alone.
         inherited: What the sources declared, or `None` when none of them did.
 
     Returns:
-        Any | None: The value to declare and fill gaps with, or `None` when the
-        data leaves none free -- which warns.
+        Any | None: The value to declare and fill gaps with, or `None` -- when the
+        mosaic has no uncovered pixel to mark, which is silent, or when the data
+        leaves no value free, which warns.
 
     Raises:
-        RuntimeError: GDAL failed to build or read the bare probe mosaic step 3
-            measures. Only step 3 opens anything; steps 1 and 2 answer from the
-            arguments alone.
+        RuntimeError: GDAL failed to build or read the probe mosaic question 4
+            measures. Only question 4 reads a pixel; the others answer from the
+            arguments and the sources' geotransforms.
 
     Warns:
         UserWarning: The sources' own value cannot be stored in the mosaic's data
-            type; or the mosaic's cells use every value that type could spare, so
-            it is written with no marker at all.
+            type; or a numeric `init` was refused because the data uses it; or the
+            mosaic's cells use every value that type could spare, so it is written
+            with no marker at all.
 
     See Also:
         - :func:`pyramids.base._domain.inherit_no_data`: Produces `inherited`,
-          resolving what the sources declare without regard to what the output
-          can store.
-        - :func:`_unused_marker`: Answers step 3.
+          resolving what the sources declare without regard to what the output can
+          store.
+        - :func:`_sources_tile_their_union`: Answers question 3.
+        - :func:`_unused_marker`: Answers question 4.
     """
     # Band 1 decides the dtype, as it does for the inheritance itself, and
-    # `gdal.Translate` stamps one marker on every band either way.
+    # `gdal.Translate` stamps one marker on every band either way. Metadata only:
+    # neither this nor the footprints below reads a pixel.
     dtype = np.dtype(gdal_to_numpy_type(ordered[0].GetRasterBand(1).DataType))
     try:
-        stored: float | None = float(init)
+        preferred: tuple[Any, ...] = () if _is_nan_spelling(init) else (float(init),)
     except (TypeError, ValueError):
-        stored = None
-    # Annotated up front: the three branches below answer with an inherited
-    # float, a coerced `init`, or whatever `_unused_marker` finds, and mypy
-    # otherwise pins the variable to the first of those.
+        preferred = ()
+    # Annotated up front: the branches below answer with an inherited float, a
+    # NaN, nothing, or whatever the survey finds, and mypy otherwise pins the
+    # variable to the first of those.
     marker: Any | None
     if inherited is not None and fits_dtype(inherited, dtype):
         marker = inherited
-    elif inherited is None and stored is not None and fits_dtype(stored, dtype):
-        marker = stored
+    elif inherited is None and _is_nan_spelling(init) and fits_dtype(NAN, dtype):
+        marker = NAN
+    elif inherited is None and _sources_tile_their_union(
+        [_source_bounds(handle) for handle in ordered]
+    ):
+        marker = None
     else:
         if inherited is not None:
             warnings.warn(
@@ -639,10 +767,9 @@ def _storable_marker(
         # A bare VRT still takes the sources' own declaration onto its band, and
         # `ComputeRasterMinMax` then skips the cells holding it -- but that costs
         # this branch nothing either way. Reached with `inherited is None`, no
-        # source declared anything, so the probe declares nothing, uncovered
-        # pixels read as 0, and every cell is in view. Reached with `inherited`
-        # set, it is by definition a value this dtype cannot store, so no cell
-        # holds it and none is skipped.
+        # source declared anything, so the probe declares nothing and every cell
+        # is in view. Reached with `inherited` set, it is by definition a value
+        # this dtype cannot store, so no cell holds it and none is skipped.
         probe = run_gdal_op(
             partial(gdal.BuildVRT, "", ordered),
             error=RuntimeError,
@@ -650,13 +777,20 @@ def _storable_marker(
             subject=f"sources {src_paths!r}",
             hint=_READABLE_RASTERS_HINT,
         )
-        marker = _unused_marker(probe, dtype)
+        marker = _unused_marker(probe, dtype, preferred)
         if marker is None:
             warnings.warn(
                 f"the mosaic's {dtype} cells use every value that data type could "
-                "spare as a no-data marker, so pixels no source covers are written "
-                "as ordinary data; pass no_data_value= to choose a marker, or a "
-                "wider dtype to make room for one.",
+                "spare as a no-data marker, so the pixels no source covers are "
+                "written as ordinary data; pass no_data_value= to choose one, "
+                "accepting that it masks any real cell holding it.",
+                stacklevel=3,
+            )
+        elif preferred and marker != preferred[0]:
+            warnings.warn(
+                f"init={init!r} cannot mark the mosaic's uncovered pixels because "
+                f"its own cells hold that value; they are filled with {marker!r} "
+                "instead, which the data does not use.",
                 stacklevel=3,
             )
     return marker
@@ -994,11 +1128,12 @@ def merge_rasters(
     resolve_output_driver(dst)
 
     # `init` and `n` both default to the string `"nan"`, which round-trips
-    # through GDAL as float NaN -- a value no integer band can store. Neither
-    # reaches such a band as itself any more: `n` means "no override" and is not
-    # passed on at all (see `_source_nodata`), and `init` gives way to a storable
-    # marker (see `_storable_marker`). The spellings are kept for
-    # backwards-compat with the previous gdal_merge.main-based signature.
+    # through GDAL as float NaN -- a value no integer band can store. `n` never
+    # reaches one as itself: the default means "no override" and is not passed on
+    # at all (see `_source_nodata`). `init` gives way to a storable marker while
+    # the marker is being inherited (see `_storable_marker`), and still reaches
+    # the band as NaN otherwise. The spellings are kept for backwards-compat with
+    # the previous gdal_merge.main-based signature.
     src_paths = [str(p) for p in src]
     if signer is not None:
         # Apply the signer's href rewrite to every source (e.g. graft a SAS
