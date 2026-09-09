@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 600" width="512" height="600"
+  role="img" aria-label="pyramids layers logo v2: city GIS layers rising from a GDAL/OGR foundation slab">
+  <!-- GDAL/OGR foundation slab -->
+  <g>
+    <polygon points="64,458 256,554 256,584 64,488" fill="#0E3F47"/>
+    <polygon points="256,554 448,458 448,488 256,584" fill="#0A323A"/>
+    <polygon points="256,362 448,458 256,554 64,458" fill="#14555E"/>
+    <polygon points="256,362 448,458 256,554 64,458" fill="none" stroke="#F2C879"
+      stroke-opacity="0.25" stroke-width="1.5"/>
+    <g transform="matrix(192,96,192,-96,64,458)">
+      <path d="M0.2 0 V1 M0.4 0 V1 M0.6 0 V1 M0.8 0 V1 M0 0.2 H1 M0 0.4 H1 M0 0.6 H1 M0 0.8 H1"
+        fill="none" stroke="#1E6B74" stroke-width="0.006"/>
+    </g>
+    <text transform="matrix(0.894,0.447,0,1,64,458)" x="36" y="21" font-size="15" letter-spacing="3"
+      fill="#8FD8D2" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-weight="600">GDAL / OGR</text>
+  </g>
+  <!-- terrain basemap -->
+  <g>
+    <polygon points="86,340 256,425 256,449 86,364" fill="#C9A55C"/>
+    <polygon points="256,425 426,340 426,364 256,449" fill="#AE8B43"/>
+    <polygon points="256,255 426,340 256,425 86,340" fill="#E5C886"/>
+    <g transform="matrix(170,85,170,-85,86,340)">
+      <polygon points="0.08,0.55 0.3,0.5 0.36,0.72 0.14,0.8" fill="#A8C284" opacity="0.9"/>
+      <polygon points="0.6,0.15 0.82,0.12 0.88,0.3 0.66,0.35" fill="#A8C284" opacity="0.9"/>
+      <polygon points="0.55,0.75 0.72,0.7 0.78,0.88 0.6,0.92" fill="#97B374" opacity="0.9"/>
+      <polygon points="0.3,0.3 0.45,0.28 0.5,0.42 0.34,0.46" fill="#9FBC80" opacity="0.9"/>
+      <polygon points="0.78,0.55 0.92,0.5 0.95,0.68 0.82,0.72" fill="#A8C284" opacity="0.9"/>
+      <ellipse cx="0.3" cy="0.18" rx="0.09" ry="0.06" fill="#8CBCC9"/>
+      <path d="M0.16 0.1 C0.26 0.05 0.4 0.07 0.47 0.15" fill="none" stroke="#BFA268" stroke-width="0.007"/>
+      <path d="M0.13 0.17 C0.25 0.11 0.42 0.13 0.52 0.24" fill="none" stroke="#BFA268" stroke-width="0.007"/>
+      <path d="M0.25 0 V1 M0.5 0 V1 M0.75 0 V1 M0 0.25 H1 M0 0.5 H1 M0 0.75 H1"
+        fill="none" stroke="#C8A765" stroke-width="0.009" opacity="0.8"/>
+      <circle cx="0.12" cy="0.35" r="0.013" fill="#7FA35B"/>
+      <circle cx="0.2" cy="0.28" r="0.013" fill="#7FA35B"/>
+      <circle cx="0.65" cy="0.6" r="0.013" fill="#7FA35B"/>
+      <circle cx="0.7" cy="0.52" r="0.013" fill="#7FA35B"/>
+      <circle cx="0.4" cy="0.85" r="0.013" fill="#7FA35B"/>
+      <circle cx="0.47" cy="0.62" r="0.013" fill="#7FA35B"/>
+    </g>
+  </g>
+  <!-- land use / zoning -->
+  <g>
+    <polygon points="122,243 256,310 256,330 122,263" fill="#C2CBA8"/>
+    <polygon points="256,310 390,243 390,263 256,330" fill="#A7B18C"/>
+    <polygon points="256,176 390,243 256,310 122,243" fill="#E8EDD9"/>
+    <g transform="matrix(134,67,134,-67,122,243)">
+      <polygon points="0.04,0.04 0.3,0.04 0.3,0.3 0.04,0.3" fill="#C4D7A2"/>
+      <polygon points="0.36,0.04 0.62,0.04 0.62,0.3 0.36,0.3" fill="#D9C98F"/>
+      <polygon points="0.68,0.04 0.94,0.04 0.94,0.3 0.68,0.3" fill="#B9CD96"/>
+      <polygon points="0.04,0.36 0.3,0.36 0.3,0.62 0.04,0.62" fill="#9CBE83"/>
+      <polygon points="0.36,0.36 0.62,0.36 0.62,0.62 0.36,0.62" fill="#E0D3A0"/>
+      <polygon points="0.68,0.36 0.94,0.36 0.94,0.62 0.68,0.62" fill="#B8C2AB"/>
+      <polygon points="0.04,0.68 0.3,0.68 0.3,0.94 0.04,0.94" fill="#D9C98F"/>
+      <polygon points="0.36,0.68 0.62,0.68 0.62,0.94 0.36,0.94" fill="#C4D7A2"/>
+      <polygon points="0.68,0.68 0.94,0.68 0.94,0.94 0.68,0.94" fill="#A9C18C"/>
+      <path d="M0.33 0 V1 M0.66 0 V1 M0 0.33 H1 M0 0.66 H1" fill="none" stroke="#9DB07F" stroke-width="0.01"/>
+    </g>
+  </g>
+  <!-- rivers and canals -->
+  <g>
+    <polygon points="156,163 256,213 256,233 156,183" fill="#ADCDD1"/>
+    <polygon points="256,213 356,163 356,183 256,233" fill="#8FB5BA"/>
+    <polygon points="256,113 356,163 256,213 156,163" fill="#DCEFF0"/>
+    <g transform="matrix(100,50,100,-50,156,163)" fill="none" stroke-linecap="round">
+      <ellipse cx="0.2" cy="0.75" rx="0.1" ry="0.07" fill="#4FAFC8" stroke="none"/>
+      <path d="M0.03 0.3 C0.35 0.55 0.5 0.1 0.97 0.5" stroke="#87CBDC" stroke-width="0.11"/>
+      <path d="M0.03 0.3 C0.35 0.55 0.5 0.1 0.97 0.5" stroke="#2E9CB8" stroke-width="0.07"/>
+      <path d="M0.03 0.3 C0.35 0.55 0.5 0.1 0.97 0.5" stroke="#6CC2D6" stroke-width="0.022"/>
+      <path d="M0.55 0.3 C0.65 0.18 0.78 0.12 0.95 0.08" stroke="#2E9CB8" stroke-width="0.035"/>
+      <path d="M0.25 0.95 L0.7 0.05" stroke="#5FB8CE" stroke-width="0.024"/>
+      <path d="M0.05 0.6 L0.95 0.8" stroke="#5FB8CE" stroke-width="0.02"/>
+      <path d="M0.45 0.98 L0.85 0.2" stroke="#5FB8CE" stroke-width="0.018"/>
+    </g>
+  </g>
+  <!-- roads -->
+  <g>
+    <polygon points="186,101 256,136 256,154 186,119" fill="#CFC7B6"/>
+    <polygon points="256,136 326,101 326,119 256,154" fill="#B5AC99"/>
+    <polygon points="256,66 326,101 256,136 186,101" fill="#EFEAE0"/>
+    <g transform="matrix(70,35,70,-35,186,101)" fill="none">
+      <path d="M0 0.25 H1 M0 0.75 H1 M0.25 0 V1 M0.75 0 V1" stroke="#D9D2C2" stroke-width="0.022"/>
+      <path d="M0.1 0.9 L0.9 0.1" stroke="#C9BFA9" stroke-width="0.05"/>
+      <path d="M0 0.5 H1 M0.5 0 V1" stroke="#C9BFA9" stroke-width="0.068"/>
+      <path d="M0 0.5 H1 M0.5 0 V1" stroke="#FFFFFF" stroke-width="0.042" opacity="0.95"/>
+      <path d="M0.1 0.9 L0.9 0.1" stroke="#FFFFFF" stroke-width="0.028" opacity="0.95"/>
+    </g>
+  </g>
+  <!-- buildings -->
+  <g>
+    <polygon points="212,55 256,77 256,93 212,71" fill="#D5C4A0"/>
+    <polygon points="256,77 300,55 300,71 256,93" fill="#BBA983"/>
+    <polygon points="256,33 300,55 256,77 212,55" fill="#F2E7CC"/>
+    <polygon points="257,40 263,43 257,46 251,43" fill="#2CA6A4"/>
+    <polygon points="251,43 257,46 257,57 251,54" fill="#1F8B8A"/>
+    <polygon points="257,46 263,43 263,54 257,57" fill="#15706F"/>
+    <polygon points="266,44 270,46 266,48 262,46" fill="#EFE4C8"/>
+    <polygon points="262,46 266,48 266,56 262,54" fill="#D2BF96"/>
+    <polygon points="266,48 270,46 270,54 266,56" fill="#B8A076"/>
+    <polygon points="243,46 251,50 243,54 235,50" fill="#F7EFD8"/>
+    <polygon points="235,50 243,54 243,68 235,64" fill="#DCCBA4"/>
+    <polygon points="243,54 251,50 251,64 243,68" fill="#C2AC82"/>
+    <polygon points="232,49.5 237,52 232,54.5 227,52" fill="#EFE4C8"/>
+    <polygon points="227,52 232,54.5 232,62.5 227,60" fill="#D2BF96"/>
+    <polygon points="232,54.5 237,52 237,60 232,62.5" fill="#B8A076"/>
+    <polygon points="269,52.5 276,56 269,59.5 262,56" fill="#F7EFD8"/>
+    <polygon points="262,56 269,59.5 269,76.5 262,73" fill="#DCCBA4"/>
+    <polygon points="269,59.5 276,56 276,73 269,76.5" fill="#C2AC82"/>
+    <polygon points="280,57.5 285,60 280,62.5 275,60" fill="#EFE4C8"/>
+    <polygon points="275,60 280,62.5 280,72.5 275,70" fill="#D2BF96"/>
+    <polygon points="280,62.5 285,60 285,70 280,72.5" fill="#B8A076"/>
+    <polygon points="252,60.5 257,63 252,65.5 247,63" fill="#F7EFD8"/>
+    <polygon points="247,63 252,65.5 252,74.5 247,72" fill="#DCCBA4"/>
+    <polygon points="252,65.5 257,63 257,72 252,74.5" fill="#C2AC82"/>
+    <polygon points="260,64 264,66 260,68 256,66" fill="#EFE4C8"/>
+    <polygon points="256,66 260,68 260,74 256,72" fill="#D2BF96"/>
+    <polygon points="260,68 264,66 264,72 260,74" fill="#B8A076"/>
+  </g>
+</svg>
