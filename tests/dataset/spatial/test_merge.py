@@ -879,8 +879,9 @@ class TestMergeRastersInheritsNoData:
             #1086's fix set out to close, reached through the inherited path.
         """
         out = tmp_path / "nan_on_int.tif"
+        tiles = self._gapped_tiles(tmp_path, "uint16", float("nan"))
         with pytest.warns(UserWarning, match="cannot store"):
-            merge_rasters(self._gapped_tiles(tmp_path, "uint16", float("nan")), out)
+            merge_rasters(tiles, out)
         masked, _ds = self._masked_count(out)
         marker = self._raw_marker(out)
         assert marker == pytest.approx(65535), (
