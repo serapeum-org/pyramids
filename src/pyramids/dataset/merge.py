@@ -775,6 +775,8 @@ def _storable_marker(
     src_paths: list[str],
     init: float | int | str,
     inherited: float | None,
+    bbox: Sequence[float] | None = None,
+    bbox_crs: int | str | None = None,
 ) -> Any | None:
     """Settle what a mosaic declares, and fills its gaps with, when nothing was passed.
 
@@ -827,6 +829,10 @@ def _storable_marker(
         init: The caller's uncovered-pixel value. A value `float()` cannot read is
             treated as no preference, and question 4 decides alone.
         inherited: What the sources declared, or `None` when none of them did.
+        bbox: The caller's window, when they gave one. The survey is clipped to
+            it, since it is the only region that will be written -- and it is the
+            region a caller passing a window is paying to read.
+        bbox_crs: CRS of `bbox`, or `None` when it is already the mosaic's.
 
     Returns:
         Any | None: The value to declare and fill gaps with, or `None` -- when the
@@ -890,8 +896,21 @@ def _storable_marker(
         # source declared anything, so the probe declares nothing and every cell
         # is in view. Reached with `inherited` set, it is by definition a value
         # this dtype cannot store, so no cell holds it and none is skipped.
+        window = None
+        if bbox is not None:
+            # In the mosaic's own CRS, and through the same reprojection the
+            # write uses, so the survey measures the raster that will be written
+            # rather than a different one.
+            window = list(
+                _bbox_in_projection(bbox, bbox_crs, ordered[0].GetProjection())
+            )
         probe = run_gdal_op(
-            partial(gdal.BuildVRT, "", ordered),
+            partial(
+                gdal.BuildVRT,
+                "",
+                ordered,
+                options=gdal.BuildVRTOptions(outputBounds=window),
+            ),
             error=RuntimeError,
             action="building the source mosaic",
             subject=f"sources {src_paths!r}",
@@ -969,7 +988,10 @@ def merge_rasters(
             but note that any real cell holding it becomes unreadable, which is
             why 0 is a poor choice for an elevation, bathymetry, anomaly or
             difference raster (#1086). Passing ``None`` explicitly asks for no
-            marker at all, on either path.
+            marker at all, on either path, and the string ``"inherit"`` -- the
+            word the default renders as -- asks for the default. A wrapper that
+            forwards an "unset" of its own can import the sentinel itself as
+            ``from pyramids.dataset.merge import INHERIT_NO_DATA``.
 
             **What fills the pixels no source covers depends on which of those
             you did.** Omitted, the settled marker fills them too, so the gaps
@@ -983,7 +1005,12 @@ def merge_rasters(
             same value as `init`.
 
             The value is read from each source's **band 1**, and one marker is
-            stamped on every band of the output. A multi-band merge therefore
+            stamped on every band of the output. It is read from *every* source,
+            including one ``BuildVRT`` goes on to drop for a band type that
+            disagrees with the first's -- so on such a mosaic a source that
+            contributes no pixel can still decide the marker, or raise the
+            disagreement warning. That is a symptom of the drop, which GDAL
+            reports separately, rather than of the inheritance. A multi-band merge therefore
             keeps band 1's answer throughout: where band 1 declares nothing and
             band 2 declares a marker, nothing is inherited, and where the bands
             declare different markers, band 1's is stamped over band 2's. For a
@@ -1321,7 +1348,7 @@ def merge_rasters(
             # have to be accounted for -- and the value has to be one this output
             # band can actually hold.
             resolved_no_data = _storable_marker(
-                ordered, src_paths, init, resolved_no_data
+                ordered, src_paths, init, resolved_no_data, bbox, bbox_crs
             )
             if resolved_no_data is not None:
                 # Fill with what the output is about to declare. Where `init` is

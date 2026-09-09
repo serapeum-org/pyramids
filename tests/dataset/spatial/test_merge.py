@@ -578,6 +578,71 @@ class TestMergeRastersInheritsNoData:
         merge_rasters(self._tiles(tmp_path, None, dtype="uint16"), tmp_path / "m.tif")
         assert surveys == [], f"a gapless mosaic was surveyed anyway: {surveys}"
 
+    def test_the_survey_is_clipped_to_the_requested_window(self, tmp_path):
+        """A window is a promise to read less, and the marker survey has to keep it.
+
+        Test scenario:
+            `bbox` restricts what is written, and choosing a marker reads every
+            source to prove the value unused. Surveying the whole union would
+            pull the bytes the window exists to avoid -- billed, for a remote
+            source -- to answer about a raster that is never written.
+        """
+        surveyed = []
+        real = merge_mod._mosaic_value_range
+        try:
+            merge_mod._mosaic_value_range = lambda mosaic: (
+                surveyed.append((mosaic.RasterXSize, mosaic.RasterYSize))
+                or real(mosaic)
+            )
+            merge_rasters(
+                self._gapped_tiles(tmp_path, "uint16"),
+                tmp_path / "windowed.tif",
+                bbox=[0.0, 0.0, 1.0, 1.0],
+            )
+        finally:
+            merge_mod._mosaic_value_range = real
+        assert surveyed == [(1, 1)], (
+            f"the survey should cover the window, not the union: {surveyed}"
+        )
+
+    def test_stack_bands_declares_nothing_where_a_mosaic_settles_on_a_marker(
+        self, tmp_path
+    ):
+        """The two share the inheritance rule and part ways after it, deliberately.
+
+        Test scenario:
+            A stack covers one grid, so it has no uncovered pixel and nothing for
+            a marker to mark; a gapped mosaic does have them. Two docstrings in
+            this branch disagreed about which rule they share, so the difference
+            is pinned on both sides.
+        """
+        same_grid = []
+        for name, values in (
+            ("s0.tif", [[1, 2], [3, 4]]),
+            ("s1.tif", [[5, 6], [7, 8]]),
+        ):
+            Dataset.from_array(
+                np.array(values, dtype="uint16"),
+                geo_ref=GeoReference(
+                    top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326
+                ),
+            ).to_file(tmp_path / name)
+            handle = gdal.Open(str(tmp_path / name), gdal.GA_Update)
+            handle.GetRasterBand(1).DeleteNoDataValue()
+            handle.FlushCache()
+            handle = None
+            same_grid.append(str(tmp_path / name))
+        stacked = stack_bands(same_grid, path=tmp_path / "stacked.tif")
+        gapped = tmp_path / "gapped.tif"
+        merge_rasters(self._gapped_tiles(tmp_path, "uint16"), gapped)
+
+        assert all(value is None for value in stacked.no_data_value), (
+            f"a stack has no uncovered pixel to mark, got {stacked.no_data_value}"
+        )
+        assert self._raw_marker(gapped) == pytest.approx(65535), (
+            "a gapped mosaic settles on a marker"
+        )
+
     def test_a_numeric_init_the_data_uses_is_refused(self, tmp_path):
         """`init` is a preference, not an instruction, or it re-creates #1086.
 
