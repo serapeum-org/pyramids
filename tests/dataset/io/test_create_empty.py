@@ -527,7 +527,7 @@ class TestEmptyLike:
 
         Test scenario:
             Passing ``no_data_value=None`` explicitly (distinct from the
-            ``_INHERIT_NO_DATA`` default that copies the template's -9999, and from an
+            ``INHERIT_NO_DATA`` default that copies the template's -9999, and from an
             override value) routes through ``_build_dataset`` with no-data set to None,
             which skips the band fill. With no ``path`` the result is an in-RAM MEM
             raster, so the disk-only ``NoDataSentinelWarning`` must NOT fire; the

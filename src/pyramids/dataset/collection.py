@@ -18,7 +18,7 @@ import pandas as pd
 from pyproj import CRS
 
 from pyramids import _io
-from pyramids.base._domain import free_no_data, is_stored_no_data
+from pyramids.base._domain import INHERIT_NO_DATA, free_no_data, is_stored_no_data
 from pyramids.base._errors import (
     AlignmentError,
     DriverNotExistError,
@@ -3773,7 +3773,7 @@ class DatasetCollection:
     def merge(
         self,
         dst: str | Path,
-        no_data_value: float | int | str = "0",
+        no_data_value: Any = INHERIT_NO_DATA,
         init: float | int | str = "nan",
         n: float | int | str = "nan",
         method: str = "last",
@@ -3794,8 +3794,23 @@ class DatasetCollection:
         Args:
             dst (str | Path):
                 Path to the output raster.
-            no_data_value (float | int | str):
-                Assign a specified nodata value to output bands.
+            no_data_value (float | int | str | None):
+                Nodata marker stamped on the output bands. Omitted means
+                inherit it from the timesteps, exactly as
+                :func:`~pyramids.dataset.merge.merge_rasters` does -- this
+                method is a thin wrapper over it, so the two must not disagree
+                about what an omitted argument means (#1086). The first
+                timestep that declares a value wins, and a disagreement warns.
+                When none declares one, what happens turns on the timesteps'
+                footprints: a collection whose timesteps share one grid covers
+                every pixel of it, so there is nothing for a marker to mark and
+                an integer mosaic is written declaring nothing (measured). A
+                floating one still declares ``NaN``, as do ``method="min"``,
+                ``"max"`` and ``"sum"``, which write Float64. Only timesteps
+                that leave a gap between them earn a chosen sentinel. Pass a
+                value to override all of that, or ``None`` for no marker at all.
+                Whichever marker is settled on also fills the pixels no timestep
+                covers, so `init` keeps them only when you name it yourself.
             init (float | int | str):
                 Pre-initialize the output image bands with these
                 values. However, it is not marked as the nodata

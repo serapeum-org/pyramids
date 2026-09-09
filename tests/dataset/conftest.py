@@ -392,8 +392,21 @@ def merge_input_raster() -> List[str]:
 
 
 @pytest.fixture(scope="module")
-def merge_output() -> Path:
-    return Path("tests/data/geotiff/merge/merged_raster.tif")
+def merge_output(tmp_path_factory) -> Path:
+    """Destination for the merge tests.
+
+    In a temp directory, not `tests/data/geotiff/merge/merged_raster.tif`: that
+    path is tracked, so every run of the suite rewrote a committed binary and
+    left the working tree dirty. Nothing reads it -- `merge_input_raster` globs
+    `splitted-raster*.tif` -- so it was only ever an output.
+
+    Args:
+        tmp_path_factory: pytest's session-scoped temp-directory factory.
+
+    Returns:
+        Path: Where the merged raster should be written.
+    """
+    return tmp_path_factory.mktemp("merge") / "merged_raster.tif"
 
 
 @pytest.fixture(scope="module")

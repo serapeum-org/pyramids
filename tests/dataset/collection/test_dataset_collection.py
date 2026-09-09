@@ -422,12 +422,26 @@ def test_merge_rasters_free_function(
     merge_input_raster: List[str],
     merge_output: Path,
 ):
+    """A default merge inherits its no-data instead of inventing one (#1086).
+
+    These fixtures are UInt16, declare no no-data, and tile their area with no
+    gap between them. Nothing is inherited and nothing is uncovered, so no marker
+    is invented at all -- where the old default stamped 0 and masked every real 0
+    in the scene.
+    """
     from pyramids.dataset.merge import merge_rasters
 
     merge_rasters(merge_input_raster, merge_output)
     assert merge_output.exists()
     src = gdal.Open(str(merge_output))
-    assert src.GetRasterBand(1).GetNoDataValue() == 0
+    marker = src.GetRasterBand(1).GetNoDataValue()
+    values = np.asarray(src.ReadAsArray())
+    src = None
+    assert marker is None, (
+        f"a gapless mosaic whose sources declare nothing needs no marker, got {marker}"
+    )
+    assert values.size, "the mosaic should not be empty"
+    assert values.max() > 0, "the mosaic should still hold the sources' data"
 
 
 def test_merge_instance_method(
@@ -439,7 +453,12 @@ def test_merge_instance_method(
     cube.merge(out)
     assert out.exists()
     src = gdal.Open(str(out))
-    assert src.GetRasterBand(1).GetNoDataValue() == 0
+    # DatasetCollection.merge is a thin wrapper over merge_rasters, so an
+    # omitted no_data_value must mean the same thing on both (#1086). These
+    # fixtures declare none and leave no gap, so neither invents a marker.
+    assert src.GetRasterBand(1).GetNoDataValue() is None, (
+        "collection.merge must answer like merge_rasters, not stamp 0"
+    )
 
 
 def test_merge_instance_method_in_memory_collection(tmp_path: Path):
@@ -458,8 +477,15 @@ def test_merge_instance_method_in_memory_collection(tmp_path: Path):
     out = tmp_path / "merged_in_memory.tif"
     cube.merge(out)
     assert out.exists()
-    src = gdal.Open(str(out))
-    assert src.GetRasterBand(1).GetNoDataValue() == 0
+    merged = Dataset.read_file(str(out))
+    # The raster is all zeros. Stamping 0 as the marker -- which this test used
+    # to assert -- masks every pixel of it (#1086); inheriting the source's own
+    # marker keeps the data readable.
+    masked = merged.read_array(masked=True)
+    masked = masked[0] if masked.ndim == 3 else masked
+    assert int(masked.size - masked.count()) == 0, (
+        "an all-zero raster must survive a merge, not be masked out entirely"
+    )
 
 
 def test_overlay(rasters_folder_path: str, germany_classes: Path):
