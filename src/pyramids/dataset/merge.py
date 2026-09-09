@@ -1130,9 +1130,12 @@ def merge_rasters(
 
     Note:
         The z-order methods (``"first"``/``"last"``) preserve the data type via
-        ``BuildVRT`` + ``Translate`` — specifically the **first** source's, since
-        that is the one ``BuildVRT`` takes its band type from; a source whose
-        band type disagrees is skipped, with a GDAL warning naming it. The
+        ``BuildVRT`` + ``Translate`` — specifically that of the first source **in
+        z-order**, which for ``method="first"`` is the *last* one you passed,
+        since the list is reversed so that it wins. That is the source
+        ``BuildVRT`` takes its band type from; one whose band type disagrees is
+        skipped entirely, with a GDAL warning naming it, so the output then
+        covers the remaining sources' extent rather than the union. The
         reduction methods (``"min"``/``"max"``/``"sum"``) align every source onto
         the union grid with ``gdal.Warp`` (nearest resampling — exact for
         already-aligned tiles) and write a single-precision-safe **Float64**
@@ -1147,11 +1150,13 @@ def merge_rasters(
         TypeError: ``resampling`` is not a string, or ``bbox`` is not four numbers
             (a string, a scalar, or a sequence holding a non-numeric element).
         ValueError: ``method``/``resampling`` is not a supported value,
-            ``dst_crs`` cannot be parsed as a CRS, a source carries no CRS, or
-            ``bbox`` is malformed (wrong length, non-finite, inverted, zero-area),
-            crosses the antimeridian or the mosaic's longitude seam once
-            reprojected, selects no whole pixel, does not overlap the mosaic, or
-            cannot be projected into its CRS.
+            ``dst_crs`` cannot be parsed as a CRS, a source carries no CRS,
+            ``no_data_value`` or ``n`` names no number (``init`` may name none --
+            it then simply expresses no preference), or ``bbox`` is malformed
+            (wrong length, non-finite, inverted, zero-area), crosses the
+            antimeridian or the mosaic's longitude seam once reprojected, selects
+            no whole pixel, does not overlap the mosaic, or cannot be projected
+            into its CRS.
         RuntimeError: GDAL failed to open a source, reproject it, or build the
             source mosaic. When a source is at fault the message names it and
             its position in `src`, and chains GDAL's own error; any credential
@@ -1889,9 +1894,13 @@ def stack_bands(
             **inherit from the source rasters**: the first file that declares
             one wins, a disagreement warns, and if none declares one the output
             declares none either. Pass a value to override that, or ``None`` for
-            "declare no sentinel at all". It is the same rule
+            "declare no sentinel at all". The *inheritance* is the same rule
             :func:`merge_rasters` follows, resolved by the same
-            :func:`~pyramids.base._domain.inherit_no_data`.
+            :func:`~pyramids.base._domain.inherit_no_data` -- but what happens
+            when nothing is inherited is not, and deliberately so. A stack
+            covers one grid, so it has no uncovered pixel and declares nothing;
+            a mosaic generally has them, and settles on a marker rather than
+            leaving them to read as data.
         path: Output path, whose extension selects the driver (``.tif`` ->
             GTiff, ``.nc`` -> netCDF, …); ``None`` keeps the result in memory.
             `COMPRESS=LZW` is applied only when the extension resolves to

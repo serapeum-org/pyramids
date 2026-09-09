@@ -993,7 +993,11 @@ def inherit_no_data(values: Sequence[float | None]) -> float | None:
 
     Returns:
         float | None: The value the output should declare, or `None` when no
-        source declared one -- in which case nothing should be masked.
+        source declared one. What a caller makes of that `None` differs by
+        output and is theirs to decide: a stack of bands has no uncovered pixel
+        and declares nothing, while a mosaic generally does have them and
+        settles on a marker of its own (see
+        :func:`pyramids.dataset.merge._storable_marker`).
 
     Warns:
         UserWarning: The sources declare more than one distinct value. The

@@ -177,15 +177,21 @@ value.
 
 - **Sources agree** — the mosaic declares that value. Nothing else changes.
 - **Sources disagree** — the first one wins and a `UserWarning` names both, instead of silently picking.
-- **No source declares one** — a marker is still chosen, because a mosaic generally has pixels no source covers
-  and leaving those undeclared makes them read as measurements. The choice is the value such a pixel already
-  holds where the output's data type can store it — `NaN` for a floating mosaic, and always for `method="min"`,
-  `"max"` and `"sum"`, which write `Float64`. An integer band has no `NaN`, so there the marker is instead a
-  value that band *can* store and that the mosaic's own cells do not use (`65535` for a `UInt16` scene holding
-  small numbers, `-9999` for a signed one), and the compositing step is filled with it so the gaps really hold
-  what the output declares. Only a mosaic whose data uses every value its type could spare is written without a
-  marker, and that warns. Previously all of this was `0`: on an integer band `0` was also the only thing hiding
-  the `NaN` that `init` puts in the VRT, which the band cannot store.
+- **No source declares one, and the sources leave a gap** — a marker is chosen, because those uncovered pixels
+  are still written and leaving them undeclared makes them read as measurements. The choice is the value such a
+  pixel already holds where the output's data type can store it — `NaN` for a floating mosaic, and always for
+  `method="min"`, `"max"` and `"sum"`, which write `Float64`. An integer band has no `NaN`, so there the marker
+  is instead a value that band *can* store and that the mosaic's own cells do not use (`65535` for a `UInt16`
+  scene holding small numbers, `-9999` for a signed one), and the compositing step is filled with it so the gaps
+  really hold what the output declares. Only a mosaic whose data uses every value its type could spare is
+  written without a marker, and that warns.
+- **No source declares one, and the sources tile their area** — nothing is declared, because there is nothing to
+  mark. Choosing a value would mean reading every source to prove it unused, which is the expensive half of the
+  paragraph above and buys nothing when no pixel is uncovered. Whether they tile is answered from the
+  footprints, without reading a pixel.
+
+Previously all of this was `0`: on an integer band `0` was also the only thing hiding the `NaN` that `init` puts
+in the VRT, which the band cannot store.
 
 Related behaviour that changed with it:
 
@@ -194,8 +200,9 @@ Related behaviour that changed with it:
 - **`method="min"`, `"max"` and `"sum"` over integer sources were wrong before and are now right.** Each source
   was warped into its own data type before being folded, where the `NaN` marking its uncovered area was rounded
   to `0`; those zeros then won every `fmin` and were added by every `sum`, so a mosaic of integer tiles that did
-  not tile contiguously came back all-zero whatever `no_data_value` said. Sources are now warped into the
-  `Float64` the reduction writes.
+  not tile contiguously was corrupted whatever `no_data_value` said: `min` collapsed to that value everywhere,
+  `sum` had it added into every cell, and `max` kept its covered data but lost the gaps. Sources are now warped
+  into the `Float64` the reduction writes.
 - **The marker now reaches the pixels it marks.** Uncovered pixels used to hold `init` (`NaN` by default) while
   the mosaic declared something else, so a mosaic inheriting `-9999` declared `-9999` over gaps holding `NaN`
   and `read_array(masked=True)` masked none of them. The gaps are now filled with whatever is declared.
@@ -207,6 +214,13 @@ Related behaviour that changed with it:
   therefore had all but the winner's holes composited as real measurements — a tile declaring `-32768` beside
   one declaring `-9999` read its holes back as `-32768`. The default now means "no override". If you were
   relying on `n`'s default to ignore `NaN` cells in sources that declare nothing, pass `n=` explicitly.
+- **A numeric `init` is a preference, not an instruction.** While the marker is being inherited, `init` is
+  offered to the sentinel search as the preferred candidate and taken only if the mosaic's own cells do not hold
+  it. `init=0` over tiles containing real zeros would otherwise have become the declared marker and masked them
+  — #1086 again, through a different argument. Being passed over warns.
+- **`no_data_value` is validated.** A value that names no number used to reach `gdal.Translate`, which answered
+  "Nodata value was not set to output band" and wrote no marker at all; it now raises `ValueError`. The string
+  `"inherit"` is accepted as the default, since that is how the default renders in `help()` and in the API docs.
 
 Migrating:
 
@@ -214,8 +228,12 @@ Migrating:
   the old behavior exactly, and is worth a second look — it masks every genuine `0` in your inputs.
 - **If you want no marker at all, pass `no_data_value=None`.** Both write paths honour that, and neither stamps
   anything.
-- **If you were passing `no_data_value=` already, nothing changes.** Every existing call is unaffected; only the
-  omitted-argument case moved.
+- **If you were passing `no_data_value=` already, the marker is unaffected — but the pixels can still change.**
+  Three of the bullets above apply whatever you passed: each source's own holes are now skipped rather than
+  composited, the integer reductions were corrected, and — new — the pixels no source covers are now filled with
+  your marker instead of with `init`, so that the marker you asked for actually masks them. Pass `init=`
+  alongside it to keep the old fill. On a z-order merge these three are the only changes; a `min`/`max`/`sum`
+  merge of integer sources changes more, because it was wrong.
 - The value is read from the sources' band 1, in the order you pass them, so ordering decides a disagreement.
 - `DatasetCollection.merge` forwards the same default, so it answers identically.
 
