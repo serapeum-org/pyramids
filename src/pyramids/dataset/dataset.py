@@ -629,6 +629,10 @@ class Dataset(RasterBase):
         """Facade — delegates to :meth:`Cell.get_cell_coords <pyramids.dataset.engines.Cell.get_cell_coords>`."""
         return self.cell.get_cell_coords(*args, **kwargs)
 
+    def cell_area(self, *args, **kwargs):
+        """Facade — delegates to :meth:`Cell.cell_area <pyramids.dataset.engines.Cell.cell_area>`."""
+        return self.cell.cell_area(*args, **kwargs)
+
     def get_cell_polygons(self, *args, **kwargs):
         """Facade — delegates to :meth:`Cell.get_cell_polygons <pyramids.dataset.engines.Cell.get_cell_polygons>`."""
         return self.cell.get_cell_polygons(*args, **kwargs)
@@ -710,6 +714,10 @@ class Dataset(RasterBase):
     def stats(self, *args, **kwargs):
         """Facade — delegates to :meth:`Analysis.stats <pyramids.dataset.engines.Analysis.stats>`."""
         return self.analysis.stats(*args, **kwargs)
+
+    def domain_area(self, *args, **kwargs):
+        """Facade — delegates to :meth:`Analysis.domain_area <pyramids.dataset.engines.Analysis.domain_area>`."""
+        return self.analysis.domain_area(*args, **kwargs)
 
     def count_domain_cells(self, *args, **kwargs):
         """Facade — delegates to :meth:`Analysis.count_domain_cells <pyramids.dataset.engines.Analysis.count_domain_cells>`."""

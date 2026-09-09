@@ -15,8 +15,9 @@ import numpy as np
 from geopandas.geodataframe import GeoDataFrame
 from hpc.indexing import get_indices2, locate_values
 from pandas import DataFrame
+from pyproj import CRS
 
-from pyramids.base.crs import crs_from_user_input, crs_spec
+from pyramids.base.crs import crs_from_user_input, crs_spec, require_crs_spec
 from pyramids.dataset.engines._base import _Engine
 from pyramids.feature import FeatureCollection, create_points, create_polygon
 
@@ -24,6 +25,56 @@ if TYPE_CHECKING:
     from pyramids.dataset.dataset import (  # noqa: F401  (forward ref in _Engine["Dataset"])
         Dataset,
     )
+
+
+# A degenerate geotransform -- a zero cell size, or a rotation that collapses
+# the parallelogram -- describes cells with no extent. Answering 0.0 would make
+# `domain_area` report no ground for a raster full of data.
+_NO_EXTENT = (
+    "the raster's geotransform gives its cells no area; check the cell size "
+    "and rotation terms"
+)
+
+# Square metres per unit of area. The names are the ones a caller writes, not
+# GDAL's or PROJ's spellings, because this is the surface a user types.
+_AREA_UNITS: dict[str, float] = {
+    "m2": 1.0,
+    "km2": 1e6,
+    "ha": 1e4,
+}
+
+
+def _area_scale(unit: str) -> float:
+    """Square metres in one `unit`.
+
+    Args:
+        unit: One of `m2`, `km2`, `ha`. Matched after `strip().lower()`, so
+            `KM2` and `" km2 "` name the same unit as `km2`.
+
+    Returns:
+        float: The divisor that turns square metres into `unit`.
+
+    Raises:
+        ValueError: `unit` is not one this package converts to, or is not a
+            string at all -- `None` and `2` are refused the same way.
+    """
+    try:
+        # Normalised first: `KM2` and `" km2"` are the same request as `km2`,
+        # and refusing them buys nothing. `strip`/`lower` are attributes, so a
+        # non-string argument still falls through to the refusal below.
+        scale = _AREA_UNITS[unit.strip().lower()]
+    except (KeyError, AttributeError):
+        # `AttributeError` as well as `KeyError`: anything that is not a string
+        # -- `None`, `2`, a list -- fails on `strip` before the lookup can miss
+        # it, and leaking that would contradict the `ValueError` this method
+        # documents. Normalising first is what makes `AttributeError` the way a
+        # non-string arrives, rather than the `TypeError` an unhashable key
+        # used to raise.
+        raise ValueError(
+            f"unknown area unit {unit!r}; expected one of "
+            f"{', '.join(sorted(_AREA_UNITS))}"
+        ) from None
+    return scale
 
 
 class Cell(_Engine["Dataset"]):
@@ -182,6 +233,320 @@ class Cell(_Engine["Dataset"]):
         crs = crs_spec(self._ds.epsg, self._ds.crs)
         if crs is not None:
             gdf.set_crs(crs_from_user_input(crs), inplace=True)
+
+    def cell_area(self, unit: str = "m2") -> np.ndarray:
+        """The ground area each cell covers, honouring the raster's own CRS.
+
+        `cell_size` answers in the CRS's units, which for a geographic raster
+        are degrees -- and a degree of longitude is 111 km at the equator and
+        19 km at 80 degrees north. Anything asking "how much ground is this"
+        therefore cannot use it, and `get_cell_polygons().area` does not help
+        either: those polygons are in the same degrees, so every cell on the
+        grid reports the identical area.
+
+        Two cases, decided by the CRS:
+
+        * **projected** -- the cell is a parallelogram in a linear unit, so its
+          area is the absolute determinant of the geotransform's linear part,
+          `|dx*dy - rx*ry|`, converted from the CRS's own linear unit. Constant
+          across the raster, rotation included.
+        * **geographic** -- the area is integrated in closed form over the
+          CRS's own ellipsoid, not taken on a sphere of an assumed radius and
+          not approximated by a geodesic polygon. A cell is bounded by
+          parallels, which are not geodesics, so a geodesic routine bows its
+          north and south edges poleward and biases every partial domain. Every
+          cell in a row shares a latitude band and therefore an area, so the
+          whole raster costs one vectorised pass over the row edges.
+
+        Args:
+            unit: `m2` (default), `km2` or `ha`. Case and surrounding
+                whitespace are ignored, so `KM2` and `" km2 "` also work.
+
+        Returns:
+            np.ndarray: Area per cell, shaped like the band, and always a
+            **read-only broadcast view** -- over one value per row for a
+            geographic raster, over a single value for a projected one, rotated
+            or not. Reading and arithmetic behave as usual (`values * areas`);
+            assigning into it raises, so call `.copy()` for a writeable array.
+
+            The view is what keeps a global 1-degree grid at 180 stored floats
+            rather than 64 800, but only while it stays a view: `nbytes`
+            reports the expanded size, and pickling, `np.save` and `reshape`
+            all materialise the full array. `domain_area` sums it without
+            doing so.
+
+        Raises:
+            CRSError: The raster carries neither an EPSG code nor a WKT, so
+                nothing says what its coordinates measure. A `ValueError`
+                subclass, so an `except ValueError` still catches it.
+            ValueError: `unit` is not recognised, or the raster is geographic
+                *and* rotated -- a case where cells in one row no longer share
+                a latitude band, and which is better solved by warping to a
+                north-up grid or a projected CRS than by spending a geodesic
+                call on every cell. Also when the CRS is neither geographic nor
+                projected, so its axes are not a ground plane -- a geocentric
+                or engineering CRS, since pyproj reads `is_geographic` and
+                `is_projected` through a compound CRS to its horizontal part;
+                when a geographic CRS names no ellipsoid to integrate over, or
+                names a prolate one; when a row lies entirely beyond a pole;
+                and when the geotransform leaves the cells no extent -- a zero
+                cell size, or a rotation that collapses the parallelogram.
+
+        Examples:
+            - A projected raster has one area for every cell, straight from the
+              geotransform:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> geo_ref = GeoReference(top_left_corner=(0.0, 0.0), cell_size=30.0, epsg=32636)
+                >>> raster = Dataset.from_array(np.ones((2, 2), "float32"), geo_ref=geo_ref)
+                >>> raster.cell_area().tolist()
+                [[900.0, 900.0], [900.0, 900.0]]
+
+                ```
+            - A geographic raster's cells shrink towards the pole, which is the
+              whole reason this method exists:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> geo_ref = GeoReference(top_left_corner=(0.0, 90.0), cell_size=1.0, epsg=4326)
+                >>> raster = Dataset.from_array(np.ones((90, 4), "float32"), geo_ref=geo_ref)
+                >>> areas = raster.cell_area(unit="km2")
+                >>> round(float(areas[89, 0]))     # the row touching the equator
+                12308
+                >>> round(float(areas[0, 0]))      # the row touching the pole
+                109
+
+                ```
+            - Rotation is refused rather than answered approximately, because a
+              row's cells no longer share a latitude band:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> geo_ref = GeoReference(geo=(0.0, 1.0, 0.2, 90.0, 0.2, -1.0), epsg=4326)
+                >>> raster = Dataset.from_array(np.ones((4, 4), "float32"), geo_ref=geo_ref)
+                >>> raster.cell_area()  # doctest: +ELLIPSIS
+                Traceback (most recent call last):
+                    ...
+                ValueError: a rotated geographic raster ... warp it to a north-up grid ...
+
+                ```
+
+        See Also:
+            Analysis.domain_area: The area-weighted sibling of
+                `count_domain_cells`, which sums this over a band's valid cells
+                without materialising it.
+        """
+        scale = _area_scale(unit)
+        geo = self._ds.geotransform
+        # The same route `_attach_crs` takes, for the same reasons: the EPSG
+        # code when it resolves and the WKT otherwise (#943), with `None`
+        # meaning the raster truly has no CRS rather than an empty string
+        # that every downstream constructor rejects opaquely (#979). Resolving
+        # from `self._ds.crs` alone would let one raster answer through
+        # `get_cell_polygons` and fail here. `require_crs_spec` raises the
+        # project's `CRSError`, itself a `ValueError`, naming the fix.
+        crs = crs_from_user_input(
+            require_crs_spec(self._ds.epsg, self._ds.crs, "compute cell area")
+        )
+        if crs.is_geographic:
+            if bool(geo[2]) or bool(geo[4]):
+                raise ValueError(
+                    "a rotated geographic raster has cells that do not share a "
+                    "latitude band, so its area cannot be resolved per row; "
+                    "warp it to a north-up grid or to a projected CRS first"
+                )
+            per_row = self._parallel_row_areas(crs) / scale
+            # Checked before the broadcast, not after. `per_row > 0.0` on the
+            # expanded view would allocate one byte per pixel -- 400 MB on a
+            # 20000x20000 raster, and a `MemoryError` on the out-of-core grids
+            # this method exists to serve -- to test `rows` distinct numbers.
+            if not np.all(per_row > 0.0):
+                raise ValueError(_NO_EXTENT)
+            areas = np.broadcast_to(
+                per_row[:, np.newaxis], (self._ds.rows, self._ds.columns)
+            )
+        elif crs.is_projected:
+            # `unit_conversion_factor` is metres per CRS unit, so it squares.
+            metres = crs.axis_info[0].unit_conversion_factor
+            determinant = abs(geo[1] * geo[5] - geo[2] * geo[4])
+            one = determinant * metres * metres / scale
+            if one <= 0.0:
+                raise ValueError(_NO_EXTENT)
+            areas = np.broadcast_to(np.float64(one), (self._ds.rows, self._ds.columns))
+        else:
+            # Geocentric and engineering CRSs reach here. Their axes are not a
+            # ground plane, so a determinant of the geotransform is not an area
+            # of anything -- better to say so than to return a number that
+            # looks like one. A compound CRS does not reach here: pyproj reads
+            # `is_geographic` / `is_projected` through to its horizontal part,
+            # so a DEM with a vertical datum takes the branch it should.
+            raise ValueError(
+                f"the raster's CRS is neither geographic nor projected "
+                f"({crs.type_name}), so its cells have no ground area; "
+                "reproject it to a projected or geographic CRS first"
+            )
+        return areas
+
+    def _parallel_row_areas(self, crs: CRS) -> np.ndarray:
+        """Square metres of one cell in each row, on the CRS's own ellipsoid.
+
+        A raster cell is bounded by two **parallels** and two meridians, and a
+        parallel is not a geodesic anywhere but the equator. Asking a geodesic
+        polygon routine for the area therefore bows each north and south edge
+        poleward, and the residual does not cancel within the cell: it biases
+        every partial domain, by 2.6e-05 per cell at 1 degree and 3.7e-02 at
+        30. It hides in a global total, where the bulges of vertically adjacent
+        rows telescope away exactly, which is why an ungapped-globe check
+        cannot see it at any cell size.
+
+        So the area is integrated in closed form instead: `_zone_areas` gives
+        the ellipsoidal area between each pair of parallels, and the answer is
+        that times the longitude span. Vectorised over rows, exact at any cell
+        size, and it needs no geodesic call at all.
+
+        Args:
+            crs: The raster's CRS, already resolved.
+
+        Returns:
+            np.ndarray: One area per row, in square metres, in row order.
+
+        Raises:
+            ValueError: The CRS's datum names no ellipsoid, so there is no
+                figure of the earth to integrate over, or a row of the raster
+                lies entirely beyond a pole. `_zone_areas` adds one more
+                refusal this propagates: a prolate ellipsoid.
+        """
+        geod = crs.get_geod()
+        if geod is None:
+            # A geographic CRS whose datum names no ellipsoid: there is no
+            # figure of the earth to integrate over, so there is no area.
+            raise ValueError(
+                "the raster's geographic CRS declares no ellipsoid, so its "
+                "cells have no ground area; reproject it to one that does"
+            )
+        _, dx, _, top, _, dy = self._ds.geotransform
+        # The geotransform speaks the CRS's angular unit, which is degrees for
+        # every ordinary geographic CRS but grads for a few (EPSG:4807). The
+        # factor converts to radians, so the latitudes have to travel through
+        # it too rather than being handed to `deg2rad`.
+        to_radians = crs.axis_info[0].unit_conversion_factor
+        edges = (top + np.arange(self._ds.rows + 1) * dy) * to_radians
+        span = abs(dx) * to_radians
+        pole = np.pi / 2
+        # A single edge past the pole is ordinary and handled by the clip in
+        # `_zone_areas`: a cell-centred global grid (ERA5's, say) puts its
+        # first edge half a cell beyond 90, and the half of that cell which
+        # exists is exactly what the clipped integral returns. A row with
+        # *both* edges outside is a different thing -- it describes ground that
+        # is not on the ellipsoid at all, and clipping would silently hand it
+        # back as a zero-area row for the caller to sum.
+        above = (edges[:-1] > pole) & (edges[1:] > pole)
+        below = (edges[:-1] < -pole) & (edges[1:] < -pole)
+        off = above | below
+        if off.any():
+            degrees = np.degrees(edges)
+            raise ValueError(
+                f"the raster's latitude extent runs off the ellipsoid: it "
+                f"spans {degrees[0]:.6g} to {degrees[-1]:.6g} degrees, so "
+                f"{int(off.sum())} of its {self._ds.rows} rows lie entirely "
+                "beyond a pole; crop or re-georeference it first"
+            )
+        return self._zone_areas(edges, geod.a, geod.f) * span
+
+    @staticmethod
+    def _zone_areas(edges: np.ndarray, a: float, f: float) -> np.ndarray:
+        """Area between consecutive parallels, per radian of longitude.
+
+        The ellipsoidal area element is
+        `a^2 (1 - e^2) cos(phi) / (1 - e^2 sin^2 phi)^2`. Its antiderivative in
+        latitude is
+
+            `a^2 (1 - e^2) [ sin/(2(1 - e^2 sin^2)) + arctanh(e sin)/(2e) ]`,
+
+        so a band's area is that evaluated at two parallels and subtracted.
+        Subtracting it *as written* is the problem: the antiderivative is
+        4.1e13 at the pole while the band against it at 1e-6 degrees covers
+        6.2e-03 m2 per radian of longitude, and the difference of two nearly
+        equal doubles keeps none of that. It reaches exactly `0.0` near the
+        pole at 1e-7 degrees, which then trips the no-extent guard and refuses
+        the raster.
+
+        So the subtraction is done first, in closed form, and never evaluated:
+
+        * `sin(u) - sin(l) = 2 cos((u+l)/2) sin((u-l)/2)`, exact for any gap;
+        * the rational term differences to
+          `(sin u - sin l)(1 + e^2 sin u sin l) / (2 (1 - e^2 sin^2 u)(1 - e^2 sin^2 l))`;
+        * `arctanh x - arctanh y = arctanh((x - y)/(1 - xy))`.
+
+        Every one carries the small quantity through as a factor, so the answer
+        keeps full relative precision at any cell size.
+
+        Args:
+            edges: Row edge latitudes in **radians**, `rows + 1` of them.
+            a: The ellipsoid's semi-major axis, in metres.
+            f: Its flattening; `0.0` for a sphere.
+
+        Returns:
+            np.ndarray: One area per row, in square metres per radian of
+            longitude, in row order and never negative -- `0.0` when a band's
+            two edges coincide, which the caller refuses as a cell with no
+            extent.
+
+        Raises:
+            ValueError: `f` is negative, describing a prolate figure that this
+                closed form does not cover.
+        """
+        # Clipped before the sine, because past the pole the sine turns back
+        # down and the integral would answer for the wrong latitude: an edge at
+        # 100 degrees reads as 80 and yields a plausible 2.06e9 m2 for ground
+        # that does not exist. Nothing here can produce a `nan` -- `|e sin| < 1`
+        # always, so `arctanh` stays finite -- the hazard is a wrong number, not
+        # an obvious one. `_parallel_row_areas` refuses a row that is entirely
+        # outside; this keeps the routine honest for the half-cell that is not.
+        latitude = np.clip(edges, -np.pi / 2, np.pi / 2)
+        upper, lower = latitude[:-1], latitude[1:]
+        sine_difference = (
+            2.0 * np.cos((upper + lower) / 2.0) * np.sin((upper - lower) / 2.0)
+        )
+        eccentricity_squared = f * (2.0 - f)
+        if f < 0.0:
+            # Guarded separately from the sphere: a prolate figure gives a
+            # negative `e^2`, whose `arctanh` form turns into an `arctan` one.
+            # No geodetic datum is prolate, so refusing beats quietly handing
+            # back the spherical answer, which is what `e^2 <= 0` used to do.
+            raise ValueError(
+                f"the CRS's ellipsoid is prolate (flattening {f}), which cell "
+                "area is not derived for; reproject to an oblate or spherical "
+                "datum first"
+            )
+        if eccentricity_squared <= 0.0:
+            # A spherical datum -- every major weather model ships GRIB on one.
+            # `<=` rather than `==` because a prolate figure, the only way this
+            # goes negative, is already refused above: reaching here with a
+            # non-positive `e^2` means it is exactly zero.
+            # Both terms above tend to `(sin u - sin l)/2` as `e` vanishes, so
+            # the general form's division by `e` is avoided rather than
+            # approached.
+            areas = a * a * sine_difference
+        else:
+            sine_upper, sine_lower = np.sin(upper), np.sin(lower)
+            eccentricity = np.sqrt(eccentricity_squared)
+            product = eccentricity_squared * sine_upper * sine_lower
+            rational = (
+                sine_difference
+                * (1.0 + product)
+                / (
+                    2.0
+                    * (1.0 - eccentricity_squared * sine_upper * sine_upper)
+                    * (1.0 - eccentricity_squared * sine_lower * sine_lower)
+                )
+            )
+            inverse = np.arctanh(eccentricity * sine_difference / (1.0 - product)) / (
+                2.0 * eccentricity
+            )
+            areas = a * a * (1.0 - eccentricity_squared) * (rational + inverse)
+        return np.asarray(np.abs(areas), dtype="float64")
 
     def get_cell_polygons(self, domain_only: bool = False) -> GeoDataFrame:
         """Get a polygon shapely geometry for the raster cells.
