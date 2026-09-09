@@ -12,6 +12,7 @@ covers the reproject-before-composite behaviour and its ``_prepare_sources`` /
 from __future__ import annotations
 
 import inspect
+import warnings
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -28,6 +29,7 @@ from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.dataset.merge import (
     _as_srs,
     _cloud_config,
+    _explicit_fill,
     _merge_reduce,
     _mosaic_value_range,
     _prepare_sources,
@@ -1291,6 +1293,35 @@ class TestUnusedMarker:
         chosen = _unused_marker(mosaic, np.dtype(bool))
         assert chosen is None, f"no candidate fits a bool band, got {chosen!r}"
 
+    def test_the_full_read_fallback_finds_a_value_the_range_test_cannot(self):
+        """When every candidate lies inside the data's range the mosaic is read.
+
+        Test scenario:
+            A uint8 band's candidates are its own 255 and 0, so data spanning
+            0..255 clears neither by range alone and the cheap test gives up. The
+            full read then has to find the one interior value the data leaves
+            free -- 200 here -- rather than answering "nothing is free".
+        """
+        values = np.arange(256, dtype="float32").reshape(16, 16)
+        values[values == 200.0] = 199.0
+        mosaic = _mem_mosaic([values])
+        chosen = _unused_marker(mosaic, np.dtype("uint8"))
+        assert chosen == 200, (
+            f"the free interior value should be found by the read, got {chosen!r}"
+        )
+
+    def test_data_using_every_value_leaves_no_marker(self):
+        """A saturated band yields nothing, rather than a value that masks real data.
+
+        Test scenario:
+            The same read as above over uint8 data holding all 256 values. There
+            is no honest answer, and inventing one is #1086 again, so the caller
+            is handed `None` to report.
+        """
+        mosaic = _mem_mosaic([np.arange(256, dtype="float32").reshape(16, 16)])
+        chosen = _unused_marker(mosaic, np.dtype("uint8"))
+        assert chosen is None, f"no uint8 value is free, got {chosen!r}"
+
 
 class TestStorableMarker:
     """Tests for ``_storable_marker``, which settles what an inheriting mosaic declares."""
@@ -1314,6 +1345,46 @@ class TestStorableMarker:
         marker = _storable_marker(ordered, paths, init, None)
         assert marker == pytest.approx(-9999.0), (
             f"init={init!r} should fall through to a storable sentinel, got {marker!r}"
+        )
+
+
+class TestExplicitFill:
+    """Tests for ``_explicit_fill``, the gap fill behind an explicitly named marker."""
+
+    @pytest.mark.parametrize(
+        "marker, init, expected",
+        [("nodata", "nan", "nodata"), (None, "nan", "None"), ("nodata", 0, None)],
+        ids=[
+            "value-error-default-init",
+            "type-error-default-init",
+            "caller-named-init",
+        ],
+    )
+    def test_a_marker_that_is_not_a_number_is_passed_on_unjudged(
+        self, marker, init, expected
+    ):
+        """A marker ``float()`` refuses is neither warned about nor swallowed here.
+
+        Args:
+            marker: A ``no_data_value`` that raises from ``float()`` -- a string
+                naming no number (``ValueError``) or `None` (``TypeError``).
+            init: The caller's uncovered-pixel value, defaulted or named.
+            expected: The ``VRTNodata`` the compositor should be handed.
+
+        Test scenario:
+            ``merge_rasters`` rejects such a value in ``_requested_no_data``
+            before this is reached, so the guard exists for direct callers: it
+            cannot judge storability without a number, and must hand the value on
+            for ``gdal.Translate`` to report rather than warning about a data type
+            it never compared against. A caller who named ``init`` still keeps it.
+        """
+        ordered = [_mem_mosaic([[[1.0, 2.0], [3.0, 4.0]]])]
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            fill = _explicit_fill(ordered, init, marker)
+        assert fill == expected, (
+            f"marker={marker!r} with init={init!r} should fill with {expected!r}, "
+            f"got {fill!r}"
         )
 
 
