@@ -168,7 +168,7 @@ jobs:
           restore-keys: srcbuild-distfiles-
 
       - name: Build wheels
-        uses: pypa/cibuildwheel@1828c10ab37f080699c7b81cea34097c684a7074 # v4.2.0
+        uses: pypa/cibuildwheel@e090b81e30c4d855ea63bf4b6e59204c09a101ae # v4.2.1
         env:
           CIBW_ARCHS_LINUX: ${{ matrix.arch }}
           # The before-all script persists the compiled-stack tar through
@@ -269,7 +269,7 @@ jobs:
           restore-keys: srcbuild-distfiles-
 
       - name: Build wheels
-        uses: pypa/cibuildwheel@1828c10ab37f080699c7b81cea34097c684a7074 # v4.2.0
+        uses: pypa/cibuildwheel@e090b81e30c4d855ea63bf4b6e59204c09a101ae # v4.2.1
         env:
           CIBW_ARCHS_LINUX: ${{ matrix.arch }}
           # The before-all script persists the compiled-stack tar through
@@ -360,7 +360,7 @@ jobs:
           python-version: "3.12"
 
       - name: Build wheels
-        uses: pypa/cibuildwheel@1828c10ab37f080699c7b81cea34097c684a7074 # v4.2.0
+        uses: pypa/cibuildwheel@e090b81e30c4d855ea63bf4b6e59204c09a101ae # v4.2.1
         env:
           CIBW_ARCHS_MACOS: ${{ matrix.arch }}
 
@@ -400,7 +400,7 @@ jobs:
           python-version: "3.12"
 
       - name: Build wheels
-        uses: pypa/cibuildwheel@1828c10ab37f080699c7b81cea34097c684a7074 # v4.2.0
+        uses: pypa/cibuildwheel@e090b81e30c4d855ea63bf4b6e59204c09a101ae # v4.2.1
         env:
           CIBW_ARCHS_WINDOWS: ${{ matrix.arch }}
 
@@ -474,7 +474,7 @@ jobs:
           restore-keys: vcpkg-arm64-downloads-
 
       - name: Build wheels
-        uses: pypa/cibuildwheel@1828c10ab37f080699c7b81cea34097c684a7074 # v4.2.0
+        uses: pypa/cibuildwheel@e090b81e30c4d855ea63bf4b6e59204c09a101ae # v4.2.1
         env:
           CIBW_ARCHS_WINDOWS: ARM64
           # No cp311: numpy/scipy ship no ARM64 cp311 wheels. The release

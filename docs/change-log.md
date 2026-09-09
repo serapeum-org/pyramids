@@ -1,6 +1,55 @@
 ﻿# Change log
 
 
+## 0.61.0 (2026-09-09)
+
+### BREAKING CHANGE
+
+- a mosaic whose sources declare no no-data value no
+longer stamps 0. It declares NaN on a floating output, a storable value
+the data does not use on a gapped integer one, and nothing at all when
+the sources leave no gap. Pass no_data_value=0 to keep the old
+declaration, no_data_value=None for no marker, and init= alongside an
+explicit no_data_value to keep the old gap fill. min, max and sum over
+integer sources return different -- and correct -- pixels.
+- `Dataset.count_domain_cells` raises `ValueError` instead
+of `IndexError` when `band` is past the last band. Code catching
+`IndexError` around it must catch `ValueError`. A negative band already
+raised the same `ValueError` from the read layer, so only the too-large
+case changes; callers passing a valid band are unaffected. See
+docs/migration.md.
+- a transposed longitude pair is no longer caught. A
+network reader has no grid to measure a bbox against, so (6, 51, 5, 52)
+now reads as a 359 degree wrap rather than raising; check the bbox
+yourself if you relied on that ValueError. An inverted latitude range
+still raises, because there is no seam in latitude. Separately,
+from_wms(resolution=...) is now capped at 25,000 px per axis, including
+on ordinary non-wrapping reads; size=(width, height) is not capped,
+because a stated size cannot be amplified by a mistake in bbox. Both are
+documented in docs/migration.md.
+- `bool(ds)` raises; use `if ds is not None:`. A
+comparison between two rasters is a raster, so `if a >= b:`, `sorted`,
+`min` and `max` cannot answer it.
+BREAKING CHANGE: `np.<ufunc>(ds, ...)` raises; `Dataset` sets
+`__array_ufunc__ = None` so numpy defers instead of building an object
+array.
+BREAKING CHANGE: `pyramids calc` refuses inputs that do not share the
+first input's grid, where it previously let them broadcast.
+
+### Feat
+
+- **dataset**: answer the ground area of cells and of the domain (#1123)
+- **dataset**: combine, fold and compare two rasters (#1113)
+
+### Fix
+
+- **merge**: inherit the sources' no-data instead of defaulting to 0 (#1122)
+- **dataset**: stop inventing a no-data sentinel a band cannot store (#1118)
+- **merge**: name the source that could not be opened (#1120)
+- **base**: serve an antimeridian bbox in the OGC readers (#1119)
+- **netcdf**: decode a CF time axis honestly instead of wrapping it (#1115)
+- **netcdf**: summarize the store in Container.__str__, not a raster (#1112)
+
 ## 0.60.0 (2026-09-06)
 
 ### Fix
