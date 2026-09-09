@@ -846,7 +846,7 @@ def _explicit_fill(ordered: list, init: float | int | str, marker: Any) -> str |
 
             ```
     """
-    dtype = np.dtype(gdal_to_numpy_type(ordered[0].GetRasterBand(1).DataType))
+    dtype = _band_dtype(ordered)
     try:
         candidate: float | None = float(marker)
     except (TypeError, ValueError):
@@ -864,6 +864,109 @@ def _explicit_fill(ordered: list, init: float | int | str, marker: Any) -> str |
     elif _is_nan_spelling(init):
         fill = str(marker)
     return fill
+
+
+def _band_dtype(ordered: list) -> np.dtype:
+    """The numpy dtype the mosaic's bands will have.
+
+    :func:`gdal.BuildVRT` gives the mosaic the first source's band type and skips
+    any source that disagrees, so the first input in z-order carries the answer.
+    Reading it is a metadata lookup -- no pixel is touched.
+
+    Args:
+        ordered: The compositor inputs, in z-order.
+
+    Returns:
+        np.dtype: The output band's dtype.
+    """
+    return np.dtype(gdal_to_numpy_type(ordered[0].GetRasterBand(1).DataType))
+
+
+def _surveyed_marker(
+    ordered: list,
+    src_paths: list[str],
+    dtype: np.dtype,
+    preferred: Sequence[Any],
+    inherited: float | None,
+    bbox: Sequence[float] | None,
+    bbox_crs: int | str | None,
+) -> Any | None:
+    """Survey the mosaic for a value its cells do not use, and report what it decided.
+
+    :func:`_storable_marker`'s last question, split out so that each reads as one
+    decision: which of the four answers applies, and -- here -- what the survey
+    found and what the caller should be told about it.
+
+    Args:
+        ordered: The compositor inputs, in z-order.
+        src_paths: The source paths, for the error message on a failed build.
+        dtype: The dtype the sentinel must be storable in.
+        preferred: The caller's `init`, when it named a number, to try first.
+        inherited: What the sources declared, when it is a value this band cannot
+            store -- which is worth saying, since their choice is being overruled.
+        bbox: The caller's window, so the survey covers only what will be written.
+        bbox_crs: CRS of `bbox`, or `None` when it is already the mosaic's.
+
+    Returns:
+        Any | None: The sentinel, or `None` when the data leaves none free.
+
+    Raises:
+        RuntimeError: GDAL failed to build or read the probe mosaic.
+
+    Warns:
+        UserWarning: The sources' value cannot be stored; a numeric `init` was
+            refused because the data uses it; or no value is free at all.
+    """
+    if inherited is not None:
+        warnings.warn(
+            f"the sources declare a no-data value of {inherited!r}, which a "
+            f"{dtype} band cannot store, so GDAL would drop it and leave the "
+            "mosaic unmarked; choosing a value that data type can hold instead.",
+            stacklevel=4,
+        )
+    window = None
+    if bbox is not None:
+        # In the mosaic's own CRS, and through the same reprojection the write
+        # uses, so the survey measures the raster that will be written.
+        window = list(_bbox_in_projection(bbox, bbox_crs, ordered[0].GetProjection()))
+    # Composited bare, with neither `srcNodata` nor `VRTNodata`: this mosaic
+    # exists only to be measured, and the default `"nan"` for either is what GDAL
+    # answers with "Band data type of <T> cannot represent the specified NoData
+    # value of nan" on the very integer bands this serves. A bare VRT still takes
+    # the sources' own declaration onto its band, and `ComputeRasterMinMax` then
+    # skips the cells holding it -- but that costs nothing here. Reached with
+    # `inherited is None`, no source declared anything, so the probe declares
+    # nothing and every cell is in view; reached with `inherited` set, it is by
+    # definition a value this dtype cannot store, so no cell holds it.
+    probe = run_gdal_op(
+        partial(
+            gdal.BuildVRT,
+            "",
+            ordered,
+            options=gdal.BuildVRTOptions(outputBounds=window),
+        ),
+        error=RuntimeError,
+        action="building the source mosaic",
+        subject=f"sources {src_paths!r}",
+        hint=_READABLE_RASTERS_HINT,
+    )
+    marker = _unused_marker(probe, dtype, preferred)
+    if marker is None:
+        warnings.warn(
+            f"the mosaic's {dtype} cells use every value that data type could "
+            "spare as a no-data marker, so the pixels no source covers are "
+            "written as ordinary data; pass no_data_value= to choose one, "
+            "accepting that it masks any real cell holding it.",
+            stacklevel=4,
+        )
+    elif preferred and marker != preferred[0]:
+        warnings.warn(
+            f"init={preferred[0]!r} cannot mark the mosaic's uncovered pixels "
+            f"because its own cells hold that value; they are filled with "
+            f"{marker!r} instead, which the data does not use.",
+            stacklevel=4,
+        )
+    return marker
 
 
 def _storable_marker(
@@ -985,10 +1088,7 @@ def _storable_marker(
         - :func:`_sources_tile_their_union`: Answers question 3.
         - :func:`_unused_marker`: Answers question 4.
     """
-    # Band 1 decides the dtype, as it does for the inheritance itself, and
-    # `gdal.Translate` stamps one marker on every band either way. Metadata only:
-    # neither this nor the footprints below reads a pixel.
-    dtype = np.dtype(gdal_to_numpy_type(ordered[0].GetRasterBand(1).DataType))
+    dtype = _band_dtype(ordered)
     # `merge_rasters` has already refused an `init` that names no number, so the
     # only two shapes reaching here are a NaN spelling -- no preference, since
     # question 2 above has had its chance at it -- and a number.
@@ -1006,61 +1106,79 @@ def _storable_marker(
     ):
         marker = None
     else:
-        if inherited is not None:
-            warnings.warn(
-                f"the sources declare a no-data value of {inherited!r}, which a "
-                f"{dtype} band cannot store, so GDAL would drop it and leave the "
-                "mosaic unmarked; choosing a value that data type can hold "
-                "instead.",
-                stacklevel=3,
-            )
-        # Composited bare, with neither `srcNodata` nor `VRTNodata`: this mosaic
-        # exists only to be measured, and the default `"nan"` for either is what
-        # GDAL answers with "Band data type of <T> cannot represent the specified
-        # NoData value of nan" on the very integer bands this branch serves.
-        # A bare VRT still takes the sources' own declaration onto its band, and
-        # `ComputeRasterMinMax` then skips the cells holding it -- but that costs
-        # this branch nothing either way. Reached with `inherited is None`, no
-        # source declared anything, so the probe declares nothing and every cell
-        # is in view. Reached with `inherited` set, it is by definition a value
-        # this dtype cannot store, so no cell holds it and none is skipped.
-        window = None
-        if bbox is not None:
-            # In the mosaic's own CRS, and through the same reprojection the
-            # write uses, so the survey measures the raster that will be written
-            # rather than a different one.
-            window = list(
-                _bbox_in_projection(bbox, bbox_crs, ordered[0].GetProjection())
-            )
-        probe = run_gdal_op(
-            partial(
-                gdal.BuildVRT,
-                "",
-                ordered,
-                options=gdal.BuildVRTOptions(outputBounds=window),
-            ),
-            error=RuntimeError,
-            action="building the source mosaic",
-            subject=f"sources {src_paths!r}",
-            hint=_READABLE_RASTERS_HINT,
+        marker = _surveyed_marker(
+            ordered, src_paths, dtype, preferred, inherited, bbox, bbox_crs
         )
-        marker = _unused_marker(probe, dtype, preferred)
-        if marker is None:
-            warnings.warn(
-                f"the mosaic's {dtype} cells use every value that data type could "
-                "spare as a no-data marker, so the pixels no source covers are "
-                "written as ordinary data; pass no_data_value= to choose one, "
-                "accepting that it masks any real cell holding it.",
-                stacklevel=3,
-            )
-        elif preferred and marker != preferred[0]:
-            warnings.warn(
-                f"init={init!r} cannot mark the mosaic's uncovered pixels because "
-                f"its own cells hold that value; they are filled with {marker!r} "
-                "instead, which the data does not use.",
-                stacklevel=3,
-            )
     return marker
+
+
+def _marker_and_fill(
+    ordered: list,
+    src_paths: list[str],
+    init: float | int | str,
+    resolved: Any,
+    inheriting: bool,
+    bbox: Sequence[float] | None,
+    bbox_crs: int | str | None,
+) -> tuple[Any, str | None]:
+    """What the z-order mosaic declares, and what its uncovered pixels are filled with.
+
+    The two have to be settled together, because a marker only masks the pixels
+    that hold it: declaring one value while the gaps hold another masks nothing,
+    which is the defect this whole area exists to close.
+
+    Args:
+        ordered: The compositor inputs, in z-order.
+        src_paths: The source paths, for the error message on a failed build.
+        init: The caller's uncovered-pixel value.
+        resolved: What the sources declared while inheriting, or what the caller
+            passed otherwise.
+        inheriting: Whether the caller left `no_data_value` unset.
+        bbox: The caller's window, when they gave one.
+        bbox_crs: CRS of `bbox`, or `None` when it is already the mosaic's.
+
+    Returns:
+        tuple[Any, str | None]: The value to declare -- `None` for no marker --
+        and the ``VRTNodata`` to composite with, `None` to leave it unset.
+
+    Warns:
+        UserWarning: See :func:`_storable_marker` and :func:`_explicit_fill`.
+    """
+    fill: str | None = str(init)
+    if inheriting:
+        # Whether or not a value was inherited, the mosaic's uncovered pixels
+        # have to be accounted for -- and the value has to be one this output
+        # band can actually hold.
+        resolved = _storable_marker(ordered, src_paths, init, resolved, bbox, bbox_crs)
+        if resolved is not None:
+            # Fill with what the output is about to declare. Where `init` is
+            # already that value this is a no-op; otherwise the marker would be
+            # stamped over gaps holding something else -- NaN on a float mosaic
+            # inheriting -9999, or the 0 GDAL substitutes on an integer one --
+            # and would mask nothing.
+            fill = str(resolved)
+    elif resolved is not None:
+        # The caller named the marker, so the gaps are filled with it too unless
+        # they also named `init`. Otherwise the band declares one value while its
+        # uncovered pixels hold another, which is the same defect on the one path
+        # that was left out of it.
+        explicit = _explicit_fill(ordered, init, resolved)
+        if explicit is not None:
+            fill = explicit
+    if (
+        resolved is None
+        and _is_nan_spelling(init)
+        and not fits_dtype(NAN, _band_dtype(ordered))
+    ):
+        # Nothing is being marked and the band cannot store the NaN `init`
+        # defaults to, so asking GDAL for it buys nothing and costs a warning per
+        # band ("Band data type of <T> cannot represent the specified NoData
+        # value of nan"). The gaps it would have filled either do not exist --
+        # the sources tile their area -- or already read as 0, because the NaN
+        # was refused. A floating band is untouched: there the NaN is storable
+        # and the gaps really do come back as NaN.
+        fill = None
+    return resolved, fill
 
 
 def merge_rasters(
@@ -1499,44 +1617,9 @@ def merge_rasters(
         # reverses so the original first source is placed last in the VRT and
         # therefore wins.
         ordered = list(reversed(sources)) if method == "first" else sources
-        vrt_fill: str | None = str(init)
-        if inheriting:
-            # Whether or not a value was inherited, the mosaic's uncovered pixels
-            # have to be accounted for -- and the value has to be one this output
-            # band can actually hold.
-            resolved_no_data = _storable_marker(
-                ordered, src_paths, init, resolved_no_data, bbox, bbox_crs
-            )
-            if resolved_no_data is not None:
-                # Fill with what the output is about to declare. Where `init` is
-                # already that value this is a no-op; otherwise the marker would
-                # be stamped over gaps holding something else -- NaN on a float
-                # mosaic inheriting -9999, or the 0 GDAL substitutes on an
-                # integer one -- and would mask nothing.
-                vrt_fill = str(resolved_no_data)
-        elif resolved_no_data is not None:
-            # The caller named the marker, so the gaps are filled with it too
-            # unless they also named `init`. Otherwise the band declares one
-            # value while its uncovered pixels hold another, which is the same
-            # defect on the one path that was left out of it.
-            explicit = _explicit_fill(ordered, init, resolved_no_data)
-            if explicit is not None:
-                vrt_fill = explicit
-        if (
-            resolved_no_data is None
-            and _is_nan_spelling(init)
-            and not fits_dtype(
-                NAN, np.dtype(gdal_to_numpy_type(ordered[0].GetRasterBand(1).DataType))
-            )
-        ):
-            # Nothing is being marked and the band cannot store the NaN `init`
-            # defaults to, so asking GDAL for it buys nothing and costs a warning
-            # per band ("Band data type of <T> cannot represent the specified
-            # NoData value of nan"). The gaps it would have filled either do not
-            # exist -- the sources tile their area -- or already read as 0,
-            # because the NaN was refused. A floating band is untouched: there
-            # the NaN is storable and the gaps really do come back as NaN.
-            vrt_fill = None
+        resolved_no_data, vrt_fill = _marker_and_fill(
+            ordered, src_paths, init, resolved_no_data, inheriting, bbox, bbox_crs
+        )
         vrt_opts = gdal.BuildVRTOptions(
             srcNodata=_source_nodata(n),
             VRTNodata=vrt_fill,

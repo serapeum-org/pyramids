@@ -440,9 +440,8 @@ def test_merge_rasters_free_function(
     assert marker is None, (
         f"a gapless mosaic whose sources declare nothing needs no marker, got {marker}"
     )
-    assert values.size and values.max() > 0, (
-        "the mosaic should still hold the sources' data"
-    )
+    assert values.size, "the mosaic should not be empty"
+    assert values.max() > 0, "the mosaic should still hold the sources' data"
 
 
 def test_merge_instance_method(

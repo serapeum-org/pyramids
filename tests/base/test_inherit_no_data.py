@@ -108,9 +108,8 @@ class TestInheritNoData:
         with pytest.warns(UserWarning) as caught:
             inherit_no_data([-9999.0, -32768.0])
         message = str(caught[0].message)
-        assert "-9999.0" in message and "-32768.0" in message, (
-            f"both values should be named, got: {message}"
-        )
+        assert "-9999.0" in message, f"the first value is not named: {message}"
+        assert "-32768.0" in message, f"the second value is not named: {message}"
 
     def test_two_nan_sources_do_not_count_as_disagreeing(self):
         """Identical NaN markers agree, despite `NaN != NaN`.
@@ -120,9 +119,8 @@ class TestInheritNoData:
             case; a naive equality check would warn on every such merge.
         """
         resolved = _resolve_without_warning([float("nan"), float("nan")])
-        assert resolved is not None and np.isnan(resolved), (
-            f"two NaN sources should resolve to NaN, got {resolved}"
-        )
+        assert resolved is not None, "two NaN sources should resolve to a value"
+        assert np.isnan(resolved), f"that value should be NaN, got {resolved}"
 
     def test_numpy_nan_sentinels_do_not_count_as_disagreeing(self):
         """A NaN that does not subclass `float` agrees with itself too.
@@ -135,10 +133,10 @@ class TestInheritNoData:
         """
         for nan in (np.float64("nan"), np.float32("nan")):
             resolved = _resolve_without_warning([nan, nan])
-            assert resolved is not None and np.isnan(resolved), (
-                f"two {type(nan).__name__} NaN sources should resolve to NaN, "
-                f"got {resolved}"
+            assert resolved is not None, (
+                f"two {type(nan).__name__} NaN sources should resolve to a value"
             )
+            assert np.isnan(resolved), f"that value should be NaN, got {resolved}"
 
     def test_numpy_scalars_resolve_like_python_floats(self):
         """The values `from_band_files` actually supplies are numpy scalars.
@@ -191,9 +189,8 @@ class TestInheritNoData:
         """
         with pytest.warns(UserWarning, match="disagree on no-data value"):
             resolved = inherit_no_data([float("nan"), -9999.0])
-        assert resolved is not None and np.isnan(resolved), (
-            f"the first value (NaN) should still win, got {resolved}"
-        )
+        assert resolved is not None, "the first value (NaN) should still win"
+        assert np.isnan(resolved), f"the winner should be NaN, got {resolved}"
 
     def test_the_input_sequence_is_not_mutated(self):
         """Resolving is pure — the caller's list is untouched."""

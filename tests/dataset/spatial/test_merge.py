@@ -527,9 +527,8 @@ class TestMergeRastersInheritsNoData:
         merge_rasters(self._tiles(tmp_path, None), out)
         masked, ds = self._masked_count(out)
         raw = self._raw_marker(out)
-        assert raw is not None and np.isnan(raw), (
-            f"a float mosaic should declare the NaN its gaps hold, got {raw}"
-        )
+        assert raw is not None, "a float mosaic should declare a marker"
+        assert np.isnan(raw), f"it should be the NaN its gaps hold, got {raw}"
         assert masked == 0, f"no real cell should be masked, {masked} were"
         assert float(ds.stats(approx_ok=False)["min"].iloc[0]) == pytest.approx(0.0), (
             "stats() must still report the true minimum of 0.0"
@@ -580,7 +579,7 @@ class TestMergeRastersInheritsNoData:
         merge_rasters(self._tiles(tmp_path, None, dtype="uint16"), tmp_path / "m.tif")
         assert surveys == [], f"a gapless mosaic was surveyed anyway: {surveys}"
 
-    def test_the_survey_is_clipped_to_the_requested_window(self, tmp_path):
+    def test_the_survey_is_clipped_to_the_requested_window(self, tmp_path, monkeypatch):
         """A window is a promise to read less, and the marker survey has to keep it.
 
         Test scenario:
@@ -591,18 +590,19 @@ class TestMergeRastersInheritsNoData:
         """
         surveyed = []
         real = merge_mod._mosaic_value_range
-        try:
-            merge_mod._mosaic_value_range = lambda mosaic: (
+        monkeypatch.setattr(
+            merge_mod,
+            "_mosaic_value_range",
+            lambda mosaic: (
                 surveyed.append((mosaic.RasterXSize, mosaic.RasterYSize))
                 or real(mosaic)
-            )
-            merge_rasters(
-                self._gapped_tiles(tmp_path, "uint16"),
-                tmp_path / "windowed.tif",
-                bbox=[0.0, 0.0, 1.0, 1.0],
-            )
-        finally:
-            merge_mod._mosaic_value_range = real
+            ),
+        )
+        merge_rasters(
+            self._gapped_tiles(tmp_path, "uint16"),
+            tmp_path / "windowed.tif",
+            bbox=[0.0, 0.0, 1.0, 1.0],
+        )
         assert surveyed == [(1, 1)], (
             f"the survey should cover the window, not the union: {surveyed}"
         )
@@ -744,8 +744,9 @@ class TestMergeRastersInheritsNoData:
             defect this branch exists to close -- so pyramids says so first.
         """
         out = tmp_path / "unstorable.tif"
+        tiles = self._gapped_tiles(tmp_path, "uint16")
         with pytest.warns(UserWarning, match="cannot be stored in a uint16 band"):
-            merge_rasters(self._gapped_tiles(tmp_path, "uint16"), out, no_data_value=-1)
+            merge_rasters(tiles, out, no_data_value=-1)
         assert self._raw_marker(out) is None, (
             "GDAL should have dropped it -- the warning is the whole point"
         )
@@ -840,8 +841,9 @@ class TestMergeRastersInheritsNoData:
             handle.FlushCache()
             handle = None
         out = tmp_path / "saturated.tif"
+        tiles = [tmp_path / "full.tif", tmp_path / "far.tif"]
         with pytest.warns(UserWarning, match="use every value that data type"):
-            merge_rasters([tmp_path / "full.tif", tmp_path / "far.tif"], out)
+            merge_rasters(tiles, out)
         assert self._raw_marker(out) is None, (
             "no value was free, so none should have been stamped"
         )
@@ -976,7 +978,10 @@ class TestMergeRastersInheritsNoData:
         ]
         handle = None
         assert len(markers) == 2, f"expected a two-band mosaic, got {len(markers)}"
-        assert all(value is not None and np.isnan(value) for value in markers), (
+        assert all(value is not None for value in markers), (
+            f"both bands should carry a marker: {markers}"
+        )
+        assert all(np.isnan(value) for value in markers), (
             f"band 1 declares nothing, so both bands take the fallback: {markers}"
         )
 
@@ -1120,7 +1125,7 @@ def _mem_mosaic(bands, no_data=None):
     return handle
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def unmarked_tiles(tmp_path):
     """Two adjacent float32 tiles declaring no no-data, opened for the marker helpers.
 
@@ -1250,8 +1255,9 @@ class TestMosaicValueRange:
                 """Return the failing band."""
                 return _Failing()
 
+        mosaic = _Mosaic()
         with pytest.raises(RuntimeError, match="IReadBlock"):
-            _mosaic_value_range(_Mosaic())
+            _mosaic_value_range(mosaic)
 
 
 class TestUnusedMarker:
@@ -1337,9 +1343,8 @@ class TestStorableMarker:
         """
         ordered, paths = unmarked_tiles
         marker = _storable_marker(ordered, paths, "nan", None)
-        assert marker is not None and np.isnan(marker), (
-            f"a float mosaic should settle on NaN, got {marker!r}"
-        )
+        assert marker is not None, "a float mosaic should settle on a marker"
+        assert np.isnan(marker), f"it should be NaN, got {marker!r}"
 
     @pytest.mark.parametrize("init", [None, "none", "not-a-number"])
     def test_an_init_that_names_no_number_is_refused(self, tmp_path, init):
