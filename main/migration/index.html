@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6901,6 +6901,80 @@ that leaked out of an empty table lookup. Only affects code catching the old typ
 </table>
 <h2 id="dataset"><a class="toclink" href="#dataset">dataset</a><a class="headerlink" href="#dataset" title="Permanent link">#</a></h2>
 <h3 id="unreleased_1"><a class="toclink" href="#unreleased_1">unreleased</a><a class="headerlink" href="#unreleased_1" title="Permanent link">#</a></h3>
+<p><strong><code>merge_rasters</code> inherits its no-data from the sources instead of defaulting to <code>0</code>.</strong> A hard behavior change,
+and the reason is that <code>0</code> is real data in most rasters worth merging: sea-level land in an elevation or
+bathymetry model, the zero crossing of an anomaly or difference raster. The old default stamped <code>0</code> on the
+mosaic, so every such cell disappeared from masked reads, from <code>stats()</code> and from any plot — a Copernicus DEM
+mosaic of the Nile Delta lost 45.9% of the scene to it. It also discarded whatever the sources declared, in
+both directions: their marker was not inherited, and a cell that <em>was</em> no-data arrived in the mosaic as a real
+value.</p>
+<p><code>no_data_value</code> now defaults to inheriting:</p>
+<ul>
+<li><strong>Sources agree</strong> — the mosaic declares that value. Nothing else changes.</li>
+<li><strong>Sources disagree</strong> — the first one wins and a <code>UserWarning</code> names both, instead of silently picking.</li>
+<li><strong>No source declares one, and the sources leave a gap</strong> — a marker is chosen, because those uncovered pixels
+  are still written and leaving them undeclared makes them read as measurements. The choice is the value such a
+  pixel already holds where the output's data type can store it — <code>NaN</code> for a floating mosaic, and always for
+  <code>method="min"</code>, <code>"max"</code> and <code>"sum"</code>, which write <code>Float64</code>. An integer band has no <code>NaN</code>, so there the marker
+  is instead a value that band <em>can</em> store and that the mosaic's own cells do not use (<code>65535</code> for a <code>UInt16</code>
+  scene holding small numbers, <code>-9999</code> for a signed one), and the compositing step is filled with it so the gaps
+  really hold what the output declares. Only a mosaic whose data uses every value its type could spare is
+  written without a marker, and that warns.</li>
+<li><strong>No source declares one, the sources tile their area, and the band has no <code>NaN</code></strong> — nothing is declared,
+  because there is nothing to mark. Choosing a value would mean reading every source to prove it unused, which
+  is the expensive half of the paragraph above and buys nothing when no pixel is uncovered. Whether they tile is
+  answered from the footprints, without reading a pixel. This case is the integer z-order mosaic only: a
+  floating one still declares <code>NaN</code>, and so do <code>method="min"</code>, <code>"max"</code> and <code>"sum"</code> whatever the footprints,
+  because <code>NaN</code> costs nothing to prove unused.</li>
+</ul>
+<p>Previously all of this was <code>0</code>: on an integer band <code>0</code> was also the only thing hiding the <code>NaN</code> that <code>init</code> puts
+in the VRT, which the band cannot store.</p>
+<p>Related behaviour that changed with it:</p>
+<ul>
+<li><strong>The reduction methods' uncovered pixels changed value</strong>, not just their declaration — they used to be <code>0.0</code>
+  and are now the inherited marker (e.g. <code>-9999.0</code>) or <code>NaN</code>.</li>
+<li><strong><code>method="min"</code>, <code>"max"</code> and <code>"sum"</code> over integer sources were wrong before and are now right.</strong> Each source
+  was warped into its own data type before being folded, where the <code>NaN</code> marking its uncovered area was rounded
+  to <code>0</code>; those zeros then won every <code>fmin</code> and were added by every <code>sum</code>, so a mosaic of integer tiles that did
+  not tile contiguously was corrupted whatever <code>no_data_value</code> said: <code>min</code> collapsed to that value everywhere,
+  <code>sum</code> had it added into every cell, and <code>max</code> kept its covered data but lost the gaps. Sources are now warped
+  into the <code>Float64</code> the reduction writes.</li>
+<li><strong>The marker now reaches the pixels it marks.</strong> Uncovered pixels used to hold <code>init</code> (<code>NaN</code> by default) while
+  the mosaic declared something else, so a mosaic inheriting <code>-9999</code> declared <code>-9999</code> over gaps holding <code>NaN</code>
+  and <code>read_array(masked=True)</code> masked none of them. The gaps are now filled with whatever is declared.</li>
+<li><strong>An inherited value the output band cannot store is replaced, with a warning.</strong> Integer sources can declare
+  <code>NaN</code> — <code>Dataset.no_data_value</code> reports it for an integer raster asked for one — and GDAL then refused the
+  marker outright ("Nodata value was not set to output band"), leaving the mosaic unmarked.</li>
+<li><strong>Each source's own no-data now marks that source's holes.</strong> <code>n</code> is an override, and its default <code>"nan"</code> was
+  passed to <code>gdal.BuildVRT</code> as one, replacing every source's declaration. Tiles that declared different values
+  therefore had all but the winner's holes composited as real measurements — a tile declaring <code>-32768</code> beside
+  one declaring <code>-9999</code> read its holes back as <code>-32768</code>. The default now means "no override". If you were
+  relying on <code>n</code>'s default to ignore <code>NaN</code> cells in sources that declare nothing, pass <code>n=</code> explicitly.</li>
+<li><strong>A numeric <code>init</code> is a preference, not an instruction.</strong> While the marker is being inherited, <code>init</code> is
+  offered to the sentinel search as the preferred candidate and taken only if the mosaic's own cells do not hold
+  it. <code>init=0</code> over tiles containing real zeros would otherwise have become the declared marker and masked them
+  — #1086 again, through a different argument. Being passed over warns.</li>
+<li><strong><code>no_data_value</code> is validated.</strong> A value that names no number used to reach <code>gdal.Translate</code>, which answered
+  "Nodata value was not set to output band" and wrote no marker at all; it now raises <code>ValueError</code>. The string
+  <code>"inherit"</code> is accepted as the default, since that is how the default renders in <code>help()</code> and in the API docs.</li>
+</ul>
+<p>Migrating:</p>
+<ul>
+<li><strong>If you relied on the <code>0</code> default, pass it explicitly</strong>: <code>merge_rasters(src, dst, no_data_value=0)</code> restores
+  the old declaration, and is worth a second look — it masks every genuine <code>0</code> in your inputs. It does not
+  restore the old <em>pixels</em>: the three changes in the third bullet below apply whatever you pass, so the gaps now
+  hold <code>0</code> rather than <code>init</code>. Add <code>init=</code> alongside it to keep the old fill.</li>
+<li><strong>If you want no marker at all, pass <code>no_data_value=None</code>.</strong> Both write paths honour that, and neither stamps
+  anything.</li>
+<li><strong>If you were passing <code>no_data_value=</code> already, the marker is unaffected — but the pixels can still change.</strong>
+  Three of the bullets above apply whatever you passed: each source's own holes are now skipped rather than
+  composited, the integer reductions were corrected, and — new — the pixels no source covers are now filled with
+  your marker instead of with <code>init</code>, so that the marker you asked for actually masks them. Pass <code>init=</code>
+  alongside it to keep the old fill. On a z-order merge these three are the only changes; a <code>min</code>/<code>max</code>/<code>sum</code>
+  merge of integer sources changes more, because it was wrong.</li>
+<li>The value is read from the sources' band 1, in the order you pass them, so ordering decides a disagreement.</li>
+<li><code>DatasetCollection.merge</code> forwards the same default, so it answers identically.</li>
+</ul>
 <p><strong><code>count_domain_cells</code> refuses an out-of-range band with <code>ValueError</code>, not <code>IndexError</code>.</strong> Asking for a band the
 raster does not have used to reach <code>self._ds.no_data_value[band]</code> and surface <code>IndexError: tuple index out of
 range</code>, which names neither the band nor the dataset. It now raises the same message the rest of the package
