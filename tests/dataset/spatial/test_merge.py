@@ -625,6 +625,62 @@ class TestMergeRastersInheritsNoData:
         )
         assert masked == 4, f"the four gap cells should be masked, {masked} were"
 
+    @pytest.mark.parametrize("dtype", ["int32", "float32"])
+    def test_an_explicit_marker_fills_the_gaps_it_marks(self, tmp_path, dtype):
+        """A marker the caller names has to reach the pixels it exists to mark.
+
+        Args:
+            dtype: A signed integer and a floating output, both of which can hold
+                the marker.
+
+        Test scenario:
+            Gapped tiles merged with `no_data_value=-1`. The gaps used to be
+            filled from `init` -- `0` on an integer band, `NaN` on a float one --
+            while the band declared `-1`, so `read_array(masked=True)` masked
+            nothing. The reduction methods already filled with the marker, so this
+            is also what makes the two write paths agree.
+        """
+        out = tmp_path / f"explicit_{dtype}.tif"
+        merge_rasters(self._gapped_tiles(tmp_path, dtype), out, no_data_value=-1)
+        masked, _ds = self._masked_count(out)
+        assert self._raw_marker(out) == pytest.approx(-1.0), "the marker was not kept"
+        assert masked == 4, f"the four gap cells should be masked, {masked} were"
+
+    def test_an_explicit_init_still_wins_over_an_explicit_marker(self, tmp_path):
+        """Naming both means the caller decides what the gaps hold.
+
+        Test scenario:
+            `no_data_value=-1, init=0` asks for gaps of `0` under a declared `-1`.
+            That masks nothing, but it is what was asked for, and overruling it
+            would make `init` unusable.
+        """
+        out = tmp_path / "both.tif"
+        merge_rasters(
+            self._gapped_tiles(tmp_path, "int32"), out, no_data_value=-1, init=0
+        )
+        ds = Dataset.read_file(str(out))
+        values = np.asarray(ds.read_array(), dtype="float64")
+        values = values[0] if values.ndim == 3 else values
+        assert self._raw_marker(out) == pytest.approx(-1.0), "the marker was not kept"
+        assert values[0][2] == pytest.approx(0.0), (
+            f"the caller's init should fill the gap, got {values[0][2]}"
+        )
+
+    def test_an_explicit_marker_the_band_cannot_store_warns(self, tmp_path):
+        """A marker GDAL will drop should not be dropped silently.
+
+        Test scenario:
+            `no_data_value=-1` on a UInt16 mosaic. GDAL answers "Nodata value was
+            not set to output band" and writes no marker at all, which is the
+            defect this branch exists to close -- so pyramids says so first.
+        """
+        out = tmp_path / "unstorable.tif"
+        with pytest.warns(UserWarning, match="cannot be stored in a uint16 band"):
+            merge_rasters(self._gapped_tiles(tmp_path, "uint16"), out, no_data_value=-1)
+        assert self._raw_marker(out) is None, (
+            "GDAL should have dropped it -- the warning is the whole point"
+        )
+
     @pytest.mark.parametrize(
         "dtype, expected",
         [("float32", float("nan")), ("uint16", 65535.0), ("int16", -9999.0)],

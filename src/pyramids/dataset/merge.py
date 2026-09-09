@@ -650,6 +650,57 @@ def _unused_marker(
     return chosen
 
 
+def _explicit_fill(ordered: list, init: float | int | str, marker: Any) -> str | None:
+    """The gap fill for a marker the caller chose, or `None` to leave `init` alone.
+
+    A marker only masks the pixels that hold it, and the pixels no source covers
+    hold `init` -- so a caller who passes `no_data_value` and leaves `init` at its
+    default gets a band declaring their value over gaps holding something else.
+    Measured on Int32 tiles, `no_data_value=-1` wrote gaps of `0` under a declared
+    `-1`, masking nothing; on float tiles it wrote `NaN` under a declared `-1`,
+    which `read_array(masked=True)` also leaves unmasked and `stats()` propagates.
+    The reduction methods already fill with the marker, so this is also what makes
+    the two write paths answer alike.
+
+    An `init` the caller passed themselves is left alone: they named the value
+    their uncovered pixels should hold, and it is not this function's place to
+    overrule them.
+
+    Args:
+        ordered: The compositor inputs, in z-order; ``ordered[0]`` carries the
+            output's band type.
+        init: The caller's uncovered-pixel value.
+        marker: The no-data value the caller passed.
+
+    Returns:
+        str | None: The ``VRTNodata`` to composite with, or `None` to keep `init`
+        -- because the caller chose one, or because the band could not store the
+        marker anyway.
+
+    Warns:
+        UserWarning: `marker` cannot be stored in the output band, so GDAL will
+            drop it and the mosaic will carry no marker at all.
+    """
+    dtype = np.dtype(gdal_to_numpy_type(ordered[0].GetRasterBand(1).DataType))
+    try:
+        candidate: float | None = float(marker)
+    except (TypeError, ValueError):
+        # Not a number this can judge; `gdal.Translate` will report it instead.
+        candidate = None
+    fill = None
+    if candidate is not None and not fits_dtype(candidate, dtype):
+        warnings.warn(
+            f"no_data_value={marker!r} cannot be stored in a {dtype} band, so "
+            "GDAL will drop it and the mosaic will carry no marker at all; pass "
+            "a value that data type can hold, or omit no_data_value to have one "
+            "chosen.",
+            stacklevel=3,
+        )
+    elif _is_nan_spelling(init):
+        fill = str(marker)
+    return fill
+
+
 def _storable_marker(
     ordered: list,
     src_paths: list[str],
@@ -1130,10 +1181,12 @@ def merge_rasters(
     # `init` and `n` both default to the string `"nan"`, which round-trips
     # through GDAL as float NaN -- a value no integer band can store. `n` never
     # reaches one as itself: the default means "no override" and is not passed on
-    # at all (see `_source_nodata`). `init` gives way to a storable marker while
-    # the marker is being inherited (see `_storable_marker`), and still reaches
-    # the band as NaN otherwise. The spellings are kept for backwards-compat with
-    # the previous gdal_merge.main-based signature.
+    # at all (see `_source_nodata`). `init` gives way to a storable marker
+    # whenever one is settled on, which is while the marker is being inherited
+    # (see `_storable_marker`) and, now, when the caller named it and left `init`
+    # alone (see `_explicit_fill`). It still reaches the band as NaN when the
+    # caller names both. The spellings are kept for backwards-compat with the
+    # previous gdal_merge.main-based signature.
     src_paths = [str(p) for p in src]
     if signer is not None:
         # Apply the signer's href rewrite to every source (e.g. graft a SAS
@@ -1202,6 +1255,14 @@ def merge_rasters(
                 # mosaic inheriting -9999, or the 0 GDAL substitutes on an
                 # integer one -- and would mask nothing.
                 vrt_fill = str(resolved_no_data)
+        elif resolved_no_data is not None:
+            # The caller named the marker, so the gaps are filled with it too
+            # unless they also named `init`. Otherwise the band declares one
+            # value while its uncovered pixels hold another, which is the same
+            # defect on the one path that was left out of it.
+            explicit = _explicit_fill(ordered, init, resolved_no_data)
+            if explicit is not None:
+                vrt_fill = explicit
         vrt_opts = gdal.BuildVRTOptions(
             srcNodata=_source_nodata(n),
             VRTNodata=vrt_fill,
