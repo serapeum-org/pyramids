@@ -87,8 +87,8 @@ class TestANonRasterVariableComesBackLabelled:
 class TestNoOsgeoTypeEscapes:
     """The property the branch exists to hold, asserted over every sample file."""
 
-    def test_no_variable_on_any_sample_returns_a_gdal_object(self, sample_name, sample):
-        """Every readable variable answers as a pyramids type.
+    def test_no_readable_variable_returns_a_gdal_object(self, sample_name, sample):
+        """Every readable variable answers as a pyramids type, and none of them raises.
 
         Args:
             sample_name: The sample file, parametrized over the whole registry.
@@ -97,21 +97,53 @@ class TestNoOsgeoTypeEscapes:
         Test scenario:
             Asserted as "nothing from `osgeo`" rather than "this one call
             raises", because that branch is the only place such an object can
-            escape -- so the total assertion costs no more than the narrow one
-            and cannot be satisfied by a partial fix.
+            escape. Refusals are collected rather than skipped: swallowing them
+            would let an implementation that raised for every non-raster
+            variable satisfy the sweep, which is the shape the issue rejected.
+            The readable set, not `variable_names`, is what `get_variable`
+            accepts -- on the GOES fixture it is what brings in `band_id` and
+            `band_wavelength`, both 1-D and neither enumerated as a data
+            variable.
         """
         store = NetCDF.read_file(sample(sample_name), read_only=True)
         try:
             leaked = []
-            for name in store.variable_names:
+            refused = []
+            for name in store._readable_variable_names():
                 try:
                     variable_object = store.get_variable(name)
-                except (ValueError, RuntimeError):
+                except Exception as error:
+                    refused.append(f"{name} -> {type(error).__name__}: {error}")
                     continue
                 if type(variable_object).__module__.startswith("osgeo"):
                     leaked.append(f"{name} -> {type(variable_object).__name__}")
 
             assert not leaked, f"{sample_name}: raw GDAL objects returned for {leaked}"
+            assert not refused, f"{sample_name}: readable variables refused: {refused}"
+        finally:
+            store.close()
+
+    @pytest.mark.parametrize(
+        "file_name, variable",
+        [(GROUPED, "UTC_time"), ("cf__9v__1d7-2d2__geos__y-desc.nc", "band_id")],
+    )
+    def test_the_sweep_has_something_to_find(self, sample, file_name, variable):
+        """The sweep above asserts an absence; this pins that the presence exists.
+
+        Args:
+            sample: Fixture resolving a sample file name to its path.
+            file_name: A store known to hold a non-raster variable.
+            variable: That variable.
+
+        Test scenario:
+            `assert not leaked` is vacuously true on a store whose variables are
+            all rasters, so the sweep alone cannot show a `LabeledArray` was ever
+            produced. `band_id` is the sharper of the two: it is readable but not
+            enumerated in `variable_names`, so only the readable set reaches it.
+        """
+        store = NetCDF.read_file(sample(file_name), read_only=True)
+        try:
+            assert isinstance(store.get_variable(variable), LabeledArray)
         finally:
             store.close()
 
