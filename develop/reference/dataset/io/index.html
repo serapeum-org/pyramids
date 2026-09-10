@@ -10845,7 +10845,9 @@ the raster.</p>
 <span class="normal"><a href="#__codelineno-0-4476">4476</a></span>
 <span class="normal"><a href="#__codelineno-0-4477">4477</a></span>
 <span class="normal"><a href="#__codelineno-0-4478">4478</a></span>
-<span class="normal"><a href="#__codelineno-0-4479">4479</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-479" name="__codelineno-0-479"></a><span class="k">class</span><span class="w"> </span><span class="nc">IO</span><span class="p">(</span><span class="n">_Engine</span><span class="p">[</span><span class="s2">"Dataset"</span><span class="p">]):</span>
+<span class="normal"><a href="#__codelineno-0-4479">4479</a></span>
+<span class="normal"><a href="#__codelineno-0-4480">4480</a></span>
+<span class="normal"><a href="#__codelineno-0-4481">4481</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-479" name="__codelineno-0-479"></a><span class="k">class</span><span class="w"> </span><span class="nc">IO</span><span class="p">(</span><span class="n">_Engine</span><span class="p">[</span><span class="s2">"Dataset"</span><span class="p">]):</span>
 <a id="__codelineno-0-480" name="__codelineno-0-480"></a><span class="w">    </span><span class="sd">"""Mixin providing array, file, streaming and overview IO for Dataset.</span>
 <a id="__codelineno-0-481" name="__codelineno-0-481"></a>
 <a id="__codelineno-0-482" name="__codelineno-0-482"></a><span class="sd">    Owns the reads (`read_array`, `read_windows`, `get_tile`,</span>
@@ -14845,7 +14847,9 @@ the raster.</p>
 <a id="__codelineno-0-4476" name="__codelineno-0-4476"></a>        <span class="c1"># same raster on two different colour scales depending on that flag. The</span>
 <a id="__codelineno-0-4477" name="__codelineno-0-4477"></a>        <span class="c1"># all-bands branch above allocates at the stored dtype and fills it band by</span>
 <a id="__codelineno-0-4478" name="__codelineno-0-4478"></a>        <span class="c1"># band, so the transform is applied once, at the end, over the whole stack.</span>
-<a id="__codelineno-0-4479" name="__codelineno-0-4479"></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_apply_scale_offset</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">band</span> <span class="k">if</span> <span class="n">arr</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">2</span> <span class="k">else</span> <span class="kc">None</span><span class="p">)</span>
+<a id="__codelineno-0-4479" name="__codelineno-0-4479"></a>        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span>
+<a id="__codelineno-0-4480" name="__codelineno-0-4480"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_apply_scale_offset</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">band</span> <span class="k">if</span> <span class="n">arr</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">2</span> <span class="k">else</span> <span class="kc">None</span><span class="p">)</span>
+<a id="__codelineno-0-4481" name="__codelineno-0-4481"></a>        <span class="p">)</span>
 </code></pre></div></td></tr></table></div>
               </details>
 
@@ -23119,7 +23123,9 @@ See Also:
 <span class="normal"><a href="#__codelineno-0-4476">4476</a></span>
 <span class="normal"><a href="#__codelineno-0-4477">4477</a></span>
 <span class="normal"><a href="#__codelineno-0-4478">4478</a></span>
-<span class="normal"><a href="#__codelineno-0-4479">4479</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-4377" name="__codelineno-0-4377"></a><span class="k">def</span><span class="w"> </span><span class="nf">read_overview_array</span><span class="p">(</span>
+<span class="normal"><a href="#__codelineno-0-4479">4479</a></span>
+<span class="normal"><a href="#__codelineno-0-4480">4480</a></span>
+<span class="normal"><a href="#__codelineno-0-4481">4481</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-4377" name="__codelineno-0-4377"></a><span class="k">def</span><span class="w"> </span><span class="nf">read_overview_array</span><span class="p">(</span>
 <a id="__codelineno-0-4378" name="__codelineno-0-4378"></a>    <span class="bp">self</span><span class="p">,</span> <span class="n">band</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">overview_index</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
 <a id="__codelineno-0-4379" name="__codelineno-0-4379"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">typing</span><span class="o">.</span><span class="n">NDArray</span><span class="p">:</span>
 <a id="__codelineno-0-4380" name="__codelineno-0-4380"></a><span class="w">    </span><span class="sd">"""Read overview values.</span>
@@ -23221,7 +23227,9 @@ See Also:
 <a id="__codelineno-0-4476" name="__codelineno-0-4476"></a>    <span class="c1"># same raster on two different colour scales depending on that flag. The</span>
 <a id="__codelineno-0-4477" name="__codelineno-0-4477"></a>    <span class="c1"># all-bands branch above allocates at the stored dtype and fills it band by</span>
 <a id="__codelineno-0-4478" name="__codelineno-0-4478"></a>    <span class="c1"># band, so the transform is applied once, at the end, over the whole stack.</span>
-<a id="__codelineno-0-4479" name="__codelineno-0-4479"></a>    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_apply_scale_offset</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">band</span> <span class="k">if</span> <span class="n">arr</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">2</span> <span class="k">else</span> <span class="kc">None</span><span class="p">)</span>
+<a id="__codelineno-0-4479" name="__codelineno-0-4479"></a>    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span>
+<a id="__codelineno-0-4480" name="__codelineno-0-4480"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_apply_scale_offset</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">band</span> <span class="k">if</span> <span class="n">arr</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">2</span> <span class="k">else</span> <span class="kc">None</span><span class="p">)</span>
+<a id="__codelineno-0-4481" name="__codelineno-0-4481"></a>    <span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
