@@ -1048,8 +1048,9 @@ def _labeled_array_from_md_array(md_arr: gdal.MDArray, name: str) -> LabeledArra
         non-raster variable answer alike.
 
     Raises:
-        ValueError: The array declares a shape but reads back as nothing, or its
-            compound type carries a component `_compound_dtype` cannot map.
+        ValueError: The values read back with a shape other than the one the
+            dimensions declare, or the array is empty and carries a compound
+            type whose own components are compound.
     """
     dimensions = md_arr.GetDimensions()
     dims = tuple(dim.GetName() for dim in dimensions)
@@ -1062,7 +1063,17 @@ def _labeled_array_from_md_array(md_arr: gdal.MDArray, name: str) -> LabeledArra
         # `variable_names`. GDAL refuses to read it -- `count[0] = 0 is invalid`
         # -- rather than handing back nothing, so the empty array is built from
         # the declared type instead of asking GDAL for zero elements.
-        raw = np.empty(shape, dtype=_numpy_dtype_of(data_type))
+        try:
+            raw = np.empty(shape, dtype=_numpy_dtype_of(data_type))
+        except ValueError as error:
+            # `_numpy_dtype_of` refuses a compound whose own component is a
+            # compound, since that has no numeric type code. Re-raised with the
+            # variable named: the bare message is GDAL's type-code number, which
+            # identifies neither the variable nor the component.
+            raise ValueError(
+                f"{name} has an empty extent and a compound type this reader "
+                f"cannot describe: {error}"
+            ) from error
     elif type_class == gdal.GEDTC_STRING:
         # The one class `ReadAsArray` cannot serve: it reads the pointer bytes
         # and answers `[b'[', b'[', b'1']` for `['x', 'yy', 'zzz']`. `Read`
@@ -1077,7 +1088,18 @@ def _labeled_array_from_md_array(md_arr: gdal.MDArray, name: str) -> LabeledArra
         # component that is itself a compound has no numeric type code, so the
         # hand-rolled dtype raised on a record `ReadAsArray` handles.
         raw = md_arr.ReadAsArray()
-    return LabeledArray(np.asarray(raw), dims, shape)
+    values = np.asarray(raw)
+    if values.shape != shape:
+        # The two shapes come from different places -- `shape` from the
+        # dimensions GDAL declares, `values.shape` from what the read returned --
+        # and only the string and compound paths reshape, so a short or
+        # mis-shaped numeric read would otherwise reach the caller as a
+        # `LabeledArray` whose `shape` and `values.shape` quietly disagree.
+        raise ValueError(
+            f"{name} declares dimensions {dims} of shape {shape}, but its "
+            f"values read back with shape {values.shape}"
+        )
+    return LabeledArray(values, dims, shape)
 
 
 def _numpy_dtype_of(data_type: gdal.ExtendedDataType) -> np.dtype:
