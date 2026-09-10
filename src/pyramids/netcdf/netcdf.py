@@ -3134,9 +3134,11 @@ class NetCDF(Dataset):
                 honored on the eager path (`chunks=None`).
             window: Spatial window to read. Only honored on the
                 eager path. Mutually exclusive with ``bbox``.
-            unpack: If True and the variable has CF `scale_factor`
-                and/or `add_offset`, apply the transformation
-                `real = raw * scale + offset`. Defaults to False.
+            unpack: Apply the variable's CF packing,
+                `real = raw * scale + offset`, from its `scale_factor`
+                and/or `add_offset`. **Defaults to True** (#1124); pass
+                `False` for the stored counts. A variable that declares
+                neither is returned unchanged.
                 Applied lazily via :mod:`dask.array` arithmetic when
                 `chunks` is given — the compute graph stays lazy
                 until the caller materializes it.

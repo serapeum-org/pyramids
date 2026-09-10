@@ -200,7 +200,9 @@ output at the *source* band's type, so a float-valued function on an integer ras
 integers — `1435 * 0.01` stored `14`, not `14.35`. It also dropped the band's `scale` / `offset` while keeping
 the raw values, so `apply(lambda a: a)` — the identity — changed a packed variable's physical value from 2.5 to
 100.0. The output now takes the function's own result type, and reads reaching `apply` are already physical, so
-the packing is genuinely spent rather than silently discarded.
+the packing is genuinely spent rather than silently discarded. This holds for **both** arms: the out-of-core
+`elementwise=True` path sizes its per-tile buffer from the same probe as the destination band, where it used to
+round the result back into the source's type before the wider band ever saw it.
 
 A function whose result GDAL has no type for (an `object` array) still writes at the source type, as before.
 
@@ -213,12 +215,35 @@ the reductions produce values the packing has already been spent on, so their re
 
 Two consequences you may see:
 
-- a packed raster survives `crop` / `to_crs` / `resample` with its `scale` and `offset` intact, where before
-  the cutline border-trim silently dropped them (a `Dataset` lost the packing outright; a `NetCDF` variable
-  kept it only in a Python attribute);
+- a packed raster survives `crop`, `to_crs` (both the plain and `maintain_alignment=True` forms), `resample`
+  and `align` with its `scale` and `offset` intact. Several of these dropped the packing before: the cutline
+  border-trim silently discarded it (a `Dataset` lost it outright; a `NetCDF` variable kept it only in a Python
+  attribute), and the three `ReprojectImage` paths never carried it at all;
 - for a NetCDF variable, `_scale` / `_offset` are authoritative for the read when set, and the band's own
-  `GetScale` / `GetOffset` are the fallback. The eager and lazy (`chunks=`) paths therefore always apply the
-  same pair, which they did not have to before, when only the lazy path consulted the variable's own.
+  `GetScale` / `GetOffset` are the fallback. Every consumer of the packing — both read arms, `stats`, the
+  streaming transforms — resolves it through one method (`_effective_packing`), so they cannot answer in
+  different units for the same band.
+
+**`no_data_value` stays a *stored* value, and that is the second half of the contract.** CF puts `_FillValue`
+in the packed datatype, GDAL reports it that way, and it is what gets written back — so it is left alone.
+The consequence is that you cannot compare it against a default read:
+
+```python
+values = ds.read_array()          # physical: the gap reads as -98.49
+ds.no_data_value                  # stored:   (-9999.0,)
+values == ds.no_data_value[0]     # never true on a packed raster
+```
+
+Inside the library every domain mask is now built against the stored counts and the values unpacked
+afterwards — the same set of cells, but only that order is exact and only it survives a `NaN` sentinel. If you
+were doing that comparison yourself, use `read_array(masked=True)`, which masks in stored units and hands back
+physical values, or read with `unpack=False` and mask before you scale.
+
+**A transform's destination decides its units.** `apply`, `map_blocks` and `stream_transform` all hand your
+function physical values and return an unpacked result. The one exception is `stream_transform(out=...)` where
+`out` declares packing — including the in-place `out=ds` form — because writing physical values into a band
+that still declares its recipe would overwrite the stored counts with numbers the next read scales again.
+There, the function works in stored units.
 
 **`merge_rasters` inherits its no-data from the sources instead of defaulting to `0`.** A hard behavior change,
 and the reason is that `0` is real data in most rasters worth merging: sea-level land in an elevation or

@@ -159,6 +159,17 @@ class Analysis(_Engine["Dataset"]):
     ) -> DataFrame:
         """Get statistics of a band [Min, max, mean, std].
 
+        **In physical units.** On a band declaring CF packing the four numbers come
+        back as `read_array` would answer, not as GDAL stores them: `min`, `max` and
+        `mean` take `raw * scale + offset` and `std` takes `|scale|`, since an
+        additive offset moves a distribution without widening it. GDAL is still asked
+        for the figures — no pixel is read — and the transform is applied to its
+        answer, which is exact because CF packing is affine. Before #1124 these
+        disagreed with `read_array` by the packing factor.
+
+        One consequence worth knowing: the `.aux.xml` sidecar noted below caches the
+        **stored** figures, so what is on disk will not match what this returns.
+
         Args:
             band (int, optional):
                 Band index. If None, the statistics of all bands will be returned.

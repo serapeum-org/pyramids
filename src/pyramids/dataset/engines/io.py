@@ -636,22 +636,28 @@ class IO(_Engine["Dataset"]):
                 :class:`NotImplementedError`. Default is `False` (plain
                 array, unchanged behaviour).
             unpack (bool, keyword-only):
-                When `True`, return real-world values by applying each
-                band's GDAL scale/offset as float — `real = raw * scale +
-                offset`, via `GetScale()`/`GetOffset()`. A band that
-                declares neither is returned unchanged (no float
-                promotion); when any selected band declares a scale or
-                offset the result is promoted to `float64`. Composes with
-                every read path (`window`, `bbox`, `out_shape`,
-                `boundless`, `masked`, `threadsafe`, and the lazy `chunks=`
-                path, where the scaling stays lazy as `dask` arithmetic).
-                With `masked=True` the mask is preserved and masked cells
-                are not exposed as scaled; with `masked=False` a declared
-                `no_data_value` sentinel **is** scaled (use `masked=True`
-                to keep it out of the values). On a NetCDF the equivalent
-                knob is `unpack=True`; both share the same primitive.
-                Default is `False` (raw stored values, unchanged
-                behaviour).
+                Return real-world values by applying each band's CF packing
+                — `real = raw * scale + offset`, from
+                `GetScale()`/`GetOffset()`. **Default `True`**: a packed
+                raster answers in the units its data is in, not in stored
+                counts (#1124). Pass `False` for the stored counts, which
+                is what a caller copying, checksumming or rewriting the
+                bytes wants.
+
+                A band that declares neither — which GDAL reports as
+                `1.0`/`0.0`, not `None` — is returned unchanged, same
+                dtype and no copy, so an unpacked raster costs nothing.
+                When any selected band is packed the result is `float64`.
+
+                Composes with every read path (`window`, `bbox`,
+                `out_shape`, `boundless`, `masked`, `threadsafe`, and the
+                lazy `chunks=` path, where the scaling stays lazy as `dask`
+                arithmetic). With `masked=True` the mask is built against
+                the stored counts, where the sentinel lives, and preserved;
+                with `masked=False` a declared `no_data_value` sentinel
+                **is** transformed along with everything else, so a stored
+                `-9999` appears as `-98.49` (use `masked=True` to keep it
+                out of the values).
             threadsafe (bool, keyword-only):
                 Opt into per-thread GDAL handles so concurrent reads from
                 multiple threads never share a handle (same-handle
