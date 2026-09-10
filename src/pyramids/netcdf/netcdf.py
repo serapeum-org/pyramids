@@ -1063,21 +1063,20 @@ def _labeled_array_from_md_array(md_arr: gdal.MDArray, name: str) -> LabeledArra
         # -- rather than handing back nothing, so the empty array is built from
         # the declared type instead of asking GDAL for zero elements.
         raw = np.empty(shape, dtype=_numpy_dtype_of(data_type))
-    elif type_class == gdal.GEDTC_NUMERIC:
-        raw = md_arr.ReadAsArray()
-    elif type_class == gdal.GEDTC_COMPOUND:
-        # `Read` hands back the record bytes undecoded, so reading a compound
-        # array as-is gives a flat `uint8` buffer whose length is the record
-        # count times the record size -- values that do not match the shape and
-        # mean nothing to the caller. GDAL does describe the layout, though, so
-        # the buffer is viewed through the matching structured dtype instead.
-        raw = np.frombuffer(
-            bytes(md_arr.Read()), dtype=_compound_dtype(data_type)
-        ).reshape(shape)
-    else:
-        # A string array: `ReadAsArray` raises "Only arrays with numeric data
-        # types can be exposed...", while `Read` returns decoded Python strings.
+    elif type_class == gdal.GEDTC_STRING:
+        # The one class `ReadAsArray` cannot serve: it reads the pointer bytes
+        # and answers `[b'[', b'[', b'1']` for `['x', 'yy', 'zzz']`. `Read`
+        # decodes them. It is the numeric arrays that must avoid `Read`, which
+        # returns their bytes undecoded -- the two are exact opposites.
         raw = np.asarray(md_arr.Read()).reshape(shape)
+    else:
+        # Numeric and compound alike. GDAL builds the structured dtype for a
+        # compound record itself, with the declared offsets and record size, so
+        # decoding the buffer by hand gained nothing and cost two things: the
+        # result was read-only where every other path is writeable, and a
+        # component that is itself a compound has no numeric type code, so the
+        # hand-rolled dtype raised on a record `ReadAsArray` handles.
+        raw = md_arr.ReadAsArray()
     return LabeledArray(np.asarray(raw), dims, shape)
 
 
@@ -1100,12 +1099,19 @@ def _numpy_dtype_of(data_type: gdal.ExtendedDataType) -> np.dtype:
     elif type_class == gdal.GEDTC_COMPOUND:
         dtype = _compound_dtype(data_type)
     else:
-        dtype = np.dtype(object)
+        # `<U`, matching what `np.asarray(md_arr.Read())` yields for a non-empty
+        # string array. `object` would have made an empty variable the only
+        # string array on this path with a different dtype.
+        dtype = np.dtype(np.str_)
     return dtype
 
 
 def _compound_dtype(data_type: gdal.ExtendedDataType) -> np.dtype:
     """The NumPy structured dtype matching a GDAL compound type.
+
+    Only reached for a compound variable with a zero-length dimension, where
+    there is nothing to read and `ReadAsArray` -- which builds this dtype itself
+    for every non-empty compound -- cannot be asked.
 
     Built from the components GDAL declares -- name, byte offset and numeric
     type -- with the record size as the itemsize, so the field padding of the
