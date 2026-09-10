@@ -429,3 +429,65 @@ class TestGridOpsKeepThePacking:
             np.asarray(result.read_array(), dtype="float64").ravel(),
             [2.5, 0.5, 1.5, 2.0],
         )
+
+
+class TestTheSentinelStaysOutOfTheDomain:
+    """`no_data_value` is a stored value; reads are physical. Masking must still work."""
+
+    @staticmethod
+    def _with_a_gap() -> Dataset:
+        """A packed raster whose last cell is the declared sentinel."""
+        dataset = _packed_raster([[100, -100], [0, -9999]], 0.01, 1.5)
+        dataset.no_data_value = [-9999]
+        return dataset
+
+    def test_the_sentinel_reads_back_transformed(self):
+        """The premise: a stored -9999 is not -9999 once the band is unpacked.
+
+        Test scenario:
+            This is why every sentinel comparison in the library had to be revisited.
+            `no_data_value` stays the stored value -- CF puts `_FillValue` in the
+            packed datatype, and it is what gets written back -- so comparing it
+            against a physical read matches nothing at all.
+        """
+        dataset = self._with_a_gap()
+        values = np.asarray(dataset.read_array(), dtype="float64")
+        assert dataset.no_data_value[0] == pytest.approx(-9999.0), (
+            "no_data_value must stay the stored sentinel"
+        )
+        assert float(values.ravel()[-1]) == pytest.approx(-98.49), (
+            f"the sentinel cell should read back transformed, got {values.ravel()[-1]}"
+        )
+
+    @pytest.mark.parametrize("elementwise", [False, True], ids=["whole", "tiled"])
+    def test_apply_leaves_the_sentinel_cell_alone(self, elementwise):
+        """`apply` must not treat a no-data cell as a measurement.
+
+        Test scenario:
+            The mask is built against the stored counts, where the sentinel lives,
+            and the values are unpacked afterwards. Comparing the physical array to
+            the stored sentinel found no no-data at all, so the gap was doubled along
+            with the real cells and silently became data.
+        """
+        result = self._with_a_gap().apply(lambda a: a * 2, elementwise=elementwise)
+        got = np.asarray(result.read_array(), dtype="float64").ravel()
+        np.testing.assert_allclose(got[:3], [5.0, 1.0, 3.0])
+        assert got[-1] == pytest.approx(-9999.0), (
+            f"the sentinel cell was transformed into data: {got[-1]}"
+        )
+
+    def test_extract_skips_the_sentinel_cell(self):
+        """`extract` returns the measurements, not the gaps."""
+        values = np.asarray(self._with_a_gap().extract(), dtype="float64").ravel()
+        assert values.size == 3, f"expected the 3 real cells, got {values}"
+        np.testing.assert_allclose(np.sort(values), [0.5, 1.5, 2.5])
+
+    def test_combine_excludes_a_gap_in_either_operand(self):
+        """A cell missing from one side is missing from the result."""
+        left, right = self._with_a_gap(), self._with_a_gap()
+        result = left.combine(right, lambda a, b: a + b)
+        got = np.asarray(result.read_array(), dtype="float64").ravel()
+        np.testing.assert_allclose(got[:3], [5.0, 1.0, 3.0])
+        assert got[-1] != pytest.approx(-196.98), (
+            "the two sentinels were added together as if they were data"
+        )

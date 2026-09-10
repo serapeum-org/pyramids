@@ -36,6 +36,7 @@ from pyramids.base._errors import (
 )
 from pyramids.base._utils import (
     _is_identity_packing,
+    apply_unpack,
     gdal_to_numpy_dtype,
     numpy_to_gdal_dtype,
     require_cleopatra,
@@ -637,13 +638,15 @@ class Analysis(_Engine["Dataset"]):
         else:
             # `band=` as a keyword, never positional: NetCDF.read_array puts
             # `variable` first, so read_array(band) mis-binds on a variable view.
-            src_array = self._ds.read_array(band=band)
+            src_array, domain_mask = self._domain_read(band)
             new_array = np.full(
                 (self._ds.rows, self._ds.columns),
                 no_data_value,
                 dtype=self._storable_dtype(func, src_array),
             )
-            self._apply_func_to_domain(func, src_array, new_array, no_data_value)
+            self._apply_func_to_domain(
+                func, src_array, new_array, no_data_value, domain_mask
+            )
             dtype = numpy_to_gdal_dtype(new_array.dtype)
             dst_obj = self._ds.__class__._build_dataset(
                 self._ds.columns,
@@ -660,6 +663,60 @@ class Analysis(_Engine["Dataset"]):
             self._ds._update_inplace(dst_obj.raster)
             return None
         return dst_obj
+
+    def _domain_read(self, band: int, **read_kwargs) -> tuple[Any, Any]:
+        """The band's physical values, with the domain mask judged in stored units.
+
+        The two halves of the CF contract meet here. `read_array` answers in physical
+        units since #1124, but `no_data_value` is — per CF, per GDAL, and because it is
+        what gets written back — a **stored** value. Comparing the two directly matches
+        nothing on a packed raster: a band whose sentinel is `-9999` reads back
+        `-98.49`, so every no-data cell is silently promoted to a real measurement in
+        whatever reduction, extraction or render asked the question.
+
+        So the mask is built where the sentinel lives, against the stored counts, and
+        the values are unpacked afterwards. The two are the same set of cells — the
+        packing is affine and injective — but only this order is exact, and only this
+        order keeps working when the sentinel is `NaN` on a float band.
+
+        Args:
+            band: Zero-based band index.
+            **read_kwargs: Forwarded to `read_array` (`window=`, and so on).
+
+        Returns:
+            tuple: `(values, domain_mask)` — the physical array, and `True` wherever a
+                cell holds a real measurement.
+        """
+        raw = np.asarray(self._ds.read_array(band=band, unpack=False, **read_kwargs))
+        domain_mask = ~is_stored_no_data(raw, self._ds.no_data_value[band])
+        values = apply_unpack(raw, *self._ds._effective_packing(band))
+        return values, domain_mask
+
+    def _physical_no_data(self, band: int) -> Any:
+        """The band's sentinel as it appears in a default (physical) read.
+
+        `no_data_value` is a **stored** value — CF puts `_FillValue` in the packed
+        datatype, GDAL reports it that way, and it is what gets written back. Most
+        callers want a *mask*, and those build it in stored units through
+        `_domain_read`. A few instead need the sentinel as a *value*, because they
+        hand it to something that will do its own comparison against the physical
+        array — cleopatra's `exclude_value`, `get_pixels2`'s exclude list. Those need
+        the same number the array actually holds.
+
+        Args:
+            band: Zero-based band index.
+
+        Returns:
+            The sentinel in physical units, or the sentinel unchanged when the band
+            declares no packing (and `None` stays `None`).
+        """
+        sentinel = self._ds.no_data_value[band]
+        scale, offset = self._ds._effective_packing(band)
+        if sentinel is None or _is_identity_packing(scale, offset):
+            return sentinel
+        return float(
+            apply_unpack(np.asarray([sentinel], dtype="float64"), scale, offset)[0]
+        )
 
     def _elementwise_result_dtype(self, func, band: int) -> np.dtype:
         """The dtype `func`'s result needs, probed from a one-element call.
@@ -721,16 +778,23 @@ class Analysis(_Engine["Dataset"]):
         return resolved
 
     @staticmethod
-    def _apply_func_to_domain(func, src_array, out_array, no_data_value) -> None:
+    def _apply_func_to_domain(
+        func, src_array, out_array, no_data_value, domain_mask=None
+    ) -> None:
         """Apply `func` to the domain (non-no-data) cells of `src_array` into `out_array`.
 
         Args:
             func: The per-domain-values callable to apply.
             src_array: The source array supplying the domain values.
             out_array: The pre-filled output array written in place.
-            no_data_value: The value marking cells to exclude from the domain.
+            no_data_value: The value marking cells to exclude from the domain. Used
+                only when `domain_mask` is not supplied.
+            domain_mask: The domain, when the caller has already resolved it — which a
+                caller reading a packed band must, since `src_array` is then physical
+                while `no_data_value` is stored and the two never match.
         """
-        domain_mask = ~is_stored_no_data(src_array, no_data_value)
+        if domain_mask is None:
+            domain_mask = ~is_stored_no_data(src_array, no_data_value)
         domain_values = src_array[domain_mask]
         # An empty domain (an all-no-data tile, common when streaming) needs no
         # write -- out_array is already the no-data fill -- and short-circuiting
@@ -766,9 +830,11 @@ class Analysis(_Engine["Dataset"]):
         """
         dst_band = dst_obj.raster.GetRasterBand(1)
         for xoff, yoff, xsize, ysize in self._ds.io._tile_offsets():
-            tile = self._ds.read_array(band=band, window=[xoff, yoff, xsize, ysize])
+            tile, domain_mask = self._domain_read(
+                band, window=[xoff, yoff, xsize, ysize]
+            )
             new_tile = np.full(tile.shape, no_data_value, dtype=result_dtype)
-            self._apply_func_to_domain(func, tile, new_tile, no_data_value)
+            self._apply_func_to_domain(func, tile, new_tile, no_data_value, domain_mask)
             dst_band.WriteArray(new_tile, xoff, yoff)
 
     def combine(
@@ -948,12 +1014,11 @@ class Analysis(_Engine["Dataset"]):
             raise TypeError(f"`other` must be a Dataset, got {type(other).__name__}")
         self._check_combinable(other, func, band)
 
-        left, left_sentinels = self._operand_arrays(self._ds, band)
-        right, right_sentinels = self._operand_arrays(other, band)
+        left, left_sentinels, left_domain = self._operand_arrays(self._ds, band)
+        right, right_sentinels, right_domain = self._operand_arrays(other, band)
         masked = no_data_value is not None
         domain = (
-            self._domain_mask(left, left_sentinels)
-            & self._domain_mask(right, right_sentinels)
+            left_domain & right_domain
             if masked
             # `None`, not an all-True mask: the unmasked path exists because the
             # caller asked for no masking, so allocating a full boolean array and
@@ -1113,24 +1178,40 @@ class Analysis(_Engine["Dataset"]):
     @staticmethod
     def _operand_arrays(
         ds: Dataset, band: int | None
-    ) -> tuple[np.typing.NDArray, list[Any]]:
-        """Read one operand for :meth:`combine` with the sentinels of the bands read.
+    ) -> tuple[np.typing.NDArray, list[Any], np.typing.NDArray]:
+        """Read one operand for :meth:`combine`, with its sentinels and its domain.
+
+        The domain comes back with the values because the two cannot be derived from
+        each other after the fact: the array is physical and the sentinels are stored,
+        so the mask has to be taken while the counts are still in hand. Returning them
+        separately let the caller compare `-98.49` against `-9999` and find no no-data
+        at all on a packed raster.
 
         Args:
             ds: The dataset to read.
             band: Zero-based band to read, or `None` for every band.
 
         Returns:
-            tuple: The array — 2-D for a single band, `(bands, rows, cols)`
-            otherwise — and the per-band no-data sentinels aligned to its bands.
+            tuple: The physical array — 2-D for a single band, `(bands, rows, cols)`
+            otherwise — the per-band no-data sentinels aligned to its bands, and the
+            boolean domain mask shaped like the array.
         """
         # `band=` as a keyword, never positional: NetCDF.read_array puts
         # `variable` first, so read_array(band) mis-binds on a variable view.
-        array = np.asarray(ds.read_array(band=band))
+        raw = np.asarray(ds.read_array(band=band, unpack=False))
         sentinels = (
             [ds.no_data_value[band]] if band is not None else list(ds.no_data_value)
         )
-        return array, sentinels
+        domain = Analysis._domain_mask(raw, sentinels)
+        indices = [band] if band is not None else range(ds.band_count)
+        packing = [ds._effective_packing(index) for index in indices]
+        if raw.ndim == 2:
+            array = apply_unpack(raw, *packing[0])
+        else:
+            array = np.stack(
+                [apply_unpack(raw[i], *packing[i]) for i in range(raw.shape[0])]
+            )
+        return np.asarray(array), sentinels, domain
 
     @staticmethod
     def _domain_mask(array: np.ndarray, sentinels: Sequence[Any]) -> np.typing.NDArray:
@@ -1526,11 +1607,11 @@ class Analysis(_Engine["Dataset"]):
 
                 ```
         """
-        no_data_value = (
-            self._ds.no_data_value[0]
-            if self._ds.no_data_value[0] is not None
-            else np.nan
-        )
+        # The physical sentinel, because `get_pixels2` compares it against values
+        # `read_array` produced. The stored `-9999` matches nothing in an array that
+        # holds `-98.49`, so every no-data cell was extracted as a measurement.
+        physical_sentinel = self._physical_no_data(0)
+        no_data_value = physical_sentinel if physical_sentinel is not None else np.nan
         if mask is None:
             exclude_list = (
                 [no_data_value, exclude_value]
@@ -2184,11 +2265,10 @@ class Analysis(_Engine["Dataset"]):
                 "The class Dataset is not aligned with the current raster, please use the method "
                 "'align' to align both rasters."
             )
-        no_data_value = (
-            self._ds.no_data_value[0]
-            if self._ds.no_data_value[0] is not None
-            else np.nan
-        )
+        # The physical sentinel, because `get_indices2` compares it against strips
+        # `read_array` produced; the stored one matches nothing on a packed band.
+        physical_sentinel = self._physical_no_data(0)
+        no_data_value = physical_sentinel if physical_sentinel is not None else np.nan
         mask = (
             [no_data_value, exclude_value]
             if exclude_value is not None
@@ -2880,8 +2960,12 @@ class Analysis(_Engine["Dataset"]):
         require_cleopatra()
         from cleopatra.glyphs.gridded.array_glyph import ArrayGlyph
 
-        arr = self._ds.read_array(band=band)
-        no_data_value = self._ds.no_data_value[band]
+        arr, domain = self._domain_read(band)
+        # The *physical* sentinel: `arr` is what `read_array` returns, and cleopatra
+        # does its own comparison against it, so the stored `-9999` would mask
+        # nothing on a packed band. The mask below comes from `_domain_read`, which
+        # judged it in stored units where the sentinel actually lives.
+        no_data_value = self._physical_no_data(band)
         # The list cleopatra masks with, which is not the same question as the
         # one below. A NaN sentinel has no value to compare against, so it is
         # left out and the NaN branch covers it.
@@ -2903,7 +2987,7 @@ class Analysis(_Engine["Dataset"]):
         # is whether the band has anything to draw at all -- which cells come
         # out as the colormap's "bad" fill is cleopatra's own comparison against
         # the `exclude` list below, on its own tolerance.
-        valid &= ~is_stored_no_data(arr, no_data_value)
+        valid &= domain
         if exclude_value is not None:
             valid &= arr != exclude_value
         if not valid.any():

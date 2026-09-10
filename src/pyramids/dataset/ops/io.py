@@ -251,7 +251,11 @@ def _write_to_file_sync(
 
     if driver == "ascii":
         arr = ds.read_array(band=band)
-        no_data_value = ds.no_data_value[band]
+        # The physical sentinel, to match the grid: an ASCII grid has nowhere to put
+        # `scale_factor`, so the numbers written are the physical ones and the header
+        # has to name the value that actually appears among them. Writing the stored
+        # `-9999` over a grid holding `-98.49` declared a fill that occurs nowhere.
+        no_data_value = ds.analysis._physical_no_data(band)
         xmin, ymin, _, _ = ds.bbox
         _io.to_ascii(arr, ds.cell_size, xmin, ymin, no_data_value, path)
     else:

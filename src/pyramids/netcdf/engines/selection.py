@@ -672,6 +672,15 @@ class Selection(_Engine["NetCDF"]):
         # from_array returns a root container; hand back the variable subset, carrying the
         # windowed 2-D coordinates so the result stays curvilinear (plots on its real geometry).
         result = container.get_variable(var_name)
+        # The window holds stored counts (`_read_curvilinear_window` asks for them),
+        # so the rebuilt variable has to declare what turns them back into
+        # measurements, exactly as the affine crop path does.
+        result._scale = nc._scale
+        result._offset = nc._offset
+        for index in range(1, result.raster.RasterCount + 1):
+            carry_band_packing(
+                nc.raster.GetRasterBand(1), result.raster.GetRasterBand(index)
+            )
         result._curvilinear_coords = (lon_win, lat_win)
         return result
 
@@ -1314,13 +1323,21 @@ def _read_curvilinear_window(
     is flattened to ``(bands, rows, cols)``; otherwise GDAL reads just the
     ``(c0, r0)``–``(c1, r1)`` block eagerly. Helper of
     :meth:`Selection._crop_curvilinear`.
+
+    Reads with ``unpack=False``. The caller stamps the variable's **stored** no-data
+    sentinel into the cells outside the cutline and rebuilds the variable around the
+    result, carrying the packing with it — a copy of the store, so it moves counts.
+    A physical read would put ``-98.49``-shaped values next to a ``-9999`` fill and
+    declare the recipe over both.
     """
     if chunks is not None:
-        lazy = nc.read_array(chunks=chunks)
+        lazy = nc.read_array(chunks=chunks, unpack=False)
         if lazy.ndim > 2:
             lazy = lazy.reshape(-1, *lazy.shape[-2:])
         return np.array(cast("Any", lazy[..., r0:r1, c0:c1]).compute(), copy=True)
-    return np.array(nc.read_array(window=[c0, r0, c1 - c0, r1 - r0]), copy=True)
+    return np.array(
+        nc.read_array(window=[c0, r0, c1 - c0, r1 - r0], unpack=False), copy=True
+    )
 
 
 def _resolve_dim_indices(coords: list, selector: Any) -> list[int]:
