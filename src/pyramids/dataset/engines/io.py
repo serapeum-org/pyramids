@@ -2475,6 +2475,17 @@ class IO(_Engine["Dataset"]):
         a whole-array pass. Reductions and neighbourhood filters are therefore not
         candidates for this helper.
 
+        **On a CF-packed raster the destination decides the units `tile_func` sees.**
+        A band that declares `scale_factor` / `add_offset` holds counts, so a
+        destination that declares packing is handed counts and `tile_func` works in
+        stored units; anywhere else — including the default `out=None`, which
+        allocates an unpacked `float64` result — it works in physical units, matching
+        `read_array`. The rule is not a preference: writing physical values into a
+        band that still declares its packing overwrites the counts with numbers the
+        next read scales *again* (`2.5` in, `1.55` out), and the originals are gone.
+        Passing the source as `out` for an in-place transform is the case where this
+        bites, since a source worth streaming is usually the packed one.
+
         Args:
             tile_func (Callable[[np.ndarray], np.ndarray]):
                 Per-tile transform; see the positional-stability note above.
@@ -2523,22 +2534,32 @@ class IO(_Engine["Dataset"]):
 
               ```
         """
+        source_is_packed = not _is_identity_packing(*self._band_packing(band))
         if out is None:
             # A packed source reads physical, so the tiles reaching `tile_func` are
             # `float64` and `empty_like`'s default -- the source's *stored* dtype --
             # would cast them back on write: `14.35` into an `int16` band as `14`,
             # the same silent truncation #1124 reported in `apply`. Default to the
             # dtype the read actually produces; an explicit `dtype=` still wins.
-            if dtype is None and not _is_identity_packing(
-                *self._ds.io._band_packing(band)
-            ):
+            if dtype is None and source_is_packed:
                 dtype = "float64"
             allocate: dict[str, Any] = {"dtype": dtype, "bands": bands, "path": path}
             if no_data_value is not INHERIT_NO_DATA:
                 allocate["no_data_value"] = no_data_value
             out = cast("Dataset", self._ds.empty_like(self._ds, **allocate))
+        # The destination decides the units the tiles have to be in. A band that
+        # declares `scale_factor` / `add_offset` stores counts, so it must be handed
+        # counts -- and the destination may be the source itself, which this method
+        # documents as an in-place transform. Writing physical values into a band that
+        # still declares its packing overwrites the counts with rounded numbers the
+        # next read multiplies again: `2.5` in, `1.55` out, the original gone. The
+        # freshly allocated destination above declares no packing, so it takes
+        # physical values, which is what makes the `out is None` default work.
+        write_stored = not _is_identity_packing(*out.io._band_packing(band))
         for xoff, yoff, xsize, ysize in self._tile_offsets(size=tile_size):
-            tile = self._ds.read_array(band=band, window=[xoff, yoff, xsize, ysize])
+            tile = self._ds.read_array(
+                band=band, window=[xoff, yoff, xsize, ysize], unpack=not write_stored
+            )
             out.write_array(
                 tile_func(tile), band=band, window=Window(xoff, yoff, xsize, ysize)
             )

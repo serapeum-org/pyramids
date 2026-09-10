@@ -31,6 +31,23 @@ PACKED_RAW_MAX = 100.0
 PACKED_PHYSICAL_MAX = 2.5
 
 
+def _packed_raster(values: list[list[int]], scale: float, offset: float) -> Dataset:
+    """Build a small in-memory `int16` raster that declares a packing recipe.
+
+    Args:
+        values: The rows of stored counts.
+        scale: The `scale_factor` to declare.
+        offset: The `add_offset` to declare.
+
+    Returns:
+        Dataset: A one-band packed dataset with a trivial georeference.
+    """
+    dataset = _int_raster(values)
+    dataset.scale = [scale]
+    dataset.offset = [offset]
+    return dataset
+
+
 def _int_raster(values: list[list[int]]) -> Dataset:
     """Build a small in-memory `int16` raster.
 
@@ -253,3 +270,36 @@ class TestApplyDoesNotCorrupt:
         assert after == pytest.approx(before), (
             f"the identity changed the physical value: {before} -> {after}"
         )
+
+
+class TestStreamingRespectsTheDestination:
+    """`stream_transform` writes what its destination declares it holds."""
+
+    def test_an_in_place_transform_does_not_destroy_the_store(self):
+        """The source's counts survive a transform written back into the source.
+
+        Test scenario:
+            `out=ds` is the documented in-place form. Reading physical values and
+            writing them into a band that still declares its packing overwrote the
+            counts with numbers the next read scaled again -- 2.5 became 1.55 and the
+            original 100 was gone. Unrecoverable, silent, and on the raster the
+            caller streamed precisely because it was too big to copy.
+        """
+        dataset = _packed_raster([[100, -100], [0, 50]], 0.01, 1.5)
+        dataset.io.stream_transform(lambda tile: tile * 2, out=dataset, tile_size=2)
+        stored = np.asarray(dataset.read_array(unpack=False), dtype="float64")
+        np.testing.assert_allclose(stored.ravel(), [200.0, -200.0, 0.0, 100.0])
+
+    def test_a_fresh_destination_takes_physical_values(self):
+        """With no `out`, the result is in the same units `read_array` answers in."""
+        dataset = _packed_raster([[100, -100], [0, 50]], 0.01, 1.5)
+        result = dataset.io.stream_transform(lambda tile: tile * 2, tile_size=2)
+        got = np.asarray(result.read_array(), dtype="float64")
+        np.testing.assert_allclose(got.ravel(), [5.0, 1.0, 3.0, 4.0])
+
+    def test_an_unpacked_raster_is_unaffected_by_the_rule(self):
+        """The destination check must not disturb the ordinary case."""
+        dataset = _int_raster([[1, 2], [3, 4]])
+        result = dataset.io.stream_transform(lambda tile: tile * 2, tile_size=2)
+        got = np.asarray(result.read_array(), dtype="float64")
+        np.testing.assert_allclose(got.ravel(), [2.0, 4.0, 6.0, 8.0])
