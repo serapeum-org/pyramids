@@ -7,6 +7,7 @@ Owns the Analysis family of operations on a Dataset. Accessed as
 
 from __future__ import annotations
 
+import logging
 import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -34,6 +35,7 @@ from pyramids.base._errors import (
     ReadOnlyError,
 )
 from pyramids.base._utils import (
+    _is_identity_packing,
     gdal_to_numpy_dtype,
     numpy_to_gdal_dtype,
     require_cleopatra,
@@ -75,6 +77,12 @@ _POINT_WINDOW_MAX_WASTE = 16
 # at roughly 64 MB of float64 regardless of how many points asked for it; past
 # it, the per-point reads are the cheaper failure mode.
 _POINT_WINDOW_MAX_PIXELS = 8_000_000
+
+
+# Module-level logger: the dtype probe in `apply` swallows whatever an awkward
+# callable raises and falls back to the source type, so the reason has to surface
+# somewhere.
+logger = logging.getLogger(__name__)
 
 
 class _DeriveNoData:
@@ -320,7 +328,38 @@ class Analysis(_Engine["Dataset"]):
             # scan gives the real spread. The full scan is the recovery.
             vals = band_i.ComputeStatistics(False)
 
-        return list(vals)
+        return self._unpack_stats(list(vals), band_i)
+
+    @staticmethod
+    def _unpack_stats(values: list[float], band_i: Any) -> list[float]:
+        """Put `[min, max, mean, std]` into physical units when the band is packed.
+
+        `stats` never reads a pixel -- it asks GDAL, which answers in the stored units. So
+        a packed band reported raw counts while `read_array` returned physical values, and
+        the two disagreed by the packing factor (#1124).
+
+        No re-read is needed to fix that. CF packing is affine, `real = raw * scale +
+        offset`, so the location statistics shift and scale while the spread only scales:
+        `min`, `max` and `mean` take the full transform, `std` takes `|scale|` alone,
+        because an additive offset moves a distribution without widening it. A negative
+        scale would swap min and max, so they are reordered rather than left crossed.
+
+        Args:
+            values: `[min, max, mean, std]` in stored units.
+            band_i: The GDAL band, for its scale and offset.
+
+        Returns:
+            list[float]: The same four numbers in physical units, or unchanged when the
+                band is not packed.
+        """
+        scale, offset = band_i.GetScale(), band_i.GetOffset()
+        if _is_identity_packing(scale, offset) or len(values) != 4:
+            return values
+        factor = 1.0 if scale is None else float(scale)
+        shift = 0.0 if offset is None else float(offset)
+        low, high, mean, std = (float(v) for v in values)
+        low, high = sorted((low * factor + shift, high * factor + shift))
+        return [low, high, mean * factor + shift, std * abs(factor)]
 
     def _require_band(self, band: int) -> None:
         """Refuse a band index the dataset does not have.
@@ -568,18 +607,24 @@ class Analysis(_Engine["Dataset"]):
             raise TypeError("The second argument should be a function")
 
         no_data_value = self._ds.no_data_value[band]
-        dtype = self._ds.gdal_dtype[band]
 
-        dst_obj = self._ds.__class__._build_dataset(
-            self._ds.columns,
-            self._ds.rows,
-            1,
-            dtype,
-            self._ds.geotransform,
-            self._ds.crs,
-            no_data_value,
-        )
         if elementwise:
+            # The tiled path writes into the destination as it goes, so the dtype has
+            # to be settled before the first tile. Probe it from the function itself
+            # rather than assuming the source's: a float-valued function on an integer
+            # raster used to be written back as integers and silently truncated
+            # (#1124). A probe that raises falls back to the old behaviour, so an
+            # awkward callable is no worse off than before.
+            dtype = self._result_gdal_dtype(func, band)
+            dst_obj = self._ds.__class__._build_dataset(
+                self._ds.columns,
+                self._ds.rows,
+                1,
+                dtype,
+                self._ds.geotransform,
+                self._ds.crs,
+                no_data_value,
+            )
             self._apply_elementwise_tiled(func, band, no_data_value, dst_obj)
         else:
             # `band=` as a keyword, never positional: NetCDF.read_array puts
@@ -588,15 +633,77 @@ class Analysis(_Engine["Dataset"]):
             new_array = np.full(
                 (self._ds.rows, self._ds.columns),
                 no_data_value,
-                dtype=src_array.dtype,
+                dtype=self._storable_dtype(func, src_array),
             )
             self._apply_func_to_domain(func, src_array, new_array, no_data_value)
+            dtype = numpy_to_gdal_dtype(new_array.dtype)
+            dst_obj = self._ds.__class__._build_dataset(
+                self._ds.columns,
+                self._ds.rows,
+                1,
+                dtype,
+                self._ds.geotransform,
+                self._ds.crs,
+                no_data_value,
+            )
             dst_obj.raster.GetRasterBand(1).WriteArray(new_array)
 
         if inplace:
             self._ds._update_inplace(dst_obj.raster)
             return None
         return dst_obj
+
+    def _result_gdal_dtype(self, func, band: int) -> int:
+        """The GDAL type `func`'s result needs, probed from a one-element call.
+
+        The tiled path commits to a destination type before it has produced a single
+        value, so the type has to be predicted. Applying the function to one domain value
+        answers it exactly for the vectorised callables `apply` documents, and anything
+        that cannot survive that call keeps the source's type -- the behaviour before
+        #1124, so no worse.
+
+        Args:
+            func: The callable `apply` was given.
+            band: The band index being read.
+
+        Returns:
+            int: A GDAL type code wide enough for the result.
+        """
+        resolved = self._ds.gdal_dtype[band]
+        try:
+            source = np.asarray(self._ds.read_array(band=band))
+            resolved = numpy_to_gdal_dtype(self._storable_dtype(func, source))
+        except Exception:
+            logger.debug("could not probe the result dtype for apply", exc_info=True)
+        return resolved
+
+    @staticmethod
+    def _storable_dtype(func, source: np.ndarray) -> np.dtype:
+        """The narrowest dtype that holds `func`'s result and that GDAL can store.
+
+        Probed by calling `func` on one domain value. Writing the result back at the
+        source's type truncated a float-valued function on an integer raster (#1124), so
+        the result's own type wins -- but only when GDAL has a matching type. A callable
+        that yields `object`, or one that cannot take a one-element array at all, keeps
+        the source's type: the behaviour before #1124, and better than refusing to run.
+
+        Args:
+            func: The callable `apply` was given.
+            source: The array being read, supplying the probe value and the fallback type.
+
+        Returns:
+            np.dtype: A dtype `numpy_to_gdal_dtype` accepts.
+        """
+        resolved = source.dtype
+        try:
+            probe = np.asarray(func(np.asarray(source).reshape(-1)[:1]))
+            promoted = np.result_type(source.dtype, probe.dtype)
+            numpy_to_gdal_dtype(promoted)
+        except Exception:
+            logger.debug("keeping the source dtype for apply", exc_info=True)
+        else:
+            resolved = promoted
+        return resolved
 
     @staticmethod
     def _apply_func_to_domain(func, src_array, out_array, no_data_value) -> None:

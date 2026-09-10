@@ -504,7 +504,7 @@ class IO(_Engine["Dataset"]):
         boundless: bool = False,
         fill_value: float | None = None,
         masked: bool = False,
-        scaled: bool = False,
+        unpack: bool = True,
         threadsafe: bool = False,
         bbox_rounding: str = "cover",
     ) -> ArrayLike:
@@ -630,7 +630,7 @@ class IO(_Engine["Dataset"]):
                 combining it with `chunks` or `threadsafe=True` raises
                 :class:`NotImplementedError`. Default is `False` (plain
                 array, unchanged behaviour).
-            scaled (bool, keyword-only):
+            unpack (bool, keyword-only):
                 When `True`, return real-world values by applying each
                 band's GDAL scale/offset as float — `real = raw * scale +
                 offset`, via `GetScale()`/`GetOffset()`. A band that
@@ -848,7 +848,7 @@ class IO(_Engine["Dataset"]):
             boundless=boundless,
             fill_value=fill_value,
             masked=masked,
-            scaled=scaled,
+            unpack=unpack,
             threadsafe=threadsafe,
         )
         # Resolve the bbox CRS only when a bbox is actually given. resolve_read_window
@@ -875,7 +875,7 @@ class IO(_Engine["Dataset"]):
         # Applied post-dispatch (not inside a strategy) because scaling is a uniform
         # arithmetic transform over whatever array the strategy returns — plain,
         # masked, or dask — unlike `masked`, which each strategy owns or rejects.
-        if req.scaled:
+        if req.unpack:
             arr = self._apply_scale_offset(arr, req.band)
         # arr is assembled through many untyped GDAL/dask branches inside the
         # strategy; this is the method's own declared contract.

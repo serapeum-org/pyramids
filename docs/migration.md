@@ -165,6 +165,45 @@ that leaked out of an empty table lookup. Only affects code catching the old typ
 
 ### unreleased
 
+**CF-packed data is now unpacked on read, and the keyword is `unpack`.** Hard change, silent for the values —
+nothing raises. A raster that declares `scale_factor` / `add_offset` (GDAL's `GetScale` / `GetOffset`) now reads
+back in physical units as `float64` instead of raw stored counts.
+
+```python
+v = NetCDF.read_file(path).get_variable("VHM0")
+v.read_array().max()
+# before -> 1435.0   raw counts
+# after  ->   14.35  metres, the honest answer
+```
+
+`stats()` and `plot()` follow the same rule; before, neither could produce a physical value at all. `stats()`
+does it without re-reading — CF packing is affine, so `min`, `max` and `mean` take `raw * scale + offset` while
+`std` takes `|scale|`.
+
+**A raster that is not packed is untouched.** GDAL reports `scale=1.0, offset=0.0` for anything never packed,
+and that identity is short-circuited: same values, same dtype, no copy, no `float64` promotion. If your rasters
+are unpacked — nearly all GeoTIFFs — nothing changes.
+
+**`scaled=` is gone; use `unpack=`.** The two names were the same concept in two places
+(`IO.read_array(scaled=)` for rasters, `NetCDF.read_array(unpack=)` for CF variables), both defaulting off and
+both routing to the same primitive. There is one keyword now, defined on `Dataset` so `NetCDF` inherits it, and
+no alias:
+
+```python
+ds.read_array(scaled=True)   # before
+ds.read_array()              # after — unpacked by default
+ds.read_array(unpack=False)  # after — the raw store, when you want it
+```
+
+**`apply()` no longer truncates, and no longer corrupts a packed raster.** Two separate faults. It built the
+output at the *source* band's type, so a float-valued function on an integer raster was written back as
+integers — `1435 * 0.01` stored `14`, not `14.35`. It also dropped the band's `scale` / `offset` while keeping
+the raw values, so `apply(lambda a: a)` — the identity — changed a packed variable's physical value from 2.5 to
+100.0. The output now takes the function's own result type, and reads reaching `apply` are already physical, so
+the packing is genuinely spent rather than silently discarded.
+
+A function whose result GDAL has no type for (an `object` array) still writes at the source type, as before.
+
 **`merge_rasters` inherits its no-data from the sources instead of defaulting to `0`.** A hard behavior change,
 and the reason is that `0` is real data in most rasters worth merging: sea-level land in an elevation or
 bathymetry model, the zero crossing of an anomaly or difference raster. The old default stamped `0` on the

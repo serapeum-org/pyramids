@@ -2837,7 +2837,19 @@ class Dataset(RasterBase):
     def scale(self) -> list[float]:
         """Facade — delegates to :attr:`Bands.scale <pyramids.dataset.engines.Bands.scale>`.
 
-        The scale converts the pixel values to the real-world values.
+        The CF packing factor: how the real-world values are **stored**, not what the
+        values you hold already mean. `real = stored * scale + offset`.
+
+        Since #1124 a read applies it, so :meth:`read_array` hands back real-world values
+        and this stays the recipe describing the file. The two must not be applied twice:
+        an array that has already been unpacked belongs in a dataset that declares no
+        packing (`scale == 1`), which is what :meth:`apply` and
+        :meth:`from_array` produce. An operation that copies the *stored* bytes --
+        :meth:`copy`, a `CreateCopy` write -- carries the recipe along with them instead,
+        and stays consistent that way.
+
+        Returns:
+            list[float]: One factor per band; `1.0` where a band is not packed.
         """
         return self.bands.scale
 
@@ -2854,7 +2866,11 @@ class Dataset(RasterBase):
     def offset(self):
         """Facade — delegates to :attr:`Bands.offset <pyramids.dataset.engines.Bands.offset>`.
 
-        The offset converts the pixel values to the real-world values.
+        The additive half of the CF packing, `real = stored * scale + offset`. See
+        :attr:`scale` for how the stored form and the values' meaning are kept apart.
+
+        Returns:
+            list[float]: One offset per band; `0` where a band is not packed.
         """
         return self.bands.offset
 

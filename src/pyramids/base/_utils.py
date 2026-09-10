@@ -1582,6 +1582,28 @@ def ogr_ds_to_gdal_dataset(ogr_ds: ogr.DataSource) -> gdal.Dataset:
     return gdal_ds
 
 
+def _is_identity_packing(
+    scale: float | np.ndarray | None, offset: float | np.ndarray | None
+) -> bool:
+    """Whether this scale/offset pair leaves the values alone.
+
+    `None` means the attribute is unset. GDAL, though, reports `1.0` / `0.0` rather than
+    `None` for a band that was never packed, so treating only `None` as "nothing to do"
+    would promote every ordinary raster to `float64` once unpacking became the default.
+
+    Args:
+        scale: Multiplicative factor, or `None`.
+        offset: Additive offset, or `None`.
+
+    Returns:
+        bool: `True` when applying the pair would return the input unchanged. An array-valued
+            scale or offset counts only when every element is the identity.
+    """
+    unit = scale is None or bool(np.all(np.asarray(scale) == 1))
+    zero = offset is None or bool(np.all(np.asarray(offset) == 0))
+    return unit and zero
+
+
 def apply_unpack(
     arr: Any,
     scale: float | np.ndarray | None,
@@ -1591,11 +1613,16 @@ def apply_unpack(
 
     Computes ``arr * scale + offset`` as `float64`, the single shared primitive
     behind both the NetCDF CF `scale_factor`/`add_offset` path and the raster
-    :meth:`~pyramids.dataset.engines.IO.read_array` ``scaled=True`` path. When
-    both ``scale`` and ``offset`` are `None` the array is returned unchanged (no
-    float promotion), so an unset band is a genuine no-op. ``scale``/``offset``
-    may be scalars or a broadcastable `numpy` array (e.g. a per-band
-    ``(bands, 1, 1)`` factor); a `dask` array input keeps the arithmetic lazy.
+    :meth:`~pyramids.dataset.engines.IO.read_array` ``unpack=True`` path.
+    ``scale``/``offset`` may be scalars or a broadcastable `numpy` array (e.g. a
+    per-band ``(bands, 1, 1)`` factor); a `dask` array input keeps the arithmetic
+    lazy.
+
+    **The identity transform is a genuine no-op.** ``None``, and also ``scale ==
+    1`` with ``offset == 0``, return the array untouched -- same values, same
+    dtype, no copy, no `float64` promotion. That matters because unpacking is now
+    the default: GDAL reports ``scale=1.0, offset=0.0`` for every raster that was
+    never packed, which is nearly all of them, and they must cost nothing.
 
     Args:
         arr: The raw array (dask or numpy, possibly a masked array).
@@ -1615,6 +1642,12 @@ def apply_unpack(
             array([0, 1, 2])
 
             ```
+        - So is an explicit identity, which is what an unpacked raster reports:
+            ```python
+            >>> apply_unpack(np.array([0, 1, 2]), 1.0, 0.0).dtype
+            dtype('int64')
+
+            ```
         - Scale and offset are applied as float64:
             ```python
             >>> apply_unpack(np.array([0, 1, 2]), 0.1, 5.0)
@@ -1622,7 +1655,7 @@ def apply_unpack(
 
             ```
     """
-    if scale is None and offset is None:
+    if _is_identity_packing(scale, offset):
         result = arr
     else:
         result = arr.astype(np.float64)

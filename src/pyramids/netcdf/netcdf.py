@@ -3108,7 +3108,7 @@ class NetCDF(Dataset):
         variable: str | None = None,
         band: int | None = None,
         window: list[int] | None = None,
-        unpack: bool = False,
+        unpack: bool = True,
         *,
         bbox: tuple[float, float, float, float] | list[float] | None = None,
         epsg: Any = None,
@@ -3300,15 +3300,20 @@ class NetCDF(Dataset):
                 "instead."
             )
         if chunks is None:
-            result = self._read_array_eager(band, read_window, masked, bbox_rounding)
+            result = self._read_array_eager(
+                band, read_window, masked, bbox_rounding, unpack
+            )
         else:
             result = self._read_array_lazy(chunks, lock, masked)
-        if unpack:
-            result = apply_unpack(
-                result,
-                getattr(self, "_scale", None),
-                getattr(self, "_offset", None),
-            )
+            # The lazy path builds its array straight from the MDArray rather than
+            # through the raster read, so it is the one place that still applies the
+            # packing itself.
+            if unpack:
+                result = apply_unpack(
+                    result,
+                    getattr(self, "_scale", None),
+                    getattr(self, "_offset", None),
+                )
         return cast(ArrayLike, result)
 
     def _read_non_raster_variable(
@@ -3435,8 +3440,16 @@ class NetCDF(Dataset):
         window: Any,
         masked: bool,
         bbox_rounding: str = "cover",
+        unpack: bool = True,
     ) -> ArrayLike:
-        """Eager (numpy) read through the Dataset mixin."""
+        """Eager (numpy) read through the Dataset mixin.
+
+        `unpack` is forwarded rather than applied again here. A variable's MEM raster
+        carries the CF packing on its band (`GetScale` / `GetOffset` return the same
+        `scale_factor` / `add_offset` the MDArray declares), so the shared raster path
+        already applies it -- unpacking a second time on the way out multiplied the
+        packing in twice.
+        """
         return cast(
             ArrayLike,
             super().read_array(
@@ -3444,6 +3457,7 @@ class NetCDF(Dataset):
                 window=window,
                 masked=masked,
                 bbox_rounding=bbox_rounding,
+                unpack=unpack,
             ),
         )
 
