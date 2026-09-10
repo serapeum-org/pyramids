@@ -114,3 +114,47 @@ class TestNoOsgeoTypeEscapes:
             assert not leaked, f"{sample_name}: raw GDAL objects returned for {leaked}"
         finally:
             store.close()
+
+
+class TestAVariableWithNoRecords:
+    """A zero-length dimension is a shape GDAL declines to read at all."""
+
+    @pytest.mark.interop
+    def test_an_empty_variable_reads_as_an_empty_array(self, tmp_path):
+        """An unlimited dimension with nothing written is still an advertised variable.
+
+        Args:
+            tmp_path: Destination for the store.
+
+        Test scenario:
+            GDAL refuses the read -- `count[0] = 0 is invalid` -- rather than
+            handing back nothing, so materialising naively turned a variable the
+            store advertises into a bare `RuntimeError`. Before the wrapper it
+            returned an unread `MDArray`, so this shape has never actually been
+            readable; it now answers with an empty array of the declared type.
+            Written through xarray because neither GDAL driver will create one:
+            MEM rejects the array, and the netCDF writer emits a file it cannot
+            reopen.
+        """
+        xr = pytest.importorskip("xarray")
+        path = str(tmp_path / "empty_dim.nc")
+        xr.Dataset(
+            {
+                "empty_v": ("recNum", np.array([], dtype="float64")),
+                "full_v": ("n", np.array([1.0, 2.0, 3.0])),
+            }
+        ).to_netcdf(path)
+
+        store = NetCDF.read_file(path, read_only=True)
+        try:
+            assert "empty_v" in store.variable_names, "fixture changed"
+
+            empty = store.get_variable("empty_v")
+
+            assert isinstance(empty, LabeledArray)
+            assert empty.shape == (0,)
+            assert empty.values.shape == (0,)
+            assert empty.values.dtype == np.float64
+            assert store.get_variable("full_v").values.tolist() == [1.0, 2.0, 3.0]
+        finally:
+            store.close()

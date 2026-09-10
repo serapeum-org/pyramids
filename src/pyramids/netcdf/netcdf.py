@@ -1026,8 +1026,10 @@ def _labeled_array_from_md_array(md_arr: gdal.MDArray, name: str) -> LabeledArra
 
     Two shapes reach here, and neither is a raster plane: a 1-D array (a profile
     axis, a bounds array, a hybrid-sigma coefficient), and a string or compound
-    array of any rank -- a character column is stored `(records, strlen)`, so it
-    is 2-D and still not numeric.
+    array of any rank. What disqualifies the second is the dtype class, not the
+    rank: a character column arrives 2-D `(records, strlen)` from a source that
+    models the string length as a dimension, and 1-D from GDAL's netCDF driver,
+    which folds that axis into the string type -- non-numeric either way.
 
     Both used to be handed back as the raw `gdal.MDArray`. That object carries
     none of pyramids' API -- no `values`, no `stats`, no `read_array` -- and its
@@ -1046,14 +1048,22 @@ def _labeled_array_from_md_array(md_arr: gdal.MDArray, name: str) -> LabeledArra
         non-raster variable answer alike.
 
     Raises:
-        ValueError: The array declares a shape but reads back as nothing.
+        ValueError: The array declares a shape but reads back as nothing, or its
+            compound type carries a component `_compound_dtype` cannot map.
     """
     dimensions = md_arr.GetDimensions()
     dims = tuple(dim.GetName() for dim in dimensions)
     shape = tuple(dim.GetSize() for dim in dimensions)
     data_type = md_arr.GetDataType()
     type_class = data_type.GetClass()
-    if type_class == gdal.GEDTC_NUMERIC:
+    if 0 in shape:
+        # An unlimited netCDF dimension with no records written is the ordinary
+        # source of this, and such a variable is still advertised by
+        # `variable_names`. GDAL refuses to read it -- `count[0] = 0 is invalid`
+        # -- rather than handing back nothing, so the empty array is built from
+        # the declared type instead of asking GDAL for zero elements.
+        raw = np.empty(shape, dtype=_numpy_dtype_of(data_type))
+    elif type_class == gdal.GEDTC_NUMERIC:
         raw = md_arr.ReadAsArray()
     elif type_class == gdal.GEDTC_COMPOUND:
         # `Read` hands back the record bytes undecoded, so reading a compound
@@ -1068,11 +1078,30 @@ def _labeled_array_from_md_array(md_arr: gdal.MDArray, name: str) -> LabeledArra
         # A string array: `ReadAsArray` raises "Only arrays with numeric data
         # types can be exposed...", while `Read` returns decoded Python strings.
         raw = np.asarray(md_arr.Read()).reshape(shape)
-    if raw is None:
-        raise ValueError(
-            f"{name} declares dimensions {dims} but its values could not be read"
-        )
     return LabeledArray(np.asarray(raw), dims, shape)
+
+
+def _numpy_dtype_of(data_type: gdal.ExtendedDataType) -> np.dtype:
+    """The NumPy dtype matching a GDAL extended type, whatever its class.
+
+    Used to give a zero-length variable an array of the right type without
+    reading it, since GDAL declines a read of no elements.
+
+    Args:
+        data_type: The array's declared type.
+
+    Returns:
+        np.dtype: The numeric dtype, the compound record dtype, or `object` for
+        a string array -- the type `Read` would have produced for each.
+    """
+    type_class = data_type.GetClass()
+    if type_class == gdal.GEDTC_NUMERIC:
+        dtype = np.dtype(gdal_to_numpy_dtype(data_type.GetNumericDataType()))
+    elif type_class == gdal.GEDTC_COMPOUND:
+        dtype = _compound_dtype(data_type)
+    else:
+        dtype = np.dtype(object)
+    return dtype
 
 
 def _compound_dtype(data_type: gdal.ExtendedDataType) -> np.dtype:
@@ -1080,13 +1109,21 @@ def _compound_dtype(data_type: gdal.ExtendedDataType) -> np.dtype:
 
     Built from the components GDAL declares -- name, byte offset and numeric
     type -- with the record size as the itemsize, so the field padding of the
-    original struct is preserved rather than assumed away.
+    original struct is preserved rather than assumed away. A `(Byte, Int32)`
+    record is the short illustration: GDAL declares it 8 bytes wide with the
+    second field at offset 4, while a dtype built from the formats alone packs
+    it into 5 and misreads every record after the first.
 
     Args:
         data_type: A compound `ExtendedDataType`.
 
     Returns:
         np.dtype: A structured dtype of the same memory layout.
+
+    Raises:
+        ValueError: A component is not itself numeric -- a nested compound or a
+            string field -- so `GetNumericDataType()` reports `GDT_Unknown`,
+            which has no NumPy counterpart.
     """
     components = data_type.GetComponents()
     return np.dtype(
@@ -7026,6 +7063,10 @@ class NetCDF(Dataset):
     ) -> NetCDF | gdal.MDArray:
         """Extract a single variable as a classic-raster NetCDF object.
 
+        A variable GDAL cannot expose as a raster plane answers as a
+        `LabeledArray` instead of a `NetCDF`; everything below describes the
+        raster case, and `Returns` sets out the other one.
+
         The returned object carries origin metadata so modified data
         can be written back via `set_variable()`. Every non-spatial
         dim of the variable is tracked: for an N-D MDIM array
@@ -7059,21 +7100,24 @@ class NetCDF(Dataset):
                 map them onto — a 1-D or non-numeric one (see `Returns`).
 
         Returns:
-            NetCDF | gdal.MDArray: A subset backed by a classic dataset where every
+            NetCDF | LabeledArray: A subset backed by a classic dataset where every
                 non-spatial dimension is mapped onto bands. The new
                 `_band_dim_names` / `_band_dim_values_map` /
                 `_band_dim_sizes` fields drive `sel()`; the legacy
                 `_band_dim_name` / `_band_dim_values` track the first
                 non-spatial dim.
 
-                A variable GDAL cannot expose as a raster comes back as
-                the raw `gdal.MDArray` instead: a 1-D variable (a
-                coordinate axis or data series), and any **non-numeric**
-                variable of any rank — a character/string column
-                (however the driver exposes it) or a compound (struct)
-                type. Such a raw array carries no band model, so the
-                band-dim tracking above is only partly populated. Read
-                it with `Read()` (#1067).
+                A variable GDAL cannot expose as a raster comes back as a
+                `LabeledArray` — `values` alongside the `dims` and `shape`
+                GDAL declares — rather than as a `NetCDF`: a 1-D variable
+                of any dtype, and any **non-numeric** variable of any rank,
+                a character/string column (however the driver exposes it)
+                or a compound (struct) type. That is the same type
+                `LabeledDataset["var"]` hands back, so both routes to a
+                non-raster variable answer alike. It is not a raster, so
+                none of the band-dim tracking above applies to it and
+                neither do `sel()` or the raster methods; read the values
+                off `.values` (#1126).
 
         Raises:
             ValueError: If `variable_name` is not present in the dataset.
@@ -7084,8 +7128,66 @@ class NetCDF(Dataset):
             back to integer indices `[0, 1, ..., size - 1]` for those
             dims.
 
+        Examples:
+            - A variable with a raster plane comes back as a `NetCDF` subset:
+                ```python
+                >>> import numpy as np
+                >>> from osgeo import gdal
+                >>> from pyramids.netcdf import Container
+                >>> store = gdal.GetDriverByName("MEM").CreateMultiDimensional("demo")
+                >>> group = store.GetRootGroup()
+                >>> lat = group.CreateDimension("lat", None, None, 2)
+                >>> lon = group.CreateDimension("lon", None, None, 3)
+                >>> grid = group.CreateMDArray(
+                ...     "t2m", [lat, lon], gdal.ExtendedDataType.Create(gdal.GDT_Float32)
+                ... )
+                >>> grid.Write(np.arange(6, dtype="float32").reshape(2, 3))
+                0
+                >>> Container(store).get_variable("t2m").shape
+                (1, 2, 3)
+
+                ```
+            - A 1-D variable has no raster plane, so it answers as a `LabeledArray`:
+                ```python
+                >>> import numpy as np
+                >>> from osgeo import gdal
+                >>> from pyramids.netcdf import Container
+                >>> store = gdal.GetDriverByName("MEM").CreateMultiDimensional("demo")
+                >>> group = store.GetRootGroup()
+                >>> ilev = group.CreateDimension("ilev", None, None, 4)
+                >>> coefficients = group.CreateMDArray(
+                ...     "hyai", [ilev], gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+                ... )
+                >>> coefficients.Write(np.array([0.0, 0.25, 0.5, 1.0]))
+                0
+                >>> hyai = Container(store).get_variable("hyai")
+                >>> hyai.dims, hyai.shape
+                (('ilev',), (4,))
+                >>> hyai.values.tolist()
+                [0.0, 0.25, 0.5, 1.0]
+
+                ```
+            - A string column is non-numeric at any rank, so it is labelled too:
+                ```python
+                >>> from osgeo import gdal
+                >>> from pyramids.netcdf import Container
+                >>> store = gdal.GetDriverByName("MEM").CreateMultiDimensional("demo")
+                >>> group = store.GetRootGroup()
+                >>> record = group.CreateDimension("record", None, None, 2)
+                >>> strlen = group.CreateDimension("strlen", None, None, 3)
+                >>> units = group.CreateMDArray(
+                ...     "units", [record, strlen], gdal.ExtendedDataType.CreateString()
+                ... )
+                >>> Container(store).get_variable("units").shape
+                (2, 3)
+
+                ```
+
         See Also:
             `sel`: subsets the result along any tracked band dim.
+            `pyramids.netcdf.LabeledArray`: what a non-raster variable answers with.
+            `pyramids.netcdf.LabeledDataset`: reads a whole label-indexed store the
+                same way.
         """
         # Handle group-qualified names: "forecast/temperature"
         if "/" in variable_name:

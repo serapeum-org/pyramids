@@ -300,6 +300,136 @@ class TestReadMdArrayNonNumeric:
             f"the returned array must keep its non-numeric dtype, got {variable.values.dtype}"
         )
         assert variable.shape == sizes, f"unexpected shape {variable.shape}"
+        assert variable.values.shape == variable.shape, (
+            f"the values must be laid out on the declared shape {variable.shape}, "
+            f"got {variable.values.shape}"
+        )
+
+
+class TestTheMaterialisedValuesAreTheStoredOnes:
+    """The wrapper is only worth returning if what it carries is the data itself.
+
+    Every other test around `get_variable`'s non-raster branch asserts the *type* that comes
+    back, its `dims` and its declared `shape`. None of them looks at the numbers, so a read
+    that answers with the right shape and the wrong contents passes them all. These two do
+    look: one writes known values through each reader (`ReadAsArray` for numeric, the
+    structured-dtype view for compound) and reads them back.
+    """
+
+    @staticmethod
+    def _one_dimensional(dtype, size, payload=None):
+        """Build a MEM multidim store holding one 1-D array `v`, optionally written.
+
+        Args:
+            dtype: The `gdal.ExtendedDataType` for the array.
+            size: The length of its single dimension.
+            payload: Bytes or an array to write, or None to leave it unwritten.
+
+        Returns:
+            gdal.Dataset: The multidimensional dataset, its root group kept alive by it.
+        """
+        ds = gdal.GetDriverByName("MEM").CreateMultiDimensional("test")
+        rg = ds.GetRootGroup()
+        dim = rg.CreateDimension("n", None, None, size)
+        array = rg.CreateMDArray("v", [dim], dtype)
+        if payload is not None:
+            array.Write(payload)
+        return ds
+
+    def test_a_numeric_axis_answers_with_the_values_it_stores(self):
+        """A 1-D numeric variable carries its own numbers, not merely its own shape.
+
+        Test scenario:
+            Write `[1.5, -2.5, 3.25, 0.0, 9.75]` — signed, fractional and zero, so a
+            truncating or zero-filling read is visible — into a 1-D `Float64` array, the
+            only numeric rank that reaches this branch (rank >= 2 resolves a raster plane
+            and comes back as a `Variable`). Expected: `values` equal to what was written,
+            still `float64`, on the declared shape.
+        """
+        stored = np.array([1.5, -2.5, 3.25, 0.0, 9.75])
+        dataset = self._one_dimensional(
+            gdal.ExtendedDataType.Create(gdal.GDT_Float64), 5, stored
+        )
+        variable = Container(dataset).get_variable("v")
+
+        assert isinstance(variable, LabeledArray), (
+            f"a 1-D numeric variable must come back as a LabeledArray, got {type(variable)}"
+        )
+        assert variable.values.dtype == np.float64, (
+            f"the stored dtype must survive the read, got {variable.values.dtype}"
+        )
+        assert variable.values.shape == variable.shape == (5,), (
+            f"unexpected shape {variable.shape} / {variable.values.shape}"
+        )
+        assert np.array_equal(variable.values, stored), (
+            f"the values must be the stored ones, got {variable.values}"
+        )
+
+    def test_a_compound_record_keeps_the_padding_of_its_layout(self):
+        """A padded record decodes by GDAL's declared layout, not by an assumed packing.
+
+        Test scenario:
+            A `record_t` of `Int32` at 0, `Float64` at 8 and `Int32` at 16, declared 24 bytes
+            wide — the layout a C compiler produces for that field order, padded both between
+            the fields and after the last one. Both paddings are load-bearing, and each is
+            lost by a different shortcut: packing the fields instead of reading their offsets
+            puts them at 0/4/12, and inferring the stride from the offsets instead of reading
+            the declared size gives 20 rather than 24. Either one slides the fields against
+            the buffer and hands back numbers that are neither the stored ones nor obviously
+            wrong. Expected: the declared offsets and stride, and the values written.
+        """
+        offsets = [0, 8, 16]
+        record = gdal.ExtendedDataType.CreateCompound(
+            "record_t",
+            24,
+            [
+                gdal.EDTComponent.Create(
+                    name, offset, gdal.ExtendedDataType.Create(gdal_type)
+                )
+                for name, offset, gdal_type in zip(
+                    ["a", "b", "c"],
+                    offsets,
+                    [gdal.GDT_Int32, gdal.GDT_Float64, gdal.GDT_Int32],
+                )
+            ],
+        )
+        padded = np.dtype(
+            {
+                "names": ["a", "b", "c"],
+                "formats": ["<i4", "<f8", "<i4"],
+                "offsets": offsets,
+                "itemsize": 24,
+            }
+        )
+        stored = np.zeros(3, dtype=padded)
+        stored["a"] = [11, 22, 33]
+        stored["b"] = [1.5, -2.5, 3.25]
+        stored["c"] = [-7, 0, 7]
+        dataset = self._one_dimensional(record, 3, stored.tobytes())
+        variable = Container(dataset).get_variable("v")
+
+        assert variable.values.dtype.names == ("a", "b", "c"), (
+            f"the record's field names must survive, got {variable.values.dtype.names}"
+        )
+        assert variable.values.dtype.itemsize == 24, (
+            f"the record stride must be the declared 24 bytes, got "
+            f"{variable.values.dtype.itemsize}"
+        )
+        assert [
+            variable.values.dtype.fields[name][1] for name in ("a", "b", "c")
+        ] == offsets, (
+            f"the fields must sit at their declared offsets {offsets}, got "
+            f"{[variable.values.dtype.fields[name][1] for name in ('a', 'b', 'c')]}"
+        )
+        for name, expected in [
+            ("a", [11, 22, 33]),
+            ("b", [1.5, -2.5, 3.25]),
+            ("c", [-7, 0, 7]),
+        ]:
+            assert np.array_equal(variable.values[name], expected), (
+                f"field {name!r} must decode to the stored values {expected}, got "
+                f"{variable.values[name]}"
+            )
 
 
 class TestNeedsYFlip:
