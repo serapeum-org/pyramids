@@ -705,7 +705,7 @@ class NetCDFPlot:
                 )
             # x_dim / y_dim are applied here via get_variable; forward only the coord pair so the
             # re-resolved subset does not try to re-apply axes it already has.
-            return nc._parent_nc.get_variable(
+            return nc._parent_nc._require_raster_variable(
                 nc._source_var_name, x_dim=axes.x_dim, y_dim=axes.y_dim
             ).plot(
                 selectors=selectors,
@@ -854,7 +854,9 @@ class NetCDFPlot:
         axes = axes or CoordinateSpec()
         # x_dim / y_dim are applied here via get_variable; forward only the coord pair so the
         # subset's plot does not re-resolve axes it already has.
-        return nc.get_variable(variable, x_dim=axes.x_dim, y_dim=axes.y_dim).plot(
+        return nc._require_raster_variable(
+            variable, x_dim=axes.x_dim, y_dim=axes.y_dim
+        ).plot(
             axes=CoordinateSpec(coords=axes.coords), **plot_kwargs
         )
 

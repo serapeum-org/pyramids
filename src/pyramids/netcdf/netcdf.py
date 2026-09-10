@@ -287,7 +287,7 @@ def _reconstruct_netcdf(
     if group_path:
         result = container.get_group(group_path)
     elif is_subset and source_var_name is not None:
-        result = container.get_variable(source_var_name)
+        result = container._require_raster_variable(source_var_name)
     else:
         result = container
     return result
@@ -2268,7 +2268,15 @@ class NetCDF(Dataset):
             crs = ""
             try:
                 for name in self.variable_names:
-                    variable_crs = self.get_variable(name).crs
+                    variable = self.get_variable(name)
+                    if isinstance(variable, LabeledArray):
+                        # A non-raster variable has no CRS to borrow. It must be
+                        # skipped rather than allowed to raise: the `except`
+                        # below wraps the whole loop, so one such variable early
+                        # in the list would otherwise suppress the CRS of every
+                        # raster variable after it.
+                        continue
+                    variable_crs = variable.crs
                     if variable_crs:
                         crs = str(variable_crs)
                         break
@@ -4724,7 +4732,7 @@ class NetCDF(Dataset):
         """
         result = None
         for var_name in spatial_vars:
-            var = self.get_variable(var_name)
+            var = self._require_raster_variable(var_name)
             var_result = getattr(var, operation)(**op_kwargs)
             # to_crs returns a VRT — materialize before the source goes
             # out of scope. read_array also squeezes singleton-band 3-D
@@ -7086,9 +7094,43 @@ class NetCDF(Dataset):
         """Whether the X axis is stored east-to-west; see `_mdim.x_axis_is_right_to_left`."""
         return x_axis_is_right_to_left(dims, x_index, classic_view)
 
+    def _require_raster_variable(
+        self, variable_name: str, x_dim: str | None = None, y_dim: str | None = None
+    ) -> NetCDF:
+        """`get_variable`, for the callers that can only work on a raster plane.
+
+        Most internal users of `get_variable` go straight on to `crop`,
+        `read_array`, `plot` or the band-dimension bookkeeping, none of which a
+        non-raster variable has. Before this they received a raw `gdal.MDArray`
+        and failed with `AttributeError: 'MDArray' object has no attribute
+        'crop'`; now they would fail the same way on a `LabeledArray`. Routing
+        them through here turns that into a refusal that says which variable and
+        what to use instead.
+
+        Args:
+            variable_name: The variable to read.
+            x_dim: Optional name of the X dimension, passed through.
+            y_dim: Optional name of the Y dimension, passed through.
+
+        Returns:
+            NetCDF: The variable subset, which is raster-backed.
+
+        Raises:
+            ValueError: The variable has no raster plane.
+        """
+        variable = self.get_variable(variable_name, x_dim=x_dim, y_dim=y_dim)
+        if isinstance(variable, LabeledArray):
+            raise ValueError(
+                f"{variable_name} has no raster plane (dimensions "
+                f"{variable.dims}), so it has no geometry to operate on; read "
+                "its values with `get_variable`, or open the store with "
+                "`LabeledDataset` for labelled point data"
+            )
+        return variable
+
     def get_variable(
         self, variable_name: str, x_dim: str | None = None, y_dim: str | None = None
-    ) -> NetCDF | gdal.MDArray:
+    ) -> NetCDF | LabeledArray:
         """Extract a single variable as a classic-raster NetCDF object.
 
         A variable GDAL cannot expose as a raster plane answers as a
@@ -8717,7 +8759,7 @@ class NetCDF(Dataset):
         Returns:
             NetCDF: This container (modified in-place).
         """
-        var = self.get_variable(variable_name)
+        var = self._require_raster_variable(variable_name)
         cropped = var.crop(mask, touch=touch)
         self.set_variable(variable_name, cropped)
         return self
@@ -8739,7 +8781,7 @@ class NetCDF(Dataset):
         Returns:
             NetCDF: This container (modified in-place).
         """
-        var = self.get_variable(variable_name)
+        var = self._require_raster_variable(variable_name)
         reprojected = var.to_crs(to_epsg, method=method)
         # to_crs returns a VRT-backed dataset — materialize it into
         # a MEM dataset so the data survives after the VRT source
@@ -8789,7 +8831,7 @@ class NetCDF(Dataset):
         Returns:
             NetCDF: This container (modified in-place).
         """
-        var = self.get_variable(variable_name)
+        var = self._require_raster_variable(variable_name)
         resampled = var.resample(cell_size, method=method)
         self.set_variable(variable_name, resampled)
         return self
