@@ -10798,7 +10798,7 @@ the raster.</p>
 <a id="__codelineno-0-504" name="__codelineno-0-504"></a>        <span class="n">boundless</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
 <a id="__codelineno-0-505" name="__codelineno-0-505"></a>        <span class="n">fill_value</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-506" name="__codelineno-0-506"></a>        <span class="n">masked</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
-<a id="__codelineno-0-507" name="__codelineno-0-507"></a>        <span class="n">unpack</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-0-507" name="__codelineno-0-507"></a>        <span class="n">scaled</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
 <a id="__codelineno-0-508" name="__codelineno-0-508"></a>        <span class="n">threadsafe</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
 <a id="__codelineno-0-509" name="__codelineno-0-509"></a>        <span class="n">bbox_rounding</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"cover"</span><span class="p">,</span>
 <a id="__codelineno-0-510" name="__codelineno-0-510"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ArrayLike</span><span class="p">:</span>
@@ -10924,7 +10924,7 @@ the raster.</p>
 <a id="__codelineno-0-630" name="__codelineno-0-630"></a><span class="sd">                combining it with `chunks` or `threadsafe=True` raises</span>
 <a id="__codelineno-0-631" name="__codelineno-0-631"></a><span class="sd">                :class:`NotImplementedError`. Default is `False` (plain</span>
 <a id="__codelineno-0-632" name="__codelineno-0-632"></a><span class="sd">                array, unchanged behaviour).</span>
-<a id="__codelineno-0-633" name="__codelineno-0-633"></a><span class="sd">            unpack (bool, keyword-only):</span>
+<a id="__codelineno-0-633" name="__codelineno-0-633"></a><span class="sd">            scaled (bool, keyword-only):</span>
 <a id="__codelineno-0-634" name="__codelineno-0-634"></a><span class="sd">                When `True`, return real-world values by applying each</span>
 <a id="__codelineno-0-635" name="__codelineno-0-635"></a><span class="sd">                band's GDAL scale/offset as float — `real = raw * scale +</span>
 <a id="__codelineno-0-636" name="__codelineno-0-636"></a><span class="sd">                offset`, via `GetScale()`/`GetOffset()`. A band that</span>
@@ -11142,7 +11142,7 @@ the raster.</p>
 <a id="__codelineno-0-848" name="__codelineno-0-848"></a>            <span class="n">boundless</span><span class="o">=</span><span class="n">boundless</span><span class="p">,</span>
 <a id="__codelineno-0-849" name="__codelineno-0-849"></a>            <span class="n">fill_value</span><span class="o">=</span><span class="n">fill_value</span><span class="p">,</span>
 <a id="__codelineno-0-850" name="__codelineno-0-850"></a>            <span class="n">masked</span><span class="o">=</span><span class="n">masked</span><span class="p">,</span>
-<a id="__codelineno-0-851" name="__codelineno-0-851"></a>            <span class="n">unpack</span><span class="o">=</span><span class="n">unpack</span><span class="p">,</span>
+<a id="__codelineno-0-851" name="__codelineno-0-851"></a>            <span class="n">scaled</span><span class="o">=</span><span class="n">scaled</span><span class="p">,</span>
 <a id="__codelineno-0-852" name="__codelineno-0-852"></a>            <span class="n">threadsafe</span><span class="o">=</span><span class="n">threadsafe</span><span class="p">,</span>
 <a id="__codelineno-0-853" name="__codelineno-0-853"></a>        <span class="p">)</span>
 <a id="__codelineno-0-854" name="__codelineno-0-854"></a>        <span class="c1"># Resolve the bbox CRS only when a bbox is actually given. resolve_read_window</span>
@@ -11169,7 +11169,7 @@ the raster.</p>
 <a id="__codelineno-0-875" name="__codelineno-0-875"></a>        <span class="c1"># Applied post-dispatch (not inside a strategy) because scaling is a uniform</span>
 <a id="__codelineno-0-876" name="__codelineno-0-876"></a>        <span class="c1"># arithmetic transform over whatever array the strategy returns — plain,</span>
 <a id="__codelineno-0-877" name="__codelineno-0-877"></a>        <span class="c1"># masked, or dask — unlike `masked`, which each strategy owns or rejects.</span>
-<a id="__codelineno-0-878" name="__codelineno-0-878"></a>        <span class="k">if</span> <span class="n">req</span><span class="o">.</span><span class="n">unpack</span><span class="p">:</span>
+<a id="__codelineno-0-878" name="__codelineno-0-878"></a>        <span class="k">if</span> <span class="n">req</span><span class="o">.</span><span class="n">scaled</span><span class="p">:</span>
 <a id="__codelineno-0-879" name="__codelineno-0-879"></a>            <span class="n">arr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_apply_scale_offset</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">req</span><span class="o">.</span><span class="n">band</span><span class="p">)</span>
 <a id="__codelineno-0-880" name="__codelineno-0-880"></a>        <span class="c1"># arr is assembled through many untyped GDAL/dask branches inside the</span>
 <a id="__codelineno-0-881" name="__codelineno-0-881"></a>        <span class="c1"># strategy; this is the method's own declared contract.</span>
@@ -14728,7 +14728,7 @@ the raster.</p>
 
 
 <h4 id="pyramids.dataset.engines.IO.read_array" class="doc doc-heading"><a href="#pyramids.dataset.engines.IO.read_array" class="toclink">
-            <code class="highlight language-python"><span class="n">read_array</span><span class="p">(</span><span class="n">band</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">window</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">chunks</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">lock</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">bbox</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">out_shape</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">resampling</span><span class="o">=</span><span class="s1">'nearest'</span><span class="p">,</span> <span class="n">boundless</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">fill_value</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">masked</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">unpack</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">threadsafe</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">bbox_rounding</span><span class="o">=</span><span class="s1">'cover'</span><span class="p">)</span></code>
+            <code class="highlight language-python"><span class="n">read_array</span><span class="p">(</span><span class="n">band</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">window</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">chunks</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">lock</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">bbox</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">out_shape</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">resampling</span><span class="o">=</span><span class="s1">'nearest'</span><span class="p">,</span> <span class="n">boundless</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">fill_value</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">masked</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">scaled</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">threadsafe</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">bbox_rounding</span><span class="o">=</span><span class="s1">'cover'</span><span class="p">)</span></code>
 
 </a><a href="#pyramids.dataset.engines.IO.read_array" class="headerlink" title="Permanent link">#</a></h4>
 
@@ -15001,7 +15001,7 @@ array, unchanged behaviour).</p>
           </tr>
           <tr class="doc-section-item">
             <td>
-                <code>unpack</code>
+                <code>scaled</code>
             </td>
             <td>
                   <code>(<span title="bool">bool</span>, <span title="keyword">keyword</span> - <span title="only">only</span>)</code>
@@ -15027,7 +15027,7 @@ behaviour).</p>
               </div>
             </td>
             <td>
-                  <code>True</code>
+                  <code>False</code>
             </td>
           </tr>
           <tr class="doc-section-item">
@@ -15721,7 +15721,7 @@ bbox) reprojects outside the target CRS's valid domain.</p>
 <a id="__codelineno-0-504" name="__codelineno-0-504"></a>    <span class="n">boundless</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
 <a id="__codelineno-0-505" name="__codelineno-0-505"></a>    <span class="n">fill_value</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-506" name="__codelineno-0-506"></a>    <span class="n">masked</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
-<a id="__codelineno-0-507" name="__codelineno-0-507"></a>    <span class="n">unpack</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-0-507" name="__codelineno-0-507"></a>    <span class="n">scaled</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
 <a id="__codelineno-0-508" name="__codelineno-0-508"></a>    <span class="n">threadsafe</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
 <a id="__codelineno-0-509" name="__codelineno-0-509"></a>    <span class="n">bbox_rounding</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"cover"</span><span class="p">,</span>
 <a id="__codelineno-0-510" name="__codelineno-0-510"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ArrayLike</span><span class="p">:</span>
@@ -15847,7 +15847,7 @@ bbox) reprojects outside the target CRS's valid domain.</p>
 <a id="__codelineno-0-630" name="__codelineno-0-630"></a><span class="sd">            combining it with `chunks` or `threadsafe=True` raises</span>
 <a id="__codelineno-0-631" name="__codelineno-0-631"></a><span class="sd">            :class:`NotImplementedError`. Default is `False` (plain</span>
 <a id="__codelineno-0-632" name="__codelineno-0-632"></a><span class="sd">            array, unchanged behaviour).</span>
-<a id="__codelineno-0-633" name="__codelineno-0-633"></a><span class="sd">        unpack (bool, keyword-only):</span>
+<a id="__codelineno-0-633" name="__codelineno-0-633"></a><span class="sd">        scaled (bool, keyword-only):</span>
 <a id="__codelineno-0-634" name="__codelineno-0-634"></a><span class="sd">            When `True`, return real-world values by applying each</span>
 <a id="__codelineno-0-635" name="__codelineno-0-635"></a><span class="sd">            band's GDAL scale/offset as float — `real = raw * scale +</span>
 <a id="__codelineno-0-636" name="__codelineno-0-636"></a><span class="sd">            offset`, via `GetScale()`/`GetOffset()`. A band that</span>
@@ -16065,7 +16065,7 @@ bbox) reprojects outside the target CRS's valid domain.</p>
 <a id="__codelineno-0-848" name="__codelineno-0-848"></a>        <span class="n">boundless</span><span class="o">=</span><span class="n">boundless</span><span class="p">,</span>
 <a id="__codelineno-0-849" name="__codelineno-0-849"></a>        <span class="n">fill_value</span><span class="o">=</span><span class="n">fill_value</span><span class="p">,</span>
 <a id="__codelineno-0-850" name="__codelineno-0-850"></a>        <span class="n">masked</span><span class="o">=</span><span class="n">masked</span><span class="p">,</span>
-<a id="__codelineno-0-851" name="__codelineno-0-851"></a>        <span class="n">unpack</span><span class="o">=</span><span class="n">unpack</span><span class="p">,</span>
+<a id="__codelineno-0-851" name="__codelineno-0-851"></a>        <span class="n">scaled</span><span class="o">=</span><span class="n">scaled</span><span class="p">,</span>
 <a id="__codelineno-0-852" name="__codelineno-0-852"></a>        <span class="n">threadsafe</span><span class="o">=</span><span class="n">threadsafe</span><span class="p">,</span>
 <a id="__codelineno-0-853" name="__codelineno-0-853"></a>    <span class="p">)</span>
 <a id="__codelineno-0-854" name="__codelineno-0-854"></a>    <span class="c1"># Resolve the bbox CRS only when a bbox is actually given. resolve_read_window</span>
@@ -16092,7 +16092,7 @@ bbox) reprojects outside the target CRS's valid domain.</p>
 <a id="__codelineno-0-875" name="__codelineno-0-875"></a>    <span class="c1"># Applied post-dispatch (not inside a strategy) because scaling is a uniform</span>
 <a id="__codelineno-0-876" name="__codelineno-0-876"></a>    <span class="c1"># arithmetic transform over whatever array the strategy returns — plain,</span>
 <a id="__codelineno-0-877" name="__codelineno-0-877"></a>    <span class="c1"># masked, or dask — unlike `masked`, which each strategy owns or rejects.</span>
-<a id="__codelineno-0-878" name="__codelineno-0-878"></a>    <span class="k">if</span> <span class="n">req</span><span class="o">.</span><span class="n">unpack</span><span class="p">:</span>
+<a id="__codelineno-0-878" name="__codelineno-0-878"></a>    <span class="k">if</span> <span class="n">req</span><span class="o">.</span><span class="n">scaled</span><span class="p">:</span>
 <a id="__codelineno-0-879" name="__codelineno-0-879"></a>        <span class="n">arr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_apply_scale_offset</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">req</span><span class="o">.</span><span class="n">band</span><span class="p">)</span>
 <a id="__codelineno-0-880" name="__codelineno-0-880"></a>    <span class="c1"># arr is assembled through many untyped GDAL/dask branches inside the</span>
 <a id="__codelineno-0-881" name="__codelineno-0-881"></a>    <span class="c1"># strategy; this is the method's own declared contract.</span>
