@@ -3311,15 +3311,13 @@ class NetCDF(Dataset):
         else:
             result = self._read_array_lazy(chunks, lock, masked)
             # The lazy path builds its array straight from the MDArray rather than
-            # through the raster read, so it applies the packing itself -- from the
-            # same `_scale` / `_offset` the eager path prefers, which is what keeps
-            # the two answering alike.
+            # through the raster read, so it applies the packing itself -- from
+            # `_effective_packing`, the same resolver the eager arm uses. Reading
+            # only `_scale` / `_offset` here made the two answer in different units
+            # on a classic-opened file, where the variable carries no packing of its
+            # own but the driver's band does: eager 2.5, lazy 100.0.
             if unpack:
-                result = apply_unpack(
-                    result,
-                    getattr(self, "_scale", None),
-                    getattr(self, "_offset", None),
-                )
+                result = apply_unpack(result, *self._effective_packing())
         return cast(ArrayLike, result)
 
     def _read_non_raster_variable(
@@ -3440,6 +3438,32 @@ class NetCDF(Dataset):
         # the injected, already-resolved CRS.
         return resolve_read_window(window, bbox, crs=crs)
 
+    def _effective_packing(self) -> tuple[Any, Any]:
+        """The `(scale, offset)` a read of this variable must apply.
+
+        There are two places the packing can live and they do not always agree, so
+        every read path resolves it here rather than picking one. The variable's own
+        `_scale` / `_offset` win: `_wrap_like` copies them onto every result, and the
+        rest of this module -- the fan-out carry, the stream specs -- treats them as
+        the truth. The classic band's `GetScale` / `GetOffset` are the fallback, which
+        is what a container opened with `open_as_multi_dimensional=False` has, since
+        nothing copies the MDArray's attributes onto the variable there.
+
+        Resolving it in one place is the point. While the eager arm consulted the
+        band and the lazy arm consulted only `_scale`, the same classic-opened
+        variable read `2.5` eagerly and `100.0` through `chunks=`.
+
+        Returns:
+            tuple: `(scale, offset)`, either of which may be `None` for "unset".
+        """
+        scale = getattr(self, "_scale", None)
+        offset = getattr(self, "_offset", None)
+        if _is_identity_packing(scale, offset):
+            band = self._raster.GetRasterBand(1) if self._raster is not None else None
+            if band is not None:
+                scale, offset = band.GetScale(), band.GetOffset()
+        return scale, offset
+
     def _read_array_eager(
         self,
         band: int | None,
@@ -3456,17 +3480,13 @@ class NetCDF(Dataset):
         forwarding `unpack` *and* applying it here multiplied the packing in twice --
         `100 -> 2.5 -> 1.525`, plausible and wrong.
 
-        Which of the two is authoritative matters, because they can disagree: a spatial
-        op may hand back a raster whose band lost the packing while the variable still
-        carries it in `_scale` / `_offset` (`_wrap_like` copies those onto every result,
-        and the rest of this module -- the fan-out carry, the stream specs -- reads them
-        as the truth). So the variable's own pair wins when it has one, and the band is
-        the fallback: that keeps eager and lazy answering alike, and keeps the per-band
-        case working for a variable that declares nothing of its own, since a raster may
-        hold a different factor per band while an MDArray has just the one.
+        Which pair to apply is `_effective_packing`'s decision, shared with the lazy
+        arm so the two cannot answer in different units. Falling through to
+        `super()` with `unpack` untouched keeps the per-band case working for a
+        variable that declares nothing of its own, since a raster may hold a
+        different factor per band while an MDArray has just the one.
         """
-        scale = getattr(self, "_scale", None)
-        offset = getattr(self, "_offset", None)
+        scale, offset = self._effective_packing()
         if unpack and not _is_identity_packing(scale, offset):
             raw = super().read_array(
                 band=band,

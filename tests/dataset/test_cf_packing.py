@@ -136,10 +136,22 @@ class TestPackedReadsArePhysical:
             store.close()
         assert float(np.nanmax(raw)) == pytest.approx(PACKED_RAW_MAX)
 
-    def test_the_lazy_path_agrees_with_the_eager_one(self):
-        """`chunks=` builds its array separately, so it can drift from the eager read."""
+    @pytest.mark.parametrize(
+        "multidim", [True, False], ids=["multidim-opener", "classic-opener"]
+    )
+    def test_the_lazy_path_agrees_with_the_eager_one(self, multidim):
+        """`chunks=` builds its array separately, so it can drift from the eager read.
+
+        Test scenario:
+            Both openers, because they put the packing in different places. Opened
+            multidimensionally the variable carries `_scale` / `_offset` of its own;
+            opened classically it does not, and only the driver's band declares them.
+            While the eager arm consulted the band and the lazy arm consulted only
+            `_scale`, the classic-opened variable read 2.5 eagerly and 100.0 through
+            `chunks=` -- the same variable, in different units, by keyword.
+        """
         pytest.importorskip("dask")
-        store = NetCDF.read_file(PACKED_NC)
+        store = NetCDF.read_file(PACKED_NC, open_as_multi_dimensional=multidim)
         try:
             variable = store.get_variable("z")
             eager = np.asarray(variable.read_array(), dtype="float64")
@@ -147,6 +159,9 @@ class TestPackedReadsArePhysical:
         finally:
             store.close()
         np.testing.assert_allclose(np.nanmax(lazy), np.nanmax(eager))
+        assert float(np.nanmax(eager)) == pytest.approx(PACKED_PHYSICAL_MAX), (
+            f"both paths agree, but on the raw counts: {np.nanmax(eager)}"
+        )
 
     def test_unpacking_is_not_applied_twice(self):
         """The value is the packing applied once, not once per layer.
