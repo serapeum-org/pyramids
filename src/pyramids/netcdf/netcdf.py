@@ -171,12 +171,15 @@ class _LazyVariableDict(dict):
         self._nc = nc
         self._names: list[str] = nc.variable_names
 
-    def __getitem__(self, key: str) -> NetCDF:
+    def __getitem__(self, key: str) -> NetCDF | LabeledArray:
         if not dict.__contains__(self, key):
             if key not in self._names:
                 raise KeyError(self._refusal(key))
             dict.__setitem__(self, key, self._nc.get_variable(key))
-        return cast("NetCDF", dict.__getitem__(self, key))
+        # The cast this used to carry claimed every entry was a `NetCDF`, which
+        # suppressed exactly the error a caller needs to see: a variable with no
+        # raster plane is a `LabeledArray` here, as it is from `get_variable`.
+        return cast("NetCDF | LabeledArray", dict.__getitem__(self, key))
 
     def _refusal(self, key: str) -> str:
         """Word the `KeyError`, saying so when the name is merely not a data variable.
@@ -223,10 +226,10 @@ class _LazyVariableDict(dict):
     def keys(self) -> list[str]:  # type: ignore[override]
         return self._names
 
-    def values(self) -> list[NetCDF]:  # type: ignore[override]
+    def values(self) -> list[NetCDF | LabeledArray]:  # type: ignore[override]
         return [self[k] for k in self._names]
 
-    def items(self) -> list[tuple[str, NetCDF]]:  # type: ignore[override]
+    def items(self) -> list[tuple[str, NetCDF | LabeledArray]]:  # type: ignore[override]
         return [(k, self[k]) for k in self._names]
 
 
@@ -1043,9 +1046,13 @@ def _labeled_array_from_md_array(md_arr: gdal.MDArray, name: str) -> LabeledArra
         name: The variable's name, for the error when it cannot be read.
 
     Returns:
-        LabeledArray: `values` with the `dims` and `shape` GDAL declares -- the
-        same type `LabeledDataset["var"]` returns, so both routes to a
-        non-raster variable answer alike.
+        LabeledArray: `values` with the `dims` and `shape` GDAL declares, plus
+        the `name`, `unit`, `no_data_value` and `attributes` the array carries.
+        The values are as **stored**: no CF time decoding and no
+        `scale_factor` / `add_offset`, matching `read_array`'s own
+        `unpack=False` default. `LabeledDataset["var"]` returns the same class
+        but decodes a CF time axis, so the two agree on type and not always on
+        values.
 
     Raises:
         ValueError: The values read back with a shape other than the one the
@@ -1099,7 +1106,27 @@ def _labeled_array_from_md_array(md_arr: gdal.MDArray, name: str) -> LabeledArra
             f"{name} declares dimensions {dims} of shape {shape}, but its "
             f"values read back with shape {values.shape}"
         )
-    return LabeledArray(values, dims, shape)
+    # The labels the raw `MDArray` used to expose through `GetUnit()`,
+    # `GetNoDataValueAsDouble()` and the attribute API. Carrying them is what
+    # makes the wrapper a better answer than the handle it replaced rather than
+    # merely a safer one -- without them a `-9999.0` in `values` would be
+    # indistinguishable from real data.
+    attributes = {}
+    for attribute in md_arr.GetAttributes() or []:
+        try:
+            attributes[attribute.GetName()] = attribute.Read()
+        except RuntimeError:
+            # One unreadable attribute must not cost the caller the values.
+            continue
+    return LabeledArray(
+        values,
+        dims,
+        shape,
+        name=name,
+        unit=md_arr.GetUnit() or "",
+        no_data_value=md_arr.GetNoDataValueAsDouble(),
+        attributes=attributes,
+    )
 
 
 def _numpy_dtype_of(data_type: gdal.ExtendedDataType) -> np.dtype:
@@ -1434,7 +1461,7 @@ class NetCDF(Dataset):
             self._is_md_array = False
             self._is_subset = False
         # Caches (invalidated by _replace_raster, add_variable, remove_variable)
-        self._cached_variables: dict[str, NetCDF] | None = None
+        self._cached_variables: dict[str, NetCDF | LabeledArray] | None = None
         self._cached_meta_data: NetCDFMetadata | None = None
         # Memoised `geotransform`; see that property. Cleared wherever
         # `_geotransform` is reassigned, so the two cannot disagree.
@@ -2611,15 +2638,20 @@ class NetCDF(Dataset):
         return self._get_variable_names()
 
     @property
-    def variables(self) -> dict[str, NetCDF]:
-        """All data variables as a lazy dict of `{name: NetCDF}` subsets.
+    def variables(self) -> dict[str, NetCDF | LabeledArray]:
+        """All data variables as a lazy dict of `{name: subset}`.
 
         Variables are loaded on first access per key, not all at once.
         Cached after loading; invalidated by `add_variable` /
         `remove_variable` / `set_variable`.
 
+        Each entry is whatever `get_variable` returns for that name: a `NetCDF`
+        subset for a raster variable, a `LabeledArray` for one with no raster
+        plane -- a 1-D array, or a non-numeric one of any rank.
+
         Returns:
-            dict[str, NetCDF]: Mapping from variable name to its subset.
+            dict[str, NetCDF | LabeledArray]: Mapping from variable name to its
+            subset.
         """
         if self._cached_variables is None:
             self._cached_variables = _LazyVariableDict(self)
@@ -3430,7 +3462,7 @@ class NetCDF(Dataset):
                 self._check_not_container("read_array")
             subset = self.get_variable(cast("str", variable))
             if not isinstance(subset, NetCDF):
-                # `get_variable` hands back a raw `gdal.MDArray` for anything
+                # `get_variable` hands back a `LabeledArray` for anything
                 # GDAL cannot expose as a raster -- a 1-D array (`time_bounds`,
                 # `band_id`, a grouped store's `flight_03/CO`) or a non-numeric
                 # one. `variable_names` enumerates several such arrays on the
@@ -3440,7 +3472,13 @@ class NetCDF(Dataset):
                 # 'read_array'`, which reads as a pyramids bug rather than a
                 # shape mismatch.
                 return self._read_non_raster_variable(
-                    cast("str", variable), band, read_window, chunks, masked, unpack
+                    cast("str", variable),
+                    band,
+                    read_window,
+                    chunks,
+                    masked,
+                    unpack,
+                    subset,
                 )
             return subset.read_array(
                 band=band,
@@ -3478,37 +3516,38 @@ class NetCDF(Dataset):
         chunks: Any,
         masked: bool,
         unpack: bool,
+        values: LabeledArray,
     ) -> ArrayLike:
-        """Read a variable GDAL exposes only as a raw ``MDArray``, not a raster.
+        """Return the values of a variable that has no raster plane.
 
         A 1-D array (a coordinate axis, a data series, a bounds array) or a
-        non-numeric one has no raster plane, so :meth:`get_variable` returns the
-        MDArray itself. Several such names are *enumerated* -- GOES ABI declares
-        ``time_bounds`` / ``x_image_bounds`` / ``y_image_bounds`` as data
-        variables and a grouped store enumerates ``"flight_03/CO"`` -- so they
-        reach :meth:`read_array` through the ordinary container route and used
-        to fail there with ``AttributeError: 'MDArray' object has no attribute
-        'read_array'``.
+        non-numeric one has no raster plane. Several such names are
+        *enumerated* -- GOES ABI declares ``time_bounds`` / ``x_image_bounds`` /
+        ``y_image_bounds`` as data variables and a grouped store enumerates
+        ``"flight_03/CO"`` -- so they reach :meth:`read_array` through the
+        ordinary container route and used to fail there with
+        ``AttributeError: 'MDArray' object has no attribute 'read_array'``.
 
-        The read itself goes through :meth:`_read_variable`, the same resolver
-        the plot engine and the carry paths use, so a group-qualified name is
-        walked down to its owning group.
+        The values are taken from the :class:`LabeledArray` the caller already
+        resolved rather than read again. :meth:`get_variable` materialises now,
+        so re-reading here would have made every container-route read of such a
+        variable read the whole array twice.
 
         Args:
-            variable: The array name, already known to resolve to an MDArray.
-            band: Rejected — a raw array has no bands.
-            window: Rejected — a raw array has no raster window to clip.
-            chunks: Rejected — the lazy path builds a raster plane.
-            masked: Rejected — masking is defined against a band's no-data.
+            variable: The array name, used in the refusals below.
+            band: Rejected -- a raw array has no bands.
+            window: Rejected -- a raw array has no raster window to clip.
+            chunks: Rejected -- the lazy path builds a raster plane.
+            masked: Rejected -- masking is defined against a band's no-data.
             unpack: Applied from the array's own CF ``scale_factor`` /
                 ``add_offset``, since there is no band to carry them.
+            values: The already-materialised variable.
 
         Returns:
             np.ndarray: The array's values, in storage order.
 
         Raises:
-            ValueError: If any raster-only argument is supplied, or if the
-                array cannot be read back.
+            ValueError: If any raster-only argument is supplied.
         """
         rejected = [
             name
@@ -3527,9 +3566,7 @@ class NetCDF(Dataset):
                 "(it is 1-D or non-numeric), so there is no band, window or "
                 "chunk plane to apply. Read it without those arguments."
             )
-        result = self._read_variable(variable)
-        if result is None:
-            raise ValueError(f"Could not read variable {variable!r} from the store.")
+        result = values.values
         if unpack:
             md_arr = open_mdarray(self._working_group(), variable)
             result = apply_unpack(
@@ -6758,7 +6795,7 @@ class NetCDF(Dataset):
         raising. It does **not** promise a uniform return type: a name here
         that GDAL cannot expose as a raster -- a 1-D array (`band_id`,
         `time_bounds`, a coordinate axis) or a non-numeric one -- comes back as
-        a raw :class:`osgeo.gdal.MDArray` rather than a
+        a :class:`~pyramids.netcdf.LabeledArray` rather than a
         :class:`~pyramids.netcdf.NetCDF` variable, as documented on
         :meth:`get_variable`. :meth:`read_array` handles both.
 
@@ -7182,9 +7219,9 @@ class NetCDF(Dataset):
                 GDAL declares — rather than as a `NetCDF`: a 1-D variable
                 of any dtype, and any **non-numeric** variable of any rank,
                 a character/string column (however the driver exposes it)
-                or a compound (struct) type. That is the same type
-                `LabeledDataset["var"]` hands back, so both routes to a
-                non-raster variable answer alike. It is not a raster, so
+                or a compound (struct) type. `LabeledDataset["var"]` hands
+                back the same class, though it decodes a CF time axis where
+                this returns the stored numbers. It is not a raster, so
                 none of the band-dim tracking above applies to it and
                 neither do `sel()` or the raster methods; read the values
                 off `.values` (#1126).
@@ -7343,10 +7380,10 @@ class NetCDF(Dataset):
 
         # Geostationary (GOES) scan-angle x/y come through the MDIM read path in
         # radians; rescale them to projected metres so the cube is correctly
-        # georeferenced and to_crs/crop work. No-op for every other CRS. Guarded
-        # because a 1-D string variable yields a raw MDArray, not a NetCDF.
-        if isinstance(cube, NetCDF):
-            cube._normalize_geostationary_geotransform()
+        # georeferenced and to_crs/crop work. No-op for every other CRS. The
+        # guard this used to carry is gone with the reason for it: a variable
+        # with no raster plane returns before reaching here.
+        cube._normalize_geostationary_geotransform()
 
         self._attach_variable_metadata(
             cube, md_arr_ref if rg is not None else None, spatial_dim_indices
@@ -7764,10 +7801,10 @@ class NetCDF(Dataset):
         """Populate band-dim tracking, variable attributes, and packing on a variable subset.
 
         When `md_arr` is `None` (e.g. the file-backed gdal.Open path) the band/attr metadata is
-        cleared to empty defaults. `cube` may also be a raw `gdal.MDArray` rather than a `NetCDF`
-        — a 1-D variable, or a non-numeric one of any rank (see `_read_md_array`) — which has no
-        band model, so `_track_band_dimensions` and `_apply_attribute_no_data` fall back rather
-        than read band attributes off it. `_copy_variable_attrs` is unaffected — it reads the
+        cleared to empty defaults. `cube` is always a `NetCDF`: a variable with no raster plane
+        — a 1-D one, or a non-numeric one of any rank (see `_read_md_array`) — is materialised and
+        returned by `get_variable` before this is called, so the band model it needs is always
+        present. `_copy_variable_attrs` is unaffected — it reads the
         MDArray, not the cube.
         """
         if md_arr is None:
@@ -7791,8 +7828,8 @@ class NetCDF(Dataset):
         plot mask read. The view ignores ``SetNoDataValue``, so only the wrapper list is updated.
 
         A variable GDAL cannot expose as a raster — a 1-D one, or a non-numeric one of any rank
-        (see :meth:`_read_md_array`) — comes back as a raw ``gdal.MDArray`` with no band model (no
-        ``_no_data_value``), so there is nothing to stamp and it is left untouched.
+        (see :meth:`_read_md_array`) — never reaches here: :meth:`get_variable` materialises it
+        into a :class:`~pyramids.netcdf.LabeledArray` and returns before this is called.
         """
         current = getattr(cube, "_no_data_value", None)
         if current is not None and not any(v is not None for v in current):
@@ -7823,10 +7860,11 @@ class NetCDF(Dataset):
         array) when available, else the last two. The legacy `_band_dim_name`/`_band_dim_values`
         fields point at the first non-spatial dim so existing 3-D consumers are unaffected.
 
-        `cube` may be a raw `gdal.MDArray` with no band model (see `_read_md_array`). A rank <= 2
-        one takes the empty-`band_dims` exit below, which clears all five fields; a rank >= 3 one
-        still gets the per-dimension `_band_dim_names` / `_band_dim_sizes` / `_band_dim_values_map`
-        tracking, but its legacy pair is left as `None`, because deriving a primary band view needs
+        `cube` is always a raster-backed `NetCDF` (see `_read_md_array`): an array with no raster
+        plane is materialised by `get_variable` and never reaches here. A rank <= 2 one takes the
+        empty-`band_dims` exit below, which clears all five fields; a rank >= 3 one gets the
+        per-dimension `_band_dim_names` / `_band_dim_sizes` / `_band_dim_values_map`
+        tracking, and its legacy pair is derived, because deriving a primary band view needs
         a band count the MDArray does not have (#1067).
         """
         if len(dims) > 2:
@@ -7852,21 +7890,11 @@ class NetCDF(Dataset):
         cube._band_dim_values_map = {
             d.GetName(): NetCDF._read_band_dim_values(d) for d in band_dims
         }
-        band_count = getattr(cube, "_band_count", None)
-        if band_count is None:
-            # A variable GDAL cannot expose as a raster comes back as a raw `gdal.MDArray`, which
-            # has no band model at all (see `_read_md_array`: a 1-D variable, or a non-numeric one
-            # of any rank). Rank <= 2 exits at the `band_dims` branch above, but a rank >= 3 raw
-            # array reaches here, where deriving a primary band view would read the `_band_count`
-            # an MDArray does not have (#1067).
-            cube._band_dim_name = None
-            cube._band_dim_values = None
-            return
         cube._band_dim_name, cube._band_dim_values = NetCDF._derive_primary_band_view(
             cube._band_dim_names,
             cube._band_dim_values_map,
             cube._band_dim_sizes,
-            band_count,
+            cube._band_count,
         )
 
     @staticmethod
