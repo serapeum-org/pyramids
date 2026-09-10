@@ -332,3 +332,55 @@ class TestSentinelReconciliationKeepsTheStore:
             np.testing.assert_allclose(stored.ravel()[:3], [100.0, -100.0, 0.0])
         agreed = {first.no_data_value[0], second.no_data_value[0]}
         assert len(agreed) == 1, f"the timesteps still disagree: {agreed}"
+
+
+class TestGridOpsKeepThePacking:
+    """A raster that only moves onto a new grid keeps the recipe for its counts."""
+
+    @pytest.mark.parametrize(
+        "operation",
+        [
+            pytest.param(lambda ds: ds.to_crs(3857), id="to_crs"),
+            pytest.param(
+                lambda ds: ds.to_crs(3857, maintain_alignment=True),
+                id="to_crs-maintain-alignment",
+            ),
+            pytest.param(lambda ds: ds.resample(cell_size=2.0), id="resample"),
+        ],
+    )
+    def test_a_regridded_raster_still_declares_its_packing(self, operation):
+        """`scale` and `offset` survive, so the values still mean what they meant.
+
+        Test scenario:
+            All three build their destination at the source's own type and fill it
+            with `gdal.ReprojectImage`, which moves stored counts -- a byte-copy. Only
+            the plain `to_crs` happened to survive, because GDAL's `Warp` carries the
+            band scale itself; the other two dropped it and returned raw counts, the
+            hundredfold error #1124 was filed about.
+        """
+        dataset = _packed_raster([[100, -100], [0, 50]], 0.01, 1.5)
+
+        result = operation(dataset)
+
+        assert result.scale[0] == pytest.approx(0.01), (
+            f"the packing was dropped: scale={result.scale}"
+        )
+        values = np.asarray(result.read_array(), dtype="float64")
+        assert float(np.nanmax(values)) <= 2.5 + 1e-9, (
+            f"values look like raw counts, not metres: max {np.nanmax(values)}"
+        )
+
+    def test_align_keeps_the_packing_too(self):
+        """`align` moves pixels onto a template grid, so it is the same byte-copy."""
+        template = _packed_raster([[100, -100], [0, 50]], 0.01, 1.5)
+        dataset = _packed_raster([[100, -100], [0, 50]], 0.01, 1.5)
+
+        result = dataset.align(template)
+
+        assert result.scale[0] == pytest.approx(0.01), (
+            f"align dropped the packing: scale={result.scale}"
+        )
+        np.testing.assert_allclose(
+            np.asarray(result.read_array(), dtype="float64").ravel(),
+            [2.5, 0.5, 1.5, 2.0],
+        )

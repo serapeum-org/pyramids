@@ -1245,6 +1245,11 @@ class Spatial(_Engine["Dataset"]):
             sr_src.ExportToWkt(),
             resampling_method,
         )
+        # `ReprojectImage` moves the stored counts onto the new grid and `_build_dataset`
+        # made the destination at the source's own type, so this is a byte-copy and has
+        # to hand the recipe on with them. Without it a packed raster comes out of
+        # `resample` as bare counts -- the hundredfold error #1124 was filed about.
+        carry_packing(self._ds.raster, dst_obj.raster)
 
         return dst_obj
 
@@ -1473,6 +1478,11 @@ class Spatial(_Engine["Dataset"]):
             dst_sr.ExportToWkt(),
             method,
         )
+        # `ReprojectImage` moves the stored counts onto the new grid and `_build_dataset`
+        # made the destination at the source's own type, so this is a byte-copy and has
+        # to hand the recipe on with them. Without it a packed raster comes out of
+        # `to_crs(maintain_alignment=True)` as bare counts -- the hundredfold error #1124 was filed about.
+        carry_packing(self._ds.raster, dst_obj.raster)
         return dst_obj
 
     def fill_gaps(
@@ -2319,6 +2329,10 @@ class Spatial(_Engine["Dataset"]):
         # output would otherwise lose the class legend, RAT, and band/dataset
         # metadata. Carry them over from the (possibly reprojected) source (#1029).
         carry_raster_metadata(reprojected_raster_b.raster, dst_obj.raster)
+        # And the CF packing, which is not part of that metadata: the pixels moved
+        # here are stored counts, so `align` has to say what turns them back into
+        # measurements or a packed raster comes out a hundredfold off (#1124).
+        carry_packing(reprojected_raster_b.raster, dst_obj.raster)
 
         return dst_obj
 
