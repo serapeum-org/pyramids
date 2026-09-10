@@ -15,6 +15,9 @@ import pytest
 from pyramids.netcdf import LabeledArray, NetCDF
 
 GROUPED = "none__35v__1d35__groups-nc4.nc"
+# `hyai` is the first name this store enumerates and has no raster plane; `U` / `V` / `T`
+# follow it and do carry a CRS.
+LAYERED = "cf__48v__1d17-3d21-4d10__y-asc.nc"
 
 
 class TestANonRasterVariableComesBackLabelled:
@@ -188,5 +191,58 @@ class TestAVariableWithNoRecords:
             assert empty.values.shape == (0,)
             assert empty.values.dtype == np.float64
             assert store.get_variable("full_v").values.tolist() == [1.0, 2.0, 3.0]
+        finally:
+            store.close()
+
+
+class TestTheContainerCrsSkipsAVariableWithNoRasterPlane:
+    """A container borrows its CRS from its variables, and one of them may have no geometry."""
+
+    def test_a_leading_non_raster_variable_does_not_hide_the_crs(self, sample):
+        """The variable that comes first must not decide the answer for the ones behind it.
+
+        Args:
+            sample: Fixture resolving a sample file name to its path.
+
+        Test scenario:
+            `hyai`, a hybrid-sigma coefficient, is the first name this store enumerates and has
+            no raster plane; `U` / `V` / `T` follow it and do carry a CRS. Asking a
+            `LabeledArray` for `.crs` raises, and the loop's `except` wraps the whole walk, so
+            without the skip the first variable would suppress the CRS of every one after it.
+            Expected: the CRS the later variables report, not an empty string.
+        """
+        store = NetCDF.read_file(sample(LAYERED), read_only=True)
+        try:
+            first = store.variable_names[0]
+            assert isinstance(store.get_variable(first), LabeledArray), (
+                "fixture changed"
+            )
+
+            assert store._container_crs(), (
+                f"{first} suppressed the CRS of the variables after it"
+            )
+            assert store.epsg == 4326, f"unexpected EPSG {store.epsg}"
+        finally:
+            store.close()
+
+    def test_a_container_of_only_non_raster_variables_answers_plainly(self, sample):
+        """Skipping every variable must leave a plain "no CRS", not a failure.
+
+        Args:
+            sample: Fixture resolving a sample file name to its path.
+
+        Test scenario:
+            Every variable of the grouped store is a 1-D series, so the walk skips all of them
+            and falls out of the loop having found nothing. Expected: an empty CRS and no EPSG,
+            answered rather than raised -- the honest result for a store with no geometry.
+        """
+        store = NetCDF.read_file(sample(GROUPED), read_only=True)
+        try:
+            assert store._container_crs() == "", (
+                f"a store with no raster variable has no CRS to report: "
+                f"{store._container_crs()!r}"
+            )
+            assert store.crs == "", f"unexpected CRS {store.crs!r}"
+            assert store.epsg is None, f"unexpected EPSG {store.epsg}"
         finally:
             store.close()
