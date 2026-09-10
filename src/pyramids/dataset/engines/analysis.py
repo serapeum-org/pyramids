@@ -745,6 +745,15 @@ class Analysis(_Engine["Dataset"]):
         still returned `[14.0, 12.0, 10.0]` while the whole-array arm returned
         `[14.35, 12.72, 10.0]`.
 
+        Only the **first tile** is read, and the probe value is taken from its
+        *domain*. Reading the whole band here defeated the mode this is for -- whose
+        stated purpose is that a very large or `/vsicurl` source is never materialised
+        whole -- and on a packed source that full read comes back `float64`, eight
+        bytes a pixel of exactly the array `elementwise=True` exists to avoid. Taking
+        the domain rather than cell `[0, 0]` matters because that cell is often the
+        no-data sentinel, and a `func` that raises on it would fall back to the source
+        dtype and quietly restore the truncation.
+
         Args:
             func: The callable `apply` was given.
             band: The band index being read.
@@ -754,14 +763,15 @@ class Analysis(_Engine["Dataset"]):
         """
         resolved = np.dtype(self._ds.numpy_dtype[band])
         try:
-            source = np.asarray(self._ds.read_array(band=band))
-            resolved = self._storable_dtype(func, source)
+            window = next(iter(self._ds.io._tile_offsets()))
+            tile, domain = self._domain_read(band, window=list(window))
+            resolved = self._storable_dtype(func, np.asarray(tile), domain)
         except Exception:
             logger.debug("could not probe the result dtype for apply", exc_info=True)
         return resolved
 
     @staticmethod
-    def _storable_dtype(func, source: np.ndarray) -> np.dtype:
+    def _storable_dtype(func, source: np.ndarray, domain=None) -> np.dtype:
         """The narrowest dtype that holds `func`'s result and that GDAL can store.
 
         Probed by calling `func` on one domain value. Writing the result back at the
@@ -773,13 +783,22 @@ class Analysis(_Engine["Dataset"]):
         Args:
             func: The callable `apply` was given.
             source: The array being read, supplying the probe value and the fallback type.
+            domain: Which cells hold measurements, when the caller knows. The probe is
+                taken from one of those rather than from cell `[0, 0]`, which is often
+                the no-data sentinel -- a `func` that raises on the sentinel would fall
+                back to the source dtype and restore the truncation this exists to fix.
 
         Returns:
             np.dtype: A dtype `numpy_to_gdal_dtype` accepts.
         """
         resolved = source.dtype
+        flat = np.asarray(source).reshape(-1)
+        if domain is not None:
+            candidates = flat[np.asarray(domain).reshape(-1)]
+            if candidates.size:
+                flat = candidates
         try:
-            probe = np.asarray(func(np.asarray(source).reshape(-1)[:1]))
+            probe = np.asarray(func(flat[:1]))
             promoted = np.result_type(source.dtype, probe.dtype)
             numpy_to_gdal_dtype(promoted)
         except Exception:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 from collections.abc import Sequence
 from functools import cache
@@ -16,6 +17,8 @@ from pandas import DataFrame
 
 from pyramids import __path__
 from pyramids.base._errors import DriverNotExistError, OptionalPackageDoesNotExist
+
+logger = logging.getLogger(__name__)
 
 
 def _half_precision_columns(
@@ -1595,13 +1598,23 @@ def _is_identity_packing(
         scale: Multiplicative factor, or `None`.
         offset: Additive offset, or `None`.
 
+    A `scale` of `0` or a non-finite one is treated as "nothing to do" as well. Neither is a
+    legal CF `scale_factor` -- one maps the whole band onto the offset, the other onto `NaN` --
+    and a malformed file used to be harmless because the default was raw. Now that unpacking
+    happens without being asked, honouring such a value would silently blank the data. Refusing
+    to apply it leaves the counts intact and visible.
+
     Returns:
         bool: `True` when applying the pair would return the input unchanged. An array-valued
             scale or offset counts only when every element is the identity.
     """
-    unit = scale is None or bool(np.all(np.asarray(scale) == 1))
+    factors = np.asarray(scale, dtype="float64") if scale is not None else None
+    unusable = factors is not None and not bool(
+        np.all(np.isfinite(factors)) and np.all(factors != 0)
+    )
+    unit = scale is None or unusable or bool(np.all(np.asarray(scale) == 1))
     zero = offset is None or bool(np.all(np.asarray(offset) == 0))
-    return unit and zero
+    return (unit and zero) or unusable
 
 
 def carry_packing(source: Any, target: Any) -> None:
@@ -1644,11 +1657,22 @@ def carry_packing(source: Any, target: Any) -> None:
     """
     if source is None or target is None:
         return
+    refused = 0
     for index in range(1, min(source.RasterCount, target.RasterCount) + 1):
         if not carry_band_packing(
             source.GetRasterBand(index), target.GetRasterBand(index)
         ):
-            break
+            refused += 1
+    if refused:
+        # Every band is tried, and the report comes once. Stopping at the first
+        # refusal left bands 2..N with nothing while band 1 kept its recipe -- a
+        # partial carry, which is worse than none, because the result looks
+        # internally consistent and is wrong only on the bands nobody checked.
+        logger.debug(
+            "the destination driver stored no packing for %d of %d bands",
+            refused,
+            min(source.RasterCount, target.RasterCount),
+        )
 
 
 def carry_band_packing(source_band: Any, target_band: Any) -> bool:
