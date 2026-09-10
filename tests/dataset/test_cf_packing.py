@@ -343,6 +343,41 @@ class TestStreamingRespectsTheDestination:
         got = np.asarray(result.read_array(), dtype="float64")
         np.testing.assert_allclose(got.ravel(), [5.0, 1.0, 3.0, 4.0])
 
+    def test_the_block_mappers_agree_with_apply(self):
+        """`map_blocks`, `stream_transform` and `apply` are three spellings of one thing.
+
+        Test scenario:
+            `map_blocks`'s eager arm read raw counts through `ReadAsArray` and wrote
+            them into a destination declaring no packing -- neither the stored form
+            nor the physical one, and disagreeing with `stream_transform`, with
+            `apply`, and with its own lazy arm, which already read physically.
+        """
+        source = _packed_raster([[100, -100], [0, 50]], 0.01, 1.5)
+        mapped = _packed_raster([[100, -100], [0, 50]], 0.01, 1.5)
+        streamed = _packed_raster([[100, -100], [0, 50]], 0.01, 1.5)
+        applied = _packed_raster([[100, -100], [0, 50]], 0.01, 1.5)
+        del source
+
+        results = [
+            mapped.map_blocks(lambda tile: tile * 2, tile_size=2),
+            streamed.io.stream_transform(lambda tile: tile * 2, tile_size=2),
+            applied.apply(lambda tile: tile * 2),
+        ]
+        for result in results:
+            np.testing.assert_allclose(
+                np.asarray(result.read_array(), dtype="float64").ravel(),
+                [5.0, 1.0, 3.0, 4.0],
+            )
+
+    def test_map_blocks_leaves_an_unpacked_raster_narrow(self):
+        """The widening is for packed sources only; an ordinary raster keeps its type."""
+        dataset = _int_raster([[1, 2], [3, 4]])
+        result = dataset.map_blocks(lambda tile: tile * 2, tile_size=2)
+        assert result.dtype == ["int16"], result.dtype
+        np.testing.assert_array_equal(
+            np.asarray(result.read_array()).ravel(), [2, 4, 6, 8]
+        )
+
     def test_an_unpacked_raster_is_unaffected_by_the_rule(self):
         """The destination check must not disturb the ordinary case."""
         dataset = _int_raster([[1, 2], [3, 4]])

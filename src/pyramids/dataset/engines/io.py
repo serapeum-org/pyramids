@@ -45,6 +45,7 @@ from pyramids.base._locks import DummyLock, default_lock
 from pyramids.base._utils import (
     _is_identity_packing,
     apply_unpack,
+    numpy_to_gdal_dtype,
     resolve_resampling,
 )
 from pyramids.base.crs import crs_from_user_input, crs_spec, reproject_coordinates
@@ -2816,12 +2817,24 @@ class IO(_Engine["Dataset"]):
             # The eager tile loop below reads windows from the source; a NetCDF multidim view can't
             # be window-read by GDAL >= 3.13, so materialise it first (no-op for an ordinary raster).
             self._ds._materialize_md_view()
+            # The eager arm reads through `read_array`, like the lazy one above and
+            # like `stream_transform`, so `func` sees the same units whichever way it
+            # is reached. It used to take raw `ReadAsArray` counts and write them into
+            # a destination declaring no packing -- neither the stored form nor the
+            # physical one, and disagreeing with both its siblings and its own lazy
+            # arm. A packed source therefore needs the wider result type, since the
+            # values arriving are `float64`; an explicit `dtype=` still wins.
+            packed = not _is_identity_packing(*self._band_packing(band))
             if band is not None:
                 bands = 1
                 gdal_dtype = self._ds.gdal_dtype[band]
             else:
                 bands = self._ds.band_count
                 gdal_dtype = self._ds.gdal_dtype[0]
+            if dtype is not None:
+                gdal_dtype = numpy_to_gdal_dtype(np.dtype(dtype))
+            elif packed:
+                gdal_dtype = numpy_to_gdal_dtype(np.dtype("float64"))
 
             no_data: list | tuple
             if band is not None:
@@ -2840,15 +2853,14 @@ class IO(_Engine["Dataset"]):
             )
 
             for xoff, yoff, xsize, ysize in self._tile_offsets(size=tile_size):
+                window = [xoff, yoff, xsize, ysize]
                 if band is not None:
-                    tile = self._ds._iloc(band).ReadAsArray(xoff, yoff, xsize, ysize)
+                    tile = self._ds.read_array(band=band, window=window)
                     result_tile = func(np.asarray(tile))
                     dst_obj.raster.GetRasterBand(1).WriteArray(result_tile, xoff, yoff)
                 else:
                     for b in range(self._ds.band_count):
-                        tile = self._ds._raster.GetRasterBand(b + 1).ReadAsArray(
-                            xoff, yoff, xsize, ysize
-                        )
+                        tile = self._ds.read_array(band=b, window=window)
                         result_tile = func(np.asarray(tile))
                         dst_obj.raster.GetRasterBand(b + 1).WriteArray(
                             result_tile, xoff, yoff
