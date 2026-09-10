@@ -1184,17 +1184,50 @@ class LabeledArray:
     backward-compatible alias.
     """
 
-    __slots__ = ("values", "dims", "shape")
+    __slots__ = (
+        "values",
+        "dims",
+        "shape",
+        "name",
+        "unit",
+        "no_data_value",
+        "attributes",
+    )
 
     def __init__(
-        self, values: np.ndarray, dims: tuple[str, ...], shape: tuple[int, ...]
+        self,
+        values: np.ndarray,
+        dims: tuple[str, ...],
+        shape: tuple[int, ...],
+        *,
+        name: str = "",
+        unit: str = "",
+        no_data_value: float | None = None,
+        attributes: dict[str, Any] | None = None,
     ):
+        """Hold a materialised array with the labels that describe it.
+
+        Args:
+            values: The values, already read.
+            dims: The dimension names, outermost first.
+            shape: The shape those dimensions declare.
+            name: The variable's name, where the source knows it.
+            unit: The CF `units` string, where the source declares one.
+            no_data_value: The fill value, where the source declares one --
+                the values themselves are not masked by it.
+            attributes: The variable's other attributes.
+        """
         self.values = values
         self.dims = dims
         self.shape = shape
+        self.name = name
+        self.unit = unit
+        self.no_data_value = no_data_value
+        self.attributes = attributes if attributes is not None else {}
 
     def __repr__(self) -> str:
-        return f"LabeledArray(dims={self.dims}, shape={self.shape})"
+        label = f"{self.name!r}, " if self.name else ""
+        return f"LabeledArray({label}dims={self.dims}, shape={self.shape})"
 
 
 # Backward-compatible private alias for the now-public ``LabeledArray`` (API-9).
