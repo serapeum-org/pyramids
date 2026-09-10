@@ -4471,4 +4471,9 @@ class IO(_Engine["Dataset"]):
                     f"band {band} has no overviews, please create overviews first"
                 )
             arr = np.asarray(self.get_overview(band, overview_index).ReadAsArray())
-        return arr
+        # Physical units, like `read_array`. `Analysis._read_plot_array` routes
+        # `plot(overview=True)` through here, so leaving it in stored counts drew the
+        # same raster on two different colour scales depending on that flag. The
+        # all-bands branch above allocates at the stored dtype and fills it band by
+        # band, so the transform is applied once, at the end, over the whole stack.
+        return self._apply_scale_offset(arr, band if arr.ndim == 2 else None)

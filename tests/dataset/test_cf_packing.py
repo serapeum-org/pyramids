@@ -526,3 +526,55 @@ class TestTheSentinelStaysOutOfTheDomain:
         assert got[-1] != pytest.approx(-196.98), (
             "the two sentinels were added together as if they were data"
         )
+
+
+class TestEveryReadOnOneBandAgrees:
+    """Sibling read APIs must not answer the same band in different units."""
+
+    @pytest.mark.parametrize(
+        "read",
+        [
+            pytest.param(lambda ds: np.asarray(ds.read_array())[0, 0], id="read_array"),
+            pytest.param(lambda ds: float(ds.point(0.5, 1.5, band=0)), id="point"),
+            pytest.param(
+                lambda ds: np.asarray(ds.read_part((0, 0, 2, 2), band=0)).ravel()[0],
+                id="read_part",
+            ),
+            pytest.param(
+                lambda ds: np.asarray(ds.preview(band=0)).ravel()[0], id="preview"
+            ),
+        ],
+    )
+    def test_the_overview_read_family_is_physical_too(self, read):
+        """`point`, `read_part` and `preview` answer in `read_array`'s units.
+
+        Test scenario:
+            All three go through raw `ReadAsArray` rather than `read_array`, so they
+            were left in stored counts when the default flipped: `read_array()[0, 0]`
+            gave 2.5 while `point()` on the same cell gave 100. `plot(overview=True)`
+            renders through this family, so one raster drew on two different colour
+            scales depending on that keyword.
+        """
+        dataset = _packed_raster([[100, -100], [0, 50]], 0.01, 1.5)
+        assert float(read(dataset)) == pytest.approx(2.5)
+
+    def test_the_histogram_buckets_span_the_physical_range(self):
+        """`get_histogram`'s edges are values, so they follow `stats`.
+
+        Test scenario:
+            `ComputeRasterMinMax` and `GetHistogram` are GDAL metadata calls in stored
+            units, exactly like the `GetStatistics` this change already transforms. The
+            edges came back as (-100, 0), (0, 100) while `stats` reported 0.5 to 2.5 --
+            and `plot_histogram`, which reads through `read_array`, disagreed with both.
+        """
+        dataset = _packed_raster([[100, -100], [0, 50]], 0.01, 1.5)
+        _counts, ranges = dataset.get_histogram(band=0, bins=2)
+        assert ranges[0][0] == pytest.approx(0.5), f"first edge {ranges[0][0]}"
+        assert ranges[-1][-1] == pytest.approx(2.5), f"last edge {ranges[-1][-1]}"
+
+    def test_an_unpacked_raster_keeps_its_histogram(self):
+        """The transform must not disturb a raster that was never packed."""
+        dataset = _int_raster([[1, 2], [3, 4]])
+        _counts, ranges = dataset.get_histogram(band=0, bins=2)
+        assert ranges[0][0] == pytest.approx(1.0)
+        assert ranges[-1][-1] == pytest.approx(4.0)

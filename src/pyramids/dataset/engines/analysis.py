@@ -2758,25 +2758,53 @@ class Analysis(_Engine["Dataset"]):
 
         """
         band_obj = self._ds._iloc(band)
-        min_val, max_val = band_obj.ComputeRasterMinMax()
-        if min_value is None:
-            min_value = min_val
-        if max_value is None:
-            max_value = max_val
+        # `ComputeRasterMinMax` and `GetHistogram` are GDAL metadata calls, so they
+        # speak stored units -- exactly like `GetStatistics`, which `stats` already
+        # transforms. The bucket *edges* are values, so they get the same treatment,
+        # and a caller's `min_value` / `max_value` are physical (they would have come
+        # from `stats` or a read) and are converted the other way before GDAL sees
+        # them. Counts are unit-free and need nothing. Without this the array-based
+        # `plot_histogram`, which reads through `read_array`, and this one disagreed
+        # about the same band.
+        scale, offset = self._ds._effective_packing(band)
+        packed = not _is_identity_packing(scale, offset)
+        factor = 1.0 if scale is None or not packed else float(scale)
+        shift = 0.0 if offset is None or not packed else float(offset)
 
-        bin_width = (max_value - min_value) / bins
-        # Anchor the edges at `min_value`, the range the buckets were actually
+        def _to_stored(value: float) -> float:
+            return (value - shift) / factor
+
+        def _to_physical(value: float) -> float:
+            return value * factor + shift
+
+        stored_min, stored_max = band_obj.ComputeRasterMinMax()
+        stored_low = stored_min if min_value is None else _to_stored(min_value)
+        stored_high = stored_max if max_value is None else _to_stored(max_value)
+        # A negative `scale_factor` -- legal in CF, and how a geostationary scan
+        # angle is stored -- reverses the order when converting, so the window is
+        # re-sorted before GDAL is asked to bucket over it.
+        stored_low, stored_high = sorted((stored_low, stored_high))
+
+        bin_width = (stored_high - stored_low) / bins
+        # Anchor the edges at the low end of the window the buckets were actually
         # computed over, not at the raster minimum. When a caller narrowed the
         # range the two differ, so the returned edges described buckets that
         # `GetHistogram` never filled.
         ranges = [
-            (min_value + i * bin_width, min_value + (i + 1) * bin_width)
+            tuple(
+                sorted(
+                    (
+                        _to_physical(stored_low + i * bin_width),
+                        _to_physical(stored_low + (i + 1) * bin_width),
+                    )
+                )
+            )
             for i in range(bins)
         ]
 
         hist = band_obj.GetHistogram(
-            min=min_value,
-            max=max_value,
+            min=stored_low,
+            max=stored_high,
             buckets=bins,
             include_out_of_range=include_out_of_range,
             approx_ok=approx_ok,

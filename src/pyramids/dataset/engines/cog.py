@@ -847,16 +847,23 @@ class COG(_Engine["Dataset"]):
             and iy1 == req_yoff + req_ysize
         )
         if fully_inside:
-            return np.asarray(
-                source.ReadAsArray(
-                    ix0,
-                    iy0,
-                    ix1 - ix0,
-                    iy1 - iy0,
-                    buf_xsize=out_w,
-                    buf_ysize=out_h,
-                    resample_alg=alg,
-                )
+            # Physical units, like `read_array`. These are overview-decimated reads
+            # of the same band, and a raster that renders at one scale through
+            # `plot()` and another through `plot(overview=True)` is a defect a
+            # reader can see.
+            return self._ds.io._apply_scale_offset(
+                np.asarray(
+                    source.ReadAsArray(
+                        ix0,
+                        iy0,
+                        ix1 - ix0,
+                        iy1 - iy0,
+                        buf_xsize=out_w,
+                        buf_ysize=out_h,
+                        resample_alg=alg,
+                    )
+                ),
+                band,
             )
 
         # Partial overlap: read only the intersection, then place it at its
@@ -951,8 +958,13 @@ class COG(_Engine["Dataset"]):
             out_w, out_h = max(1, round(width / scale)), max(1, round(height / scale))
         ds = self._ds._raster
         source = ds if band is None else ds.GetRasterBand(band + 1)
-        return np.asarray(
-            source.ReadAsArray(buf_xsize=out_w, buf_ysize=out_h, resample_alg=alg)
+        # Physical units, like `read_array`: `preview` is the same band at a coarser
+        # sampling, not a different quantity.
+        return self._ds.io._apply_scale_offset(
+            np.asarray(
+                source.ReadAsArray(buf_xsize=out_w, buf_ysize=out_h, resample_alg=alg)
+            ),
+            band,
         )
 
     @under_gdal_env
@@ -1002,7 +1014,13 @@ class COG(_Engine["Dataset"]):
             )
         ds = self._ds._raster
         source = ds if band is None else ds.GetRasterBand(band + 1)
-        arr = np.asarray(source.ReadAsArray(col, row, 1, 1))
+        # Unpacked while the read still has its `(bands, 1, 1)` shape, so the
+        # per-band broadcast works; the reshape to a plain value comes after. A
+        # `point` that answered 100 where `read_array()[row, col]` answered 2.5 was
+        # the same raster sampled two ways.
+        arr = self._ds.io._apply_scale_offset(
+            np.asarray(source.ReadAsArray(col, row, 1, 1)), band
+        )
         return arr.reshape(-1) if band is None else arr.reshape(())
 
     @under_gdal_env
