@@ -856,9 +856,7 @@ class NetCDFPlot:
         # subset's plot does not re-resolve axes it already has.
         return nc._require_raster_variable(
             variable, x_dim=axes.x_dim, y_dim=axes.y_dim
-        ).plot(
-            axes=CoordinateSpec(coords=axes.coords), **plot_kwargs
-        )
+        ).plot(axes=CoordinateSpec(coords=axes.coords), **plot_kwargs)
 
     def _resolve_selectors(self, nc: NetCDF, selectors: Selectors) -> dict[str, Any]:
         """Flatten a :class:`Selectors` into a ``{dim_name: label}`` dict.
