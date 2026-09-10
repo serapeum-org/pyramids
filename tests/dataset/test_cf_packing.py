@@ -221,19 +221,27 @@ class TestStatsArePhysical:
 class TestApplyDoesNotCorrupt:
     """Two independent faults in `apply`, both silent."""
 
-    def test_a_float_result_is_not_truncated_into_an_integer_band(self):
+    @pytest.mark.parametrize("elementwise", [False, True], ids=["whole", "tiled"])
+    def test_a_float_result_is_not_truncated_into_an_integer_band(self, elementwise):
         """The output takes the function's result type, not the source's.
 
         Test scenario:
             The issue's own numbers. Building the destination at the source band's type
             wrote `1435 * 0.01` back as `14`, losing everything after the point.
+
+            Both arms, because they truncate in different places and fixing one left
+            the other. The whole-array arm sizes its output array from the probe; the
+            `elementwise` (tiled, out-of-core) arm sizes the destination *band* from it
+            but used to allocate each tile buffer at the source tile's type, rounding
+            the result before it ever reached the wider band.
         """
         dataset = _int_raster([[1435, 1272, 1000]])
-        result = dataset.apply(lambda a: a * 0.01)
+        result = dataset.apply(lambda a: a * 0.01, elementwise=elementwise)
         got = np.asarray(result.read_array(), dtype="float64")
         np.testing.assert_allclose(got[0], [14.35, 12.72, 10.0])
 
-    def test_integer_arithmetic_keeps_its_width(self):
+    @pytest.mark.parametrize("elementwise", [False, True], ids=["whole", "tiled"])
+    def test_integer_arithmetic_keeps_its_width(self, elementwise):
         """Promotion is driven by the result, so integer maths must not widen.
 
         Test scenario:
@@ -241,7 +249,7 @@ class TestApplyDoesNotCorrupt:
             anyway would quadruple the storage of every integer `apply` for nothing.
         """
         dataset = _int_raster([[1, 2, 3]])
-        result = dataset.apply(lambda a: a * 2)
+        result = dataset.apply(lambda a: a * 2, elementwise=elementwise)
         assert result.dtype == ["int16"], result.dtype
 
     def test_a_result_gdal_cannot_store_keeps_the_source_type(self):

@@ -615,17 +615,19 @@ class Analysis(_Engine["Dataset"]):
             # raster used to be written back as integers and silently truncated
             # (#1124). A probe that raises falls back to the old behaviour, so an
             # awkward callable is no worse off than before.
-            dtype = self._result_gdal_dtype(func, band)
+            result_dtype = self._elementwise_result_dtype(func, band)
             dst_obj = self._ds.__class__._build_dataset(
                 self._ds.columns,
                 self._ds.rows,
                 1,
-                dtype,
+                numpy_to_gdal_dtype(result_dtype),
                 self._ds.geotransform,
                 self._ds.crs,
                 no_data_value,
             )
-            self._apply_elementwise_tiled(func, band, no_data_value, dst_obj)
+            self._apply_elementwise_tiled(
+                func, band, no_data_value, dst_obj, result_dtype
+            )
         else:
             # `band=` as a keyword, never positional: NetCDF.read_array puts
             # `variable` first, so read_array(band) mis-binds on a variable view.
@@ -653,8 +655,8 @@ class Analysis(_Engine["Dataset"]):
             return None
         return dst_obj
 
-    def _result_gdal_dtype(self, func, band: int) -> int:
-        """The GDAL type `func`'s result needs, probed from a one-element call.
+    def _elementwise_result_dtype(self, func, band: int) -> np.dtype:
+        """The dtype `func`'s result needs, probed from a one-element call.
 
         The tiled path commits to a destination type before it has produced a single
         value, so the type has to be predicted. Applying the function to one domain value
@@ -662,17 +664,24 @@ class Analysis(_Engine["Dataset"]):
         that cannot survive that call keeps the source's type -- the behaviour before
         #1124, so no worse.
 
+        Both the destination band **and** the per-tile output buffer are built from
+        this one answer. Building only the band from it left the buffer at the source
+        tile's type, which rounded a float result before it ever reached the wider
+        band: `apply(lambda a: a * 0.01, elementwise=True)` on the issue's own numbers
+        still returned `[14.0, 12.0, 10.0]` while the whole-array arm returned
+        `[14.35, 12.72, 10.0]`.
+
         Args:
             func: The callable `apply` was given.
             band: The band index being read.
 
         Returns:
-            int: A GDAL type code wide enough for the result.
+            np.dtype: A dtype wide enough for the result, which GDAL can store.
         """
-        resolved = self._ds.gdal_dtype[band]
+        resolved = np.dtype(self._ds.numpy_dtype[band])
         try:
             source = np.asarray(self._ds.read_array(band=band))
-            resolved = numpy_to_gdal_dtype(self._storable_dtype(func, source))
+            resolved = self._storable_dtype(func, source)
         except Exception:
             logger.debug("could not probe the result dtype for apply", exc_info=True)
         return resolved
@@ -729,7 +738,9 @@ class Analysis(_Engine["Dataset"]):
         except (ValueError, TypeError):
             out_array[domain_mask] = np.vectorize(func)(domain_values)
 
-    def _apply_elementwise_tiled(self, func, band, no_data_value, dst_obj) -> None:
+    def _apply_elementwise_tiled(
+        self, func, band, no_data_value, dst_obj, result_dtype
+    ) -> None:
         """Apply an elementwise `func` over one band tile by tile, out of core.
 
         Reads the band a square window at a time, applies `func` to that tile's
@@ -742,11 +753,15 @@ class Analysis(_Engine["Dataset"]):
             band: Zero-based index of the source band to transform.
             no_data_value: The source no-data value, preserved in excluded cells.
             dst_obj: The single-band destination Dataset written in place.
+            result_dtype: The dtype the destination band was built at. The buffer has
+                to match it, not the source tile's: allocating at the tile's type
+                rounded a float result inside the buffer before it ever reached the
+                wider band, so widening the band alone fixed nothing here.
         """
         dst_band = dst_obj.raster.GetRasterBand(1)
         for xoff, yoff, xsize, ysize in self._ds.io._tile_offsets():
             tile = self._ds.read_array(band=band, window=[xoff, yoff, xsize, ysize])
-            new_tile = np.full(tile.shape, no_data_value, dtype=tile.dtype)
+            new_tile = np.full(tile.shape, no_data_value, dtype=result_dtype)
             self._apply_func_to_domain(func, tile, new_tile, no_data_value)
             dst_band.WriteArray(new_tile, xoff, yoff)
 
