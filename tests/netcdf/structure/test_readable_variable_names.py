@@ -10,7 +10,7 @@ the store's array count for no reason. One walk now serves both.
 
 *Promise.* Its docstring says it lists "every array name `get_variable` will
 accept". That is true, and it was read as promising a `NetCDF` back, which it
-never did: a 1-D or non-numeric array comes back as a raw `gdal.MDArray`. Some
+never did: a 1-D or non-numeric array comes back as a `LabeledArray`. Some
 of those names are not even in the wider list -- GOES ABI declares
 `time_bounds` as a *data* variable -- so `read_array` met them through the
 ordinary container route and died with an `AttributeError`.
@@ -36,7 +36,7 @@ FLAT = DATA / "cf__7v__1d3-2d3-3d1__y-asc.nc"
 
 # GOES ABI: `time_bounds` / `x_image_bounds` / `y_image_bounds` are 1-D and are
 # enumerated as data variables; `band_id` / `band_wavelength` are 1-D and are
-# not. All five come back from `get_variable` as raw MDArrays.
+# not. All five come back from `get_variable` as `LabeledArray`s.
 GEOS = DATA / "cf__9v__1d7-2d2__geos__y-desc.nc"
 
 GROUPED = DATA / "none__35v__1d35__groups-nc4.nc"
