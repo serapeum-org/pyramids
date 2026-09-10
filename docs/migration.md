@@ -932,6 +932,28 @@ replace the georeference wholesale.
 
 ### unreleased
 
+**`get_variable` returns a `LabeledArray`, not a raw `gdal.MDArray`, for a variable with no raster plane.**
+Two shapes are affected: a 1-D array (a profile axis, a bounds array, a hybrid-sigma coefficient), and a string or
+compound array of any rank — a character column is stored `(records, strlen)`, so it is 2-D and still not numeric.
+GDAL cannot expose either as a raster, and `get_variable` used to hand the `MDArray` straight back.
+
+```python
+bounds = nc.get_variable("time_bounds")   # was gdal.MDArray, now LabeledArray
+bounds.values                             # np.ndarray  (was: bounds.ReadAsArray())
+bounds.dims                               # ('number_of_time_bounds',)
+bounds.shape                              # (2,)
+```
+
+- **Replace the GDAL calls with attributes.** `ReadAsArray()` → `.values`, `GetDimensions()` → `.dims` / `.shape`,
+  `GetDataType()` → `.values.dtype`. `Read()` has no replacement and needs none: it returned an *undecoded* byte
+  buffer for numeric data, which is why reading these variables used to require `ReadAsArray()` instead.
+- **A compound variable now decodes.** It reads back through the NumPy structured dtype matching GDAL's declared
+  components, so `.values` is a record array rather than the flat byte buffer `Read()` produced.
+- **Nothing new raises.** Every variable that could be read before can still be read; only the type of the object
+  changed. `LabeledArray` is the same class `LabeledDataset["var"]` already returned, exported from
+  `pyramids.netcdf`.
+- The private `_read_md_array` still returns the `MDArray` — only the public accessor wraps.
+
 **A time axis outside `datetime64[ns]`'s range now decodes to `cftime` objects instead of wrapping.**
 Soft change, warned — a `UserWarning` names the axis and its units. Only arrays that were previously **wrong** change:
 `decode_cf_time` cast to `datetime64[ns]` under a guard that cannot fire, because a date beyond the type's
