@@ -1177,11 +1177,74 @@ class LabeledDataset:
 
 
 class LabeledArray:
-    """A materialised variable/coordinate slice: `values` plus `dims`/`shape`.
+    """A materialised variable/coordinate slice: `values` plus the labels describing it.
 
-    Returned by :meth:`LabeledDataset.__getitem__` (``store["var"]``), so instances are
-    user-facing; the public name (API-9) reflects that. ``_LabeledArray`` is kept as a
-    backward-compatible alias.
+    Two accessors hand one back, so instances are user-facing and the public name (API-9)
+    reflects that. `LabeledDataset.__getitem__` (`store["var"]`) returns one for any array in
+    a label-indexed store, with the store's current selection applied and a CF time axis
+    decoded; `NetCDF.get_variable` returns one for a variable GDAL cannot expose as a raster
+    — a 1-D array of any dtype, or a non-numeric one of any rank — with the values exactly as
+    stored. Only the second populates `name` / `unit` / `no_data_value` / `attributes`; the
+    first leaves all four at their defaults. `_LabeledArray` is kept as a backward-compatible
+    alias.
+
+    This is a plain value holder: it defines `__slots__`, holds no GDAL handle, and does no
+    lazy reading — the values are already in NumPy's own memory by the time you have one.
+
+    Attributes:
+        values: The materialised array. `float`/`int` for a numeric source; `<U` for a string
+            array read through `NetCDF.get_variable`, `object` for one read through
+            `LabeledDataset`.
+        dims: The dimension names, outermost first.
+        shape: The shape those dimensions declare, which always matches `values.shape`.
+        name: The variable's name, or `""` when the producer does not set it.
+        unit: The CF `units` string, or `""` when the source declares none.
+        no_data_value: The declared fill value, or `None`. `values` is **not** masked by it.
+        attributes: The variable's other attributes, `{}` when the producer does not set them.
+
+    Examples:
+        - Build one directly and read the values back:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.netcdf import LabeledArray
+            >>> profile = LabeledArray(np.array([0.0, 0.25, 1.0]), ("ilev",), (3,), name="hyai")
+            >>> profile.values.tolist()
+            [0.0, 0.25, 1.0]
+            >>> profile.dims, profile.shape
+            (('ilev',), (3,))
+
+            ```
+        - The labels a store's variable carries travel with the values:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.netcdf import LabeledArray
+            >>> temperature = LabeledArray(
+            ...     np.array([288.0, 289.5]),
+            ...     ("time",),
+            ...     (2,),
+            ...     name="t2m",
+            ...     unit="K",
+            ...     no_data_value=-9999.0,
+            ...     attributes={"long_name": "2 metre temperature"},
+            ... )
+            >>> temperature
+            LabeledArray('t2m', dims=('time',), shape=(2,))
+            >>> temperature.unit, temperature.attributes["long_name"]
+            ('K', '2 metre temperature')
+
+            ```
+        - Without a name the repr falls back to the dimensions and shape alone:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.netcdf import LabeledArray
+            >>> LabeledArray(np.arange(6).reshape(2, 3), ("record", "strlen"), (2, 3))
+            LabeledArray(dims=('record', 'strlen'), shape=(2, 3))
+
+            ```
+
+    See Also:
+        `LabeledDataset.__getitem__`: reads one out of a label-indexed store.
+        `pyramids.netcdf.NetCDF.get_variable`: returns one for a variable with no raster plane.
     """
 
     __slots__ = (
