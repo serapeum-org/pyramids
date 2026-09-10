@@ -947,8 +947,18 @@ bounds.shape                              # (2,)
 - **Replace the GDAL calls with attributes.** `ReadAsArray()` → `.values`, `GetDimensions()` → `.dims` / `.shape`,
   `GetDataType()` → `.values.dtype`. `Read()` has no replacement and needs none: it returned an *undecoded* byte
   buffer for numeric data, which is why reading these variables used to require `ReadAsArray()` instead.
-- **A compound variable now decodes.** It reads back through the NumPy structured dtype matching GDAL's declared
-  components, so `.values` is a record array rather than the flat byte buffer `Read()` produced.
+- **A compound variable now decodes.** It reads back as a record array rather than the flat byte buffer `Read()`
+  produced.
+- **The labels come with it.** `LabeledArray` carries `name`, `unit`, `no_data_value` and `attributes` alongside
+  `values`, so `GetUnit()` → `.unit`, `GetNoDataValueAsDouble()` → `.no_data_value`, and the attribute API →
+  `.attributes`. Without these a `-9999.0` in `values` would be indistinguishable from real data.
+- **Values are as stored.** No CF time decoding and no `scale_factor` / `add_offset`, matching `read_array`'s own
+  `unpack=False` default — `read_array(name, unpack=True)` is still the way to ask for unpacked values.
+  `LabeledDataset["var"]` returns the same class but *does* decode a CF time axis, so the two agree on type and
+  not always on values.
+- **Windowed and strided reads are gone.** The `MDArray` allowed `Read(array_start_idx=..., count=...)` and
+  `GetView`; the wrapper is materialised, so slice `.values` instead. For a variable large enough that this
+  matters, `read_array` remains the streaming route.
 - **Nothing new raises.** Every variable that could be read before can still be read; only the type of the object
   changed. `LabeledArray` is the same class `LabeledDataset["var"]` already returned, exported from
   `pyramids.netcdf`.

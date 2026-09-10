@@ -7348,8 +7348,10 @@ class NetCDF(Dataset):
                 # `src` is the MDArray itself -- GDAL could not expose it as a
                 # raster plane. Materialise it instead of returning it: a public
                 # accessor must never hand back a raw GDAL handle (#1126). The
-                # references below are not needed for it, and would not stick:
-                # `LabeledArray` owns its data and defines `__slots__`.
+                # references below are neither needed nor settable for it: the
+                # values are materialised into NumPy's own memory rather than a
+                # view over GDAL's, so nothing has to be kept alive, and
+                # `LabeledArray` defines `__slots__`.
                 return _labeled_array_from_md_array(src, variable_name)
             # Keep GDAL SWIG references alive — AsClassicDataset returns a
             # view whose C++ backing is owned by the MDArray/root group.
