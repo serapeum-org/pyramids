@@ -13,12 +13,38 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 import pytest
+from osgeo import gdal
 
 from pyramids.base._errors import AlignmentError
 from pyramids.dataset._cube_time import TimeAxis
 from pyramids.netcdf._cube_netcdf_writer import CubeNetCDFWriter
 
 _WRITER_MODULE = "pyramids.netcdf._cube_netcdf_writer.open_streaming_multidim_netcdf"
+
+
+def _stub_base(rows, cols, *, scale=None, offset=None):
+    """A stand-in for the collection's template `Dataset`.
+
+    Carries a real one-band MEM raster, because the writer reads the template band's
+    `scale_factor` / `add_offset` off it to carry a packed collection's recipe into the
+    cube it streams.
+
+    Args:
+        rows: Length of the `y` axis.
+        cols: Length of the `x` axis.
+        scale: `scale_factor` to declare on the template band, or `None` for an
+            unpacked template.
+        offset: `add_offset` to declare, or `None`.
+
+    Returns:
+        SimpleNamespace: An object exposing `y`, `x` and `raster`.
+    """
+    raster = gdal.GetDriverByName("MEM").Create("", cols, rows, 1, gdal.GDT_Int16)
+    if scale is not None:
+        raster.GetRasterBand(1).SetScale(scale)
+    if offset is not None:
+        raster.GetRasterBand(1).SetOffset(offset)
+    return SimpleNamespace(y=np.arange(rows), x=np.arange(cols), raster=raster)
 
 
 def _schema_writer(
@@ -32,14 +58,16 @@ def _schema_writer(
     var_dtype="int16",
     rows=4,
     cols=5,
+    scale=None,
+    offset=None,
 ):
     """Build a writer with derived state set, for `_build_schema` unit tests.
 
     Returns:
         CubeNetCDFWriter: a writer whose ``_meta`` / ``band_count`` / ``names`` /
-        ``var_dtype`` and base ``y`` / ``x`` axes are populated directly.
+        ``var_dtype`` and base ``y`` / ``x`` / template band are populated directly.
     """
-    base = SimpleNamespace(y=np.arange(rows), x=np.arange(cols))
+    base = _stub_base(rows, cols, scale=scale, offset=offset)
     writer = CubeNetCDFWriter(SimpleNamespace(_base=base))
     writer._meta = SimpleNamespace(
         nodata=nodata, crs=crs, epsg=epsg, geotransform=geotransform
@@ -117,7 +145,7 @@ class TestCubeNetCDFWriterWrite:
             datasets=[ds, ds],
             files=["f0.tif", "f1.tif"],
             _meta=meta,
-            _base=SimpleNamespace(y=np.arange(4), x=np.arange(5)),
+            _base=_stub_base(4, 5),
         )
         writer = CubeNetCDFWriter(collection)
         sink = Mock()
@@ -223,6 +251,51 @@ class TestCubeNetCDFWriterBuildSchema:
             f"no nodata => empty var attrs, got {var_specs['b1'][2]}"
         )
         assert "nodata" not in root_attrs, "no nodata => no root nodata attr"
+
+    def test_a_packed_template_puts_its_recipe_on_every_variable(self):
+        """A packed collection's `scale_factor` / `add_offset` reach the cube.
+
+        Test scenario:
+            The cube is created at the collection's *stored* dtype and the slabs are
+            streamed with `unpack=False`, so the recipe has to travel with them as CF
+            attributes -- GDAL lifts them back into the MDArray's own slots on the next
+            read. Without them the file holds counts that nothing identifies as counts,
+            and every value reads back a hundredfold off.
+        """
+        writer = _schema_writer(
+            nodata=(None,), band_count=2, names=("b1", "b2"), scale=0.01, offset=1.5
+        )
+        axis = TimeAxis(np.array([0]), {})
+        _dims, _coords, var_specs, _root = writer._build_schema(
+            axis, time_dim="time", var_per_band=True
+        )
+        for name in ("b1", "b2"):
+            attrs = var_specs[name][2]
+            assert attrs["scale_factor"] == pytest.approx(0.01), (
+                f"{name}: scale_factor not carried, got {attrs.get('scale_factor')}"
+            )
+            assert attrs["add_offset"] == pytest.approx(1.5), (
+                f"{name}: add_offset not carried, got {attrs.get('add_offset')}"
+            )
+
+    def test_an_unpacked_template_declares_no_packing(self):
+        """The identity must not be written out as a declaration.
+
+        Test scenario:
+            GDAL answers `1.0` / `0.0` for a band that was never packed, so carrying
+            them unconditionally would stamp a meaningless recipe onto every cube
+            pyramids writes -- and a reader would dutifully apply it.
+        """
+        writer = _schema_writer(
+            nodata=(None,), band_count=1, names=("b1",), scale=1.0, offset=0.0
+        )
+        axis = TimeAxis(np.array([0]), {})
+        _dims, _coords, var_specs, _root = writer._build_schema(
+            axis, time_dim="time", var_per_band=True
+        )
+        assert var_specs["b1"][2] == {}, (
+            f"an unpacked template declared packing: {var_specs['b1'][2]}"
+        )
 
     def test_geobox_root_attrs(self):
         """_build_schema always writes CF-1.8 + GeoTransform, and crs/epsg when present.
