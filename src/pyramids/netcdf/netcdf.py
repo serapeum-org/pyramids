@@ -23,7 +23,11 @@ from osgeo import gdal, osr
 
 from pyramids import _io
 from pyramids.base._axes import AXIS_NAMES
-from pyramids.base._utils import DEFAULT_RESAMPLING, numpy_to_gdal_dtype
+from pyramids.base._utils import (
+    DEFAULT_RESAMPLING,
+    gdal_to_numpy_dtype,
+    numpy_to_gdal_dtype,
+)
 from pyramids.base.crs import (
     VERTICAL_AXIS_NAMES,
     VERTICAL_STANDARD_NAMES,
@@ -82,6 +86,7 @@ from pyramids.netcdf.engines import variables as _variables
 from pyramids.netcdf.engines.interop import Interop
 from pyramids.netcdf.engines.selection import Selection
 from pyramids.netcdf.engines.variables import Variables
+from pyramids.netcdf.labeled import LabeledArray
 from pyramids.netcdf.metadata import get_metadata
 from pyramids.netcdf.models import (
     MAX_DISPLAY_VARIABLES,
@@ -1014,6 +1019,87 @@ def _grid_lines(nc: NetCDF) -> list[str]:
             grid += f" @ {nc.cell_size:g}"
         lines.append(_summary_line("grid", f"{grid}, {nc.band_count} band(s)"))
     return lines
+
+
+def _labeled_array_from_md_array(md_arr: gdal.MDArray, name: str) -> LabeledArray:
+    """Materialise an MDArray GDAL cannot expose as a raster into a `LabeledArray`.
+
+    Two shapes reach here, and neither is a raster plane: a 1-D array (a profile
+    axis, a bounds array, a hybrid-sigma coefficient), and a string or compound
+    array of any rank -- a character column is stored `(records, strlen)`, so it
+    is 2-D and still not numeric.
+
+    Both used to be handed back as the raw `gdal.MDArray`. That object carries
+    none of pyramids' API -- no `values`, no `stats`, no `read_array` -- and its
+    `Read()` returns an undecoded byte buffer for a numeric array, so the only
+    way out was `ReadAsArray()`: a caller who did not know better was walked
+    straight into using `osgeo` directly, which is what depending on pyramids is
+    meant to avoid (#1126).
+
+    Args:
+        md_arr: The array GDAL could not expose as a classic dataset.
+        name: The variable's name, for the error when it cannot be read.
+
+    Returns:
+        LabeledArray: `values` with the `dims` and `shape` GDAL declares -- the
+        same type `LabeledDataset["var"]` returns, so both routes to a
+        non-raster variable answer alike.
+
+    Raises:
+        ValueError: The array declares a shape but reads back as nothing.
+    """
+    dimensions = md_arr.GetDimensions()
+    dims = tuple(dim.GetName() for dim in dimensions)
+    shape = tuple(dim.GetSize() for dim in dimensions)
+    data_type = md_arr.GetDataType()
+    type_class = data_type.GetClass()
+    if type_class == gdal.GEDTC_NUMERIC:
+        raw = md_arr.ReadAsArray()
+    elif type_class == gdal.GEDTC_COMPOUND:
+        # `Read` hands back the record bytes undecoded, so reading a compound
+        # array as-is gives a flat `uint8` buffer whose length is the record
+        # count times the record size -- values that do not match the shape and
+        # mean nothing to the caller. GDAL does describe the layout, though, so
+        # the buffer is viewed through the matching structured dtype instead.
+        raw = np.frombuffer(
+            bytes(md_arr.Read()), dtype=_compound_dtype(data_type)
+        ).reshape(shape)
+    else:
+        # A string array: `ReadAsArray` raises "Only arrays with numeric data
+        # types can be exposed...", while `Read` returns decoded Python strings.
+        raw = np.asarray(md_arr.Read()).reshape(shape)
+    if raw is None:
+        raise ValueError(
+            f"{name} declares dimensions {dims} but its values could not be read"
+        )
+    return LabeledArray(np.asarray(raw), dims, shape)
+
+
+def _compound_dtype(data_type: gdal.ExtendedDataType) -> np.dtype:
+    """The NumPy structured dtype matching a GDAL compound type.
+
+    Built from the components GDAL declares -- name, byte offset and numeric
+    type -- with the record size as the itemsize, so the field padding of the
+    original struct is preserved rather than assumed away.
+
+    Args:
+        data_type: A compound `ExtendedDataType`.
+
+    Returns:
+        np.dtype: A structured dtype of the same memory layout.
+    """
+    components = data_type.GetComponents()
+    return np.dtype(
+        {
+            "names": [component.GetName() for component in components],
+            "formats": [
+                gdal_to_numpy_dtype(component.GetType().GetNumericDataType())
+                for component in components
+            ],
+            "offsets": [component.GetOffset() for component in components],
+            "itemsize": data_type.GetSize(),
+        }
+    )
 
 
 def _container_summary(nc: NetCDF) -> str:
@@ -7050,7 +7136,12 @@ class NetCDF(Dataset):
                 # wrong; fix it on the wrapper (no data copy).
                 self._correct_flipped_geotransform(cube)
             else:
-                cube = src
+                # `src` is the MDArray itself -- GDAL could not expose it as a
+                # raster plane. Materialise it instead of returning it: a public
+                # accessor must never hand back a raw GDAL handle (#1126). The
+                # references below are not needed for it, and would not stick:
+                # `LabeledArray` owns its data and defines `__slots__`.
+                return _labeled_array_from_md_array(src, variable_name)
             # Keep GDAL SWIG references alive — AsClassicDataset returns a
             # view whose C++ backing is owned by the MDArray/root group.
             # Without these the view becomes a dangling pointer on Windows.
