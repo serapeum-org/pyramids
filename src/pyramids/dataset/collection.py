@@ -619,7 +619,15 @@ def _agree_on_one_sentinel(datasets: list[Dataset]) -> None:
         fills = [row[band] for row in declared]
         if all(is_stored_no_data(np.asarray(fills[0]), other) for other in fills[1:]):
             continue
-        arrays = [np.asarray(ds.read_array(band=band)) for ds in datasets]
+        # `unpack=False`: this whole function is defined in stored units -- the
+        # sentinels it compares, the `numpy_dtype` it asks `free_no_data` to fit a
+        # replacement into, and the band it writes the array back to. A physical
+        # read matched no sentinel (so the reconciliation silently did nothing) and
+        # then rounded the physical values into the stored band, destroying the
+        # counts of every packed timestep it touched.
+        arrays = [
+            np.asarray(ds.read_array(band=band, unpack=False)) for ds in datasets
+        ]
         # Judged against real observations only: each step's own fill cells are
         # the thing being replaced, so counting them would rule out every
         # candidate already in use and force a needless third value.

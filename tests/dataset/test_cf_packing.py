@@ -21,6 +21,7 @@ import pytest
 from pyramids.base._utils import _is_identity_packing, apply_unpack
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
+from pyramids.dataset.collection import _agree_on_one_sentinel
 from pyramids.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
@@ -303,3 +304,31 @@ class TestStreamingRespectsTheDestination:
         result = dataset.io.stream_transform(lambda tile: tile * 2, tile_size=2)
         got = np.asarray(result.read_array(), dtype="float64")
         np.testing.assert_allclose(got.ravel(), [2.0, 4.0, 6.0, 8.0])
+
+
+class TestSentinelReconciliationKeepsTheStore:
+    """Reconciling a stack's no-data values must not rewrite its counts."""
+
+    def test_reconciling_packed_timesteps_leaves_the_counts_alone(self):
+        """The observations survive; only the sentinel cells move.
+
+        Test scenario:
+            The helper is defined end to end in stored units -- the sentinels it
+            compares, the dtype it fits a replacement into, and the band it writes
+            back to. Reading physical values made it match no sentinel at all (so the
+            reconciliation silently did nothing) and then rounded those values into
+            the `int16` store, destroying the counts of every packed timestep it
+            touched. It is reached from `DatasetCollection.crop`.
+        """
+        first = _packed_raster([[100, -100], [0, -9999]], 0.01, 1.5)
+        first.no_data_value = [-9999]
+        second = _packed_raster([[100, -100], [0, -32768]], 0.01, 1.5)
+        second.no_data_value = [-32768]
+
+        _agree_on_one_sentinel([first, second])
+
+        for dataset in (first, second):
+            stored = np.asarray(dataset.read_array(unpack=False), dtype="float64")
+            np.testing.assert_allclose(stored.ravel()[:3], [100.0, -100.0, 0.0])
+        agreed = {first.no_data_value[0], second.no_data_value[0]}
+        assert len(agreed) == 1, f"the timesteps still disagree: {agreed}"
