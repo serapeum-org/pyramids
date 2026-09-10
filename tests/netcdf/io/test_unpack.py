@@ -225,3 +225,43 @@ class TestUnpackAllBands:
             rtol=1e-10,
             err_msg="Unpack all bands mismatch",
         )
+
+
+class TestTheVariablesOwnPairCanBeHalfSet:
+    """`_scale` set with `_offset` unset, and the reverse, on a NetCDF variable.
+
+    The raster cases above cover the band path. This covers the other resolver
+    branch: a variable carrying its packing in Python, which is what `_wrap_like`
+    hands to every spatial result and what the lazy read applies. `_half_packed`
+    cannot reach it -- the netCDF driver refuses to rewrite a band's packing, which
+    is why those tests moved to a plain `Dataset` -- so the pair is set directly.
+    """
+
+    @pytest.fixture
+    def variable(self):
+        """A packed variable opened fresh, so altering its pair leaks nowhere."""
+        return NetCDF.read_file(PACKED, open_as_multi_dimensional=True).get_variable(
+            "z"
+        )
+
+    def test_scale_with_no_offset(self, variable):
+        """Only the factor applies; a missing offset means no shift, not no packing."""
+        raw = np.asarray(variable.read_array(band=0, unpack=False), dtype="float64")
+        variable._scale, variable._offset = 0.01, None
+        assert_allclose(
+            np.asarray(variable.read_array(band=0), dtype="float64"),
+            raw * 0.01,
+            rtol=1e-10,
+            err_msg="the variable's scale-only pair was not applied",
+        )
+
+    def test_offset_with_no_scale(self, variable):
+        """Only the shift applies; a missing scale means no factor, not zero."""
+        raw = np.asarray(variable.read_array(band=0, unpack=False), dtype="float64")
+        variable._scale, variable._offset = None, 1.5
+        assert_allclose(
+            np.asarray(variable.read_array(band=0), dtype="float64"),
+            raw + 1.5,
+            rtol=1e-10,
+            err_msg="the variable's offset-only pair was not applied",
+        )

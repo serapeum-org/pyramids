@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from pyramids.base._errors import AlignmentError
+from pyramids.base._utils import _is_identity_packing
 from pyramids.dataset._cube_time import TimeAxis
 from pyramids.netcdf.engines.interop import open_streaming_multidim_netcdf
 
@@ -176,12 +177,34 @@ class CubeNetCDFWriter:
         # own slots, and lifts these two into them on the next read). Writing physical
         # values instead would cast `14.35` back into an `int16` cube as `14`, and
         # writing counts without the recipe would leave them meaning nothing.
-        template_band = self._collection._base.raster.GetRasterBand(1)
-        scale, offset = template_band.GetScale(), template_band.GetOffset()
-        if scale is not None and scale != 1:
-            var_attrs["scale_factor"] = scale
-        if offset is not None and offset != 0:
-            var_attrs["add_offset"] = offset
+        base = self._collection._base
+        packing = [base._effective_packing(index) for index in range(band_count)]
+
+        def _packing_attrs(index: int) -> dict[str, Any]:
+            """The CF packing attributes for one band, empty when it declares none.
+
+            Per band, because a collection may carry a different factor on each and
+            stamping band 1's recipe onto all of them mislabels the rest. `var_per_band`
+            can honour that; the single 4-D `data` variable cannot, so it takes the
+            packing only when every band agrees.
+
+            Args:
+                index: Zero-based band index.
+
+            Returns:
+                dict: `scale_factor` / `add_offset`, or empty for an unpacked band.
+            """
+            scale, offset = packing[index]
+            if _is_identity_packing(scale, offset):
+                return {}
+            attrs: dict[str, Any] = {}
+            if scale is not None:
+                attrs["scale_factor"] = scale
+            if offset is not None:
+                attrs["add_offset"] = offset
+            return attrs
+
+        shared_packing = _packing_attrs(0) if len(set(packing)) == 1 else {}
 
         dims: dict[str, int] = {time_dim: int(axis.values.shape[0])}
         coords: dict[str, tuple[np.ndarray, dict[str, Any]]] = {
@@ -192,7 +215,11 @@ class CubeNetCDFWriter:
         var_specs: dict[str, tuple[tuple[str, ...], np.dtype | str, dict[str, Any]]]
         if var_per_band:
             var_specs = {
-                names[i]: ((time_dim, "y", "x"), var_dtype, dict(var_attrs))
+                names[i]: (
+                    (time_dim, "y", "x"),
+                    var_dtype,
+                    {**var_attrs, **_packing_attrs(i)},
+                )
                 for i in range(band_count)
             }
         else:
@@ -202,7 +229,11 @@ class CubeNetCDFWriter:
             dims["band"] = band_count
             coords["band"] = (np.arange(band_count), {})
             var_specs = {
-                "data": ((time_dim, "band", "y", "x"), var_dtype, dict(var_attrs)),
+                "data": (
+                    (time_dim, "band", "y", "x"),
+                    var_dtype,
+                    {**var_attrs, **shared_packing},
+                ),
             }
         dims["y"] = int(y_coord.shape[0])
         dims["x"] = int(x_coord.shape[0])

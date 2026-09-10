@@ -30,6 +30,7 @@ from pyramids.base._locks import default_lock
 from pyramids.base._raster_meta import RasterMeta
 from pyramids.base._utils import (
     DEFAULT_RESAMPLING,
+    _is_identity_packing,
     import_dask,
     import_zarr,
     lazy_extra_hint,
@@ -625,9 +626,7 @@ def _agree_on_one_sentinel(datasets: list[Dataset]) -> None:
         # read matched no sentinel (so the reconciliation silently did nothing) and
         # then rounded the physical values into the stored band, destroying the
         # counts of every packed timestep it touched.
-        arrays = [
-            np.asarray(ds.read_array(band=band, unpack=False)) for ds in datasets
-        ]
+        arrays = [np.asarray(ds.read_array(band=band, unpack=False)) for ds in datasets]
         # Judged against real observations only: each step's own fill cells are
         # the thing being replaced, so counting them would rule out every
         # candidate already in use and force a needless third value.
@@ -2684,7 +2683,14 @@ class DatasetCollection:
             shape: tuple[int, ...] = (0, self.rows, self.columns)
             if band is None and self.base.band_count > 1:
                 shape = (0, self.base.band_count, self.rows, self.columns)
-            return np.empty(shape, dtype=np.dtype(self._meta.dtype))
+            # And the dtype a non-empty read of the same request would return, for
+            # the same reason as the rank. On a packed collection the stack below
+            # comes back `float64` while `_meta.dtype` is the stored `int16`, so
+            # `head(0).dtype` and `head(1).dtype` disagreed.
+            empty_dtype = np.dtype(self._meta.dtype)
+            if not _is_identity_packing(*self.base._effective_packing(band or 0)):
+                empty_dtype = np.dtype("float64")
+            return np.empty(shape, dtype=empty_dtype)
         return np.stack([ds.read_array(band=band) for ds in datasets], axis=0)
 
     def head(self, n: int = 5) -> np.typing.NDArray:

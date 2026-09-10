@@ -16,35 +16,43 @@ import pytest
 from osgeo import gdal
 
 from pyramids.base._errors import AlignmentError
+from pyramids.base.georeference import GeoReference
+from pyramids.dataset import Dataset
 from pyramids.dataset._cube_time import TimeAxis
 from pyramids.netcdf._cube_netcdf_writer import CubeNetCDFWriter
 
 _WRITER_MODULE = "pyramids.netcdf._cube_netcdf_writer.open_streaming_multidim_netcdf"
 
 
-def _stub_base(rows, cols, *, scale=None, offset=None):
+def _stub_base(rows, cols, *, bands=1, scale=None, offset=None):
     """A stand-in for the collection's template `Dataset`.
 
-    Carries a real one-band MEM raster, because the writer reads the template band's
-    `scale_factor` / `add_offset` off it to carry a packed collection's recipe into the
-    cube it streams.
+    A real `Dataset`, not a namespace: the writer asks the template for its `y` / `x`
+    axes *and* for each band's CF packing, so a stub that models only the axes drifts
+    out of date the moment the writer needs anything else — which is exactly how eight
+    of these tests came to raise `AttributeError` instead of exercising the schema.
 
     Args:
         rows: Length of the `y` axis.
         cols: Length of the `x` axis.
-        scale: `scale_factor` to declare on the template band, or `None` for an
-            unpacked template.
-        offset: `add_offset` to declare, or `None`.
+        bands: How many bands the template carries.
+        scale: `scale_factor` to declare on every band, or `None` for an unpacked
+            template. A per-band list declares a different factor on each.
+        offset: `add_offset` to declare, same shape rules as `scale`.
 
     Returns:
-        SimpleNamespace: An object exposing `y`, `x` and `raster`.
+        Dataset: The template.
     """
-    raster = gdal.GetDriverByName("MEM").Create("", cols, rows, 1, gdal.GDT_Int16)
+    array = np.zeros((bands, rows, cols), dtype="int16")
+    dataset = Dataset.from_array(
+        array if bands > 1 else array[0],
+        geo_ref=GeoReference(top_left_corner=(0, rows), cell_size=1.0, epsg=4326),
+    )
     if scale is not None:
-        raster.GetRasterBand(1).SetScale(scale)
+        dataset.scale = list(scale) if isinstance(scale, list) else [scale] * bands
     if offset is not None:
-        raster.GetRasterBand(1).SetOffset(offset)
-    return SimpleNamespace(y=np.arange(rows), x=np.arange(cols), raster=raster)
+        dataset.offset = list(offset) if isinstance(offset, list) else [offset] * bands
+    return dataset
 
 
 def _schema_writer(
@@ -67,7 +75,7 @@ def _schema_writer(
         CubeNetCDFWriter: a writer whose ``_meta`` / ``band_count`` / ``names`` /
         ``var_dtype`` and base ``y`` / ``x`` / template band are populated directly.
     """
-    base = _stub_base(rows, cols, scale=scale, offset=offset)
+    base = _stub_base(rows, cols, bands=band_count, scale=scale, offset=offset)
     writer = CubeNetCDFWriter(SimpleNamespace(_base=base))
     writer._meta = SimpleNamespace(
         nodata=nodata, crs=crs, epsg=epsg, geotransform=geotransform
@@ -145,7 +153,7 @@ class TestCubeNetCDFWriterWrite:
             datasets=[ds, ds],
             files=["f0.tif", "f1.tif"],
             _meta=meta,
-            _base=_stub_base(4, 5),
+            _base=_stub_base(4, 5, bands=1),
         )
         writer = CubeNetCDFWriter(collection)
         sink = Mock()

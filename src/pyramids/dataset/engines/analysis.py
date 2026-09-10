@@ -275,7 +275,12 @@ class Analysis(_Engine["Dataset"]):
             df = pd.DataFrame(
                 index=self._ds.band_names,
                 columns=["min", "max", "mean", "std"],
-                dtype=np.float32,
+                # `float64`, not `float32`: these are physical values now, and a band
+                # packed at 1e-5 around an offset of 273.15 -- an ordinary way to store
+                # temperature -- has more significant digits than `float32` carries.
+                # Rounding them here would throw away exactly the resolution the
+                # packing existed to preserve.
+                dtype=np.float64,
             )
             for i in range(self._ds.band_count):
                 if mask is not None and dst is not None:
@@ -286,7 +291,12 @@ class Analysis(_Engine["Dataset"]):
             df = pd.DataFrame(
                 index=[self._ds.band_names[band]],
                 columns=["min", "max", "mean", "std"],
-                dtype=np.float32,
+                # `float64`, not `float32`: these are physical values now, and a band
+                # packed at 1e-5 around an offset of 273.15 -- an ordinary way to store
+                # temperature -- has more significant digits than `float32` carries.
+                # Rounding them here would throw away exactly the resolution the
+                # packing existed to preserve.
+                dtype=np.float64,
             )
             if mask is not None and dst is not None:
                 df.iloc[0, :] = dst.analysis._get_stats(band, approx_ok=approx_ok)
