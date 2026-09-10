@@ -32,6 +32,7 @@ from pyramids.base._utils import (
     # has to keep resolving for callers that already do it.
     DTYPE_CONVERSION_DF,  # noqa: F401
     RGB_CHANNEL_INTERPS,
+    carry_band_packing,
     gdal_dtype_name,
     gdal_to_numpy_type,
     numpy_to_gdal_dtype,
@@ -5290,7 +5291,9 @@ class Dataset(RasterBase):
                 # `convert_units`. On a NetCDF subclass the override returns a
                 # bandless Container, and this template is then read band-wise.
                 grid_template = Dataset.from_array(
-                    template.read_array(band=0).astype(target_np_dtype, copy=False),
+                    template.read_array(band=0, unpack=False).astype(
+                        target_np_dtype, copy=False
+                    ),
                     # epsg is None only for a no-EPSG CRS reported as such (a NetCDF
                     # geostationary grid); from_array raises CRSError on None, so
                     # fall back to the WKT. No-op for a plain Dataset (#706).
@@ -5312,12 +5315,20 @@ class Dataset(RasterBase):
                 array=None,
             )
             for band_i, ds_i in enumerate(datasets):
+                # `unpack=False` throughout: this branch stacks the sources' stored
+                # bands into one raster and carries each band's packing over below, which
+                # is what the `BuildVRT` branch gets for free from `CreateCopy`. Reading
+                # physical values instead would truncate them back into the promoted
+                # *stored* dtype -- an int16 stack of packed inputs losing everything
+                # after the point -- and leave the two branches disagreeing.
                 if align and not template.spatial.same_grid(ds_i):
-                    arr = ds_i.align(grid_template).read_array(band=0)
+                    arr = ds_i.align(grid_template).read_array(band=0, unpack=False)
                 else:
                     # Same grid (or the non-align mixed-dtype path): just cast to
                     # the promoted dtype, which is lossless.
-                    arr = ds_i.read_array(band=0).astype(target_np_dtype, copy=False)
+                    arr = ds_i.read_array(band=0, unpack=False).astype(
+                        target_np_dtype, copy=False
+                    )
                 if align:
                     # Dataset.align fills the warp fringe with the SOURCE's sentinel;
                     # when sources disagree on nodata (first-wins resolved_nd + a
@@ -5325,6 +5336,10 @@ class Dataset(RasterBase):
                     # nodata. A same-grid source skips the warp and is lossless.
                     arr = _remap_nodata_to(arr, ds_i.no_data_value[0], resolved_nd)
                 obj.raster.GetRasterBand(band_i + 1).WriteArray(arr)
+                carry_band_packing(
+                    ds_i.raster.GetRasterBand(1),
+                    obj.raster.GetRasterBand(band_i + 1),
+                )
                 del arr
             obj._raster.FlushCache()
         else:

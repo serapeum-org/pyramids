@@ -1604,6 +1604,81 @@ def _is_identity_packing(
     return unit and zero
 
 
+def carry_packing(source: Any, target: Any) -> None:
+    """Copy each band's CF packing from one raster onto another, band by band.
+
+    The companion to reading with `unpack=False`. An operation that rebuilds a raster out of
+    the values it read -- a border trim, a seam join, a mask write -- is copying the *store*,
+    so it reads the stored counts and has to hand the recipe for reading them on. Losing the
+    recipe leaves counts that nothing identifies as counts, which is the same hundredfold
+    error as never unpacking at all, only now unfixable from the result.
+
+    The inverse case needs nothing: an operation that computes new values from the physical
+    ones (`apply`, a reduction) has spent the packing, and its result declares none.
+
+    Bands are matched by position over the shorter of the two rasters, so a rebuild that
+    dropped or added bands carries what it can rather than raising. A driver that cannot
+    store packing answers `RuntimeError`; the values are intact either way, so the loss is
+    left to the read that finds no packing rather than failing the operation.
+
+    Args:
+        source: The `gdal.Dataset` the values were read from.
+        target: The `gdal.Dataset` they were written into.
+
+    Examples:
+        ```python
+        >>> from osgeo import gdal
+        >>> from pyramids.base._utils import carry_packing
+        >>> driver = gdal.GetDriverByName("MEM")
+        >>> src = driver.Create("", 2, 1, 1, gdal.GDT_Int16)
+        >>> src.GetRasterBand(1).SetScale(0.01)
+        0
+        >>> src.GetRasterBand(1).SetOffset(1.5)
+        0
+        >>> dst = driver.Create("", 2, 1, 1, gdal.GDT_Int16)
+        >>> carry_packing(src, dst)
+        >>> dst.GetRasterBand(1).GetScale(), dst.GetRasterBand(1).GetOffset()
+        (0.01, 1.5)
+
+        ```
+    """
+    if source is None or target is None:
+        return
+    for index in range(1, min(source.RasterCount, target.RasterCount) + 1):
+        if not carry_band_packing(
+            source.GetRasterBand(index), target.GetRasterBand(index)
+        ):
+            break
+
+
+def carry_band_packing(source_band: Any, target_band: Any) -> bool:
+    """Copy one band's CF packing onto another, for a rebuild that pairs bands by hand.
+
+    The band-at-a-time form of :func:`carry_packing`, for a rebuild whose source and target
+    bands do not line up by position -- stacking N single-band files into one N-band raster,
+    say.
+
+    Args:
+        source_band: What the values were read from -- a `gdal.Band`, or anything else
+            answering `GetScale` / `GetOffset`, which a `gdal.MDArray` does.
+        target_band: The `gdal.Band` they were written into.
+
+    Returns:
+        bool: `False` when the target's driver cannot store packing, so a caller looping over
+            bands can stop rather than raise once per band.
+    """
+    scale, offset = source_band.GetScale(), source_band.GetOffset()
+    stored = True
+    try:
+        if scale is not None:
+            target_band.SetScale(scale)
+        if offset is not None:
+            target_band.SetOffset(offset)
+    except (RuntimeError, AttributeError):
+        stored = False
+    return stored
+
+
 def apply_unpack(
     arr: Any,
     scale: float | np.ndarray | None,

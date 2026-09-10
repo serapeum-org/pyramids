@@ -142,8 +142,10 @@ class Variables(_Engine["NetCDF"]):
         if variable_name in nc._readable_variable_names():
             rg.DeleteMDArray(variable_name)
 
-        # Read data from the classic dataset
-        arr = dataset.read_array()
+        # Read data from the classic dataset. `unpack=False`: this writes the raster
+        # back into the store, and the packing is carried onto the MDArray below, so
+        # what belongs in it is the counts that recipe describes.
+        arr = dataset.read_array(unpack=False)
         gt: tuple[float, float, float, float, float, float] = dataset.geotransform
         data_dtype = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(arr))
         # Spatial coordinate dimensions must always be float64 to avoid
@@ -183,6 +185,20 @@ class Variables(_Engine["NetCDF"]):
             md_arr.SetSpatialRef(sr_from_epsg(dataset.epsg))
         elif dataset.crs:
             md_arr.SetSpatialRef(sr_from_user_input(dataset.crs))
+
+        # GDAL keeps `scale_factor` / `add_offset` in the MDArray's own slots rather
+        # than in its attribute dictionary, so the attribute write below cannot carry
+        # them; without this a packed raster written back would lose the recipe for
+        # the counts just stored.
+        source_band = dataset.raster.GetRasterBand(1)
+        scale, offset = source_band.GetScale(), source_band.GetOffset()
+        try:
+            if scale is not None:
+                md_arr.SetScale(scale)
+            if offset is not None:
+                md_arr.SetOffset(offset)
+        except (RuntimeError, AttributeError):
+            pass  # nosec B110 - a driver that cannot store packing leaves it unset
 
         # Set no-data value
         if dataset.no_data_value and dataset.no_data_value[0] is not None:

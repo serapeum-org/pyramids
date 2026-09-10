@@ -26,6 +26,7 @@ import geopandas as gpd
 import numpy as np
 from shapely import box, contains_xy
 
+from pyramids.base._utils import carry_band_packing
 from pyramids.base.crs import crs_equal, crs_spec, sr_from_epsg, sr_from_user_input
 from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
 from pyramids.dataset.engines._base import _Engine
@@ -1034,6 +1035,11 @@ class Selection(_Engine["NetCDF"]):
             no_data_value=no_data if no_data is not None else DEFAULT_NO_DATA_VALUE,
             geo_ref=GeoReference(geo=geo, epsg=4326),
         )
+        # `ReadAsArray` on an MDArray answers in stored counts, and `from_array`
+        # declares no packing, so without this the windowed shortcut returned raw
+        # values where the full-read path it stands in for returns physical ones.
+        for index in range(1, ds.raster.RasterCount + 1):
+            carry_band_packing(md_arr, ds.raster.GetRasterBand(index))
         # API-2: return a NetCDF (consistent with crop / to_crs / resample / sel) rather
         # than a bare Dataset. Wrap the just-built classic raster as a classic-backed
         # NetCDF and transfer ownership (clear ds._raster so the discarded Dataset does

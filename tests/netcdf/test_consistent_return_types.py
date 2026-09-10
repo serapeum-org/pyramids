@@ -738,7 +738,7 @@ class TestChaining:
         )
 
     def test_read_array_unpack_after_crop(self, crop_mask):
-        """read_array(unpack=True) works on a crop() result.
+        """The packing survives a crop() and is applied on read.
 
         Test scenario:
             After cropping, unpack should apply scale/offset since
@@ -749,8 +749,8 @@ class TestChaining:
         var._scale = 2.0
         var._offset = 10.0
         cropped = var.crop(mask=crop_mask)
-        raw = cropped.read_array()
-        unpacked = cropped.read_array(unpack=True)
+        raw = cropped.read_array(unpack=False)
+        unpacked = cropped.read_array()
         expected = raw.astype(np.float64) * 2.0 + 10.0
         np.testing.assert_allclose(
             unpacked,
@@ -760,7 +760,7 @@ class TestChaining:
         )
 
     def test_read_array_unpack_after_to_crs(self):
-        """read_array(unpack=True) works after to_crs() with resampling.
+        """The packing survives to_crs() with resampling and is applied on read.
 
         Test scenario:
             After reprojecting with bilinear interpolation, unpack should
@@ -777,8 +777,8 @@ class TestChaining:
         assert reprojected._offset == pytest.approx(100.0), (
             f"Offset not preserved: {reprojected._offset}"
         )
-        raw = reprojected.read_array()
-        unpacked = reprojected.read_array(unpack=True)
+        raw = reprojected.read_array(unpack=False)
+        unpacked = reprojected.read_array()
         expected = raw.astype(np.float64) * 0.5 + 100.0
         np.testing.assert_allclose(
             unpacked,
@@ -788,7 +788,7 @@ class TestChaining:
         )
 
     def test_read_array_unpack_after_resample(self):
-        """read_array(unpack=True) works after resample() with interpolation.
+        """The packing survives resample() with interpolation and is applied on read.
 
         Test scenario:
             After resampling with cubic interpolation, unpack should
@@ -805,8 +805,8 @@ class TestChaining:
         assert resampled._offset == pytest.approx(273.15), (
             f"Offset not preserved: {resampled._offset}"
         )
-        raw = resampled.read_array()
-        unpacked = resampled.read_array(unpack=True)
+        raw = resampled.read_array(unpack=False)
+        unpacked = resampled.read_array()
         expected = raw.astype(np.float64) * 0.01 + 273.15
         np.testing.assert_allclose(
             unpacked,

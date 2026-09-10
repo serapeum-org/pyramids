@@ -490,7 +490,7 @@ class TestSelReturnTypeAndMetadata:
         )
 
     def test_sel_result_supports_unpack(self):
-        """read_array(unpack=True) works on a sel() result.
+        """The packing survives a sel() and is applied on read.
 
         Test scenario:
             After sel() with scale/offset, unpack should apply
@@ -501,8 +501,8 @@ class TestSelReturnTypeAndMetadata:
         var._scale = 2.0
         var._offset = 10.0
         result = var.sel(time=12)
-        raw = result.read_array()
-        unpacked = result.read_array(unpack=True)
+        raw = result.read_array(unpack=False)
+        unpacked = result.read_array()
         expected = raw.astype(np.float64) * 2.0 + 10.0
         assert_allclose(
             unpacked,

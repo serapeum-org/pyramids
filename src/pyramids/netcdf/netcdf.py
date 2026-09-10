@@ -23,7 +23,12 @@ from osgeo import gdal, osr
 
 from pyramids import _io
 from pyramids.base._axes import AXIS_NAMES
-from pyramids.base._utils import DEFAULT_RESAMPLING, numpy_to_gdal_dtype
+from pyramids.base._utils import (
+    DEFAULT_RESAMPLING,
+    _is_identity_packing,
+    carry_packing,
+    numpy_to_gdal_dtype,
+)
 from pyramids.base.crs import (
     VERTICAL_AXIS_NAMES,
     VERTICAL_STANDARD_NAMES,
@@ -3306,8 +3311,9 @@ class NetCDF(Dataset):
         else:
             result = self._read_array_lazy(chunks, lock, masked)
             # The lazy path builds its array straight from the MDArray rather than
-            # through the raster read, so it is the one place that still applies the
-            # packing itself.
+            # through the raster read, so it applies the packing itself -- from the
+            # same `_scale` / `_offset` the eager path prefers, which is what keeps
+            # the two answering alike.
             if unpack:
                 result = apply_unpack(
                     result,
@@ -3444,12 +3450,32 @@ class NetCDF(Dataset):
     ) -> ArrayLike:
         """Eager (numpy) read through the Dataset mixin.
 
-        `unpack` is forwarded rather than applied again here. A variable's MEM raster
-        carries the CF packing on its band (`GetScale` / `GetOffset` return the same
-        `scale_factor` / `add_offset` the MDArray declares), so the shared raster path
-        already applies it -- unpacking a second time on the way out multiplied the
-        packing in twice.
+        Unpacking happens exactly once, and from the same pair the lazy path uses. A
+        variable's MEM raster usually carries the CF packing on its band (`GetScale` /
+        `GetOffset` answer the `scale_factor` / `add_offset` the MDArray declares), so
+        forwarding `unpack` *and* applying it here multiplied the packing in twice --
+        `100 -> 2.5 -> 1.525`, plausible and wrong.
+
+        Which of the two is authoritative matters, because they can disagree: a spatial
+        op may hand back a raster whose band lost the packing while the variable still
+        carries it in `_scale` / `_offset` (`_wrap_like` copies those onto every result,
+        and the rest of this module -- the fan-out carry, the stream specs -- reads them
+        as the truth). So the variable's own pair wins when it has one, and the band is
+        the fallback: that keeps eager and lazy answering alike, and keeps the per-band
+        case working for a variable that declares nothing of its own, since a raster may
+        hold a different factor per band while an MDArray has just the one.
         """
+        scale = getattr(self, "_scale", None)
+        offset = getattr(self, "_offset", None)
+        if unpack and not _is_identity_packing(scale, offset):
+            raw = super().read_array(
+                band=band,
+                window=window,
+                masked=masked,
+                bbox_rounding=bbox_rounding,
+                unpack=False,
+            )
+            return cast(ArrayLike, apply_unpack(raw, scale, offset))
         return cast(
             ArrayLike,
             super().read_array(
@@ -4213,9 +4239,10 @@ class NetCDF(Dataset):
 
         The packing is added back by hand. GDAL lifts `scale_factor` / `add_offset` out of the
         attribute dictionary into the MDArray's own scale and offset slots, so `_read_attributes`
-        never returns them — and the slab written here is raw, because `read_array` does not unpack
-        by default. Without them the file declares no packing and every value reads back shifted by
-        the packing factor. The eager fan-out carries the same two through `SetScale` / `SetOffset`;
+        never returns them — and the slab written here is raw, because `_write_stream_variable`
+        reads with `unpack=False` for exactly this reason. Without them the file declares no
+        packing and every value reads back shifted by the packing factor. The eager fan-out
+        carries the same two through `SetScale` / `SetOffset`;
         this arm writes CF attributes because that is what the netCDF writer takes, and GDAL lifts
         them again on the next read. The no-data sentinel is lifted the same way, which is why it
         is put back here too.
@@ -4429,15 +4456,22 @@ class NetCDF(Dataset):
 
     @staticmethod
     def _write_stream_variable(writer, name, var, res) -> None:
-        """Write one spatial variable: a band-dim variable slab-by-slab, a 2-D variable whole."""
+        """Write one spatial variable: a band-dim variable slab-by-slab, a 2-D variable whole.
+
+        Read with `unpack=False`. This copies a variable from one store to another, and
+        `_stream_variable_specs` writes the source's `scale_factor` / `add_offset` onto the
+        destination, so what belongs in the slab is the stored counts the recipe describes.
+        Handing it the physical values instead would apply the packing a second time on the
+        next read.
+        """
         if var._band_dim_names:
             for i in range(int(var._band_dim_sizes[0])):
-                plane = np.asarray(res.read_array(band=i))
+                plane = np.asarray(res.read_array(band=i, unpack=False))
                 if plane.ndim == 3 and plane.shape[0] == 1:
                     plane = plane[0]
                 writer.write_slab(name, i, plane)
             return
-        plane = np.asarray(res.read_array())
+        plane = np.asarray(res.read_array(unpack=False))
         if plane.ndim == 3 and plane.shape[0] == 1:
             plane = plane[0]
         writer.write_whole(name, plane)
@@ -4593,7 +4627,13 @@ class NetCDF(Dataset):
             # out of scope. read_array also squeezes singleton-band 3-D
             # variables to 2-D, so re-expand when the variable carried a
             # band/time/level dim originally.
-            var_arr = var_result.read_array()
+            #
+            # `unpack=False`: the rebuild is a copy of the store, and
+            # `_carry_variable_attrs` stamps the source's scale/offset back
+            # onto it below, so the array written here has to be the counts
+            # that recipe describes. Reading physical values and then
+            # declaring the packing over them applies it twice.
+            var_arr = var_result.read_array(unpack=False)
             if var_arr.ndim == 2 and var._band_dim_name is not None:
                 var_arr = np.expand_dims(var_arr, axis=0)
             # For 4-D+ variables, GDAL classic raster flattened the
@@ -4684,13 +4724,17 @@ class NetCDF(Dataset):
         the attribute write above cannot restore them. Losing them silently
         corrupted a container-wide operation on a packed variable by the
         packing factor: the fan-out writes the array `read_array()` returns,
-        which is **raw** (`unpack=False` is the default), so the rebuilt
-        variable holds packed counts with nothing left to say they are packed.
-        On the suite's own `scale_factor=0.01` fixture,
-        `nc.crop(mask).get_variable("z").read_array(unpack=True)` came back a
+        so the rebuilt variable held packed counts with nothing left to say
+        they were packed. On the suite's own `scale_factor=0.01` fixture,
+        `nc.crop(mask).get_variable("z").read_array()` came back a
         hundredfold off from `nc.get_variable("z").crop(mask)` -- the same
-        request, spelled the other way round. Because the stored array stays
-        raw, restoring the slots cannot double-apply.
+        request, spelled the other way round.
+
+        Restoring the slots is safe only while the stored array stays raw,
+        which is why both rebuild arms read with an explicit `unpack=False`
+        rather than relying on the read default. Unpacking became the default
+        in #1124, and a rebuild that wrote physical values under a restored
+        recipe would scale them a second time.
 
         Args:
             container: The freshly built container holding `var_name`.
@@ -8537,7 +8581,11 @@ class NetCDF(Dataset):
         # to_crs returns a VRT-backed dataset — materialize it into
         # a MEM dataset so the data survives after the VRT source
         # (the variable subset) is garbage collected.
-        arr = reprojected.read_array()
+        #
+        # `unpack=False`: the materialize is a copy of the warped store, and the
+        # packing is carried onto it below, so `set_variable` writes the counts that
+        # recipe describes rather than a `float64` widening of them.
+        arr = reprojected.read_array(unpack=False)
         no_data_value = reprojected.no_data_value
         ndv_scalar = (
             no_data_value[0]
@@ -8557,6 +8605,7 @@ class NetCDF(Dataset):
             ),
             no_data_value=ndv_scalar,
         )
+        carry_packing(reprojected.raster, materialized.raster)
         NetCDF._copy_band_dim_metadata(materialized, var)
         materialized._variable_attrs = var._variable_attrs
         self.set_variable(variable_name, materialized)

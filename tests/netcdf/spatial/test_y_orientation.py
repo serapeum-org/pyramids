@@ -244,6 +244,10 @@ def _assert_orientation(var, expect_flip, label, path, variable):
     helper compared pyramids' two internal read paths against each other, and both were mirrored the
     same way, so a geostationary raster shipped upside down (#705). It also checks that materializing
     does not change the pixels.
+
+    Read with `unpack=False`: the reference is the array as stored, and the subject here is
+    orientation, so both sides are compared in stored counts. A packed granule read the
+    default way would differ from it by the packing factor while being oriented correctly.
     """
     assert var._md_y_flipped is expect_flip, (
         f"{label}: expected _md_y_flipped={expect_flip}, got {var._md_y_flipped}"
@@ -251,7 +255,7 @@ def _assert_orientation(var, expect_flip, label, path, variable):
     assert var.geotransform[5] < 0, (
         f"{label}: geotransform must be north-up, got gt[5]={var.geotransform[5]}"
     )
-    before = np.asarray(var.read_array())
+    before = np.asarray(var.read_array(unpack=False))
     np.testing.assert_array_equal(
         before,
         _north_up_reference(path, variable),
@@ -259,7 +263,7 @@ def _assert_orientation(var, expect_flip, label, path, variable):
     )
     var._materialize_md_view()
     np.testing.assert_array_equal(
-        np.asarray(var.read_array()),
+        np.asarray(var.read_array(unpack=False)),
         before,
         err_msg=f"{label}: materializing the view changed the pixels",
     )

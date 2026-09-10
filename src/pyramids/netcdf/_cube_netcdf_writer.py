@@ -170,6 +170,19 @@ class CubeNetCDFWriter:
             typed_nodata = np.asarray(nodata, dtype=var_dtype).item()
             var_attrs["nodata"] = typed_nodata
 
+        # The cube is written at the collection's *stored* dtype, so the slabs are
+        # streamed with `unpack=False` and the packing recipe has to travel with them
+        # as CF attributes (GDAL keeps `scale_factor` / `add_offset` in the MDArray's
+        # own slots, and lifts these two into them on the next read). Writing physical
+        # values instead would cast `14.35` back into an `int16` cube as `14`, and
+        # writing counts without the recipe would leave them meaning nothing.
+        template_band = self._collection._base.raster.GetRasterBand(1)
+        scale, offset = template_band.GetScale(), template_band.GetOffset()
+        if scale is not None and scale != 1:
+            var_attrs["scale_factor"] = scale
+        if offset is not None and offset != 0:
+            var_attrs["add_offset"] = offset
+
         dims: dict[str, int] = {time_dim: int(axis.values.shape[0])}
         coords: dict[str, tuple[np.ndarray, dict[str, Any]]] = {
             time_dim: (axis.values, axis.attrs),
@@ -241,7 +254,9 @@ class CubeNetCDFWriter:
         var_dtype = self.var_dtype
         expected = (band_count, dims["y"], dims["x"])
         for t, ds in enumerate(collection.datasets):
-            block = np.asarray(ds.read_array()).astype(var_dtype, copy=False)
+            block = np.asarray(ds.read_array(unpack=False)).astype(
+                var_dtype, copy=False
+            )
             if block.ndim == 2:
                 block = block[np.newaxis, :, :]
             if block.shape != expected:

@@ -399,7 +399,13 @@ class TestClassicDriverNotUsedForPixels:
 
 
 class TestGeostationaryGroundTruth:
-    """For a geostationary granule the classic driver is authoritative; pyramids must agree with it."""
+    """For a geostationary granule the classic driver is authoritative; pyramids must agree with it.
+
+    The classic driver answers in stored counts, so every comparison here reads pyramids with
+    `unpack=False`. What is under test is which pixel a coordinate lands on, not what the pixel
+    means -- `CMI` is packed, so a default read would differ from the reference by the packing
+    factor while being oriented exactly right.
+    """
 
     def test_to_crs_pixels_match_the_classic_driver_warp(self):
         """#705's downstream symptom: reprojected pixels must equal warping the classic driver.
@@ -415,7 +421,7 @@ class TestGeostationaryGroundTruth:
             "", gdal.Open(f'NETCDF:"{GOES}":CMI'), format="MEM", dstSRS="EPSG:4326"
         )
         np.testing.assert_array_equal(
-            np.asarray(warped.read_array()),
+            np.asarray(warped.read_array(unpack=False)),
             np.asarray(reference.ReadAsArray()),
             err_msg="to_crs(4326) pixels differ from warping the classic driver",
         )
@@ -430,7 +436,7 @@ class TestGeostationaryGroundTruth:
             returned `[1494, 728]` where the truth was `[1543, 2114]` on the reporter's granule.
         """
         warped = NetCDF.read_file(GOES).get_variable("CMI").to_crs(4326)
-        pyramids_array = np.asarray(warped.read_array())
+        pyramids_array = np.asarray(warped.read_array(unpack=False))
         gt = warped.geotransform
         reference = gdal.Warp(
             "", gdal.Open(f'NETCDF:"{GOES}":CMI'), format="MEM", dstSRS="EPSG:4326"
@@ -453,7 +459,7 @@ class TestGeostationaryGroundTruth:
     def test_read_array_matches_classic_driver_not_its_flipud(self):
         """#705: `read_array()` must equal the classic driver's array, not its `flipud`."""
         var = NetCDF.read_file(GOES).get_variable("CMI")
-        pyramids_array = np.asarray(var.read_array())
+        pyramids_array = np.asarray(var.read_array(unpack=False))
         classic = np.asarray(gdal.Open(f'NETCDF:"{GOES}":CMI').ReadAsArray())
         np.testing.assert_array_equal(
             pyramids_array,

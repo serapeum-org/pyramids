@@ -3,16 +3,17 @@
 `nc.get_variable("z").crop(mask)` and `nc.crop(mask).get_variable("z")` are the
 same request spelled two ways, and they disagreed by the packing factor. The
 fan-out rebuilds every variable through `from_array` and writes the array
-`read_array()` hands it -- which is **raw**, `unpack=False` being the default --
-but GDAL keeps `scale_factor` / `add_offset` in the MDArray's own scale and
-offset slots rather than in its attribute dictionary, so the attribute carry
-could not restore them. The rebuilt variable held packed counts with nothing
-left to say they were packed, and `read_array(unpack=True)` returned them
-unscaled: a hundredfold error on the suite's own `scale_factor=0.01` fixture,
-silent.
+`read_array(unpack=False)` hands it -- the stored counts -- but GDAL keeps
+`scale_factor` / `add_offset` in the MDArray's own scale and offset slots
+rather than in its attribute dictionary, so the attribute carry could not
+restore them. The rebuilt variable held packed counts with nothing left to say
+they were packed, and reading it back returned them unscaled: a hundredfold
+error on the suite's own `scale_factor=0.01` fixture, silent.
 
 Because the stored array stays raw, restoring the slots cannot double-apply --
-which is the property that makes this safe, and is asserted here directly.
+which is the property that makes this safe, and is asserted here directly. It
+stays raw only because both rebuild arms ask for it: unpacking became the read
+default in #1124, so `unpack=False` is now explicit at every byte-copy.
 """
 
 from __future__ import annotations
@@ -116,7 +117,7 @@ class TestTheFanOutCarriesThePacking:
 
         Test scenario:
             Cropping the variable and cropping the container then taking the
-            variable are the same request. Read with `unpack=True` they have
+            variable are the same request. Read back, they have
             to give the same physical values -- the per-variable path always
             did, and the container path returned raw counts.
         """
@@ -202,8 +203,9 @@ class TestTheFanOutCarriesThePacking:
             name: The variable to compare.
 
         Test scenario:
-            The fan-out writes what `read_array()` returns, and that is raw
-            because `unpack=False` is the default. If the rebuild ever started
+            The fan-out writes what it reads, and it reads with an explicit
+            `unpack=False` -- unpacking became the read default in #1124, so
+            the raw read has to be asked for. If the rebuild ever started
             writing unpacked values, stamping the packing back on would scale
             them a second time. Comparing the two rebuild paths against *each
             other* would pass just as well if both had started unpacking, so
@@ -213,13 +215,15 @@ class TestTheFanOutCarriesThePacking:
             distinguishable on this fixture at all.
         """
         mask = _full_extent_mask(packed, name)
-        source_raw = np.asarray(packed.get_variable(name).read_array())
-        source_unpacked = np.asarray(packed.get_variable(name).read_array(unpack=True))
+        source_raw = np.asarray(packed.get_variable(name).read_array(unpack=False))
+        source_unpacked = np.asarray(packed.get_variable(name).read_array())
         assert not np.allclose(source_raw, source_unpacked), (
             f"{name}: raw and unpacked reads agree, so 'still raw' asserts nothing"
         )
 
-        via_container = np.asarray(packed.crop(mask).get_variable(name).read_array())
+        via_container = np.asarray(
+            packed.crop(mask).get_variable(name).read_array(unpack=False)
+        )
 
         assert np.array_equal(via_container, source_raw), (
             f"{name}: the rebuilt array is not the raw one the source held -- "
@@ -237,8 +241,8 @@ class TestTheFanOutCarriesThePacking:
         mask = _full_extent_mask(packed, "z")
 
         cropped = packed.crop(mask).get_variable("z")
-        raw = np.asarray(cropped.read_array())
-        unpacked = np.asarray(cropped.read_array(unpack=True))
+        raw = np.asarray(cropped.read_array(unpack=False))
+        unpacked = np.asarray(cropped.read_array())
 
         assert not np.allclose(raw, unpacked), (
             "raw and unpacked reads agree, so this fixture proves nothing"

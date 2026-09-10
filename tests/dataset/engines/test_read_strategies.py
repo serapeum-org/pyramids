@@ -48,7 +48,7 @@ def make_request(**overrides) -> ReadRequest:
         "boundless": False,
         "fill_value": None,
         "masked": False,
-        "scaled": False,
+        "unpack": True,
         "threadsafe": False,
     }
     base.update(overrides)
@@ -470,21 +470,21 @@ class TestStrategySelection:
         ],
         ids=["eager", "masked-eager", "lazy", "decimated", "boundless", "threadsafe"],
     )
-    def test_scaled_does_not_change_strategy_selection(self, combo, expected):
-        """``scaled`` never alters the matched path (which stays the combo's expected one).
+    def test_unpack_does_not_change_strategy_selection(self, combo, expected):
+        """``unpack`` never alters the matched path (which stays the combo's expected one).
 
         Args:
             combo: A per-path option set that selects one strategy.
             expected: The strategy class ``combo`` must select.
 
         Test scenario:
-            Both ``scaled=False`` and ``scaled=True`` select ``expected`` for the
+            Both ``unpack=False`` and ``unpack=True`` select ``expected`` for the
             combo — pinning the per-combo path (so a uniform-selection collapse is
-            caught) and proving no strategy branches on ``scaled``.
+            caught) and proving no strategy branches on ``unpack``.
         """
-        assert isinstance(select(make_request(scaled=False, **combo)), expected), (
+        assert isinstance(select(make_request(unpack=False, **combo)), expected), (
             f"{combo} should select {expected.__name__}"
         )
-        assert isinstance(select(make_request(scaled=True, **combo)), expected), (
-            f"scaled=True changed the path for {combo}"
+        assert isinstance(select(make_request(unpack=True, **combo)), expected), (
+            f"unpack=True changed the path for {combo}"
         )

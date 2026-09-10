@@ -204,6 +204,22 @@ the packing is genuinely spent rather than silently discarded.
 
 A function whose result GDAL has no type for (an `object` array) still writes at the source type, as before.
 
+**An operation that copies the store keeps the packing; one that computes new values spends it.** This is the
+rule that makes the default safe, and it is worth knowing if you subclass or read the internals. A crop, a
+seam join across the antimeridian, the container-wide fan-out — these move stored bytes, so they read with
+`unpack=False` and carry `scale_factor` / `add_offset` onto the result: a cropped `int16` CMEMS variable stays
+`int16` and still declares its recipe, rather than quadrupling in size as `float64`. `apply`, `from_array` and
+the reductions produce values the packing has already been spent on, so their results declare none.
+
+Two consequences you may see:
+
+- a packed raster survives `crop` / `to_crs` / `resample` with its `scale` and `offset` intact, where before
+  the cutline border-trim silently dropped them (a `Dataset` lost the packing outright; a `NetCDF` variable
+  kept it only in a Python attribute);
+- for a NetCDF variable, `_scale` / `_offset` are authoritative for the read when set, and the band's own
+  `GetScale` / `GetOffset` are the fallback. The eager and lazy (`chunks=`) paths therefore always apply the
+  same pair, which they did not have to before, when only the lazy path consulted the variable's own.
+
 **`merge_rasters` inherits its no-data from the sources instead of defaulting to `0`.** A hard behavior change,
 and the reason is that `0` is real data in most rasters worth merging: sea-level land in an elevation or
 bathymetry model, the zero crossing of an anomaly or difference raster. The old default stamped `0` on the

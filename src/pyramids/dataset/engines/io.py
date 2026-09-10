@@ -42,7 +42,11 @@ from pyramids.base._file_manager import (
     gdal_raster_open,
 )
 from pyramids.base._locks import DummyLock, default_lock
-from pyramids.base._utils import apply_unpack, resolve_resampling
+from pyramids.base._utils import (
+    _is_identity_packing,
+    apply_unpack,
+    resolve_resampling,
+)
 from pyramids.base.crs import crs_from_user_input, crs_spec, reproject_coordinates
 from pyramids.base.protocols import ArrayLike
 from pyramids.base.remote import is_network_backed
@@ -2412,6 +2416,35 @@ class IO(_Engine["Dataset"]):
                 xsize = size if size + xoff <= cols else cols - xoff
                 yield xoff, yoff, xsize, ysize
 
+    def _band_packing(self, band: int | None) -> tuple[Any, Any]:
+        """The scale/offset a read of `band` would apply, over one band or all of them.
+
+        Args:
+            band: Zero-based band index, or `None` for every band.
+
+        Returns:
+            tuple: `(scale, offset)` for a single band; per-band lists when `band` is
+                `None`, so a raster packed on only one of its bands is not mistaken for
+                an unpacked one.
+        """
+        raster = self._ds.raster
+        indices = (
+            [band + 1] if band is not None else list(range(1, raster.RasterCount + 1))
+        )
+        scales, offsets = [], []
+        for index in indices:
+            gdal_band = raster.GetRasterBand(index)
+            scales.append(gdal_band.GetScale())
+            offsets.append(gdal_band.GetOffset())
+        if band is not None:
+            result = (scales[0], offsets[0])
+        else:
+            result = (
+                [1.0 if s is None else s for s in scales],
+                [0.0 if o is None else o for o in offsets],
+            )
+        return result
+
     def stream_transform(
         self,
         tile_func: Callable[[np.ndarray], np.ndarray],
@@ -2491,6 +2524,15 @@ class IO(_Engine["Dataset"]):
               ```
         """
         if out is None:
+            # A packed source reads physical, so the tiles reaching `tile_func` are
+            # `float64` and `empty_like`'s default -- the source's *stored* dtype --
+            # would cast them back on write: `14.35` into an `int16` band as `14`,
+            # the same silent truncation #1124 reported in `apply`. Default to the
+            # dtype the read actually produces; an explicit `dtype=` still wins.
+            if dtype is None and not _is_identity_packing(
+                *self._ds.io._band_packing(band)
+            ):
+                dtype = "float64"
             allocate: dict[str, Any] = {"dtype": dtype, "bands": bands, "path": path}
             if no_data_value is not INHERIT_NO_DATA:
                 allocate["no_data_value"] = no_data_value
