@@ -350,7 +350,9 @@ class Analysis(_Engine["Dataset"]):
             # scan gives the real spread. The full scan is the recovery.
             vals = band_i.ComputeStatistics(False)
 
-        return self._unpack_stats(list(vals), *self._ds._effective_packing(band))
+        return self._unpack_stats(
+            list(vals), *self._ds._effective_packing(band if band is not None else 0)
+        )
 
     @staticmethod
     def _unpack_stats(values: list[float], scale: Any, offset: Any) -> list[float]:
@@ -2800,17 +2802,16 @@ class Analysis(_Engine["Dataset"]):
         # computed over, not at the raster minimum. When a caller narrowed the
         # range the two differ, so the returned edges described buckets that
         # `GetHistogram` never filled.
-        ranges = [
-            tuple(
-                sorted(
-                    (
-                        _to_physical(stored_low + i * bin_width),
-                        _to_physical(stored_low + (i + 1) * bin_width),
-                    )
+        edges = [
+            sorted(
+                (
+                    _to_physical(stored_low + i * bin_width),
+                    _to_physical(stored_low + (i + 1) * bin_width),
                 )
             )
             for i in range(bins)
         ]
+        ranges = [(low, high) for low, high in edges]
 
         hist = band_obj.GetHistogram(
             min=stored_low,

@@ -4476,4 +4476,6 @@ class IO(_Engine["Dataset"]):
         # same raster on two different colour scales depending on that flag. The
         # all-bands branch above allocates at the stored dtype and fills it band by
         # band, so the transform is applied once, at the end, over the whole stack.
-        return self._apply_scale_offset(arr, band if arr.ndim == 2 else None)
+        return np.asarray(
+            self._apply_scale_offset(arr, band if arr.ndim == 2 else None)
+        )

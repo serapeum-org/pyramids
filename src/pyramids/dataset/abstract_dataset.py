@@ -1177,6 +1177,8 @@ class RasterBase(ABC):
         self,
         band: int | None = None,
         window: Window | GeoDataFrame | list[int] | None = None,
+        *,
+        unpack: bool = True,
     ) -> ArrayLike:
         """Read Array.
 
