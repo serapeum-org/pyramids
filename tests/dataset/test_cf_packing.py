@@ -225,6 +225,28 @@ class TestStatsArePhysical:
             store.close()
         assert physical == pytest.approx(raw_spread * abs(scale), rel=1e-3)
 
+    def test_stats_and_read_array_resolve_the_packing_alike(self):
+        """One resolver, or the same band gets reported in two different units.
+
+        Test scenario:
+            A `NetCDF` variable can carry its packing in Python (`_scale` / `_offset`,
+            which `_wrap_like` copies onto every spatial result) while its band
+            declares something else. While `read_array` preferred the variable's pair
+            and `stats` read the band, the two answered 48.0 and 19.0 for the same
+            maximum. Both now ask the dataset.
+        """
+        store = NetCDF.read_file(PACKED_NC)
+        try:
+            variable = store.get_variable("z")
+            variable._scale, variable._offset = 2.0, 10.0
+            read = float(np.nanmax(np.asarray(variable.read_array(), dtype="float64")))
+            reported = float(variable.stats(approx_ok=False)["max"].iloc[0])
+        finally:
+            store.close()
+        assert reported == pytest.approx(read), (
+            f"stats says {reported}, read_array says {read}"
+        )
+
     def test_an_unpacked_raster_keeps_its_statistics(self):
         """The transform must not disturb a raster that was never packed."""
         dataset = _int_raster([[1, 2, 3], [4, 5, 6]])

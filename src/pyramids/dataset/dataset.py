@@ -1277,6 +1277,27 @@ class Dataset(RasterBase):
             opts.get("percentile"),
         )
 
+    def _effective_packing(self, band: int = 0) -> tuple[Any, Any]:
+        """The `(scale, offset)` a read of `band` applies, as this class resolves it.
+
+        The single answer every consumer of the packing asks for -- `read_array`,
+        `stats`, the streaming transforms -- so they cannot resolve it differently and
+        report the same band in different units. For a plain raster the band's own
+        `GetScale` / `GetOffset` are the whole story; `NetCDF` overrides this because a
+        variable can also carry the pair in Python, and the two can disagree.
+
+        Args:
+            band: Zero-based band index.
+
+        Returns:
+            tuple: `(scale, offset)`, either of which may be `None` for "unset".
+        """
+        raster = self._raster
+        if raster is None:
+            return None, None
+        gdal_band = raster.GetRasterBand(band + 1)
+        return gdal_band.GetScale(), gdal_band.GetOffset()
+
     def crop(self, *args, **kwargs):
         """Facade — delegates to :meth:`Spatial.crop <pyramids.dataset.engines.Spatial.crop>`."""
         return self.spatial.crop(*args, **kwargs)

@@ -2427,15 +2427,14 @@ class IO(_Engine["Dataset"]):
                 `None`, so a raster packed on only one of its bands is not mistaken for
                 an unpacked one.
         """
-        raster = self._ds.raster
         indices = (
-            [band + 1] if band is not None else list(range(1, raster.RasterCount + 1))
+            [band] if band is not None else list(range(self._ds.raster.RasterCount))
         )
-        scales, offsets = [], []
-        for index in indices:
-            gdal_band = raster.GetRasterBand(index)
-            scales.append(gdal_band.GetScale())
-            offsets.append(gdal_band.GetOffset())
+        # Through the dataset's own resolver, so a `NetCDF` variable that carries its
+        # packing in Python rather than on the band is not read as unpacked here.
+        resolved = [self._ds._effective_packing(index) for index in indices]
+        scales = [pair[0] for pair in resolved]
+        offsets = [pair[1] for pair in resolved]
         if band is not None:
             result = (scales[0], offsets[0])
         else:

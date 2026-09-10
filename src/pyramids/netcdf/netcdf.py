@@ -3438,7 +3438,7 @@ class NetCDF(Dataset):
         # the injected, already-resolved CRS.
         return resolve_read_window(window, bbox, crs=crs)
 
-    def _effective_packing(self) -> tuple[Any, Any]:
+    def _effective_packing(self, band: int = 0) -> tuple[Any, Any]:
         """The `(scale, offset)` a read of this variable must apply.
 
         There are two places the packing can live and they do not always agree, so
@@ -3453,15 +3453,17 @@ class NetCDF(Dataset):
         band and the lazy arm consulted only `_scale`, the same classic-opened
         variable read `2.5` eagerly and `100.0` through `chunks=`.
 
+        Args:
+            band: Zero-based band index, used only for the fallback -- an MDArray
+                declares one packing for the whole variable.
+
         Returns:
             tuple: `(scale, offset)`, either of which may be `None` for "unset".
         """
         scale = getattr(self, "_scale", None)
         offset = getattr(self, "_offset", None)
         if _is_identity_packing(scale, offset):
-            band = self._raster.GetRasterBand(1) if self._raster is not None else None
-            if band is not None:
-                scale, offset = band.GetScale(), band.GetOffset()
+            scale, offset = super()._effective_packing(band)
         return scale, offset
 
     def _read_array_eager(

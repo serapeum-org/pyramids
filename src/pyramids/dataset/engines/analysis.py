@@ -328,10 +328,10 @@ class Analysis(_Engine["Dataset"]):
             # scan gives the real spread. The full scan is the recovery.
             vals = band_i.ComputeStatistics(False)
 
-        return self._unpack_stats(list(vals), band_i)
+        return self._unpack_stats(list(vals), *self._ds._effective_packing(band))
 
     @staticmethod
-    def _unpack_stats(values: list[float], band_i: Any) -> list[float]:
+    def _unpack_stats(values: list[float], scale: Any, offset: Any) -> list[float]:
         """Put `[min, max, mean, std]` into physical units when the band is packed.
 
         `stats` never reads a pixel -- it asks GDAL, which answers in the stored units. So
@@ -344,15 +344,21 @@ class Analysis(_Engine["Dataset"]):
         because an additive offset moves a distribution without widening it. A negative
         scale would swap min and max, so they are reordered rather than left crossed.
 
+        The pair is supplied by the owning dataset (`_effective_packing`) rather than
+        read off the GDAL band here. Reading the band directly made `stats` and
+        `read_array` resolve the packing from different places, and on a `NetCDF`
+        variable carrying `_scale` in Python over an unpacked band they answered 19.0
+        and 48.0 for the same maximum.
+
         Args:
             values: `[min, max, mean, std]` in stored units.
-            band_i: The GDAL band, for its scale and offset.
+            scale: The band's `scale_factor`, or `None`.
+            offset: The band's `add_offset`, or `None`.
 
         Returns:
             list[float]: The same four numbers in physical units, or unchanged when the
                 band is not packed.
         """
-        scale, offset = band_i.GetScale(), band_i.GetOffset()
         if _is_identity_packing(scale, offset) or len(values) != 4:
             return values
         factor = 1.0 if scale is None else float(scale)
