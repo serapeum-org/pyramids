@@ -1033,6 +1033,28 @@ def _grid_lines(nc: NetCDF) -> list[str]:
     return lines
 
 
+def _has_raster_plane(md_arr: gdal.MDArray) -> bool:
+    """Whether GDAL can expose `md_arr` as a raster plane, decided without reading it.
+
+    The two conditions `_read_md_array` hands the raw array back on: a single
+    dimension, or a dtype class other than numeric (`AsClassicDataset` accepts
+    numeric arrays only). Both come off the array's declaration, so this costs
+    nothing however large the array is -- the point, since the alternative is
+    materialising the whole array only to learn it is not a raster.
+
+    Args:
+        md_arr: The array to classify.
+
+    Returns:
+        bool: `True` when the array has at least two dimensions and a numeric
+        type, so `get_variable` will return a raster-backed `NetCDF` for it.
+    """
+    return bool(
+        len(md_arr.GetDimensions()) >= 2
+        and md_arr.GetDataType().GetClass() == gdal.GEDTC_NUMERIC
+    )
+
+
 def _labeled_array_from_md_array(md_arr: gdal.MDArray, name: str) -> LabeledArray:
     """Materialise an MDArray GDAL cannot expose as a raster into a `LabeledArray`.
 
@@ -1117,7 +1139,19 @@ def _labeled_array_from_md_array(md_arr: gdal.MDArray, name: str) -> LabeledArra
         # result was read-only where every other path is writeable, and a
         # component that is itself a compound has no numeric type code, so the
         # hand-rolled dtype raised on a record `ReadAsArray` handles.
-        raw = md_arr.ReadAsArray()
+        try:
+            raw = md_arr.ReadAsArray()
+        except RuntimeError as error:
+            # A compound record with a string field is unreadable through the
+            # SWIG bindings by *either* reader -- `ReadAsArray` and `Read` both
+            # raise ("String buffer" / "non-numeric buffer data type not
+            # supported"). There is nothing to materialise, so this refuses, but
+            # in terms of the variable rather than with GDAL's bare message.
+            raise ValueError(
+                f"{name} cannot be read: GDAL's Python bindings do not support "
+                f"its data type ({error}). A compound type with a string field "
+                "is the usual cause."
+            ) from error
     values = np.asarray(raw)
     if values.shape != shape:
         # The two shapes come from different places -- `shape` from the
@@ -2378,13 +2412,18 @@ class NetCDF(Dataset):
             crs = ""
             try:
                 for name in self.variable_names:
+                    if not self._declares_raster_plane(name):
+                        # A non-raster variable has no CRS to borrow. Skipped on
+                        # its declaration, not by reading it: `get_variable`
+                        # materialises, so asking it would read the whole array
+                        # -- 40 MB for a 5M-element series -- to learn nothing.
+                        # And skipped rather than allowed to raise, because the
+                        # `except` below wraps the whole loop, so one such
+                        # variable early in the list would suppress the CRS of
+                        # every raster variable after it.
+                        continue
                     variable = self.get_variable(name)
                     if isinstance(variable, LabeledArray):
-                        # A non-raster variable has no CRS to borrow. It must be
-                        # skipped rather than allowed to raise: the `except`
-                        # below wraps the whole loop, so one such variable early
-                        # in the list would otherwise suppress the CRS of every
-                        # raster variable after it.
                         continue
                     variable_crs = variable.crs
                     if variable_crs:
@@ -4041,7 +4080,13 @@ class NetCDF(Dataset):
         if md is None:
             return False
         var_dims = [d.GetName() for d in md.GetDimensions()]
-        if len(var_dims) < 2:
+        if not _has_raster_plane(md):
+            # A string or compound array sitting on recognised (y, x) axes has
+            # the dimensions of a grid but no raster plane: `get_variable` cannot
+            # build one, so treating it as spatial handed it to the fan-out,
+            # which then refused the *whole* container's crop / to_crs / reduce
+            # over one auxiliary field. It is carried through like any other
+            # auxiliary variable instead.
             return False
         return (
             self._cf_spatial_axes(rg, var_dims) is not None
@@ -7256,6 +7301,22 @@ class NetCDF(Dataset):
         """Whether the X axis is stored east-to-west; see `_mdim.x_axis_is_right_to_left`."""
         return x_axis_is_right_to_left(dims, x_index, classic_view)
 
+    def _declares_raster_plane(self, variable_name: str) -> bool:
+        """Whether `get_variable(variable_name)` would return a raster, without reading it.
+
+        Args:
+            variable_name: The variable, group-qualified if it lives in a group.
+
+        Returns:
+            bool: `True` for a raster variable, and also when there is no
+            multidimensional group to ask -- the classic `NETCDF:file:var` path
+            always yields a raster -- or the name cannot be opened, so that
+            `get_variable` is left to produce its own error for it.
+        """
+        rg = self._working_group()
+        md_arr = open_mdarray(rg, variable_name) if rg is not None else None
+        return md_arr is None or _has_raster_plane(md_arr)
+
     def _require_raster_variable(
         self, variable_name: str, x_dim: str | None = None, y_dim: str | None = None
     ) -> NetCDF:
@@ -7280,13 +7341,26 @@ class NetCDF(Dataset):
         Raises:
             ValueError: The variable has no raster plane.
         """
-        variable = self.get_variable(variable_name, x_dim=x_dim, y_dim=y_dim)
-        if isinstance(variable, LabeledArray):
+        rg = self._working_group()
+        md_arr = open_mdarray(rg, variable_name) if rg is not None else None
+        # Decided on the declaration first, so the refusal costs nothing: going
+        # straight to `get_variable` would read the whole array only to reject it.
+        dims = (
+            tuple(dim.GetName() for dim in md_arr.GetDimensions())
+            if md_arr is not None and not _has_raster_plane(md_arr)
+            else None
+        )
+        variable: NetCDF | LabeledArray | None = None
+        if dims is None:
+            variable = self.get_variable(variable_name, x_dim=x_dim, y_dim=y_dim)
+            if isinstance(variable, LabeledArray):
+                dims = variable.dims
+        if dims is not None or not isinstance(variable, NetCDF):
             raise ValueError(
-                f"{variable_name} has no raster plane (dimensions "
-                f"{variable.dims}), so it has no geometry to operate on; read "
-                "its values with `get_variable`, or open the store with "
-                "`LabeledDataset` for labelled point data"
+                f"{variable_name} has no raster plane (dimensions {dims}), so it "
+                "has no geometry to operate on; read its values with "
+                "`get_variable`, or open the store with `LabeledDataset` for "
+                "labelled point data"
             )
         return variable
 
