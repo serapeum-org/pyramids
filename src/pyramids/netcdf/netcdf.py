@@ -9041,6 +9041,50 @@ class NetCDF(Dataset):
             new_attr.WriteDoubleArray(src_attr.ReadAsDoubleArray())
 
     @staticmethod
+    def _copy_md_array_packing(src_mdarray, dst_mdarray) -> None:
+        """Carry the CF packing -- scale, offset and fill value -- onto a copy.
+
+        Split out of `_add_md_array_to_group`, whose numeric branch alone needs
+        it: none of the three means anything for a string array.
+
+        Args:
+            src_mdarray: The array being copied.
+            dst_mdarray: The freshly created copy, not yet written.
+        """
+        scale = src_mdarray.GetScale()
+        if scale is not None:
+            dst_mdarray.SetScale(scale)
+        offset = src_mdarray.GetOffset()
+        if offset is not None:
+            dst_mdarray.SetOffset(offset)
+        ndv = src_mdarray.GetNoDataValue()
+        if ndv is not None:
+            try:
+                dst_mdarray.SetNoDataValueDouble(ndv)
+            except (RuntimeError, TypeError, ValueError):
+                pass
+
+    @staticmethod
+    def _copy_md_array_labels(src_mdarray, dst_mdarray) -> None:
+        """Carry the unit, spatial reference and attributes onto a copy.
+
+        Shared by both branches of `_add_md_array_to_group`. The string branch
+        used to copy the attributes alone, so a string auxiliary came out of a
+        crop with a unit of `''` where it went in with `'1'`.
+
+        Args:
+            src_mdarray: The array being copied.
+            dst_mdarray: The freshly created copy, not yet written.
+        """
+        unit = src_mdarray.GetUnit()
+        if unit:
+            dst_mdarray.SetUnit(unit)
+        srs = src_mdarray.GetSpatialRef()
+        if srs is not None:
+            dst_mdarray.SetSpatialRef(srs)
+        NetCDF._copy_md_array_attributes(src_mdarray, dst_mdarray)
+
+    @staticmethod
     def _add_md_array_to_group(dst_group, var_name, src_mdarray):
         """Copy an MDArray into `dst_group`, preserving data, packing, and metadata.
 
@@ -9076,54 +9120,30 @@ class NetCDF(Dataset):
             # SWIG bindings, but the Python list Read()/Write() path works. Use it
             # so non-spatial string aux vars (e.g. ERA5's 'expver') are carried
             # through container spatial ops instead of being dropped (#565).
+            # No packing: scale, offset and no-data mean nothing for text.
             new_md_array = dst_group.CreateMDArray(
                 var_name, src_dims, gdal.ExtendedDataType.CreateString()
             )
-            NetCDF._copy_md_array_attributes(src_mdarray, new_md_array)
-            # The numeric branch carries unit and spatial reference; this one
-            # dropped them, so a string auxiliary came out of a crop with a unit
-            # of '' where it went in with '1'. No-data has no meaning for a
-            # string array, so it is the one label left behind.
-            unit = src_mdarray.GetUnit()
-            if unit:
-                new_md_array.SetUnit(unit)
-            srs = src_mdarray.GetSpatialRef()
-            if srs is not None:
-                new_md_array.SetSpatialRef(srs)
+            NetCDF._copy_md_array_labels(src_mdarray, new_md_array)
             try:
                 new_md_array.Write(src_mdarray.Read())
             except (RuntimeError, TypeError, ValueError):
-                # The array is created before it is written, and GDAL's Python
-                # bindings refuse to write a string array of rank >= 2
-                # (`RuntimeError`) or a list holding a NULL entry (`TypeError`).
-                # Left in place, the half-built rank >= 2 array listed the
-                # variable in the result with every value `None` -- present by
-                # name, empty in fact -- while the caller's warning said it could
-                # not be carried. It is removed, so the variable is absent and
-                # the warning is true.
+                # The array is created before it is written, and the write can
+                # fail: GDAL's Python bindings refuse a string array of rank
+                # >= 2 (RuntimeError), and a NULL entry reads back as `None`,
+                # which the write rejects (TypeError). Left in place, the
+                # half-built array listed the variable with every value `None`
+                # while the caller's warning said it could not be carried. It is
+                # removed, so the variable is absent and the warning is true.
                 dst_group.DeleteMDArray(var_name)
                 raise
         else:
             arr = src_mdarray.ReadAsArray()
             dtype = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(arr))
             new_md_array = dst_group.CreateMDArray(var_name, src_dims, dtype)
-            scale = src_mdarray.GetScale()
-            if scale is not None:
-                new_md_array.SetScale(scale)
-            offset = src_mdarray.GetOffset()
-            if offset is not None:
-                new_md_array.SetOffset(offset)
-            unit = src_mdarray.GetUnit()
-            if unit:
-                new_md_array.SetUnit(unit)
-            ndv = src_mdarray.GetNoDataValue()
-            if ndv is not None:
-                try:
-                    new_md_array.SetNoDataValueDouble(ndv)
-                except (RuntimeError, TypeError, ValueError):
-                    pass
-            new_md_array.SetSpatialRef(src_mdarray.GetSpatialRef())
-            NetCDF._copy_md_array_attributes(src_mdarray, new_md_array)
+            # Packing before the data, so the netCDF driver accepts the fill.
+            NetCDF._copy_md_array_packing(src_mdarray, new_md_array)
+            NetCDF._copy_md_array_labels(src_mdarray, new_md_array)
             new_md_array.Write(arr)
 
     @staticmethod
