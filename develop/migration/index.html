@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6950,9 +6950,10 @@ the reductions produce values the packing has already been spent on, so their re
   <code>GetScale</code> / <code>GetOffset</code> are the fallback. Everything that <em>applies</em> the packing resolves it through that one
   rule — both read arms, <code>stats</code>, <code>get_histogram</code>, <code>point</code> / <code>read_part</code> / <code>preview</code> / <code>read_overview_array</code> /
   <code>get_tile</code>, <code>set_variable</code> and the streaming transforms — so none of them can answer in different units for
-  the same band. The public <code>scale</code> / <code>offset</code> properties are the exception: they report the band's own slots,
-  so on a variable whose recipe lives only in Python (a <code>sel()</code> result, say) they read <code>[1.0]</code> / <code>[0.0]</code> while
-  the values are still unpacked correctly.</li>
+  the same band. On a <code>NetCDF</code> variable the public <code>scale</code> / <code>offset</code> properties answer from the same rule, so
+  a <code>sel()</code> result -- whose band declares nothing and whose recipe lives only in Python -- reports the factor its
+  values are actually unpacked with, and assigning to either updates that recipe rather than being outranked
+  by it.</li>
 </ul>
 <p><strong><code>no_data_value</code> stays a <em>stored</em> value, and that is the second half of the contract.</strong> CF puts <code>_FillValue</code>
 in the packed datatype, GDAL reports it that way, and it is what gets written back — so it is left alone.

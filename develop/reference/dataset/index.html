@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -18060,32 +18060,32 @@ release deterministic on Windows.</p>
 <a id="__codelineno-0-2995" name="__codelineno-0-2995"></a><span class="sd">        :meth:`copy`, a `CreateCopy` write -- carries the recipe along with them instead,</span>
 <a id="__codelineno-0-2996" name="__codelineno-0-2996"></a><span class="sd">        and stays consistent that way.</span>
 <a id="__codelineno-0-2997" name="__codelineno-0-2997"></a>
-<a id="__codelineno-0-2998" name="__codelineno-0-2998"></a><span class="sd">        This reports each GDAL band's own slot. A `NetCDF` variable can also carry its</span>
-<a id="__codelineno-0-2999" name="__codelineno-0-2999"></a><span class="sd">        recipe in Python (`_scale` / `_offset`), which a read applies ahead of the band's</span>
-<a id="__codelineno-0-3000" name="__codelineno-0-3000"></a><span class="sd">        (see `_effective_packing`); such a pair does not show here.</span>
-<a id="__codelineno-0-3001" name="__codelineno-0-3001"></a>
-<a id="__codelineno-0-3002" name="__codelineno-0-3002"></a><span class="sd">        Returns:</span>
-<a id="__codelineno-0-3003" name="__codelineno-0-3003"></a><span class="sd">            list[float]: One factor per band; `1.0` where a band is not packed.</span>
-<a id="__codelineno-0-3004" name="__codelineno-0-3004"></a><span class="sd">        """</span>
-<a id="__codelineno-0-3005" name="__codelineno-0-3005"></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">bands</span><span class="o">.</span><span class="n">scale</span>
-<a id="__codelineno-0-3006" name="__codelineno-0-3006"></a>
-<a id="__codelineno-0-3007" name="__codelineno-0-3007"></a>    <span class="nd">@scale</span><span class="o">.</span><span class="n">setter</span>
-<a id="__codelineno-0-3008" name="__codelineno-0-3008"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">scale</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">]):</span>
-<a id="__codelineno-0-3009" name="__codelineno-0-3009"></a><span class="w">        </span><span class="sd">"""Facade setter.</span>
-<a id="__codelineno-0-3010" name="__codelineno-0-3010"></a>
-<a id="__codelineno-0-3011" name="__codelineno-0-3011"></a><span class="sd">        Raises:</span>
-<a id="__codelineno-0-3012" name="__codelineno-0-3012"></a><span class="sd">            ReadOnlyError: The dataset is opened read-only on-disk.</span>
-<a id="__codelineno-0-3013" name="__codelineno-0-3013"></a><span class="sd">        """</span>
-<a id="__codelineno-0-3014" name="__codelineno-0-3014"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">bands</span><span class="o">.</span><span class="n">scale</span> <span class="o">=</span> <span class="n">value</span>
-<a id="__codelineno-0-3015" name="__codelineno-0-3015"></a>
-<a id="__codelineno-0-3016" name="__codelineno-0-3016"></a>    <span class="nd">@property</span>
-<a id="__codelineno-0-3017" name="__codelineno-0-3017"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">offset</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-<a id="__codelineno-0-3018" name="__codelineno-0-3018"></a><span class="w">        </span><span class="sd">"""Facade — delegates to :attr:`Bands.offset &lt;pyramids.dataset.engines.Bands.offset&gt;`.</span>
-<a id="__codelineno-0-3019" name="__codelineno-0-3019"></a>
-<a id="__codelineno-0-3020" name="__codelineno-0-3020"></a><span class="sd">        The additive half of the CF packing, `real = stored * scale + offset`. See</span>
-<a id="__codelineno-0-3021" name="__codelineno-0-3021"></a><span class="sd">        :attr:`scale` for how the stored form and the values' meaning are kept apart,</span>
-<a id="__codelineno-0-3022" name="__codelineno-0-3022"></a><span class="sd">        and for why this reports the GDAL band's own slot rather than a `NetCDF`</span>
-<a id="__codelineno-0-3023" name="__codelineno-0-3023"></a><span class="sd">        variable's `_offset`.</span>
+<a id="__codelineno-0-2998" name="__codelineno-0-2998"></a><span class="sd">        This reports each GDAL band's own slot. `NetCDF` overrides it to report the</span>
+<a id="__codelineno-0-2999" name="__codelineno-0-2999"></a><span class="sd">        variable's own `_scale` when it carries one, since a read applies that ahead of</span>
+<a id="__codelineno-0-3000" name="__codelineno-0-3000"></a><span class="sd">        the band's (see `_effective_packing`) -- so on every class the property names the</span>
+<a id="__codelineno-0-3001" name="__codelineno-0-3001"></a><span class="sd">        factor the values are actually unpacked with.</span>
+<a id="__codelineno-0-3002" name="__codelineno-0-3002"></a>
+<a id="__codelineno-0-3003" name="__codelineno-0-3003"></a><span class="sd">        Returns:</span>
+<a id="__codelineno-0-3004" name="__codelineno-0-3004"></a><span class="sd">            list[float]: One factor per band; `1.0` where a band is not packed.</span>
+<a id="__codelineno-0-3005" name="__codelineno-0-3005"></a><span class="sd">        """</span>
+<a id="__codelineno-0-3006" name="__codelineno-0-3006"></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">bands</span><span class="o">.</span><span class="n">scale</span>
+<a id="__codelineno-0-3007" name="__codelineno-0-3007"></a>
+<a id="__codelineno-0-3008" name="__codelineno-0-3008"></a>    <span class="nd">@scale</span><span class="o">.</span><span class="n">setter</span>
+<a id="__codelineno-0-3009" name="__codelineno-0-3009"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">scale</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">]):</span>
+<a id="__codelineno-0-3010" name="__codelineno-0-3010"></a><span class="w">        </span><span class="sd">"""Facade setter.</span>
+<a id="__codelineno-0-3011" name="__codelineno-0-3011"></a>
+<a id="__codelineno-0-3012" name="__codelineno-0-3012"></a><span class="sd">        Raises:</span>
+<a id="__codelineno-0-3013" name="__codelineno-0-3013"></a><span class="sd">            ReadOnlyError: The dataset is opened read-only on-disk.</span>
+<a id="__codelineno-0-3014" name="__codelineno-0-3014"></a><span class="sd">        """</span>
+<a id="__codelineno-0-3015" name="__codelineno-0-3015"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">bands</span><span class="o">.</span><span class="n">scale</span> <span class="o">=</span> <span class="n">value</span>
+<a id="__codelineno-0-3016" name="__codelineno-0-3016"></a>
+<a id="__codelineno-0-3017" name="__codelineno-0-3017"></a>    <span class="nd">@property</span>
+<a id="__codelineno-0-3018" name="__codelineno-0-3018"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">offset</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<a id="__codelineno-0-3019" name="__codelineno-0-3019"></a><span class="w">        </span><span class="sd">"""Facade — delegates to :attr:`Bands.offset &lt;pyramids.dataset.engines.Bands.offset&gt;`.</span>
+<a id="__codelineno-0-3020" name="__codelineno-0-3020"></a>
+<a id="__codelineno-0-3021" name="__codelineno-0-3021"></a><span class="sd">        The additive half of the CF packing, `real = stored * scale + offset`. See</span>
+<a id="__codelineno-0-3022" name="__codelineno-0-3022"></a><span class="sd">        :attr:`scale` for how the stored form and the values' meaning are kept apart;</span>
+<a id="__codelineno-0-3023" name="__codelineno-0-3023"></a><span class="sd">        like it, `NetCDF` reports the variable's own `_offset` when it carries one.</span>
 <a id="__codelineno-0-3024" name="__codelineno-0-3024"></a>
 <a id="__codelineno-0-3025" name="__codelineno-0-3025"></a><span class="sd">        Returns:</span>
 <a id="__codelineno-0-3026" name="__codelineno-0-3026"></a><span class="sd">            list[float]: One offset per band; `0` where a band is not packed.</span>
@@ -21567,9 +21567,10 @@ packing (<code>scale == 1</code>), which is what :meth:<code>apply</code> and
 :meth:<code>from_array</code> produce. An operation that copies the <em>stored</em> bytes --
 :meth:<code>copy</code>, a <code>CreateCopy</code> write -- carries the recipe along with them instead,
 and stays consistent that way.</p>
-<p>This reports each GDAL band's own slot. A <code>NetCDF</code> variable can also carry its
-recipe in Python (<code>_scale</code> / <code>_offset</code>), which a read applies ahead of the band's
-(see <code>_effective_packing</code>); such a pair does not show here.</p>
+<p>This reports each GDAL band's own slot. <code>NetCDF</code> overrides it to report the
+variable's own <code>_scale</code> when it carries one, since a read applies that ahead of
+the band's (see <code>_effective_packing</code>) -- so on every class the property names the
+factor the values are actually unpacked with.</p>
 
 
     <p><span class="doc-section-title">Returns:</span></p>
@@ -21617,9 +21618,8 @@ recipe in Python (<code>_scale</code> / <code>_offset</code>), which a read appl
 
         <p>Facade — delegates to :attr:<code>Bands.offset &lt;pyramids.dataset.engines.Bands.offset&gt;</code>.</p>
 <p>The additive half of the CF packing, <code>real = stored * scale + offset</code>. See
-:attr:<code>scale</code> for how the stored form and the values' meaning are kept apart,
-and for why this reports the GDAL band's own slot rather than a <code>NetCDF</code>
-variable's <code>_offset</code>.</p>
+:attr:<code>scale</code> for how the stored form and the values' meaning are kept apart;
+like it, <code>NetCDF</code> reports the variable's own <code>_offset</code> when it carries one.</p>
 
 
     <p><span class="doc-section-title">Returns:</span></p>
