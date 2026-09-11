@@ -483,8 +483,12 @@ class Vectorize(_Engine["Dataset"]):
                 .transpose()
             )
         df = pd.DataFrame(pixels, columns=band_names)
-        if self._ds.no_data_value[0] is not None:
-            df.replace(self._ds.no_data_value[0], np.nan, inplace=True)
+        # The sentinel in the units `arr` is in. `read_array` answers physically, so on a
+        # packed band the stored `-9999` appears as `-98.49` and replacing the stored
+        # value dropped nothing -- every gap became a row of data.
+        sentinel = self._ds.analysis._physical_no_data(0)
+        if sentinel is not None:
+            df.replace(sentinel, np.nan, inplace=True)
         df.dropna(axis=0, inplace=True, ignore_index=True)
         return df
 

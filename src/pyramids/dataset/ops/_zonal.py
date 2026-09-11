@@ -34,6 +34,7 @@ import pandas as pd
 from osgeo import gdal, ogr, osr
 
 from pyramids.base._domain import is_no_data
+from pyramids.base._utils import apply_unpack
 from pyramids.base.crs import sr_from_epsg, sr_from_wkt
 
 if TYPE_CHECKING:
@@ -128,11 +129,18 @@ def _rasterize_zonal_stats(
     linear stats (std / var / min / max) still use the loop because
     bincount can't express them without per-label sort.
     """
-    raster = np.asarray(ds.read_array(band=band), dtype=np.float64)
+    # Masked against the stored counts, where the sentinel lives, and the statistics
+    # then taken over the physical values. `no_data` is a stored value, so comparing it
+    # with a physical read of a packed band matched nothing and every gap entered the
+    # zone's mean, count and minimum as a measurement.
+    stored = np.asarray(ds.read_array(band=band, unpack=False))
+    raster = np.asarray(
+        apply_unpack(stored, *ds._effective_packing(band)), dtype=np.float64
+    )
     if no_data is not None:
         # `is_no_data`, not `==`: a NaN sentinel never equals itself, so the
         # comparison marked nothing and every no-data cell entered the stats.
-        raster = np.where(is_no_data(raster, no_data), np.nan, raster)
+        raster = np.where(is_no_data(stored, no_data), np.nan, raster)
     labels = _rasterize_labels(ds, fc)
     n_features = len(fc)
 

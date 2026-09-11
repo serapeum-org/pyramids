@@ -460,7 +460,9 @@ class Analysis(_Engine["Dataset"]):
         # Stream the count in row strips so a very large or /vsicurl source is never
         # read whole (#967). A summed count is order-independent, so the tiled total
         # is byte-identical to the whole-band count.
-        no_data_count = self._ds.io.stream_reduce(_count, 0, band=band)
+        # Stored counts: the fold matches the stored sentinel, which a physical strip
+        # never contains on a packed band -- every gap would count as a cell.
+        no_data_count = self._ds.io.stream_reduce(_count, 0, band=band, unpack=False)
         domain_count = self._ds.rows * self._ds.columns - no_data_count
         return int(domain_count)
 
@@ -569,7 +571,9 @@ class Analysis(_Engine["Dataset"]):
         # Streamed in row strips for the same reason `count_domain_cells` is:
         # a very large or `/vsicurl` band is never held whole, and a sum is
         # order-independent so the tiled total matches the whole-band one.
-        return float(self._ds.io.stream_reduce(_sum, 0.0, band=band))
+        # Stored counts, for the same reason as `count_domain_cells`: "inside" is
+        # decided against the stored sentinel.
+        return float(self._ds.io.stream_reduce(_sum, 0.0, band=band, unpack=False))
 
     def apply(
         self,
@@ -2675,7 +2679,10 @@ class Analysis(_Engine["Dataset"]):
 
               ```
         """
-        arr = self._read_decimated(band, max_samples)
+        # Stored counts: a footprint is a coverage mask, decided against the stored
+        # sentinel, and the values themselves are never used. A physical read made
+        # every gap on a packed band look covered.
+        arr = self._read_decimated(band, max_samples, unpack=False)
         no_data_val = self._ds.no_data_value[band]
         # A decimated read spans the same extent with fewer, larger cells, so the
         # mask's geotransform must scale its pixel size (and rotation terms) to
@@ -2942,7 +2949,9 @@ class Analysis(_Engine["Dataset"]):
         )
         return hist, ranges
 
-    def _read_decimated(self, band: int, max_samples: int | None) -> np.ndarray:
+    def _read_decimated(
+        self, band: int, max_samples: int | None, *, unpack: bool = True
+    ) -> np.ndarray:
         """Read a band whole, or a nearest-neighbour decimated version of it.
 
         When `max_samples` is set and the band has more cells than that, GDAL
@@ -2953,6 +2962,9 @@ class Analysis(_Engine["Dataset"]):
         Args:
             band: Zero-based band index to read.
             max_samples: Approximate pixel budget, or `None` for an exact read.
+            unpack: Physical values (the default) or, with `False`, the stored counts
+                -- which a caller that judges cells against `no_data_value` needs, since
+                the sentinel is a stored value.
 
         Returns:
             np.ndarray: The band array, full-resolution or decimated.
@@ -2968,14 +2980,17 @@ class Analysis(_Engine["Dataset"]):
         cols = self._ds.columns
         total = rows * cols
         if max_samples is None or total <= max_samples:
-            return cast(np.ndarray, self._ds.read_array(band=band))
+            return cast(np.ndarray, self._ds.read_array(band=band, unpack=unpack))
         factor = (total / max_samples) ** 0.5
         out_rows = max(1, round(rows / factor))
         out_cols = max(1, round(cols / factor))
         return cast(
             np.ndarray,
             self._ds.read_array(
-                band=band, out_shape=(out_rows, out_cols), resampling="nearest"
+                band=band,
+                out_shape=(out_rows, out_cols),
+                resampling="nearest",
+                unpack=unpack,
             ),
         )
 
@@ -3068,8 +3083,14 @@ class Analysis(_Engine["Dataset"]):
         require_cleopatra()
         from cleopatra.glyphs.stats.histogram_glyph import HistogramGlyph
 
-        arr = self._read_decimated(band, max_samples).flatten()
+        # The mask is judged against the stored counts, where the sentinel lives, and
+        # the histogram is then drawn over the physical values -- the same order
+        # `_domain_read` uses. Masking a physical read against the stored sentinel
+        # matched nothing, so every gap landed in the lowest bucket.
+        stored = self._read_decimated(band, max_samples, unpack=False).flatten()
         no_data_value = self._ds.no_data_value[band]
+        in_domain = ~is_stored_no_data(stored, no_data_value)
+        arr = np.asarray(apply_unpack(stored, *self._ds._effective_packing(band)))
         mask = np.ones(arr.shape, dtype=bool)
         if np.issubdtype(arr.dtype, np.floating):
             mask &= ~np.isnan(arr)
@@ -3081,7 +3102,7 @@ class Analysis(_Engine["Dataset"]):
         # printed beside it. Its tolerance is the band dtype's, not a constant:
         # a fixed `rtol=1e-5` masked everything within 0.1 of a -9999 sentinel
         # and within 20 000 of a 2e9 one, so the bars quietly lost real cells.
-        mask &= ~is_stored_no_data(arr, no_data_value)
+        mask &= in_domain
         if exclude_value is not None:
             mask &= arr != exclude_value
         values = arr[mask]

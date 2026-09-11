@@ -29,7 +29,7 @@ from osgeo_utils import gdal2xyz
 from pandas import DataFrame
 
 from pyramids._io import new_vsimem_path, read_vsi_bytes
-from pyramids.base._domain import INHERIT_NO_DATA, is_no_data
+from pyramids.base._domain import INHERIT_NO_DATA, is_no_data, is_stored_no_data
 from pyramids.base._errors import (
     FailedToSaveError,
     OutOfBoundsError,
@@ -2456,6 +2456,61 @@ class IO(_Engine["Dataset"]):
                 xsize = size if size + xoff <= cols else cols - xoff
                 yield xoff, yoff, xsize, ysize
 
+    def _tile_with_domain(
+        self, band: int | None, window: list[int], *, unpack: bool
+    ) -> tuple[Any, Any]:
+        """A tile in the units asked for, and the source's domain, judged in stored units.
+
+        The block mappers hand a user function one tile at a time and write back what it
+        returns. The gap has to survive that round trip, and whether a cell is a gap is a
+        question about the stored counts -- `no_data_value` is a stored value -- so the
+        domain is always taken from those, whichever units the function is given.
+
+        Args:
+            band: Zero-based band index, or `None` for every band.
+            window: `[xoff, yoff, xsize, ysize]`.
+            unpack: Hand back physical values (`True`) or the stored counts.
+
+        Returns:
+            tuple: `(tile, domain)` -- the tile, and `True` wherever a cell holds data.
+        """
+        raw = np.asarray(self._ds.read_array(band=band, window=window, unpack=False))
+        declared = self._ds.no_data_value
+        if raw.ndim == 3:
+            domain = np.stack(
+                [~is_stored_no_data(raw[i], declared[i]) for i in range(raw.shape[0])]
+            )
+        else:
+            domain = ~is_stored_no_data(raw, declared[band if band is not None else 0])
+        tile = self._apply_scale_offset(raw, band) if unpack else raw
+        return tile, domain
+
+    @staticmethod
+    def _restore_gap(result: Any, domain: Any, sentinels: Any) -> Any:
+        """Put the declared sentinel back at the cells that were gaps in the source.
+
+        A function applied to a whole tile transforms the gap cells too -- `t * 2` turns
+        a physical `-98.49` into `-196.98` -- and the result declares the source's
+        sentinel, so without this the gap comes back as a measurement the next time
+        anything reads it.
+
+        Args:
+            result: What the user function returned for the tile.
+            domain: `True` wherever the source held data.
+            sentinels: The declared sentinel, or one per band for a 3-D tile.
+
+        Returns:
+            The result, with the sentinel at every source gap.
+        """
+        out = np.array(result, copy=True)
+        if out.ndim == 3:
+            for index in range(out.shape[0]):
+                if sentinels[index] is not None:
+                    out[index][~domain[index]] = sentinels[index]
+        elif sentinels is not None:
+            out[~domain] = sentinels
+        return out
+
     def _band_packing(self, band: int | None) -> tuple[Any, Any]:
         """The scale/offset a read of `band` would apply, over one band or all of them.
 
@@ -2639,12 +2694,16 @@ class IO(_Engine["Dataset"]):
         # freshly allocated destination above declares no packing, so it takes
         # physical values, which is what makes the `out is None` default work.
         write_stored = not _is_identity_packing(*out.io._band_packing(band))
+        declared = out.no_data_value
+        sentinels = declared if band is None else declared[band]
         for xoff, yoff, xsize, ysize in self._tile_offsets(size=tile_size):
-            tile = self._ds.read_array(
-                band=band, window=[xoff, yoff, xsize, ysize], unpack=not write_stored
+            tile, domain = self._tile_with_domain(
+                band, [xoff, yoff, xsize, ysize], unpack=not write_stored
             )
             out.write_array(
-                tile_func(tile), band=band, window=Window(xoff, yoff, xsize, ysize)
+                self._restore_gap(tile_func(tile), domain, sentinels),
+                band=band,
+                window=Window(xoff, yoff, xsize, ysize),
             )
         return out
 
@@ -2655,6 +2714,7 @@ class IO(_Engine["Dataset"]):
         *,
         band: int | None = None,
         strip_rows: int = 256,
+        unpack: bool = True,
     ) -> Any:
         """Fold a function over the raster in full-width row strips, out of core.
 
@@ -2685,6 +2745,12 @@ class IO(_Engine["Dataset"]):
                 is then 3D).
             strip_rows (int):
                 Number of rows per strip. Defaults to 256.
+            unpack (bool):
+                Hand `fold` physical values (the default, matching `read_array`) or,
+                with `False`, the stored counts. A fold that compares its strip against
+                `no_data_value` wants `False`: the sentinel is a stored value, and on a
+                packed band a physical strip never contains it, so every gap would be
+                counted as a measurement.
 
         Returns:
             Any:
@@ -2712,7 +2778,7 @@ class IO(_Engine["Dataset"]):
         for yoff in range(0, self._ds.rows, strip_rows):
             ysize = min(strip_rows, self._ds.rows - yoff)
             window = [0, yoff, cols, ysize]
-            strip = self._ds.read_array(band=band, window=window)
+            strip = self._ds.read_array(band=band, window=window, unpack=unpack)
             acc = fold(acc, strip, window)
         return acc
 
@@ -2962,16 +3028,23 @@ class IO(_Engine["Dataset"]):
                 no_data,
             )
 
+            # Each tile's gap is restored after `func` runs: the result declares the
+            # source's sentinel, and a function applied to the whole tile transforms
+            # the gap cells too, so without this they come back as measurements.
             for xoff, yoff, xsize, ysize in self._tile_offsets(size=tile_size):
                 window = [xoff, yoff, xsize, ysize]
                 if band is not None:
-                    tile = self._ds.read_array(band=band, window=window)
-                    result_tile = func(np.asarray(tile))
+                    tile, domain = self._tile_with_domain(band, window, unpack=True)
+                    result_tile = self._restore_gap(
+                        func(np.asarray(tile)), domain, no_data[0]
+                    )
                     dst_obj.raster.GetRasterBand(1).WriteArray(result_tile, xoff, yoff)
                 else:
                     for b in range(self._ds.band_count):
-                        tile = self._ds.read_array(band=b, window=window)
-                        result_tile = func(np.asarray(tile))
+                        tile, domain = self._tile_with_domain(b, window, unpack=True)
+                        result_tile = self._restore_gap(
+                            func(np.asarray(tile)), domain, no_data[b]
+                        )
                         dst_obj.raster.GetRasterBand(b + 1).WriteArray(
                             result_tile, xoff, yoff
                         )

@@ -127,6 +127,11 @@ def _apply_eager_or_lazy(
     so the output carries the same no-data marker as the source band.
     """
     no_data_value = ds.no_data_value[band]
+    # The kernel runs on physical values, so gaps are found with the sentinel in those
+    # units; the declared, stored `no_data_value` is what the output marks them with.
+    # Looking for the stored `-9999` in a packed band's physical read found nothing, so
+    # every gap was averaged into its neighbours as a measurement.
+    gap_value = ds.analysis._physical_no_data(band)
 
     def _guarded(block: np.ndarray) -> np.ndarray:
         """Run `func` with no-data blanked to NaN, then restore the sentinel.
@@ -142,7 +147,7 @@ def _apply_eager_or_lazy(
         # products and accumulated balances all carry real values at those
         # magnitudes, and blanking them would be silent data loss. Exact
         # matching, still NaN-safe.
-        masked = is_no_data(block, no_data_value, rtol=0.0)
+        masked = is_no_data(block, gap_value, rtol=0.0)
         blanked = np.where(masked, np.nan, block) if masked.any() else block
         out = np.asarray(func(blanked), dtype=dtype)
         # A cell that had no value has no derivative either. `np.gradient` uses a
