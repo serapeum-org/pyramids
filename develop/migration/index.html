@@ -6931,7 +6931,8 @@ the raw values, so <code>apply(lambda a: a)</code> — the identity — changed 
 100.0. The output now takes the function's own result type, and reads reaching <code>apply</code> are already physical, so
 the packing is genuinely spent rather than silently discarded. This holds for <strong>both</strong> arms: the out-of-core
 <code>elementwise=True</code> path sizes its per-tile buffer from the same probe as the destination band, where it used to
-round the result back into the source's type before the wider band ever saw it.</p>
+round the result back into the source's type before the wider band ever saw it. A scalar-only callable
+(<code>math.sqrt</code>) is probed the way it is run, through <code>np.vectorize</code>, so it is not truncated either.</p>
 <p>A function whose result GDAL has no type for (an <code>object</code> array) still writes at the source type, as before.</p>
 <p><strong>An operation that copies the store keeps the packing; one that computes new values spends it.</strong> This is the
 rule that makes the default safe, and it is worth knowing if you subclass or read the internals. A crop, a
@@ -6946,9 +6947,12 @@ the reductions produce values the packing has already been spent on, so their re
   border-trim silently discarded it (a <code>Dataset</code> lost it outright; a <code>NetCDF</code> variable kept it only in a Python
   attribute), and the three <code>ReprojectImage</code> paths never carried it at all;</li>
 <li>for a NetCDF variable, <code>_scale</code> / <code>_offset</code> are authoritative for the read when set, and the band's own
-  <code>GetScale</code> / <code>GetOffset</code> are the fallback. Every consumer of the packing — both read arms, <code>stats</code>, the
-  streaming transforms — resolves it through one method (<code>_effective_packing</code>), so they cannot answer in
-  different units for the same band.</li>
+  <code>GetScale</code> / <code>GetOffset</code> are the fallback. Everything that <em>applies</em> the packing resolves it through that one
+  rule — both read arms, <code>stats</code>, <code>get_histogram</code>, <code>point</code> / <code>read_part</code> / <code>preview</code> / <code>read_overview_array</code> /
+  <code>get_tile</code>, <code>set_variable</code> and the streaming transforms — so none of them can answer in different units for
+  the same band. The public <code>scale</code> / <code>offset</code> properties are the exception: they report the band's own slots,
+  so on a variable whose recipe lives only in Python (a <code>sel()</code> result, say) they read <code>[1.0]</code> / <code>[0.0]</code> while
+  the values are still unpacked correctly.</li>
 </ul>
 <p><strong><code>no_data_value</code> stays a <em>stored</em> value, and that is the second half of the contract.</strong> CF puts <code>_FillValue</code>
 in the packed datatype, GDAL reports it that way, and it is what gets written back — so it is left alone.
@@ -6957,15 +6961,18 @@ The consequence is that you cannot compare it against a default read:</p>
 <a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="n">ds</span><span class="o">.</span><span class="n">no_data_value</span>                  <span class="c1"># stored:   (-9999.0,)</span>
 <a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="n">values</span> <span class="o">==</span> <span class="n">ds</span><span class="o">.</span><span class="n">no_data_value</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>     <span class="c1"># never true on a packed raster</span>
 </code></pre></div>
-<p>Inside the library every domain mask is now built against the stored counts and the values unpacked
-afterwards — the same set of cells, but only that order is exact and only it survives a <code>NaN</code> sentinel. If you
-were doing that comparison yourself, use <code>read_array(masked=True)</code>, which masks in stored units and hands back
-physical values, or read with <code>unpack=False</code> and mask before you scale.</p>
-<p><strong>A transform's destination decides its units.</strong> <code>apply</code>, <code>map_blocks</code> and <code>stream_transform</code> all hand your
-function physical values and return an unpacked result. The one exception is <code>stream_transform(out=...)</code> where
-<code>out</code> declares packing — including the in-place <code>out=ds</code> form — because writing physical values into a band
-that still declares its recipe would overwrite the stored counts with numbers the next read scales again.
-There, the function works in stored units.</p>
+<p>Inside the library every such comparison is now made in one consistent unit. Where a mask is wanted, it is built
+against the stored counts and the values unpacked afterwards; where the sentinel is handed on as a <em>value</em> — to
+cleopatra, to a feature table, to an ASCII grid's <code>NODATA_value</code> header — it is expressed in the physical units
+the array holds. The two pick out the same cells, because the packing is affine and a zero or non-finite
+<code>scale_factor</code> is refused. If you were doing that comparison yourself, use <code>read_array(masked=True)</code>, which masks
+in stored units and hands back physical values, or read with <code>unpack=False</code> and mask before you scale.</p>
+<p><strong>A transform always works in physical units; the destination only decides how the result is stored.</strong> <code>apply</code>,
+<code>map_blocks</code> and <code>stream_transform</code> hand your function physical values, and a gap in the source comes back as the
+result's declared sentinel whatever the function does to it. <code>stream_transform(out=...)</code> into a destination that
+declares a recipe — including the in-place <code>out=ds</code> form — packs the result with <em>that destination's</em> recipe,
+<code>(value - offset) / scale</code>, rounded to its dtype, so source and destination need not share a packing. An
+in-place <code>lambda t: t * 2</code> therefore doubles the physical values, not the stored counts.</p>
 <p><strong><code>merge_rasters</code> inherits its no-data from the sources instead of defaulting to <code>0</code>.</strong> A hard behavior change,
 and the reason is that <code>0</code> is real data in most rasters worth merging: sea-level land in an elevation or
 bathymetry model, the zero crossing of an anomaly or difference raster. The old default stamped <code>0</code> on the
