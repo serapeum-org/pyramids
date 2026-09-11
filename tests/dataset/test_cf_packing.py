@@ -1494,3 +1494,34 @@ class TestAnInPlaceComputeSpendsThePacking:
             store.close()
         assert got == pytest.approx(expected), f"read back {got}, expected {expected}"
         assert spent == (None, None), f"the recipe was left attached: {spent}"
+
+
+class TestSetVariableRoundTrip:
+    """`sel` -> `set_variable` must write back a value that reads the same."""
+
+    def test_a_selection_written_back_keeps_its_meaning(self):
+        """The recipe travels with the counts `set_variable` stores.
+
+        Test scenario:
+            `sel()` holds its recipe only in `_scale` / `_offset`; its band declares
+            none. `set_variable` took the recipe off band 1, so it wrote the counts back
+            bare and the round trip its own docstring describes turned 13.5 into 1200.
+        """
+        counts = np.arange(2 * 3 * 4, dtype="int16").reshape(2, 3, 4) * 100
+        container = NetCDF.from_array(
+            counts,
+            geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
+            variable_name="t",
+        )
+        variable = container.get_variable("t")
+        variable._scale, variable._offset = 0.01, 1.5
+        selected = variable.sel(
+            **{variable._band_dim_name: variable._band_dim_values[1]}
+        )
+        expected = float(np.asarray(selected.read_array(), dtype="float64").ravel()[0])
+
+        container.set_variable("copy", selected)
+
+        written = container.get_variable("copy")
+        got = float(np.asarray(written.read_array(), dtype="float64").ravel()[0])
+        assert got == pytest.approx(expected), f"wrote {expected}, read back {got}"

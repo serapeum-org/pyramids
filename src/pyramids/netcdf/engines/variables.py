@@ -28,7 +28,7 @@ import numpy as np
 from osgeo import gdal, osr
 
 from pyramids.base._errors import FileFormatNotSupportedError
-from pyramids.base._utils import numpy_to_gdal_dtype
+from pyramids.base._utils import _is_identity_packing, numpy_to_gdal_dtype
 from pyramids.base.crs import sr_from_epsg, sr_from_user_input
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
@@ -196,15 +196,22 @@ class Variables(_Engine["NetCDF"]):
         # than in its attribute dictionary, so the attribute write below cannot carry
         # them; without this a packed raster written back would lose the recipe for
         # the counts just stored.
-        source_band = dataset.raster.GetRasterBand(1)
-        scale, offset = source_band.GetScale(), source_band.GetOffset()
-        try:
-            if scale is not None:
-                md_arr.SetScale(scale)
-            if offset is not None:
-                md_arr.SetOffset(offset)
-        except (RuntimeError, AttributeError):
-            pass  # nosec B110 - a driver that cannot store packing leaves it unset
+        #
+        # Through `_effective_packing`, not off band 1. A `NetCDF` variable can hold its
+        # recipe only in `_scale` / `_offset` over a band that declares none -- which is
+        # what `sel()` builds -- so reading the band wrote the counts back with no recipe
+        # at all: `sel` -> process -> `set_variable`, the round trip this method exists
+        # for, stored 3.5 as a bare 200. The identity is not written out as a
+        # declaration, for the same reason the cube writer skips it.
+        scale, offset = dataset._effective_packing(0)
+        if not _is_identity_packing(scale, offset):
+            try:
+                if scale is not None:
+                    md_arr.SetScale(scale)
+                if offset is not None:
+                    md_arr.SetOffset(offset)
+            except (RuntimeError, AttributeError):
+                pass  # nosec B110 - a driver that cannot store packing leaves it unset
 
         # Set no-data value
         if dataset.no_data_value and dataset.no_data_value[0] is not None:
