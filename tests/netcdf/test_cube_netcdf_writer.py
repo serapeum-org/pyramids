@@ -305,6 +305,95 @@ class TestCubeNetCDFWriterBuildSchema:
             f"an unpacked template declared packing: {var_specs['b1'][2]}"
         )
 
+    def test_the_single_data_var_takes_the_packing_when_every_band_agrees(self):
+        """One 4-D variable can carry one recipe, so it takes the shared one.
+
+        Test scenario:
+            `var_per_band=False` folds every band into a single `data` variable, which
+            has exactly one `scale_factor` slot. When the bands agree that slot is the
+            truth for all of them, and dropping it would leave the whole cube as counts.
+        """
+        writer = _schema_writer(
+            nodata=(None,), band_count=2, names=("b1", "b2"), scale=0.01, offset=1.5
+        )
+        axis = TimeAxis(np.array([0]), {})
+        _dims, _coords, var_specs, _root = writer._build_schema(
+            axis, time_dim="time", var_per_band=False
+        )
+        attrs = var_specs["data"][2]
+        assert attrs["scale_factor"] == pytest.approx(0.01), (
+            f"the shared scale_factor was dropped, got {attrs.get('scale_factor')}"
+        )
+        assert attrs["add_offset"] == pytest.approx(1.5), (
+            f"the shared add_offset was dropped, got {attrs.get('add_offset')}"
+        )
+
+    def test_the_single_data_var_declares_nothing_when_the_bands_disagree(self):
+        """Bands packed differently cannot share one slot, so none is written.
+
+        Test scenario:
+            Band 1 at 0.01 and band 2 at 2.0 have no common recipe. Stamping band 1's
+            onto the shared variable would mislabel band 2 by a factor of 200 -- worse
+            than leaving the counts unlabelled, because a reader would believe it.
+            `var_per_band=True` is the spelling that can honour both.
+        """
+        writer = _schema_writer(
+            nodata=(None,),
+            band_count=2,
+            names=("b1", "b2"),
+            scale=[0.01, 2.0],
+            offset=[1.5, 1.5],
+        )
+        axis = TimeAxis(np.array([0]), {})
+        _dims, _coords, var_specs, _root = writer._build_schema(
+            axis, time_dim="time", var_per_band=False
+        )
+        assert var_specs["data"][2] == {}, (
+            f"one band's recipe was stamped onto both: {var_specs['data'][2]}"
+        )
+
+    @pytest.mark.parametrize(
+        "scale, offset, expected",
+        [(None, 1.5, {"add_offset": 1.5}), (0.01, None, {"scale_factor": 0.01})],
+        ids=["offset-only", "scale-only"],
+    )
+    def test_a_half_declared_recipe_writes_only_the_half_that_exists(
+        self, scale, offset, expected
+    ):
+        """CF lets a variable declare one of the pair, so only that one is written.
+
+        Test scenario:
+            A missing `scale_factor` means "no factor", not zero, and a missing
+            `add_offset` means "no shift", not unpacked. Filling the absent half in
+            with an invented `1.0` / `0.0` would be harmless arithmetic but a false
+            claim about the file, and a reader comparing attributes would see one.
+        """
+        writer = _schema_writer(
+            nodata=(None,), band_count=1, names=("b1",), scale=scale, offset=offset
+        )
+        axis = TimeAxis(np.array([0]), {})
+        _dims, _coords, var_specs, _root = writer._build_schema(
+            axis, time_dim="time", var_per_band=True
+        )
+        assert var_specs["b1"][2] == pytest.approx(expected), var_specs["b1"][2]
+
+    def test_disagreeing_bands_each_keep_their_own_recipe_per_variable(self):
+        """`var_per_band=True` is the arm that can carry a factor per band."""
+        writer = _schema_writer(
+            nodata=(None,),
+            band_count=2,
+            names=("b1", "b2"),
+            scale=[0.01, 2.0],
+            offset=[1.5, -3.0],
+        )
+        axis = TimeAxis(np.array([0]), {})
+        _dims, _coords, var_specs, _root = writer._build_schema(
+            axis, time_dim="time", var_per_band=True
+        )
+        assert var_specs["b1"][2]["scale_factor"] == pytest.approx(0.01)
+        assert var_specs["b2"][2]["scale_factor"] == pytest.approx(2.0)
+        assert var_specs["b2"][2]["add_offset"] == pytest.approx(-3.0)
+
     def test_geobox_root_attrs(self):
         """_build_schema always writes CF-1.8 + GeoTransform, and crs/epsg when present.
 

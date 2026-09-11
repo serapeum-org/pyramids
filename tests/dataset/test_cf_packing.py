@@ -15,13 +15,23 @@ These pin three things the change has to get right at once:
 
 from __future__ import annotations
 
+import logging
+from unittest.mock import patch
+
 import numpy as np
 import pytest
+from osgeo import gdal
 
-from pyramids.base._utils import _is_identity_packing, apply_unpack
+from pyramids.base._utils import (
+    _is_identity_packing,
+    apply_unpack,
+    carry_band_packing,
+    carry_packing,
+)
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
-from pyramids.dataset.collection import _agree_on_one_sentinel
+from pyramids.dataset.collection import DatasetCollection, _agree_on_one_sentinel
+from pyramids.dataset.engines.analysis import Analysis
 from pyramids.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
@@ -68,6 +78,94 @@ def _int_raster(values: list[list[int]]) -> Dataset:
     )
 
 
+def _packed_stack(scales: list[float], offsets: list[float], size: int = 8) -> Dataset:
+    """Build a square multi-band `int16` raster with one packing recipe per band.
+
+    Args:
+        scales: One `scale_factor` per band.
+        offsets: One `add_offset` per band.
+        size: Rows and columns; 8 leaves room for GDAL to build overviews.
+
+    Returns:
+        Dataset: A `(len(scales), size, size)` dataset holding 100 in every cell.
+    """
+    array = np.full((len(scales), size, size), 100, dtype="int16")
+    dataset = Dataset.from_array(
+        array,
+        geo_ref=GeoReference(top_left_corner=(0, size), cell_size=1.0, epsg=4326),
+    )
+    dataset.scale = list(scales)
+    dataset.offset = list(offsets)
+    return dataset
+
+
+def _bare_raster() -> Dataset:
+    """A raster wrapped straight off a MEM handle, so it declares no no-data value.
+
+    `Dataset.from_array` always stamps a sentinel, which leaves the "no sentinel at
+    all" branch of `_physical_no_data` unreachable through it.
+
+    Returns:
+        Dataset: A one-band `int16` dataset whose `no_data_value` is `None`.
+    """
+    mem = gdal.GetDriverByName("MEM").Create("", 2, 1, 1, gdal.GDT_Int16)
+    mem.SetGeoTransform((0.0, 1.0, 0.0, 1.0, 0.0, -1.0))
+    return Dataset(mem, access="write")
+
+
+def _refuse_the_sentinel(values):
+    """Halve the values, but raise on the no-data sentinel, as a real `func` may.
+
+    Args:
+        values: The probe or domain values.
+
+    Returns:
+        The halved values.
+
+    Raises:
+        ValueError: When the sentinel is among the values.
+    """
+    if np.any(np.asarray(values) == -9999):
+        raise ValueError("the sentinel is not a measurement")
+    return values * 0.5
+
+
+class _RefusingBand:
+    """A band on a driver that cannot store CF packing, so both setters raise."""
+
+    def __init__(self, scale=None, offset=None):
+        self._scale = scale
+        self._offset = offset
+
+    def GetScale(self):
+        """The band's `scale_factor`."""
+        return self._scale
+
+    def GetOffset(self):
+        """The band's `add_offset`."""
+        return self._offset
+
+    def SetScale(self, value):
+        """Refuse the write, the way a driver without the slot does."""
+        raise RuntimeError("this driver stores no scale")
+
+    def SetOffset(self, value):
+        """Refuse the write, the way a driver without the slot does."""
+        raise RuntimeError("this driver stores no offset")
+
+
+class _RefusingRaster:
+    """A raster whose every band refuses to store packing."""
+
+    def __init__(self, band_count: int):
+        self.RasterCount = band_count
+        self._bands = [_RefusingBand() for _ in range(band_count)]
+
+    def GetRasterBand(self, index: int) -> _RefusingBand:
+        """The one-based band, as GDAL numbers them."""
+        return self._bands[index - 1]
+
+
 class TestIdentityIsFree:
     """An unpacked raster must cost nothing, since unpacking is now the default."""
 
@@ -107,6 +205,39 @@ class TestIdentityIsFree:
     def test_the_identity_predicate_agrees(self, scale, offset, expected):
         """`_is_identity_packing` is what decides whether the read is free."""
         assert _is_identity_packing(scale, offset) is expected
+
+    @pytest.mark.parametrize(
+        "scale", [0.0, np.nan, np.inf, -np.inf], ids=["zero", "nan", "inf", "-inf"]
+    )
+    def test_an_unusable_scale_is_refused_rather_than_applied(self, scale):
+        """A malformed `scale_factor` leaves the counts visible instead of blanking them.
+
+        Test scenario:
+            None of these is a legal CF `scale_factor`: zero maps the whole band onto
+            the offset, a non-finite one maps it onto `NaN`. While reads were raw by
+            default a malformed file was harmless. Now that unpacking happens without
+            being asked, honouring one would silently destroy the band -- so the pair
+            is refused whole, offset included, and the stored values stay readable.
+        """
+        source = np.array([0, 1, 2], dtype="int16")
+        assert _is_identity_packing(scale, 5.0) is True, (
+            f"scale={scale} must be refused, not applied"
+        )
+        result = apply_unpack(source, scale, 5.0)
+        assert result.dtype == np.dtype("int16"), result.dtype
+        np.testing.assert_array_equal(result, source)
+
+    def test_an_offset_alone_is_still_a_packing(self):
+        """A shift with no factor transforms; only both halves idle is a no-op."""
+        assert _is_identity_packing(None, 5.0) is False
+        np.testing.assert_allclose(
+            apply_unpack(np.array([0, 1], dtype="int16"), None, 5.0), [5.0, 6.0]
+        )
+
+    def test_an_array_pair_counts_only_when_every_element_is_the_identity(self):
+        """One packed band in a per-band factor makes the whole read a real one."""
+        assert _is_identity_packing(np.array([1.0, 0.5]), np.array([0.0, 0.0])) is False
+        assert _is_identity_packing(np.array([1.0, 1.0]), np.array([0.0, 2.0])) is False
 
 
 class TestPackedReadsArePhysical:
@@ -254,6 +385,41 @@ class TestStatsArePhysical:
         assert float(frame["min"].iloc[0]) == pytest.approx(1.0)
         assert float(frame["max"].iloc[0]) == pytest.approx(6.0)
 
+    def test_a_negative_scale_does_not_leave_min_above_max(self):
+        """A reversing factor swaps the extremes, so they are re-sorted.
+
+        Test scenario:
+            A negative `scale_factor` is legal CF -- it is how a geostationary scan
+            angle is stored. Transforming the stored min and max in place would report
+            `min=2.5, max=0.5`, a frame no consumer can use.
+        """
+        dataset = _packed_raster([[100, -100], [0, 50]], -0.01, 1.5)
+        frame = dataset.stats(approx_ok=False)
+        assert float(frame["min"].iloc[0]) == pytest.approx(0.5)
+        assert float(frame["max"].iloc[0]) == pytest.approx(2.5)
+        assert float(frame["std"].iloc[0]) > 0, "|scale| keeps the spread positive"
+
+    def test_a_report_that_is_not_the_four_numbers_is_left_alone(self):
+        """`_unpack_stats` transforms `[min, max, mean, std]` and nothing else."""
+        assert Analysis._unpack_stats([1.0, 2.0], 0.01, 1.5) == [1.0, 2.0]
+
+    @pytest.mark.parametrize("band", [None, 0], ids=["all-bands", "one-band"])
+    def test_the_report_keeps_float64_resolution(self, band):
+        """Both frames are `float64`, or the packing's own precision is rounded away.
+
+        Test scenario:
+            A band packed at 1e-5 around an offset of 273.15 -- an ordinary way to
+            store temperature -- has more significant digits than `float32` carries.
+            Building the frame at `float32`, as it was, threw away exactly the
+            resolution the packing existed to preserve.
+        """
+        dataset = _packed_raster([[0, 30000]], 1e-5, 273.15)
+        frame = dataset.stats(band=band, approx_ok=False)
+        assert frame.to_numpy().dtype == np.float64, frame.to_numpy().dtype
+        assert float(frame["max"].iloc[0]) == pytest.approx(273.45, abs=1e-9), (
+            f"the packed resolution was rounded away: {frame['max'].iloc[0]!r}"
+        )
+
 
 class TestApplyDoesNotCorrupt:
     """Two independent faults in `apply`, both silent."""
@@ -384,6 +550,82 @@ class TestStreamingRespectsTheDestination:
         result = dataset.io.stream_transform(lambda tile: tile * 2, tile_size=2)
         got = np.asarray(result.read_array(), dtype="float64")
         np.testing.assert_allclose(got.ravel(), [2.0, 4.0, 6.0, 8.0])
+
+    def test_an_explicit_unpacked_destination_takes_physical_values(self):
+        """The rule reads the destination, not the source, so a plain `out` gets metres.
+
+        Test scenario:
+            The packed source could be streamed into a raster that declares no packing
+            of its own -- a `float64` result the caller allocated. That destination
+            cannot re-scale what it is handed, so it has to receive the physical
+            values, exactly as the `out=None` default does.
+        """
+        source = _packed_raster([[100, -100], [0, 50]], 0.01, 1.5)
+        destination = Dataset.from_array(
+            np.zeros((2, 2), dtype="float64"),
+            geo_ref=GeoReference(top_left_corner=(0, 2), cell_size=1.0, epsg=4326),
+        )
+        source.io.stream_transform(lambda tile: tile * 2, out=destination, tile_size=2)
+        np.testing.assert_allclose(
+            np.asarray(destination.read_array(), dtype="float64").ravel(),
+            [5.0, 1.0, 3.0, 4.0],
+        )
+
+    def test_an_explicit_dtype_beats_the_packed_default(self):
+        """A packed source widens the allocation to `float64` only when nothing else says.
+
+        Test scenario:
+            The widening exists so a `float64` tile is not truncated on the way into a
+            band built at the source's `int16`. A caller who names a dtype has already
+            made that decision, so the keyword must still win.
+        """
+        source = _packed_raster([[100, -100], [0, 50]], 0.01, 1.5)
+        result = source.io.stream_transform(
+            lambda tile: tile.astype("int16"), tile_size=2, dtype="int16"
+        )
+        assert result.dtype == ["int16"], result.dtype
+
+    def test_map_blocks_honours_an_explicit_dtype_too(self):
+        """`map_blocks` shares the rule, and the same escape from it."""
+        source = _packed_raster([[100, -100], [0, 50]], 0.01, 1.5)
+        result = source.map_blocks(lambda tile: tile * 2, tile_size=2, dtype="float32")
+        assert result.dtype == ["float32"], result.dtype
+
+    def test_map_blocks_reads_every_band_physically(self):
+        """The all-bands arm of the eager loop unpacks band by band, like `read_array`.
+
+        Test scenario:
+            The single-band arm and the all-bands arm read separately, so fixing one
+            leaves the other in counts. Both bands here store 100 under different
+            recipes, which is exactly the case a shared factor would get wrong.
+        """
+        source = _packed_stack([0.01, 2.0], [1.5, -3.0], size=4)
+        result = source.map_blocks(lambda tile: tile * 2, tile_size=4)
+        got = np.asarray(result.read_array(), dtype="float64")
+        assert got.shape == (2, 4, 4), got.shape
+        assert float(got[0, 0, 0]) == pytest.approx(5.0), got[0, 0, 0]
+        assert float(got[1, 0, 0]) == pytest.approx(394.0), got[1, 0, 0]
+
+    def test_band_packing_answers_per_band_for_an_all_bands_read(self):
+        """`_band_packing(None)` reports a pair per band, unset normalised to identity.
+
+        Test scenario:
+            A raster packed on only one of its bands must not be mistaken for an
+            unpacked one, so the answer is a list rather than a single pair -- and the
+            unset band reads as `1.0` / `0.0`, which the identity test understands,
+            rather than `None`, which would not broadcast.
+        """
+        mixed = _packed_stack([0.01, 1.0], [1.5, 0.0], size=4)
+        scales, offsets = mixed.io._band_packing(None)
+        assert scales == pytest.approx([0.01, 1.0]), scales
+        assert offsets == pytest.approx([1.5, 0.0]), offsets
+        assert mixed.io._band_packing(0) == pytest.approx((0.01, 1.5))
+
+    def test_band_packing_normalises_a_band_that_declares_nothing(self):
+        """An in-memory band answers `None`, which the all-bands form fills in."""
+        plain = _int_raster([[1, 2]])
+        assert plain.io._band_packing(0) == (None, None)
+        assert plain.io._band_packing(None) == ([1.0], [0.0])
 
 
 class TestSentinelReconciliationKeepsTheStore:
@@ -578,3 +820,589 @@ class TestEveryReadOnOneBandAgrees:
         _counts, ranges = dataset.get_histogram(band=0, bins=2)
         assert ranges[0][0] == pytest.approx(1.0)
         assert ranges[-1][-1] == pytest.approx(4.0)
+
+    def test_a_negative_scale_leaves_every_bucket_the_right_way_round(self):
+        """A reversing factor must not produce an edge pair with the low end second.
+
+        Test scenario:
+            A negative `scale_factor` is legal CF. Converting the stored window to
+            physical flips its ends, so both the window and each bucket's pair are
+            re-sorted; otherwise the buckets come back as `(2.5, 1.5)` and anything
+            plotting them draws negative-width bars.
+        """
+        dataset = _packed_raster([[100, -100], [0, 50]], -0.01, 1.5)
+        counts, ranges = dataset.get_histogram(band=0, bins=2)
+        assert sum(counts) > 0, f"the buckets caught nothing: {counts}"
+        for low, high in ranges:
+            assert low <= high, f"a bucket came back reversed: {(low, high)}"
+        edges = sorted({edge for pair in ranges for edge in pair})
+        assert edges[0] == pytest.approx(0.5), edges
+        assert edges[-1] == pytest.approx(2.5), edges
+
+    @pytest.mark.parametrize("scale", [0.01, -0.01], ids=["positive", "negative"])
+    def test_a_caller_window_is_given_in_physical_units(self, scale):
+        """`min_value` / `max_value` are values, so they arrive in the read's units.
+
+        Test scenario:
+            A caller narrowing the range got those numbers from `stats` or a read, both
+            of which are physical now. They are converted to stored counts before GDAL
+            buckets over them, and the edges converted back, so the window the caller
+            asked for is the window described -- whichever direction the factor runs.
+        """
+        dataset = _packed_raster([[100, -100], [0, 50]], scale, 1.5)
+        _counts, ranges = dataset.get_histogram(
+            band=0, bins=2, min_value=1.0, max_value=2.0
+        )
+        edges = sorted({edge for pair in ranges for edge in pair})
+        assert edges[0] == pytest.approx(1.0), edges
+        assert edges[-1] == pytest.approx(2.0), edges
+
+    def test_an_overview_read_is_physical(self):
+        """`read_overview_array` answers in `read_array`'s units, single band and all.
+
+        Test scenario:
+            `plot(overview=True)` renders through this, so leaving it in stored counts
+            drew the same raster on two different colour scales depending on the flag.
+            Both branches, because the all-bands one allocates at the stored dtype and
+            fills band by band, so the transform lands in a different place.
+        """
+        single = _packed_raster([[100] * 8] * 8, 0.01, 1.5)
+        single.create_overviews()
+        one = np.asarray(single.read_overview_array(band=0, overview_index=0))
+        assert float(one.ravel()[0]) == pytest.approx(2.5), one.ravel()[0]
+
+        stack = _packed_stack([0.01, 2.0], [1.5, -3.0])
+        stack.create_overviews()
+        every = np.asarray(stack.read_overview_array())
+        assert every.shape[0] == 2, every.shape
+        assert float(every[0].ravel()[0]) == pytest.approx(2.5), every[0].ravel()[0]
+        assert float(every[1].ravel()[0]) == pytest.approx(197.0), every[1].ravel()[0]
+
+    def test_an_unpacked_overview_read_keeps_its_dtype(self):
+        """The transform must cost an ordinary raster nothing, here as everywhere."""
+        dataset = _int_raster([[3] * 8] * 8)
+        dataset.create_overviews()
+        got = np.asarray(dataset.read_overview_array(band=0, overview_index=0))
+        assert got.dtype == np.dtype("int16"), got.dtype
+        assert int(got.ravel()[0]) == 3
+
+
+class TestCarryingThePackingOntoARebuild:
+    """`carry_packing` is what keeps a store-copy from losing the recipe.
+
+    An operation that rebuilds a raster out of the counts it read has to hand the
+    recipe on with them. Losing it leaves counts that nothing identifies as counts --
+    the same hundredfold error as never unpacking, only now unfixable from the result.
+    """
+
+    def test_every_band_gets_its_own_pair(self):
+        """The carry is per band, not one recipe stamped over the whole raster."""
+        driver = gdal.GetDriverByName("MEM")
+        source = driver.Create("", 2, 1, 2, gdal.GDT_Int16)
+        source.GetRasterBand(1).SetScale(0.01)
+        source.GetRasterBand(1).SetOffset(1.5)
+        source.GetRasterBand(2).SetScale(2.0)
+        source.GetRasterBand(2).SetOffset(-3.0)
+        target = driver.Create("", 2, 1, 2, gdal.GDT_Int16)
+
+        carry_packing(source, target)
+
+        carried = [
+            (target.GetRasterBand(i).GetScale(), target.GetRasterBand(i).GetOffset())
+            for i in (1, 2)
+        ]
+        assert carried == [(0.01, 1.5), (2.0, -3.0)], carried
+
+    def test_bands_are_matched_by_position_over_the_shorter_raster(self):
+        """A rebuild that dropped a band carries what it can rather than raising."""
+        driver = gdal.GetDriverByName("MEM")
+        source = driver.Create("", 2, 1, 3, gdal.GDT_Int16)
+        for index in (1, 2, 3):
+            source.GetRasterBand(index).SetScale(0.01 * index)
+        target = driver.Create("", 2, 1, 2, gdal.GDT_Int16)
+
+        carry_packing(source, target)
+
+        assert target.GetRasterBand(1).GetScale() == pytest.approx(0.01)
+        assert target.GetRasterBand(2).GetScale() == pytest.approx(0.02)
+
+    @pytest.mark.parametrize(
+        "source, target",
+        [(None, "raster"), ("raster", None), (None, None)],
+        ids=["no-source", "no-target", "neither"],
+    )
+    def test_a_missing_raster_is_a_no_op(self, source, target):
+        """A caller whose rebuild produced nothing must not have to guard the call."""
+        driver = gdal.GetDriverByName("MEM")
+        resolved = [
+            driver.Create("", 2, 1, 1, gdal.GDT_Int16) if side == "raster" else None
+            for side in (source, target)
+        ]
+        carry_packing(*resolved)
+
+    def test_a_source_band_declaring_nothing_leaves_the_target_unset(self):
+        """Nothing to carry means nothing written, not an identity stamped on."""
+        driver = gdal.GetDriverByName("MEM")
+        source = driver.Create("", 2, 1, 1, gdal.GDT_Int16)
+        target = driver.Create("", 2, 1, 1, gdal.GDT_Int16)
+
+        carried = carry_band_packing(source.GetRasterBand(1), target.GetRasterBand(1))
+
+        assert carried is True, "an unset source is not a refusal"
+        assert target.GetRasterBand(1).GetScale() is None
+        assert target.GetRasterBand(1).GetOffset() is None
+
+    def test_a_driver_that_refuses_is_reported_once_for_the_whole_raster(self, caplog):
+        """Every band is tried and the report comes once, not once per band.
+
+        Test scenario:
+            Stopping at the first refusal left bands 2..N with nothing while band 1
+            kept its recipe -- a partial carry, which is worse than none, because the
+            result looks internally consistent and is wrong only where nobody looked.
+            The values survive either way, so the loss is a debug note, not a raise.
+        """
+        driver = gdal.GetDriverByName("MEM")
+        source = driver.Create("", 2, 1, 3, gdal.GDT_Int16)
+        for index in (1, 2, 3):
+            source.GetRasterBand(index).SetScale(0.01)
+        target = _RefusingRaster(3)
+
+        with caplog.at_level(logging.DEBUG, logger="pyramids.base._utils"):
+            carry_packing(source, target)
+
+        notes = [
+            record for record in caplog.records if "packing" in record.getMessage()
+        ]
+        assert len(notes) == 1, f"expected one report, got {len(notes)}"
+        assert "3 of 3" in notes[0].getMessage(), notes[0].getMessage()
+
+    def test_carry_band_packing_answers_false_when_the_target_refuses(self):
+        """The band-at-a-time form reports the refusal so a loop can count it."""
+        driver = gdal.GetDriverByName("MEM")
+        source = driver.Create("", 2, 1, 1, gdal.GDT_Int16)
+        source.GetRasterBand(1).SetScale(0.01)
+
+        assert carry_band_packing(source.GetRasterBand(1), _RefusingBand()) is False
+
+    def test_carry_band_packing_survives_a_target_with_no_setters_at_all(self):
+        """An `AttributeError` is the same loss as a `RuntimeError`, not a crash."""
+        driver = gdal.GetDriverByName("MEM")
+        source = driver.Create("", 2, 1, 1, gdal.GDT_Int16)
+        source.GetRasterBand(1).SetScale(0.01)
+
+        assert carry_band_packing(source.GetRasterBand(1), object()) is False
+
+
+class TestTheSentinelAsAValue:
+    """`_physical_no_data` -- the sentinel as it appears in a physical read.
+
+    Most callers want a *mask*, and build it in stored units. A few instead need the
+    sentinel as a number, because they hand it to something that does its own
+    comparison against the physical array: cleopatra's `exclude_value`, `get_pixels2`'s
+    exclude list, an ASCII grid's header.
+    """
+
+    def test_a_packed_sentinel_is_transformed(self):
+        """The number that actually appears in the array, not the one on the band."""
+        dataset = _packed_raster([[100, -9999]], 0.01, 1.5)
+        dataset.no_data_value = [-9999]
+        assert dataset.analysis._physical_no_data(0) == pytest.approx(-98.49)
+        assert dataset.no_data_value[0] == pytest.approx(-9999.0), (
+            "the declared sentinel must stay the stored one"
+        )
+
+    def test_an_unpacked_sentinel_is_returned_unchanged(self):
+        """No packing, no transform -- and no float noise introduced either."""
+        dataset = _int_raster([[1, -9999]])
+        assert dataset.analysis._physical_no_data(0) == -9999.0
+
+    def test_an_undeclared_sentinel_stays_none(self):
+        """A band with no sentinel has nothing to convert, packed or not."""
+        dataset = _bare_raster()
+        dataset.scale = [0.01]
+        dataset.offset = [1.5]
+        assert dataset.no_data_value[0] is None, dataset.no_data_value
+        assert dataset.analysis._physical_no_data(0) is None
+
+    def test_an_ascii_grid_declares_the_fill_it_actually_holds(self, tmp_path):
+        """An ASCII grid has nowhere to put the recipe, so its header names the value.
+
+        Test scenario:
+            `to_ascii` writes the physical numbers. Writing the stored `-9999` into the
+            header over a grid holding `-98.49` declared a fill that occurs nowhere, so
+            every reader saw the gap as a measurement.
+        """
+        dataset = _packed_raster([[100, -9999], [0, 50]], 0.01, 1.5)
+        dataset.no_data_value = [-9999]
+        path = tmp_path / "packed.asc"
+        dataset.to_file(str(path))
+
+        header = dict(
+            line.split() for line in path.read_text().splitlines()[:6] if line.split()
+        )
+        assert float(header["NODATA_value"]) == pytest.approx(-98.49), header
+
+
+class TestApplyPicksTheResultType:
+    """The dtype probe behind `apply`, and its fallbacks."""
+
+    def test_an_all_no_data_tile_still_finds_a_value_to_probe(self):
+        """With no domain cell available the whole tile is used rather than nothing.
+
+        Test scenario:
+            An all-no-data tile is common when streaming a sparse raster. Probing an
+            empty selection would raise inside the helper and quietly restore the
+            source dtype -- the truncation the probe exists to prevent.
+        """
+        source = np.array([[-9999, -9999]], dtype="int16")
+        domain = np.zeros_like(source, dtype=bool)
+        resolved = Analysis._storable_dtype(lambda a: a * 0.5, source, domain)
+        assert resolved == np.dtype("float64"), resolved
+
+    def test_the_probe_is_taken_from_the_domain_not_from_cell_zero(self):
+        """A `func` that refuses the sentinel must still get a usable probe value.
+
+        Test scenario:
+            Cell `[0, 0]` is often the sentinel. With the domain in hand the probe
+            skips it and the float result widens the band; without one the call raises
+            and the source dtype survives -- the contrast is the point of passing it.
+        """
+        source = np.array([[-9999, 4, 6]], dtype="int16")
+        domain = np.array([[False, True, True]])
+        with_domain = Analysis._storable_dtype(_refuse_the_sentinel, source, domain)
+        without = Analysis._storable_dtype(_refuse_the_sentinel, source)
+        assert with_domain == np.dtype("float64"), with_domain
+        assert without == np.dtype("int16"), without
+
+    def test_a_probe_that_cannot_run_keeps_the_source_dtype(self):
+        """The tiled arm falls back rather than refusing to run.
+
+        Test scenario:
+            The probe reads the first tile, which can fail for reasons that have
+            nothing to do with `func` -- a source that will not window-read, say. The
+            fallback is the behaviour before #1124, so an awkward case is no worse off.
+        """
+        dataset = _int_raster([[1, 2, 3]])
+        with patch.object(Analysis, "_domain_read", side_effect=RuntimeError("boom")):
+            resolved = dataset.analysis._elementwise_result_dtype(lambda a: a * 0.5, 0)
+        assert resolved == np.dtype("int16"), resolved
+
+    def test_the_domain_is_derived_when_the_caller_supplies_none(self):
+        """`_apply_func_to_domain` still knows how to find the domain itself.
+
+        Test scenario:
+            Both callers inside `apply` now resolve the mask first, because their array
+            is physical while the sentinel is stored. A caller working in stored units
+            throughout has no such problem and can leave the mask to the helper.
+        """
+        source = np.array([[1, -9999, 3]], dtype="int16")
+        out = np.full(source.shape, -9999, dtype="int16")
+
+        Analysis._apply_func_to_domain(lambda a: a * 2, source, out, -9999)
+
+        np.testing.assert_array_equal(out, [[2, -9999, 6]])
+
+    def test_the_read_returns_physical_values_beside_a_stored_mask(self):
+        """`_domain_read` is where the two halves of the CF contract meet."""
+        dataset = _packed_raster([[100, -9999], [0, 50]], 0.01, 1.5)
+        dataset.no_data_value = [-9999]
+
+        values, domain = dataset.analysis._domain_read(0)
+
+        np.testing.assert_array_equal(domain, [[True, False], [True, True]])
+        assert float(np.asarray(values).ravel()[0]) == pytest.approx(2.5)
+
+
+class TestStoreCopiesKeepTheRecipe:
+    """Every crop path rebuilds the store, so every one has to carry the packing."""
+
+    def test_a_bbox_crop_keeps_the_packing(self):
+        """The windowed fast path is a read of the store, so it moves counts.
+
+        Test scenario:
+            A north-up bbox crop in the source CRS skips the warp and reads the AOI
+            window directly, then hands the result through the all-no-data trim, which
+            rebuilds again. Both rebuilds have to declare the recipe or a small crop of
+            a packed raster comes back a hundredfold off.
+        """
+        dataset = _packed_raster([[100, -100, 0], [50, 25, 75]], 0.01, 1.5)
+
+        crop = dataset.crop(bbox=[0.0, 0.0, 2.0, 2.0])
+
+        assert crop.scale[0] == pytest.approx(0.01), f"scale={crop.scale}"
+        peak = float(np.nanmax(np.asarray(crop.read_array(), dtype="float64")))
+        assert peak == pytest.approx(2.5), f"values look like raw counts: {peak}"
+
+    def test_a_raster_mask_crop_keeps_the_counts_and_the_recipe(self):
+        """The tiled mask-apply writes stored counts into a band that declares them."""
+        dataset = _packed_raster([[100, -100, 0], [50, 25, 75]], 0.01, 1.5)
+        mask = Dataset.from_array(
+            np.array([[1, 1, -9999], [1, 1, 1]], dtype="int16"),
+            geo_ref=GeoReference(top_left_corner=(0, 2), cell_size=1.0, epsg=4326),
+            no_data_value=-9999,
+        )
+
+        cropped = dataset.crop(mask)
+
+        assert cropped.scale[0] == pytest.approx(0.01), f"scale={cropped.scale}"
+        stored = np.asarray(cropped.read_array(unpack=False), dtype="float64").ravel()
+        np.testing.assert_allclose(stored, [100.0, -100.0, -9999.0, 50.0, 25.0, 75.0])
+
+    def test_an_array_mask_crop_takes_the_same_route(self):
+        """The eager arm -- a numpy mask is already in memory, so it is not tiled."""
+        dataset = _packed_raster([[100, -100, 0], [50, 25, 75]], 0.01, 1.5)
+
+        cropped = dataset.spatial._crop_aligned(
+            np.array([[1, 1, -9999], [1, 1, 1]], dtype="int16"), mask_noval=-9999
+        )
+
+        assert cropped.scale[0] == pytest.approx(0.01), f"scale={cropped.scale}"
+        stored = np.asarray(cropped.read_array(unpack=False), dtype="float64").ravel()
+        np.testing.assert_allclose(stored, [100.0, -100.0, -9999.0, 50.0, 25.0, 75.0])
+
+    def test_a_seam_crossing_crop_keeps_the_packing(self):
+        """The antimeridian stitch concatenates two halves of one store.
+
+        Test scenario:
+            A `west > east` geographic bbox is the STAC convention for a crossing. Each
+            half is cropped and the two are joined along the seam, which reads them
+            with `unpack=False` -- so the rebuilt strip has to declare what turns those
+            counts back into measurements.
+        """
+        world = np.full((18, 36), 100, dtype="int16")
+        dataset = Dataset.from_array(
+            world,
+            geo_ref=GeoReference(top_left_corner=(-180, 90), cell_size=10.0, epsg=4326),
+        )
+        dataset.scale = [0.01]
+        dataset.offset = [1.5]
+
+        stitched = dataset.crop(bbox=(170.0, -10.0, -170.0, 10.0))
+
+        assert stitched.scale[0] == pytest.approx(0.01), f"scale={stitched.scale}"
+        peak = float(np.nanmax(np.asarray(stitched.read_array(), dtype="float64")))
+        assert peak == pytest.approx(2.5), f"the stitch returned raw counts: {peak}"
+
+
+class TestTheCollectionAnswersInOneUnit:
+    """A packed stack must not change dtype with the number of timesteps read."""
+
+    def test_an_empty_read_of_a_packed_collection_is_float64(self):
+        """`head(0)` and `head(1)` have to agree about what a read of this cube is.
+
+        Test scenario:
+            The empty branch answered `_meta.dtype`, the *stored* `int16`, while the
+            stack below it comes back `float64` now that the timesteps unpack. Anything
+            that allocates from `head(0).dtype` and then fills it truncated.
+        """
+        step = _packed_raster([[100, -100], [0, 50]], 0.01, 1.5)
+        collection = DatasetCollection(step, time_length=2, datasets=[step, step])
+
+        empty = collection.head(0)
+
+        assert empty.dtype == np.dtype("float64"), empty.dtype
+        assert collection.head(1).dtype == np.dtype("float64")
+        assert empty.shape == (0, 2, 2), empty.shape
+
+    def test_an_empty_read_of_an_unpacked_collection_keeps_the_stored_dtype(self):
+        """The widening is for packed stacks only; an ordinary one stays narrow."""
+        step = _int_raster([[1, 2], [3, 4]])
+        collection = DatasetCollection(step, time_length=2, datasets=[step, step])
+
+        assert collection.head(0).dtype == np.dtype("int16")
+        assert collection.head(1).dtype == np.dtype("int16")
+
+
+class TestTheNetCDFPackingResolver:
+    """`NetCDF._effective_packing` -- one answer, from two possible homes."""
+
+    def test_the_variables_own_pair_wins_over_its_band(self):
+        """`_wrap_like` copies `_scale`/`_offset` onto every result, so they are truth.
+
+        Test scenario:
+            While the eager arm consulted the band and the lazy arm consulted only the
+            variable, the same variable reported two different maxima by keyword. The
+            variable's own pair is the one the rest of the module maintains, so it
+            wins, and the band is only the fallback.
+        """
+        store = NetCDF.read_file(PACKED_NC)
+        try:
+            variable = store.get_variable("z")
+            variable._scale, variable._offset = 2.0, 10.0
+            resolved = variable._effective_packing()
+            band_pair = (
+                variable.raster.GetRasterBand(1).GetScale(),
+                variable.raster.GetRasterBand(1).GetOffset(),
+            )
+        finally:
+            store.close()
+        assert resolved == pytest.approx((2.0, 10.0)), resolved
+        assert band_pair == pytest.approx((0.01, 1.5)), (
+            f"the band must still disagree, or the test proves no preference: "
+            f"{band_pair}"
+        )
+
+    def test_a_classic_opened_variable_falls_back_to_its_band(self):
+        """Nothing copies the MDArray's attributes onto a classically opened variable.
+
+        Test scenario:
+            Opened with `open_as_multi_dimensional=False` the variable carries no pair
+            of its own, and only the driver's band declares the packing. Reading only
+            `_scale` there answered "unpacked" and returned raw counts.
+        """
+        store = NetCDF.read_file(PACKED_NC, open_as_multi_dimensional=False)
+        try:
+            variable = store.get_variable("z")
+            own_pair = (
+                getattr(variable, "_scale", None),
+                getattr(variable, "_offset", None),
+            )
+            resolved = variable._effective_packing()
+        finally:
+            store.close()
+        assert own_pair == (None, None), own_pair
+        assert resolved == pytest.approx((0.01, 1.5)), resolved
+
+
+class TestBandWiseRebuildsCarryTheirRecipe:
+    """Rebuilds whose bands do not line up by position, so they carry one at a time."""
+
+    def test_stacking_packed_files_keeps_each_ones_factor(self, tmp_path):
+        """`from_band_files` writes N single-band stores into one N-band raster.
+
+        Test scenario:
+            The array branch (taken when the inputs need aligning, or disagree on
+            dtype) reads each source with `unpack=False` and writes the counts into the
+            promoted stored type. Without the per-band carry the stack would hold three
+            sets of counts under no recipe at all, while the `BuildVRT` branch beside it
+            got the same carry free from `CreateCopy` -- two spellings, two answers.
+        """
+        paths = []
+        for index, (scale, offset) in enumerate([(0.01, 1.5), (2.0, -3.0)]):
+            source = _packed_raster([[100] * 4] * 4, scale, offset)
+            path = tmp_path / f"band{index}.tif"
+            source.to_file(str(path))
+            paths.append(str(path))
+
+        stacked = Dataset.from_band_files(paths, align=True)
+
+        assert stacked.scale == pytest.approx([0.01, 2.0]), stacked.scale
+        assert stacked.offset == pytest.approx([1.5, -3.0]), stacked.offset
+        corner = np.asarray(stacked.read_array(), dtype="float64")[:, 0, 0]
+        np.testing.assert_allclose(corner, [2.5, 197.0])
+
+    def test_writing_a_packed_raster_into_a_container_keeps_its_recipe(self):
+        """`set_variable` stores counts, so the MDArray has to declare the packing.
+
+        Test scenario:
+            GDAL keeps `scale_factor` / `add_offset` in the MDArray's own slots rather
+            than in its attribute dictionary, so the attribute write cannot carry them.
+            Without the explicit `SetScale` / `SetOffset` the variable comes back as
+            bare counts -- the raster went in reading 2.5 and came out reading 100.
+        """
+        container = NetCDF.from_array(
+            arr=np.zeros((2, 2), dtype="int16"),
+            geo_ref=GeoReference(top_left_corner=(0, 2), cell_size=1.0, epsg=4326),
+            variable_name="plain",
+        )
+        container.set_variable(
+            "packed", _packed_raster([[100, -100], [0, 50]], 0.01, 1.5)
+        )
+
+        stored_back = container.get_variable("packed")
+
+        assert stored_back._scale == pytest.approx(0.01), stored_back._scale
+        np.testing.assert_allclose(
+            np.asarray(stored_back.read_array(), dtype="float64").ravel(),
+            [2.5, 0.5, 1.5, 2.0],
+        )
+        np.testing.assert_allclose(
+            np.asarray(stored_back.read_array(unpack=False), dtype="float64").ravel(),
+            [100.0, -100.0, 0.0, 50.0],
+        )
+
+    def test_a_store_that_refuses_the_recipe_still_takes_the_values(self):
+        """A driver without the slots loses the packing, it does not lose the write.
+
+        Test scenario:
+            Not every MDArray backend can hold `scale_factor` / `add_offset`. The
+            counts are intact either way, so the refusal is swallowed and the loss is
+            left to the read that finds no packing -- failing the write would be worse.
+        """
+        container = NetCDF.from_array(
+            arr=np.zeros((2, 2), dtype="int16"),
+            geo_ref=GeoReference(top_left_corner=(0, 2), cell_size=1.0, epsg=4326),
+            variable_name="plain",
+        )
+        with patch.object(
+            gdal.MDArray, "SetScale", side_effect=RuntimeError("no slot")
+        ):
+            container.set_variable(
+                "packed", _packed_raster([[100, -100], [0, 50]], 0.01, 1.5)
+            )
+
+        stored_back = container.get_variable("packed")
+
+        assert stored_back.raster.GetRasterBand(1).GetScale() is None
+        np.testing.assert_allclose(
+            np.asarray(stored_back.read_array(unpack=False), dtype="float64").ravel(),
+            [100.0, -100.0, 0.0, 50.0],
+        )
+
+    def test_a_dataset_with_no_handle_declares_no_packing(self):
+        """The resolver answers rather than raising when the raster is already gone.
+
+        Test scenario:
+            `_effective_packing` is consulted from read paths, statistics and the
+            streaming transforms alike, so a closed or half-built dataset must not turn
+            an ordinary "nothing declared" question into an `AttributeError`.
+        """
+        dataset = _int_raster([[1, 2]])
+        dataset._raster = None
+        assert dataset._effective_packing(0) == (None, None)
+
+
+class TestEveryBandIsUnpackedWithItsOwnFactor:
+    """An all-bands read has one recipe per band, not one for the raster."""
+
+    def test_combine_unpacks_each_operand_band_separately(self):
+        """`_operand_arrays`' 3-D arm stacks per-band transforms, it does not broadcast.
+
+        Test scenario:
+            The two bands here are packed differently and hold different counts, so a
+            single shared factor would get one of them wrong. `combine` reads with
+            `unpack=False`, takes the domain against the stored sentinels, then unpacks
+            band by band -- the only order in which both halves stay correct.
+        """
+        stack = np.stack(
+            [np.full((2, 2), 100, dtype="int16"), np.full((2, 2), 50, dtype="int16")]
+        )
+        left = Dataset.from_array(
+            stack,
+            geo_ref=GeoReference(top_left_corner=(0, 2), cell_size=1.0, epsg=4326),
+            no_data_value=-9999,
+        )
+        left.scale, left.offset = [0.01, 2.0], [1.5, -3.0]
+        right = Dataset.from_array(
+            stack.copy(),
+            geo_ref=GeoReference(top_left_corner=(0, 2), cell_size=1.0, epsg=4326),
+            no_data_value=-9999,
+        )
+        right.scale, right.offset = [0.01, 2.0], [1.5, -3.0]
+
+        result = left.combine(right, lambda a, b: a + b)
+
+        got = np.asarray(result.read_array(), dtype="float64")
+        assert got.shape == (2, 2, 2), got.shape
+        np.testing.assert_allclose(got[:, 0, 0], [5.0, 194.0])
+
+    def test_the_lazy_read_can_also_reach_the_stored_counts(self):
+        """`unpack=False` means the same thing through `chunks=` as it does eagerly."""
+        pytest.importorskip("dask")
+        store = NetCDF.read_file(PACKED_NC)
+        try:
+            lazy = store.get_variable("z").read_array(chunks="auto", unpack=False)
+            raw = np.asarray(lazy.compute(), dtype="float64")
+        finally:
+            store.close()
+        assert float(np.nanmax(raw)) == pytest.approx(PACKED_RAW_MAX)
