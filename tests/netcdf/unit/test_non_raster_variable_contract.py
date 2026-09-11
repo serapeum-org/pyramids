@@ -632,7 +632,9 @@ class TestReadArrayOnAVariableWithNoRasterPlane:
             not on this path -- `read_array` builds a fresh wrapper each call and never touches
             the `variables` cache -- so this pins repeatability, not aliasing; the shared object
             is covered by the next test. Expected: the second unpacked read equals the first,
-            and a plain read after it still answers the storage integers.
+            and a raw read after it still answers the storage integers. The raw read is asked
+            for with `unpack=False` because a default read unpacks since #1124 -- which is
+            also checked here, since it has to agree with the explicit unpacked read.
         """
         first = packed.read_array(variable="series", unpack=True)
         second = packed.read_array(variable="series", unpack=True)
@@ -640,9 +642,12 @@ class TestReadArrayOnAVariableWithNoRasterPlane:
         assert np.array_equal(first, second), (
             f"repeating the read must repeat the answer, got {first} then {second}"
         )
-        assert np.array_equal(packed.read_array(variable="series"), [10, 20, 30]), (
-            "an unpacked read must not rewrite the stored values"
+        assert np.array_equal(packed.read_array(variable="series"), first), (
+            "a default read must answer the same as an explicit unpacked one"
         )
+        assert np.array_equal(
+            packed.read_array(variable="series", unpack=False), [10, 20, 30]
+        ), "an unpacked read must not rewrite the stored values"
 
     def test_the_cached_wrapper_is_shared_so_it_cannot_be_written(self, packed):
         """`variables` hands every caller the same array, so it must not be mutable.
@@ -656,7 +661,9 @@ class TestReadArrayOnAVariableWithNoRasterPlane:
             writeable, a single `values += 1` made the mapping answer `[11, 21, 31]` while
             `get_variable` and `read_array` still said `[10, 20, 30]`. Expected: the same
             object on repeat access, a mutation refused at the point it is attempted, and all
-            three accessors still agreeing afterwards.
+            three accessors still agreeing afterwards on the stored integers. `LabeledArray`
+            keeps its `values` packed and carries the recipe beside them, so the matching read
+            is the raw one, `unpack=False` -- a default read unpacks since #1124.
         """
         first = packed.variables["series"]
         second = packed.variables["series"]
@@ -668,7 +675,7 @@ class TestReadArrayOnAVariableWithNoRasterPlane:
 
         cached = packed.variables["series"].values.tolist()
         fresh = packed.get_variable("series").values.tolist()
-        read = np.asarray(packed.read_array(variable="series")).tolist()
+        read = np.asarray(packed.read_array(variable="series", unpack=False)).tolist()
         assert cached == fresh == read == [10, 20, 30], (cached, fresh, read)
 
     def test_a_fresh_wrapper_stays_writeable(self, packed):
