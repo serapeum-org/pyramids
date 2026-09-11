@@ -4464,7 +4464,15 @@ class NetCDF(Dataset):
         # `get_variable` builds a fresh classic-raster wrapper (a new GDAL dataset) each call, so
         # resolve every spatial variable once and reuse it across the guard/spec/write passes below
         # instead of re-opening it up to four times (review R2-N1).
-        spatial_var_objs = {name: self.get_variable(name) for name in spatial_vars}
+        # Through `_require_raster_variable`, like every other fan-out site: the
+        # streaming path was the one that still called `get_variable` directly,
+        # so a non-raster variable reaching it died on `_band_dim_names` rather
+        # than refusing by name. `_variable_is_spatial` now keeps such a variable
+        # out of `spatial_vars`; this makes the guarantee local instead of
+        # depending on a classifier two calls away.
+        spatial_var_objs = {
+            name: self._require_raster_variable(name) for name in spatial_vars
+        }
         if not self._stream_feasible(rg, spatial_var_objs, spatial_vars, aux_vars):
             return None
 
