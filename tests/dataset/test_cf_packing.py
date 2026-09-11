@@ -17,6 +17,7 @@ These pin three things the change has to get right at once:
 from __future__ import annotations
 
 import logging
+import math
 from unittest.mock import patch
 
 import numpy as np
@@ -1525,3 +1526,39 @@ class TestSetVariableRoundTrip:
         written = container.get_variable("copy")
         got = float(np.asarray(written.read_array(), dtype="float64").ravel()[0])
         assert got == pytest.approx(expected), f"wrote {expected}, read back {got}"
+
+
+def _halve_positive(values):
+    """Halve an array, refusing any negative value -- as a real sentinel-shy func might."""
+    values = np.asarray(values)
+    if np.any(values < 0):
+        raise ValueError("negative input")
+    return values / 2
+
+
+class TestApplyPredictsTheTypeTheCallProduces:
+    """The dtype probe must take the same path the real call takes."""
+
+    @pytest.mark.parametrize("elementwise", [False, True], ids=["whole", "tiled"])
+    def test_a_scalar_only_callable_is_not_truncated(self, elementwise):
+        """`math.sqrt` refuses an array, so `apply` lifts it -- and the probe must too.
+
+        Test scenario:
+            The probe called `func` on an array; `math.sqrt` raised, the probe fell back
+            to the source dtype, and the lifted call then wrote `sqrt(2)` into an
+            `int16` buffer as `1`.
+        """
+        dataset = _int_raster([[4, 2], [9, 3]])
+        result = dataset.apply(math.sqrt, elementwise=elementwise)
+        np.testing.assert_allclose(
+            np.asarray(result.read_array(), dtype="float64").ravel(),
+            [2.0, math.sqrt(2), 3.0, math.sqrt(3)],
+        )
+
+    @pytest.mark.parametrize("elementwise", [False, True], ids=["whole", "tiled"])
+    def test_a_func_that_refuses_the_sentinel_still_widens(self, elementwise):
+        """The probe samples the domain on both arms, never the sentinel at `[0, 0]`."""
+        dataset = _int_raster([[-9999, 3], [5, 7]])
+        result = dataset.apply(_halve_positive, elementwise=elementwise)
+        got = np.asarray(result.read_array(), dtype="float64").ravel()
+        np.testing.assert_allclose(got[1:], [1.5, 2.5, 3.5])

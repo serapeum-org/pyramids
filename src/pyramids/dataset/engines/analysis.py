@@ -740,7 +740,10 @@ class Analysis(_Engine["Dataset"]):
             new_array = np.full(
                 (self._ds.rows, self._ds.columns),
                 no_data_value,
-                dtype=self._storable_dtype(func, src_array),
+                # The domain goes to the probe on this arm too: cell [0, 0] is often
+                # the sentinel, and a func that refuses it fell back to the source
+                # dtype and truncated -- the tiled arm had this fixed, this one not.
+                dtype=self._storable_dtype(func, src_array, domain_mask),
             )
             self._apply_func_to_domain(
                 func, src_array, new_array, no_data_value, domain_mask
@@ -887,7 +890,7 @@ class Analysis(_Engine["Dataset"]):
             if candidates.size:
                 flat = candidates
         try:
-            probe = np.asarray(func(flat[:1]))
+            probe = Analysis._probe_call(func, flat[:1])
             promoted = np.result_type(source.dtype, probe.dtype)
             numpy_to_gdal_dtype(promoted)
         except Exception:
@@ -895,6 +898,29 @@ class Analysis(_Engine["Dataset"]):
         else:
             resolved = promoted
         return resolved
+
+    @staticmethod
+    def _probe_call(func, sample: np.ndarray) -> np.ndarray:
+        """Call `func` on a one-element sample the way `apply` itself will call it.
+
+        `apply` hands a vectorised callable the array and lifts a scalar-only one --
+        `math.sqrt`, `math.log` -- through `np.vectorize` when the array call raises. The
+        probe has to follow the same path, or it predicts a type for a call that never
+        happens: `math.sqrt` refused the array, the probe fell back to the source dtype,
+        and the lifted call then wrote `sqrt(2)` into an `int16` buffer as `1`.
+
+        Args:
+            func: The callable `apply` was given.
+            sample: A one-element array taken from the domain.
+
+        Returns:
+            np.ndarray: The result, whose dtype is the prediction.
+        """
+        try:
+            result = np.asarray(func(sample))
+        except (TypeError, ValueError):
+            result = np.asarray(np.vectorize(func)(sample))
+        return result
 
     @staticmethod
     def _apply_func_to_domain(
