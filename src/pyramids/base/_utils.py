@@ -1716,65 +1716,47 @@ def carry_packing(source: Any, target: Any) -> None:
         )
 
 
-class _PackingPair:
-    """A resolved `(scale, offset)` that answers the way a GDAL band does.
+def write_packing(target: Any, scale: Any, offset: Any) -> bool:
+    """Write a `(scale, offset)` pair onto a band or MDArray, reporting a refusal.
 
-    `carry_band_packing` reads its source through `GetScale` / `GetOffset`. A caller holding
-    a pair it has already resolved -- through `Dataset._effective_packing`, which a `NetCDF`
-    variable answers from Python rather than from its band -- wraps it in this, so it can
-    reuse the one carry path and its refusal reporting instead of writing its own.
+    The one place a recipe is written, shared by `carry_band_packing` (which reads the pair
+    off a source band) and by callers that have resolved the pair themselves -- through
+    `Dataset._effective_packing`, which a `NetCDF` variable answers from Python rather than
+    from its band. Taking the values rather than a band-shaped object is what lets both
+    reuse it. A slot given as `None` is left unset on the target.
 
     Args:
-        scale: The `scale_factor`, or `None` for an unset slot.
-        offset: The `add_offset`, or `None` for an unset slot.
+        target: A `gdal.Band` or `gdal.MDArray` -- anything with `SetScale` / `SetOffset`.
+        scale: The `scale_factor`, or `None`.
+        offset: The `add_offset`, or `None`.
+
+    Returns:
+        bool: `False` when the target refused -- its `SetScale` / `SetOffset` raised, or it
+            has neither -- so a caller can report the loss rather than stay silent.
 
     Examples:
-        - A pair resolved in Python carried onto a GDAL band through the shared path:
-            ```python
-            >>> from osgeo import gdal
-            >>> from pyramids.base._utils import _PackingPair, carry_band_packing
-            >>> target = gdal.GetDriverByName("MEM").Create("", 2, 1, 1, gdal.GDT_Int16)
-            >>> carry_band_packing(_PackingPair(0.01, 1.5), target.GetRasterBand(1))
-            True
-            >>> target.GetRasterBand(1).GetScale(), target.GetRasterBand(1).GetOffset()
-            (0.01, 1.5)
+        ```python
+        >>> from osgeo import gdal
+        >>> from pyramids.base._utils import write_packing
+        >>> band = gdal.GetDriverByName("MEM").Create("", 2, 1, 1, gdal.GDT_Int16)
+        >>> write_packing(band.GetRasterBand(1), 0.01, None)
+        True
+        >>> band.GetRasterBand(1).GetScale(), band.GetRasterBand(1).GetOffset()
+        (0.01, None)
+        >>> write_packing(object(), 0.01, 1.5)
+        False
 
-            ```
-        - An unset slot answers `None`, as GDAL does, so the carry leaves it alone:
-            ```python
-            >>> from pyramids.base._utils import _PackingPair
-            >>> pair = _PackingPair(0.5, None)
-            >>> pair.GetScale(), pair.GetOffset()
-            (0.5, None)
-
-            ```
+        ```
     """
-
-    def __init__(self, scale: Any, offset: Any) -> None:
-        """Hold a resolved pair.
-
-        Args:
-            scale: The `scale_factor`, or `None`.
-            offset: The `add_offset`, or `None`.
-        """
-        self._scale = scale
-        self._offset = offset
-
-    def GetScale(self) -> Any:  # noqa: N802 - mirrors the GDAL band API it stands in for
-        """The pair's `scale_factor`.
-
-        Returns:
-            The scale given at construction, or `None` when it was unset.
-        """
-        return self._scale
-
-    def GetOffset(self) -> Any:  # noqa: N802 - mirrors the GDAL band API it stands in for
-        """The pair's `add_offset`.
-
-        Returns:
-            The offset given at construction, or `None` when it was unset.
-        """
-        return self._offset
+    stored = True
+    try:
+        if scale is not None:
+            target.SetScale(scale)
+        if offset is not None:
+            target.SetOffset(offset)
+    except (RuntimeError, AttributeError):
+        stored = False
+    return stored
 
 
 def carry_band_packing(source_band: Any, target_band: Any) -> bool:
@@ -1829,16 +1811,7 @@ def carry_band_packing(source_band: Any, target_band: Any) -> bool:
     See Also:
         carry_packing: Carries every band of one raster onto another, paired by position.
     """
-    scale, offset = source_band.GetScale(), source_band.GetOffset()
-    stored = True
-    try:
-        if scale is not None:
-            target_band.SetScale(scale)
-        if offset is not None:
-            target_band.SetOffset(offset)
-    except (RuntimeError, AttributeError):
-        stored = False
-    return stored
+    return write_packing(target_band, source_band.GetScale(), source_band.GetOffset())
 
 
 def apply_unpack(

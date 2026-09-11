@@ -26,10 +26,10 @@ from osgeo import gdal
 
 from pyramids.base._utils import (
     _is_identity_packing,
-    _PackingPair,
     apply_unpack,
     carry_band_packing,
     carry_packing,
+    write_packing,
 )
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
@@ -1470,23 +1470,23 @@ class TestCarryingThePackingOntoARebuild:
 
         assert carry_band_packing(source.GetRasterBand(1), object()) is False
 
-    def test_a_resolved_pair_carries_the_way_a_band_does(self):
-        """`_PackingPair` answers `GetScale` / `GetOffset`, so it reuses the band carry.
+    def test_a_resolved_pair_is_written_through_the_shared_core(self):
+        """`write_packing` takes the values, so a pair resolved in Python needs no wrapper.
 
         Test scenario:
-            A caller holding a pair it resolved in Python -- a `NetCDF` variable's own
-            `_scale` / `_offset` -- wraps it rather than writing a second carry path.
-            The half it does not declare is left unset on the target.
+            A caller holding a pair it resolved itself -- a `NetCDF` variable's own
+            `_scale` / `_offset` -- writes it through the same core the band carry uses,
+            keeping one refusal-reporting path. The half it does not declare is left
+            unset on the target.
         """
-        pair = _PackingPair(0.01, None)
         target = gdal.GetDriverByName("MEM").Create("", 2, 1, 1, gdal.GDT_Int16)
 
-        carried = carry_band_packing(pair, target.GetRasterBand(1))
+        written = write_packing(target.GetRasterBand(1), 0.01, None)
 
-        assert (pair.GetScale(), pair.GetOffset()) == (0.01, None)
-        assert carried is True, "a target that accepts the pair is not a refusal"
+        assert written is True, "a target that accepts the pair is not a refusal"
         assert target.GetRasterBand(1).GetScale() == pytest.approx(0.01)
         assert target.GetRasterBand(1).GetOffset() is None
+        assert write_packing(object(), 0.01, 1.5) is False, "a refusal must be reported"
 
 
 class TestTheSentinelAsAValue:

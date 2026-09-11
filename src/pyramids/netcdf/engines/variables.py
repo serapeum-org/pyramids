@@ -31,9 +31,8 @@ from osgeo import gdal, osr
 from pyramids.base._errors import FileFormatNotSupportedError
 from pyramids.base._utils import (
     _is_identity_packing,
-    _PackingPair,
-    carry_band_packing,
     numpy_to_gdal_dtype,
+    write_packing,
 )
 from pyramids.base.crs import sr_from_epsg, sr_from_user_input
 from pyramids.base.georeference import GeoReference
@@ -242,8 +241,8 @@ class Variables(_Engine["NetCDF"]):
         # for, stored 3.5 as a bare 200. The identity is not written out as a
         # declaration, for the same reason the cube writer skips it.
         scale, offset = dataset._effective_packing(0)
-        if not _is_identity_packing(scale, offset) and not carry_band_packing(
-            _PackingPair(scale, offset), md_arr
+        if not _is_identity_packing(scale, offset) and not write_packing(
+            md_arr, scale, offset
         ):
             # The one carry site that used to swallow a refusal silently; every other
             # one reports it, so a driver that cannot store packing is visible here too.
