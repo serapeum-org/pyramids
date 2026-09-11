@@ -2425,7 +2425,10 @@ class TestTheRendererIsHandedThePhysicalSentinel:
             dataset.plot(band=0)
 
         exclude = render.call_args.args[0].exclude_value
-        assert len(exclude) == 1 and np.isnan(exclude[0]), exclude
+        assert len(exclude) == 1, f"expected one excluded value, got {exclude}"
+        assert np.isnan(exclude[0]), (
+            f"a missing sentinel should become NaN, got {exclude}"
+        )
 
     def test_a_collection_with_no_sentinel_masks_nothing(self):
         """The animation path sanitises a missing sentinel to `NaN` the same way."""
@@ -2437,7 +2440,10 @@ class TestTheRendererIsHandedThePhysicalSentinel:
             collection.plot(band=0)
 
         exclude = render.call_args.args[0].exclude_value
-        assert len(exclude) == 1 and np.isnan(exclude[0]), exclude
+        assert len(exclude) == 1, f"expected one excluded value, got {exclude}"
+        assert np.isnan(exclude[0]), (
+            f"a missing sentinel should become NaN, got {exclude}"
+        )
 
     def test_a_collection_animation_masks_the_physical_gap(self):
         """`DatasetCollection.plot` stacks physical reads, so it masks physically too.
