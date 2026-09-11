@@ -207,7 +207,7 @@ def _axis_before_a_projected_grid():
     return store
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def array_reads(monkeypatch):
     """Record the name of every array whose values are read while the test runs.
 
@@ -399,7 +399,7 @@ def _grid_with_an_auxiliary(aux_type, aux_values=None, unit=None):
 class TestARasterOnlyOperationNamesTheVariableItRefuses:
     """The convenience methods that take a variable name must say why they cannot serve it."""
 
-    @pytest.fixture(scope="function")
+    @pytest.fixture
     def container(self):
         """A container whose only variable is a 1-D axis, so every op below meets one.
 
@@ -437,8 +437,10 @@ class TestARasterOnlyOperationNamesTheVariableItRefuses:
             Expected: a `ValueError` that names `series`, prints the dimensions that make it
             non-raster, and points at the accessor that does work.
         """
+        operation = getattr(container, method)
+
         with pytest.raises(ValueError) as excinfo:
-            getattr(container, method)(*arguments)
+            operation(*arguments)
 
         message = str(excinfo.value)
         assert "series" in message, f"the refusal must name the variable: {message}"
@@ -578,7 +580,7 @@ class TestARasterOnlyOperationNamesTheVariableItRefuses:
 class TestReadArrayOnAVariableWithNoRasterPlane:
     """`read_array` reuses the values `get_variable` already materialised; unpacking still works."""
 
-    @pytest.fixture(scope="function")
+    @pytest.fixture
     def packed(self):
         """A container holding a 1-D `Int16` series with a CF scale and offset.
 
