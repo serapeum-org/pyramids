@@ -414,6 +414,31 @@ class TestTheLabelsTheWrapperCarries:
         finally:
             container.close()
 
+    def test_a_packed_array_carries_the_scale_and_offset_it_needs(self):
+        """A unit without its packing parameters labels the wrong numbers.
+
+        Test scenario:
+            GDAL lifts `scale_factor` / `add_offset` out of the attribute list, so they
+            never reach `attributes`. Before they were carried, a packed series came back
+            as `[10, 15]` labelled `K` with nothing on the object to say the true values
+            were 105 and 110. `values` stays packed -- `read_array`'s `unpack=False`
+            default -- so the wrapper has to carry what unpacking needs.
+        """
+        store, array = _series_store(np.array([10.0, 15.0]))
+        array.SetUnit("K")
+        array.SetScale(1.0)
+        array.SetOffset(95.0)
+        container = Container(store)
+        try:
+            series = container.get_variable("series")
+
+            assert series.values.tolist() == [10.0, 15.0], "values must stay packed"
+            assert (series.scale, series.offset) == (1.0, 95.0)
+            unpacked = series.values * series.scale + series.offset
+            assert unpacked.tolist() == [105.0, 110.0]
+        finally:
+            container.close()
+
     def test_an_array_that_declares_none_of_them_gets_the_documented_defaults(self):
         """A bare array must answer empty labels rather than GDAL's placeholders.
 

@@ -1255,6 +1255,8 @@ class LabeledArray:
         "unit",
         "no_data_value",
         "attributes",
+        "scale",
+        "offset",
     )
 
     def __init__(
@@ -1267,6 +1269,8 @@ class LabeledArray:
         unit: str = "",
         no_data_value: float | None = None,
         attributes: dict[str, Any] | None = None,
+        scale: float | None = None,
+        offset: float | None = None,
     ):
         """Hold a materialised array with the labels that describe it.
 
@@ -1279,6 +1283,10 @@ class LabeledArray:
             no_data_value: The fill value, where the source declares one --
                 the values themselves are not masked by it.
             attributes: The variable's other attributes.
+            scale: The CF `scale_factor`, where the values are packed. GDAL
+                lifts it out of the attribute list, so it lives here rather
+                than in `attributes`.
+            offset: The CF `add_offset`, likewise.
         """
         self.values = values
         self.dims = dims
@@ -1287,6 +1295,8 @@ class LabeledArray:
         self.unit = unit
         self.no_data_value = no_data_value
         self.attributes = attributes if attributes is not None else {}
+        self.scale = scale
+        self.offset = offset
 
     def __repr__(self) -> str:
         label = f"{self.name!r}, " if self.name else ""

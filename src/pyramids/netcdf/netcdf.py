@@ -1183,6 +1183,13 @@ def _labeled_array_from_md_array(md_arr: gdal.MDArray, name: str) -> LabeledArra
         unit=md_arr.GetUnit() or "",
         no_data_value=md_arr.GetNoDataValueAsDouble(),
         attributes=attributes,
+        # Carried because GDAL removes `scale_factor` / `add_offset` from the
+        # attribute list: without them a packed variable arrived as `[10, 15]`
+        # labelled `m`, with nothing on the object to say the true values were
+        # 105 m and 110 m. `values` stays packed, matching `read_array`'s
+        # `unpack=False` default; these are what unpacking needs.
+        scale=md_arr.GetScale(),
+        offset=md_arr.GetOffset(),
     )
 
 
