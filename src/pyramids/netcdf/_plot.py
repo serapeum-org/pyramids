@@ -834,15 +834,17 @@ class NetCDFPlot:
             ``FacetGrid`` from cleopatra).
 
         Raises:
-            ValueError: If ``variable`` is ``None`` — the message lists the
+            ValueError: If `variable` is `None` — the message lists the
                 **gridded** variable names, which is what this call can actually
                 plot. Neither of the other two lists is right here:
-                ``variable_names`` omits a gridded ancillary array (GOES ABI's
-                ``DQF`` plots fine and is not enumerated), while the readable
-                superset adds 1-D arrays (``time_bounds``, ``band_id``) that
-                ``get_variable`` hands back as a raw ``gdal.MDArray`` with no
-                ``plot`` at all. An empty list therefore means the container holds
-                nothing plottable, which is a true and useful answer.
+                `variable_names` omits a gridded ancillary array (GOES ABI's
+                `DQF` plots fine and is not enumerated), while the readable
+                superset adds 1-D arrays (`time_bounds`, `band_id`) that
+                `get_variable` returns as a `LabeledArray`, which has no `plot`.
+                An empty list therefore means the container holds nothing
+                plottable, which is a true and useful answer. Also raised when
+                `variable` names one of those non-raster arrays: it is refused
+                by name rather than failing on the missing `plot`.
         """
         if variable is None:
             raise ValueError(

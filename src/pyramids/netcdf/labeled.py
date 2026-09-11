@@ -1157,7 +1157,7 @@ class LabeledDataset:
         return False
 
     def __getitem__(self, key: str) -> LabeledArray:
-        """Return a variable or coordinate as a small `(values, dims, shape)` view."""
+        """Return a variable or coordinate as a materialised `LabeledArray`."""
         if key not in self._coord_names and key not in self._var_names:
             raise KeyError(f"{key!r} is not in this store")
         values, dims = self._read(key)
@@ -1196,7 +1196,8 @@ class LabeledArray:
             array for a compound one, and `object` for a string one -- from either producer,
             so a missing entry stays `None` rather than being coerced.
         dims: The dimension names, outermost first.
-        shape: The shape those dimensions declare, which always matches `values.shape`.
+        shape: The shape those dimensions declare. Both producers build it from the same
+            read that fills `values`, so the two agree; the constructor itself does not check.
         name: The variable's name, or `""` when the producer does not set it.
         unit: The CF `units` string, or `""` when the source declares none.
         no_data_value: The declared fill value, or `None`. `values` is **not** masked by it.

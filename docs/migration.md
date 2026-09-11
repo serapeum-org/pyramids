@@ -934,8 +934,7 @@ replace the georeference wholesale.
 
 **`get_variable` returns a `LabeledArray`, not a raw `gdal.MDArray`, for a variable with no raster plane.**
 Two shapes are affected: a 1-D array (a profile axis, a bounds array, a hybrid-sigma coefficient), and a string or
-compound array of any rank — a character column is stored `(records, strlen)`, so it is 2-D and still not numeric.
-GDAL cannot expose either as a raster, and `get_variable` used to hand the `MDArray` straight back.
+compound array. GDAL cannot expose either as a raster, and `get_variable` used to hand the `MDArray` straight back.
 
 ```python
 bounds = nc.get_variable("time_bounds")   # was gdal.MDArray, now LabeledArray
@@ -945,24 +944,34 @@ bounds.shape                              # (2,)
 ```
 
 - **Replace the GDAL calls with attributes.** `ReadAsArray()` → `.values`, `GetDimensions()` → `.dims` / `.shape`,
-  `GetDataType()` → `.values.dtype`. `Read()` has no replacement and needs none: it returned an *undecoded* byte
-  buffer for numeric data, which is why reading these variables used to require `ReadAsArray()` instead.
-- **A compound variable now decodes.** It reads back as a record array rather than the flat byte buffer `Read()`
-  produced.
-- **The labels come with it.** `LabeledArray` carries `name`, `unit`, `no_data_value` and `attributes` alongside
-  `values`, so `GetUnit()` → `.unit`, `GetNoDataValueAsDouble()` → `.no_data_value`, and the attribute API →
-  `.attributes`. Without these a `-9999.0` in `values` would be indistinguishable from real data.
-- **Values are as stored.** No CF time decoding and no `scale_factor` / `add_offset`, matching `read_array`'s own
-  `unpack=False` default — `read_array(name, unpack=True)` is still the way to ask for unpacked values.
-  `LabeledDataset["var"]` returns the same class but *does* decode a CF time axis, so the two agree on type and
-  not always on values.
+  `GetDataType()` → `.values.dtype`. For a **string** variable `Read()` was the reader (`ReadAsArray` cannot serve
+  one), and its replacement is `.values` — or `.values.tolist()` for the plain list `Read()` returned.
+- **The labels come with it.** `GetUnit()` → `.unit`, `GetNoDataValueAsDouble()` → `.no_data_value`,
+  `GetScale()` / `GetOffset()` → `.scale` / `.offset`, and the attribute API → `.attributes`. Without these a
+  `-9999.0` in `values` would be indistinguishable from real data, and a packed variable's unit would label the
+  wrong numbers. `.name` is the name you asked for, group path included.
+- **Values are as stored.** No CF time decoding, and no `scale_factor` / `add_offset` applied — matching
+  `read_array`'s own `unpack=False` default. Unpack with `.values * .scale + .offset`, or ask
+  `read_array(name, unpack=True)`.
+- **A string variable is `object`**, holding `str` and `None` for a missing entry. A `<U` array cannot represent a
+  missing entry, so letting NumPy choose made the dtype depend on whether every record happened to be written.
+- **A compound variable decodes to a structured `ndarray`** — index fields with `values["code"]`; it is not an
+  `np.recarray`, so `values.code` does not work. GDAL's netCDF driver reduces a fixed-length character-array member
+  of a compound to its first byte (`u1`); that is a driver limitation this does not correct.
 - **Windowed and strided reads are gone.** The `MDArray` allowed `Read(array_start_idx=..., count=...)` and
-  `GetView`; the wrapper is materialised, so slice `.values` instead. For a variable large enough that this
-  matters, `read_array` remains the streaming route.
-- **Nothing new raises.** Every variable that could be read before can still be read; only the type of the object
-  changed. `LabeledArray` is the same class `LabeledDataset["var"]` already returned, exported from
-  `pyramids.netcdf`.
-- The private `_read_md_array` still returns the `MDArray` — only the public accessor wraps.
+  `GetView`; the wrapper is materialised whole, so slice `.values`. There is no windowed route for these variables
+  now: `read_array(variable=...)` also reads the whole array, and refuses `window`, `bbox` and `chunks` for them.
+- **`nc.variables[name].values` is read-only** for these variables. The mapping caches one object per name and
+  hands it to every caller, so a write would have been visible through `variables` but not `get_variable` or
+  `read_array`. Take `.copy()` to modify it; `get_variable` returns a fresh, writeable wrapper each call.
+- **Two things now raise that did not.** A compound record with a string field cannot be read through GDAL's Python
+  bindings by any means, so `get_variable` refuses it by name with a `ValueError`, where it used to return an
+  unreadable handle. And the raster-only operations — `crop_variable`, `reproject_variable`, `resample_variable`,
+  `plot(variable=)`, `open_mfdataset(variable=)` — refuse a non-raster variable with a `ValueError` naming it,
+  where they used to fail with `AttributeError: 'MDArray' object has no attribute ...`.
+- `LabeledArray` is the class `LabeledDataset["var"]` already returned, exported from `pyramids.netcdf`. The two
+  agree on type but not always on values: `LabeledDataset` decodes a CF time axis and applies its store's current
+  selection. The private `_read_md_array` still returns the `MDArray`; only the public accessor wraps.
 
 **A time axis outside `datetime64[ns]`'s range now decodes to `cftime` objects instead of wrapping.**
 Soft change, warned — a `UserWarning` names the axis and its units. Only arrays that were previously **wrong** change:
