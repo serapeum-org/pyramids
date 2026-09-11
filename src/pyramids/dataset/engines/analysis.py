@@ -786,6 +786,12 @@ class Analysis(_Engine["Dataset"]):
             raise TypeError("The second argument should be a function")
 
         no_data_value = self._ds.no_data_value[band]
+        # What the output buffer is pre-filled with. It only ever survives in cells the
+        # domain excludes, so it is the sentinel when the band declares one. A band that
+        # declares none excludes no cell -- every value is overwritten -- and then any
+        # value the dtype can hold will do; `None` cannot be one, which is what made
+        # `np.full(shape, None, dtype=int16)` raise on a plain integer GeoTIFF.
+        buffer_fill = 0 if no_data_value is None else no_data_value
 
         if elementwise:
             # The tiled path writes into the destination as it goes, so the dtype has
@@ -805,7 +811,7 @@ class Analysis(_Engine["Dataset"]):
                 no_data_value,
             )
             self._apply_elementwise_tiled(
-                func, band, no_data_value, dst_obj, result_dtype
+                func, band, buffer_fill, dst_obj, result_dtype
             )
         else:
             # `band=` as a keyword, never positional: NetCDF.read_array puts
@@ -813,7 +819,7 @@ class Analysis(_Engine["Dataset"]):
             src_array, domain_mask = self._domain_read(band)
             new_array = np.full(
                 (self._ds.rows, self._ds.columns),
-                no_data_value,
+                buffer_fill,
                 # The domain goes to the probe on this arm too: cell [0, 0] is often
                 # the sentinel, and a func that refuses it fell back to the source
                 # dtype and truncated -- the tiled arm had this fixed, this one not.
@@ -1104,7 +1110,9 @@ class Analysis(_Engine["Dataset"]):
         Args:
             func: The per-pixel callable to apply to each tile's domain values.
             band: Zero-based index of the source band to transform.
-            no_data_value: The source no-data value, preserved in excluded cells.
+            no_data_value: What the tile buffer is pre-filled with, and so what the
+                cells the domain excludes keep -- the band's sentinel, or a storable
+                placeholder when it declares none (and so excludes nothing).
             dst_obj: The single-band destination Dataset written in place.
             result_dtype: The dtype the destination band was built at. The buffer has
                 to match it, not the source tile's: allocating at the tile's type

@@ -2567,3 +2567,39 @@ class TestAZarrStoreDescribesWhatItHolds:
 
         assert bool(np.ma.getmaskarray(values).ravel()[0]), "the gap was read as data"
         np.testing.assert_allclose(np.asarray(values).ravel()[1:], [2.5, 3.5, 4.5])
+
+
+class TestApplyOnARasterWithNoSentinel:
+    """A band that declares no `no_data_value` excludes nothing, so `apply` covers it all."""
+
+    @staticmethod
+    def _undeclared(gdal_type: int) -> Dataset:
+        """A 2x2 raster wrapped straight off a MEM handle, declaring no sentinel."""
+        mem = gdal.GetDriverByName("MEM").Create("", 2, 2, 1, gdal_type)
+        mem.SetGeoTransform((0.0, 1.0, 0.0, 2.0, 0.0, -1.0))
+        mem.GetRasterBand(1).WriteArray(np.array([[1, 2], [3, 4]]))
+        return Dataset(mem, access="write")
+
+    @pytest.mark.parametrize("elementwise", [False, True], ids=["whole", "tiled"])
+    @pytest.mark.parametrize(
+        "gdal_type", [gdal.GDT_Int16, gdal.GDT_Float32], ids=["int16", "float32"]
+    )
+    def test_every_cell_is_transformed_and_no_sentinel_is_invented(
+        self, gdal_type, elementwise
+    ):
+        """The output covers every cell and still declares no sentinel.
+
+        Test scenario:
+            The output buffer was pre-filled with the band's sentinel, and for a band
+            declaring none that was `np.full(shape, None, dtype=int16)` -- a `TypeError`
+            on every plain integer GeoTIFF, on both arms. With nothing excluded the
+            placeholder is overwritten everywhere, and the result must not gain a
+            sentinel the source never had (#1118).
+        """
+        result = self._undeclared(gdal_type).apply(
+            lambda a: a * 2, elementwise=elementwise
+        )
+        np.testing.assert_array_equal(
+            np.asarray(result.read_array()).ravel(), [2, 4, 6, 8]
+        )
+        assert result.no_data_value == (None,), result.no_data_value
