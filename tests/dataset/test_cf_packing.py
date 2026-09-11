@@ -546,11 +546,13 @@ class TestStreamingRespectsTheDestination:
             nor the physical one, and disagreeing with `stream_transform`, with
             `apply`, and with its own lazy arm, which already read physically.
         """
-        source = _packed_raster([[100, -100], [0, 50]], 0.01, 1.5)
-        mapped = _packed_raster([[100, -100], [0, 50]], 0.01, 1.5)
-        streamed = _packed_raster([[100, -100], [0, 50]], 0.01, 1.5)
-        applied = _packed_raster([[100, -100], [0, 50]], 0.01, 1.5)
-        del source
+        # With a gap: the divergence that mattered was `apply` masking it while the
+        # block mappers doubled it into data, and a gap-free input cannot show that.
+        counts = [[100, -100], [0, -9999]]
+        rasters = [_packed_raster(counts, 0.01, 1.5) for _ in range(3)]
+        for raster in rasters:
+            raster.no_data_value = [-9999]
+        mapped, streamed, applied = rasters
 
         results = [
             mapped.map_blocks(lambda tile: tile * 2, tile_size=2),
@@ -558,9 +560,10 @@ class TestStreamingRespectsTheDestination:
             applied.apply(lambda tile: tile * 2),
         ]
         for result in results:
-            np.testing.assert_allclose(
-                np.asarray(result.read_array(), dtype="float64").ravel(),
-                [5.0, 1.0, 3.0, 4.0],
+            values = result.read_array(masked=True)
+            np.testing.assert_allclose(np.asarray(values).ravel()[:3], [5.0, 1.0, 3.0])
+            assert bool(np.ma.getmaskarray(values).ravel()[-1]), (
+                "the gap came back as data"
             )
 
     def test_map_blocks_leaves_an_unpacked_raster_narrow(self):
@@ -715,20 +718,32 @@ class TestGridOpsKeepThePacking:
         assert result.scale[0] == pytest.approx(0.01), (
             f"the packing was dropped: scale={result.scale}"
         )
-        values = np.asarray(result.read_array(), dtype="float64")
-        assert float(np.nanmax(values)) <= 2.5 + 1e-9, (
-            f"values look like raw counts, not metres: max {np.nanmax(values)}"
-        )
+        # Against the source's own physical values. An upper bound cannot tell a
+        # correct result from a double application (1.525 is also below 2.5) or from
+        # an all-gap one; every value a regrid produces has to be one of these.
+        source_values = np.asarray(dataset.read_array(), dtype="float64").ravel()
+        values = np.asarray(result.read_array(), dtype="float64").ravel()
+        values = values[np.isfinite(values)]
+        assert values.size, "the regrid produced no values at all"
+        assert np.all(
+            np.isclose(values[:, None], source_values[None, :]).any(axis=1)
+        ), f"values not drawn from the source's physical ones: {values}"
 
     def test_align_keeps_the_packing_too(self):
         """`align` moves pixels onto a template grid, so it is the same byte-copy."""
-        template = _packed_raster([[100, -100], [0, 50]], 0.01, 1.5)
+        # Packed unlike the source, so a regression that carried the *template's*
+        # recipe onto the result fails here instead of passing by coincidence -- the
+        # template supplies a grid, and nothing else.
+        template = _packed_raster([[1, 1], [1, 1]], 0.5, -3.0)
         dataset = _packed_raster([[100, -100], [0, 50]], 0.01, 1.5)
 
         result = dataset.align(template)
 
         assert result.scale[0] == pytest.approx(0.01), (
-            f"align dropped the packing: scale={result.scale}"
+            f"align carried the wrong recipe: scale={result.scale}"
+        )
+        assert result.offset[0] == pytest.approx(1.5), (
+            f"align carried the wrong offset: offset={result.offset}"
         )
         np.testing.assert_allclose(
             np.asarray(result.read_array(), dtype="float64").ravel(),
@@ -793,8 +808,9 @@ class TestTheSentinelStaysOutOfTheDomain:
         result = left.combine(right, lambda a, b: a + b)
         got = np.asarray(result.read_array(), dtype="float64").ravel()
         np.testing.assert_allclose(got[:3], [5.0, 1.0, 3.0])
-        assert got[-1] != pytest.approx(-196.98), (
-            "the two sentinels were added together as if they were data"
+        masked = result.read_array(masked=True)
+        assert bool(np.ma.getmaskarray(masked).ravel()[-1]), (
+            f"the combined gap reads as data: {got[-1]}"
         )
 
 
