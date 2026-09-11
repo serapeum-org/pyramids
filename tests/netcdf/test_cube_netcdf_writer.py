@@ -17,8 +17,9 @@ from osgeo import gdal
 
 from pyramids.base._errors import AlignmentError
 from pyramids.base.georeference import GeoReference
-from pyramids.dataset import Dataset
+from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.dataset._cube_time import TimeAxis
+from pyramids.netcdf import NetCDF
 from pyramids.netcdf._cube_netcdf_writer import CubeNetCDFWriter
 
 _WRITER_MODULE = "pyramids.netcdf._cube_netcdf_writer.open_streaming_multidim_netcdf"
@@ -138,6 +139,9 @@ class TestCubeNetCDFWriterWrite:
         """
         ds = Mock()
         ds.read_array.return_value = np.zeros((4, 5))
+        # An unpacked timestep: `write` asks each one for its recipe to decide whether
+        # one recipe describes the whole cube.
+        ds._effective_packing.return_value = (None, None)
         meta = SimpleNamespace(
             shape=(1, 4, 5),
             band_names=["only"],
@@ -329,30 +333,6 @@ class TestCubeNetCDFWriterBuildSchema:
             f"the shared add_offset was dropped, got {attrs.get('add_offset')}"
         )
 
-    def test_the_single_data_var_declares_nothing_when_the_bands_disagree(self):
-        """Bands packed differently cannot share one slot, so none is written.
-
-        Test scenario:
-            Band 1 at 0.01 and band 2 at 2.0 have no common recipe. Stamping band 1's
-            onto the shared variable would mislabel band 2 by a factor of 200 -- worse
-            than leaving the counts unlabelled, because a reader would believe it.
-            `var_per_band=True` is the spelling that can honour both.
-        """
-        writer = _schema_writer(
-            nodata=(None,),
-            band_count=2,
-            names=("b1", "b2"),
-            scale=[0.01, 2.0],
-            offset=[1.5, 1.5],
-        )
-        axis = TimeAxis(np.array([0]), {})
-        _dims, _coords, var_specs, _root = writer._build_schema(
-            axis, time_dim="time", var_per_band=False
-        )
-        assert var_specs["data"][2] == {}, (
-            f"one band's recipe was stamped onto both: {var_specs['data'][2]}"
-        )
-
     @pytest.mark.parametrize(
         "scale, offset, expected",
         [(None, 1.5, {"add_offset": 1.5}), (0.01, None, {"scale_factor": 0.01})],
@@ -510,3 +490,82 @@ class TestCubeNetCDFWriterStream:
         sink = Mock()
         with pytest.raises(AlignmentError, match="timestep 0"):
             writer._stream(sink, dims={"y": 4, "x": 5}, var_per_band=True)
+
+
+def _packed_timesteps(tmp_path, scales, *, bands=1):
+    """Write one packed GeoTIFF per timestep and open them as a collection.
+
+    Args:
+        tmp_path: Where the files go.
+        scales: One list of per-band factors per timestep.
+        bands: Band count of every timestep.
+
+    Returns:
+        DatasetCollection: The stack.
+    """
+    counts = np.array([[100, -9999], [200, 300]], dtype="int16")
+    for index, per_band in enumerate(scales):
+        stack = np.stack([counts] * bands) if bands > 1 else counts
+        step = Dataset.from_array(
+            stack,
+            geo_ref=GeoReference(top_left_corner=(0, 2), cell_size=1.0, epsg=4326),
+            no_data_value=[-9999] * bands,
+        )
+        step.scale = list(per_band)
+        step.offset = [0.0] * bands
+        step.to_file(str(tmp_path / f"t{index}.tif"))
+    return DatasetCollection.from_files(str(tmp_path), glob="*.tif")
+
+
+class TestTheCubeReadsBackItsValues:
+    """Round trips through a real file: what goes in is what comes out."""
+
+    def test_timesteps_packed_differently_keep_their_own_values(self, tmp_path):
+        """A cube no single recipe describes is written in physical units.
+
+        Test scenario:
+            The recipe came from the template and the slabs from each timestep, so a
+            second timestep packed at 0.1 was labelled with the first's 0.01 and read
+            back ten times too small. The gap comes back as NaN, since one declared
+            sentinel cannot name gaps whose physical value differs per timestep.
+        """
+        collection = _packed_timesteps(tmp_path, [[0.01], [0.1]])
+        collection.to_netcdf(str(tmp_path / "out.nc"), var_per_band=True)
+
+        variable = NetCDF.read_file(str(tmp_path / "out.nc")).get_variable("Band_1")
+        values = np.asarray(variable.read_array(), dtype="float64").reshape(2, -1)
+
+        np.testing.assert_allclose(
+            values, [[1.0, np.nan, 2.0, 3.0], [10.0, np.nan, 20.0, 30.0]]
+        )
+
+    def test_bands_packed_differently_survive_the_single_data_variable(self, tmp_path):
+        """One 4-D variable cannot hold two recipes, so it holds physical values.
+
+        Test scenario:
+            With `var_per_band=False` bands packed at 0.01 and 0.1 shared one variable
+            holding their raw counts under no recipe, and both read back as 100. The
+            old schema test pinned that as intended.
+        """
+        collection = _packed_timesteps(tmp_path, [[0.01, 0.1]], bands=2)
+        collection.to_netcdf(str(tmp_path / "out.nc"), var_per_band=False)
+
+        data = NetCDF.read_file(str(tmp_path / "out.nc")).get_variable("data")
+        values = np.asarray(data.read_array(), dtype="float64").ravel()
+
+        assert np.nanmax(values) == pytest.approx(30.0), values
+        assert np.nanmin(values) == pytest.approx(1.0), values
+
+    def test_a_consistent_recipe_keeps_the_compact_form(self, tmp_path):
+        """When one recipe fits every slab, the counts are stored with it."""
+        collection = _packed_timesteps(tmp_path, [[0.01], [0.01]])
+        collection.to_netcdf(str(tmp_path / "out.nc"), var_per_band=True)
+
+        variable = NetCDF.read_file(str(tmp_path / "out.nc")).get_variable("Band_1")
+        assert variable._scale == pytest.approx(0.01), variable._scale
+        np.testing.assert_allclose(
+            np.asarray(variable.read_array(), dtype="float64").reshape(2, -1)[
+                :, [0, 2, 3]
+            ],
+            [[1.0, 2.0, 3.0], [1.0, 2.0, 3.0]],
+        )

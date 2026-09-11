@@ -22,8 +22,9 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from pyramids.base._domain import is_stored_no_data
 from pyramids.base._errors import AlignmentError
-from pyramids.base._utils import _is_identity_packing
+from pyramids.base._utils import _is_identity_packing, apply_unpack
 from pyramids.dataset._cube_time import TimeAxis
 from pyramids.netcdf.engines.interop import open_streaming_multidim_netcdf
 
@@ -114,6 +115,7 @@ class CubeNetCDFWriter:
             else [f"band_{i + 1}" for i in range(self.band_count)]
         )
         self.var_dtype = np.dtype(meta.dtype)
+        self._decide_storage(var_per_band)
 
         dims, coords, var_specs, root_attrs = self._build_schema(
             axis, time_dim=time_dim, var_per_band=var_per_band
@@ -122,6 +124,48 @@ class CubeNetCDFWriter:
             path, dims, coords, var_specs, root_attrs, crs_wkt=root_attrs.get("crs_wkt")
         ) as writer:
             self._stream(writer, dims=dims, var_per_band=var_per_band)
+
+    def _decide_storage(self, var_per_band: bool) -> None:
+        """Choose between writing the counts with their recipe and materialising them.
+
+        The compact form -- stored counts plus `scale_factor` / `add_offset` -- is only
+        honest when one recipe describes every slab a variable will hold. That fails in
+        two reachable ways: the timesteps are packed differently (each is its own file,
+        and nothing makes them agree), or, for the single 4-D `data` variable, the bands
+        are. Writing counts under a recipe that does not describe them -- or under none
+        -- reads back wrong: bands packed at 0.01 / 0.1 came back 100.0 / 100.0, and a
+        second timestep at 0.1 read as if it were 0.01.
+
+        When one recipe does fit, it is taken from the timesteps, not the template, so a
+        template packed unlike its timesteps cannot mislabel them. When none fits, the
+        cube is materialised: physical `float64`, no recipe, and `NaN` for the gaps, since
+        a single declared sentinel cannot name gaps whose physical value differs from one
+        timestep to the next.
+
+        Args:
+            var_per_band: One variable per band, which can carry a recipe per band;
+                otherwise a single 4-D variable, which can carry only one.
+        """
+        recipes = [
+            tuple(
+                (None, None) if _is_identity_packing(*pair) else pair
+                for pair in (
+                    dataset._effective_packing(index)
+                    for index in range(self.band_count)
+                )
+            )
+            for dataset in self._collection.datasets
+        ]
+        agree_across_time = all(recipe == recipes[0] for recipe in recipes)
+        agree_across_bands = len(set(recipes[0])) == 1
+        self._materialise = not agree_across_time or (
+            not var_per_band and not agree_across_bands
+        )
+        self._recipe = None if self._materialise else list(recipes[0])
+        if self._materialise and any(
+            pair != (None, None) for recipe in recipes for pair in recipe
+        ):
+            self.var_dtype = np.dtype("float64")
 
     def _build_schema(
         self,
@@ -155,7 +199,10 @@ class CubeNetCDFWriter:
         band_count = self.band_count
         names = self.names
         var_dtype = self.var_dtype
-        nodata = (meta.nodata or (None,))[0]
+        materialise = getattr(self, "_materialise", False)
+        # A materialised cube holds physical values with its gaps as NaN (see
+        # `_decide_storage`), so NaN is the fill it declares.
+        nodata = np.nan if materialise else (meta.nodata or (None,))[0]
         y_coord = np.asarray(self._collection._base.y)
         x_coord = np.asarray(self._collection._base.x)
 
@@ -178,7 +225,13 @@ class CubeNetCDFWriter:
         # values instead would cast `14.35` back into an `int16` cube as `14`, and
         # writing counts without the recipe would leave them meaning nothing.
         base = self._collection._base
-        packing = [base._effective_packing(index) for index in range(band_count)]
+        recipe = getattr(self, "_recipe", None)
+        if materialise:
+            packing = [(None, None)] * band_count
+        elif recipe is not None:
+            packing = recipe
+        else:
+            packing = [base._effective_packing(index) for index in range(band_count)]
 
         def _packing_attrs(index: int) -> dict[str, Any]:
             """The CF packing attributes for one band, empty when it declares none.
@@ -256,6 +309,36 @@ class CubeNetCDFWriter:
             root_attrs["nodata"] = typed_nodata
         return dims, coords, var_specs, root_attrs
 
+    @staticmethod
+    def _physical_block(dataset: Any) -> np.ndarray:
+        """One timestep in physical units, with its own recipe and its gaps as NaN.
+
+        Used when no single recipe describes the whole cube (see `_decide_storage`). Each
+        band is masked against its own stored sentinel -- where the sentinel lives --
+        then unpacked with that timestep's own recipe, so timesteps packed differently
+        all land in the same physical units.
+
+        Args:
+            dataset: The timestep to read.
+
+        Returns:
+            np.ndarray: `(bands, rows, cols)` in `float64`, NaN wherever the source had
+                no data.
+        """
+        raw = np.asarray(dataset.read_array(unpack=False))
+        if raw.ndim == 2:
+            raw = raw[np.newaxis, :, :]
+        declared = dataset.no_data_value
+        out = np.empty(raw.shape, dtype=np.float64)
+        for index in range(raw.shape[0]):
+            values = np.asarray(
+                apply_unpack(raw[index], *dataset._effective_packing(index)),
+                dtype=np.float64,
+            )
+            values[is_stored_no_data(raw[index], declared[index])] = np.nan
+            out[index] = values
+        return out
+
     def _stream(
         self,
         writer: Any,
@@ -284,10 +367,14 @@ class CubeNetCDFWriter:
         names = self.names
         var_dtype = self.var_dtype
         expected = (band_count, dims["y"], dims["x"])
+        materialise = getattr(self, "_materialise", False)
         for t, ds in enumerate(collection.datasets):
-            block = np.asarray(ds.read_array(unpack=False)).astype(
-                var_dtype, copy=False
+            raw = (
+                self._physical_block(ds)
+                if materialise
+                else np.asarray(ds.read_array(unpack=False))
             )
+            block = raw.astype(var_dtype, copy=False)
             if block.ndim == 2:
                 block = block[np.newaxis, :, :]
             if block.shape != expected:
