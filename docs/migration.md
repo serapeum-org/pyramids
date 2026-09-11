@@ -203,7 +203,8 @@ the raw values, so `apply(lambda a: a)` — the identity — changed a packed va
 100.0. The output now takes the function's own result type, and reads reaching `apply` are already physical, so
 the packing is genuinely spent rather than silently discarded. This holds for **both** arms: the out-of-core
 `elementwise=True` path sizes its per-tile buffer from the same probe as the destination band, where it used to
-round the result back into the source's type before the wider band ever saw it.
+round the result back into the source's type before the wider band ever saw it. A scalar-only callable
+(`math.sqrt`) is probed the way it is run, through `np.vectorize`, so it is not truncated either.
 
 A function whose result GDAL has no type for (an `object` array) still writes at the source type, as before.
 
@@ -221,9 +222,12 @@ Two consequences you may see:
   border-trim silently discarded it (a `Dataset` lost it outright; a `NetCDF` variable kept it only in a Python
   attribute), and the three `ReprojectImage` paths never carried it at all;
 - for a NetCDF variable, `_scale` / `_offset` are authoritative for the read when set, and the band's own
-  `GetScale` / `GetOffset` are the fallback. Every consumer of the packing — both read arms, `stats`, the
-  streaming transforms — resolves it through one method (`_effective_packing`), so they cannot answer in
-  different units for the same band.
+  `GetScale` / `GetOffset` are the fallback. Everything that *applies* the packing resolves it through that one
+  rule — both read arms, `stats`, `get_histogram`, `point` / `read_part` / `preview` / `read_overview_array` /
+  `get_tile`, `set_variable` and the streaming transforms — so none of them can answer in different units for
+  the same band. The public `scale` / `offset` properties are the exception: they report the band's own slots,
+  so on a variable whose recipe lives only in Python (a `sel()` result, say) they read `[1.0]` / `[0.0]` while
+  the values are still unpacked correctly.
 
 **`no_data_value` stays a *stored* value, and that is the second half of the contract.** CF puts `_FillValue`
 in the packed datatype, GDAL reports it that way, and it is what gets written back — so it is left alone.
@@ -235,16 +239,19 @@ ds.no_data_value                  # stored:   (-9999.0,)
 values == ds.no_data_value[0]     # never true on a packed raster
 ```
 
-Inside the library every domain mask is now built against the stored counts and the values unpacked
-afterwards — the same set of cells, but only that order is exact and only it survives a `NaN` sentinel. If you
-were doing that comparison yourself, use `read_array(masked=True)`, which masks in stored units and hands back
-physical values, or read with `unpack=False` and mask before you scale.
+Inside the library every such comparison is now made in one consistent unit. Where a mask is wanted, it is built
+against the stored counts and the values unpacked afterwards; where the sentinel is handed on as a *value* — to
+cleopatra, to a feature table, to an ASCII grid's `NODATA_value` header — it is expressed in the physical units
+the array holds. The two pick out the same cells, because the packing is affine and a zero or non-finite
+`scale_factor` is refused. If you were doing that comparison yourself, use `read_array(masked=True)`, which masks
+in stored units and hands back physical values, or read with `unpack=False` and mask before you scale.
 
-**A transform's destination decides its units.** `apply`, `map_blocks` and `stream_transform` all hand your
-function physical values and return an unpacked result. The one exception is `stream_transform(out=...)` where
-`out` declares packing — including the in-place `out=ds` form — because writing physical values into a band
-that still declares its recipe would overwrite the stored counts with numbers the next read scales again.
-There, the function works in stored units.
+**A transform always works in physical units; the destination only decides how the result is stored.** `apply`,
+`map_blocks` and `stream_transform` hand your function physical values, and a gap in the source comes back as the
+result's declared sentinel whatever the function does to it. `stream_transform(out=...)` into a destination that
+declares a recipe — including the in-place `out=ds` form — packs the result with *that destination's* recipe,
+`(value - offset) / scale`, rounded to its dtype, so source and destination need not share a packing. An
+in-place `lambda t: t * 2` therefore doubles the physical values, not the stored counts.
 
 **`merge_rasters` inherits its no-data from the sources instead of defaulting to `0`.** A hard behavior change,
 and the reason is that `0` is real data in most rasters worth merging: sea-level land in an elevation or
