@@ -44,7 +44,12 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from pyramids.base._errors import OverviewTargetError
-from pyramids.base._utils import import_dask, import_zarr, lazy_extra_hint
+from pyramids.base._utils import (
+    _is_identity_packing,
+    import_dask,
+    import_zarr,
+    lazy_extra_hint,
+)
 from pyramids.base.crs import sr_from_epsg
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset.ops._geobox_zarr import (
@@ -390,7 +395,22 @@ def _metadata_dict(ds: Dataset) -> dict[str, Any]:
     # For an EPSG-coded dataset, emit the canonical EPSG WKT (derived from the code); a no-EPSG CRS
     # (e.g. geostationary) carries its own `.crs` WKT so its `spatial_ref` is preserved.
     crs_wkt = sr_from_epsg(epsg_code).ExportToWkt() if ds.epsg else (ds.crs or "")
-    nodata_tuple = ds.no_data_value
+    # Describe what is actually written, not what the source stores. `to_zarr` writes
+    # the physical values `read_array` returns, and pyramids' Zarr metadata has no
+    # channel for `scale_factor` / `add_offset` -- so a packed source is materialised
+    # (rule 2): its sentinel and its dtype are the ones the array really holds. Recording
+    # the stored `-9999` over an array whose gaps hold `-98.49` made the gap read back
+    # as data, and recording `int16` over a `float64` array misdescribed every value.
+    packed = any(
+        not _is_identity_packing(*ds._effective_packing(index))
+        for index in range(ds.band_count)
+    )
+    nodata_tuple = (
+        tuple(ds.analysis._physical_no_data(index) for index in range(ds.band_count))
+        if packed
+        else ds.no_data_value
+    )
+    written_dtype = np.dtype("float64") if packed else np.dtype(ds.numpy_dtype[0])
     # Written the way JSON can hold it exactly: `float` for everything it can
     # represent, an `int` only where it would round. A plain `float()` here cost
     # an int64 sentinel above 2**53 its last digit, and since this value is also
@@ -415,10 +435,10 @@ def _metadata_dict(ds: Dataset) -> dict[str, Any]:
         "epsg": epsg_code,
         "no_data_value": no_data_list,
         "band_names": list(ds.band_names) if ds.band_names else [],
-        "dtype": str(np.dtype(ds.numpy_dtype[0])),
+        "dtype": str(written_dtype),
         "shape": [int(ds.band_count), int(ds.rows), int(ds.columns)],
     }
-    if agreed is not None and _representable(agreed, ds.numpy_dtype[0]):
+    if agreed is not None and _representable(agreed, written_dtype):
         metadata["_FillValue"] = agreed
     return metadata
 

@@ -1642,3 +1642,31 @@ class TestACollectionAnswersInOneUnit:
         )
 
         np.testing.assert_allclose(lazy.reshape(eager.shape), eager)
+
+
+class TestAZarrStoreDescribesWhatItHolds:
+    """`to_zarr` materialises a packed raster; its metadata has to say so."""
+
+    def test_the_gap_survives_the_round_trip(self, tmp_path):
+        """The written sentinel is the one the written array actually holds.
+
+        Test scenario:
+            `to_zarr` writes the physical values `read_array` returns, and pyramids'
+            Zarr metadata has no channel for a recipe. It recorded the stored `-9999`
+            and the stored `int16` over a `float64` array whose gap held `-98.49`, so
+            reading the store back treated the gap as a measurement.
+        """
+        pytest.importorskip("zarr")
+        pytest.importorskip("dask")
+        source = _packed_raster([[-9999, 100], [200, 300]], 0.01, 1.5)
+        source.no_data_value = [-9999]
+        source.to_file(str(tmp_path / "source.tif"))
+        Dataset.read_file(str(tmp_path / "source.tif")).to_zarr(
+            str(tmp_path / "out.zarr")
+        )
+
+        restored = Dataset.from_zarr(str(tmp_path / "out.zarr"))
+        values = restored.read_array(masked=True)
+
+        assert bool(np.ma.getmaskarray(values).ravel()[0]), "the gap was read as data"
+        np.testing.assert_allclose(np.asarray(values).ravel()[1:], [2.5, 3.5, 4.5])
