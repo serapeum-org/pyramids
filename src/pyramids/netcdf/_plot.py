@@ -1439,9 +1439,13 @@ class NetCDFPlot:
                 ``coords``, ``_facet_stack``) before forwarding to
                 cleopatra's animate entry point.
             exclude_value: An extra value to mask alongside the variable's
-                no-data. Both are replaced with ``NaN`` in every streamed frame
-                (and passed to cleopatra as the template ``exclude_value``), so a
-                caller value takes effect rather than being dropped.
+                no-data. Both are replaced with `NaN` in every streamed frame
+                (and passed to cleopatra as the template `exclude_value`), so a
+                caller value takes effect rather than being dropped. The frames
+                are read through `read_array`, so they are physical values on a
+                CF-packed variable: this value is compared against those, and the
+                variable's sentinel is matched in the same units
+                (`Analysis._physical_no_data`), not as the stored number.
             basemap: Forwarded to :func:`render_array`. A web-tile basemap
                 (``str`` / ``True``) draws on the animation's single
                 persistent ``Axes`` underneath the frames; a cleopatra

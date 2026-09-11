@@ -94,11 +94,17 @@ class Variables(_Engine["NetCDF"]):
         operations (crop, reproject, etc.) on a variable subset, use this
         method to store the result back into the NetCDF container.
 
-        The dataset's **stored** values are written (`read_array(unpack=False)`),
-        and its first band's `scale_factor` / `add_offset` are set on the new
-        variable, so a CF-packed raster stays packed and still reads back in
-        physical units. An MDArray holds a single packing, so a multi-band raster
-        whose bands are packed differently keeps only band 1's recipe.
+        The dataset's **stored** values are written (`read_array(unpack=False)`) --
+        this copies the store -- and the recipe that describes them is set on the
+        new variable as `scale_factor` / `add_offset`, so a CF-packed raster stays
+        packed and still reads back in physical units. The recipe is the one a read
+        of the dataset applies, `dataset._effective_packing(0)`: a `NetCDF`
+        variable's own `_scale` / `_offset` when it carries them (what `sel()`
+        builds, over a band that declares none), else band 1's. An identity (or
+        unusable) pair is not written as a declaration. A destination that refuses
+        the packing is logged at `DEBUG` level and the counts are written without
+        it. An MDArray holds a single packing, so a multi-band raster whose bands
+        are packed differently keeps only that one recipe.
 
         Args:
             variable_name: Name for the variable in this container. If a
@@ -129,6 +135,30 @@ class Variables(_Engine["NetCDF"]):
         Raises:
             ValueError: If called on a dataset without a root group
                 (not opened in multidimensional mode).
+
+        Examples:
+            - A packed raster is stored as its counts under its own recipe, so the new
+              variable still reads back in physical units:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> from pyramids.netcdf import NetCDF
+                >>> geo_ref = GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326)
+                >>> nc = NetCDF.from_array(
+                ...     np.zeros((1, 2, 2), dtype="float32"), geo_ref=geo_ref, variable_name="base"
+                ... )
+                >>> packed = Dataset.from_array(
+                ...     np.array([[100, 200], [300, 400]], dtype="int16"), geo_ref=geo_ref
+                ... )
+                >>> packed.scale = [0.01]
+                >>> nc.set_variable("packed", packed)
+                >>> stored = nc.get_variable("packed")
+                >>> np.asarray(stored.read_array(unpack=False)).tolist()
+                [[100, 200], [300, 400]]
+                >>> stored.read_array().tolist()
+                [[1.0, 2.0], [3.0, 4.0]]
+
+                ```
         """
         nc = self._ds
         rg = nc._working_group()

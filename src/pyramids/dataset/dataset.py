@@ -1280,22 +1280,29 @@ class Dataset(RasterBase):
     def _spend_packing(self) -> None:
         """Forget the packing once a compute has replaced the values with physical ones.
 
-        Called after an in-place compute (`apply(inplace=True)`, `fill(inplace=True)`).
-        The raster swapped in holds physical values and declares no packing on its bands,
-        so for a plain `Dataset` there is nothing left to forget. `NetCDF` overrides this,
-        because a variable also carries the recipe in Python and would otherwise apply it
-        to the already-physical values on the next read.
+        Called after an in-place compute (`apply(inplace=True)`, `fill(inplace=True)`),
+        once `_update_inplace` has swapped the computed raster in. That raster holds
+        physical values and declares no packing on its bands, so for a plain `Dataset`
+        there is nothing left to forget and this does nothing. `NetCDF` overrides it,
+        because a variable also carries the recipe in Python -- which `_update_inplace`
+        preserves -- and `_effective_packing` would otherwise apply it to the
+        already-physical values on the next read.
         """
 
     def _effective_packing(self, band: int = 0) -> tuple[Any, Any]:
         """The `(scale, offset)` a read of `band` applies, as this class resolves it.
 
-        The resolver the packing-aware paths share -- `stats`, `get_histogram`, the
-        domain reads behind `apply` and `combine`, `stream_transform`, `map_blocks` and
-        `NetCDF.read_array` -- so they cannot resolve it differently and report the same
-        band in different units. For a plain raster the band's own `GetScale` /
-        `GetOffset` are the whole story; `NetCDF` overrides this because a variable can
-        also carry the pair in Python, and the two can disagree.
+        The resolver every path that applies packing shares -- `read_array` and the reads
+        built on it (`point`, `read_part`, `preview`, `get_tile`, the overview reads),
+        `stats`, `get_histogram`, `plot_histogram`, the domain reads behind `apply` and
+        `combine`, `stream_transform`, `map_blocks`, `zonal_stats`, the sentinel
+        conversion in `Analysis._physical_no_data`, and the writers that carry or spend
+        the recipe (`to_zarr`, `DatasetCollection.to_netcdf`, `NetCDF.set_variable`) --
+        so they cannot resolve it differently and report the same band in different
+        units. For a plain raster the band's own `GetScale` / `GetOffset` are the whole
+        story; `NetCDF` overrides this because a variable can also carry the pair in
+        Python, and the two can disagree. The public `scale` / `offset` properties are
+        not this: they report the band's slots, normalised.
 
         Args:
             band: Zero-based band index. Defaults to `0`.
@@ -1931,7 +1938,9 @@ class Dataset(RasterBase):
 
         Thin forwarder to
         :func:`pyramids.dataset.ops._zonal.zonal_stats`; see that
-        function for the full argument contract.
+        function for the full argument contract. The statistics are in
+        physical units (a CF-packed band is unpacked), and the band's
+        no-data cells, found in its stored values, are left out.
 
         Args:
             fc: A :class:`pyramids.feature.FeatureCollection` of
@@ -1967,7 +1976,15 @@ class Dataset(RasterBase):
         that function for the full argument contract. Zarr is the
         only raster output format where pyramids can write in true
         parallel — each dask chunk becomes an independent Zarr chunk
-        file. Requires the `[lazy]` optional extra.
+        file. Requires the `[lazy]` optional extra, and a dataset backed
+        by a file the chunk reader can reopen.
+
+        The values written are the physical ones `read_array` returns, and
+        pyramids' Zarr metadata has no `scale_factor` / `add_offset`, so a
+        CF-packed source is written materialised: the store's `data` array
+        holds `float64` values, its `dtype` attribute says so, and its no-data
+        is the sentinel in physical units (`-9999` at `scale=0.5` is recorded
+        as `-4999.5`). Read back, it declares no packing.
 
         Args:
             store: Target store (path / fsspec URL / zarr.Store).
@@ -1988,6 +2005,10 @@ class Dataset(RasterBase):
             overview_resampling: GDAL resampling for the pyramid levels
                 (`"average"` default, `"nearest"`, `"bilinear"`, ...).
 
+        Returns:
+            `None` when `compute=True`; a :class:`dask.delayed.Delayed` that
+            performs the write when `compute=False`.
+
         Raises:
             OverviewTargetError: `overview_factors` was given and this dataset cannot
                 hold overviews — a plain VRT whose description is not a path: an empty
@@ -2000,6 +2021,32 @@ class Dataset(RasterBase):
                 from the saved raster.
             ValueError: `overview_factors` was given with `compute=False`; the pyramid
                 levels are written eagerly.
+
+        Examples:
+            - A packed raster is stored as its physical values, with the sentinel in the
+              same units, and reads back declaring no packing:
+                ```python
+                >>> import os, tempfile
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> folder = tempfile.mkdtemp()
+                >>> source = Dataset.from_array(
+                ...     np.array([[100, -9999], [300, 400]], dtype="int16"),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+                ...     no_data_value=-9999,
+                ...     path=os.path.join(folder, "packed.tif"),
+                ... )
+                >>> source.scale = [0.5]
+                >>> source.close()
+                >>> packed = Dataset.read_file(os.path.join(folder, "packed.tif"))
+                >>> packed.to_zarr(os.path.join(folder, "packed.zarr"))
+                >>> store = Dataset.from_zarr(os.path.join(folder, "packed.zarr"))
+                >>> store.read_array().tolist(), store.dtype, store.scale
+                ([[50.0, -4999.5], [150.0, 200.0]], ['float64'], [1.0])
+                >>> float(store.no_data_value[0])
+                -4999.5
+
+                ```
         """
         resolved_chunks = chunks if chunks is not None else "auto"
         return write_dataset_to_zarr(
@@ -2486,10 +2533,16 @@ class Dataset(RasterBase):
         """Convert band values to ``target`` units, returning a new Dataset.
 
         Unlike the :attr:`band_units` setter — which only relabels bands — this
-        actually transforms the stored values using a small affine conversion table
+        actually transforms the values using a small affine conversion table
         (see :func:`pyramids.dataset.ops.units.convert_array`) and records the new
-        unit on the result. No-data cells are preserved unchanged. The output is a
-        new in-memory ``float64`` Dataset; the source is left untouched.
+        unit on the result. The output is a new in-memory `float64` Dataset; the
+        source is left untouched.
+
+        The values converted are the physical ones `read_array` returns, so a
+        CF-packed band (`scale_factor` / `add_offset`) is unpacked first and the
+        result, holding computed values, declares no packing. No-data cells are
+        found in the stored values, where the sentinel lives, and keep the declared
+        `no_data_value` unchanged rather than being converted as if they were data.
 
         Args:
             target: Target unit label (e.g. ``"celsius"``, ``"hPa"``, ``"knots"``).
@@ -2543,6 +2596,25 @@ class Dataset(RasterBase):
                 ... except ValueError as exc:
                 ...     print("No unit conversion" in str(exc))
                 True
+
+                ```
+            - A packed band is converted from its physical values, and its gap keeps
+              the sentinel:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> packed = Dataset.from_array(
+                ...     np.array([[10, -9999]], dtype="int16"),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+                ...     no_data_value=-9999,
+                ... )
+                >>> packed.offset = [273.15]
+                >>> packed.band_units = ["K"]
+                >>> converted = packed.convert_units("celsius")
+                >>> [round(value, 6) for value in converted.read_array().ravel().tolist()]
+                [10.0, -9999.0]
+                >>> converted.scale, converted.offset
+                ([1.0], [0])
 
                 ```
         """
@@ -2923,6 +2995,10 @@ class Dataset(RasterBase):
         :meth:`copy`, a `CreateCopy` write -- carries the recipe along with them instead,
         and stays consistent that way.
 
+        This reports each GDAL band's own slot. A `NetCDF` variable can also carry its
+        recipe in Python (`_scale` / `_offset`), which a read applies ahead of the band's
+        (see `_effective_packing`); such a pair does not show here.
+
         Returns:
             list[float]: One factor per band; `1.0` where a band is not packed.
         """
@@ -2942,7 +3018,9 @@ class Dataset(RasterBase):
         """Facade — delegates to :attr:`Bands.offset <pyramids.dataset.engines.Bands.offset>`.
 
         The additive half of the CF packing, `real = stored * scale + offset`. See
-        :attr:`scale` for how the stored form and the values' meaning are kept apart.
+        :attr:`scale` for how the stored form and the values' meaning are kept apart,
+        and for why this reports the GDAL band's own slot rather than a `NetCDF`
+        variable's `_offset`.
 
         Returns:
             list[float]: One offset per band; `0` where a band is not packed.

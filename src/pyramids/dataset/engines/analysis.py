@@ -433,18 +433,72 @@ class Analysis(_Engine["Dataset"]):
             )
 
     def count_domain_cells(self, band: int = 0) -> int:
-        """Count cells inside the domain.
+        """Count the cells inside the domain -- every cell the no-data sentinel does not mark.
+
+        The band is streamed in row strips, so a very large or `/vsicurl` raster is
+        never read whole. Which cell is a gap is judged against the band's **stored**
+        values, where `no_data_value` lives, so a CF-packed band (`scale_factor` /
+        `add_offset`) is counted the same as an unpacked one: its gaps hold the stored
+        sentinel, not the physical number a default read shows there. A band that
+        declares no sentinel has no gaps, and every cell counts.
 
         Args:
             band (int):
-                Band index. Default is 0.
+                Zero-based band index. Default is 0.
 
         Returns:
             int:
-                Number of cells.
+                Number of cells the band holds data in.
 
         Raises:
             ValueError: `band` is out of range for the dataset.
+
+        Examples:
+            - One of four cells is a gap:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> ds = Dataset.from_array(
+                ...     np.array([[1.0, 2.0], [3.0, -9999.0]], dtype="float32"),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+                ...     no_data_value=-9999.0,
+                ... )
+                >>> ds.count_domain_cells()
+                3
+
+                ```
+            - A packed band's gap is found in its stored counts, although a default read
+              shows it as `-99.99`:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> packed = Dataset.from_array(
+                ...     np.array([[100, 200], [300, -9999]], dtype="int16"),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+                ...     no_data_value=-9999,
+                ... )
+                >>> packed.scale = [0.01]
+                >>> packed.count_domain_cells()
+                3
+
+                ```
+            - A band index the dataset does not have is refused:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> ds = Dataset.from_array(
+                ...     np.ones((2, 2), dtype="float32"),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+                ... )
+                >>> ds.count_domain_cells(band=3)
+                Traceback (most recent call last):
+                    ...
+                ValueError: band 3 is out of range for a 1-band dataset.
+
+                ```
+
+        See Also:
+            domain_area: The same cells weighed by their ground area.
         """
         self._require_band(band)
         no_data_value = self._ds.no_data_value[band]
@@ -476,8 +530,9 @@ class Analysis(_Engine["Dataset"]):
         by roughly four times. This asks the same question in ground units.
 
         The cells are the same ones `count_domain_cells` counts -- whatever the
-        band's no-data sentinel does not mark -- so the two compose rather than
-        introducing a second idea of what "inside" means.
+        band's no-data sentinel does not mark, judged against the band's stored
+        values, so a CF-packed band's gaps are left out like any other -- and the
+        two compose rather than introducing a second idea of what "inside" means.
 
         Args:
             band: Band index. Default is 0.
@@ -611,7 +666,9 @@ class Analysis(_Engine["Dataset"]):
                 has this one band only.
             inplace (bool):
                 If True, the original dataset will be modified. If False, a new dataset will be created.
-                Default is False.
+                Default is False. In place, the dataset's packing is spent along with its values: it
+                declares none afterwards, and a `NetCDF` variable drops its own `_scale` / `_offset`
+                too, so the next read does not apply the recipe to the computed values a second time.
             elementwise (bool):
                 Opt-in streaming mode. When `True`, `func` is applied one tile at
                 a time instead of to the whole band at once, so a very large or
@@ -701,6 +758,23 @@ class Analysis(_Engine["Dataset"]):
               >>> halved = counts.apply(lambda values: values / 2, elementwise=True)
               >>> halved.dtype, halved.read_array().tolist()
               (['float64'], [[0.5, 1.0], [1.5, 2.0]])
+
+              ```
+
+            - In place, a packed band's recipe is spent with its values, so the next
+              read does not scale the computed numbers again:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> packed = Dataset.from_array(
+              ...     np.array([[100, 200]], dtype="int16"),
+              ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+              ... )
+              >>> packed.scale = [0.01]
+              >>> _ = packed.apply(lambda values: values * 2, inplace=True)
+              >>> packed.read_array().tolist(), packed.scale
+              ([[2.0, 4.0]], [1.0])
 
               ```
 
@@ -803,15 +877,51 @@ class Analysis(_Engine["Dataset"]):
         callers want a *mask*, and those build it in stored units through
         `_domain_read`. A few instead need the sentinel as a *value*, because they
         hand it to something that will do its own comparison against the physical
-        array — cleopatra's `exclude_value`, `get_pixels2`'s exclude list. Those need
-        the same number the array actually holds.
+        array — cleopatra's `exclude_value` (`plot`, the collection and NetCDF
+        animations), `get_pixels2` / `get_indices2`'s exclude lists (`extract`,
+        `overlay`), the feature table `to_feature_collection` drops rows from, an
+        ASCII header, the terrain-RGB encoder, the focal kernels' gap search, or the
+        no-data a materialised Zarr store declares. Those need the same number the
+        array actually holds.
+
+        The pair applied is `Dataset._effective_packing(band)`, the same one the read
+        uses, so the two cannot disagree.
 
         Args:
             band: Zero-based band index.
 
         Returns:
-            The sentinel in physical units, or the sentinel unchanged when the band
-            declares no packing (and `None` stays `None`).
+            The sentinel in physical units as a `float`, or the sentinel unchanged when
+            the band declares no usable packing (and `None` stays `None`).
+
+        Examples:
+            - The stored `-9999` of a band packed at `scale=0.5` reads as `-4999.5`:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> packed = Dataset.from_array(
+                ...     np.array([[100, -9999]], dtype="int16"),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+                ...     no_data_value=-9999,
+                ... )
+                >>> packed.scale = [0.5]
+                >>> packed.analysis._physical_no_data(0), float(packed.read_array()[0, 1])
+                (-4999.5, -4999.5)
+
+                ```
+            - An unpacked band's sentinel is returned as declared:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> ds = Dataset.from_array(
+                ...     np.array([[1.0, -9999.0]]),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+                ...     no_data_value=-9999.0,
+                ... )
+                >>> float(ds.analysis._physical_no_data(0))
+                -9999.0
+
+                ```
         """
         sentinel = self._ds.no_data_value[band]
         scale, offset = self._ds._effective_packing(band)
@@ -866,11 +976,13 @@ class Analysis(_Engine["Dataset"]):
     def _storable_dtype(func, source: np.ndarray, domain=None) -> np.dtype:
         """The narrowest dtype that holds `func`'s result and that GDAL can store.
 
-        Probed by calling `func` on one domain value. Writing the result back at the
-        source's type truncated a float-valued function on an integer raster (#1124), so
-        the result's own type wins -- but only when GDAL has a matching type. A callable
-        that yields `object`, or one that cannot take a one-element array at all, keeps
-        the source's type: the behaviour before #1124, and better than refusing to run.
+        Probed by calling `func` on one domain value, the way `apply` will call it
+        (`_probe_call`: the array first, then lifted through `np.vectorize`). Writing the
+        result back at the source's type truncated a float-valued function on an integer
+        raster (#1124), so the result's own type wins -- but only when GDAL has a matching
+        type. A callable that yields `object`, or one that fails on the sample even when
+        lifted, keeps the source's type: the behaviour before #1124, and better than
+        refusing to run.
 
         Args:
             func: The callable `apply` was given.
@@ -915,6 +1027,32 @@ class Analysis(_Engine["Dataset"]):
 
         Returns:
             np.ndarray: The result, whose dtype is the prediction.
+
+        Raises:
+            Exception: Whatever `func` raises when lifted through `np.vectorize` as
+                well, and anything other than `TypeError` / `ValueError` from the
+                array call. `_storable_dtype` catches it and keeps the source dtype.
+
+        Examples:
+            - A scalar-only function refuses the array and is lifted, as `apply` lifts
+              it, so the probe predicts the float result it will really return:
+                ```python
+                >>> import math
+                >>> import numpy as np
+                >>> from pyramids.dataset.engines.analysis import Analysis
+                >>> Analysis._probe_call(math.sqrt, np.array([2], dtype="int16")).dtype
+                dtype('float64')
+
+                ```
+            - A vectorised function is called on the array directly:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset.engines.analysis import Analysis
+                >>> probe = Analysis._probe_call(lambda v: v * 2, np.array([2], dtype="int16"))
+                >>> probe.tolist(), probe.dtype
+                ([4], dtype('int16'))
+
+                ```
         """
         try:
             result = np.asarray(func(sample))
@@ -1567,20 +1705,29 @@ class Analysis(_Engine["Dataset"]):
     ) -> Dataset | None:
         """Fill the domain cells with a certain value.
 
-            Fill takes a raster and fills it with one value
+        Every cell the no-data sentinel does not mark takes `value`; the gaps keep the
+        sentinel. The raster is streamed tile by tile through `IO.stream_transform`, so a
+        very large or `/vsicurl` source is never read whole, and the gaps are judged
+        against the stored counts, where the sentinel lives.
+
+        `value` is a physical value. On a CF-packed band (`scale_factor` / `add_offset`)
+        the result is a computed raster: `float64`, declaring no packing, holding `value`
+        as given and the source's stored `no_data_value` at the gaps. An unpacked source
+        keeps its own dtype.
 
         Args:
             value (float | int):
-                Numeric value to fill.
+                Numeric value to fill, in physical units.
             inplace (bool):
                 If True, the original dataset will be modified. If False, a new dataset will be created. Default is False.
-            path (str):
-                Path including the extension (.tif).
+                In place, a packed dataset's recipe is spent too (see :meth:`apply`).
+            path (str | Path, optional):
+                Output `.tif` path for a disk-backed result. `None` (default) keeps it in memory.
 
         Returns:
             Dataset | None:
-                A new Dataset with cells filled, or ``None`` when
-                ``inplace=True`` -- see :meth:`apply` for why.
+                A new Dataset with cells filled, or `None` when
+                `inplace=True` -- see :meth:`apply` for why.
 
         Examples:
             - Create a Dataset with 1 band, 5 rows, 5 columns, at the point lon/lat (0, 0):
@@ -1610,6 +1757,24 @@ class Analysis(_Engine["Dataset"]):
                [10 10 10 10 10]]
 
               ```
+
+            - On a CF-packed band the fill is a physical value, and the gap keeps the
+              sentinel:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> packed = Dataset.from_array(
+              ...     np.array([[100, 200], [300, -9999]], dtype="int16"),
+              ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+              ...     no_data_value=-9999,
+              ... )
+              >>> packed.scale = [0.01]
+              >>> filled = packed.fill(7.5)
+              >>> filled.read_array().tolist(), filled.dtype, filled.scale
+              ([[7.5, 7.5], [7.5, -9999.0]], ['float64'], [1.0])
+
+              ```
         """
         no_data_value = self._ds.no_data_value[0]
 
@@ -1618,6 +1783,10 @@ class Analysis(_Engine["Dataset"]):
             # `fill` decides from it which cells are the domain, so a cell it
             # calls no-data here and the histogram calls data is the same
             # disagreement, reached through the writer instead of a reader.
+            # On a packed band the tile is physical and holds no stored sentinel, so
+            # this finds no gap and fills every cell; `stream_transform` then puts the
+            # sentinel back at every gap, found in the stored counts, which is what
+            # keeps them.
             tile[~is_stored_no_data(tile, no_data_value)] = value
             return tile
 
@@ -1681,7 +1850,8 @@ class Analysis(_Engine["Dataset"]):
         - Values come back in physical units, as `read_array` returns them: a CF-packed band
           (`scale_factor` / `add_offset`) is unpacked, and `exclude_value` is compared against the
           unpacked values. Without a `mask` the no-data cells are left out, matched against the
-          sentinel expressed in those same physical units.
+          sentinel expressed in those same physical units -- the selected band's, or band 0's
+          when `band` is `None`.
 
         Args:
             band (int, optional):
@@ -2640,12 +2810,20 @@ class Analysis(_Engine["Dataset"]):
     ) -> GeoDataFrame | None:
         """Extract the real coverage of the values in a certain band.
 
+        The coverage is a mask, so it is decided where the sentinel lives: against the
+        band's **stored** values, never the physical ones. A CF-packed band
+        (`scale_factor` / `add_offset`) is therefore footprinted exactly like an
+        unpacked one -- its gaps hold the stored sentinel, not the number a default
+        `read_array` shows there -- and the values themselves are never used.
+
         Args:
             band (int):
                 Band index. Default is 0.
             exclude_values (List[Any] | None):
-                If you want to exclude a certain value in the raster with another value inter the two values as a
-                list of tuples a [(value_to_be_exclude_valuesd, new_value)].
+                Values treated as uncovered in addition to the band's no-data sentinel,
+                e.g. `[0]` for the dry cells of a flood-depth raster. They are compared
+                against the band's stored values, the same units as `no_data_value`, so
+                on a packed band give them as stored counts.
 
                 - Example of exclude_values usage:
 
@@ -2669,10 +2847,14 @@ class Analysis(_Engine["Dataset"]):
                 footprint is exact.
 
         Returns:
-            GeoDataFrame:
+            GeoDataFrame | None:
                 - geodataframe containing the polygon representing the extent of the raster. the extent column should
                   contain a value of 2 only.
                 - if the dataset had separate polygons, each polygon will be in a separate row.
+                - `None` (with a logged warning) when no cell of the band is covered.
+
+        Raises:
+            ValueError: `max_samples` is not `None` and is less than 1.
 
         Examples:
             - Build a raster whose non-flooded cells are ``0`` and whose flooded cells
@@ -2706,6 +2888,23 @@ class Analysis(_Engine["Dataset"]):
               4.0
               >>> extent.plot()  # doctest: +SKIP
               <Axes: >
+
+              ```
+
+            - A CF-packed band's gap is found in its stored counts, so it stays out of
+              the footprint:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> packed = Dataset.from_array(
+              ...     np.array([[-9999, 100], [200, 300]], dtype="int16"),
+              ...     geo_ref=GeoReference(top_left_corner=(0, 2), cell_size=1.0, epsg=4326),
+              ...     no_data_value=-9999,
+              ... )
+              >>> packed.scale = [0.01]
+              >>> float(packed.footprint().geometry.iloc[0].area)
+              3.0
 
               ```
         """
@@ -3038,53 +3237,61 @@ class Analysis(_Engine["Dataset"]):
 
         Backed by cleopatra's
         :class:`~cleopatra.glyphs.stats.histogram_glyph.HistogramGlyph`. The band is
-        read into memory, the band's no-data value and ``exclude_value``
-        (and any ``NaN`` for floating-point bands) are dropped, and only the
-        remaining valid samples reach the glyph. Requires the ``[viz]`` extra.
+        read into memory, the band's no-data cells, `exclude_value`
+        (and any `NaN` for floating-point bands) are dropped, and only the
+        remaining valid samples reach the glyph. Requires the `[viz]` extra.
+
+        The histogram is drawn over physical values, as `read_array` returns them: a
+        CF-packed band (`scale_factor` / `add_offset`) is unpacked. Its no-data cells
+        are found first, against the stored values where the sentinel lives, and only
+        then unpacked -- so a packed band's gaps are dropped rather than landing in the
+        lowest bucket as the physical number a default read shows there.
 
         Args:
             band (int, optional):
-                Band index to read. Default is ``0``.
+                Band index to read. Default is `0`.
             bins (int, optional):
-                Number of histogram bins. Default is ``15``.
+                Number of histogram bins. Default is `15`.
             exclude_value (Any, optional):
                 An extra value to drop from the samples, in addition to the
-                band's no-data value and ``NaN``. Default is ``None``.
+                band's no-data cells and `NaN`. Compared against the physical
+                values. Default is `None`.
             ax (matplotlib.axes.Axes, optional):
                 Draw the histogram into these axes instead of creating them, so it can
                 sit in a caller-owned layout. An axes already carries its figure, so
-                ``ax`` on its own is sufficient and there is no separate ``fig``
+                `ax` on its own is sufficient and there is no separate `fig`
                 parameter here. A new figure/axes is created when left unset. Default is
-                ``None``.
+                `None`.
             max_samples (int, optional):
                 Opt-in cap on how many pixels are read. When set and the band
-                has more than ``max_samples`` cells, GDAL reads a
-                nearest-neighbour **decimated** version (~``max_samples`` cells)
+                has more than `max_samples` cells, GDAL reads a
+                nearest-neighbour **decimated** version (~`max_samples` cells)
                 instead of the full band, so a very large raster is histogrammed
                 without materialising it whole. The distribution is then
                 **approximate** -- a subsample of the pixels, the usual
-                expectation for a large raster. ``None`` (default) reads every
+                expectation for a large raster. `None` (default) reads every
                 pixel, so the histogram is exact.
             **kwargs:
-                Style options forwarded to the ``HistogramGlyph``
+                Style options forwarded to the `HistogramGlyph`
                 constructor, filtered via
                 :meth:`HistogramGlyph.filter_kwargs` so only accepted keys
                 are passed.
 
         Returns:
             tuple:
-                ``(fig, ax, hist)`` from
+                `(fig, ax, hist)` from
                 :meth:`HistogramGlyph.histogram` — the
                 :class:`matplotlib.figure.Figure`, the
-                :class:`matplotlib.axes.Axes`, and the histogram ``dict``.
+                :class:`matplotlib.axes.Axes`, and the histogram `dict`.
 
         Raises:
             ValueError: If the band has no valid samples left after masking
-                the no-data value, ``exclude_value``, and ``NaN``.
+                the no-data cells, `exclude_value`, and `NaN`, or `max_samples`
+                is less than 1.
 
         Examples:
             - Plot the distribution of a band and reuse the matplotlib
-              handles (tagged ``+SKIP`` — needs the ``[viz]`` extra):
+              handles (tagged `+SKIP` — needs the `[viz]` extra):
 
                 ```python
                 >>> import numpy as np
@@ -3393,6 +3600,12 @@ class Analysis(_Engine["Dataset"]):
         information see the
         [ArrayGlyph reference](https://serapeum-org.github.io/cleopatra/latest/api/array-glyph-class/).
 
+        The rendered values are physical, as `read_array` returns them: a CF-packed band
+        (`scale_factor` / `add_offset`) is unpacked. cleopatra masks the no-data cells by
+        comparing values, so the band's sentinel is handed to it in those same physical
+        units (`-9999` at `scale=0.01` goes over as `-99.99`) -- otherwise a packed
+        band's gaps would be drawn as data and stretch the colour scale down to them.
+
         Implementation note: this method is a thin caller around the
         shared :func:`pyramids.dataset._plot_helpers.render_array`
         helper. It resolves the data (``arr``), extent, exclude value,
@@ -3411,7 +3624,8 @@ class Analysis(_Engine["Dataset"]):
                 Concrete band index to render. Must be provided \u2014 the engine does not resolve
                 bands.
             exclude_value (Any, optional):
-                Value to exclude from the plot. Default is None.
+                Value to exclude from the plot, in addition to the band's no-data cells. Compared
+                against the physical values that are drawn. Default is None.
             rgb (List[int], optional):
                 The indices of the red, green, and blue bands in the `Dataset`. the `rgb` parameter can be a list of
                 three values, or a list of four values if the alpha band is also included. Only meaningful for

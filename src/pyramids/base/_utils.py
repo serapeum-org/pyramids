@@ -1725,20 +1725,55 @@ class _PackingPair:
     reuse the one carry path and its refusal reporting instead of writing its own.
 
     Args:
-        scale: The `scale_factor`, or `None`.
-        offset: The `add_offset`, or `None`.
+        scale: The `scale_factor`, or `None` for an unset slot.
+        offset: The `add_offset`, or `None` for an unset slot.
+
+    Examples:
+        - A pair resolved in Python carried onto a GDAL band through the shared path:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.base._utils import _PackingPair, carry_band_packing
+            >>> target = gdal.GetDriverByName("MEM").Create("", 2, 1, 1, gdal.GDT_Int16)
+            >>> carry_band_packing(_PackingPair(0.01, 1.5), target.GetRasterBand(1))
+            True
+            >>> target.GetRasterBand(1).GetScale(), target.GetRasterBand(1).GetOffset()
+            (0.01, 1.5)
+
+            ```
+        - An unset slot answers `None`, as GDAL does, so the carry leaves it alone:
+            ```python
+            >>> from pyramids.base._utils import _PackingPair
+            >>> pair = _PackingPair(0.5, None)
+            >>> pair.GetScale(), pair.GetOffset()
+            (0.5, None)
+
+            ```
     """
 
     def __init__(self, scale: Any, offset: Any) -> None:
+        """Hold a resolved pair.
+
+        Args:
+            scale: The `scale_factor`, or `None`.
+            offset: The `add_offset`, or `None`.
+        """
         self._scale = scale
         self._offset = offset
 
     def GetScale(self) -> Any:  # noqa: N802 - mirrors the GDAL band API it stands in for
-        """The pair's `scale_factor`."""
+        """The pair's `scale_factor`.
+
+        Returns:
+            The scale given at construction, or `None` when it was unset.
+        """
         return self._scale
 
     def GetOffset(self) -> Any:  # noqa: N802 - mirrors the GDAL band API it stands in for
-        """The pair's `add_offset`."""
+        """The pair's `add_offset`.
+
+        Returns:
+            The offset given at construction, or `None` when it was unset.
+        """
         return self._offset
 
 

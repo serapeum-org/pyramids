@@ -1429,6 +1429,11 @@ class NetCDF(Dataset):
         snapshot — so a variable subset stays a subset across
         `set_crs`, `apply(inplace=True)`, `change_no_data_value`,
         and the `epsg` setter.
+
+        The snapshot includes the variable's own `_scale` / `_offset`, which is
+        right for a swap that leaves the values alone. An in-place compute
+        (`apply` / `fill` with `inplace=True`) writes physical values, so it
+        calls `_spend_packing` after this swap to drop them.
         """
         preserved = {
             "_is_md_array": self._is_md_array,
@@ -3481,6 +3486,11 @@ class NetCDF(Dataset):
         `_effective_packing` prefers the variable's own pair, a pair left behind was
         applied to them a second time. `100 -> 2.5 -> 1.525`, the exact double
         application this module is otherwise careful to rule out.
+
+        Called by `Analysis.apply` and `Analysis.fill` right after their
+        `_update_inplace`. The raster swapped in declares no packing on its band, so
+        once the pair is gone `_effective_packing` falls back to that band and finds
+        nothing to apply.
         """
         self._scale = None
         self._offset = None
@@ -3490,11 +3500,14 @@ class NetCDF(Dataset):
 
         There are two places the packing can live and they do not always agree, so
         every read path resolves it here rather than picking one. The variable's own
-        `_scale` / `_offset` win: `_preserve_netcdf_metadata` copies them onto every result, and the
-        rest of this module -- the fan-out carry, the stream specs -- treats them as
-        the truth. The classic band's `GetScale` / `GetOffset` are the fallback, which
-        is what a container opened with `open_as_multi_dimensional=False` has, since
-        nothing copies the MDArray's attributes onto the variable there.
+        `_scale` / `_offset` win: `_preserve_netcdf_metadata` copies them onto every
+        result, and the rest of this module -- the fan-out carry, the stream specs --
+        treats them as the truth. The classic band's `GetScale` / `GetOffset` are the
+        fallback, taken whenever the variable's own pair is unset, the identity or
+        unusable -- which is what a container opened with
+        `open_as_multi_dimensional=False` has, since nothing copies the MDArray's
+        attributes onto the variable there, and what an in-place compute leaves
+        behind once `_spend_packing` has dropped the pair.
 
         Resolving it in one place is the point. While the eager arm consulted the
         band and the lazy arm consulted only `_scale`, the same classic-opened

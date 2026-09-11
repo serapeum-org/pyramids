@@ -101,13 +101,17 @@ class Cell(_Engine["Dataset"]):
                 Location of the coordinates. Use `center` for the center of a cell, `corner` for the corner of the
                 cell (top-left corner).
             domain_only (bool):
-                True to exclude the cells out of the domain. Default is False.
+                True to exclude the cells out of the domain. Default is False. The domain is judged
+                against band 0's stored values, where `no_data_value` lives, so a CF-packed band's
+                gaps are excluded too.
 
         Returns:
             np.ndarray:
-                Array with a list of the coordinates to be interpolated, without the NaN.
-            np.ndarray:
-                Array with all the centers of cells in the domain of the DEM.
+                `(N, 2)` array of `(x, y)` coordinates in row-major cell order: every cell, or only the
+                domain cells when `domain_only=True`.
+
+        Raises:
+            ValueError: `location` is neither `center` nor `corner`.
 
         Examples:
             - Create `Dataset` consists of 1 bands, 3 rows, 3 columns, at the point lon/lat (0, 0).

@@ -753,9 +753,10 @@ class COG(_Engine["Dataset"]):
         over `/vsicurl/` only the relevant byte ranges are fetched — the
         cloud-native partial-read pattern.
 
-        A window inside the raster answers in physical units, like `read_array`: a
-        CF-packed band (`scale_factor` / `add_offset`) is unpacked and comes back
-        `float64`. See the note below for a window that only partly overlaps.
+        The window answers in physical units, like `read_array`: a CF-packed band
+        (`scale_factor` / `add_offset`) is unpacked and comes back `float64`, whether
+        the window lies inside the raster or only partly overlaps it (see the note
+        below).
 
         Args:
             bbox: `(min_x, min_y, max_x, max_y)` window in `bbox_crs`.
@@ -796,10 +797,13 @@ class COG(_Engine["Dataset"]):
             padding. This keeps the result aligned to the requested window,
             which matters for edge tiles served by :meth:`read_tile`.
 
-            The padded partial-overlap read is not unpacked: it holds the
-            stored values in the band's stored dtype, padded with the stored
-            NoData, so on a CF-packed band it is in different units from a
-            fully-inside read of the same band.
+            The padded partial-overlap read is assembled in stored units --
+            the stored values, padded with the stored NoData -- and then
+            unpacked once, like a fully-inside read. So on a CF-packed band it
+            is in the same physical units and dtype as any other window, and
+            on a band that declares NoData the padding reads as its gap does in
+            a default read (the sentinel unpacked with the data, e.g. `-9999`
+            at `scale=0.5` as `-4999.5`).
 
         Examples:
             - Read a 256x256 decimated thumbnail of a bbox:
@@ -825,6 +829,22 @@ class COG(_Engine["Dataset"]):
                 >>> part = packed.read_part((0, -2, 2, 0), band=0)
                 >>> part.shape, part.dtype, float(part.max())
                 ((2, 2), dtype('float64'), 1.0)
+
+                ```
+            - A window straddling the raster's edge is padded with the NoData and
+              unpacked with the data, so it is in the same units as one inside:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> packed = Dataset.from_array(
+                ...     np.full((4, 4), 100, dtype="int16"),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+                ...     no_data_value=-9999,
+                ... )
+                >>> packed.scale = [0.5]
+                >>> edge = packed.read_part((-1, -2, 1, 0), band=0)
+                >>> edge.dtype, edge.tolist()
+                (dtype('float64'), [[-4999.5, 50.0], [-4999.5, 50.0]])
 
                 ```
         """
@@ -1123,9 +1143,11 @@ class COG(_Engine["Dataset"]):
 
         Returns:
             numpy.ndarray: A `(tilesize, tilesize)` or
-            `(bands, tilesize, tilesize)` array. Pixel values only — the tile's
-            georeferencing is defined by its `(z, x, y)`, not attached to the
-            array; edge tiles are NoData-padded (see :meth:`read_part`).
+            `(bands, tilesize, tilesize)` array, in physical units like
+            `read_array` (`float64` when a band read is CF-packed). Pixel values
+            only — the tile's georeferencing is defined by its `(z, x, y)`, not
+            attached to the array; edge tiles are NoData-padded and unpacked in
+            the same units as inner ones (see :meth:`read_part`).
 
         Raises:
             OutOfBoundsError: The tile does not intersect the raster.

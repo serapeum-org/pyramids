@@ -236,6 +236,10 @@ class Vectorize(_Engine["Dataset"]):
 
                 - If point is chosen, the created point will be at the center of each cell
                 - If a polygon is chosen, a square polygon will be created that covers the entire cell.
+            - The values are physical, as `read_array` returns them: a CF-packed band (`scale_factor` /
+                `add_offset`) is unpacked. A row holding band 0's no-data sentinel is dropped, matched in those
+                same physical units (`-9999` at `scale=0.01` as `-99.99`), identically on the tiled and the
+                whole-array path.
 
         Args:
             mask (GeoDataFrame, optional):
@@ -378,6 +382,24 @@ class Vectorize(_Engine["Dataset"]):
 
                   ```
 
+            - A CF-packed band gives physical values, and its gap is dropped on both paths:
+
+                  ```python
+                  >>> import numpy as np
+                  >>> from pyramids.dataset import Dataset, GeoReference
+                  >>> packed = Dataset.from_array(
+                  ...     np.array([[100, -9999], [300, 400]], dtype="int16"),
+                  ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+                  ...     no_data_value=-9999,
+                  ... )
+                  >>> packed.scale = [0.01]
+                  >>> packed.to_feature_collection()["Band_1"].tolist()
+                  [1.0, 3.0, 4.0]
+                  >>> packed.to_feature_collection(tile=True, tile_size=1)["Band_1"].tolist()
+                  [1.0, 3.0, 4.0]
+
+                  ```
+
         """
         band_names = self._ds.band_names
 
@@ -424,12 +446,15 @@ class Vectorize(_Engine["Dataset"]):
         `tile=True` with `add_geometry` silently mismatched values and geometry
         on any raster spanning more than one tile.
 
+        The tiles come from `get_tile`, in physical units, so the no-data rows are
+        dropped by band 0's sentinel in those units (`Analysis._physical_no_data`).
+
         Args:
             band_names (list): Band names for the DataFrame columns.
             tile_size (int): Tile size in pixels.
 
         Returns:
-            pd.DataFrame: Concatenated DataFrame from all tiles.
+            pd.DataFrame: Concatenated DataFrame from all tiles, no-data rows removed.
         """
         # The sentinel in the units the tiles are in: `get_tile` yields physical
         # values, so the stored `-9999` matched nothing and the gap became a row.
@@ -467,6 +492,10 @@ class Vectorize(_Engine["Dataset"]):
 
     def _extract_values_full(self, band_names: list) -> pd.DataFrame:
         """Extract all raster band values into a DataFrame (no tiling).
+
+        The values come from `read_array`, in physical units, so the no-data rows are
+        dropped by band 0's sentinel in those units (`Analysis._physical_no_data`) --
+        the same rule `_extract_values_tiled` applies.
 
         Args:
             band_names (list): Band names for the DataFrame columns.

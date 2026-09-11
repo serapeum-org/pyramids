@@ -40,10 +40,17 @@ class CubeNetCDFWriter:
     is never resident: each timestep is read, cast, and written as a slab, so peak
     memory is a single timestep plus the coordinate axes (ARC-46).
 
+    CF packing decides the storage (see :meth:`_decide_storage`). When one recipe
+    describes every slab a variable holds, the stored counts are written with that
+    recipe as `scale_factor` / `add_offset` -- the store is copied. When none does,
+    the cube is materialised: physical `float64` values, no recipe, and `NaN` for
+    the gaps.
+
     Attributes:
         band_count: Number of bands (the collection template's band count).
         names: Per-band variable names.
-        var_dtype: Dtype every variable is written at (each timestep is cast to it).
+        var_dtype: Dtype every variable is written at (each timestep is cast to it):
+            the collection's stored dtype, or `float64` for a materialised cube.
 
     Examples:
         - Drive a write from a collection (the engine behind
@@ -79,7 +86,11 @@ class CubeNetCDFWriter:
         time_coords: Sequence[Any] | None = None,
         var_per_band: bool = True,
     ) -> None:
-        """Write the collection's cube to a single multidim NetCDF at ``path``.
+        """Write the collection's cube to a single multidim NetCDF at `path`.
+
+        The storage is decided before the schema is built (see `_decide_storage`):
+        stored counts under one CF recipe when a single recipe fits every slab, else a
+        materialised physical `float64` cube with `NaN` gaps.
 
         Args:
             path: Output ``.nc`` path.
@@ -142,6 +153,15 @@ class CubeNetCDFWriter:
         a single declared sentinel cannot name gaps whose physical value differs from one
         timestep to the next.
 
+        Each timestep's recipe is resolved per band through `_effective_packing`, with an
+        identity or unusable pair counted as no packing, so an unpacked collection agrees
+        with itself and is written as stored.
+
+        The decision is recorded on the writer for `_build_schema` and `_stream`:
+        `_materialise` (whether to write physical values), `_recipe` (the per-band
+        `(scale, offset)` pairs to declare, or `None` when materialising), and, for a
+        materialised cube that holds any packed band, `var_dtype` widened to `float64`.
+
         Args:
             var_per_band: One variable per band, which can carry a recipe per band;
                 otherwise a single 4-D variable, which can carry only one.
@@ -179,12 +199,18 @@ class CubeNetCDFWriter:
         dict[str, tuple[tuple[str, ...], np.dtype | str, dict[str, Any]]],
         dict[str, Any],
     ]:
-        """Assemble the ``(dims, coords, var_specs, root_attrs)`` for the writer.
+        """Assemble the `(dims, coords, var_specs, root_attrs)` for the writer.
 
-        Reads the collection template (:attr:`_meta`) and base grid for the ``y`` /
-        ``x`` coordinate axes, the geobox root attributes, and the typed ``nodata``
-        attribute. One variable per band, or a single 4-D ``data`` variable with a
-        ``band`` coordinate.
+        Reads the collection template (:attr:`_meta`) and base grid for the `y` /
+        `x` coordinate axes, the geobox root attributes, and the typed `nodata`
+        attribute. One variable per band, or a single 4-D `data` variable with a
+        `band` coordinate.
+
+        The storage `_decide_storage` chose shapes the variables. Stored counts get the
+        template's declared no-data and the recipe taken from the timesteps as
+        `scale_factor` / `add_offset` -- per variable when `var_per_band`, or on the 4-D
+        variable when every band shares it. A materialised cube gets no recipe and
+        declares `NaN` as its no-data, which is what its gaps hold.
 
         Args:
             axis: The resolved time axis (values + CF attributes).
@@ -218,12 +244,13 @@ class CubeNetCDFWriter:
             typed_nodata = np.asarray(nodata, dtype=var_dtype).item()
             var_attrs["nodata"] = typed_nodata
 
-        # The cube is written at the collection's *stored* dtype, so the slabs are
-        # streamed with `unpack=False` and the packing recipe has to travel with them
-        # as CF attributes (GDAL keeps `scale_factor` / `add_offset` in the MDArray's
-        # own slots, and lifts these two into them on the next read). Writing physical
-        # values instead would cast `14.35` back into an `int16` cube as `14`, and
-        # writing counts without the recipe would leave them meaning nothing.
+        # Unless it is materialised, the cube is written at the collection's *stored*
+        # dtype, so the slabs are streamed with `unpack=False` and the packing recipe has
+        # to travel with them as CF attributes (GDAL keeps `scale_factor` / `add_offset`
+        # in the MDArray's own slots, and lifts these two into them on the next read).
+        # Writing physical values instead would cast `14.35` back into an `int16` cube as
+        # `14`, and writing counts without the recipe would leave them meaning nothing.
+        # A materialised cube holds physical values, so it declares no recipe at all.
         base = self._collection._base
         recipe = getattr(self, "_recipe", None)
         if materialise:
@@ -315,15 +342,33 @@ class CubeNetCDFWriter:
 
         Used when no single recipe describes the whole cube (see `_decide_storage`). Each
         band is masked against its own stored sentinel -- where the sentinel lives --
-        then unpacked with that timestep's own recipe, so timesteps packed differently
-        all land in the same physical units.
+        then unpacked with that timestep's own recipe (`_effective_packing`), so
+        timesteps packed differently all land in the same physical units. A band that
+        declares no sentinel has no gaps; an unpacked band keeps its values.
 
         Args:
-            dataset: The timestep to read.
+            dataset: The timestep's `Dataset`.
 
         Returns:
             np.ndarray: `(bands, rows, cols)` in `float64`, NaN wherever the source had
                 no data.
+
+        Examples:
+            - Each band is unpacked with its own recipe and its gap becomes `NaN`:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> from pyramids.netcdf._cube_netcdf_writer import CubeNetCDFWriter
+                >>> step = Dataset.from_array(
+                ...     np.array([[[100, -9999]], [[100, 200]]], dtype="int16"),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+                ...     no_data_value=-9999,
+                ... )
+                >>> step.scale = [0.5, 0.25]
+                >>> CubeNetCDFWriter._physical_block(step).tolist()
+                [[[50.0, nan]], [[25.0, 50.0]]]
+
+                ```
         """
         raw = np.asarray(dataset.read_array(unpack=False))
         if raw.ndim == 2:
@@ -346,11 +391,13 @@ class CubeNetCDFWriter:
         dims: dict[str, int],
         var_per_band: bool,
     ) -> None:
-        """Stream each timestep into ``writer`` one slab at a time.
+        """Stream each timestep into `writer` one slab at a time.
 
         Reads one dataset at a time (peak memory = a single timestep, not the whole
-        cube), normalises each to ``(band, rows, cols)``, and writes it as a slab —
-        per band when ``var_per_band`` else as one 4-D ``data`` variable.
+        cube), normalises each to `(band, rows, cols)`, and writes it as a slab —
+        per band when `var_per_band` else as one 4-D `data` variable. A timestep is
+        read as its stored counts (`unpack=False`) for a compact cube, or through
+        `_physical_block` for a materialised one, and cast to `var_dtype` either way.
 
         Args:
             writer: The streaming writer yielded by

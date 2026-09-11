@@ -332,15 +332,24 @@ def _json_sentinel(value: float) -> float | int:
 def _metadata_dict(ds: Dataset) -> dict[str, Any]:
     """Return the standard CRS / GeoTransform geobox attr dict for the store.
 
+    The attributes describe the array that is actually written, not the source's
+    storage. `write_dataset_to_zarr` writes the physical values `read_array`
+    returns, and this metadata has no `scale_factor` / `add_offset`, so a source
+    with any CF-packed band is recorded materialised: `dtype` is `float64` and
+    every band's no-data is its sentinel in physical units
+    (`Analysis._physical_no_data`), the number the written gaps really hold. An
+    unpacked source is described as it is stored.
+
     Args:
         ds: The dataset about to be serialised, read for its CRS, geotransform,
-            per-band no-data, band names, dtype and shape.
+            per-band no-data, packing, band names, dtype and shape.
 
     Returns:
         dict[str, Any]: The attributes to stamp on the store's root group and
             on its `data` array. `spatial_ref`, `GeoTransform` and `epsg` place
-            the raster; `band_names`, `dtype` and `shape` describe it; and the
-            no-data appears in up to two spellings. `no_data_value` is always
+            the raster; `band_names`, `dtype` (the written one) and `shape`
+            describe it; and the no-data appears in up to two spellings, in the
+            units of the written values. `no_data_value` is always
             present and always the full per-band list — pyramids' own key, and
             what `from_zarr` reads back. `_FillValue` is the CF / GeoZarr key,
             read by xarray and other CF-aware readers, and it is also what
@@ -385,6 +394,23 @@ def _metadata_dict(ds: Dataset) -> dict[str, Any]:
             [-9999.0, 0.0]
             >>> "_FillValue" in _metadata_dict(mixed)
             False
+
+            ```
+        - A packed source is described as the physical `float64` array written for
+          it, its sentinel in the same units:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base.georeference import GeoReference
+            >>> from pyramids.dataset import Dataset
+            >>> from pyramids.dataset.ops._zarr import _metadata_dict
+            >>> geo_ref = GeoReference(top_left_corner=(0, 0), cell_size=0.1, epsg=4326)
+            >>> packed = Dataset.from_array(
+            ...     np.array([[100, -9999]], dtype="int16"), geo_ref=geo_ref, no_data_value=-9999
+            ... )
+            >>> packed.scale = [0.5]
+            >>> meta = _metadata_dict(packed)
+            >>> meta["dtype"], meta["no_data_value"], meta["_FillValue"]
+            ('float64', [-4999.5], -4999.5)
 
             ```
     """
@@ -491,6 +517,12 @@ def write_dataset_to_zarr(
     and the attribute write are bundled into a single
     :class:`dask.delayed.Delayed` so calling `.compute()` finalizes
     everything atomically.
+
+    The `data` array is read with `ds.read_array(chunks=...)`, so it holds
+    physical values: a CF-packed band is unpacked. The store has no channel for
+    `scale_factor` / `add_offset`, so such a source is written materialised --
+    `float64` values, and a no-data (`no_data_value`, `_FillValue` and the
+    array's `fill_value`) in the same physical units; see :func:`_metadata_dict`.
 
     Args:
         ds: Source :class:`~pyramids.dataset.Dataset`.

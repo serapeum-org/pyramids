@@ -470,9 +470,14 @@ def _lazy_timestep(
         lock: The IO lock guarding this file's shared GDAL handle. Callers pass one
             lock per distinct path so duplicate-path timesteps (which share a
             `FILE_CACHE` slot) serialise their tile reads on the same handle (L4).
+        open_options: GDAL open options the collection was opened with, applied to
+            every reopen of the file, or `None`.
 
     Returns:
-        dask.array.Array: A lazy ``(B, Y, X)`` array tiled on the spatial axes.
+        dask.array.Array: A lazy `(B, Y, X)` array tiled on the spatial axes, in
+            physical units: the blocks read stored counts and
+            :func:`_unpack_lazy_timestep` unpacks them with this file's own recipe
+            (`float64` when a band is packed, the stored dtype otherwise).
     """
     import dask.array as da
     from dask.array.core import normalize_chunks
@@ -533,11 +538,17 @@ def _unpack_lazy_timestep(
         stored: The `(bands, rows, cols)` dask array of stored counts.
         path: The timestep's file.
         band_count: How many bands it holds.
-        gdal_env: The collection's GDAL configuration, for opening a remote file.
-        open_options: GDAL open options the collection was opened with.
+        gdal_env: The collection's GDAL configuration, installed around the header
+            open (for a remote file), or `None`.
+        open_options: GDAL open options the collection was opened with, or `None`.
 
     Returns:
-        The lazy cube in physical units, or `stored` unchanged when nothing is packed.
+        The lazy `float64` cube in physical units -- a band with no usable recipe gets
+        the identity -- or `stored` unchanged, same dtype, when no band is packed.
+
+    Raises:
+        RuntimeError: GDAL cannot open the file's header (the same failure the lazy
+            blocks would hit when computed).
     """
     with gdal.config_options(dict(gdal_env or {})):
         header = gdal_raster_open(str(path), "read_only", open_options=open_options)
@@ -1414,11 +1425,53 @@ class DatasetCollection:
         all at once. Workers never serialise a `gdal.Dataset`; only the file path
         crosses the pickle boundary, keeping the graph safe under dask.distributed.
 
+        A file-backed cube is in physical units, like `values` / `head` / `tail`: each
+        timestep is unpacked with its own file's `scale_factor` / `add_offset`, per band
+        (see :func:`_unpack_lazy_timestep`), so the temporal reductions built on it
+        (`mean`, `sum`, the grouped ones) answer in the same units as a read. The
+        array is `float64` when any timestep is packed. The no-data sentinel is not
+        masked here -- on a packed timestep it is transformed like every other cell. A
+        Zarr-backed cube is returned as the store holds it.
+
+        Returns:
+            dask.array.Array: The lazy `(T, B, R, C)` cube.
+
         Raises:
             ImportError: If the optional `dask` extra is not
                 installed.
             RuntimeError: If the collection was constructed without a
                 `files` list (the in-memory `from_dataset` path).
+
+        Examples:
+            - A packed stack is lazy and physical, so a reduction over it agrees with
+              a read:
+                ```python
+                >>> import os, tempfile
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, DatasetCollection, GeoReference
+                >>> d = tempfile.mkdtemp()
+                >>> paths = []
+                >>> for i in range(2):
+                ...     p = os.path.join(d, f"t{i}.tif")
+                ...     step = Dataset.from_array(
+                ...         np.array([[100, 200], [300, 400]], dtype="int16") * (i + 1),
+                ...         geo_ref=GeoReference(
+                ...             top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+                ...         ),
+                ...         path=p,
+                ...     )
+                ...     step.scale = [0.01]
+                ...     step.close()
+                ...     paths.append(p)
+                >>> col = DatasetCollection.from_files(paths)
+                >>> col.data.shape, col.data.dtype
+                ((2, 1, 2, 2), dtype('float64'))
+                >>> col.data[:, 0, 0, 0].compute().tolist()
+                [1.0, 2.0]
+                >>> col.mean()[0].tolist()
+                [[1.5, 3.0], [4.5, 6.0]]
+
+                ```
         """
         if self._zarr_store is None and (self._files is None or len(self._files) == 0):
             raise RuntimeError(
@@ -1724,12 +1777,25 @@ class DatasetCollection:
         rejects CF's standard ``_FillValue`` attribute via this code
         path, so the round-trip uses ``nodata`` for compatibility.
 
-        Every variable is written at the collection's own dtype
-        (:attr:`meta.dtype`, the template raster's), and each timestep is
-        cast to it; on a co-registered stack (all timesteps sharing the
-        template's dtype — what :meth:`from_files` with ``validate=True``
-        enforces) this is a no-op. A timestep whose grid or band count
-        differs from the template raises :class:`AlignmentError`.
+        CF packing (`scale_factor` / `add_offset`) decides how the values are
+        stored. When one recipe describes every slab a variable will hold --
+        every timestep packed alike and, for the single 4-D `data` variable,
+        every band too -- the stored counts are written at the collection's own
+        dtype (:attr:`meta.dtype`, the template raster's) with that recipe as the
+        variable's `scale_factor` / `add_offset`, taken from the timesteps
+        rather than the template; the file reads back in physical units. An
+        unpacked collection is written the same way, without a recipe. When no
+        single recipe fits -- timesteps packed differently, or bands packed
+        differently under `var_per_band=False` -- the cube is materialised
+        instead: physical `float64` values, no recipe, and `NaN` as both the
+        gaps and the declared no-data, since one sentinel cannot name gaps
+        whose physical value differs from one timestep to the next.
+
+        Each timestep is cast to the chosen dtype; on a co-registered stack
+        (all timesteps sharing the template's dtype — what :meth:`from_files`
+        with `validate=True` enforces) a compact write casts nothing. A
+        timestep whose grid or band count differs from the template raises
+        :class:`AlignmentError`.
 
         Args:
             path: Output ``.nc`` path.
@@ -1785,6 +1851,35 @@ class DatasetCollection:
                 True
                 >>> nc.epsg
                 4326
+
+                ```
+            - Timesteps packed differently cannot share one recipe, so the cube is
+              materialised as physical `float64` values with `NaN` gaps:
+                ```python
+                >>> import os, tempfile
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, DatasetCollection, GeoReference
+                >>> from pyramids.netcdf import NetCDF
+                >>> d = tempfile.mkdtemp()
+                >>> paths = []
+                >>> for i, scale in enumerate([0.5, 0.25]):
+                ...     p = os.path.join(d, f"t{i}.tif")
+                ...     step = Dataset.from_array(
+                ...         np.array([[100, -9999], [300, 400]], dtype="int16"),
+                ...         geo_ref=GeoReference(
+                ...             top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+                ...         ),
+                ...         no_data_value=-9999,
+                ...         path=p,
+                ...     )
+                ...     step.scale = [scale]
+                ...     step.close()
+                ...     paths.append(p)
+                >>> out = os.path.join(d, "cube.nc")
+                >>> DatasetCollection.from_files(paths).to_netcdf(out)
+                >>> band = NetCDF.read_file(out).get_variable("Band_1")
+                >>> band.dtype[0], band.read_array()[:, 0].tolist()
+                ('float64', [[50.0, nan], [25.0, nan]])
 
                 ```
 
@@ -2702,10 +2797,10 @@ class DatasetCollection:
         nor the timestep that was missing.
 
         The empty array carries the dtype a non-empty read would return -- the
-        collection's own (from :attr:`meta`), or `float64` when the base dataset's
-        band is CF-packed and so reads unpacked -- rather than NumPy's default, so
-        `head(0)` / `tail(0)` match the dtype of a non-empty selection (N1). Taking
-        the dataset list as an
+        collection's own (from :attr:`meta`), or `float64` when any band the request
+        reads (`band`, or every band for `band=None`) is CF-packed on the base dataset
+        and so reads unpacked -- rather than NumPy's default, so `head(0)` / `tail(0)`
+        match the dtype of a non-empty selection (N1). Taking the dataset list as an
         argument is what lets `head` / `tail` read only the timesteps they
         selected instead of materialising the whole cube via :attr:`values`.
 
@@ -2909,10 +3004,13 @@ class DatasetCollection:
                 The band you want to get its data. Default is 0.
                 Ignored when ``rgb`` is set (RGB reads every band).
             exclude_value (Any):
-                Value to exclude from the plot. Default is None.
-                Ignored when ``rgb`` is set (true-colour frames are not
-                masked); passing it together with ``rgb`` emits a
-                :class:`UserWarning`.
+                Value to exclude from the plot, in addition to the no-data
+                cells. Default is None. The frames are physical values (a
+                CF-packed band is unpacked), so this is compared against
+                those, and the base raster's sentinel is handed to cleopatra
+                in the same units. Ignored when `rgb` is set (true-colour
+                frames are not masked); passing it together with `rgb` emits
+                a :class:`UserWarning`.
             rgb_options (dict, optional):
                 Grouped Sentinel-imagery options for a true-colour time-lapse (mirrors
                 :meth:`Dataset.plot`). Accepted keys: ``"rgb"`` (band indices
