@@ -225,9 +225,10 @@ Two consequences you may see:
   `GetScale` / `GetOffset` are the fallback. Everything that *applies* the packing resolves it through that one
   rule — both read arms, `stats`, `get_histogram`, `point` / `read_part` / `preview` / `read_overview_array` /
   `get_tile`, `set_variable` and the streaming transforms — so none of them can answer in different units for
-  the same band. The public `scale` / `offset` properties are the exception: they report the band's own slots,
-  so on a variable whose recipe lives only in Python (a `sel()` result, say) they read `[1.0]` / `[0.0]` while
-  the values are still unpacked correctly.
+  the same band. On a `NetCDF` variable the public `scale` / `offset` properties answer from the same rule, so
+  a `sel()` result -- whose band declares nothing and whose recipe lives only in Python -- reports the factor its
+  values are actually unpacked with, and assigning to either updates that recipe rather than being outranked
+  by it.
 
 **`no_data_value` stays a *stored* value, and that is the second half of the contract.** CF puts `_FillValue`
 in the packed datatype, GDAL reports it that way, and it is what gets written back — so it is left alone.

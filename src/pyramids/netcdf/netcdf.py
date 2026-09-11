@@ -3477,6 +3477,98 @@ class NetCDF(Dataset):
         # the injected, already-resolved CRS.
         return resolve_read_window(window, bbox, crs=crs)
 
+    @property
+    def scale(self) -> list[float]:
+        """Per-band factor a read applies -- the variable's own `_scale` when it has one.
+
+        `Dataset.scale` reports each GDAL band's slot. A `NetCDF` variable can also carry
+        its recipe in Python (`_scale` / `_offset`), which a read applies ahead of the
+        band's, and `sel()` builds exactly that: a band declaring nothing with the recipe
+        held only on the variable. Reporting the band there said `[1.0]` while every
+        read was unpacked with 0.01, so this answers from `_effective_packing` -- the
+        same resolver the reads use -- and the property and the values cannot disagree.
+
+        Returns:
+            list[float]: One factor per band; `1.0` where a band is not packed.
+
+        Examples:
+            - A selection holds its recipe only in Python, and still reports it:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf import NetCDF, GeoReference
+                >>> counts = np.arange(2 * 3 * 4, dtype="int16").reshape(2, 3, 4)
+                >>> nc = NetCDF.from_array(
+                ...     counts,
+                ...     geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
+                ...     variable_name="t",
+                ... )
+                >>> variable = nc.get_variable("t")
+                >>> variable._scale, variable._offset = 0.01, 1.5
+                >>> selected = variable.sel(**{variable._band_dim_name: variable._band_dim_values[1]})
+                >>> selected.raster.GetRasterBand(1).GetScale() is None
+                True
+                >>> selected.scale, selected.offset
+                ([0.01], [1.5])
+
+                ```
+        """
+        return [
+            1.0 if scale is None else float(scale)
+            for scale, _ in (
+                self._effective_packing(index) for index in range(self.band_count)
+            )
+        ]
+
+    @scale.setter
+    def scale(self, value: list[float]) -> None:
+        """Write each band's factor, keeping the variable's own recipe in step with it.
+
+        The variable's `_scale` / `_offset` take precedence over the band, so writing the
+        band alone would leave the old factor applied and the assignment looking like it
+        did nothing. When the variable carries its own pair, its factor is updated to the
+        one just written; the pair is treated as a unit by `_effective_packing`, so
+        clearing only this half would let the surviving `_offset` outrank the band and
+        drop the new factor. An MDArray holds one recipe for the whole variable, so the
+        first band's value is the one it takes.
+
+        Raises:
+            ReadOnlyError: The variable is a read-only on-disk file.
+        """
+        Dataset.scale.fset(self, value)  # type: ignore[attr-defined]
+        if self._scale is not None or self._offset is not None:
+            self._scale = float(value[0])
+
+    @property
+    def offset(self) -> list[float]:
+        """Per-band offset a read applies -- the variable's own `_offset` when it has one.
+
+        See :attr:`scale` for why this answers from `_effective_packing` rather than from
+        the GDAL band's slot.
+
+        Returns:
+            list[float]: One offset per band; `0.0` where a band is not packed.
+        """
+        return [
+            0.0 if offset is None else float(offset)
+            for _, offset in (
+                self._effective_packing(index) for index in range(self.band_count)
+            )
+        ]
+
+    @offset.setter
+    def offset(self, value: list[float]) -> None:
+        """Write each band's offset, keeping the variable's own recipe in step with it.
+
+        See the :attr:`scale` setter for why the variable's pair is updated rather than
+        cleared.
+
+        Raises:
+            ReadOnlyError: The variable is a read-only on-disk file.
+        """
+        Dataset.offset.fset(self, value)  # type: ignore[attr-defined]
+        if self._scale is not None or self._offset is not None:
+            self._offset = float(value[0])
+
     def _spend_packing(self) -> None:
         """Drop the variable's own `_scale` / `_offset` after an in-place compute.
 

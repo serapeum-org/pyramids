@@ -2603,3 +2603,65 @@ class TestApplyOnARasterWithNoSentinel:
             np.asarray(result.read_array()).ravel(), [2, 4, 6, 8]
         )
         assert result.no_data_value == (None,), result.no_data_value
+
+
+class TestNetCDFReportsTheRecipeItApplies:
+    """`NetCDF.scale` / `.offset` name the factor the values are unpacked with."""
+
+    @staticmethod
+    def _selected() -> NetCDF:
+        """A `sel()` result: a band declaring nothing, the recipe held only in Python."""
+        counts = np.arange(2 * 3 * 4, dtype="int16").reshape(2, 3, 4) * 100
+        container = NetCDF.from_array(
+            counts,
+            geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
+            variable_name="t",
+        )
+        variable = container.get_variable("t")
+        variable._scale, variable._offset = 0.01, 1.5
+        return variable.sel(**{variable._band_dim_name: variable._band_dim_values[1]})
+
+    def test_the_properties_report_the_python_held_recipe(self):
+        """The property and the read agree.
+
+        Test scenario:
+            The properties reported each GDAL band's slot, so a `sel()` result -- whose
+            band declares nothing -- said `[1.0]` / `[0.0]` while every read was unpacked
+            with 0.01 / 1.5.
+        """
+        selected = self._selected()
+        assert selected.raster.GetRasterBand(1).GetScale() is None, (
+            "the fixture must hold its recipe only in Python to test this"
+        )
+        assert selected.scale == [pytest.approx(0.01)], selected.scale
+        assert selected.offset == [pytest.approx(1.5)], selected.offset
+
+    def test_setting_the_scale_changes_what_a_read_applies(self):
+        """An assignment is not silently outranked by the variable's own pair.
+
+        Test scenario:
+            The variable's `_scale` takes precedence over the band, so a setter that only
+            wrote the band would leave 0.01 applied and the assignment looking like it
+            did nothing.
+        """
+        selected = self._selected()
+        raw = float(
+            np.asarray(selected.read_array(unpack=False), dtype="float64").ravel()[0]
+        )
+
+        selected.scale = [0.02]
+
+        assert selected.scale == [pytest.approx(0.02)], selected.scale
+        got = float(np.asarray(selected.read_array(), dtype="float64").ravel()[0])
+        assert got == pytest.approx(raw * 0.02 + 1.5), f"read {got} after setting 0.02"
+
+    def test_an_unpacked_variable_reports_the_identity(self):
+        """A variable with no recipe anywhere reports `1.0` / `0.0`, as a band does."""
+        container = NetCDF.from_array(
+            np.ones((3, 4), dtype="float32"),
+            geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
+            variable_name="plain",
+        )
+        variable = container.get_variable("plain")
+        assert variable.scale == [1.0], variable.scale
+        assert variable.offset == [0.0], variable.offset

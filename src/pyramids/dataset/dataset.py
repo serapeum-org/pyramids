@@ -2995,9 +2995,10 @@ class Dataset(RasterBase):
         :meth:`copy`, a `CreateCopy` write -- carries the recipe along with them instead,
         and stays consistent that way.
 
-        This reports each GDAL band's own slot. A `NetCDF` variable can also carry its
-        recipe in Python (`_scale` / `_offset`), which a read applies ahead of the band's
-        (see `_effective_packing`); such a pair does not show here.
+        This reports each GDAL band's own slot. `NetCDF` overrides it to report the
+        variable's own `_scale` when it carries one, since a read applies that ahead of
+        the band's (see `_effective_packing`) -- so on every class the property names the
+        factor the values are actually unpacked with.
 
         Returns:
             list[float]: One factor per band; `1.0` where a band is not packed.
@@ -3018,9 +3019,8 @@ class Dataset(RasterBase):
         """Facade — delegates to :attr:`Bands.offset <pyramids.dataset.engines.Bands.offset>`.
 
         The additive half of the CF packing, `real = stored * scale + offset`. See
-        :attr:`scale` for how the stored form and the values' meaning are kept apart,
-        and for why this reports the GDAL band's own slot rather than a `NetCDF`
-        variable's `_offset`.
+        :attr:`scale` for how the stored form and the values' meaning are kept apart;
+        like it, `NetCDF` reports the variable's own `_offset` when it carries one.
 
         Returns:
             list[float]: One offset per band; `0` where a band is not packed.
