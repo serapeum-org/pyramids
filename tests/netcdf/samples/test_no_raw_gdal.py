@@ -1,4 +1,8 @@
-"""No public accessor hands back a raw GDAL object.
+"""`get_variable` never hands back a raw GDAL object.
+
+Scoped to `get_variable`, which the sweep below calls on every readable variable of
+every sample file; `variables[name]` delegates to it. It is not a claim about every
+public attribute: `nc.raster` returns the underlying `gdal.Dataset` by design.
 
 `get_variable` used to return the `gdal.MDArray` itself whenever GDAL could not
 expose the variable as a raster plane -- a 1-D array, or a string/compound one of
@@ -20,6 +24,7 @@ GROUPED = "none__35v__1d35__groups-nc4.nc"
 LAYERED = "cf__48v__1d17-3d21-4d10__y-asc.nc"
 
 
+@pytest.mark.core
 class TestANonRasterVariableComesBackLabelled:
     """The shapes GDAL cannot expose as a raster still answer in pyramids' terms."""
 
@@ -99,6 +104,7 @@ class TestANonRasterVariableComesBackLabelled:
             store.close()
 
 
+@pytest.mark.core
 class TestNoOsgeoTypeEscapes:
     """The property the branch exists to hold, asserted over every sample file."""
 
@@ -207,6 +213,7 @@ class TestAVariableWithNoRecords:
             store.close()
 
 
+@pytest.mark.core
 class TestTheContainerCrsSkipsAVariableWithNoRasterPlane:
     """A container borrows its CRS from its variables, and one of them may have no geometry."""
 
