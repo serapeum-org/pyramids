@@ -347,9 +347,11 @@ class TestReadArrayOnAVariableWithNoRasterPlane:
             packed: Fixture holding a scaled 1-D `Int16` series.
 
         Test scenario:
-            The read no longer goes back to GDAL, so an in-place unpack would leave the scaled
-            numbers where the next caller finds them -- and `variables` caches the wrapper, so
-            they would survive the call. Expected: the second unpacked read equals the first,
+            The read reuses the values it resolved rather than going back to GDAL, so an
+            in-place unpack would be a real risk if those values were ever shared. They are
+            not on this path -- `read_array` builds a fresh wrapper each call and never touches
+            the `variables` cache -- so this pins repeatability, not aliasing; the shared object
+            is covered by the next test. Expected: the second unpacked read equals the first,
             and a plain read after it still answers the storage integers.
         """
         first = packed.read_array(variable="series", unpack=True)
@@ -362,26 +364,46 @@ class TestReadArrayOnAVariableWithNoRasterPlane:
             "an unpacked read must not rewrite the stored values"
         )
 
-    def test_the_cached_mapping_hands_back_the_same_wrapper(self, packed):
-        """`variables` caches per key, and a `LabeledArray` now lives in that cache.
+    def test_the_cached_wrapper_is_shared_so_it_cannot_be_written(self, packed):
+        """`variables` hands every caller the same array, so it must not be mutable.
 
         Args:
             packed: Fixture holding a scaled 1-D `Int16` series.
 
         Test scenario:
-            `variables` is documented as loading on first access and caching after, which used
-            to be a statement about `NetCDF` subsets only. Expected: the same object on repeat
-            access, and its values untouched by an intervening unpacked `read_array` -- the
-            aliasing the reuse change could have introduced.
+            `variables` caches per key, so `variables["series"]` is one object for every
+            caller -- unlike `get_variable`, which builds a fresh one each time. Left
+            writeable, a single `values += 1` made the mapping answer `[11, 21, 31]` while
+            `get_variable` and `read_array` still said `[10, 20, 30]`. Expected: the same
+            object on repeat access, a mutation refused at the point it is attempted, and all
+            three accessors still agreeing afterwards.
         """
         first = packed.variables["series"]
-        packed.read_array(variable="series", unpack=True)
         second = packed.variables["series"]
 
         assert first is second, "the mapping must cache the wrapper, not rebuild it"
-        assert np.array_equal(second.values, [10, 20, 30]), (
-            f"the cached values must stay in storage units, got {second.values}"
-        )
+        assert not first.values.flags.writeable, "the shared array must be read-only"
+        with pytest.raises(ValueError, match="read-only"):
+            first.values += 1
+
+        cached = packed.variables["series"].values.tolist()
+        fresh = packed.get_variable("series").values.tolist()
+        read = np.asarray(packed.read_array(variable="series")).tolist()
+        assert cached == fresh == read == [10, 20, 30], (cached, fresh, read)
+
+    def test_a_fresh_wrapper_stays_writeable(self, packed):
+        """Only the shared object is locked; a caller's own copy is theirs to change.
+
+        Args:
+            packed: Fixture holding a scaled 1-D `Int16` series.
+
+        Test scenario:
+            `get_variable` returns a new wrapper on every call, so nothing else holds its
+            array and there is no reason to refuse a write to it.
+        """
+        fresh = packed.get_variable("series")
+
+        assert fresh.values.flags.writeable
 
 
 class TestTheLabelsTheWrapperCarries:

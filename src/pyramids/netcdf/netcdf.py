@@ -181,7 +181,17 @@ class _LazyVariableDict(dict):
         if not dict.__contains__(self, key):
             if key not in self._names:
                 raise KeyError(self._refusal(key))
-            dict.__setitem__(self, key, self._nc.get_variable(key))
+            entry = self._nc.get_variable(key)
+            if isinstance(entry, LabeledArray):
+                # This entry is handed to every later `variables[key]`, so its
+                # array is shared in a way `get_variable`'s fresh result is not.
+                # Left writeable, one `values += 1` made this mapping answer
+                # `[11, 21, 31]` while `get_variable` and `read_array` still said
+                # `[10, 20, 30]` -- three accessors disagreeing about one
+                # variable. Read-only turns that into an error at the mutation;
+                # `.copy()` gives a caller an array of their own.
+                entry.values.setflags(write=False)
+            dict.__setitem__(self, key, entry)
         # The cast this used to carry claimed every entry was a `NetCDF`, which
         # suppressed exactly the error a caller needs to see: a variable with no
         # raster plane is a `LabeledArray` here, as it is from `get_variable`.
