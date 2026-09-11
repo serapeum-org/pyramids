@@ -3532,7 +3532,16 @@ class Analysis(_Engine["Dataset"]):
 
               ```
         """
-        no_data_value = [np.nan if i is None else i for i in self._ds.no_data_value]
+        # Each band's sentinel in the units the plotted array is in. `plot` reads
+        # through `read_array`, so on a packed band the gap holds `-98.49`, and the
+        # stored `-9999` handed to cleopatra masked nothing: the gap was drawn as
+        # data and squeezed the whole valid range into the top of the colormap.
+        no_data_value = [
+            np.nan if value is None else value
+            for value in (
+                self._physical_no_data(index) for index in range(self._ds.band_count)
+            )
+        ]
         # `coords` is the PR-3 curvilinear kwarg; the helper handles the
         # mutually-exclusive `extent` swap. `facet_kwargs` (PR-4) is
         # forwarded by `NetCDF.plot` to switch the helper to the

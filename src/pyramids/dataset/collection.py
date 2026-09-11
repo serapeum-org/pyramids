@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, Unpack, cast
 
 import numpy as np
 import pandas as pd
+from osgeo import gdal
 from pyproj import CRS
 
 from pyramids import _io
@@ -31,6 +32,7 @@ from pyramids.base._raster_meta import RasterMeta
 from pyramids.base._utils import (
     DEFAULT_RESAMPLING,
     _is_identity_packing,
+    apply_unpack,
     import_dask,
     import_zarr,
     lazy_extra_hint,
@@ -492,7 +494,7 @@ def _lazy_timestep(
         lock=False,
         manager_id=str(path),
     )
-    return da.map_blocks(
+    stored = da.map_blocks(
         _read_chunk,
         chunks=normalized,
         dtype=dtype,
@@ -504,6 +506,56 @@ def _lazy_timestep(
         single_band=False,
         gdal_env=gdal_env or None,
     )
+    return _unpack_lazy_timestep(stored, path, band_count, gdal_env, open_options)
+
+
+def _unpack_lazy_timestep(
+    stored: Any,
+    path: str | Path,
+    band_count: int,
+    gdal_env: dict[str, str] | None,
+    open_options: tuple[str, ...] | None,
+) -> Any:
+    """Put one timestep's lazy cube into physical units, with that file's own recipe.
+
+    `data` and every temporal reduction built on it (`mean`, `sum`, the grouped ones)
+    read through this path, which reads raw `ReadAsArray` blocks. Left alone it answered
+    in stored counts while `values` / `head` / `tail` -- which read through `read_array`
+    -- answered physically: `col.mean()` gave 150 where `col.values.mean(0)` gave 3.0,
+    two spellings of one question that agreed on main.
+
+    The recipe comes from the file's own header, per band, because each timestep is its
+    own file and nothing requires them to share a packing. Only metadata is opened here;
+    the pixels stay lazy, and the transform is dask arithmetic on the blocks. A band that
+    declares nothing -- or declares something unusable -- is left as stored.
+
+    Args:
+        stored: The `(bands, rows, cols)` dask array of stored counts.
+        path: The timestep's file.
+        band_count: How many bands it holds.
+        gdal_env: The collection's GDAL configuration, for opening a remote file.
+        open_options: GDAL open options the collection was opened with.
+
+    Returns:
+        The lazy cube in physical units, or `stored` unchanged when nothing is packed.
+    """
+    with gdal.config_options(dict(gdal_env or {})):
+        header = gdal_raster_open(str(path), "read_only", open_options=open_options)
+        pairs = [
+            (header.GetRasterBand(i).GetScale(), header.GetRasterBand(i).GetOffset())
+            for i in range(1, band_count + 1)
+        ]
+        header = None
+    usable = [(None, None) if _is_identity_packing(*pair) else pair for pair in pairs]
+    if all(scale is None and offset is None for scale, offset in usable):
+        return stored
+    scale = np.asarray(
+        [1.0 if s is None else s for s, _ in usable], dtype=np.float64
+    ).reshape(-1, 1, 1)
+    offset = np.asarray(
+        [0.0 if o is None else o for _, o in usable], dtype=np.float64
+    ).reshape(-1, 1, 1)
+    return apply_unpack(stored, scale, offset)
 
 
 def _delayed():
@@ -3100,11 +3152,17 @@ class DatasetCollection:
         # ``[None]`` and crash in ``np.isclose(array, None)`` (``array - None``).
         # ``np.nan`` masks nothing, so a collection of nodata-less rasters (e.g.
         # Google Earth Engine exports) renders every cell instead of raising.
-        no_data_value = [np.nan if v is None else v for v in self.base.no_data_value]
+        #
+        # The sentinel in the units `data` is in. `_stack_timesteps` reads through
+        # `read_array`, so on a packed collection the gap holds `-98.49`, and handing
+        # cleopatra the stored `-9999` masked nothing -- the gap was drawn as data and
+        # stretched the colour scale down to it.
+        physical = self.base.analysis._physical_no_data(band)
+        no_data_value = np.nan if physical is None else physical
         exclude_value = (
-            [no_data_value[band], exclude_value]
+            [no_data_value, exclude_value]
             if exclude_value is not None
-            else [no_data_value[band]]
+            else [no_data_value]
         )
         return render_array(
             RenderRequest(

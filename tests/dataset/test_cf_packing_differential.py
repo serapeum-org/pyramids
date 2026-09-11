@@ -16,6 +16,7 @@ case only needs its answers to agree, not to know which internal path produced t
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable
 from typing import Any
 
@@ -79,6 +80,33 @@ def _domain(array: Any) -> np.ndarray:
     return grid[~GAP]
 
 
+def _quiet(call: Callable[[], Any]) -> Any:
+    """Run a call with its deprecation warning silenced.
+
+    Args:
+        call: The deprecated call to make.
+
+    Returns:
+        Whatever the call returns.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        return call()
+
+
+def _to_celsius(dataset: Dataset) -> Dataset:
+    """Declare the band as Kelvin and convert it, with the deprecation silenced.
+
+    Args:
+        dataset: The raster to convert.
+
+    Returns:
+        Dataset: The converted raster.
+    """
+    dataset.band_units = ["K"]
+    return _quiet(lambda: dataset.convert_units("celsius"))
+
+
 def _zones() -> gpd.GeoDataFrame:
     """One polygon covering the whole raster.
 
@@ -127,6 +155,7 @@ CASES: list[tuple[str, Callable[[Dataset], Any]]] = [
         ].to_numpy(dtype="float64"),
     ),
     ("point", lambda ds: float(ds.point(10.15, 49.95, band=0))),
+    ("convert_units", lambda ds: _domain(_to_celsius(ds).read_array())),
     ("get_tile", lambda ds: _domain(next(iter(ds.get_tile(size=4))))),
     (
         "to_feature_collection-tiled",

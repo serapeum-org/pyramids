@@ -2564,8 +2564,14 @@ class Dataset(RasterBase):
         new_units = list(self.band_units)
 
         full = self.read_array()
+        # The gaps are found in the stored counts, where the sentinel lives; the values
+        # converted are the physical ones. Comparing the physical read against the
+        # stored `-9999` matched nothing, so a packed band's gap was converted as if it
+        # were a temperature (-98.49 K came out -371.64 degC) under a declared -9999.
+        stored = np.asarray(self.read_array(unpack=False))
         single_band = self.band_count == 1
         stack = full[np.newaxis, ...] if single_band else full
+        stored_stack = stored[np.newaxis, ...] if single_band else stored
         # astype(copy=True by default) already returns a fresh writable array;
         # the trailing .copy() was a redundant second full-cube copy.
         out = stack.astype("float64")
@@ -2574,7 +2580,11 @@ class Dataset(RasterBase):
         for index in band_indices:
             layer = out[index]
             nodata_value = no_data[index]
-            mask = layer == nodata_value if nodata_value is not None else None
+            mask = (
+                stored_stack[index] == nodata_value
+                if nodata_value is not None
+                else None
+            )
             converted = convert_array(layer, source_units[index], target)
             if mask is not None:
                 converted[mask] = nodata_value

@@ -1523,7 +1523,14 @@ class NetCDFPlot:
         # matplotlib renders transparent — so every animation frame masks no-data
         # exactly like the static path (#1013). The template still goes to cleopatra
         # raw so its own `exclude_value` masking sizes the colour scale.
-        no_data_value = [np.nan if v is None else v for v in nc.no_data_value]
+        # The sentinel in the units the frames are in: they are read through
+        # `read_array`, so on a packed variable the stored value never appears in them.
+        no_data_value = [
+            np.nan if value is None else value
+            for value in (
+                nc.analysis._physical_no_data(index) for index in range(nc.band_count)
+            )
+        ]
         resolved_exclude = (
             [no_data_value[0], exclude_value]
             if exclude_value is not None

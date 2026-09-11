@@ -1612,3 +1612,33 @@ class TestEachBandIsJudgedOnItsOwn:
         assert together[1, 0, 1] == pytest.approx(100.0), (
             "the malformed band should be left in stored counts"
         )
+
+
+class TestACollectionAnswersInOneUnit:
+    """`values` and the lazy `data` cube read the same stack; they must agree."""
+
+    def test_a_temporal_reduction_matches_the_eager_stack(self, tmp_path):
+        """`col.mean()` is the lazy spelling of `col.values.mean(0)`.
+
+        Test scenario:
+            `values` reads through `read_array` and went physical; `data`, and every
+            temporal reduction built on it, reads raw blocks and stayed in stored
+            counts. On two packed timesteps `col.mean()` answered 150 where
+            `col.values.mean(0)` answered 3.0. Each file carries its own recipe.
+        """
+        pytest.importorskip("dask")
+        for index, counts in enumerate(
+            ([[100, 200], [300, 400]], [[200, 300], [400, 500]])
+        ):
+            step = _packed_raster(counts, 0.01, 1.5)
+            step.to_file(str(tmp_path / f"t{index}.tif"))
+        collection = DatasetCollection.from_files(str(tmp_path), glob="*.tif")
+
+        eager = np.asarray(collection.values, dtype="float64").mean(axis=0)
+        reduced = collection.mean()
+        lazy = np.asarray(
+            reduced.read_array() if hasattr(reduced, "read_array") else reduced,
+            dtype="float64",
+        )
+
+        np.testing.assert_allclose(lazy.reshape(eager.shape), eager)
