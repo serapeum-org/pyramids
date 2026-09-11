@@ -127,6 +127,23 @@ CASES: list[tuple[str, Callable[[Dataset], Any]]] = [
         ].to_numpy(dtype="float64"),
     ),
     ("point", lambda ds: float(ds.point(10.15, 49.95, band=0))),
+    ("get_tile", lambda ds: _domain(next(iter(ds.get_tile(size=4))))),
+    (
+        "to_feature_collection-tiled",
+        lambda ds: np.sort(
+            ds.to_feature_collection(tile=True, tile_size=2)
+            .iloc[:, 0]
+            .to_numpy(dtype="float64")
+        ),
+    ),
+    (
+        # A window straddling the raster's north-west corner takes the padded arm, the
+        # one every edge `read_tile` goes through. Cell (1, 1) of the raster is inside it.
+        "read_part-edge",
+        lambda ds: float(
+            np.asarray(ds.read_part((9.9, 49.7, 10.2, 50.1), band=0))[2, 2]
+        ),
+    ),
     ("read_part", lambda ds: _domain(ds.read_part((10.0, 49.6, 10.4, 50.0), band=0))),
     ("preview", lambda ds: _domain(ds.preview(band=0))),
 ]

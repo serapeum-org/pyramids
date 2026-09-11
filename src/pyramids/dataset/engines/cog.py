@@ -918,7 +918,13 @@ class COG(_Engine["Dataset"]):
         else:
             out = np.full((out_h, out_w), fill, dtype=sub.dtype)
             out[oy0:oy1, ox0:ox1] = sub
-        return out
+        # Assembled in stored units -- the counts and the stored sentinel padding them
+        # -- and unpacked once, so the padding reads as a gap exactly the way the
+        # fully-inside arm above reads its own. Returning the stored array made a window
+        # straddling the raster's edge come back as `int16` counts while a window just
+        # inside it came back as physical `float64`, and every edge `read_tile` took
+        # this arm.
+        return np.asarray(self._ds.io._apply_scale_offset(out, band))
 
     @staticmethod
     def _nodata_fill(band: Any) -> float:

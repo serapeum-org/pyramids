@@ -2875,7 +2875,10 @@ class IO(_Engine["Dataset"]):
                 tile = self._ds.raster.ReadAsArray(
                     xoff=xoff, yoff=yoff, xsize=xsize, ysize=ysize
                 )
-            yield tile
+            # Physical units, like `read_array`. `to_feature_collection(tile=True)`
+            # builds its rows from these tiles, so leaving them in stored counts made the
+            # tiled and untiled arms of that one method disagree by the packing factor.
+            yield np.asarray(self._apply_scale_offset(tile, None))
 
     def map_blocks(
         self,
@@ -3371,9 +3374,12 @@ class IO(_Engine["Dataset"]):
     ) -> Path:
         """Write one RGB(A) terrain raster in the format its extension names."""
         elevation = np.asarray(source.read_array(band=band), dtype=float)
+        # The sentinel in the units `elevation` is in. The terrain encoder looks for it
+        # to make those cells transparent; the stored `-9999` is never present in a
+        # packed band's physical read, so the gap was encoded as opaque terrain.
         stack = _terrain_rgba_stack(
             elevation,
-            source.no_data_value[band],
+            source.analysis._physical_no_data(band),
             encoding=encoding,
             base_val=base_val,
             interval=interval,
@@ -3493,12 +3499,21 @@ class IO(_Engine["Dataset"]):
             raise FailedToSaveError(
                 f"GDAL could not warp the terrain-RGB tile {zoom}/{x}/{y}."
             )
+        # The warp moves stored counts (GDAL carries the band's scale through it), so the
+        # tile is unpacked here and matched against the sentinel in the same units --
+        # otherwise a packed DEM was encoded as counts, a hundred times the real height.
+        scale, offset = source._effective_packing(band)
         elevation = np.asarray(
-            warped.GetRasterBand(band + 1).ReadAsArray(), dtype=float
+            apply_unpack(
+                np.asarray(warped.GetRasterBand(band + 1).ReadAsArray(), dtype=float),
+                scale,
+                offset,
+            ),
+            dtype=float,
         )
         stack = _terrain_rgba_stack(
             elevation,
-            nodata,
+            source.analysis._physical_no_data(band),
             encoding=encoding,
             base_val=base_val,
             interval=interval,

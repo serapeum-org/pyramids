@@ -431,7 +431,9 @@ class Vectorize(_Engine["Dataset"]):
         Returns:
             pd.DataFrame: Concatenated DataFrame from all tiles.
         """
-        no_data_value = self._ds.no_data_value[0]
+        # The sentinel in the units the tiles are in: `get_tile` yields physical
+        # values, so the stored `-9999` matched nothing and the gap became a row.
+        no_data_value = self._ds.analysis._physical_no_data(0)
         columns = self._ds.columns
         df_list = []
         offsets = self._ds.io._tile_offsets(tile_size)
