@@ -20,6 +20,7 @@ own GDAL plumbing (``_writable_root_group`` / ``_replace_raster`` /
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -28,7 +29,12 @@ import numpy as np
 from osgeo import gdal, osr
 
 from pyramids.base._errors import FileFormatNotSupportedError
-from pyramids.base._utils import _is_identity_packing, numpy_to_gdal_dtype
+from pyramids.base._utils import (
+    _is_identity_packing,
+    _PackingPair,
+    carry_band_packing,
+    numpy_to_gdal_dtype,
+)
 from pyramids.base.crs import sr_from_epsg, sr_from_user_input
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
@@ -46,6 +52,8 @@ from pyramids.netcdf.cf import (
     write_global_attributes,
 )
 from pyramids.netcdf.dimensions import ClassicDimensionInfo
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from pyramids.netcdf.netcdf import Container, NetCDF
@@ -204,14 +212,12 @@ class Variables(_Engine["NetCDF"]):
         # for, stored 3.5 as a bare 200. The identity is not written out as a
         # declaration, for the same reason the cube writer skips it.
         scale, offset = dataset._effective_packing(0)
-        if not _is_identity_packing(scale, offset):
-            try:
-                if scale is not None:
-                    md_arr.SetScale(scale)
-                if offset is not None:
-                    md_arr.SetOffset(offset)
-            except (RuntimeError, AttributeError):
-                pass  # nosec B110 - a driver that cannot store packing leaves it unset
+        if not _is_identity_packing(scale, offset) and not carry_band_packing(
+            _PackingPair(scale, offset), md_arr
+        ):
+            # The one carry site that used to swallow a refusal silently; every other
+            # one reports it, so a driver that cannot store packing is visible here too.
+            logger.debug("the destination refused the packing for %r", variable_name)
 
         # Set no-data value
         if dataset.no_data_value and dataset.no_data_value[0] is not None:

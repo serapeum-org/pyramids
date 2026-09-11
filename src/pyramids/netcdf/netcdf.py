@@ -3490,7 +3490,7 @@ class NetCDF(Dataset):
 
         There are two places the packing can live and they do not always agree, so
         every read path resolves it here rather than picking one. The variable's own
-        `_scale` / `_offset` win: `_wrap_like` copies them onto every result, and the
+        `_scale` / `_offset` win: `_preserve_netcdf_metadata` copies them onto every result, and the
         rest of this module -- the fan-out carry, the stream specs -- treats them as
         the truth. The classic band's `GetScale` / `GetOffset` are the fallback, which
         is what a container opened with `open_as_multi_dimensional=False` has, since

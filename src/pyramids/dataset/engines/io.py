@@ -627,6 +627,12 @@ class IO(_Engine["Dataset"]):
                 the dtype's zero. Must be representable in the band dtype
                 (a whole number within range for integer bands) and requires
                 `boundless=True`; anything else raises :class:`ValueError`.
+
+                It is a **stored** value, like `no_data_value`: the padding is
+                written in the band's own dtype and the read is then unpacked as
+                a whole, so on a packed band the fill is transformed with the
+                data -- `fill_value=0` at `scale=0.01, offset=1.5` reads back as
+                `1.5`. Pass `unpack=False` to get the fill exactly as given.
             masked (bool, keyword-only):
                 When `True`, return a :class:`numpy.ma.MaskedArray` with
                 invalid pixels masked instead of a plain array. The mask
@@ -955,7 +961,16 @@ class IO(_Engine["Dataset"]):
             index = 0 if band is None else band
             result = apply_unpack(arr, *self._ds._effective_packing(index))
         else:
-            resolved = [self._ds._effective_packing(i) for i in range(arr.shape[0])]
+            # Each band's recipe is judged on its own. A band whose factor is 0 or
+            # non-finite is left alone; judging the whole per-band array at once made one
+            # malformed band switch unpacking off for every band in an all-bands read,
+            # while the same bands read one at a time were unpacked.
+            resolved = [
+                (None, None) if _is_identity_packing(*pair) else pair
+                for pair in (
+                    self._ds._effective_packing(i) for i in range(arr.shape[0])
+                )
+            ]
             scales = [pair[0] for pair in resolved]
             offsets = [pair[1] for pair in resolved]
             if all(s is None for s in scales) and all(o is None for o in offsets):

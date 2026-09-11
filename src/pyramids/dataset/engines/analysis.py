@@ -1770,7 +1770,7 @@ class Analysis(_Engine["Dataset"]):
         # The physical sentinel, because `get_pixels2` compares it against values
         # `read_array` produced. The stored `-9999` matches nothing in an array that
         # holds `-98.49`, so every no-data cell was extracted as a measurement.
-        physical_sentinel = self._physical_no_data(0)
+        physical_sentinel = self._physical_no_data(band if band is not None else 0)
         no_data_value = physical_sentinel if physical_sentinel is not None else np.nan
         if mask is None:
             exclude_list = (
@@ -2434,7 +2434,7 @@ class Analysis(_Engine["Dataset"]):
             )
         # The physical sentinel, because `get_indices2` compares it against strips
         # `read_array` produced; the stored one matches nothing on a packed band.
-        physical_sentinel = self._physical_no_data(0)
+        physical_sentinel = self._physical_no_data(band if band is not None else 0)
         no_data_value = physical_sentinel if physical_sentinel is not None else np.nan
         mask = (
             [no_data_value, exclude_value]

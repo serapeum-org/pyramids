@@ -1716,6 +1716,32 @@ def carry_packing(source: Any, target: Any) -> None:
         )
 
 
+class _PackingPair:
+    """A resolved `(scale, offset)` that answers the way a GDAL band does.
+
+    `carry_band_packing` reads its source through `GetScale` / `GetOffset`. A caller holding
+    a pair it has already resolved -- through `Dataset._effective_packing`, which a `NetCDF`
+    variable answers from Python rather than from its band -- wraps it in this, so it can
+    reuse the one carry path and its refusal reporting instead of writing its own.
+
+    Args:
+        scale: The `scale_factor`, or `None`.
+        offset: The `add_offset`, or `None`.
+    """
+
+    def __init__(self, scale: Any, offset: Any) -> None:
+        self._scale = scale
+        self._offset = offset
+
+    def GetScale(self) -> Any:  # noqa: N802 - mirrors the GDAL band API it stands in for
+        """The pair's `scale_factor`."""
+        return self._scale
+
+    def GetOffset(self) -> Any:  # noqa: N802 - mirrors the GDAL band API it stands in for
+        """The pair's `add_offset`."""
+        return self._offset
+
+
 def carry_band_packing(source_band: Any, target_band: Any) -> bool:
     """Copy one band's CF packing onto another, for a rebuild that pairs bands by hand.
 

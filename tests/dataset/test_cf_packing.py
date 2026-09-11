@@ -366,7 +366,7 @@ class TestStatsArePhysical:
 
         Test scenario:
             A `NetCDF` variable can carry its packing in Python (`_scale` / `_offset`,
-            which `_wrap_like` copies onto every spatial result) while its band
+            which `_preserve_netcdf_metadata` copies onto every spatial result) while its band
             declares something else. While `read_array` preferred the variable's pair
             and `stats` read the band, the two answered 48.0 and 19.0 for the same
             maximum. Both now ask the dataset.
@@ -1222,7 +1222,7 @@ class TestTheNetCDFPackingResolver:
     """`NetCDF._effective_packing` -- one answer, from two possible homes."""
 
     def test_the_variables_own_pair_wins_over_its_band(self):
-        """`_wrap_like` copies `_scale`/`_offset` onto every result, so they are truth.
+        """`_preserve_netcdf_metadata` copies `_scale`/`_offset` onto every result, so they are truth.
 
         Test scenario:
             While the eager arm consulted the band and the lazy arm consulted only the
@@ -1562,3 +1562,53 @@ class TestApplyPredictsTheTypeTheCallProduces:
         result = dataset.apply(_halve_positive, elementwise=elementwise)
         got = np.asarray(result.read_array(), dtype="float64").ravel()
         np.testing.assert_allclose(got[1:], [1.5, 2.5, 3.5])
+
+
+class TestEachBandIsJudgedOnItsOwn:
+    """Per-band packing must stay per band, in every path that reads more than one."""
+
+    @staticmethod
+    def _two_bands(scales: list[float]) -> Dataset:
+        """A two-band `int16` raster, each band with its own factor and one gap."""
+        counts = np.array(
+            [[[-9999, 100], [200, 300]], [[-9999, 100], [200, 300]]], dtype="int16"
+        )
+        dataset = Dataset.from_array(
+            counts,
+            geo_ref=GeoReference(top_left_corner=(0, 2), cell_size=1.0, epsg=4326),
+            no_data_value=[-9999, -9999],
+        )
+        dataset.scale = scales
+        dataset.offset = [0.0, 0.0]
+        return dataset
+
+    def test_extract_uses_the_packing_of_the_band_it_reads(self):
+        """`extract(band=1)` finds band 1's gap with band 1's recipe, not band 0's.
+
+        Test scenario:
+            The sentinel was converted with band 0's factor whatever band was asked
+            for, so on a raster packed at 0.01 / 0.1 `extract(band=1)` kept the gap as
+            a value of -999.9.
+        """
+        values = np.asarray(
+            self._two_bands([0.01, 0.1]).extract(band=1), dtype="float64"
+        ).ravel()
+        np.testing.assert_allclose(np.sort(values), [10.0, 20.0, 30.0])
+
+    def test_one_malformed_band_does_not_switch_off_the_others(self):
+        """A zero factor on one band leaves that band alone and unpacks the rest.
+
+        Test scenario:
+            The usability guard judged the whole per-band array at once, so a single
+            band with `scale=0` disabled unpacking for every band in an all-bands read
+            -- while the same bands read one at a time were unpacked.
+        """
+        dataset = self._two_bands([0.01, 0.0])
+        together = np.asarray(dataset.read_array(), dtype="float64")
+        alone = float(np.asarray(dataset.read_array(band=0), dtype="float64")[0, 1])
+        assert together[0, 0, 1] == pytest.approx(alone), (
+            f"band 0 read {together[0, 0, 1]} with its sibling, {alone} on its own"
+        )
+        assert together[1, 0, 1] == pytest.approx(100.0), (
+            "the malformed band should be left in stored counts"
+        )

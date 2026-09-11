@@ -2692,7 +2692,11 @@ class DatasetCollection:
             # comes back `float64` while `_meta.dtype` is the stored `int16`, so
             # `head(0).dtype` and `head(1).dtype` disagreed.
             empty_dtype = np.dtype(self._meta.dtype)
-            if not _is_identity_packing(*self.base._effective_packing(band or 0)):
+            bands = [band] if band is not None else range(self.base.band_count)
+            if any(
+                not _is_identity_packing(*self.base._effective_packing(index))
+                for index in bands
+            ):
                 empty_dtype = np.dtype("float64")
             return np.empty(shape, dtype=empty_dtype)
         return np.stack([ds.read_array(band=band) for ds in datasets], axis=0)
