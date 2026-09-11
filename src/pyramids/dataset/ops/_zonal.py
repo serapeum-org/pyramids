@@ -34,6 +34,7 @@ import pandas as pd
 from osgeo import gdal, ogr, osr
 
 from pyramids.base._domain import is_no_data
+from pyramids.base._utils import apply_unpack
 from pyramids.base.crs import sr_from_epsg, sr_from_wkt
 
 if TYPE_CHECKING:
@@ -127,12 +128,38 @@ def _rasterize_zonal_stats(
     weighted reductions instead of a per-polygon Python loop. Non-
     linear stats (std / var / min / max) still use the loop because
     bincount can't express them without per-label sort.
+
+    The band is read once in stored units. The no-data cells are found there, where
+    the sentinel lives, and blanked to `NaN`; the statistics are then taken over the
+    physical values, unpacked with `ds._effective_packing(band)`.
+
+    Args:
+        ds: The source dataset.
+        fc: The polygons, one zone per row.
+        stats: Statistic names, in output column order.
+        band: Zero-based band index.
+        no_data: The band's declared (stored) sentinel, or `None` when it has none.
+
+    Returns:
+        pd.DataFrame: Indexed by `fc.index`; one `float64` column per stat, `NaN` for
+            a zone with no valid cell (`count` is `0.0` there).
+
+    Raises:
+        ValueError: An unknown stat name, raised when the first zone holding cells is
+            reduced.
     """
-    raster = np.asarray(ds.read_array(band=band), dtype=np.float64)
+    # Masked against the stored counts, where the sentinel lives, and the statistics
+    # then taken over the physical values. `no_data` is a stored value, so comparing it
+    # with a physical read of a packed band matched nothing and every gap entered the
+    # zone's mean, count and minimum as a measurement.
+    stored = np.asarray(ds.read_array(band=band, unpack=False))
+    raster = np.asarray(
+        apply_unpack(stored, *ds._effective_packing(band)), dtype=np.float64
+    )
     if no_data is not None:
         # `is_no_data`, not `==`: a NaN sentinel never equals itself, so the
         # comparison marked nothing and every no-data cell entered the stats.
-        raster = np.where(is_no_data(raster, no_data), np.nan, raster)
+        raster = np.where(is_no_data(stored, no_data), np.nan, raster)
     labels = _rasterize_labels(ds, fc)
     n_features = len(fc)
 
@@ -239,6 +266,12 @@ def zonal_stats(
 ) -> pd.DataFrame:
     """Compute zonal statistics of `ds` over polygons in `fc`.
 
+    The statistics are taken over physical values, as `read_array` returns them: a
+    CF-packed band (`scale_factor` / `add_offset`) is unpacked. The band's no-data
+    cells are found in its stored values, where the sentinel lives, and left out of
+    every statistic, so a packed band's gaps do not enter a zone's mean, count or
+    minimum as the physical number a default read shows there.
+
     Args:
         ds: The source :class:`~pyramids.dataset.Dataset`.
         fc: A :class:`~pyramids.feature.FeatureCollection` of polygons.
@@ -282,6 +315,28 @@ def zonal_stats(
             >>> out = zonal_stats(ds, fc, stats=("mean",))
             >>> float(out["mean"].iloc[0])
             5.0
+
+            ```
+        - On a CF-packed band the statistics are physical and the gap is left out:
+            ```python
+            >>> import geopandas as gpd
+            >>> import numpy as np
+            >>> from shapely.geometry import box
+            >>> from pyramids.dataset import Dataset, GeoReference
+            >>> from pyramids.dataset.ops._zonal import zonal_stats
+            >>> from pyramids.feature import FeatureCollection
+            >>> packed = Dataset.from_array(
+            ...     np.array([[100, 200], [300, -9999]], dtype="int16"),
+            ...     geo_ref=GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326),
+            ...     no_data_value=-9999,
+            ... )
+            >>> packed.scale = [0.01]
+            >>> fc = FeatureCollection(gpd.GeoDataFrame(
+            ...     {"zone": ["a"]}, geometry=[box(0, 0, 2, 2)], crs="EPSG:4326",
+            ... ))
+            >>> out = zonal_stats(packed, fc, stats=("mean", "count", "min"))
+            >>> out.to_dict("records")
+            [{'mean': 2.0, 'count': 3.0, 'min': 1.0}]
 
             ```
     """

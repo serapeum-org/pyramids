@@ -20,6 +20,7 @@ own GDAL plumbing (``_writable_root_group`` / ``_replace_raster`` /
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -28,7 +29,11 @@ import numpy as np
 from osgeo import gdal, osr
 
 from pyramids.base._errors import FileFormatNotSupportedError
-from pyramids.base._utils import numpy_to_gdal_dtype
+from pyramids.base._utils import (
+    _is_identity_packing,
+    numpy_to_gdal_dtype,
+    write_packing,
+)
 from pyramids.base.crs import sr_from_epsg, sr_from_user_input
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
@@ -46,6 +51,8 @@ from pyramids.netcdf.cf import (
     write_global_attributes,
 )
 from pyramids.netcdf.dimensions import ClassicDimensionInfo
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from pyramids.netcdf.netcdf import Container, NetCDF
@@ -86,6 +93,18 @@ class Variables(_Engine["NetCDF"]):
         operations (crop, reproject, etc.) on a variable subset, use this
         method to store the result back into the NetCDF container.
 
+        The dataset's **stored** values are written (`read_array(unpack=False)`) --
+        this copies the store -- and the recipe that describes them is set on the
+        new variable as `scale_factor` / `add_offset`, so a CF-packed raster stays
+        packed and still reads back in physical units. The recipe is the one a read
+        of the dataset applies, `dataset._effective_packing(0)`: a `NetCDF`
+        variable's own `_scale` / `_offset` when it carries them (what `sel()`
+        builds, over a band that declares none), else band 1's. An identity (or
+        unusable) pair is not written as a declaration. A destination that refuses
+        the packing is logged at `DEBUG` level and the counts are written without
+        it. An MDArray holds a single packing, so a multi-band raster whose bands
+        are packed differently keeps only that one recipe.
+
         Args:
             variable_name: Name for the variable in this container. If a
                 variable with this name already exists it is replaced.
@@ -115,6 +134,30 @@ class Variables(_Engine["NetCDF"]):
         Raises:
             ValueError: If called on a dataset without a root group
                 (not opened in multidimensional mode).
+
+        Examples:
+            - A packed raster is stored as its counts under its own recipe, so the new
+              variable still reads back in physical units:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> from pyramids.netcdf import NetCDF
+                >>> geo_ref = GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326)
+                >>> nc = NetCDF.from_array(
+                ...     np.zeros((1, 2, 2), dtype="float32"), geo_ref=geo_ref, variable_name="base"
+                ... )
+                >>> packed = Dataset.from_array(
+                ...     np.array([[100, 200], [300, 400]], dtype="int16"), geo_ref=geo_ref
+                ... )
+                >>> packed.scale = [0.01]
+                >>> nc.set_variable("packed", packed)
+                >>> stored = nc.get_variable("packed")
+                >>> np.asarray(stored.read_array(unpack=False)).tolist()
+                [[100, 200], [300, 400]]
+                >>> stored.read_array().tolist()
+                [[1.0, 2.0], [3.0, 4.0]]
+
+                ```
         """
         nc = self._ds
         rg = nc._working_group()
@@ -142,8 +185,10 @@ class Variables(_Engine["NetCDF"]):
         if variable_name in nc._readable_variable_names():
             rg.DeleteMDArray(variable_name)
 
-        # Read data from the classic dataset
-        arr = dataset.read_array()
+        # Read data from the classic dataset. `unpack=False`: this writes the raster
+        # back into the store, and the packing is carried onto the MDArray below, so
+        # what belongs in it is the counts that recipe describes.
+        arr = dataset.read_array(unpack=False)
         gt: tuple[float, float, float, float, float, float] = dataset.geotransform
         data_dtype = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(arr))
         # Spatial coordinate dimensions must always be float64 to avoid
@@ -183,6 +228,25 @@ class Variables(_Engine["NetCDF"]):
             md_arr.SetSpatialRef(sr_from_epsg(dataset.epsg))
         elif dataset.crs:
             md_arr.SetSpatialRef(sr_from_user_input(dataset.crs))
+
+        # GDAL keeps `scale_factor` / `add_offset` in the MDArray's own slots rather
+        # than in its attribute dictionary, so the attribute write below cannot carry
+        # them; without this a packed raster written back would lose the recipe for
+        # the counts just stored.
+        #
+        # Through `_effective_packing`, not off band 1. A `NetCDF` variable can hold its
+        # recipe only in `_scale` / `_offset` over a band that declares none -- which is
+        # what `sel()` builds -- so reading the band wrote the counts back with no recipe
+        # at all: `sel` -> process -> `set_variable`, the round trip this method exists
+        # for, stored 3.5 as a bare 200. The identity is not written out as a
+        # declaration, for the same reason the cube writer skips it.
+        scale, offset = dataset._effective_packing(0)
+        if not _is_identity_packing(scale, offset) and not write_packing(
+            md_arr, scale, offset
+        ):
+            # The one carry site that used to swallow a refusal silently; every other
+            # one reports it, so a driver that cannot store packing is visible here too.
+            logger.debug("the destination refused the packing for %r", variable_name)
 
         # Set no-data value
         if dataset.no_data_value and dataset.no_data_value[0] is not None:

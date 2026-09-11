@@ -30,6 +30,8 @@ from pyramids.base._locks import default_lock
 from pyramids.base._raster_meta import RasterMeta
 from pyramids.base._utils import (
     DEFAULT_RESAMPLING,
+    _is_identity_packing,
+    apply_unpack,
     import_dask,
     import_zarr,
     lazy_extra_hint,
@@ -467,9 +469,14 @@ def _lazy_timestep(
         lock: The IO lock guarding this file's shared GDAL handle. Callers pass one
             lock per distinct path so duplicate-path timesteps (which share a
             `FILE_CACHE` slot) serialise their tile reads on the same handle (L4).
+        open_options: GDAL open options the collection was opened with, applied to
+            every reopen of the file, or `None`.
 
     Returns:
-        dask.array.Array: A lazy ``(B, Y, X)`` array tiled on the spatial axes.
+        dask.array.Array: A lazy `(B, Y, X)` array tiled on the spatial axes, in
+            physical units: the blocks read stored counts and
+            :func:`_unpack_lazy_timestep` unpacks them with this file's own recipe
+            (`float64` when a band is packed, the stored dtype otherwise).
     """
     import dask.array as da
     from dask.array.core import normalize_chunks
@@ -491,7 +498,7 @@ def _lazy_timestep(
         lock=False,
         manager_id=str(path),
     )
-    return da.map_blocks(
+    stored = da.map_blocks(
         _read_chunk,
         chunks=normalized,
         dtype=dtype,
@@ -503,6 +510,66 @@ def _lazy_timestep(
         single_band=False,
         gdal_env=gdal_env or None,
     )
+    return _unpack_lazy_timestep(stored, path, band_count, gdal_env, open_options)
+
+
+def _unpack_lazy_timestep(
+    stored: Any,
+    path: str | Path,
+    band_count: int,
+    gdal_env: dict[str, str] | None,
+    open_options: tuple[str, ...] | None,
+) -> Any:
+    """Put one timestep's lazy cube into physical units, with that file's own recipe.
+
+    `data` and every temporal reduction built on it (`mean`, `sum`, the grouped ones)
+    read through this path, which reads raw `ReadAsArray` blocks. Left alone it answered
+    in stored counts while `values` / `head` / `tail` -- which read through `read_array`
+    -- answered physically: `col.mean()` gave 150 where `col.values.mean(0)` gave 3.0,
+    two spellings of one question that agreed on main.
+
+    The recipe comes from the file's own header, per band, because each timestep is its
+    own file and nothing requires them to share a packing. Only metadata is opened here;
+    the pixels stay lazy, and the transform is dask arithmetic on the blocks. A band that
+    declares nothing -- or declares something unusable -- is left as stored.
+
+    Args:
+        stored: The `(bands, rows, cols)` dask array of stored counts.
+        path: The timestep's file.
+        band_count: How many bands it holds.
+        gdal_env: The collection's GDAL configuration, installed around the header
+            open (for a remote file), or `None`.
+        open_options: GDAL open options the collection was opened with, or `None`.
+
+    Returns:
+        The lazy `float64` cube in physical units -- a band with no usable recipe gets
+        the identity -- or `stored` unchanged, same dtype, when no band is packed.
+
+    Raises:
+        RuntimeError: GDAL cannot open the file's header (the same failure the lazy
+            blocks would hit when computed).
+    """
+    # The same credential scoping the chunk reads use (`_read_chunk` installs
+    # `cloud_config_from_env(gdal_env, path=...)`), so a signed remote file's header is
+    # opened exactly as its pixels will be -- a plain `gdal.config_options` could send
+    # different credentials, or none, for the one request that reads the recipe.
+    with cloud_config_from_env(gdal_env, path=str(path)):
+        header = gdal_raster_open(str(path), "read_only", open_options=open_options)
+        pairs = [
+            (header.GetRasterBand(i).GetScale(), header.GetRasterBand(i).GetOffset())
+            for i in range(1, band_count + 1)
+        ]
+        header = None
+    usable = [(None, None) if _is_identity_packing(*pair) else pair for pair in pairs]
+    if all(scale is None and offset is None for scale, offset in usable):
+        return stored
+    scale = np.asarray(
+        [1.0 if s is None else s for s, _ in usable], dtype=np.float64
+    ).reshape(-1, 1, 1)
+    offset = np.asarray(
+        [0.0 if o is None else o for _, o in usable], dtype=np.float64
+    ).reshape(-1, 1, 1)
+    return apply_unpack(stored, scale, offset)
 
 
 def _delayed():
@@ -619,7 +686,13 @@ def _agree_on_one_sentinel(datasets: list[Dataset]) -> None:
         fills = [row[band] for row in declared]
         if all(is_stored_no_data(np.asarray(fills[0]), other) for other in fills[1:]):
             continue
-        arrays = [np.asarray(ds.read_array(band=band)) for ds in datasets]
+        # `unpack=False`: this whole function is defined in stored units -- the
+        # sentinels it compares, the `numpy_dtype` it asks `free_no_data` to fit a
+        # replacement into, and the band it writes the array back to. A physical
+        # read matched no sentinel (so the reconciliation silently did nothing) and
+        # then rounded the physical values into the stored band, destroying the
+        # counts of every packed timestep it touched.
+        arrays = [np.asarray(ds.read_array(band=band, unpack=False)) for ds in datasets]
         # Judged against real observations only: each step's own fill cells are
         # the thing being replaced, so counting them would rule out every
         # candidate already in use and force a needless third value.
@@ -1355,11 +1428,53 @@ class DatasetCollection:
         all at once. Workers never serialise a `gdal.Dataset`; only the file path
         crosses the pickle boundary, keeping the graph safe under dask.distributed.
 
+        A file-backed cube is in physical units, like `values` / `head` / `tail`: each
+        timestep is unpacked with its own file's `scale_factor` / `add_offset`, per band
+        (see :func:`_unpack_lazy_timestep`), so the temporal reductions built on it
+        (`mean`, `sum`, the grouped ones) answer in the same units as a read. The
+        array is `float64` when any timestep is packed. The no-data sentinel is not
+        masked here -- on a packed timestep it is transformed like every other cell. A
+        Zarr-backed cube is returned as the store holds it.
+
+        Returns:
+            dask.array.Array: The lazy `(T, B, R, C)` cube.
+
         Raises:
             ImportError: If the optional `dask` extra is not
                 installed.
             RuntimeError: If the collection was constructed without a
                 `files` list (the in-memory `from_dataset` path).
+
+        Examples:
+            - A packed stack is lazy and physical, so a reduction over it agrees with
+              a read:
+                ```python
+                >>> import os, tempfile
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, DatasetCollection, GeoReference
+                >>> d = tempfile.mkdtemp()
+                >>> paths = []
+                >>> for i in range(2):
+                ...     p = os.path.join(d, f"t{i}.tif")
+                ...     step = Dataset.from_array(
+                ...         np.array([[100, 200], [300, 400]], dtype="int16") * (i + 1),
+                ...         geo_ref=GeoReference(
+                ...             top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+                ...         ),
+                ...         path=p,
+                ...     )
+                ...     step.scale = [0.01]
+                ...     step.close()
+                ...     paths.append(p)
+                >>> col = DatasetCollection.from_files(paths)
+                >>> col.data.shape, col.data.dtype
+                ((2, 1, 2, 2), dtype('float64'))
+                >>> col.data[:, 0, 0, 0].compute().tolist()
+                [1.0, 2.0]
+                >>> col.mean()[0].tolist()
+                [[1.5, 3.0], [4.5, 6.0]]
+
+                ```
         """
         if self._zarr_store is None and (self._files is None or len(self._files) == 0):
             raise RuntimeError(
@@ -1665,12 +1780,25 @@ class DatasetCollection:
         rejects CF's standard ``_FillValue`` attribute via this code
         path, so the round-trip uses ``nodata`` for compatibility.
 
-        Every variable is written at the collection's own dtype
-        (:attr:`meta.dtype`, the template raster's), and each timestep is
-        cast to it; on a co-registered stack (all timesteps sharing the
-        template's dtype — what :meth:`from_files` with ``validate=True``
-        enforces) this is a no-op. A timestep whose grid or band count
-        differs from the template raises :class:`AlignmentError`.
+        CF packing (`scale_factor` / `add_offset`) decides how the values are
+        stored. When one recipe describes every slab a variable will hold --
+        every timestep packed alike and, for the single 4-D `data` variable,
+        every band too -- the stored counts are written at the collection's own
+        dtype (:attr:`meta.dtype`, the template raster's) with that recipe as the
+        variable's `scale_factor` / `add_offset`, taken from the timesteps
+        rather than the template; the file reads back in physical units. An
+        unpacked collection is written the same way, without a recipe. When no
+        single recipe fits -- timesteps packed differently, or bands packed
+        differently under `var_per_band=False` -- the cube is materialised
+        instead: physical `float64` values, no recipe, and `NaN` as both the
+        gaps and the declared no-data, since one sentinel cannot name gaps
+        whose physical value differs from one timestep to the next.
+
+        Each timestep is cast to the chosen dtype; on a co-registered stack
+        (all timesteps sharing the template's dtype — what :meth:`from_files`
+        with `validate=True` enforces) a compact write casts nothing. A
+        timestep whose grid or band count differs from the template raises
+        :class:`AlignmentError`.
 
         Args:
             path: Output ``.nc`` path.
@@ -1726,6 +1854,35 @@ class DatasetCollection:
                 True
                 >>> nc.epsg
                 4326
+
+                ```
+            - Timesteps packed differently cannot share one recipe, so the cube is
+              materialised as physical `float64` values with `NaN` gaps:
+                ```python
+                >>> import os, tempfile
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, DatasetCollection, GeoReference
+                >>> from pyramids.netcdf import NetCDF
+                >>> d = tempfile.mkdtemp()
+                >>> paths = []
+                >>> for i, scale in enumerate([0.5, 0.25]):
+                ...     p = os.path.join(d, f"t{i}.tif")
+                ...     step = Dataset.from_array(
+                ...         np.array([[100, -9999], [300, 400]], dtype="int16"),
+                ...         geo_ref=GeoReference(
+                ...             top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+                ...         ),
+                ...         no_data_value=-9999,
+                ...         path=p,
+                ...     )
+                ...     step.scale = [scale]
+                ...     step.close()
+                ...     paths.append(p)
+                >>> out = os.path.join(d, "cube.nc")
+                >>> DatasetCollection.from_files(paths).to_netcdf(out)
+                >>> band = NetCDF.read_file(out).get_variable("Band_1")
+                >>> band.dtype[0], band.read_array()[:, 0].tolist()
+                ('float64', [[50.0, nan], [25.0, nan]])
 
                 ```
 
@@ -2642,9 +2799,11 @@ class DatasetCollection:
         "need at least one array to stack", which names neither the collection
         nor the timestep that was missing.
 
-        The empty array carries the collection's own dtype (from :attr:`meta`)
-        rather than NumPy's default float64, so `head(0)` / `tail(0)` match the
-        dtype of a non-empty selection (N1). Taking the dataset list as an
+        The empty array carries the dtype a non-empty read would return -- the
+        collection's own (from :attr:`meta`), or `float64` when any band the request
+        reads (`band`, or every band for `band=None`) is CF-packed on the base dataset
+        and so reads unpacked -- rather than NumPy's default, so `head(0)` / `tail(0)`
+        match the dtype of a non-empty selection (N1). Taking the dataset list as an
         argument is what lets `head` / `tail` read only the timesteps they
         selected instead of materialising the whole cube via :attr:`values`.
 
@@ -2660,8 +2819,10 @@ class DatasetCollection:
                 `(time, bands, rows, cols)` rather than `(time, rows, cols)`.
 
         Returns:
-            np.typing.NDArray: The stacked cube, or a `(0, rows, cols)` array
-                of the collection's dtype when `datasets` is empty.
+            np.typing.NDArray: The stacked cube, in physical units where a timestep
+                is packed, or -- when `datasets` is empty -- a zero-length array with
+                the rank and dtype that read would have had (`(0, rows, cols)`, or
+                `(0, bands, rows, cols)` for `band=None` on a multi-band collection).
         """
         if not datasets:
             # Shaped to match what a non-empty read of the same request would
@@ -2676,7 +2837,18 @@ class DatasetCollection:
             shape: tuple[int, ...] = (0, self.rows, self.columns)
             if band is None and self.base.band_count > 1:
                 shape = (0, self.base.band_count, self.rows, self.columns)
-            return np.empty(shape, dtype=np.dtype(self._meta.dtype))
+            # And the dtype a non-empty read of the same request would return, for
+            # the same reason as the rank. On a packed collection the stack below
+            # comes back `float64` while `_meta.dtype` is the stored `int16`, so
+            # `head(0).dtype` and `head(1).dtype` disagreed.
+            empty_dtype = np.dtype(self._meta.dtype)
+            bands = [band] if band is not None else range(self.base.band_count)
+            if any(
+                not _is_identity_packing(*self.base._effective_packing(index))
+                for index in bands
+            ):
+                empty_dtype = np.dtype("float64")
+            return np.empty(shape, dtype=empty_dtype)
         return np.stack([ds.read_array(band=band) for ds in datasets], axis=0)
 
     def head(self, n: int = 5) -> np.typing.NDArray:
@@ -2835,10 +3007,13 @@ class DatasetCollection:
                 The band you want to get its data. Default is 0.
                 Ignored when ``rgb`` is set (RGB reads every band).
             exclude_value (Any):
-                Value to exclude from the plot. Default is None.
-                Ignored when ``rgb`` is set (true-colour frames are not
-                masked); passing it together with ``rgb`` emits a
-                :class:`UserWarning`.
+                Value to exclude from the plot, in addition to the no-data
+                cells. Default is None. The frames are physical values (a
+                CF-packed band is unpacked), so this is compared against
+                those, and the base raster's sentinel is handed to cleopatra
+                in the same units. Ignored when `rgb` is set (true-colour
+                frames are not masked); passing it together with `rgb` emits
+                a :class:`UserWarning`.
             rgb_options (dict, optional):
                 Grouped Sentinel-imagery options for a true-colour time-lapse (mirrors
                 :meth:`Dataset.plot`). Accepted keys: ``"rgb"`` (band indices
@@ -3078,11 +3253,17 @@ class DatasetCollection:
         # ``[None]`` and crash in ``np.isclose(array, None)`` (``array - None``).
         # ``np.nan`` masks nothing, so a collection of nodata-less rasters (e.g.
         # Google Earth Engine exports) renders every cell instead of raising.
-        no_data_value = [np.nan if v is None else v for v in self.base.no_data_value]
+        #
+        # The sentinel in the units `data` is in. `_stack_timesteps` reads through
+        # `read_array`, so on a packed collection the gap holds `-98.49`, and handing
+        # cleopatra the stored `-9999` masked nothing -- the gap was drawn as data and
+        # stretched the colour scale down to it.
+        physical = self.base.analysis._physical_no_data(band)
+        no_data_value = np.nan if physical is None else physical
         exclude_value = (
-            [no_data_value[band], exclude_value]
+            [no_data_value, exclude_value]
             if exclude_value is not None
-            else [no_data_value[band]]
+            else [no_data_value]
         )
         return render_array(
             RenderRequest(

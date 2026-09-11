@@ -1177,10 +1177,12 @@ class RasterBase(ABC):
         self,
         band: int | None = None,
         window: Window | GeoDataFrame | list[int] | None = None,
+        *,
+        unpack: bool = True,
     ) -> ArrayLike:
         """Read Array.
 
-            - read the values stored in a given band.
+            - read the values of a given band, unpacked to physical units by default.
 
         Data Chuncks/blocks
             When a raster dataset is stored on disk, it might not be stored as one continuous chunk of data. Instead,
@@ -1196,7 +1198,12 @@ class RasterBase(ABC):
             band (int, optional):
                 the band you want to get its data, If None the data of all bands will be read. Default is None
             window (List[int], optional):
-                window to specify a block of data to read from the dataset. the window should be a list of 4 integers [offset_x, offset_y, window_columns, window_rows]. Default is None.
+                window to specify a block of data to read from the dataset. the window should be a list of 4
+                integers [offset_x, offset_y, window_columns, window_rows]. Default is None.
+            unpack (bool, keyword-only):
+                Apply each band's CF packing (`scale_factor` / `add_offset`), `real = stored * scale + offset`.
+                Default is True, so a packed band answers in physical `float64` values; pass False for the
+                stored values. A band that declares no packing is returned unchanged either way.
 
         Returns:
             np.ndarray:

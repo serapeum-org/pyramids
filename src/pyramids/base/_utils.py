@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 from collections.abc import Sequence
 from functools import cache
@@ -16,6 +17,8 @@ from pandas import DataFrame
 
 from pyramids import __path__
 from pyramids.base._errors import DriverNotExistError, OptionalPackageDoesNotExist
+
+logger = logging.getLogger(__name__)
 
 
 def _half_precision_columns(
@@ -1582,6 +1585,235 @@ def ogr_ds_to_gdal_dataset(ogr_ds: ogr.DataSource) -> gdal.Dataset:
     return gdal_ds
 
 
+def _is_identity_packing(
+    scale: float | np.ndarray | None, offset: float | np.ndarray | None
+) -> bool:
+    """Whether this scale/offset pair leaves the values alone.
+
+    `None` means the attribute is unset, which is what GDAL answers for a band that was never
+    packed on the MEM and GTiff drivers. The identity pair `1.0` / `0.0` has to count too:
+    a driver that stores both slots once either is set (GTiff) reports the other one as
+    `1.0` or `0.0`, a file can declare the identity outright, and `Dataset.scale` /
+    `Dataset.offset` normalise an unset slot to `1.0` / `0`. Treating only `None` as
+    "nothing to do" would promote such a band to `float64` for no change in value, now that
+    unpacking is the default.
+
+    A `scale` of `0` or a non-finite one is treated as "nothing to do" as well. Neither is a
+    legal CF `scale_factor` -- one maps the whole band onto the offset, the other onto `NaN` --
+    and a malformed file used to be harmless because the default was raw. Now that unpacking
+    happens without being asked, honouring such a value would silently blank the data. Refusing
+    to apply it leaves the counts intact and visible.
+
+    Args:
+        scale: Multiplicative factor, or `None`.
+        offset: Additive offset, or `None`.
+
+    Returns:
+        bool: `True` when applying the pair would return the input unchanged. An array-valued
+            scale or offset counts only when every element is the identity.
+    """
+    factors = np.asarray(scale, dtype="float64") if scale is not None else None
+    unusable = factors is not None and not bool(
+        np.all(np.isfinite(factors)) and np.all(factors != 0)
+    )
+    unit = scale is None or unusable or bool(np.all(np.asarray(scale) == 1))
+    zero = offset is None or bool(np.all(np.asarray(offset) == 0))
+    return (unit and zero) or unusable
+
+
+def carry_packing(source: Any, target: Any) -> None:
+    """Copy each band's CF packing from one raster onto another, band by band.
+
+    The companion to reading with `unpack=False`. An operation that rebuilds a raster out of
+    the values it read -- a border trim, a seam join, a mask write -- is copying the *store*,
+    so it reads the stored counts and has to hand the recipe for reading them on. Losing the
+    recipe leaves counts that nothing identifies as counts, which is the same hundredfold
+    error as never unpacking at all, only now unfixable from the result.
+
+    The inverse case needs nothing: an operation that computes new values from the physical
+    ones (`apply`, a reduction) has spent the packing, and its result declares none.
+
+    Bands are matched by position over the shorter of the two rasters, so a rebuild that
+    dropped or added bands carries what it can rather than raising. A slot the source leaves
+    unset is not written, so an unpacked source leaves the target as it was. A target whose
+    driver cannot store packing (its `SetScale` / `SetOffset` raise `RuntimeError`) is not
+    an error either: every band is still tried, and the refusals are logged once at `DEBUG`
+    level. The values are intact either way, so the loss is left to the read that finds no
+    packing rather than failing the operation.
+
+    Args:
+        source: The `gdal.Dataset` the values were read from. `None` makes the call a no-op.
+        target: The `gdal.Dataset` they were written into, modified in place. `None` makes
+            the call a no-op.
+
+    Examples:
+        - Copy a band's scale and offset onto a freshly built raster:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.base._utils import carry_packing
+            >>> driver = gdal.GetDriverByName("MEM")
+            >>> src = driver.Create("", 2, 1, 1, gdal.GDT_Int16)
+            >>> src.GetRasterBand(1).SetScale(0.01)
+            0
+            >>> src.GetRasterBand(1).SetOffset(1.5)
+            0
+            >>> dst = driver.Create("", 2, 1, 1, gdal.GDT_Int16)
+            >>> carry_packing(src, dst)
+            >>> dst.GetRasterBand(1).GetScale(), dst.GetRasterBand(1).GetOffset()
+            (0.01, 1.5)
+
+            ```
+        - Bands pair by position, so a target with fewer bands takes the leading ones:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.base._utils import carry_packing
+            >>> driver = gdal.GetDriverByName("MEM")
+            >>> src = driver.Create("", 2, 1, 2, gdal.GDT_Int16)
+            >>> src.GetRasterBand(1).SetScale(0.5)
+            0
+            >>> src.GetRasterBand(2).SetScale(0.25)
+            0
+            >>> dst = driver.Create("", 2, 1, 1, gdal.GDT_Int16)
+            >>> carry_packing(src, dst)
+            >>> dst.RasterCount, dst.GetRasterBand(1).GetScale()
+            (1, 0.5)
+
+            ```
+        - An unpacked source writes nothing, so the target keeps its unset slots:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.base._utils import carry_packing
+            >>> driver = gdal.GetDriverByName("MEM")
+            >>> src = driver.Create("", 2, 1, 1, gdal.GDT_Int16)
+            >>> dst = driver.Create("", 2, 1, 1, gdal.GDT_Int16)
+            >>> carry_packing(src, dst)
+            >>> print(dst.GetRasterBand(1).GetScale(), dst.GetRasterBand(1).GetOffset())
+            None None
+
+            ```
+
+    See Also:
+        carry_band_packing: The one-band form, for a rebuild whose bands do not pair by
+            position.
+    """
+    if source is None or target is None:
+        return
+    refused = 0
+    for index in range(1, min(source.RasterCount, target.RasterCount) + 1):
+        if not carry_band_packing(
+            source.GetRasterBand(index), target.GetRasterBand(index)
+        ):
+            refused += 1
+    if refused:
+        # Every band is tried, and the report comes once. Stopping at the first
+        # refusal left bands 2..N with nothing while band 1 kept its recipe -- a
+        # partial carry, which is worse than none, because the result looks
+        # internally consistent and is wrong only on the bands nobody checked.
+        logger.debug(
+            "the destination driver stored no packing for %d of %d bands",
+            refused,
+            min(source.RasterCount, target.RasterCount),
+        )
+
+
+def write_packing(target: Any, scale: Any, offset: Any) -> bool:
+    """Write a `(scale, offset)` pair onto a band or MDArray, reporting a refusal.
+
+    The one place a recipe is written, shared by `carry_band_packing` (which reads the pair
+    off a source band) and by callers that have resolved the pair themselves -- through
+    `Dataset._effective_packing`, which a `NetCDF` variable answers from Python rather than
+    from its band. Taking the values rather than a band-shaped object is what lets both
+    reuse it. A slot given as `None` is left unset on the target.
+
+    Args:
+        target: A `gdal.Band` or `gdal.MDArray` -- anything with `SetScale` / `SetOffset`.
+        scale: The `scale_factor`, or `None`.
+        offset: The `add_offset`, or `None`.
+
+    Returns:
+        bool: `False` when the target refused -- its `SetScale` / `SetOffset` raised, or it
+            has neither -- so a caller can report the loss rather than stay silent.
+
+    Examples:
+        ```python
+        >>> from osgeo import gdal
+        >>> from pyramids.base._utils import write_packing
+        >>> band = gdal.GetDriverByName("MEM").Create("", 2, 1, 1, gdal.GDT_Int16)
+        >>> write_packing(band.GetRasterBand(1), 0.01, None)
+        True
+        >>> band.GetRasterBand(1).GetScale(), band.GetRasterBand(1).GetOffset()
+        (0.01, None)
+        >>> write_packing(object(), 0.01, 1.5)
+        False
+
+        ```
+    """
+    stored = True
+    try:
+        if scale is not None:
+            target.SetScale(scale)
+        if offset is not None:
+            target.SetOffset(offset)
+    except (RuntimeError, AttributeError):
+        stored = False
+    return stored
+
+
+def carry_band_packing(source_band: Any, target_band: Any) -> bool:
+    """Copy one band's CF packing onto another, for a rebuild that pairs bands by hand.
+
+    The band-at-a-time form of `carry_packing`, for a rebuild whose source and target bands
+    do not line up by position -- stacking N single-band files into one N-band raster, say.
+    Only the slots the source actually declares are written: a `None` scale or offset leaves
+    the target's slot untouched. Nothing is raised; a target that cannot store the packing
+    is reported through the return value instead.
+
+    Args:
+        source_band: What the values were read from -- a `gdal.Band`, or anything else
+            answering `GetScale` / `GetOffset`, which a `gdal.MDArray` does.
+        target_band: The `gdal.Band` they were written into, modified in place.
+
+    Returns:
+        bool: `True` when every declared slot was stored (or there was nothing to store).
+            `False` when the target refused -- its `SetScale` / `SetOffset` raised
+            `RuntimeError`, or it has no such methods -- so a caller looping over bands can
+            count the refusals and report them once rather than raise per band, which is
+            what `carry_packing` does.
+
+    Examples:
+        - Stack a packed single-band source into the second band of a new raster:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.base._utils import carry_band_packing
+            >>> driver = gdal.GetDriverByName("MEM")
+            >>> src = driver.Create("", 2, 1, 1, gdal.GDT_Int16)
+            >>> src.GetRasterBand(1).SetScale(0.01)
+            0
+            >>> stack = driver.Create("", 2, 1, 2, gdal.GDT_Int16)
+            >>> carry_band_packing(src.GetRasterBand(1), stack.GetRasterBand(2))
+            True
+            >>> print(stack.GetRasterBand(1).GetScale(), stack.GetRasterBand(2).GetScale())
+            None 0.01
+
+            ```
+        - A target that cannot take the packing answers `False` instead of raising:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.base._utils import carry_band_packing
+            >>> src = gdal.GetDriverByName("MEM").Create("", 2, 1, 1, gdal.GDT_Int16)
+            >>> src.GetRasterBand(1).SetOffset(273.15)
+            0
+            >>> carry_band_packing(src.GetRasterBand(1), None)
+            False
+
+            ```
+
+    See Also:
+        carry_packing: Carries every band of one raster onto another, paired by position.
+    """
+    return write_packing(target_band, source_band.GetScale(), source_band.GetOffset())
+
+
 def apply_unpack(
     arr: Any,
     scale: float | np.ndarray | None,
@@ -1589,40 +1821,73 @@ def apply_unpack(
 ) -> Any:
     """Apply a scale/offset unpacking transform to a lazy or eager array.
 
-    Computes ``arr * scale + offset`` as `float64`, the single shared primitive
-    behind both the NetCDF CF `scale_factor`/`add_offset` path and the raster
-    :meth:`~pyramids.dataset.engines.IO.read_array` ``scaled=True`` path. When
-    both ``scale`` and ``offset`` are `None` the array is returned unchanged (no
-    float promotion), so an unset band is a genuine no-op. ``scale``/``offset``
-    may be scalars or a broadcastable `numpy` array (e.g. a per-band
-    ``(bands, 1, 1)`` factor); a `dask` array input keeps the arithmetic lazy.
+    Computes `arr * scale + offset` as `float64`, the single shared primitive behind both
+    the NetCDF CF `scale_factor` / `add_offset` path and the raster
+    `IO.read_array(unpack=True)` path, which is the default. `scale` / `offset` may be
+    scalars or a broadcastable `numpy` array (e.g. a per-band `(bands, 1, 1)` factor); a
+    `dask` array input keeps the arithmetic lazy, and a masked array keeps its mask.
+
+    **The identity transform is a genuine no-op.** `None`, and also `scale == 1` with
+    `offset == 0`, return the array untouched -- same values, same dtype, no copy, no
+    `float64` promotion. That matters because unpacking is the default: nearly every raster
+    is unpacked, and GDAL answers either `None` or the identity `1.0` / `0.0` for it
+    depending on the driver, so both have to cost nothing. A `scale` of `0` or a non-finite
+    one is not a legal CF `scale_factor` and is also left unapplied, so a malformed file
+    shows its stored counts rather than a band blanked to the offset or to `NaN`.
 
     Args:
-        arr: The raw array (dask or numpy, possibly a masked array).
+        arr: The stored (packed) array -- dask or numpy, possibly a masked array.
         scale: Multiplicative factor, or `None` to skip scaling.
         offset: Additive offset, or `None` to skip offsetting.
 
     Returns:
-        The (possibly transformed) array, cast to `float64` when a
-        transformation was applied.
+        The unpacked array as `float64`, or `arr` itself when the pair is the identity or
+        the scale is unusable.
 
     Examples:
         - A band with neither scale nor offset is returned unchanged:
             ```python
             >>> import numpy as np
             >>> from pyramids.base._utils import apply_unpack
-            >>> apply_unpack(np.array([0, 1, 2]), None, None)
-            array([0, 1, 2])
+            >>> apply_unpack(np.array([0, 1, 2], dtype="int16"), None, None)
+            array([0, 1, 2], dtype=int16)
+
+            ```
+        - So is an explicit identity, which is what some drivers report for an unpacked band:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base._utils import apply_unpack
+            >>> apply_unpack(np.array([0, 1, 2], dtype="int16"), 1.0, 0.0).dtype
+            dtype('int16')
 
             ```
         - Scale and offset are applied as float64:
             ```python
+            >>> import numpy as np
+            >>> from pyramids.base._utils import apply_unpack
             >>> apply_unpack(np.array([0, 1, 2]), 0.1, 5.0)
             array([5. , 5.1, 5.2])
 
             ```
+        - A per-band factor broadcasts over an all-bands `(bands, rows, cols)` read:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base._utils import apply_unpack
+            >>> stack = np.array([[[10, 20]], [[10, 20]]], dtype="int16")
+            >>> apply_unpack(stack, np.array([1.0, 0.5]).reshape(-1, 1, 1), None).tolist()
+            [[[10.0, 20.0]], [[5.0, 10.0]]]
+
+            ```
+        - A zero scale is not applied, so the stored counts stay visible:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base._utils import apply_unpack
+            >>> apply_unpack(np.array([7, 8], dtype="int16"), 0.0, 5.0)
+            array([7, 8], dtype=int16)
+
+            ```
     """
-    if scale is None and offset is None:
+    if _is_identity_packing(scale, offset):
         result = arr
     else:
         result = arr.astype(np.float64)

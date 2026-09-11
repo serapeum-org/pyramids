@@ -44,7 +44,13 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from pyramids.base._errors import OverviewTargetError
-from pyramids.base._utils import import_dask, import_zarr, lazy_extra_hint
+from pyramids.base._utils import (
+    _is_identity_packing,
+    apply_unpack,
+    import_dask,
+    import_zarr,
+    lazy_extra_hint,
+)
 from pyramids.base.crs import sr_from_epsg
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset.ops._geobox_zarr import (
@@ -327,15 +333,24 @@ def _json_sentinel(value: float) -> float | int:
 def _metadata_dict(ds: Dataset) -> dict[str, Any]:
     """Return the standard CRS / GeoTransform geobox attr dict for the store.
 
+    The attributes describe the array that is actually written, not the source's
+    storage. `write_dataset_to_zarr` writes the physical values `read_array`
+    returns, and this metadata has no `scale_factor` / `add_offset`, so a source
+    with any CF-packed band is recorded materialised: `dtype` is `float64` and
+    every band's no-data is its sentinel in physical units
+    (`Analysis._physical_no_data`), the number the written gaps really hold. An
+    unpacked source is described as it is stored.
+
     Args:
         ds: The dataset about to be serialised, read for its CRS, geotransform,
-            per-band no-data, band names, dtype and shape.
+            per-band no-data, packing, band names, dtype and shape.
 
     Returns:
         dict[str, Any]: The attributes to stamp on the store's root group and
             on its `data` array. `spatial_ref`, `GeoTransform` and `epsg` place
-            the raster; `band_names`, `dtype` and `shape` describe it; and the
-            no-data appears in up to two spellings. `no_data_value` is always
+            the raster; `band_names`, `dtype` (the written one) and `shape`
+            describe it; and the no-data appears in up to two spellings, in the
+            units of the written values. `no_data_value` is always
             present and always the full per-band list — pyramids' own key, and
             what `from_zarr` reads back. `_FillValue` is the CF / GeoZarr key,
             read by xarray and other CF-aware readers, and it is also what
@@ -382,6 +397,23 @@ def _metadata_dict(ds: Dataset) -> dict[str, Any]:
             False
 
             ```
+        - A packed source is described as the physical `float64` array written for
+          it, its sentinel in the same units:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base.georeference import GeoReference
+            >>> from pyramids.dataset import Dataset
+            >>> from pyramids.dataset.ops._zarr import _metadata_dict
+            >>> geo_ref = GeoReference(top_left_corner=(0, 0), cell_size=0.1, epsg=4326)
+            >>> packed = Dataset.from_array(
+            ...     np.array([[100, -9999]], dtype="int16"), geo_ref=geo_ref, no_data_value=-9999
+            ... )
+            >>> packed.scale = [0.5]
+            >>> meta = _metadata_dict(packed)
+            >>> meta["dtype"], meta["no_data_value"], meta["_FillValue"]
+            ('float64', [-4999.5], -4999.5)
+
+            ```
     """
     # A geostationary (and other no-EPSG) CRS has `.epsg is None`; carry it
     # through the WKT `spatial_ref` and record epsg 0 (the geobox convention for
@@ -390,7 +422,22 @@ def _metadata_dict(ds: Dataset) -> dict[str, Any]:
     # For an EPSG-coded dataset, emit the canonical EPSG WKT (derived from the code); a no-EPSG CRS
     # (e.g. geostationary) carries its own `.crs` WKT so its `spatial_ref` is preserved.
     crs_wkt = sr_from_epsg(epsg_code).ExportToWkt() if ds.epsg else (ds.crs or "")
-    nodata_tuple = ds.no_data_value
+    # Describe what is actually written, not what the source stores. `to_zarr` writes
+    # the physical values `read_array` returns, and pyramids' Zarr metadata has no
+    # channel for `scale_factor` / `add_offset` -- so a packed source is materialised
+    # (rule 2): its sentinel and its dtype are the ones the array really holds. Recording
+    # the stored `-9999` over an array whose gaps hold `-98.49` made the gap read back
+    # as data, and recording `int16` over a `float64` array misdescribed every value.
+    packed = any(
+        not _is_identity_packing(*ds._effective_packing(index))
+        for index in range(ds.band_count)
+    )
+    nodata_tuple = (
+        tuple(ds.analysis._physical_no_data(index) for index in range(ds.band_count))
+        if packed
+        else ds.no_data_value
+    )
+    written_dtype = np.dtype("float64") if packed else np.dtype(ds.numpy_dtype[0])
     # Written the way JSON can hold it exactly: `float` for everything it can
     # represent, an `int` only where it would round. A plain `float()` here cost
     # an int64 sentinel above 2**53 its last digit, and since this value is also
@@ -415,10 +462,10 @@ def _metadata_dict(ds: Dataset) -> dict[str, Any]:
         "epsg": epsg_code,
         "no_data_value": no_data_list,
         "band_names": list(ds.band_names) if ds.band_names else [],
-        "dtype": str(np.dtype(ds.numpy_dtype[0])),
+        "dtype": str(written_dtype),
         "shape": [int(ds.band_count), int(ds.rows), int(ds.columns)],
     }
-    if agreed is not None and _representable(agreed, ds.numpy_dtype[0]):
+    if agreed is not None and _representable(agreed, written_dtype):
         metadata["_FillValue"] = agreed
     return metadata
 
@@ -471,6 +518,12 @@ def write_dataset_to_zarr(
     and the attribute write are bundled into a single
     :class:`dask.delayed.Delayed` so calling `.compute()` finalizes
     everything atomically.
+
+    The `data` array is read with `ds.read_array(chunks=...)`, so it holds
+    physical values: a CF-packed band is unpacked. The store has no channel for
+    `scale_factor` / `add_offset`, so such a source is written materialised --
+    `float64` values, and a no-data (`no_data_value`, `_FillValue` and the
+    array's `fill_value`) in the same physical units; see :func:`_metadata_dict`.
 
     Args:
         ds: Source :class:`~pyramids.dataset.Dataset`.
@@ -614,9 +667,22 @@ def _write_overview_levels(
         }
     ]
     for ov_index, factor in enumerate(factors):
+        # Each level in the units the base array is in. GDAL builds the overviews from
+        # the stored counts, so a packed band's levels come back as counts, while `data`
+        # and the metadata beside it describe physical `float64`: a level read back
+        # `[45, 65, 85]` where `data` read `[0, 5, 10]`, and the physical fill was cast
+        # into the counts' integer type. CF packing is affine, so unpacking the averaged
+        # counts equals averaging the physical values.
         levels = [
             np.asarray(
-                ds.raster.GetRasterBand(b + 1).GetOverview(ov_index).ReadAsArray()
+                apply_unpack(
+                    np.asarray(
+                        ds.raster.GetRasterBand(b + 1)
+                        .GetOverview(ov_index)
+                        .ReadAsArray()
+                    ),
+                    *ds._effective_packing(b),
+                )
             )
             for b in range(band_count)
         ]

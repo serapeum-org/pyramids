@@ -2079,7 +2079,12 @@ class Bands(_Engine["Dataset"]):
         """
         dst_band = new_dataset.raster.GetRasterBand(band + 1)
         for xoff, yoff, xsize, ysize in self._ds.io._tile_offsets():
-            tile = self._ds.read_array(band=band, window=[xoff, yoff, xsize, ysize])
+            # `unpack=False`: the sentinel being located and the one written in its
+            # place are both stored values, and the destination band holds the stored
+            # dtype -- a physical read would match nothing and truncate on write.
+            tile = self._ds.read_array(
+                band=band, window=[xoff, yoff, xsize, ysize], unpack=False
+            )
             mask = is_no_data(tile, band_old_value)
             try:
                 with np.errstate(invalid="raise"):

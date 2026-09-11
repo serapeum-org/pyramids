@@ -54,7 +54,7 @@ from osgeo import osr
 from pandas import DataFrame
 
 from pyramids.base._errors import AlignmentError, _PyramidsError
-from pyramids.base._utils import DEFAULT_RESAMPLING
+from pyramids.base._utils import DEFAULT_RESAMPLING, carry_packing
 from pyramids.base.crs import crs_spec, sr_from_user_input, sr_from_wkt
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
@@ -384,7 +384,9 @@ def _cmd_georeference(args: argparse.Namespace) -> int:
     # Reconstruct in a writable MEM dataset so attaching GCPs does not mutate the
     # input file; the source geotransform is irrelevant — GCPs replace it.
     working = Dataset.from_array(
-        source.read_array(),
+        # `unpack=False`: this rebuild exists only to attach GCPs, so it copies the
+        # store -- and it carries the source's no-data, which is a stored value.
+        source.read_array(unpack=False),
         # The epsg here is a scratch placeholder, not a claim about the data, and
         # deliberately unlike `calc` (which refuses a CRS-less input): set_gcps
         # replaces the georeference wholesale with the GCPs and --gcp-crs below,
@@ -397,6 +399,7 @@ def _cmd_georeference(args: argparse.Namespace) -> int:
         ),
         no_data_value=source.no_data_value,
     )
+    carry_packing(source.raster, working.raster)
     working.set_gcps(points, args.gcp_crs)
     out = working.georeference(
         to_epsg=args.to_crs,

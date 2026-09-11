@@ -26,6 +26,7 @@ import geopandas as gpd
 import numpy as np
 from shapely import box, contains_xy
 
+from pyramids.base._utils import carry_band_packing
 from pyramids.base.crs import crs_equal, crs_spec, sr_from_epsg, sr_from_user_input
 from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
 from pyramids.dataset.engines._base import _Engine
@@ -671,6 +672,15 @@ class Selection(_Engine["NetCDF"]):
         # from_array returns a root container; hand back the variable subset, carrying the
         # windowed 2-D coordinates so the result stays curvilinear (plots on its real geometry).
         result = container._require_raster_variable(var_name)
+        # The window holds stored counts (`_read_curvilinear_window` asks for them),
+        # so the rebuilt variable has to declare what turns them back into
+        # measurements, exactly as the affine crop path does.
+        result._scale = nc._scale
+        result._offset = nc._offset
+        for index in range(1, result.raster.RasterCount + 1):
+            carry_band_packing(
+                nc.raster.GetRasterBand(1), result.raster.GetRasterBand(index)
+            )
         result._curvilinear_coords = (lon_win, lat_win)
         return result
 
@@ -860,69 +870,72 @@ class Selection(_Engine["NetCDF"]):
         x_dim: str | None = None,
         **dims: int | tuple[int, int] | slice,
     ) -> NetCDF:
-        """Read a windowed ``(variable, time, bbox)`` slice of a gridded cube.
+        """Read a windowed `(variable, time, bbox)` slice of a gridded cube.
 
-        Reads only the requested window from a CF/GeoZarr ``(time, y, x[, …])``
+        Reads only the requested window from a CF/GeoZarr `(time, y, x[, …])`
         multidimensional store — local or remote — without materialising the
         whole variable, and returns a georeferenced single-variable
-        :class:`~pyramids.netcdf.NetCDF` ready for ``to_file`` / ``to_cog`` /
-        ``to_crs`` / ``crop`` (a ``Dataset`` subclass, so existing
-        ``isinstance(result, Dataset)`` checks keep working).
+        :class:`~pyramids.netcdf.NetCDF` ready for `to_file` / `to_cog` /
+        `to_crs` / `crop` (a `Dataset` subclass, so existing
+        `isinstance(result, Dataset)` checks keep working).
 
         Designed for huge cloud cubes (e.g. the NWM retrospective
-        ``ldasout.zarr``, an 18 TiB ``(128568, 3840, 4608)`` store) opened
+        `ldasout.zarr`, an 18 TiB `(128568, 3840, 4608)` store) opened
         anonymously via :class:`~pyramids.base.remote.CloudConfig`; only the
         sliced cells are fetched. The output CRS is the variable's own grid
         mapping (read from the multidimensional array), so a Lambert Conformal
         Conic store stays on its native grid.
 
         Args:
-            variable: Data-variable name in the store (e.g. ``"ACCET"``).
-            time: Timestep selector along the time dimension. An ``int`` picks
-                one step (one output band); a ``(start, stop)`` tuple or
-                ``slice`` picks a half-open index range (one band per step);
-                ``None`` is allowed only when the time dimension has length 1.
+            variable: Data-variable name in the store (e.g. `"ACCET"`).
+            time: Timestep selector along the time dimension. An `int` picks
+                one step (one output band); a `(start, stop)` tuple or
+                `slice` picks a half-open index range (one band per step);
+                `None` is allowed only when the time dimension has length 1.
                 Selection is by **integer index** — date/label selection needs
-                the store to expose CF time ``units``, which many Zarr stores do
+                the store to expose CF time `units`, which many Zarr stores do
                 not surface through GDAL, so use indices for those.
-            bbox: ``(min_x, min_y, max_x, max_y)`` crop window in ``crs``.
-                ``None`` keeps the full grid. The box is reprojected onto the
+            bbox: `(min_x, min_y, max_x, max_y)` crop window in `crs`.
+                `None` keeps the full grid. The box is reprojected onto the
                 store's native grid (so a lon/lat box over a projected grid is
                 handled) honouring the variable's grid mapping.
-            crs: CRS of ``bbox`` — EPSG int, ``"EPSG:4326"``, or a WKT/PROJ
-                string. Defaults to ``4326`` (lon/lat). Ignored when ``bbox`` is
-                ``None``.
+            crs: CRS of `bbox` — EPSG int, `"EPSG:4326"`, or a WKT/PROJ
+                string. Defaults to `4326` (lon/lat). Ignored when `bbox` is
+                `None`.
             densify: Points per bbox edge used when reprojecting the box onto a
                 projected grid, so the envelope encloses the curved boundary
-                (conservative over-cover). Defaults to ``25``.
-            y_dim: Name of the ``y`` (row) dimension. Defaults to ``None`` —
-                auto-detected from CF axis / ``standard_name`` / ``units``
-                attributes, then well-known names (``y``/``lat``/…), then the
-                trailing two dims. Pass it (with ``x_dim``) to override when the
+                (conservative over-cover). Defaults to `25`.
+            y_dim: Name of the `y` (row) dimension. Defaults to `None` —
+                auto-detected from CF axis / `standard_name` / `units`
+                attributes, then well-known names (`y`/`lat`/…), then the
+                trailing two dims. Pass it (with `x_dim`) to override when the
                 spatial axes can't be inferred.
-            x_dim: Name of the ``x`` (column) dimension. ``None`` auto-detects as
-                for ``y_dim``. Pass both ``y_dim`` and ``x_dim`` together.
+            x_dim: Name of the `x` (column) dimension. `None` auto-detects as
+                for `y_dim`. Pass both `y_dim` and `x_dim` together.
             **dims: Index selector for any extra non-spatial dimension (e.g.
-                ``vis_nir=0``, ``soil_layers_stag=2``). Required for every such
+                `vis_nir=0`, `soil_layers_stag=2`). Required for every such
                 dimension whose length is > 1, **including a layer dim
-                interleaved between ``y`` and ``x``** (e.g. NWM ``SOIL_M`` is
-                ``(time, y, soil_layers_stag, x)`` — pass ``soil_layers_stag=0``).
+                interleaved between `y` and `x`** (e.g. NWM `SOIL_M` is
+                `(time, y, soil_layers_stag, x)` — pass `soil_layers_stag=0`).
                 A key that is not a selectable non-spatial dimension is an error.
 
         Returns:
             NetCDF: A georeferenced single-variable raster on the store's native CRS —
             one band per selected timestep, with the native no-data value applied.
+            The window holds the stored values and the variable's CF packing
+            (`scale_factor` / `add_offset`) is carried onto every band, so a default
+            `read_array` of the result answers in physical units.
 
         Raises:
-            ValueError: When the store is not multidimensional; when ``variable``
+            ValueError: When the store is not multidimensional; when `variable`
                 is absent or has fewer than two dimensions; when a spatial axis
                 has no 1-D coordinate variable; when a non-spatial dimension of
-                length > 1 is not selected, or a ``**dims`` key / index is
+                length > 1 is not selected, or a `**dims` key / index is
                 invalid; or when the bbox selects no cells.
 
         Note:
-            For a purely 2-D ``(y, x)`` variable there is no non-spatial axis, so
-            ``time`` and ``**dims`` are no-ops (the whole grid, optionally bbox-
+            For a purely 2-D `(y, x)` variable there is no non-spatial axis, so
+            `time` and `**dims` are no-ops (the whole grid, optionally bbox-
             cropped, is returned as one band).
 
         Examples:
@@ -1034,6 +1047,11 @@ class Selection(_Engine["NetCDF"]):
             no_data_value=no_data if no_data is not None else DEFAULT_NO_DATA_VALUE,
             geo_ref=GeoReference(geo=geo, epsg=4326),
         )
+        # `ReadAsArray` on an MDArray answers in stored counts, and `from_array`
+        # declares no packing, so without this the windowed shortcut returned raw
+        # values where the full-read path it stands in for returns physical ones.
+        for index in range(1, ds.raster.RasterCount + 1):
+            carry_band_packing(md_arr, ds.raster.GetRasterBand(index))
         # API-2: return a NetCDF (consistent with crop / to_crs / resample / sel) rather
         # than a bare Dataset. Wrap the just-built classic raster as a classic-backed
         # NetCDF and transfer ownership (clear ds._raster so the discarded Dataset does
@@ -1308,13 +1326,21 @@ def _read_curvilinear_window(
     is flattened to ``(bands, rows, cols)``; otherwise GDAL reads just the
     ``(c0, r0)``–``(c1, r1)`` block eagerly. Helper of
     :meth:`Selection._crop_curvilinear`.
+
+    Reads with ``unpack=False``. The caller stamps the variable's **stored** no-data
+    sentinel into the cells outside the cutline and rebuilds the variable around the
+    result, carrying the packing with it — a copy of the store, so it moves counts.
+    A physical read would put ``-98.49``-shaped values next to a ``-9999`` fill and
+    declare the recipe over both.
     """
     if chunks is not None:
-        lazy = nc.read_array(chunks=chunks)
+        lazy = nc.read_array(chunks=chunks, unpack=False)
         if lazy.ndim > 2:
             lazy = lazy.reshape(-1, *lazy.shape[-2:])
         return np.array(cast("Any", lazy[..., r0:r1, c0:c1]).compute(), copy=True)
-    return np.array(nc.read_array(window=[c0, r0, c1 - c0, r1 - r0]), copy=True)
+    return np.array(
+        nc.read_array(window=[c0, r0, c1 - c0, r1 - r0], unpack=False), copy=True
+    )
 
 
 def _resolve_dim_indices(coords: list, selector: Any) -> list[int]:

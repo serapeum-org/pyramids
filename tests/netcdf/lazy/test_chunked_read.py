@@ -392,15 +392,21 @@ class TestLazyOrientationMatchesEager:
             path used to decide it from the view's raw geotransform. For a geostationary granule,
             whose `y` is packed with a negative `scale_factor`, the two disagreed and the chunked
             read came back vertically mirrored — #705, still live on the lazy path.
+
+            Read with `unpack=False` on both pyramids paths: the classic driver answers in
+            stored counts, and the subject is orientation. Asking the two paths for the same
+            thing also keeps them comparable with `assert_array_equal` rather than a tolerance.
         """
         classic = self._first_plane(
             gdal.Open(f'NETCDF:"{path}":{variable}').ReadAsArray()
         )
         eager = self._first_plane(
-            NetCDF.read_file(path).get_variable(variable).read_array()
+            NetCDF.read_file(path).get_variable(variable).read_array(unpack=False)
         )
         lazy = self._first_plane(
-            NetCDF.read_file(path).get_variable(variable).read_array(chunks="auto")
+            NetCDF.read_file(path)
+            .get_variable(variable)
+            .read_array(chunks="auto", unpack=False)
         )
         np.testing.assert_array_equal(
             eager,
@@ -414,10 +420,16 @@ class TestLazyOrientationMatchesEager:
         )
 
     def test_read_variable_matches_eager(self):
-        """`_read_variable` shares the orientation rule with `get_variable().read_array()`."""
+        """`_read_variable` shares the orientation rule with `get_variable().read_array()`.
+
+        `_read_variable` is the low-level MDArray reader and answers in stored counts, so the
+        comparison asks `read_array` for the same.
+        """
         path, variable = ORIENTATION_FIXTURES[0][0], ORIENTATION_FIXTURES[0][1]
         container = NetCDF.read_file(path)
-        eager = self._first_plane(container.get_variable(variable).read_array())
+        eager = self._first_plane(
+            container.get_variable(variable).read_array(unpack=False)
+        )
         direct = self._first_plane(container._read_variable(variable))
         np.testing.assert_array_equal(
             direct, eager, err_msg="_read_variable is mirrored relative to get_variable"

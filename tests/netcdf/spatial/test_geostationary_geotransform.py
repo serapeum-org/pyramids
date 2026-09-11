@@ -127,7 +127,9 @@ class TestGeostationaryGeotransform:
     def test_read_array_after_materialize(self, goes_cube: NetCDF):
         # the materialized (root-group-less) cube must still read its pixels, and they must be
         # the classic driver's pixels -- not a vertically mirrored copy of them (#705).
-        arr = goes_cube.read_array()
+        # `unpack=False`: the classic driver answers in stored counts, and what is under test
+        # is which pixel sits where, not what it means.
+        arr = goes_cube.read_array(unpack=False)
         assert arr.shape == (goes_cube.rows, goes_cube.columns)
         classic = np.asarray(gdal.Open(f"NETCDF:{GOES16_FIXTURE}:CMI").ReadAsArray())
         np.testing.assert_array_equal(np.asarray(arr), classic)

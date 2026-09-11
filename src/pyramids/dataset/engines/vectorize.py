@@ -236,6 +236,10 @@ class Vectorize(_Engine["Dataset"]):
 
                 - If point is chosen, the created point will be at the center of each cell
                 - If a polygon is chosen, a square polygon will be created that covers the entire cell.
+            - The values are physical, as `read_array` returns them: a CF-packed band (`scale_factor` /
+                `add_offset`) is unpacked. A row holding band 0's no-data sentinel is dropped, matched in those
+                same physical units (`-9999` at `scale=0.01` as `-99.99`), identically on the tiled and the
+                whole-array path.
 
         Args:
             mask (GeoDataFrame, optional):
@@ -378,6 +382,24 @@ class Vectorize(_Engine["Dataset"]):
 
                   ```
 
+            - A CF-packed band gives physical values, and its gap is dropped on both paths:
+
+                  ```python
+                  >>> import numpy as np
+                  >>> from pyramids.dataset import Dataset, GeoReference
+                  >>> packed = Dataset.from_array(
+                  ...     np.array([[100, -9999], [300, 400]], dtype="int16"),
+                  ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+                  ...     no_data_value=-9999,
+                  ... )
+                  >>> packed.scale = [0.01]
+                  >>> packed.to_feature_collection()["Band_1"].tolist()
+                  [1.0, 3.0, 4.0]
+                  >>> packed.to_feature_collection(tile=True, tile_size=1)["Band_1"].tolist()
+                  [1.0, 3.0, 4.0]
+
+                  ```
+
         """
         band_names = self._ds.band_names
 
@@ -424,14 +446,19 @@ class Vectorize(_Engine["Dataset"]):
         `tile=True` with `add_geometry` silently mismatched values and geometry
         on any raster spanning more than one tile.
 
+        The tiles come from `get_tile`, in physical units, so the no-data rows are
+        dropped by band 0's sentinel in those units (`Analysis._physical_no_data`).
+
         Args:
             band_names (list): Band names for the DataFrame columns.
             tile_size (int): Tile size in pixels.
 
         Returns:
-            pd.DataFrame: Concatenated DataFrame from all tiles.
+            pd.DataFrame: Concatenated DataFrame from all tiles, no-data rows removed.
         """
-        no_data_value = self._ds.no_data_value[0]
+        # The sentinel in the units the tiles are in: `get_tile` yields physical
+        # values, so the stored `-9999` matched nothing and the gap became a row.
+        no_data_value = self._ds.analysis._physical_no_data(0)
         columns = self._ds.columns
         df_list = []
         offsets = self._ds.io._tile_offsets(tile_size)
@@ -466,6 +493,10 @@ class Vectorize(_Engine["Dataset"]):
     def _extract_values_full(self, band_names: list) -> pd.DataFrame:
         """Extract all raster band values into a DataFrame (no tiling).
 
+        The values come from `read_array`, in physical units, so the no-data rows are
+        dropped by band 0's sentinel in those units (`Analysis._physical_no_data`) --
+        the same rule `_extract_values_tiled` applies.
+
         Args:
             band_names (list): Band names for the DataFrame columns.
 
@@ -483,8 +514,12 @@ class Vectorize(_Engine["Dataset"]):
                 .transpose()
             )
         df = pd.DataFrame(pixels, columns=band_names)
-        if self._ds.no_data_value[0] is not None:
-            df.replace(self._ds.no_data_value[0], np.nan, inplace=True)
+        # The sentinel in the units `arr` is in. `read_array` answers physically, so on a
+        # packed band the stored `-9999` appears as `-98.49` and replacing the stored
+        # value dropped nothing -- every gap became a row of data.
+        sentinel = self._ds.analysis._physical_no_data(0)
+        if sentinel is not None:
+            df.replace(sentinel, np.nan, inplace=True)
         df.dropna(axis=0, inplace=True, ignore_index=True)
         return df
 
@@ -514,7 +549,7 @@ class Vectorize(_Engine["Dataset"]):
         return gdf
 
     def translate(self, path: str | Path | None = None, **kwargs) -> Dataset:
-        """Convert, subset, resample, or rescale the raster via ``gdal.Translate``.
+        """Convert, subset, resample, or rescale the raster via `gdal.Translate`.
 
         The translate function can be used to
         - Convert Between Formats: Convert a raster from one format to another (e.g., from GeoTIFF to JPEG).
@@ -579,7 +614,7 @@ class Vectorize(_Engine["Dataset"]):
 
         Returns:
             Dataset:
-                The translated dataset (in memory when ``path`` is None).
+                The translated dataset (in memory when `path` is None).
 
         Raises:
             DriverNotExistError: `path` has no extension, or one the driver catalog does not know.
@@ -587,7 +622,9 @@ class Vectorize(_Engine["Dataset"]):
         Examples:
         Scale & offset:
             - the translate function can be used to get rid of the scale and offset that are used to manipulate the
-            dataset, to get the real values of the dataset.
+            dataset, to get the real values of the dataset. `read_array` already returns those real values by
+            default; `translate(unscale=True)` bakes them into a new dataset that stores them and declares no
+            scale or offset.
 
             Scale:
                 - First we will create a dataset from a float32 array with values between 1 and 10, and then we will
@@ -653,10 +690,10 @@ class Vectorize(_Engine["Dataset"]):
                      [0.2 0.5 0.2 0.2 0.9]]
 
             offset:
-                - You can also unshift the values of the dataset if the dataset has an offset. To remove the offset
-                    from all values in the dataset, you can read the values using the `read_array` and then add the
-                    offset value to the array. we will create a dataset from the same array we created above (values
-                    are between 1, and 10) with an offset of 100.
+                - You can also unshift the values of the dataset if the dataset has an offset: `translate(unscale=True)`
+                    adds the offset to every stored value, which is what `read_array` already returns by default
+                    (`read_array(unpack=False)` gives the stored values). we will create a dataset from the same array
+                    we created above (values are between 1, and 10) with an offset of 100.
 
                     >>> dataset = Dataset.from_array(
                     ...     arr,

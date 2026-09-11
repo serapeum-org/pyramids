@@ -32,6 +32,7 @@ from pyramids.base._utils import (
     # has to keep resolving for callers that already do it.
     DTYPE_CONVERSION_DF,  # noqa: F401
     RGB_CHANNEL_INTERPS,
+    carry_band_packing,
     gdal_dtype_name,
     gdal_to_numpy_type,
     numpy_to_gdal_dtype,
@@ -1276,6 +1277,77 @@ class Dataset(RasterBase):
             opts.get("percentile"),
         )
 
+    def _spend_packing(self) -> None:
+        """Forget the packing once a compute has replaced the values with physical ones.
+
+        Called after an in-place compute (`apply(inplace=True)`, `fill(inplace=True)`),
+        once `_update_inplace` has swapped the computed raster in. That raster holds
+        physical values and declares no packing on its bands, so for a plain `Dataset`
+        there is nothing left to forget and this does nothing. `NetCDF` overrides it,
+        because a variable also carries the recipe in Python -- which `_update_inplace`
+        preserves -- and `_effective_packing` would otherwise apply it to the
+        already-physical values on the next read.
+        """
+
+    def _effective_packing(self, band: int = 0) -> tuple[Any, Any]:
+        """The `(scale, offset)` a read of `band` applies, as this class resolves it.
+
+        The resolver every path that applies packing shares -- `read_array` and the reads
+        built on it (`point`, `read_part`, `preview`, `get_tile`, the overview reads),
+        `stats`, `get_histogram`, `plot_histogram`, the domain reads behind `apply` and
+        `combine`, `stream_transform`, `map_blocks`, `zonal_stats`, the sentinel
+        conversion in `Analysis._physical_no_data`, and the writers that carry or spend
+        the recipe (`to_zarr`, `DatasetCollection.to_netcdf`, `NetCDF.set_variable`) --
+        so they cannot resolve it differently and report the same band in different
+        units. For a plain raster the band's own `GetScale` / `GetOffset` are the whole
+        story; `NetCDF` overrides this because a variable can also carry the pair in
+        Python, and the two can disagree. The public `scale` / `offset` properties are
+        not this: they report the band's slots, normalised.
+
+        Args:
+            band: Zero-based band index. Defaults to `0`.
+
+        Returns:
+            tuple: `(scale, offset)` as GDAL answers them. Either may be `None` for
+                "unset" -- unlike the normalising `scale` / `offset` properties, which
+                report `1.0` / `0` -- and both are `None` when no raster is open.
+
+        Examples:
+            - An unpacked band answers `None` for both slots, where `scale` says `1.0`:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> ds = Dataset.from_array(
+                ...     np.array([[100, 200]], dtype="int16"),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+                ... )
+                >>> ds._effective_packing(0), ds.scale
+                ((None, None), [1.0])
+
+                ```
+            - A packed band answers the pair the default read applies:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> ds = Dataset.from_array(
+                ...     np.array([[100, 200]], dtype="int16"),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+                ... )
+                >>> ds.scale = [0.01]
+                >>> ds.offset = [1.5]
+                >>> ds._effective_packing(0)
+                (0.01, 1.5)
+                >>> ds.read_array().tolist()
+                [[2.5, 3.5]]
+
+                ```
+        """
+        raster = self._raster
+        if raster is None:
+            return None, None
+        gdal_band = raster.GetRasterBand(band + 1)
+        return gdal_band.GetScale(), gdal_band.GetOffset()
+
     def crop(self, *args, **kwargs):
         """Facade — delegates to :meth:`Spatial.crop <pyramids.dataset.engines.Spatial.crop>`."""
         return self.spatial.crop(*args, **kwargs)
@@ -1866,7 +1938,9 @@ class Dataset(RasterBase):
 
         Thin forwarder to
         :func:`pyramids.dataset.ops._zonal.zonal_stats`; see that
-        function for the full argument contract.
+        function for the full argument contract. The statistics are in
+        physical units (a CF-packed band is unpacked), and the band's
+        no-data cells, found in its stored values, are left out.
 
         Args:
             fc: A :class:`pyramids.feature.FeatureCollection` of
@@ -1902,7 +1976,15 @@ class Dataset(RasterBase):
         that function for the full argument contract. Zarr is the
         only raster output format where pyramids can write in true
         parallel — each dask chunk becomes an independent Zarr chunk
-        file. Requires the `[lazy]` optional extra.
+        file. Requires the `[lazy]` optional extra, and a dataset backed
+        by a file the chunk reader can reopen.
+
+        The values written are the physical ones `read_array` returns, and
+        pyramids' Zarr metadata has no `scale_factor` / `add_offset`, so a
+        CF-packed source is written materialised: the store's `data` array
+        holds `float64` values, its `dtype` attribute says so, and its no-data
+        is the sentinel in physical units (`-9999` at `scale=0.5` is recorded
+        as `-4999.5`). Read back, it declares no packing.
 
         Args:
             store: Target store (path / fsspec URL / zarr.Store).
@@ -1923,6 +2005,10 @@ class Dataset(RasterBase):
             overview_resampling: GDAL resampling for the pyramid levels
                 (`"average"` default, `"nearest"`, `"bilinear"`, ...).
 
+        Returns:
+            `None` when `compute=True`; a :class:`dask.delayed.Delayed` that
+            performs the write when `compute=False`.
+
         Raises:
             OverviewTargetError: `overview_factors` was given and this dataset cannot
                 hold overviews — a plain VRT whose description is not a path: an empty
@@ -1935,6 +2021,32 @@ class Dataset(RasterBase):
                 from the saved raster.
             ValueError: `overview_factors` was given with `compute=False`; the pyramid
                 levels are written eagerly.
+
+        Examples:
+            - A packed raster is stored as its physical values, with the sentinel in the
+              same units, and reads back declaring no packing:
+                ```python
+                >>> import os, tempfile
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> folder = tempfile.mkdtemp()
+                >>> source = Dataset.from_array(
+                ...     np.array([[100, -9999], [300, 400]], dtype="int16"),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+                ...     no_data_value=-9999,
+                ...     path=os.path.join(folder, "packed.tif"),
+                ... )
+                >>> source.scale = [0.5]
+                >>> source.close()
+                >>> packed = Dataset.read_file(os.path.join(folder, "packed.tif"))
+                >>> packed.to_zarr(os.path.join(folder, "packed.zarr"))
+                >>> store = Dataset.from_zarr(os.path.join(folder, "packed.zarr"))
+                >>> store.read_array().tolist(), store.dtype, store.scale
+                ([[50.0, -4999.5], [150.0, 200.0]], ['float64'], [1.0])
+                >>> float(store.no_data_value[0])
+                -4999.5
+
+                ```
         """
         resolved_chunks = chunks if chunks is not None else "auto"
         return write_dataset_to_zarr(
@@ -2421,10 +2533,16 @@ class Dataset(RasterBase):
         """Convert band values to ``target`` units, returning a new Dataset.
 
         Unlike the :attr:`band_units` setter — which only relabels bands — this
-        actually transforms the stored values using a small affine conversion table
+        actually transforms the values using a small affine conversion table
         (see :func:`pyramids.dataset.ops.units.convert_array`) and records the new
-        unit on the result. No-data cells are preserved unchanged. The output is a
-        new in-memory ``float64`` Dataset; the source is left untouched.
+        unit on the result. The output is a new in-memory `float64` Dataset; the
+        source is left untouched.
+
+        The values converted are the physical ones `read_array` returns, so a
+        CF-packed band (`scale_factor` / `add_offset`) is unpacked first and the
+        result, holding computed values, declares no packing. No-data cells are
+        found in the stored values, where the sentinel lives, and keep the declared
+        `no_data_value` unchanged rather than being converted as if they were data.
 
         Args:
             target: Target unit label (e.g. ``"celsius"``, ``"hPa"``, ``"knots"``).
@@ -2480,6 +2598,25 @@ class Dataset(RasterBase):
                 True
 
                 ```
+            - A packed band is converted from its physical values, and its gap keeps
+              the sentinel:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> packed = Dataset.from_array(
+                ...     np.array([[10, -9999]], dtype="int16"),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+                ...     no_data_value=-9999,
+                ... )
+                >>> packed.offset = [273.15]
+                >>> packed.band_units = ["K"]
+                >>> converted = packed.convert_units("celsius")
+                >>> [round(value, 6) for value in converted.read_array().ravel().tolist()]
+                [10.0, -9999.0]
+                >>> converted.scale, converted.offset
+                ([1.0], [0])
+
+                ```
         """
         warnings.warn(
             "Dataset.convert_units is deprecated and will be removed: physical "
@@ -2499,8 +2636,14 @@ class Dataset(RasterBase):
         new_units = list(self.band_units)
 
         full = self.read_array()
+        # The gaps are found in the stored counts, where the sentinel lives; the values
+        # converted are the physical ones. Comparing the physical read against the
+        # stored `-9999` matched nothing, so a packed band's gap was converted as if it
+        # were a temperature (-98.49 K came out -371.64 degC) under a declared -9999.
+        stored = np.asarray(self.read_array(unpack=False))
         single_band = self.band_count == 1
         stack = full[np.newaxis, ...] if single_band else full
+        stored_stack = stored[np.newaxis, ...] if single_band else stored
         # astype(copy=True by default) already returns a fresh writable array;
         # the trailing .copy() was a redundant second full-cube copy.
         out = stack.astype("float64")
@@ -2509,7 +2652,11 @@ class Dataset(RasterBase):
         for index in band_indices:
             layer = out[index]
             nodata_value = no_data[index]
-            mask = layer == nodata_value if nodata_value is not None else None
+            mask = (
+                stored_stack[index] == nodata_value
+                if nodata_value is not None
+                else None
+            )
             converted = convert_array(layer, source_units[index], target)
             if mask is not None:
                 converted[mask] = nodata_value
@@ -2837,7 +2984,24 @@ class Dataset(RasterBase):
     def scale(self) -> list[float]:
         """Facade — delegates to :attr:`Bands.scale <pyramids.dataset.engines.Bands.scale>`.
 
-        The scale converts the pixel values to the real-world values.
+        The CF packing factor: how the real-world values are **stored**, not what the
+        values you hold already mean. `real = stored * scale + offset`.
+
+        Since #1124 a read applies it, so :meth:`read_array` hands back real-world values
+        and this stays the recipe describing the file. The two must not be applied twice:
+        an array that has already been unpacked belongs in a dataset that declares no
+        packing (`scale == 1`), which is what :meth:`apply` and
+        :meth:`from_array` produce. An operation that copies the *stored* bytes --
+        :meth:`copy`, a `CreateCopy` write -- carries the recipe along with them instead,
+        and stays consistent that way.
+
+        This reports each GDAL band's own slot. `NetCDF` overrides it to report the
+        variable's own `_scale` when it carries one, since a read applies that ahead of
+        the band's (see `_effective_packing`) -- so on every class the property names the
+        factor the values are actually unpacked with.
+
+        Returns:
+            list[float]: One factor per band; `1.0` where a band is not packed.
         """
         return self.bands.scale
 
@@ -2854,7 +3018,12 @@ class Dataset(RasterBase):
     def offset(self):
         """Facade — delegates to :attr:`Bands.offset <pyramids.dataset.engines.Bands.offset>`.
 
-        The offset converts the pixel values to the real-world values.
+        The additive half of the CF packing, `real = stored * scale + offset`. See
+        :attr:`scale` for how the stored form and the values' meaning are kept apart;
+        like it, `NetCDF` reports the variable's own `_offset` when it carries one.
+
+        Returns:
+            list[float]: One offset per band; `0` where a band is not packed.
         """
         return self.bands.offset
 
@@ -5086,35 +5255,40 @@ class Dataset(RasterBase):
 
         Each input file becomes one band, in order, with its name preserved.
         This is the natural target for an Earth Engine default download
-        (``<assetSlug>.<bandName>.tif`` — one file per band), a Landsat
-        Collection-2 scene (per-band ``.TIF``), or a Sentinel-2 SAFE
+        (`<assetSlug>.<bandName>.tif` — one file per band), a Landsat
+        Collection-2 scene (per-band `.TIF`), or a Sentinel-2 SAFE
         (per-band JP2s).
 
         By default all inputs must already share the same grid and CRS;
-        pass ``align=True`` to resample mismatched rasters onto the first
+        pass `align=True` to resample mismatched rasters onto the first
         file's grid (nearest-neighbour, via :meth:`align`). When the inputs
         have different numpy dtypes the output dtype is the smallest type
         that holds every input without a lossy cast.
 
+        Stacking copies the stores rather than computing anything: each band
+        holds its source's stored values, and each source's CF packing
+        (`scale_factor` / `add_offset`) is carried onto its band, so a packed
+        input still reads back in physical units from the stack.
+
         Args:
-            files: Paths (or URLs / ``/vsi*`` strings) of the single-band
+            files: Paths (or URLs / `/vsi*` strings) of the single-band
                 rasters to stack. Order is preserved as band order.
-            band_names: Explicit band names, one per file. When ``None``
+            band_names: Explicit band names, one per file. When `None`
                 (default) names are derived from the file names
-                (``<slug>.<band>.tif`` → ``<band>``; dotless stems are kept
-                whole; duplicates get a ``_<n>`` suffix).
-            align: When ``False`` (default), a grid/CRS mismatch among the
-                inputs raises :class:`AlignmentError`. When ``True``, every
-                input is resampled onto ``files[0]``'s grid first.
+                (`<slug>.<band>.tif` → `<band>`; dotless stems are kept
+                whole; duplicates get a `_<n>` suffix).
+            align: When `False` (default), a grid/CRS mismatch among the
+                inputs raises :class:`AlignmentError`. When `True`, every
+                input is resampled onto `files[0]`'s grid first.
             no_data_value: No-data value stamped on the output bands. When
                 omitted, it is inherited from the source rasters (a warning
                 is issued if they disagree, and the first file's value
                 wins; if no source declares one, the output has none). Pass
-                an explicit value (including ``None`` for "no no-data
+                an explicit value (including `None` for "no no-data
                 sentinel") to override.
             path: Output path, whose extension selects the driver as it does
-                for every other factory (``.tif`` -> GTiff, ``.nc`` ->
-                netCDF, …). When ``None`` (default) the result is an
+                for every other factory (`.tif` -> GTiff, `.nc` ->
+                netCDF, …). When `None` (default) the result is an
                 in-memory dataset.
 
                 Write-by-copy-only formats (`.png`, `.jp2`) are refused. One
@@ -5127,18 +5301,18 @@ class Dataset(RasterBase):
                 unrelated argument, so both paths answer alike.
 
         Returns:
-            Dataset: A multi-band dataset with ``band_count == len(files)``
-            and ``band_names`` set.
+            Dataset: A multi-band dataset with `band_count == len(files)`
+            and `band_names` set.
 
         Raises:
-            ValueError: ``files`` is empty, ``band_names`` length does not
-                match ``files``, or an input has more than one band.
-            AlignmentError: ``align=False`` and the inputs do not share a
+            ValueError: `files` is empty, `band_names` length does not
+                match `files`, or an input has more than one band.
+            AlignmentError: `align=False` and the inputs do not share a
                 grid/CRS.
             CRSError: An input raster has no CRS.
-            DriverNotExistError: ``path`` has no extension, or one the driver
+            DriverNotExistError: `path` has no extension, or one the driver
                 catalog does not know.
-            FileFormatNotSupportedError: ``path``'s extension maps to a
+            FileFormatNotSupportedError: `path`'s extension maps to a
                 write-by-copy-only format, whichever write path the inputs
                 take.
 
@@ -5178,7 +5352,7 @@ class Dataset(RasterBase):
                 ['blue', 'green', 'red']
 
                 ```
-            - Mismatched grids are rejected unless ``align=True``:
+            - Mismatched grids are rejected unless `align=True`:
                 ```python
                 >>> odd = os.path.join(d, "odd.tif")
                 >>> _ = Dataset.from_array(
@@ -5274,7 +5448,9 @@ class Dataset(RasterBase):
                 # `convert_units`. On a NetCDF subclass the override returns a
                 # bandless Container, and this template is then read band-wise.
                 grid_template = Dataset.from_array(
-                    template.read_array(band=0).astype(target_np_dtype, copy=False),
+                    template.read_array(band=0, unpack=False).astype(
+                        target_np_dtype, copy=False
+                    ),
                     # epsg is None only for a no-EPSG CRS reported as such (a NetCDF
                     # geostationary grid); from_array raises CRSError on None, so
                     # fall back to the WKT. No-op for a plain Dataset (#706).
@@ -5296,12 +5472,20 @@ class Dataset(RasterBase):
                 array=None,
             )
             for band_i, ds_i in enumerate(datasets):
+                # `unpack=False` throughout: this branch stacks the sources' stored
+                # bands into one raster and carries each band's packing over below, which
+                # is what the `BuildVRT` branch gets for free from `CreateCopy`. Reading
+                # physical values instead would truncate them back into the promoted
+                # *stored* dtype -- an int16 stack of packed inputs losing everything
+                # after the point -- and leave the two branches disagreeing.
                 if align and not template.spatial.same_grid(ds_i):
-                    arr = ds_i.align(grid_template).read_array(band=0)
+                    arr = ds_i.align(grid_template).read_array(band=0, unpack=False)
                 else:
                     # Same grid (or the non-align mixed-dtype path): just cast to
                     # the promoted dtype, which is lossless.
-                    arr = ds_i.read_array(band=0).astype(target_np_dtype, copy=False)
+                    arr = ds_i.read_array(band=0, unpack=False).astype(
+                        target_np_dtype, copy=False
+                    )
                 if align:
                     # Dataset.align fills the warp fringe with the SOURCE's sentinel;
                     # when sources disagree on nodata (first-wins resolved_nd + a
@@ -5309,6 +5493,10 @@ class Dataset(RasterBase):
                     # nodata. A same-grid source skips the warp and is lossless.
                     arr = _remap_nodata_to(arr, ds_i.no_data_value[0], resolved_nd)
                 obj.raster.GetRasterBand(band_i + 1).WriteArray(arr)
+                carry_band_packing(
+                    ds_i.raster.GetRasterBand(1),
+                    obj.raster.GetRasterBand(band_i + 1),
+                )
                 del arr
             obj._raster.FlushCache()
         else:

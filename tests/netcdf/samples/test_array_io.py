@@ -28,14 +28,14 @@ def test_read_array_returns_spatial_array(sample_name, sample):
 
 @pytest.mark.samples("packed")
 def test_unpack_applies_scale_offset(sample_name, sample):
-    """``unpack=True`` returns floating-point data consistent with raw * scale + offset."""
+    """The default read returns floating-point data consistent with raw * scale + offset."""
     nc = NetCDF.read_file(sample(sample_name))
     try:
         meta = nc.get_all_metadata().variables
         name = next(n for n, info in meta.items() if info.scale is not None)
         info = meta[name]
-        raw = nc.read_array(variable=name)
-        unpacked = nc.read_array(variable=name, unpack=True)
+        raw = nc.read_array(variable=name, unpack=False)
+        unpacked = nc.read_array(variable=name)
         assert np.issubdtype(raw.dtype, np.integer), (
             f"{sample_name}/{name}: expected packed integer"
         )

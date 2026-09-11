@@ -26,7 +26,11 @@ from pyramids.base._domain import (
     no_data_candidates,
 )
 from pyramids.base._errors import NoDataValueError
-from pyramids.base._utils import DEFAULT_RESAMPLING, resolve_resampling
+from pyramids.base._utils import (
+    DEFAULT_RESAMPLING,
+    carry_packing,
+    resolve_resampling,
+)
 from pyramids.base.crs import (
     crs_equal,
     crs_from_user_input,
@@ -413,7 +417,12 @@ def _stitch_lon_halves(
     from pyramids.dataset.dataset import Dataset
 
     _check_lon_halves_concatenable(west_part, east_part, seam_offset)
-    merged = np.concatenate([west_part.read_array(), east_part.read_array()], axis=-1)
+    # `unpack=False`: the stitch joins two halves of one store along the seam, so it moves
+    # stored counts and `_carry_band_metadata` hands the recipe on with them.
+    merged = np.concatenate(
+        [west_part.read_array(unpack=False), east_part.read_array(unpack=False)],
+        axis=-1,
+    )
     # epsg is None only for a no-EPSG CRS reported as such (a NetCDF
     # geostationary grid); from_array raises CRSError on None, so fall back to
     # the WKT. No-op for a plain Dataset (reports 4326) (#706).
@@ -431,7 +440,7 @@ def _stitch_lon_halves(
 
 
 def _carry_band_metadata(source: Any, target: Dataset) -> None:
-    """Copy the per-band description that survives a raw stitch but not a rebuild.
+    """Copy the per-band description, and the packing, that survive a raw stitch but not a rebuild.
 
     `_stitch_lon_halves` rebuilds through `Dataset.from_array`, which carries the
     array, the geotransform and the no-data value and nothing else. Its WMS
@@ -439,6 +448,11 @@ def _carry_band_metadata(source: Any, target: Dataset) -> None:
     explicitly, so a stitched map renders exactly like an unstitched one; this
     brings the crop/coverage path to the same standard rather than leaving the two
     stitchers disagreeing about what a seam read is allowed to lose.
+
+    The CF packing goes the same way, and matters more: the stitch reads the two halves
+    with `unpack=False`, so what it concatenates is stored counts. Dropping
+    `scale_factor` / `add_offset` would leave those counts with nothing to say they are
+    counts -- a seam-crossing crop of a packed raster off by the packing factor.
 
     Args:
         source: The west half, whose band properties are authoritative.
@@ -495,6 +509,7 @@ def _carry_band_metadata(source: Any, target: Dataset) -> None:
     """
     src_raster, dst_raster = source.raster, target.raster
     dst_raster.SetMetadata(src_raster.GetMetadata())
+    carry_packing(src_raster, dst_raster)
     for index in range(1, min(src_raster.RasterCount, dst_raster.RasterCount) + 1):
         src_band = src_raster.GetRasterBand(index)
         dst_band = dst_raster.GetRasterBand(index)
@@ -1132,14 +1147,18 @@ class Spatial(_Engine["Dataset"]):
     ) -> Dataset:
         """Resample a raster to a new cell size.
 
-        Resample the raster to ``cell_size`` using the requested interpolation method, keeping the
+        Resample the raster to `cell_size` using the requested interpolation method, keeping the
         existing CRS and extent. Returns a new in-memory Dataset; the source is left unchanged.
+
+        The warp moves the stored values into bands of the source's own type, so a CF-packed raster
+        (`scale_factor` / `add_offset`) keeps its packing on the result and reads back in the same
+        physical units.
 
         Args:
             cell_size (int | float | tuple):
                 New cell size to resample the raster to, in the units of the raster CRS. A scalar
-                applies to both axes (square cells); an ``(x_res, y_res)`` pair gives non-square
-                cells (e.g. ``(2.0, 1.0)`` for 2° longitude by 1° latitude).
+                applies to both axes (square cells); an `(x_res, y_res)` pair gives non-square
+                cells (e.g. `(2.0, 1.0)` for 2° longitude by 1° latitude).
             method (str):
                 Resampling method, case-insensitive. Default is "nearest neighbor". Allowed values: "nearest"
                 (alias "nearest neighbor"), "bilinear", "cubic", "cubic_spline", "lanczos", "average",
@@ -1154,8 +1173,8 @@ class Spatial(_Engine["Dataset"]):
                 A new resampled Dataset.
 
         Raises:
-            TypeError: If ``method`` is not a string.
-            ValueError: If ``method`` is not one of the supported interpolation methods.
+            TypeError: If `method` is not a string.
+            ValueError: If `method` is not one of the supported interpolation methods.
 
         Examples:
             - Create a 4-band 10×10 dataset at lon/lat (0, 0) with a 0.05° cell size, then resample to a
@@ -1230,6 +1249,11 @@ class Spatial(_Engine["Dataset"]):
             sr_src.ExportToWkt(),
             resampling_method,
         )
+        # `ReprojectImage` moves the stored counts onto the new grid and `_build_dataset`
+        # made the destination at the source's own type, so this is a byte-copy and has
+        # to hand the recipe on with them. Without it a packed raster comes out of
+        # `resample` as bare counts -- the hundredfold error #1124 was filed about.
+        carry_packing(self._ds.raster, dst_obj.raster)
 
         return dst_obj
 
@@ -1458,6 +1482,11 @@ class Spatial(_Engine["Dataset"]):
             dst_sr.ExportToWkt(),
             method,
         )
+        # `ReprojectImage` moves the stored counts onto the new grid and `_build_dataset`
+        # made the destination at the source's own type, so this is a byte-copy and has
+        # to hand the recipe on with them. Without it a packed raster comes out of
+        # `to_crs(maintain_alignment=True)` as bare counts -- the hundredfold error #1124 was filed about.
+        carry_packing(self._ds.raster, dst_obj.raster)
         return dst_obj
 
     def fill_gaps(
@@ -1467,9 +1496,12 @@ class Spatial(_Engine["Dataset"]):
 
         Args:
             mask (Dataset | np.ndarray):
-                Mask dataset or array used to determine valid cells.
+                Mask dataset or array used to determine valid cells. A mask raster is read in
+                stored units (`unpack=False`), since its absent cells are found by its stored
+                no-data sentinel.
             src_array (np.ndarray):
-                Source array whose gaps will be filled.
+                Source array whose gaps will be filled, in stored units -- `crop` reads it with
+                `unpack=False` -- because the gaps are matched against a stored sentinel.
             fills (list | None):
                 The value each band's absent cells actually hold. `crop`
                 resolves this before stamping it into `src_array`, and it is
@@ -1492,7 +1524,9 @@ class Spatial(_Engine["Dataset"]):
         # if both inputs are rasters
         # read_array() is called with no chunks=, so it always returns a plain
         # ndarray here (the dask.Array arm of ArrayLike is unreachable).
-        mask_array = cast(np.typing.NDArray, mask.read_array())
+        # `unpack=False`: a mask is read to locate its absent cells, and the sentinel
+        # they are matched against is a stored value.
+        mask_array = cast(np.typing.NDArray, mask.read_array(unpack=False))
         mask_noval = mask.no_data_value[0]
 
         if isinstance(mask, RasterBase) and isinstance(self._ds, RasterBase):
@@ -1620,7 +1654,11 @@ class Spatial(_Engine["Dataset"]):
             if fill is None:
                 # Every candidate lies inside the band's range, so which cells
                 # actually hold them can only be answered by looking.
-                fill = free_no_data(dtype, [], self._ds.read_array(band=band))
+                # `unpack=False`: the sentinel has to fit the stored dtype and be
+                # free of the stored values, which is what gets written.
+                fill = free_no_data(
+                    dtype, [], self._ds.read_array(band=band, unpack=False)
+                )
             if fill is None:
                 raise NoDataValueError(
                     f"band {band + 1} is a {dtype.name} raster holding every "
@@ -1899,6 +1937,10 @@ class Spatial(_Engine["Dataset"]):
             dst.SetProjection(src_sref.ExportToWkt())
 
         dst_obj = self._ds.__class__(dst)
+        # `dst` was created at the source's own GDAL type and is filled with the
+        # source's stored counts (both read paths below ask for them with
+        # `unpack=False`), so it has to declare the recipe for reading them back.
+        carry_packing(self._ds.raster, dst)
         # The cropped output declares the value its masked cells actually hold,
         # which is not always the source's: a band whose sentinel is unstorable
         # (`NaN` on an integer band) has one derived against its data, and the
@@ -1918,11 +1960,14 @@ class Spatial(_Engine["Dataset"]):
 
         # read_array() is called with no chunks=, so it always returns a plain
         # ndarray here (the dask.Array arm of ArrayLike is unreachable).
+        # `unpack=False` on both: `dst` holds the source's own GDAL type, so the
+        # physical values of a packed band would be truncated on the way in, and the
+        # fills stamped over the masked cells are stored sentinels.
         if isinstance(mask, RasterBase):
-            mask_array = cast(np.typing.NDArray, mask.read_array(band=0))
+            mask_array = cast(np.typing.NDArray, mask.read_array(band=0, unpack=False))
         else:
             mask_array = mask.copy()
-        src_array = cast(np.typing.NDArray, self._ds.read_array())
+        src_array = cast(np.typing.NDArray, self._ds.read_array(unpack=False))
 
         mask_no_data = is_no_data(mask_array, mask_noval)
         self._apply_mask_nodata(src_array, mask_no_data, band_count, fills)
@@ -1961,8 +2006,12 @@ class Spatial(_Engine["Dataset"]):
             window = [xoff, yoff, xsize, ysize]
             # read_array() is called with no chunks=, so it always returns a
             # plain ndarray here (the dask.Array arm of ArrayLike is unreachable).
-            mask_tile = cast(np.typing.NDArray, mask.read_array(band=0, window=window))
-            src_tile = cast(np.typing.NDArray, self._ds.read_array(window=window))
+            mask_tile = cast(
+                np.typing.NDArray, mask.read_array(band=0, window=window, unpack=False)
+            )
+            src_tile = cast(
+                np.typing.NDArray, self._ds.read_array(window=window, unpack=False)
+            )
             mask_no_data = is_no_data(mask_tile, mask_noval)
             self._apply_mask_nodata(src_tile, mask_no_data, band_count, fills)
             if band_count > 1:
@@ -2111,7 +2160,7 @@ class Spatial(_Engine["Dataset"]):
             - The coordinate system
             - The number of rows and columns
             - Cell size
-        Then resamples values from the current dataset onto that grid using ``method`` (nearest neighbor by
+        Then resamples values from the current dataset onto that grid using `method` (nearest neighbor by
         default, so the historical behaviour is unchanged).
 
         Args:
@@ -2141,6 +2190,9 @@ class Spatial(_Engine["Dataset"]):
               with an interpolating `method` ("bilinear"/"cubic"/...) silently drops the fractional part (the
               interpolated values are cast to the template's integer type). Match the template dtype to the
               source, or use "nearest", to avoid it.
+            - **CF packing follows the source.** The warp moves the source's stored values, so the source's
+              `scale_factor` / `add_offset` are carried onto the result, which reads back in the source's physical
+              units; the template's own packing, if any, plays no part.
             - **Cross-CRS aligns resample twice.** When the source and `alignment_src` CRSes differ, the data is
               first reprojected onto an intermediate grid and then resampled onto the template grid, so a
               non-nearest `method` is applied twice. For interpolating kernels ("bilinear"/"cubic") that means the
@@ -2287,6 +2339,10 @@ class Spatial(_Engine["Dataset"]):
         # output would otherwise lose the class legend, RAT, and band/dataset
         # metadata. Carry them over from the (possibly reprojected) source (#1029).
         carry_raster_metadata(reprojected_raster_b.raster, dst_obj.raster)
+        # And the CF packing, which is not part of that metadata: the pixels moved
+        # here are stored counts, so `align` has to say what turns them back into
+        # measurements or a packed raster comes out a hundredfold off (#1124).
+        carry_packing(reprojected_raster_b.raster, dst_obj.raster)
 
         return dst_obj
 
@@ -2632,7 +2688,11 @@ class Spatial(_Engine["Dataset"]):
             x_size, y_size = x_far - xoff, y_far - yoff
             if x_size > 0 and y_size > 0:
                 window = Window(xoff, yoff, x_size, y_size)
-                array = self._ds.read_array(window=list(window.to_read_args()))
+                # `unpack=False`: this is a window onto the store, not a computation
+                # over it, so it moves counts and carries the recipe with them below.
+                array = self._ds.read_array(
+                    window=list(window.to_read_args()), unpack=False
+                )
                 # `Window.transform` rather than the same arithmetic inline. On
                 # the north-up grid this branch is gated to, the two agree
                 # exactly; what the shared one adds is carrying the rotation
@@ -2653,6 +2713,7 @@ class Spatial(_Engine["Dataset"]):
                 # Preserve the source CRS from its WKT so _correct_wrap_cutline_error
                 # carries it onto the trimmed result (a custom CRS with no EPSG survives).
                 dst.crs = source_crs
+                carry_packing(self._ds.raster, dst.raster)
                 # Same trim the warp path applies with touch=True: drop all-no-data
                 # rows/cols and raise "no valid pixels" when the whole window is
                 # no-data. The read above covered only the AOI, so this stays off the
@@ -2822,7 +2883,11 @@ class Spatial(_Engine["Dataset"]):
         References:
             https://github.com/serapeum-org/pyramids/issues/74
         """
-        big_array = src.read_array()
+        # `unpack=False`: the trim deletes whole rows and columns and writes the rest
+        # back untouched, so it moves stored counts -- and the sentinel it matches them
+        # against is a stored value too, which a physical read would never equal.
+        # `carry_packing` hands the recipe to the rebuilt raster below.
+        big_array = src.read_array(unpack=False)
         declared = src.no_data_value
         # Not `==`: a NaN sentinel never equals itself, so `==` marks nothing
         # and the all-no-data frame GDAL leaves after a cutline warp survives
@@ -2902,6 +2967,7 @@ class Spatial(_Engine["Dataset"]):
         # wipe the from_array default, so leave that default in place.
         if src.crs:
             new_src.crs = src.crs
+        carry_packing(src._raster, new_src._raster)
         return new_src
 
     def _crop_antimeridian(

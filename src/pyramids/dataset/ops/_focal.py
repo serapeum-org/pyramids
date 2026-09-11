@@ -27,6 +27,11 @@ Supported ops:
 
 `scipy` is already a core pyramids dep, so the eager path has
 zero import cost. Dask is imported only when `chunks` is given.
+
+Every op works in physical units, as `read_array` returns them: a CF-packed
+band (`scale_factor` / `add_offset`) is unpacked before the kernel runs, and
+its gaps -- found with the sentinel in those units -- come back as the band's
+declared `no_data_value`.
 """
 
 from __future__ import annotations
@@ -125,8 +130,41 @@ def _apply_eager_or_lazy(
     Whatever the kernel returns, the originally-no-data cells and any
     cell the kernel could not define are folded back onto the sentinel,
     so the output carries the same no-data marker as the source band.
+
+    The kernel runs on physical values: the band is read through `read_array`,
+    so a CF-packed band (`scale_factor` / `add_offset`) is unpacked first. The
+    gaps are therefore looked for with the sentinel in those same units
+    (`Analysis._physical_no_data`), matched exactly -- the read and that
+    conversion apply the same arithmetic, so a stored `-9999` and its physical
+    form agree bit for bit. The marker written back is the declared
+    `no_data_value` itself, so on a packed band the output holds physical values
+    with the stored sentinel (`-9999`) at its gaps. A band that declares no
+    sentinel has its undefined cells set to `NaN`.
+
+    Args:
+        func: The kernel, `func(block_2d) -> block_2d` of the same shape.
+        ds: The source dataset.
+        radius: Half-window in pixels; the lazy halo unless `depth` is given.
+        chunks: `None` for the eager path, else a chunk spec for
+            `read_array(chunks=...)` and the lazy `map_overlap` path.
+        band: Zero-based band index.
+        dtype: The dtype the block is cast to before the kernel and the output is
+            built at.
+        depth: The lazy halo, when the kernel's footprint is wider than `radius`.
+
+    Returns:
+        numpy.ndarray or dask.array.Array: The filtered band, eager when `chunks` is
+            `None`, lazy otherwise.
+
+    Raises:
+        ImportError: `chunks` is given and dask is not installed.
     """
     no_data_value = ds.no_data_value[band]
+    # The kernel runs on physical values, so gaps are found with the sentinel in those
+    # units; the declared, stored `no_data_value` is what the output marks them with.
+    # Looking for the stored `-9999` in a packed band's physical read found nothing, so
+    # every gap was averaged into its neighbours as a measurement.
+    gap_value = ds.analysis._physical_no_data(band)
 
     def _guarded(block: np.ndarray) -> np.ndarray:
         """Run `func` with no-data blanked to NaN, then restore the sentinel.
@@ -142,7 +180,7 @@ def _apply_eager_or_lazy(
         # products and accumulated balances all carry real values at those
         # magnitudes, and blanking them would be silent data loss. Exact
         # matching, still NaN-safe.
-        masked = is_no_data(block, no_data_value, rtol=0.0)
+        masked = is_no_data(block, gap_value, rtol=0.0)
         blanked = np.where(masked, np.nan, block) if masked.any() else block
         out = np.asarray(func(blanked), dtype=dtype)
         # A cell that had no value has no derivative either. `np.gradient` uses a
@@ -201,8 +239,9 @@ def focal_mean(
 
     Returns:
         numpy.ndarray or dask.array.Array: Same shape as the input
-        band; eager on default `chunks=None`, lazy otherwise. Cells the
-        band marks as no-data carry the band's sentinel in the output,
+        band; eager on default `chunks=None`, lazy otherwise. Values are
+        physical (a CF-packed band is unpacked first). Cells the
+        band marks as no-data carry the band's declared sentinel in the output,
         as does any cell whose whole window is no-data. Cells with a
         partly-valid window average only their valid neighbours, so the
         result is not a gap-filler: a void keeps its shape rather than
@@ -224,6 +263,23 @@ def focal_mean(
             >>> smoothed = focal_mean(ds, radius=1)
             >>> float(round(float(smoothed[1, 1]), 4))
             4.0
+
+            ```
+        - On a CF-packed band the mean is physical, the gap is not averaged into its
+          neighbours, and it comes back as the declared sentinel:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.dataset import Dataset, GeoReference
+            >>> from pyramids.dataset.ops._focal import focal_mean
+            >>> packed = Dataset.from_array(
+            ...     np.array([[100, 100, 100], [100, 100, 100], [100, 100, -9999]], dtype="int16"),
+            ...     geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
+            ...     no_data_value=-9999,
+            ... )
+            >>> packed.scale = [0.01]
+            >>> smoothed = focal_mean(packed, radius=1)
+            >>> float(smoothed[1, 1]), float(smoothed[2, 2])
+            (1.0, -9999.0)
 
             ```
     """
@@ -263,7 +319,8 @@ def focal_std(
 
     Returns:
         numpy.ndarray or dask.array.Array: Per-cell standard
-        deviation, same shape as the source band. No-data cells, and
+        deviation of the physical values (a CF-packed band is unpacked
+        first), same shape as the source band. No-data cells, and
         cells whose entire window is no-data, carry the band's
         sentinel; elsewhere the deviation is taken over the valid
         neighbours only.
@@ -334,7 +391,8 @@ def focal_apply(
     Args:
         ds: Source :class:`~pyramids.dataset.Dataset`.
         func: Callable `func(values_1d) -> float`; receives the
-            flattened window, with no-data cells as `NaN`. Prefer the
+            flattened window in physical units (a CF-packed band is
+            unpacked first), with no-data cells as `NaN`. Prefer the
             `np.nan*` reducers.
         radius: Half-window in pixels. Default 1.
         chunks: Lazy-path chunk spec; `None` runs eagerly.
@@ -415,7 +473,8 @@ def slope(
 
     Returns:
         numpy.ndarray or dask.array.Array: Per-cell slope magnitude,
-        except at no-data cells and their immediate neighbours, which
+        taken from the physical heights (a CF-packed DEM is unpacked
+        first), except at no-data cells and their immediate neighbours, which
         carry the band's sentinel (e.g. `-9999`) rather than a value in
         the documented range. A centred difference straddling a void has
         no defined derivative, so the sentinel spreads one cell out from
@@ -464,7 +523,8 @@ def aspect(
 
     Returns:
         numpy.ndarray or dask.array.Array: Aspect in degrees in
-        `[0, 360)`, except at no-data cells and their immediate
+        `[0, 360)`, taken from the physical heights (a CF-packed DEM is
+        unpacked first), except at no-data cells and their immediate
         neighbours, which carry the band's sentinel (e.g. `-9999`) —
         outside that range — because a centred difference straddling a
         void has no defined derivative. Mask on the band's no-data value
@@ -519,7 +579,8 @@ def hillshade(
 
     Returns:
         numpy.ndarray or dask.array.Array: Shaded-relief intensity
-        clipped to `[0, 255]`, except at no-data cells and their
+        clipped to `[0, 255]`, taken from the physical heights (a
+        CF-packed DEM is unpacked first), except at no-data cells and their
         immediate neighbours, which carry the band's sentinel
         (e.g. `-9999`) — outside that range — because a centred
         difference straddling a void has no defined derivative. Mask on

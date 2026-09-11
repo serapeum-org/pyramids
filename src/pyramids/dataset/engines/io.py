@@ -29,7 +29,7 @@ from osgeo_utils import gdal2xyz
 from pandas import DataFrame
 
 from pyramids._io import new_vsimem_path, read_vsi_bytes
-from pyramids.base._domain import INHERIT_NO_DATA, is_no_data
+from pyramids.base._domain import INHERIT_NO_DATA, is_no_data, is_stored_no_data
 from pyramids.base._errors import (
     FailedToSaveError,
     OutOfBoundsError,
@@ -42,7 +42,12 @@ from pyramids.base._file_manager import (
     gdal_raster_open,
 )
 from pyramids.base._locks import DummyLock, default_lock
-from pyramids.base._utils import apply_unpack, resolve_resampling
+from pyramids.base._utils import (
+    _is_identity_packing,
+    apply_unpack,
+    numpy_to_gdal_dtype,
+    resolve_resampling,
+)
 from pyramids.base.crs import crs_from_user_input, crs_spec, reproject_coordinates
 from pyramids.base.protocols import ArrayLike
 from pyramids.base.remote import is_network_backed
@@ -483,10 +488,11 @@ class IO(_Engine["Dataset"]):
     same-named facade for each, so `ds.read_array(...)` and
     `ds.io.read_array(...)` are equivalent.
 
-    `read_array` returns the band's stored values and does not consult a GDAL
-    mask or alpha band, so a caller comparing it against something GDAL
-    computed -- band statistics, a warp -- is comparing two different views of
-    the raster.
+    By default `read_array` returns every cell of the band -- unpacked to
+    physical units when the band declares CF packing, the stored values with
+    `unpack=False` -- and does not consult a GDAL mask or alpha band unless
+    `masked=True`, so a caller comparing it against something GDAL computed --
+    band statistics, a warp -- is comparing two different views of the raster.
     """
 
     @under_gdal_env
@@ -504,11 +510,17 @@ class IO(_Engine["Dataset"]):
         boundless: bool = False,
         fill_value: float | None = None,
         masked: bool = False,
-        scaled: bool = False,
+        unpack: bool = True,
         threadsafe: bool = False,
         bbox_rounding: str = "cover",
     ) -> ArrayLike:
-        """Read the values stored in a given band (eager or lazy).
+        """Read the values of a given band (eager or lazy), unpacked to physical units.
+
+        A band that declares CF packing (`scale_factor` / `add_offset`) is read in the
+        units its data is in, not in stored counts; `unpack=False` returns the counts. The
+        band's `no_data_value` stays a **stored** value either way, so compare it against
+        an `unpack=False` read, or let `masked=True` build the mask, rather than matching
+        it against physical values.
 
         Data Chuncks/blocks
             When a raster dataset is stored on disk, it might not be stored as one continuous chunk of data. Instead,
@@ -529,8 +541,8 @@ class IO(_Engine["Dataset"]):
                 Specify a block of data to read from the dataset. The window can be specified in three ways:
 
                 - :class:`~pyramids.dataset.window.Window` (preferred):
-                    A first-class pixel window (``col_off``, ``row_off``, ``cols``, ``rows``) — the
-                    same object :meth:`write_array` accepts, so a block read back with a ``Window``
+                    A first-class pixel window (`col_off`, `row_off`, `cols`, `rows`) — the
+                    same object :meth:`write_array` accepts, so a block read back with a `Window`
                     can be written back with the identical object.
 
                 - List:
@@ -584,21 +596,21 @@ class IO(_Engine["Dataset"]):
 
                 Ignored when `chunks is None`.
             out_shape (tuple[int, int] | None, keyword-only):
-                Target ``(rows, cols)`` for a decimated (or enlarged) read.
-                GDAL resamples while reading (``buf_xsize``/``buf_ysize``)
+                Target `(rows, cols)` for a decimated (or enlarged) read.
+                GDAL resamples while reading (`buf_xsize`/`buf_ysize`)
                 and pulls from a matching overview level when one exists, so
                 previews of pyramided rasters never touch the full-resolution
-                pixels. Composes with ``window=`` or ``bbox=`` (decimate a
-                sub-window). Not supported together with ``chunks=`` or
-                ``masked=True`` (:class:`NotImplementedError`). Default
-                ``None`` (native resolution, unchanged).
+                pixels. Composes with `window=` or `bbox=` (decimate a
+                sub-window). Not supported together with `chunks=` or
+                `masked=True` (:class:`NotImplementedError`). Default
+                `None` (native resolution, unchanged).
             resampling (str, keyword-only):
-                Decimation algorithm for ``out_shape`` reads (``"nearest"``,
-                ``"bilinear"``, ``"cubic"``, ``"cubicspline"``,
-                ``"lanczos"``, ``"average"``, ``"mode"``, ...). Averaging
+                Decimation algorithm for `out_shape` reads (`"nearest"`,
+                `"bilinear"`, `"cubic"`, `"cubicspline"`,
+                `"lanczos"`, `"average"`, `"mode"`, ...). Averaging
                 algorithms mix no-data into edge cells — prefer
-                ``"nearest"`` (the default) on rasters with a no-data
-                marker. Ignored when ``out_shape`` is ``None``.
+                `"nearest"` (the default) on rasters with a no-data
+                marker. Ignored when `out_shape` is `None`.
             boundless (bool, keyword-only):
                 Allow the window to extend past the raster extent. The output
                 keeps the full requested window shape; pixels outside the
@@ -615,6 +627,12 @@ class IO(_Engine["Dataset"]):
                 the dtype's zero. Must be representable in the band dtype
                 (a whole number within range for integer bands) and requires
                 `boundless=True`; anything else raises :class:`ValueError`.
+
+                It is a **stored** value, like `no_data_value`: the padding is
+                written in the band's own dtype and the read is then unpacked as
+                a whole, so on a packed band the fill is transformed with the
+                data -- `fill_value=0` at `scale=0.01, offset=1.5` reads back as
+                `1.5`. Pass `unpack=False` to get the fill exactly as given.
             masked (bool, keyword-only):
                 When `True`, return a :class:`numpy.ma.MaskedArray` with
                 invalid pixels masked instead of a plain array. The mask
@@ -630,23 +648,32 @@ class IO(_Engine["Dataset"]):
                 combining it with `chunks` or `threadsafe=True` raises
                 :class:`NotImplementedError`. Default is `False` (plain
                 array, unchanged behaviour).
-            scaled (bool, keyword-only):
-                When `True`, return real-world values by applying each
-                band's GDAL scale/offset as float — `real = raw * scale +
-                offset`, via `GetScale()`/`GetOffset()`. A band that
-                declares neither is returned unchanged (no float
-                promotion); when any selected band declares a scale or
-                offset the result is promoted to `float64`. Composes with
-                every read path (`window`, `bbox`, `out_shape`,
-                `boundless`, `masked`, `threadsafe`, and the lazy `chunks=`
-                path, where the scaling stays lazy as `dask` arithmetic).
-                With `masked=True` the mask is preserved and masked cells
-                are not exposed as scaled; with `masked=False` a declared
-                `no_data_value` sentinel **is** scaled (use `masked=True`
-                to keep it out of the values). On a NetCDF the equivalent
-                knob is `unpack=True`; both share the same primitive.
-                Default is `False` (raw stored values, unchanged
-                behaviour).
+            unpack (bool, keyword-only):
+                Return real-world values by applying each band's CF packing
+                — `real = raw * scale + offset`, with the pair resolved by
+                `Dataset._effective_packing` (the band's `GetScale()` /
+                `GetOffset()`; a `NetCDF` variable's own `_scale` / `_offset`
+                first). **Default `True`**: a packed raster answers in the
+                units its data is in, not in stored counts (#1124). Pass
+                `False` for the stored counts, which is what a caller copying,
+                checksumming or rewriting the bytes wants.
+
+                A band that declares neither — GDAL answers `None`, or
+                the identity `1.0`/`0.0` on a driver that stores it — is
+                returned unchanged, same dtype and no copy, so an
+                unpacked raster costs nothing; so is a band whose scale is
+                `0` or non-finite, which is not a legal CF factor. When any
+                selected band is packed the result is `float64`.
+
+                Composes with every read path (`window`, `bbox`,
+                `out_shape`, `boundless`, `masked`, `threadsafe`, and the
+                lazy `chunks=` path, where the scaling stays lazy as `dask`
+                arithmetic). With `masked=True` the mask is built against
+                the stored counts, where the sentinel lives, and preserved;
+                with `masked=False` a declared `no_data_value` sentinel
+                **is** transformed along with everything else, so a stored
+                `-9999` appears as `-98.49` at `scale=0.01, offset=1.5`
+                (use `masked=True` to keep it out of the values).
             threadsafe (bool, keyword-only):
                 Opt into per-thread GDAL handles so concurrent reads from
                 multiple threads never share a handle (same-handle
@@ -664,7 +691,7 @@ class IO(_Engine["Dataset"]):
                 in-memory MEM dataset raises :class:`ValueError`. The
                 per-thread handles re-open that path, so they see the
                 on-disk state: when the dataset is open in update mode,
-                flush pending writes (e.g. ``FlushCache``) before reading
+                flush pending writes (e.g. `FlushCache`) before reading
                 with `threadsafe=True`. Default `False` (shared-handle
                 behaviour, unchanged).
             bbox_rounding (str, keyword-only):
@@ -692,6 +719,8 @@ class IO(_Engine["Dataset"]):
                 :class:`numpy.ndarray` when `chunks is None`,
                 :class:`dask.array.Array` otherwise (and a
                 :class:`numpy.ma.MaskedArray` when `masked=True`). The
+                values are physical and `float64` when `unpack=True` and a
+                selected band is packed, else the band's stored dtype. The
                 instance attribute :attr:`_backend` records `"numpy"` or
                 `"dask"` after the call.
 
@@ -777,8 +806,8 @@ class IO(_Engine["Dataset"]):
 
               ```
 
-            - Read the same window via a ``(W, S, E, N)`` bbox tuple — no need
-              to build a ``GeoDataFrame``; ``epsg`` defaults to the dataset's
+            - Read the same window via a `(W, S, E, N)` bbox tuple — no need
+              to build a `GeoDataFrame`; `epsg` defaults to the dataset's
               own CRS:
 
               ```python
@@ -795,7 +824,7 @@ class IO(_Engine["Dataset"]):
 
               ```
 
-            - ``window`` and ``bbox`` are mutually exclusive:
+            - `window` and `bbox` are mutually exclusive:
 
               ```python
               >>> import numpy as np
@@ -815,7 +844,7 @@ class IO(_Engine["Dataset"]):
               ```
 
             - A boundless read keeps the full window shape; pixels outside the
-              raster take ``fill_value`` (or the band's no-data value, or the
+              raster take `fill_value` (or the band's no-data value, or the
               dtype's zero — in that precedence):
 
               ```python
@@ -835,6 +864,29 @@ class IO(_Engine["Dataset"]):
 
               ```
 
+            - A CF-packed band reads in physical units by default. `unpack=False` returns
+              the stored counts, `masked=True` keeps the stored sentinel out of the values,
+              and a plain read transforms the sentinel along with everything else:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> packed = Dataset.from_array(
+              ...     np.array([[100, 200], [300, -9999]], dtype="int16"),
+              ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+              ...     no_data_value=-9999,
+              ... )
+              >>> packed.scale = [0.01]
+              >>> packed.offset = [1.5]
+              >>> packed.read_array(unpack=False).tolist()
+              [[100, 200], [300, -9999]]
+              >>> packed.read_array(masked=True).tolist()
+              [[2.5, 3.5], [4.5, None]]
+              >>> round(float(packed.read_array()[1, 1]), 2)
+              -98.49
+
+              ```
+
         See Also:
             - Dataset.get_tile: Read the dataset in chunks.
             - Dataset.get_block_arrangement: Get block arrangement to read the dataset in chunks.
@@ -848,7 +900,7 @@ class IO(_Engine["Dataset"]):
             boundless=boundless,
             fill_value=fill_value,
             masked=masked,
-            scaled=scaled,
+            unpack=unpack,
             threadsafe=threadsafe,
         )
         # Resolve the bbox CRS only when a bbox is actually given. resolve_read_window
@@ -875,51 +927,98 @@ class IO(_Engine["Dataset"]):
         # Applied post-dispatch (not inside a strategy) because scaling is a uniform
         # arithmetic transform over whatever array the strategy returns — plain,
         # masked, or dask — unlike `masked`, which each strategy owns or rejects.
-        if req.scaled:
+        if req.unpack:
             arr = self._apply_scale_offset(arr, req.band)
         # arr is assembled through many untyped GDAL/dask branches inside the
         # strategy; this is the method's own declared contract.
         return cast("ArrayLike", arr)
 
     def _apply_scale_offset(self, arr: Any, band: int | None) -> Any:
-        """Apply each band's raw GDAL scale/offset to a read result.
+        """Apply each band's CF packing to a read result, as the dataset resolves it.
 
-        Fetches the raw ``GetScale()``/``GetOffset()`` (``None`` when unset,
-        unlike the normalizing :attr:`Bands.scale`/:attr:`Bands.offset`), so a
-        band that declares neither is returned unchanged. Funnels the arithmetic
-        through the shared :func:`~pyramids.base._utils.apply_unpack` primitive,
-        broadcasting a per-band ``(bands, 1, 1)`` scale/offset for an all-bands
-        (3-D) read. Works uniformly on eager numpy, masked, and lazy dask arrays.
+        The pair comes from `Dataset._effective_packing`, the one resolver every
+        packing-aware path shares: the band's raw `GetScale()` / `GetOffset()` for a
+        plain raster (`None` when unset, unlike the normalising `Bands.scale` /
+        `Bands.offset`), and a `NetCDF` variable's own `_scale` / `_offset` ahead of
+        its band. The arithmetic goes through the shared
+        :func:`~pyramids.base._utils.apply_unpack` primitive, broadcasting a per-band
+        `(bands, 1, 1)` scale/offset for an all-bands (3-D) read, so it works the same
+        on eager numpy, masked and lazy dask arrays.
+
+        Each band is judged on its own: a band that declares nothing, the identity, or
+        an unusable factor (`0` or non-finite) is left as stored while the others are
+        unpacked.
 
         Args:
             arr: The array returned by the read — 2-D for a single/one-band
-                read, 3-D ``(bands, rows, cols)`` for an all-bands read.
-            band: The band index the read resolved to, or ``None`` for an
-                all-bands read.
+                read, 3-D `(bands, rows, cols)` for an all-bands read.
+            band: The band index the read resolved to, or `None` for an
+                all-bands read (a 2-D array then belongs to band 0).
 
         Returns:
-            The scaled array (``float64`` when any band declares a scale/offset),
-            or ``arr`` unchanged when no selected band declares either.
+            The unpacked array (`float64` when any band is packed), or `arr` itself
+            when no selected band is.
+
+        Examples:
+            - A packed band is unpacked; an unpacked one comes back as it was:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> ds = Dataset.from_array(
+                ...     np.array([[100, 200]], dtype="int16"),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+                ... )
+                >>> ds.io._apply_scale_offset(np.array([[100, 200]], dtype="int16"), 0).dtype
+                dtype('int16')
+                >>> ds.scale = [0.01]
+                >>> ds.io._apply_scale_offset(np.array([[100, 200]], dtype="int16"), 0).tolist()
+                [[1.0, 2.0]]
+
+                ```
         """
+        # Through the dataset's own resolver, not straight off the GDAL band. A `NetCDF`
+        # variable can carry its packing in `_scale` / `_offset` over a band that
+        # declares none -- `sel()` builds exactly that, from raw `ReadAsArray` counts --
+        # and reading the band here made `point`, `read_part`, `preview` and
+        # `read_overview_array` answer 200 where `read_array` answered 3.5 on the same
+        # cell.
         if arr.ndim == 2:
             index = 0 if band is None else band
-            gdal_band = self._ds._iloc(index)
-            result = apply_unpack(arr, gdal_band.GetScale(), gdal_band.GetOffset())
+            result = apply_unpack(arr, *self._ds._effective_packing(index))
         else:
-            gdal_bands = [self._ds._iloc(i) for i in range(arr.shape[0])]
-            scales = [b.GetScale() for b in gdal_bands]
-            offsets = [b.GetOffset() for b in gdal_bands]
-            if all(s is None for s in scales) and all(o is None for o in offsets):
-                result = arr
-            else:
-                scale_arr = np.asarray(
-                    [1.0 if s is None else s for s in scales], dtype=np.float64
-                ).reshape(-1, 1, 1)
-                offset_arr = np.asarray(
-                    [0.0 if o is None else o for o in offsets], dtype=np.float64
-                ).reshape(-1, 1, 1)
-                result = apply_unpack(arr, scale_arr, offset_arr)
+            recipes = self._band_recipes(arr.shape[0])
+            result = arr if recipes is None else apply_unpack(arr, *recipes)
         return result
+
+    def _band_recipes(self, band_count: int) -> tuple[Any, Any] | None:
+        """Every band's recipe, as arrays that broadcast over a `(bands, rows, cols)` read.
+
+        Each band's recipe is judged on its own. A band whose factor is 0 or non-finite is
+        treated as unpacked and left alone; judging the whole per-band array at once made
+        one malformed band switch unpacking off for every band in an all-bands read, while
+        the same bands read one at a time were unpacked.
+
+        Args:
+            band_count: How many bands the read covers.
+
+        Returns:
+            tuple | None: `(scale, offset)`, each shaped `(bands, 1, 1)` with the identity
+                standing in for a band that declares nothing; or `None` when no band is
+                packed, so the caller can hand the array back untouched.
+        """
+        resolved = [
+            (None, None) if _is_identity_packing(*pair) else pair
+            for pair in (self._ds._effective_packing(i) for i in range(band_count))
+        ]
+        recipes = None
+        if any(pair != (None, None) for pair in resolved):
+            scales = [1.0 if pair[0] is None else pair[0] for pair in resolved]
+            offsets = [0.0 if pair[1] is None else pair[1] for pair in resolved]
+            recipes = (
+                np.asarray(scales, dtype=np.float64).reshape(-1, 1, 1),
+                np.asarray(offsets, dtype=np.float64).reshape(-1, 1, 1),
+            )
+        return recipes
 
     def _reopen_open_options(self) -> dict[str, tuple[str, ...]] | None:
         """Opener kwargs carrying the dataset's GDAL open options, or ``None``.
@@ -2412,6 +2511,146 @@ class IO(_Engine["Dataset"]):
                 xsize = size if size + xoff <= cols else cols - xoff
                 yield xoff, yoff, xsize, ysize
 
+    def _tile_with_domain(
+        self, band: int | None, window: list[int], *, unpack: bool
+    ) -> tuple[Any, Any]:
+        """A tile in the units asked for, and the source's domain, judged in stored units.
+
+        The block mappers (`stream_transform`, `map_blocks`) hand a user function one
+        tile at a time and write back what it returns. The gap has to survive that round
+        trip, and whether a cell is a gap is a question about the stored counts --
+        `no_data_value` is a stored value -- so the window is read once with
+        `unpack=False`, the domain is taken from those counts, and the tile is unpacked
+        from the same read afterwards when `unpack=True`. Each band is judged against
+        its own declared sentinel; a band that declares none has no gaps.
+
+        Args:
+            band: Zero-based band index, or `None` for every band.
+            window: `[xoff, yoff, xsize, ysize]`, in pixels.
+            unpack: Hand back physical values (`True`) or the stored counts (`False`).
+
+        Returns:
+            tuple: `(tile, domain)` -- the tile (2-D for one band or a one-band raster,
+                else `(bands, rows, cols)`), and a boolean array of the same shape that
+                is `True` wherever a cell holds data.
+
+        Examples:
+            - The gap is found in the stored counts even when the tile is physical:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> packed = Dataset.from_array(
+                ...     np.array([[-9999, 200], [300, 400]], dtype="int16"),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+                ...     no_data_value=-9999,
+                ... )
+                >>> packed.scale = [0.5]
+                >>> tile, domain = packed.io._tile_with_domain(0, [0, 0, 2, 2], unpack=True)
+                >>> tile.tolist()
+                [[-4999.5, 100.0], [150.0, 200.0]]
+                >>> domain.tolist()
+                [[False, True], [True, True]]
+
+                ```
+        """
+        raw = np.asarray(self._ds.read_array(band=band, window=window, unpack=False))
+        declared = self._ds.no_data_value
+        if raw.ndim == 3:
+            domain = np.stack(
+                [~is_stored_no_data(raw[i], declared[i]) for i in range(raw.shape[0])]
+            )
+        else:
+            domain = ~is_stored_no_data(raw, declared[band if band is not None else 0])
+        tile = self._apply_scale_offset(raw, band) if unpack else raw
+        return tile, domain
+
+    @staticmethod
+    def _restore_gap(result: Any, domain: Any, sentinels: Any) -> Any:
+        """Put the declared sentinel back at the cells that were gaps in the source.
+
+        A function applied to a whole tile transforms the gap cells too -- `t * 2` turns
+        a physical `-98.49` into `-196.98` -- while the raster the result is written
+        into declares a sentinel of its own, so without this the gap comes back as a
+        measurement the next time anything reads it. The sentinel is written as
+        declared, which is a stored value; the caller hands this the result in the
+        units the destination stores (after any repacking).
+
+        Args:
+            result: What the user function returned for the tile, in the destination's
+                stored units.
+            domain: `True` wherever the source held data, shaped like `result`.
+            sentinels: The destination's declared sentinel for a 2-D tile, or one per
+                band for a 3-D tile. A `None` sentinel (the band declares none) leaves
+                that band's cells as `result` has them.
+
+        Returns:
+            np.ndarray: A copy of `result`, with the sentinel at every source gap.
+
+        Examples:
+            - A gap the function doubled goes back to the sentinel:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset.engines.io import IO
+                >>> result = np.array([[-196.98, 4.0]])
+                >>> domain = np.array([[False, True]])
+                >>> IO._restore_gap(result, domain, -9999.0).tolist()
+                [[-9999.0, 4.0]]
+
+                ```
+            - Per band on a 3-D tile, skipping a band that declares no sentinel:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset.engines.io import IO
+                >>> result = np.array([[[2.0, 4.0]], [[6.0, 8.0]]])
+                >>> domain = np.array([[[False, True]], [[True, False]]])
+                >>> IO._restore_gap(result, domain, [-9999.0, None]).tolist()
+                [[[-9999.0, 4.0]], [[6.0, 8.0]]]
+
+                ```
+        """
+        out = np.array(result, copy=True)
+        if out.ndim == 3:
+            for index in range(out.shape[0]):
+                if sentinels[index] is not None:
+                    out[index][~domain[index]] = sentinels[index]
+        else:
+            # A one-band raster read with `band=None` comes back 2-D while its
+            # sentinels still arrive as the per-band tuple, so unwrap it. Assigning
+            # the tuple itself turned `(None,)` into NaN on a float destination and a
+            # `TypeError` on an integer one, where `band=0` left the cells alone.
+            value = sentinels[0] if isinstance(sentinels, (list, tuple)) else sentinels
+            if value is not None:
+                out[~domain] = value
+        return out
+
+    def _band_packing(self, band: int | None) -> tuple[Any, Any]:
+        """The scale/offset a read of `band` would apply, over one band or all of them.
+
+        Args:
+            band: Zero-based band index, or `None` for every band.
+
+        Returns:
+            tuple: `(scale, offset)` for a single band; per-band lists when `band` is
+                `None`, so a raster packed on only one of its bands is not mistaken for
+                an unpacked one.
+        """
+        indices = (
+            [band] if band is not None else list(range(self._ds.raster.RasterCount))
+        )
+        # Through the dataset's own resolver, so a `NetCDF` variable that carries its
+        # packing in Python rather than on the band is not read as unpacked here.
+        resolved = [self._ds._effective_packing(index) for index in indices]
+        scales = [pair[0] for pair in resolved]
+        offsets = [pair[1] for pair in resolved]
+        if band is not None:
+            result = (scales[0], offsets[0])
+        else:
+            result = (
+                [1.0 if s is None else s for s in scales],
+                [0.0 if o is None else o for o in offsets],
+            )
+        return result
+
     def stream_transform(
         self,
         tile_func: Callable[[np.ndarray], np.ndarray],
@@ -2442,6 +2681,27 @@ class IO(_Engine["Dataset"]):
         a whole-array pass. Reductions and neighbourhood filters are therefore not
         candidates for this helper.
 
+        **On a CF-packed raster `tile_func` always works in physical units**, matching
+        `read_array`, and the destination decides only how the result is stored. The
+        default `out=None` allocates an unpacked `float64` result and takes the values
+        as they are. A destination that declares `scale_factor` / `add_offset` has the
+        result packed with *its own* recipe, `(value - offset) / scale`, rounded to its
+        dtype when that is an integer type -- so the source and destination need not
+        share a packing, and the in-place form `out=ds` round-trips through the source's
+        own recipe. Writing physical values straight into a band that still declares its
+        packing would overwrite the counts with numbers the next read scales *again*
+        (`2.5` in, `1.55` out), which is what the repack prevents. The repack does not
+        clip: a value outside what the destination's dtype can hold at its recipe, or a
+        `NaN`, is written as whatever the cast makes of it.
+
+        Tiles are handed over whole, no-data cells included, so on a packed source a
+        stored sentinel reaches `tile_func` transformed like every other cell (`-9999`
+        at `scale=0.01` arrives as `-99.99`). What `tile_func` returns for those cells
+        is discarded: every cell that was a gap in the source -- judged against the
+        source's stored counts, where the sentinel lives -- is written back as the
+        destination's declared `no_data_value`, which an allocated output inherits from
+        the source unless `no_data_value=` overrides it.
+
         Args:
             tile_func (Callable[[np.ndarray], np.ndarray]):
                 Per-tile transform; see the positional-stability note above.
@@ -2454,8 +2714,10 @@ class IO(_Engine["Dataset"]):
                 (`dtype`, `bands`, `no_data_value`, `path`) are ignored; the caller
                 owns the output's header. `None` (default) allocates a fresh output.
             dtype (str, optional):
-                Output dtype name. `None` (default) reuses the source dtype. Ignored
-                when `out` is given.
+                Output dtype name. `None` (default) reuses the source dtype, or
+                `float64` when the selected band(s) are packed, since the tiles
+                `tile_func` then receives are physical `float64` values that the
+                stored type would truncate. Ignored when `out` is given.
             bands (int, optional):
                 Output band count. `None` (default) reuses the source band count.
                 Ignored when `out` is given.
@@ -2489,18 +2751,216 @@ class IO(_Engine["Dataset"]):
               True
 
               ```
+
+            - A packed source streamed into a fresh output: `tile_func` works in physical
+              units and the `float64` result declares no packing:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> packed = Dataset.from_array(
+              ...     np.array([[100, 200], [300, 400]], dtype="int16"),
+              ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+              ... )
+              >>> packed.scale = [0.01]
+              >>> shifted = packed.io.stream_transform(lambda tile: tile + 0.5)
+              >>> shifted.read_array().tolist(), shifted.dtype, shifted.scale
+              ([[1.5, 2.5], [3.5, 4.5]], ['float64'], [1.0])
+
+              ```
+
+            - Streamed into itself, a packed band still hands `tile_func` physical values,
+              and the result is repacked with the band's own recipe -- `+ 0.5` is half a
+              unit, fifty counts at `scale=0.01`:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> packed = Dataset.from_array(
+              ...     np.array([[100, 200], [300, 400]], dtype="int16"),
+              ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+              ... )
+              >>> packed.scale = [0.01]
+              >>> _ = packed.io.stream_transform(lambda tile: tile + 0.5, out=packed)
+              >>> packed.read_array(unpack=False).tolist()
+              [[150, 250], [350, 450]]
+              >>> packed.read_array().tolist(), packed.scale
+              ([[1.5, 2.5], [3.5, 4.5]], [0.01])
+
+              ```
+
+            - A destination packed differently from the source is written with its own
+              recipe, so the physical values survive the change of packing:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326)
+              >>> source = Dataset.from_array(
+              ...     np.array([[100, 200], [300, 400]], dtype="int16"), geo_ref=geo_ref
+              ... )
+              >>> source.scale = [0.01]
+              >>> target = Dataset.from_array(np.zeros((2, 2), dtype="int16"), geo_ref=geo_ref)
+              >>> target.scale = [0.1]
+              >>> _ = source.io.stream_transform(lambda tile: tile, out=target)
+              >>> target.read_array(unpack=False).tolist(), target.read_array().tolist()
+              ([[10, 20], [30, 40]], [[1.0, 2.0], [3.0, 4.0]])
+
+              ```
+
+            - A gap keeps the sentinel whatever `tile_func` does to it:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> packed = Dataset.from_array(
+              ...     np.array([[-9999, 200], [300, 400]], dtype="int16"),
+              ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+              ...     no_data_value=-9999,
+              ... )
+              >>> packed.scale = [0.01]
+              >>> doubled = packed.io.stream_transform(lambda tile: tile * 2)
+              >>> doubled.read_array().tolist()
+              [[-9999.0, 4.0], [6.0, 8.0]]
+              >>> float(doubled.no_data_value[0])
+              -9999.0
+
+              ```
         """
+        source_is_packed = not _is_identity_packing(*self._band_packing(band))
         if out is None:
+            # A packed source reads physical, so the tiles reaching `tile_func` are
+            # `float64` and `empty_like`'s default -- the source's *stored* dtype --
+            # would cast them back on write: `14.35` into an `int16` band as `14`,
+            # the same silent truncation #1124 reported in `apply`. Default to the
+            # dtype the read actually produces; an explicit `dtype=` still wins.
+            if dtype is None and source_is_packed:
+                dtype = "float64"
             allocate: dict[str, Any] = {"dtype": dtype, "bands": bands, "path": path}
             if no_data_value is not INHERIT_NO_DATA:
                 allocate["no_data_value"] = no_data_value
             out = cast("Dataset", self._ds.empty_like(self._ds, **allocate))
+        # `tile_func` always works in physical units; a destination that declares a
+        # recipe gets the result packed with *its* recipe. Handing the function the
+        # source's stored counts instead was right only when the two rasters shared a
+        # packing -- an identity function from a source at 0.01 into a destination at
+        # 0.1 read back ten times too large -- while this is right for any pair,
+        # including the in-place `out=ds`, which round-trips through its own recipe.
+        out_scale, out_offset = out.io._band_packing(band)
+        repack = not _is_identity_packing(out_scale, out_offset)
+        out_dtype = np.dtype(out.numpy_dtype[band if band is not None else 0])
+        declared = out.no_data_value
+        sentinels = declared if band is None else declared[band]
         for xoff, yoff, xsize, ysize in self._tile_offsets(size=tile_size):
-            tile = self._ds.read_array(band=band, window=[xoff, yoff, xsize, ysize])
+            tile, domain = self._tile_with_domain(
+                band, [xoff, yoff, xsize, ysize], unpack=True
+            )
+            result = np.asarray(tile_func(tile))
+            if repack:
+                result = self._repack(
+                    result, out_scale, out_offset, out_dtype, sentinels
+                )
             out.write_array(
-                tile_func(tile), band=band, window=Window(xoff, yoff, xsize, ysize)
+                self._restore_gap(result, domain, sentinels),
+                band=band,
+                window=Window(xoff, yoff, xsize, ysize),
             )
         return out
+
+    @staticmethod
+    def _repack(
+        values: Any, scale: Any, offset: Any, dtype: np.dtype, sentinels: Any = None
+    ) -> Any:
+        """Pack physical values with a destination's recipe, `(value - offset) / scale`.
+
+        The inverse of unpacking, for a destination that declares `scale_factor` /
+        `add_offset`: what it stores has to be the counts its recipe turns back into these
+        values. Rounded to the nearest count when the destination is integer-typed, since
+        that is what the stored type can hold. A `None` slot is the identity (`1.0` for a
+        scale, `0.0` for an offset).
+
+        Nothing is clipped. A value the recipe maps outside the dtype's range, or a
+        `NaN`, is cast the way NumPy's `astype` casts it -- NumPy warns, and the count
+        written is not one the recipe describes.
+
+        Args:
+            values: Physical values, 2-D or `(bands, rows, cols)`.
+            scale: The destination's scale -- a scalar, or one per band (the first is
+                used for a 2-D `values`).
+            offset: The destination's offset -- a scalar, or one per band.
+            dtype: The destination's stored dtype.
+
+        Returns:
+            np.ndarray: The stored counts, in `dtype`.
+
+        Examples:
+            - Half a unit above an offset of `1.0` is fifty counts at `scale=0.01`:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset.engines.io import IO
+                >>> IO._repack(np.array([[1.5, 2.5]]), 0.01, 1.0, np.dtype("int16")).tolist()
+                [[50, 150]]
+
+                ```
+            - A per-band recipe packs each band of a 3-D tile with its own factor:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset.engines.io import IO
+                >>> tile = np.array([[[1.0]], [[1.0]]])
+                >>> IO._repack(tile, [0.5, 0.25], [None, None], np.dtype("int16")).tolist()
+                [[[2]], [[4]]]
+
+                ```
+        """
+        factor = np.asarray(
+            [1.0 if s is None else s for s in np.atleast_1d(scale)], dtype=np.float64
+        )
+        shift = np.asarray(
+            [0.0 if o is None else o for o in np.atleast_1d(offset)], dtype=np.float64
+        )
+        if np.asarray(values).ndim == 3:
+            factor, shift = factor.reshape(-1, 1, 1), shift.reshape(-1, 1, 1)
+        else:
+            factor, shift = factor[0], shift[0]
+        counts = (np.asarray(values, dtype=np.float64) - shift) / factor
+        if np.issubdtype(dtype, np.integer):
+            # An integer store cannot hold NaN or a count beyond its range, and a bare
+            # `astype` turned both into arbitrary numbers (NaN -> 0, 1e9 -> 0) that the
+            # recipe then read back as measurements. Out-of-range counts saturate at the
+            # type's limits; a non-finite one becomes the destination's declared
+            # sentinel, or the type's minimum when it declares none, so it at least
+            # cannot be mistaken for a value near zero.
+            info = np.iinfo(dtype)
+            invalid = ~np.isfinite(counts)
+            counts = np.clip(
+                np.rint(np.where(invalid, 0.0, counts)), info.min, info.max
+            )
+            counts = counts.astype(dtype)
+            if np.any(invalid):
+                counts[invalid] = IO._sentinel_for(invalid, sentinels, info.min)
+            return counts
+        return counts.astype(dtype)
+
+    @staticmethod
+    def _sentinel_for(invalid: Any, sentinels: Any, fallback: Any) -> Any:
+        """The value an invalid count is written as -- per band for a 3-D block.
+
+        Args:
+            invalid: Where the counts could not be stored.
+            sentinels: The destination's declared sentinel, or one per band.
+            fallback: What to use for a band that declares none.
+
+        Returns:
+            One value per invalid cell, in row-major order.
+        """
+        per_band = sentinels if isinstance(sentinels, (list, tuple)) else [sentinels]
+        chosen = [fallback if value is None else value for value in per_band]
+        if np.asarray(invalid).ndim == 3:
+            grid = np.broadcast_to(
+                np.asarray(chosen).reshape(-1, 1, 1), np.asarray(invalid).shape
+            )
+            return grid[invalid]
+        return chosen[0]
 
     def stream_reduce(
         self,
@@ -2509,6 +2969,7 @@ class IO(_Engine["Dataset"]):
         *,
         band: int | None = None,
         strip_rows: int = 256,
+        unpack: bool = True,
     ) -> Any:
         """Fold a function over the raster in full-width row strips, out of core.
 
@@ -2539,6 +3000,12 @@ class IO(_Engine["Dataset"]):
                 is then 3D).
             strip_rows (int):
                 Number of rows per strip. Defaults to 256.
+            unpack (bool):
+                Hand `fold` physical values (the default, matching `read_array`) or,
+                with `False`, the stored counts. A fold that compares its strip against
+                `no_data_value` wants `False`: the sentinel is a stored value, and on a
+                packed band a physical strip never contains it, so every gap would be
+                counted as a measurement.
 
         Returns:
             Any:
@@ -2560,27 +3027,57 @@ class IO(_Engine["Dataset"]):
               14
 
               ```
+
+            - Count the gaps of a packed band. The sentinel is a stored value, so the fold
+              needs the stored counts; a physical strip holds `-99.99` there instead:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> packed = Dataset.from_array(
+              ...     np.array([[-9999, 200], [300, 400]], dtype="int16"),
+              ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+              ...     no_data_value=-9999,
+              ... )
+              >>> packed.scale = [0.01]
+              >>> def gaps(acc, strip, _window):
+              ...     return acc + int((strip == -9999).sum())
+              >>> packed.io.stream_reduce(gaps, 0, unpack=False)
+              1
+              >>> packed.io.stream_reduce(gaps, 0)
+              0
+
+              ```
         """
         acc = initial
         cols = self._ds.columns
         for yoff in range(0, self._ds.rows, strip_rows):
             ysize = min(strip_rows, self._ds.rows - yoff)
             window = [0, yoff, cols, ysize]
-            strip = self._ds.read_array(band=band, window=window)
+            strip = self._ds.read_array(band=band, window=window, unpack=unpack)
             acc = fold(acc, strip, window)
         return acc
 
     def get_tile(self, size=256) -> Generator[np.typing.NDArray]:
-        """Get tile.
+        """Iterate over the raster in square tiles, every band at once, in physical units.
+
+        Tiles are read one window at a time, row of tiles by row of tiles (the order of
+        `_tile_offsets`), so a large raster is walked without holding it whole. Each tile
+        answers in the same units as `read_array`: a CF-packed band (`scale_factor` /
+        `add_offset`) is unpacked, so the tile is `float64` when any band is packed and
+        the stored dtype otherwise. No-data cells are included as they are, which on a
+        packed band means the sentinel arrives transformed like every other cell
+        (`-9999` at `scale=0.01` reads `-99.99`); `to_feature_collection(tile=True)`
+        drops them with the sentinel in those same units.
 
         Args:
             size (int):
                 Size of the window in pixels. One value is required which is used for both the x and y size. e.g., 256
-                means a 256x256 window. Default is 256.
+                means a 256x256 window. Default is 256. Tiles on the right and bottom edges are cut to the raster.
 
         Yields:
             np.ndarray:
-                Dataset array with a shape `[band, y, x]`.
+                One tile: `(rows, cols)` for a one-band raster, `(bands, rows, cols)` otherwise.
 
         Examples:
             - First, we will create a dataset with 3 rows and 5 columns.
@@ -2647,6 +3144,22 @@ class IO(_Engine["Dataset"]):
               ]
 
               ```
+
+            - A CF-packed raster yields physical tiles, gap included:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> packed = Dataset.from_array(
+              ...     np.array([[100, 200, 300], [400, 500, -9999]], dtype="int16"),
+              ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+              ...     no_data_value=-9999,
+              ... )
+              >>> packed.scale = [0.5]
+              >>> [tile.tolist() for tile in packed.get_tile(size=2)]
+              [[[50.0, 100.0], [200.0, 250.0]], [[150.0], [-4999.5]]]
+
+              ```
         """
         for xoff, yoff, xsize, ysize in self._tile_offsets(size=size):
             # The captured cloud config is installed per tile, never across the
@@ -2658,7 +3171,10 @@ class IO(_Engine["Dataset"]):
                 tile = self._ds.raster.ReadAsArray(
                     xoff=xoff, yoff=yoff, xsize=xsize, ysize=ysize
                 )
-            yield tile
+            # Physical units, like `read_array`. `to_feature_collection(tile=True)`
+            # builds its rows from these tiles, so leaving them in stored counts made the
+            # tiled and untiled arms of that one method disagree by the packing factor.
+            yield np.asarray(self._apply_scale_offset(tile, None))
 
     def map_blocks(
         self,
@@ -2678,7 +3194,7 @@ class IO(_Engine["Dataset"]):
         - Default / `chunks=None`: reads the raster tile-by-tile via GDAL,
           applies `func` to each tile, and writes the result into a fresh
           in-memory Dataset. The **input** is never fully materialised — only
-          one tile is held at a time — but the destination is a GDAL ``MEM``
+          one tile is held at a time — but the destination is a GDAL `MEM`
           raster, so the **output** does occupy RAM in full. Sizing therefore
           follows the output, not the input. Returns a
           :class:`~pyramids.dataset.Dataset`; pass `chunks=` (below) or write
@@ -2690,11 +3206,26 @@ class IO(_Engine["Dataset"]):
           when wrapped by another lazy pyramids op. `dtype`, `drop_axis`,
           and `new_axis` are forwarded to dask.
 
+        Both paths read through `read_array`, so `func` sees the same values either way:
+        physical units on a CF-packed band (`scale_factor` / `add_offset`), the stored
+        values otherwise. The eager destination declares no packing -- its values are
+        computed ones, so the recipe is spent -- and inherits the source's stored
+        `no_data_value`; its band type is the source's, or `float64` when a selected band
+        is packed, unless `dtype` says otherwise.
+
+        On the eager path the gaps survive `func`: each tile's domain is judged against
+        the source's stored counts, and every cell that was a gap is written back as the
+        declared sentinel whatever `func` returned for it. The lazy path returns `func`'s
+        output as it is.
+
         Args:
             func (Callable[[np.ndarray], np.ndarray]):
-                A function that takes a numpy array (the tile) and returns a numpy array
-                of the same shape. The function should handle no-data values internally
-                if needed.
+                A function that takes a numpy array (the tile, in physical units) and
+                returns a numpy array of the same shape. No-data cells are part of the
+                tile, and on a packed band a stored sentinel reaches `func` transformed
+                like every other cell (`-9999` at `scale=0.01` arrives as `-99.99`).
+                The eager path discards what `func` returns for them (see above); on
+                the lazy path `func` has to handle them itself.
             tile_size (int):
                 Size of each square tile in pixels when `chunks=None`. Default is 256.
                 Ignored on the lazy path (use `chunks=` instead).
@@ -2705,8 +3236,11 @@ class IO(_Engine["Dataset"]):
                 `read_array(chunks=...)` — see that method for accepted
                 values. `None` (default) keeps the eager block loop.
             dtype (np.dtype | None, keyword-only):
-                Output dtype. Defaults to the input array dtype. Matches
-                :func:`dask.array.map_blocks` `dtype=`. Lazy path only.
+                Output dtype, honoured on both paths. `None` (default) takes the dtype
+                of what `func` is given: the source's stored type, or `float64` when a
+                selected band is packed. On the lazy path it matches
+                :func:`dask.array.map_blocks` `dtype=`; on the eager path it sets the
+                destination band type.
             drop_axis (keyword-only):
                 Axes dropped by `func`. Matches dask's `drop_axis=`.
                 Lazy path only.
@@ -2736,6 +3270,38 @@ class IO(_Engine["Dataset"]):
               2.0
 
               ```
+
+            - On a CF-packed band `func` works in physical units and the result is `float64`:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> packed = Dataset.from_array(
+              ...     np.array([[100, 200], [300, 400]], dtype="int16"),
+              ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+              ... )
+              >>> packed.scale = [0.01]
+              >>> result = packed.map_blocks(lambda tile: tile + 0.25)
+              >>> result.read_array().tolist(), result.dtype, result.scale
+              ([[1.25, 2.25], [3.25, 4.25]], ['float64'], [1.0])
+
+              ```
+
+            - A gap keeps the declared sentinel whatever `func` does to it:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> packed = Dataset.from_array(
+              ...     np.array([[-9999, 200], [300, 400]], dtype="int16"),
+              ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+              ...     no_data_value=-9999,
+              ... )
+              >>> packed.scale = [0.01]
+              >>> packed.map_blocks(lambda tile: tile * 2).read_array().tolist()
+              [[-9999.0, 4.0], [6.0, 8.0]]
+
+              ```
         """
         if chunks is not None:
             try:
@@ -2754,12 +3320,24 @@ class IO(_Engine["Dataset"]):
             # The eager tile loop below reads windows from the source; a NetCDF multidim view can't
             # be window-read by GDAL >= 3.13, so materialise it first (no-op for an ordinary raster).
             self._ds._materialize_md_view()
+            # The eager arm reads through `read_array`, like the lazy one above and
+            # like `stream_transform`, so `func` sees the same units whichever way it
+            # is reached. It used to take raw `ReadAsArray` counts and write them into
+            # a destination declaring no packing -- neither the stored form nor the
+            # physical one, and disagreeing with both its siblings and its own lazy
+            # arm. A packed source therefore needs the wider result type, since the
+            # values arriving are `float64`; an explicit `dtype=` still wins.
+            packed = not _is_identity_packing(*self._band_packing(band))
             if band is not None:
                 bands = 1
                 gdal_dtype = self._ds.gdal_dtype[band]
             else:
                 bands = self._ds.band_count
                 gdal_dtype = self._ds.gdal_dtype[0]
+            if dtype is not None:
+                gdal_dtype = numpy_to_gdal_dtype(np.dtype(dtype))
+            elif packed:
+                gdal_dtype = numpy_to_gdal_dtype(np.dtype("float64"))
 
             no_data: list | tuple
             if band is not None:
@@ -2777,17 +3355,23 @@ class IO(_Engine["Dataset"]):
                 no_data,
             )
 
+            # Each tile's gap is restored after `func` runs: the result declares the
+            # source's sentinel, and a function applied to the whole tile transforms
+            # the gap cells too, so without this they come back as measurements.
             for xoff, yoff, xsize, ysize in self._tile_offsets(size=tile_size):
+                window = [xoff, yoff, xsize, ysize]
                 if band is not None:
-                    tile = self._ds._iloc(band).ReadAsArray(xoff, yoff, xsize, ysize)
-                    result_tile = func(np.asarray(tile))
+                    tile, domain = self._tile_with_domain(band, window, unpack=True)
+                    result_tile = self._restore_gap(
+                        func(np.asarray(tile)), domain, no_data[0]
+                    )
                     dst_obj.raster.GetRasterBand(1).WriteArray(result_tile, xoff, yoff)
                 else:
                     for b in range(self._ds.band_count):
-                        tile = self._ds._raster.GetRasterBand(b + 1).ReadAsArray(
-                            xoff, yoff, xsize, ysize
+                        tile, domain = self._tile_with_domain(b, window, unpack=True)
+                        result_tile = self._restore_gap(
+                            func(np.asarray(tile)), domain, no_data[b]
                         )
-                        result_tile = func(np.asarray(tile))
                         dst_obj.raster.GetRasterBand(b + 1).WriteArray(
                             result_tile, xoff, yoff
                         )
@@ -2917,7 +3501,11 @@ class IO(_Engine["Dataset"]):
 
         No-data pixels are written fully transparent (RGBA alpha 0); a source
         without a no-data value yields plain RGB. Elevations outside the
-        encodable range are clamped, not wrapped.
+        encodable range are clamped, not wrapped. A CF-packed DEM
+        (`scale_factor` / `add_offset`) is encoded from its physical heights,
+        like `read_array` returns them, not from its stored counts, on both the
+        single-file and the tiled path; its gaps are matched with the sentinel
+        in those same units, so they stay transparent.
 
         Args:
             path: Destination. With `tiles=False` a single file whose
@@ -3107,11 +3695,35 @@ class IO(_Engine["Dataset"]):
         base_val: float,
         interval: float,
     ) -> Path:
-        """Write one RGB(A) terrain raster in the format its extension names."""
+        """Write one RGB(A) terrain raster in the format its extension names.
+
+        The heights are the band's physical values (`read_array`'s default), and the
+        gap is handed to the encoder as the sentinel in those units
+        (`Analysis._physical_no_data`), so a packed DEM's gaps stay transparent.
+
+        Args:
+            source: The EPSG:3857 raster to encode.
+            path: Destination file; its extension selects the driver.
+            band: Zero-based elevation band index.
+            encoding: `"mapbox"` or `"terrarium"`.
+            base_val: Mapbox base elevation.
+            interval: Mapbox metres per encoded unit.
+
+        Returns:
+            Path: `path`, once written.
+
+        Raises:
+            DriverNotExistError: `path` has no extension, or one the driver catalog
+                does not know.
+            FailedToSaveError: The resolved driver refused the write.
+        """
         elevation = np.asarray(source.read_array(band=band), dtype=float)
+        # The sentinel in the units `elevation` is in. The terrain encoder looks for it
+        # to make those cells transparent; the stored `-9999` is never present in a
+        # packed band's physical read, so the gap was encoded as opaque terrain.
         stack = _terrain_rgba_stack(
             elevation,
-            source.no_data_value[band],
+            source.analysis._physical_no_data(band),
             encoding=encoding,
             base_val=base_val,
             interval=interval,
@@ -3215,7 +3827,32 @@ class IO(_Engine["Dataset"]):
         resample_alg: int,
         nodata: float | None,
     ) -> None:
-        """Warp one XYZ tile from `source`, encode it, write ``root/z/x/y.png``."""
+        """Warp one XYZ tile from `source`, encode it, write `root/z/x/y.png`.
+
+        The warp moves the band's stored counts, so `nodata` -- the stored sentinel --
+        is its `dstNodata`. The warped tile is then unpacked with `source`'s own recipe
+        (`Dataset._effective_packing`) and handed to the encoder with the sentinel in
+        physical units, so a packed DEM is encoded as heights and its gaps -- with the
+        tile's area outside the raster, which the warp fills with `nodata` -- stay
+        transparent.
+
+        Args:
+            source: The staged EPSG:3857 raster.
+            root: Root directory of the tile pyramid.
+            zoom: Zoom level.
+            x: Tile column index.
+            y: Tile row index.
+            band: Zero-based elevation band index.
+            tile_size: Tile edge in pixels.
+            encoding: `"mapbox"` or `"terrarium"`.
+            base_val: Mapbox base elevation.
+            interval: Mapbox metres per encoded unit.
+            resample_alg: GDAL resampling constant for the warp.
+            nodata: The band's declared (stored) no-data value, or `None`.
+
+        Raises:
+            FailedToSaveError: GDAL could not warp the tile or write its PNG.
+        """
         west, south, east, north = _xyz_bounds_3857(zoom, x, y)
         warp_kwargs: dict[str, Any] = {
             "format": "MEM",
@@ -3231,12 +3868,21 @@ class IO(_Engine["Dataset"]):
             raise FailedToSaveError(
                 f"GDAL could not warp the terrain-RGB tile {zoom}/{x}/{y}."
             )
+        # The warp moves stored counts (GDAL carries the band's scale through it), so the
+        # tile is unpacked here and matched against the sentinel in the same units --
+        # otherwise a packed DEM was encoded as counts, a hundred times the real height.
+        scale, offset = source._effective_packing(band)
         elevation = np.asarray(
-            warped.GetRasterBand(band + 1).ReadAsArray(), dtype=float
+            apply_unpack(
+                np.asarray(warped.GetRasterBand(band + 1).ReadAsArray(), dtype=float),
+                scale,
+                offset,
+            ),
+            dtype=float,
         )
         stack = _terrain_rgba_stack(
             elevation,
-            nodata,
+            source.analysis._physical_no_data(band),
             encoding=encoding,
             base_val=base_val,
             interval=interval,
@@ -4297,16 +4943,30 @@ class IO(_Engine["Dataset"]):
     def read_overview_array(
         self, band: int | None = None, overview_index: int = 0
     ) -> np.typing.NDArray:
-        """Read overview values.
-            - Read the values stored in a given band or overview.
+        """Read the values of one overview level, in physical units.
+
+        Returns the same band `read_array` reads, at the overview's coarser sampling, and in
+        the same units: a CF-packed band (`scale_factor` / `add_offset`) is unpacked, so
+        `plot(overview=True)` draws on the colour scale `plot()` uses. There is no
+        `unpack=False` here; read the overview band from `get_overview` for its stored
+        counts.
+
         Args:
             band (int | None):
-                The band to read. If None and multiple bands exist, reads all bands at the given overview.
+                Zero-based band to read. If None and multiple bands exist, reads all bands at the given
+                overview; on a single-band raster None reads that band.
             overview_index (int):
                 Index of the overview. Defaults to 0.
+
         Returns:
             np.ndarray:
-                Array with the values in the raster.
+                The overview's values, `(rows, cols)` for one band or `(bands, rows, cols)` for all of them.
+                `float64` when a band that was read is packed, else the band's stored dtype.
+
+        Raises:
+            ValueError: `band` is out of range, the band (or, for an all-bands read, any band) has no
+                overviews, or `overview_index` is not below the band's overview count.
+
         Examples:
             - Create `Dataset` consisting of 4 bands, 10 rows, 10 columns, at lon/lat (0, 0):
               ```python
@@ -4358,6 +5018,22 @@ class IO(_Engine["Dataset"]):
               array([[6]], dtype=int32)
 
               ```
+            - A CF-packed band reads its overview in physical units, like `read_array`:
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> packed = Dataset.from_array(
+              ...     np.full((4, 4), 100, dtype="int16"),
+              ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+              ... )
+              >>> packed.scale = [0.01]
+              >>> packed.create_overviews(overview_levels=[2])
+              >>> overview = packed.read_overview_array(band=0, overview_index=0)
+              >>> overview.shape, overview.dtype, float(overview[0, 0])
+              ((2, 2), dtype('float64'), 1.0)
+
+              ```
+
         See Also:
             - Dataset.create_overviews: Create the dataset overviews.
             - Dataset.recreate_overviews: Regenerate the dataset overviews if they exist.
@@ -4391,4 +5067,11 @@ class IO(_Engine["Dataset"]):
                     f"band {band} has no overviews, please create overviews first"
                 )
             arr = np.asarray(self.get_overview(band, overview_index).ReadAsArray())
-        return arr
+        # Physical units, like `read_array`. `Analysis._read_plot_array` routes
+        # `plot(overview=True)` through here, so leaving it in stored counts drew the
+        # same raster on two different colour scales depending on that flag. The
+        # all-bands branch above allocates at the stored dtype and fills it band by
+        # band, so the transform is applied once, at the end, over the whole stack.
+        return np.asarray(
+            self._apply_scale_offset(arr, band if arr.ndim == 2 else None)
+        )
