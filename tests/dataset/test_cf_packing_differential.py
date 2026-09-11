@@ -190,11 +190,22 @@ CASES: list[tuple[str, Callable[[Dataset], Any]]] = [
         # A window straddling the raster's north-west corner takes the padded arm, the
         # one every edge `read_tile` goes through. Cell (1, 1) of the raster is inside it.
         "read_part-edge",
+        # Edges set mid-pixel (x and y from -1.5 to 2.5 cells) so floor / ceil cannot
+        # tip the window a cell either way on any platform: it is always 5x5, and
+        # [3, 3] is raster cell (1, 1), a real value rather than the gap.
         lambda ds: float(
-            np.asarray(ds.read_part((9.9, 49.7, 10.2, 50.1), band=0))[2, 2]
+            np.asarray(ds.read_part((9.85, 49.75, 10.25, 50.15), band=0))[3, 3]
         ),
     ),
-    ("read_part", lambda ds: _domain(ds.read_part((10.0, 49.6, 10.4, 50.0), band=0))),
+    (
+        # An interior window, well clear of every pixel edge. A bbox exactly on the
+        # raster's extent puts an edge a hair either side of a pixel boundary (49.6 lands
+        # at 3.999999999999986), which `read_part`'s floor / ceil snapping turns into a
+        # window one cell wider on some platforms -- macOS read 4x5 where Windows read
+        # 4x4. It also excludes the gap cell, so the two rasters compare cell for cell.
+        "read_part",
+        lambda ds: np.asarray(ds.read_part((10.12, 49.62, 10.38, 49.88), band=0)),
+    ),
     ("preview", lambda ds: _domain(ds.preview(band=0))),
     ("overlay", _overlaid),
     (
