@@ -2589,16 +2589,19 @@ class IO(_Engine["Dataset"]):
         a whole-array pass. Reductions and neighbourhood filters are therefore not
         candidates for this helper.
 
-        **On a CF-packed raster the destination decides the units `tile_func` sees.**
-        A band that declares `scale_factor` / `add_offset` holds counts, so a
-        destination that declares packing is handed counts and `tile_func` works in
-        stored units; anywhere else — including the default `out=None`, which
-        allocates an unpacked `float64` result — it works in physical units, matching
-        `read_array`. The rule is not a preference: writing physical values into a
-        band that still declares its packing overwrites the counts with numbers the
-        next read scales *again* (`2.5` in, `1.55` out), and the originals are gone.
-        Passing the source as `out` for an in-place transform is the case where this
-        bites, since a source worth streaming is usually the packed one.
+        **On a CF-packed raster `tile_func` always works in physical units**, matching
+        `read_array`, and the destination decides only how the result is stored. The
+        default `out=None` allocates an unpacked `float64` result and takes the values
+        as they are. A destination that declares `scale_factor` / `add_offset` has the
+        result packed with *its own* recipe, `(value - offset) / scale`, rounded to its
+        dtype -- so the source and destination need not share a packing, and the
+        in-place form `out=ds` round-trips through the source's own recipe. Writing
+        physical values straight into a band that still declares its packing would
+        overwrite the counts with numbers the next read scales *again* (`2.5` in, `1.55`
+        out), which is what the repack prevents.
+
+        Cells that were gaps in the source come back as the destination's declared
+        sentinel, whatever `tile_func` does to them.
 
         Tiles are handed over whole, no-data cells included. On a physical-units tile a
         stored sentinel arrives transformed like every other cell (`-9999` at
@@ -2713,19 +2716,63 @@ class IO(_Engine["Dataset"]):
         # next read multiplies again: `2.5` in, `1.55` out, the original gone. The
         # freshly allocated destination above declares no packing, so it takes
         # physical values, which is what makes the `out is None` default work.
-        write_stored = not _is_identity_packing(*out.io._band_packing(band))
+        # `tile_func` always works in physical units; a destination that declares a
+        # recipe gets the result packed with *its* recipe. Handing the function the
+        # source's stored counts instead was right only when the two rasters shared a
+        # packing -- an identity function from a source at 0.01 into a destination at
+        # 0.1 read back ten times too large -- while this is right for any pair,
+        # including the in-place `out=ds`, which round-trips through its own recipe.
+        out_scale, out_offset = out.io._band_packing(band)
+        repack = not _is_identity_packing(out_scale, out_offset)
+        out_dtype = np.dtype(out.numpy_dtype[band if band is not None else 0])
         declared = out.no_data_value
         sentinels = declared if band is None else declared[band]
         for xoff, yoff, xsize, ysize in self._tile_offsets(size=tile_size):
             tile, domain = self._tile_with_domain(
-                band, [xoff, yoff, xsize, ysize], unpack=not write_stored
+                band, [xoff, yoff, xsize, ysize], unpack=True
             )
+            result = np.asarray(tile_func(tile))
+            if repack:
+                result = self._repack(result, out_scale, out_offset, out_dtype)
             out.write_array(
-                self._restore_gap(tile_func(tile), domain, sentinels),
+                self._restore_gap(result, domain, sentinels),
                 band=band,
                 window=Window(xoff, yoff, xsize, ysize),
             )
         return out
+
+    @staticmethod
+    def _repack(values: Any, scale: Any, offset: Any, dtype: np.dtype) -> Any:
+        """Pack physical values with a destination's recipe, `(value - offset) / scale`.
+
+        The inverse of unpacking, for a destination that declares `scale_factor` /
+        `add_offset`: what it stores has to be the counts its recipe turns back into these
+        values. Rounded to the nearest count when the destination is integer-typed, since
+        that is what the stored type can hold.
+
+        Args:
+            values: Physical values, 2-D or `(bands, rows, cols)`.
+            scale: The destination's scale -- a scalar, or one per band.
+            offset: The destination's offset -- a scalar, or one per band.
+            dtype: The destination's stored dtype.
+
+        Returns:
+            The stored counts, in `dtype`.
+        """
+        factor = np.asarray(
+            [1.0 if s is None else s for s in np.atleast_1d(scale)], dtype=np.float64
+        )
+        shift = np.asarray(
+            [0.0 if o is None else o for o in np.atleast_1d(offset)], dtype=np.float64
+        )
+        if np.asarray(values).ndim == 3:
+            factor, shift = factor.reshape(-1, 1, 1), shift.reshape(-1, 1, 1)
+        else:
+            factor, shift = factor[0], shift[0]
+        counts = (np.asarray(values, dtype=np.float64) - shift) / factor
+        if np.issubdtype(dtype, np.integer):
+            counts = np.rint(counts)
+        return counts.astype(dtype)
 
     def stream_reduce(
         self,

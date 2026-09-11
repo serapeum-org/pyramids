@@ -504,8 +504,31 @@ class TestStreamingRespectsTheDestination:
         """
         dataset = _packed_raster([[100, -100], [0, 50]], 0.01, 1.5)
         dataset.io.stream_transform(lambda tile: tile * 2, out=dataset, tile_size=2)
+        # Doubled in physical units -- the function always sees physical values -- and
+        # stored back as counts under the source's own recipe.
+        np.testing.assert_allclose(
+            np.asarray(dataset.read_array(), dtype="float64").ravel(),
+            [5.0, 1.0, 3.0, 4.0],
+        )
         stored = np.asarray(dataset.read_array(unpack=False), dtype="float64")
-        np.testing.assert_allclose(stored.ravel(), [200.0, -200.0, 0.0, 100.0])
+        np.testing.assert_allclose(stored.ravel(), [350.0, -50.0, 150.0, 250.0])
+
+    def test_a_destination_with_its_own_recipe_repacks_the_result(self):
+        """Source and destination may be packed differently.
+
+        Test scenario:
+            The function used to receive the source's stored counts whenever the
+            destination was packed, which is right only when the two share a recipe:
+            an identity function from a source at 0.01 into a destination at 0.1 read
+            back ten times too large.
+        """
+        source = _packed_raster([[100, 200], [300, 400]], 0.01, 0.0)
+        destination = _packed_raster([[0, 0], [0, 0]], 0.1, 0.0)
+        source.io.stream_transform(lambda tile: tile, out=destination, tile_size=2)
+        np.testing.assert_allclose(
+            np.asarray(destination.read_array(), dtype="float64").ravel(),
+            [1.0, 2.0, 3.0, 4.0],
+        )
 
     def test_a_fresh_destination_takes_physical_values(self):
         """With no `out`, the result is in the same units `read_array` answers in."""
