@@ -3472,6 +3472,19 @@ class NetCDF(Dataset):
         # the injected, already-resolved CRS.
         return resolve_read_window(window, bbox, crs=crs)
 
+    def _spend_packing(self) -> None:
+        """Drop the variable's own `_scale` / `_offset` after an in-place compute.
+
+        `_update_inplace` deliberately preserves them, which is right for `set_crs`,
+        `change_no_data_value` and the `epsg` setter -- none of those touch the values.
+        An in-place compute does: it writes physical values, and since
+        `_effective_packing` prefers the variable's own pair, a pair left behind was
+        applied to them a second time. `100 -> 2.5 -> 1.525`, the exact double
+        application this module is otherwise careful to rule out.
+        """
+        self._scale = None
+        self._offset = None
+
     def _effective_packing(self, band: int = 0) -> tuple[Any, Any]:
         """The `(scale, offset)` a read of this variable must apply.
 

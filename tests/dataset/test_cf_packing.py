@@ -1463,3 +1463,34 @@ class TestPythonHeldPackingReachesEveryReader:
         gt = selected.geotransform
         x, y = gt[0] + gt[1] * 0.5, gt[3] + gt[5] * 0.5
         assert read(selected, x, y) == pytest.approx(1200 * 0.01 + 1.5)
+
+
+class TestAnInPlaceComputeSpendsThePacking:
+    """`apply(inplace=True)` / `fill(inplace=True)` on a packed `NetCDF` variable."""
+
+    @pytest.mark.parametrize(
+        ("operation", "expected"),
+        [
+            pytest.param(lambda v: v.apply(lambda a: a, inplace=True), 2.5, id="apply"),
+            pytest.param(lambda v: v.fill(7.0, inplace=True), 7.0, id="fill"),
+        ],
+    )
+    def test_the_values_are_not_unpacked_a_second_time(self, operation, expected):
+        """The in-place result reads back once-unpacked.
+
+        Test scenario:
+            `_update_inplace` preserves `_scale` / `_offset` -- right for `set_crs`, which
+            does not touch values -- and the resolver prefers them. So after an in-place
+            compute had written physical values, the next read applied the recipe
+            again: the identity `apply` turned 2.5 into 1.525.
+        """
+        store = NetCDF.read_file(PACKED_NC)
+        try:
+            variable = store.get_variable("z")
+            operation(variable)
+            got = float(np.nanmax(np.asarray(variable.read_array(), dtype="float64")))
+            spent = (variable._scale, variable._offset)
+        finally:
+            store.close()
+        assert got == pytest.approx(expected), f"read back {got}, expected {expected}"
+        assert spent == (None, None), f"the recipe was left attached: {spent}"

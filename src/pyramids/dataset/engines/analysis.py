@@ -759,6 +759,8 @@ class Analysis(_Engine["Dataset"]):
 
         if inplace:
             self._ds._update_inplace(dst_obj.raster)
+            # The values are physical now, so the recipe is spent (rule 2).
+            self._ds._spend_packing()
             return None
         return dst_obj
 
@@ -1598,6 +1600,8 @@ class Analysis(_Engine["Dataset"]):
         dst = self._ds.io.stream_transform(_fill_tile, path=path)
         if inplace:
             self._ds._update_inplace(dst.raster)
+            # The fill wrote physical values, so the recipe is spent (rule 2).
+            self._ds._spend_packing()
             return None
         return dst
 

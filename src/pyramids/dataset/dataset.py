@@ -1277,6 +1277,16 @@ class Dataset(RasterBase):
             opts.get("percentile"),
         )
 
+    def _spend_packing(self) -> None:
+        """Forget the packing once a compute has replaced the values with physical ones.
+
+        Called after an in-place compute (`apply(inplace=True)`, `fill(inplace=True)`).
+        The raster swapped in holds physical values and declares no packing on its bands,
+        so for a plain `Dataset` there is nothing left to forget. `NetCDF` overrides this,
+        because a variable also carries the recipe in Python and would otherwise apply it
+        to the already-physical values on the next read.
+        """
+
     def _effective_packing(self, band: int = 0) -> tuple[Any, Any]:
         """The `(scale, offset)` a read of `band` applies, as this class resolves it.
 
