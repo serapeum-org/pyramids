@@ -18366,7 +18366,7 @@ The NetCDF class contains methods to deal with NetCDF files.</p>
 <a id="__codelineno-0-3490" name="__codelineno-0-3490"></a>
 <a id="__codelineno-0-3491" name="__codelineno-0-3491"></a><span class="sd">        There are two places the packing can live and they do not always agree, so</span>
 <a id="__codelineno-0-3492" name="__codelineno-0-3492"></a><span class="sd">        every read path resolves it here rather than picking one. The variable's own</span>
-<a id="__codelineno-0-3493" name="__codelineno-0-3493"></a><span class="sd">        `_scale` / `_offset` win: `_wrap_like` copies them onto every result, and the</span>
+<a id="__codelineno-0-3493" name="__codelineno-0-3493"></a><span class="sd">        `_scale` / `_offset` win: `_preserve_netcdf_metadata` copies them onto every result, and the</span>
 <a id="__codelineno-0-3494" name="__codelineno-0-3494"></a><span class="sd">        rest of this module -- the fan-out carry, the stream specs -- treats them as</span>
 <a id="__codelineno-0-3495" name="__codelineno-0-3495"></a><span class="sd">        the truth. The classic band's `GetScale` / `GetOffset` are the fallback, which</span>
 <a id="__codelineno-0-3496" name="__codelineno-0-3496"></a><span class="sd">        is what a container opened with `open_as_multi_dimensional=False` has, since</span>
