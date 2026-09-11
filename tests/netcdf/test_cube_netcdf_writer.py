@@ -290,9 +290,10 @@ class TestCubeNetCDFWriterBuildSchema:
         """The identity must not be written out as a declaration.
 
         Test scenario:
-            GDAL answers `1.0` / `0.0` for a band that was never packed, so carrying
-            them unconditionally would stamp a meaningless recipe onto every cube
-            pyramids writes -- and a reader would dutifully apply it.
+            A band can declare the identity outright -- and pyramids' own `scale` /
+            `offset` report an unset pair as `1.0` / `0.0` -- so carrying the pair
+            unconditionally would stamp a meaningless recipe onto every such cube, and
+            a reader would dutifully apply it.
         """
         writer = _schema_writer(
             nodata=(None,), band_count=1, names=("b1",), scale=1.0, offset=0.0

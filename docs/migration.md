@@ -180,9 +180,10 @@ v.read_array().max()
 does it without re-reading — CF packing is affine, so `min`, `max` and `mean` take `raw * scale + offset` while
 `std` takes `|scale|`.
 
-**A raster that is not packed is untouched.** GDAL reports `scale=1.0, offset=0.0` for anything never packed,
-and that identity is short-circuited: same values, same dtype, no copy, no `float64` promotion. If your rasters
-are unpacked — nearly all GeoTIFFs — nothing changes.
+**A raster that is not packed is untouched.** The identity is short-circuited: same values, same dtype, no
+copy, no `float64` promotion. It counts in every spelling it arrives in — GDAL answers `None` for a band that was
+never packed, while `Dataset.scale` / `.offset` report that as `1.0` / `0.0`, and a file may store the identity
+outright. If your rasters are unpacked — nearly all GeoTIFFs — nothing changes.
 
 **`scaled=` is gone; use `unpack=`.** The two names were the same concept in two places
 (`IO.read_array(scaled=)` for rasters, `NetCDF.read_array(unpack=)` for CF variables), both defaulting off and

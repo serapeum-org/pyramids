@@ -7,8 +7,9 @@ runs, the plot renders, and a wave height of 14.35 m reads as 1435.
 These pin three things the change has to get right at once:
 
 - packed data comes back physical, from `read_array`, `stats` and the plot path alike;
-- unpacked data — nearly every raster — is untouched, same dtype and no copy, because GDAL
-  reports `scale=1.0, offset=0.0` rather than `None` for a band that was never packed;
+- unpacked data — nearly every raster — is untouched, same dtype and no copy. GDAL answers
+  `None` for a band that was never packed, but pyramids' own `scale` / `offset` report that
+  as `1.0` / `0.0` and a file may store the identity outright, so both spellings count;
 - `apply` neither truncates a float result into an integer band nor silently spends the
   packing while leaving the raw values in place.
 """
@@ -183,9 +184,12 @@ class TestIdentityIsFree:
         """No promotion, no copy, same values.
 
         Test scenario:
-            GDAL answers `1.0` / `0.0` for a band that was never packed, not `None`. If
-            only `None` counted as "nothing to do", flipping the default would promote
-            every ordinary raster to `float64` and double its memory for no gain.
+            The identity reaches this in more than one spelling. GDAL answers `None`
+            for a band that was never packed, but `Dataset.scale` / `.offset` normalise
+            that to `1.0` / `0.0`, and a file may store the identity outright. If only
+            `None` counted as "nothing to do", every raster whose pair came through the
+            property -- or was written that way -- would be promoted to `float64` and
+            double its memory for no gain.
         """
         source = np.array([0, 1, 2], dtype="int16")
         result = apply_unpack(source, scale, offset)
