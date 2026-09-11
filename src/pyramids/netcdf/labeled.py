@@ -1192,9 +1192,9 @@ class LabeledArray:
     lazy reading — the values are already in NumPy's own memory by the time you have one.
 
     Attributes:
-        values: The materialised array. `float`/`int` for a numeric source; `<U` for a string
-            array read through `NetCDF.get_variable`, `object` for one read through
-            `LabeledDataset`.
+        values: The materialised array. `float`/`int` for a numeric source, a structured
+            array for a compound one, and `object` for a string one -- from either producer,
+            so a missing entry stays `None` rather than being coerced.
         dims: The dimension names, outermost first.
         shape: The shape those dimensions declare, which always matches `values.shape`.
         name: The variable's name, or `""` when the producer does not set it.
@@ -1267,7 +1267,7 @@ class LabeledArray:
         *,
         name: str = "",
         unit: str = "",
-        no_data_value: float | None = None,
+        no_data_value: float | int | None = None,
         attributes: dict[str, Any] | None = None,
         scale: float | None = None,
         offset: float | None = None,

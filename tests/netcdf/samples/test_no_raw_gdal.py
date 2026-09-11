@@ -75,14 +75,26 @@ class TestANonRasterVariableComesBackLabelled:
         store = NetCDF.read_file(sample(GROUPED), read_only=True)
         try:
             group_name = store.group_names[0]
+            qualified = f"{group_name}/air_press"
             if route == "group":
-                variable_object = store.get_group(group_name).get_variable("air_press")
+                owner = store.get_group(group_name)
+                variable_object = owner.get_variable("air_press")
+                expected_name = "air_press"
             else:
-                variable_object = store.get_variable(f"{group_name}/air_press")
+                owner = store
+                variable_object = store.get_variable(qualified)
+                expected_name = qualified
 
             assert isinstance(variable_object, LabeledArray)
             assert variable_object.dims == ("recNum",)
             assert variable_object.values.dtype == np.float64
+            # The name is the one the caller used on the object they asked. The
+            # grouped fixture repeats `air_press` in every group, so the slash
+            # route came back named `air_press`, which `read_array` on the root
+            # then rejected -- a name that could not be used to read itself.
+            assert variable_object.name == expected_name
+            round_trip = np.asarray(owner.read_array(variable=variable_object.name))
+            assert round_trip.tolist() == variable_object.values.tolist()
         finally:
             store.close()
 

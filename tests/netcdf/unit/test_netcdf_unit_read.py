@@ -250,7 +250,7 @@ class TestReadMdArrayNonNumeric:
             assert isinstance(string_var, LabeledArray), (
                 f"a character variable must come back as a LabeledArray, got {type(string_var)}"
             )
-            assert string_var.values.dtype.kind == "U", (
+            assert string_var.values.dtype == np.dtype(object), (
                 f"the returned array must keep its string dtype, got {string_var.values.dtype}"
             )
             assert string_var.values.size == 12, "the values must be readable"

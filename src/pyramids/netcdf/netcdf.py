@@ -1088,14 +1088,16 @@ def _labeled_array_from_md_array(md_arr: gdal.MDArray, name: str) -> LabeledArra
         where this hands back the stored numbers; it applies the store's
         current `select` / `select_time` / `select_bbox` and squeezes the
         scalar-selected dimensions out, where this always reads the whole
-        array; it reads a string array as `object` where this reads it as
-        `<U`; and it leaves `name`, `unit`, `no_data_value` and `attributes`
-        at their defaults, where this fills them in.
+        array; and it leaves `name`, `unit`, `no_data_value`, `attributes`,
+        `scale` and `offset` at their defaults, where this fills them in. Both
+        read a string array as `object`.
 
     Raises:
         ValueError: The values read back with a shape other than the one the
-            dimensions declare, or the array is empty and carries a compound
-            type whose own components are compound.
+            dimensions declare; the array cannot be read at all through GDAL's
+            Python bindings (a compound with a string field); or the array is
+            empty and carries a compound type with a component that is itself a
+            compound or a string, which has no numeric type to describe.
     """
     dimensions = md_arr.GetDimensions()
     dims = tuple(dim.GetName() for dim in dimensions)
@@ -1131,7 +1133,13 @@ def _labeled_array_from_md_array(md_arr: gdal.MDArray, name: str) -> LabeledArra
         # of `str`, which is why it is reshaped here. It is the numeric arrays
         # that must avoid `Read`, which returns their bytes undecoded as a
         # `bytearray` -- the two are exact opposites.
-        raw = np.asarray(md_arr.Read()).reshape(shape)
+        # `object`, not `<U`: a string array can hold NULL entries, which `Read`
+        # returns as `None` and a `<U` array cannot represent. Letting NumPy pick
+        # made the dtype depend on the data -- `<U` for a fully written column,
+        # `object` the moment one entry was missing -- so code switching on
+        # `dtype.kind` broke on partially filled files. `object` throughout keeps
+        # the missing entries missing, and matches `LabeledDataset`.
+        raw = np.asarray(md_arr.Read(), dtype=object).reshape(shape)
     else:
         # Numeric and compound alike. GDAL builds the structured dtype for a
         # compound record itself, with the declared offsets and record size, so
@@ -1181,7 +1189,7 @@ def _labeled_array_from_md_array(md_arr: gdal.MDArray, name: str) -> LabeledArra
         shape,
         name=name,
         unit=md_arr.GetUnit() or "",
-        no_data_value=md_arr.GetNoDataValueAsDouble(),
+        no_data_value=_no_data_value_of(md_arr),
         attributes=attributes,
         # Carried because GDAL removes `scale_factor` / `add_offset` from the
         # attribute list: without them a packed variable arrived as `[10, 15]`
@@ -1191,6 +1199,37 @@ def _labeled_array_from_md_array(md_arr: gdal.MDArray, name: str) -> LabeledArra
         scale=md_arr.GetScale(),
         offset=md_arr.GetOffset(),
     )
+
+
+def _no_data_value_of(md_arr: gdal.MDArray) -> float | int | None:
+    """The array's declared fill value, at the precision its type holds.
+
+    `GetNoDataValueAsDouble` is exact for every type but the two 64-bit integer
+    ones, where a double's 53-bit mantissa cannot hold the value: the common
+    `-9223372036854775806` fill came back as `-9.223372036854776e+18`, which
+    compares equal to no element of the array. Those two are read through
+    their own accessors instead.
+
+    Args:
+        md_arr: The array whose fill value to read.
+
+    Returns:
+        float | int | None: The fill value, an `int` for a 64-bit integer array,
+        or `None` when the array declares none.
+    """
+    data_type = md_arr.GetDataType()
+    numeric_type = (
+        data_type.GetNumericDataType()
+        if data_type.GetClass() == gdal.GEDTC_NUMERIC
+        else None
+    )
+    if numeric_type == gdal.GDT_Int64:
+        value: float | int | None = md_arr.GetNoDataValueAsInt64()
+    elif numeric_type == gdal.GDT_UInt64:
+        value = md_arr.GetNoDataValueAsUInt64()
+    else:
+        value = md_arr.GetNoDataValueAsDouble()
+    return value
 
 
 def _numpy_dtype_of(data_type: gdal.ExtendedDataType) -> np.dtype:
@@ -1203,8 +1242,8 @@ def _numpy_dtype_of(data_type: gdal.ExtendedDataType) -> np.dtype:
         data_type: The array's declared type.
 
     Returns:
-        np.dtype: The numeric dtype, the compound record dtype, or a zero-width
-        `<U` string dtype -- the kind `Read` would have produced for each.
+        np.dtype: The numeric dtype, the compound record dtype, or `object` for a
+        string array -- the dtype a non-empty read of each produces.
 
     Raises:
         ValueError: The type is a compound whose own components are not all
@@ -1218,11 +1257,11 @@ def _numpy_dtype_of(data_type: gdal.ExtendedDataType) -> np.dtype:
             dtype('int16')
 
             ```
-        - A string type maps onto a zero-width unicode dtype, not `object`:
+        - A string type maps onto `object`, which can hold a missing entry:
             ```python
             >>> from osgeo import gdal
             >>> _numpy_dtype_of(gdal.ExtendedDataType.CreateString())
-            dtype('<U')
+            dtype('O')
 
             ```
     """
@@ -1232,12 +1271,9 @@ def _numpy_dtype_of(data_type: gdal.ExtendedDataType) -> np.dtype:
     elif type_class == gdal.GEDTC_COMPOUND:
         dtype = _compound_dtype(data_type)
     else:
-        # `<U0`: the same `str_` kind `np.asarray(md_arr.Read())` yields for a
-        # populated string array (`<U3` for `['x', 'yy', 'zzz']`), at zero width
-        # because there are no elements to size it from. `object` would have
-        # been the other defensible choice, but it reads as "unknown" where the
-        # type is in fact known and empty.
-        dtype = np.dtype(np.str_)
+        # `object`, the dtype the non-empty string read produces, so an empty
+        # variable and a populated one agree.
+        dtype = np.dtype(object)
     return dtype
 
 
@@ -7444,9 +7480,8 @@ class NetCDF(Dataset):
                 `LabeledDataset["var"]` hands back the same class from the
                 same store, so the two agree on type — but it decodes a CF
                 time axis, applies that store's current selection, squeezes
-                the scalar-selected dimensions out, reads a string array as
-                `object` rather than `<U`, and leaves the four label fields
-                above unset. Do not read the two as interchangeable.
+                the scalar-selected dimensions out, and leaves the label
+                fields above unset. Do not read the two as interchangeable.
 
         Raises:
             ValueError: If `variable_name` is not present in the dataset.
@@ -7547,6 +7582,12 @@ class NetCDF(Dataset):
             parts = variable_name.rsplit("/", 1)
             group_nc = self.get_group(parts[0])
             cube = group_nc.get_variable(parts[1], x_dim=x_dim, y_dim=y_dim)
+            if isinstance(cube, LabeledArray):
+                # The group resolved the leaf, so the wrapper came back named
+                # `air_press` -- a name the grouped fixture repeats in every
+                # group, and one `read_array(variable=...)` then rejects. The
+                # caller's qualified name is the one that means something here.
+                cube.name = variable_name
             return cube  # single return below handles non-group path
 
         # Checked against what the store *holds*, not against `variable_names`:

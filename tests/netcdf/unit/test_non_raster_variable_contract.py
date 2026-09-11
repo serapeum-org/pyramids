@@ -180,6 +180,14 @@ class _StubMDArray:
         """No unit declared."""
         return ""
 
+    def GetScale(self):  # noqa: N802 - mirrors the GDAL SWIG spelling
+        """No `scale_factor`: the array is not packed."""
+        return None
+
+    def GetOffset(self):  # noqa: N802 - mirrors the GDAL SWIG spelling
+        """No `add_offset`: the array is not packed."""
+        return None
+
     def GetNoDataValueAsDouble(self):  # noqa: N802 - mirrors the GDAL SWIG spelling
         """No fill value declared."""
         return None
@@ -540,18 +548,19 @@ class TestTheDtypeOfAVariableWithNoRecords:
 
         assert dtype == np.dtype(expected), f"expected {expected}, got {dtype}"
 
-    def test_a_string_type_maps_to_the_unicode_dtype(self):
-        """An empty string variable must not be the one string array with a different dtype.
+    def test_a_string_type_maps_to_object(self):
+        """An empty string variable gets the dtype a populated one does.
 
         Test scenario:
-            A non-empty string array reaches the caller as `np.asarray(md_arr.Read())`, whose
-            dtype is `<U`. Expected: the same kind for the empty case, so a caller inspecting
-            `values.dtype.kind` gets the same answer whether or not any record was written --
-            `object`, the other plausible choice, would break that.
+            A non-empty string array is read as `object`, because `Read` returns a missing
+            entry as `None` and a `<U` array cannot hold one. Letting NumPy pick made the
+            dtype depend on the data -- `<U` for a fully written column, `object` the moment
+            one entry was missing. Expected: `object` for the empty case too, so
+            `values.dtype.kind` is the same answer whether or not any record was written.
         """
         dtype = _numpy_dtype_of(gdal.ExtendedDataType.CreateString())
 
-        assert dtype.kind == "U", f"expected a unicode dtype, got {dtype!r}"
+        assert dtype == np.dtype(object), f"expected object, got {dtype!r}"
 
     def test_a_compound_type_keeps_the_declared_offsets_and_record_size(self):
         """The record layout is read from GDAL, not inferred from the field formats.
