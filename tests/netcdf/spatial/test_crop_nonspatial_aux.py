@@ -304,20 +304,28 @@ def _attr(name, value):
     return attr
 
 
-def _fake_rg(var_dims, coord_attrs=None):
+def _fake_rg(var_dims, coord_attrs=None, type_classes=None):
     """A Mock root group: ``OpenMDArray(name)`` -> a variable MDArray or a coordinate.
 
     Args:
         var_dims: ``{var_name: [dim_name, ...]}`` for the variable(s) under test.
         coord_attrs: ``{dim_name: {attr: value}}`` driving CF detection; a name in
             neither map raises ``RuntimeError`` as GDAL does.
+        type_classes: ``{var_name: gdal.GEDTC_*}``; a variable not named here is
+            numeric, as an ordinary grid is.
     """
     coord_attrs = coord_attrs or {}
+    type_classes = type_classes or {}
 
     def open_mdarray(name):
         if name in var_dims:
             md = Mock()
             md.GetDimensions.return_value = [_dim(d) for d in var_dims[name]]
+            # A real MDArray always declares a dtype, and the classifier now reads
+            # it: a string or compound array on (y, x) axes is not griddable.
+            md.GetDataType.return_value.GetClass.return_value = type_classes.get(
+                name, gdal.GEDTC_NUMERIC
+            )
             return md
         if name in coord_attrs:
             coord = Mock()
@@ -353,6 +361,24 @@ class TestVariableIsSpatial:
         """
         rg = _fake_rg({"time_bnds": ["valid_time", "nbnds"]})
         assert NetCDF._variable_is_spatial(NetCDF, rg, "time_bnds") is False
+
+    @pytest.mark.parametrize("type_class", [gdal.GEDTC_STRING, gdal.GEDTC_COMPOUND])
+    def test_a_non_numeric_array_on_grid_axes_is_not_spatial(self, type_class):
+        """Grid-shaped dimensions do not make a string or compound array a raster.
+
+        Args:
+            type_class: The non-numeric dtype class to declare.
+
+        Test scenario:
+            `flag(y, x)` has exactly the dimensions `t2m(y, x)` does, and the
+            classifier used to look at nothing else. So a container-wide
+            `crop` / `to_crs` / `reduce` handed it to the fan-out, which cannot
+            build a raster from it and refused the *whole* operation over one
+            auxiliary field. It must be carried through instead.
+        """
+        rg = _fake_rg({"flag": ["y", "x"]}, type_classes={"flag": type_class})
+
+        assert NetCDF._variable_is_spatial(NetCDF, rg, "flag") is False
 
     def test_known_name_axes_is_spatial(self):
         """Well-known ``y`` / ``x`` dimension names mark a variable spatial.

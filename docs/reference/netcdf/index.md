@@ -14,6 +14,12 @@ variable access, time dimension handling, and CF-compliant metadata.
 `variables[name]`, `sel`, or `subset` returns a **`Variable`** — a `NetCDF` with `band_count >= 1`
 that behaves as a single raster. `get_group` opens a nested NetCDF-4 group as its own container.
 
+A variable GDAL cannot expose as a raster — a 1-D array such as a bounds or coordinate series, or a
+string or compound array of any rank — comes back from `get_variable` and `variables[name]` as a
+**`LabeledArray`** instead: its `values`, `dims` and `shape`, plus the `name`, `unit`,
+`no_data_value`, `scale`, `offset` and `attributes` it declares. It has no raster operations, so
+`crop_variable` and the other raster-only methods refuse it by name.
+
 ```mermaid
 flowchart LR
     F[(".nc file · bytes · many files")]
@@ -22,6 +28,8 @@ flowchart LR
     C -->|get_group| C
     C -->|"get_variable · variables[name]<br/>sel · subset"| V
     V["Variable<br/>NetCDF, band_count >= 1<br/>one variable as a raster"]
+    C -->|"get_variable · variables[name]<br/>(1-D, string, compound)"| L
+    L["LabeledArray<br/>values + dims + labels<br/>no raster operations"]
     V -->|plot| G(["cleopatra glyph"])
     C -. "read_array · crop · reduce · to_crs · to_file" .-> V
 ```

@@ -40,10 +40,13 @@ A NetCDF file holds *several* variables, so `NetCDF.read_file` cannot return "a 
 nc = NetCDF.read_file("air.nc")     # Container: band_count == 0
 nc.variable_names                    # ['t2m', 'tp', ...]
 t2m = nc.get_variable("t2m")         # Variable: band_count >= 1 — read_array / crop / plot / to_file
+bnds = nc.get_variable("time_bnds")  # LabeledArray: a 1-D or string array — .values / .dims / .unit
 grp = nc.get_group("subgroup")       # a nested netCDF-4 group, itself a container
 ```
 
-`get_variable` / `variables[name]` / `sel` / `subset` all narrow a container to a variable. See the
+`get_variable` / `variables[name]` / `sel` / `subset` all narrow a container to a variable. A variable GDAL can
+expose as a raster comes back as a `Variable`; one it cannot — a 1-D array, or a string or compound one — comes
+back as a `LabeledArray`, which holds the values and their labels but has no raster operations. See the
 [NetCDF reference](reference/netcdf/index.md) for the full model.
 
 ## Glossary
