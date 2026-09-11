@@ -1185,24 +1185,36 @@ class LabeledArray:
     a label-indexed store, with the store's current selection applied and a CF time axis
     decoded; `NetCDF.get_variable` returns one for a variable GDAL cannot expose as a raster
     — a 1-D array of any dtype, or a non-numeric one of any rank — with the values exactly as
-    stored. Only the second populates `name` / `unit` / `no_data_value` / `attributes`; the
-    first leaves all four at their defaults. `_LabeledArray` is kept as a backward-compatible
-    alias.
+    stored. Only the second populates `name` / `unit` / `no_data_value` / `attributes` /
+    `scale` / `offset`; the first leaves all six at their defaults. `_LabeledArray` is kept as
+    a backward-compatible alias.
 
     This is a plain value holder: it defines `__slots__`, holds no GDAL handle, and does no
-    lazy reading — the values are already in NumPy's own memory by the time you have one.
+    lazy reading — the values are already in NumPy's own memory by the time you have one. It
+    is mutable until `freeze` runs. The `NetCDF.variables` mapping freezes each one it hands
+    out, since it gives the same object to every caller, while `get_variable` returns a fresh,
+    writeable one each call; `copy` gives a mutable instance of either.
 
     Attributes:
-        values: The materialised array. `float`/`int` for a numeric source, a structured
-            array for a compound one, and `object` for a string one -- from either producer,
-            so a missing entry stays `None` rather than being coerced.
+        values: The materialised array: the source's own numeric dtype for a numeric array, a
+            structured array for a compound one, and `object` for a string one -- from either
+            producer, so a NULL string entry stays `None` rather than being coerced. The one
+            exception is an array with CF time units read through `LabeledDataset`, which is
+            decoded to `datetime64[ns]`, or to `cftime` objects for a non-standard calendar or
+            a date outside that type's range.
         dims: The dimension names, outermost first.
-        shape: The shape those dimensions declare. Both producers build it from the same
-            read that fills `values`, so the two agree; the constructor itself does not check.
+        shape: The shape those dimensions declare. `get_variable` takes it from the declared
+            dimensions and refuses a read that disagrees; `LabeledDataset` takes it from
+            `values.shape`. The constructor itself does not check.
         name: The variable's name, or `""` when the producer does not set it.
         unit: The CF `units` string, or `""` when the source declares none.
-        no_data_value: The declared fill value, or `None`. `values` is **not** masked by it.
+        no_data_value: The declared fill value, or `None`: an exact `int` for a 64-bit integer
+            source and a `float` otherwise. `values` is **not** masked by it.
         attributes: The variable's other attributes, `{}` when the producer does not set them.
+        scale: The CF `scale_factor` of packed values, or `None` when none is declared. GDAL
+            lifts it out of the attribute list, which is why it is here and not in `attributes`.
+        offset: The CF `add_offset`, or `None`, likewise. `values` stays packed; unpacking is
+            `values * scale + offset`, reading a `None` as `1` and `0` respectively.
 
     Examples:
         - Build one directly and read the values back:
@@ -1243,10 +1255,24 @@ class LabeledArray:
             LabeledArray(dims=('record', 'strlen'), shape=(2, 3))
 
             ```
+        - A packed variable keeps its stored integers and carries what unpacking them needs:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.netcdf import LabeledArray
+            >>> height = LabeledArray(
+            ...     np.array([10, 15], dtype="int16"), ("time",), (2,), scale=1.0, offset=95.0
+            ... )
+            >>> height.values.tolist()
+            [10, 15]
+            >>> (height.values * height.scale + height.offset).tolist()
+            [105.0, 110.0]
+
+            ```
 
     See Also:
         `LabeledDataset.__getitem__`: reads one out of a label-indexed store.
         `pyramids.netcdf.NetCDF.get_variable`: returns one for a variable with no raster plane.
+        `LabeledArray.freeze` / `LabeledArray.copy`: lock an instance, or get a mutable one.
     """
 
     __slots__ = (
@@ -1302,16 +1328,17 @@ class LabeledArray:
         self.offset = offset
 
     def __setattr__(self, name: str, value: Any) -> None:
-        """Refuse a change once the instance is frozen.
+        """Assign as usual until `freeze` has run, and refuse every assignment after it.
 
         Args:
             name: The attribute to set.
             value: Its new value.
 
         Raises:
-            AttributeError: The instance is frozen -- it is the one the
-                `variables` cache hands to every caller, so a change here would
-                show through that mapping and nowhere else.
+            AttributeError: The instance is frozen. Every `LabeledArray` the
+                `variables` cache holds is, because that mapping hands one object to
+                every caller and a change to it would show there and nowhere else;
+                `copy` gives a mutable one.
         """
         if getattr(self, "_frozen", False):
             raise AttributeError(
@@ -1321,22 +1348,138 @@ class LabeledArray:
         object.__setattr__(self, name, value)
 
     def freeze(self) -> None:
-        """Make the instance and its array read-only.
+        """Make the instance and its array read-only, in place.
 
-        Used by the `variables` cache, which hands one object to every caller:
-        a change to it would show through that mapping while `get_variable` and
-        `read_array` still answered the stored values.
+        The `variables` cache calls this on every `LabeledArray` it stores, because it
+        hands one object to every caller: a change to it would show through that
+        mapping while `get_variable` and `read_array` still answered the stored values.
+
+        Freezing does three things. It clears the `WRITEABLE` flag of `values`, so a
+        write into the array raises `ValueError`; it replaces `attributes` with a
+        read-only `MappingProxyType` over a shallow copy of it, so item assignment
+        raises `TypeError`; and it makes `__setattr__` refuse every later assignment
+        with `AttributeError`. Freezing an instance twice is harmless.
+
+        Note:
+            The lock is not tamper-proof. NumPy lets `values.setflags(write=True)` set
+            the flag back on an array that owns its memory; a mutable value inside
+            `attributes` -- GDAL reads a multi-valued string attribute back as a
+            `list` -- can still be changed in place; and `del` on a field is not
+            refused. To change the data, take a `copy`.
+
+        Examples:
+            - A write into the frozen array is refused, while reading it carries on:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf import LabeledArray
+                >>> series = LabeledArray(np.array([10, 20, 30]), ("time",), (3,), unit="K")
+                >>> series.freeze()
+                >>> series.values.flags.writeable
+                False
+                >>> series.values[0] = 99
+                Traceback (most recent call last):
+                    ...
+                ValueError: assignment destination is read-only
+                >>> series.values.tolist(), series.unit
+                ([10, 20, 30], 'K')
+
+                ```
+            - The labels are locked too, the attribute mapping item by item:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf import LabeledArray
+                >>> series = LabeledArray(
+                ...     np.array([10, 20, 30]), ("time",), (3,), attributes={"long_name": "t2m"}
+                ... )
+                >>> series.freeze()
+                >>> series.unit = "K"  # doctest: +ELLIPSIS
+                Traceback (most recent call last):
+                    ...
+                AttributeError: cannot set 'unit': this LabeledArray is shared by the ...
+                >>> series.attributes["long_name"] = "air temperature"
+                Traceback (most recent call last):
+                    ...
+                TypeError: 'mappingproxy' object does not support item assignment
+                >>> series.attributes["long_name"]
+                't2m'
+
+                ```
+            - The `variables` mapping hands out a frozen instance, `get_variable` a
+              writeable one:
+                ```python
+                >>> import numpy as np
+                >>> from osgeo import gdal
+                >>> from pyramids.netcdf import Container
+                >>> store = gdal.GetDriverByName("MEM").CreateMultiDimensional("demo")
+                >>> group = store.GetRootGroup()
+                >>> time = group.CreateDimension("time", None, None, 3)
+                >>> t2m = group.CreateMDArray(
+                ...     "t2m", [time], gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+                ... )
+                >>> t2m.Write(np.array([280.0, 281.5, 283.0]))
+                0
+                >>> nc = Container(store)
+                >>> nc.variables["t2m"].values.flags.writeable
+                False
+                >>> nc.get_variable("t2m").values.flags.writeable
+                True
+
+                ```
+
+        See Also:
+            `LabeledArray.copy`: a mutable, independent instance, frozen original or not.
         """
         self.values.setflags(write=False)
         object.__setattr__(self, "attributes", MappingProxyType(dict(self.attributes)))
         object.__setattr__(self, "_frozen", True)
 
     def copy(self) -> LabeledArray:
-        """A mutable, independent copy -- of a frozen instance or any other.
+        """Return a mutable, independent copy -- of a frozen instance or any other.
+
+        The copy is never frozen, whatever the original is. `values` is copied, so a
+        write into one array never shows in the other, and `attributes` becomes a new
+        plain `dict` -- a shallow copy, so a mutable value inside it is still shared.
+        The remaining labels -- tuples, strings, numbers or `None` -- are carried over
+        as they are.
 
         Returns:
-            LabeledArray: The same values and labels, with its own array and its
-            own attribute dict.
+            LabeledArray: The same values and the same `dims`, `shape`, `name`,
+            `unit`, `no_data_value`, `scale` and `offset`, with its own writeable
+            array and its own attribute dict.
+
+        Examples:
+            - Copy a frozen instance to change it; the original stays as it was:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf import LabeledArray
+                >>> shared = LabeledArray(np.array([10, 20, 30]), ("time",), (3,), unit="K")
+                >>> shared.freeze()
+                >>> mine = shared.copy()
+                >>> mine.values += 1
+                >>> mine.unit = "degC"
+                >>> mine.values.tolist(), mine.unit
+                ([11, 21, 31], 'degC')
+                >>> shared.values.tolist(), shared.unit
+                ([10, 20, 30], 'K')
+
+                ```
+            - Every label travels, the packing included, but the memory does not:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf import LabeledArray
+                >>> packed = LabeledArray(
+                ...     np.array([10, 15], dtype="int16"), ("time",), (2,), name="z", scale=1.0, offset=95.0
+                ... )
+                >>> twin = packed.copy()
+                >>> twin.name, twin.dims, twin.scale, twin.offset
+                ('z', ('time',), 1.0, 95.0)
+                >>> np.shares_memory(twin.values, packed.values)
+                False
+
+                ```
+
+        See Also:
+            `LabeledArray.freeze`: what a frozen instance refuses.
         """
         return LabeledArray(
             self.values.copy(),
