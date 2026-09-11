@@ -118,6 +118,27 @@ def _zones() -> gpd.GeoDataFrame:
     )
 
 
+def _overlaid(dataset: Dataset) -> np.ndarray:
+    """Overlay the raster with a two-class map, flattened class by class.
+
+    The left two columns are class 1 and the right two class 2, so the gap in the
+    top-left corner falls inside class 1.
+
+    Args:
+        dataset: The raster to overlay.
+
+    Returns:
+        np.ndarray: Class 1's values sorted, then class 2's.
+    """
+    classes = Dataset.from_array(
+        np.tile(np.array([1, 1, 2, 2], dtype="int32"), (4, 1)), geo_ref=GEO
+    )
+    groups = sorted(dataset.overlay(classes).items())
+    return np.concatenate(
+        [np.sort(np.asarray(values, dtype="float64")) for _, values in groups]
+    )
+
+
 CASES: list[tuple[str, Callable[[Dataset], Any]]] = [
     ("count_domain_cells", lambda ds: ds.count_domain_cells()),
     ("domain_area", lambda ds: ds.domain_area()),
@@ -175,6 +196,19 @@ CASES: list[tuple[str, Callable[[Dataset], Any]]] = [
     ),
     ("read_part", lambda ds: _domain(ds.read_part((10.0, 49.6, 10.4, 50.0), band=0))),
     ("preview", lambda ds: _domain(ds.preview(band=0))),
+    ("overlay", _overlaid),
+    (
+        "map_blocks-band",
+        lambda ds: _domain(
+            ds.map_blocks(lambda t: t * 2, tile_size=2, band=0).read_array()
+        ),
+    ),
+    (
+        "stream_transform-band",
+        lambda ds: _domain(
+            ds.io.stream_transform(lambda t: t * 2, band=0, tile_size=2).read_array()
+        ),
+    ),
 ]
 
 
@@ -208,8 +242,22 @@ def test_the_packed_raster_answers_like_its_twin(
             "stream_transform",
             lambda ds: ds.io.stream_transform(lambda t: t * 2, tile_size=2),
         ),
+        (
+            "map_blocks-band",
+            lambda ds: ds.map_blocks(lambda t: t * 2, tile_size=2, band=0),
+        ),
+        (
+            "stream_transform-band",
+            lambda ds: ds.io.stream_transform(lambda t: t * 2, band=0, tile_size=2),
+        ),
     ],
-    ids=["apply", "map_blocks", "stream_transform"],
+    ids=[
+        "apply",
+        "map_blocks",
+        "stream_transform",
+        "map_blocks-band",
+        "stream_transform-band",
+    ],
 )
 def test_a_computed_result_still_marks_its_gap(
     name: str, compute: Callable[[Dataset], Dataset]

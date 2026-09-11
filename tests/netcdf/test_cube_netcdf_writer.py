@@ -102,6 +102,50 @@ def _stream_writer(
     return writer
 
 
+def _decision_writer(recipes, *, var_dtype="int16"):
+    """Build a writer over timesteps that answer only their CF packing.
+
+    Args:
+        recipes: One list of `(scale, offset)` pairs per timestep, one pair per band.
+        var_dtype: The stored dtype the writer starts from.
+
+    Returns:
+        CubeNetCDFWriter: a writer ready for `_decide_storage`.
+    """
+    datasets = [
+        SimpleNamespace(_effective_packing=pairs.__getitem__) for pairs in recipes
+    ]
+    writer = CubeNetCDFWriter(SimpleNamespace(datasets=datasets))
+    writer.band_count = len(recipes[0])
+    writer.var_dtype = np.dtype(var_dtype)
+    return writer
+
+
+def _packed_step(counts, *, no_data, scale, offset):
+    """A packed in-memory timestep, for `_physical_block` unit tests.
+
+    Args:
+        counts: `(rows, cols)` or `(bands, rows, cols)` stored counts.
+        no_data: One sentinel per band.
+        scale: One `scale_factor` per band.
+        offset: One `add_offset` per band.
+
+    Returns:
+        Dataset: The timestep.
+    """
+    array = np.asarray(counts, dtype="int16")
+    step = Dataset.from_array(
+        array,
+        geo_ref=GeoReference(
+            top_left_corner=(0, array.shape[-2]), cell_size=1.0, epsg=4326
+        ),
+        no_data_value=list(no_data),
+    )
+    step.scale = list(scale)
+    step.offset = list(offset)
+    return step
+
+
 class TestCubeNetCDFWriterWrite:
     """Tests for ``__init__`` and ``write`` (guard + wiring)."""
 
@@ -490,6 +534,147 @@ class TestCubeNetCDFWriterStream:
         sink = Mock()
         with pytest.raises(AlignmentError, match="timestep 0"):
             writer._stream(sink, dims={"y": 4, "x": 5}, var_per_band=True)
+
+    def test_a_materialised_cube_streams_physical_slabs(self):
+        """With `_materialise` set, each slab is the timestep's physical block.
+
+        Test scenario:
+            The materialised form writes `float64` physical values with the gaps as
+            NaN, so the counts `read_array(unpack=False)` would give never reach the
+            file: the slab holds `2.5` where the store holds `100`.
+        """
+        step = _packed_step(
+            [[-9999, 100], [200, 300]], no_data=[-9999], scale=[0.01], offset=[1.5]
+        )
+        writer = _stream_writer(datasets=[step], files=["f0"], var_dtype="float64")
+        writer._materialise = True
+        sink = Mock()
+
+        writer._stream(sink, dims={"y": 2, "x": 2}, var_per_band=True)
+
+        name, index, slab = sink.write_slab.call_args.args
+        assert (name, index) == ("b1", 0), (name, index)
+        np.testing.assert_allclose(slab, [[np.nan, 2.5], [3.5, 4.5]])
+
+
+class TestCubeNetCDFWriterDecideStorage:
+    """Tests for ``_decide_storage``: the compact counts + recipe, or a materialised cube."""
+
+    @pytest.mark.parametrize("var_per_band", [True, False], ids=["per-band", "data"])
+    def test_every_timestep_unpacked_keeps_the_compact_form(self, var_per_band):
+        """No timestep declares a recipe, so the counts are written as they are.
+
+        Test scenario:
+            The identity reaches this in two spellings -- GDAL's unset `None` and an
+            explicit `1.0` / `0.0` -- and both mean "unpacked". Neither may switch on
+            the materialised `float64` form, which would double the cube for nothing.
+        """
+        writer = _decision_writer(
+            [[(None, None), (1.0, 0.0)], [(1.0, 0.0), (None, None)]]
+        )
+
+        writer._decide_storage(var_per_band)
+
+        assert writer._materialise is False, "an unpacked cube was materialised"
+        assert writer._recipe == [(None, None), (None, None)], writer._recipe
+        assert writer.var_dtype == np.dtype("int16"), writer.var_dtype
+
+    def test_timesteps_packed_alike_keep_their_shared_recipe(self):
+        """One recipe describes every slab, so the counts are stored with it."""
+        writer = _decision_writer([[(0.01, 1.5)], [(0.01, 1.5)]])
+
+        writer._decide_storage(True)
+
+        assert writer._materialise is False, "a consistent cube was materialised"
+        assert writer._recipe == [(0.01, 1.5)], writer._recipe
+        assert writer.var_dtype == np.dtype("int16"), writer.var_dtype
+
+    def test_timesteps_packed_differently_are_materialised(self):
+        """A second timestep at `0.1` cannot be labelled with the first's `0.01`."""
+        writer = _decision_writer([[(0.01, 0.0)], [(0.1, 0.0)]])
+
+        writer._decide_storage(True)
+
+        assert writer._materialise is True, "disagreeing timesteps kept one recipe"
+        assert writer._recipe is None, writer._recipe
+        assert writer.var_dtype == np.dtype("float64"), writer.var_dtype
+
+    @pytest.mark.parametrize(
+        ("var_per_band", "materialise"),
+        [(True, False), (False, True)],
+        ids=["per-band-carries-each", "data-var-cannot"],
+    )
+    def test_bands_packed_differently_fit_only_one_variable_per_band(
+        self, var_per_band, materialise
+    ):
+        """A variable per band can carry a recipe per band; one 4-D variable cannot."""
+        writer = _decision_writer([[(0.01, 0.0), (0.1, 0.0)]])
+
+        writer._decide_storage(var_per_band)
+
+        assert writer._materialise is materialise, writer._materialise
+        expected_dtype = np.dtype("float64" if materialise else "int16")
+        assert writer.var_dtype == expected_dtype, writer.var_dtype
+
+    def test_the_recipe_comes_from_the_timesteps_not_the_template(self):
+        """A template packed unlike its timesteps cannot mislabel them.
+
+        Test scenario:
+            The template declares `0.5`; every timestep declares `0.01`. The schema
+            takes the recipe `_decide_storage` resolved from the timesteps, since those
+            are what the slabs are read from.
+        """
+        writer = _schema_writer(
+            nodata=(None,), band_count=1, names=("b1",), scale=0.5, offset=0.0
+        )
+        writer._collection.datasets = [
+            SimpleNamespace(_effective_packing=[(0.01, 1.5)].__getitem__)
+        ]
+
+        writer._decide_storage(True)
+        _dims, _coords, var_specs, _root = writer._build_schema(
+            TimeAxis(np.array([0]), {}), time_dim="time", var_per_band=True
+        )
+
+        attrs = var_specs["b1"][2]
+        assert attrs["scale_factor"] == pytest.approx(0.01), attrs
+        assert attrs["add_offset"] == pytest.approx(1.5), attrs
+
+
+class TestCubeNetCDFWriterPhysicalBlock:
+    """Tests for ``_physical_block``: one timestep in physical units, gaps as NaN."""
+
+    def test_a_single_band_timestep_is_lifted_to_three_dimensions(self):
+        """A 2-D read comes back as `(1, rows, cols)` `float64`, unpacked, gap as NaN."""
+        step = _packed_step(
+            [[-9999, 100], [200, 300]], no_data=[-9999], scale=[0.01], offset=[1.5]
+        )
+
+        block = CubeNetCDFWriter._physical_block(step)
+
+        assert block.shape == (1, 2, 2), block.shape
+        assert block.dtype == np.float64, block.dtype
+        np.testing.assert_allclose(block, [[[np.nan, 2.5], [3.5, 4.5]]])
+
+    def test_each_band_takes_its_own_recipe_and_sentinel(self):
+        """Band by band: each is masked with its own sentinel and unpacked with its recipe.
+
+        Test scenario:
+            Band 1 declares `-32768` and holds a real `-9999`, and it is unpacked at the
+            identity. Masking it with band 0's sentinel would blank a measurement, and
+            unpacking it with band 0's recipe would shift every value.
+        """
+        step = _packed_step(
+            [[[-9999, 100], [200, 300]], [[-32768, 100], [-9999, 300]]],
+            no_data=[-9999, -32768],
+            scale=[0.01, 1.0],
+            offset=[1.5, 0.0],
+        )
+
+        block = CubeNetCDFWriter._physical_block(step)
+
+        np.testing.assert_allclose(block[0], [[np.nan, 2.5], [3.5, 4.5]])
+        np.testing.assert_allclose(block[1], [[np.nan, 100.0], [-9999.0, 300.0]])
 
 
 def _packed_timesteps(tmp_path, scales, *, bands=1):
