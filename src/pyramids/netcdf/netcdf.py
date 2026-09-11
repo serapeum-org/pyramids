@@ -1137,91 +1137,18 @@ def _labeled_array_from_md_array(md_arr: gdal.MDArray, name: str) -> LabeledArra
     dims = tuple(dim.GetName() for dim in dimensions)
     shape = tuple(dim.GetSize() for dim in dimensions)
     data_type = md_arr.GetDataType()
-    type_class = data_type.GetClass()
-    if 0 in shape:
-        # An unlimited netCDF dimension with no records written is the ordinary
-        # source of this, and such a variable is still advertised by
-        # `variable_names`. GDAL refuses to read it -- `count[0] = 0 is invalid`
-        # -- rather than handing back nothing, so the empty array is built from
-        # the declared type instead of asking GDAL for zero elements.
-        try:
-            raw = np.empty(shape, dtype=_numpy_dtype_of(data_type))
-        except ValueError as error:
-            # `_numpy_dtype_of` refuses a compound whose own component is a
-            # compound or a string, since neither has a numeric type code.
-            # Re-raised with the variable named: the bare message names only
-            # GDAL's type-code number (`not supported: 0`), which identifies
-            # neither the variable nor the component.
-            raise ValueError(
-                f"{name} has an empty extent and a compound type this reader "
-                f"cannot describe: {error}"
-            ) from error
-    elif type_class == gdal.GEDTC_STRING:
-        # The one class `ReadAsArray` cannot serve, and how it fails depends on
-        # GDAL's exception mode, not on the backing store. With exceptions on --
-        # pyramids turns them on at import -- a MEM and a file-backed array alike
-        # raise `RuntimeError: String buffer data type not supported in SWIG
-        # bindings`; with them off, either one only logs that error and returns
-        # `|S1` garbage. The silent case is why this branches on the dtype class
-        # rather than trying and catching. Same limitation `_md_array_to_numpy`
-        # and `_read_band_dim_values` work around. `Read` hands back a flat list
-        # of `str`, which is why it is reshaped here. It is the numeric arrays
-        # that must avoid `Read`, which returns their bytes undecoded as a
-        # `bytearray` -- the two are exact opposites.
-        # `object`, not `<U`: a string array can hold NULL entries, which `Read`
-        # returns as `None` and a `<U` array cannot represent. Letting NumPy pick
-        # made the dtype depend on the data -- `<U` for a fully written column,
-        # `object` the moment one entry came back NULL -- so code switching on
-        # `dtype.kind` broke on the first file holding one. `object` throughout
-        # keeps a NULL entry `None`, and matches `LabeledDataset`.
-        raw = np.asarray(md_arr.Read(), dtype=object).reshape(shape)
-    else:
-        # Numeric and compound alike. GDAL builds the structured dtype for a
-        # compound record itself, with the declared offsets and record size, so
-        # decoding the buffer by hand gained nothing and cost two things: the
-        # result was read-only where every other path is writeable, and a
-        # component that is itself a compound has no numeric type code, so the
-        # hand-rolled dtype raised on a record `ReadAsArray` handles.
-        try:
-            raw = md_arr.ReadAsArray()
-        except RuntimeError as error:
-            if type_class != gdal.GEDTC_COMPOUND:
-                # An I/O or decompression failure on an ordinary array: not a
-                # type problem, so GDAL's own message is the accurate one.
-                raise
-            # A compound record with a string field is unreadable through the
-            # SWIG bindings by *either* reader -- `ReadAsArray` and `Read` both
-            # raise ("String buffer" / "non-numeric buffer data type not
-            # supported"). There is nothing to materialise, so this refuses, but
-            # in terms of the variable rather than with GDAL's bare message.
-            raise ValueError(
-                f"{name} cannot be read: GDAL's Python bindings do not support "
-                f"its compound type ({error}). A compound with a string field "
-                "is the usual cause."
-            ) from error
-    values = np.asarray(raw)
+    values = _read_md_array_values(md_arr, data_type, shape, name)
     if values.shape != shape:
         # The two shapes come from different places -- `shape` from the
         # dimensions GDAL declares, `values.shape` from what the read returned --
         # and only the string path reshapes, so a short or mis-shaped numeric
-        # or compound read would otherwise reach the caller as a
-        # `LabeledArray` whose `shape` and `values.shape` quietly disagree.
+        # read would otherwise reach the caller as a `LabeledArray` whose
+        # `shape` and `values.shape` quietly disagree.
         raise ValueError(
             f"{name} declares dimensions {dims} of shape {shape}, but its "
             f"values read back with shape {values.shape}"
         )
-    # The labels the raw `MDArray` used to expose through `GetUnit()`,
-    # `GetNoDataValueAsDouble()` and the attribute API. Carrying them is what
-    # makes the wrapper a better answer than the handle it replaced rather than
-    # merely a safer one -- without them a `-9999.0` in `values` would be
-    # indistinguishable from real data.
-    attributes = {}
-    for attribute in md_arr.GetAttributes() or []:
-        try:
-            attributes[attribute.GetName()] = attribute.Read()
-        except RuntimeError:
-            # One unreadable attribute must not cost the caller the values.
-            continue
+    attributes = _read_md_array_attributes(md_arr)
     return LabeledArray(
         values,
         dims,
@@ -1238,6 +1165,103 @@ def _labeled_array_from_md_array(md_arr: gdal.MDArray, name: str) -> LabeledArra
         scale=md_arr.GetScale(),
         offset=md_arr.GetOffset(),
     )
+
+
+def _read_md_array_values(
+    md_arr: gdal.MDArray,
+    data_type: gdal.ExtendedDataType,
+    shape: tuple[int, ...],
+    name: str,
+) -> np.ndarray:
+    """Read an array's values with the reader its dtype class needs.
+
+    Split out of `_labeled_array_from_md_array`, which it serves: choosing the
+    reader is one decision with three answers, and keeping it here leaves that
+    function to assemble the result.
+
+    Args:
+        md_arr: The array to read.
+        data_type: Its declared type.
+        shape: The shape its dimensions declare.
+        name: The variable's name, for the refusals.
+
+    Returns:
+        np.ndarray: The values, not yet checked against `shape`.
+
+    Raises:
+        ValueError: The extent is empty and the type is a compound this reader
+            cannot describe, or the array is a compound GDAL's Python bindings
+            cannot read.
+        RuntimeError: A read failure unrelated to the type -- an I/O or
+            decompression error on an ordinary array -- passed through unchanged.
+    """
+    type_class = data_type.GetClass()
+    if 0 in shape:
+        # An unlimited netCDF dimension with no records written is the ordinary
+        # source of this, and such a variable is still advertised by
+        # `variable_names`. GDAL refuses to read it -- `count[0] = 0 is invalid`
+        # -- rather than handing back nothing, so the empty array is built from
+        # the declared type instead of asking GDAL for zero elements.
+        try:
+            raw = np.empty(shape, dtype=_numpy_dtype_of(data_type))
+        except ValueError as error:
+            raise ValueError(
+                f"{name} has an empty extent and a compound type this reader "
+                f"cannot describe: {error}"
+            ) from error
+    elif type_class == gdal.GEDTC_STRING:
+        # The one class `ReadAsArray` cannot serve: with GDAL's exceptions on,
+        # which importing pyramids turns on, it raises "String buffer data type
+        # not supported in SWIG bindings". `Read` returns the decoded strings.
+        # `object`, not `<U`: a NULL entry comes back as `None`, which a `<U`
+        # array cannot hold, so letting NumPy choose made the dtype depend on
+        # whether every entry happened to be written.
+        raw = np.asarray(md_arr.Read(), dtype=object).reshape(shape)
+    else:
+        # Numeric and compound alike: GDAL builds the structured dtype for a
+        # compound record itself, with the declared offsets and record size.
+        try:
+            raw = md_arr.ReadAsArray()
+        except RuntimeError as error:
+            if type_class != gdal.GEDTC_COMPOUND:
+                # An I/O or decompression failure on an ordinary array: not a
+                # type problem, so GDAL's own message is the accurate one.
+                raise
+            # A compound record with a string field is unreadable through the
+            # SWIG bindings by *either* reader. There is nothing to materialise,
+            # so this refuses, but in terms of the variable rather than with
+            # GDAL's bare message.
+            raise ValueError(
+                f"{name} cannot be read: GDAL's Python bindings do not support "
+                f"its compound type ({error}). A compound with a string field "
+                "is the usual cause."
+            ) from error
+    return np.asarray(raw)
+
+
+def _read_md_array_attributes(md_arr: gdal.MDArray) -> dict[str, Any]:
+    """The array's attributes as a plain dict, skipping any that will not read.
+
+    The labels the raw `MDArray` used to expose through its attribute API.
+    Carrying them is part of what makes the wrapper a better answer than the
+    handle it replaced rather than merely a safer one.
+
+    Args:
+        md_arr: The array whose attributes to read.
+
+    Returns:
+        dict[str, Any]: Each readable attribute by name. `scale_factor` and
+        `add_offset` are absent: GDAL lifts them out of the attribute list, and
+        they are carried as `scale` / `offset` instead.
+    """
+    attributes: dict[str, Any] = {}
+    for attribute in md_arr.GetAttributes() or []:
+        try:
+            attributes[attribute.GetName()] = attribute.Read()
+        except RuntimeError:
+            # One unreadable attribute must not cost the caller the values.
+            continue
+    return attributes
 
 
 def _no_data_value_of(md_arr: gdal.MDArray) -> float | int | None:
@@ -7512,6 +7536,30 @@ class NetCDF(Dataset):
             )
         return variable
 
+    def _get_group_variable(
+        self, variable_name: str, x_dim: str | None, y_dim: str | None
+    ) -> NetCDF | LabeledArray:
+        """Resolve a group-qualified `get_variable` name through its group.
+
+        Args:
+            variable_name: A name of the form `group/leaf`.
+            x_dim: Optional name of the X dimension, passed through.
+            y_dim: Optional name of the Y dimension, passed through.
+
+        Returns:
+            NetCDF | LabeledArray: What the owning group's `get_variable` returns
+            for the leaf, with a `LabeledArray` renamed to the qualified name.
+        """
+        group_path, leaf = variable_name.rsplit("/", 1)
+        cube = self.get_group(group_path).get_variable(leaf, x_dim=x_dim, y_dim=y_dim)
+        if isinstance(cube, LabeledArray):
+            # The group resolved the leaf, so the wrapper came back named
+            # `air_press` -- a name the grouped fixture repeats in every group,
+            # and one `read_array(variable=...)` on the root then rejects. The
+            # caller's qualified name is the one that means something here.
+            cube.name = variable_name
+        return cube
+
     def get_variable(
         self, variable_name: str, x_dim: str | None = None, y_dim: str | None = None
     ) -> NetCDF | LabeledArray:
@@ -7681,16 +7729,7 @@ class NetCDF(Dataset):
         """
         # Handle group-qualified names: "forecast/temperature"
         if "/" in variable_name:
-            parts = variable_name.rsplit("/", 1)
-            group_nc = self.get_group(parts[0])
-            cube = group_nc.get_variable(parts[1], x_dim=x_dim, y_dim=y_dim)
-            if isinstance(cube, LabeledArray):
-                # The group resolved the leaf, so the wrapper came back named
-                # `air_press` -- a name the grouped fixture repeats in every
-                # group, and one `read_array(variable=...)` then rejects. The
-                # caller's qualified name is the one that means something here.
-                cube.name = variable_name
-            return cube  # single return below handles non-group path
+            return self._get_group_variable(variable_name, x_dim, y_dim)
 
         # Checked against what the store *holds*, not against `variable_names`:
         # that property enumerates data variables, so CF non-data arrays -- 2-D
@@ -7721,7 +7760,10 @@ class NetCDF(Dataset):
             if x_index is not None:
                 spatial_dim_indices = (x_index, y_index)
             if isinstance(src, gdal.Dataset):
-                cube = Variable(src)
+                # Declared `NetCDF`, not inferred: `_georeference_index_subset`
+                # below reassigns `cube` a `NetCDF`, and with the group branch now
+                # in its own method this is the first assignment mypy sees.
+                cube: NetCDF = Variable(src)
                 cube._is_md_array = True
                 # Which spatial axes _read_md_array reversed, and where the raster plane sits in the
                 # MDArray. The eager materialize path rebuilds the unreversed view from these and
