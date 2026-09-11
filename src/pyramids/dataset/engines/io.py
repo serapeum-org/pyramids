@@ -2603,8 +2603,14 @@ class IO(_Engine["Dataset"]):
             for index in range(out.shape[0]):
                 if sentinels[index] is not None:
                     out[index][~domain[index]] = sentinels[index]
-        elif sentinels is not None:
-            out[~domain] = sentinels
+        else:
+            # A one-band raster read with `band=None` comes back 2-D while its
+            # sentinels still arrive as the per-band tuple, so unwrap it. Assigning
+            # the tuple itself turned `(None,)` into NaN on a float destination and a
+            # `TypeError` on an integer one, where `band=0` left the cells alone.
+            value = sentinels[0] if isinstance(sentinels, (list, tuple)) else sentinels
+            if value is not None:
+                out[~domain] = value
         return out
 
     def _band_packing(self, band: int | None) -> tuple[Any, Any]:
@@ -2841,7 +2847,9 @@ class IO(_Engine["Dataset"]):
             )
             result = np.asarray(tile_func(tile))
             if repack:
-                result = self._repack(result, out_scale, out_offset, out_dtype)
+                result = self._repack(
+                    result, out_scale, out_offset, out_dtype, sentinels
+                )
             out.write_array(
                 self._restore_gap(result, domain, sentinels),
                 band=band,
@@ -2850,7 +2858,9 @@ class IO(_Engine["Dataset"]):
         return out
 
     @staticmethod
-    def _repack(values: Any, scale: Any, offset: Any, dtype: np.dtype) -> Any:
+    def _repack(
+        values: Any, scale: Any, offset: Any, dtype: np.dtype, sentinels: Any = None
+    ) -> Any:
         """Pack physical values with a destination's recipe, `(value - offset) / scale`.
 
         The inverse of unpacking, for a destination that declares `scale_factor` /
@@ -2904,8 +2914,43 @@ class IO(_Engine["Dataset"]):
             factor, shift = factor[0], shift[0]
         counts = (np.asarray(values, dtype=np.float64) - shift) / factor
         if np.issubdtype(dtype, np.integer):
-            counts = np.rint(counts)
+            # An integer store cannot hold NaN or a count beyond its range, and a bare
+            # `astype` turned both into arbitrary numbers (NaN -> 0, 1e9 -> 0) that the
+            # recipe then read back as measurements. Out-of-range counts saturate at the
+            # type's limits; a non-finite one becomes the destination's declared
+            # sentinel, or the type's minimum when it declares none, so it at least
+            # cannot be mistaken for a value near zero.
+            info = np.iinfo(dtype)
+            invalid = ~np.isfinite(counts)
+            counts = np.clip(
+                np.rint(np.where(invalid, 0.0, counts)), info.min, info.max
+            )
+            counts = counts.astype(dtype)
+            if np.any(invalid):
+                counts[invalid] = IO._sentinel_for(invalid, sentinels, info.min)
+            return counts
         return counts.astype(dtype)
+
+    @staticmethod
+    def _sentinel_for(invalid: Any, sentinels: Any, fallback: Any) -> Any:
+        """The value an invalid count is written as -- per band for a 3-D block.
+
+        Args:
+            invalid: Where the counts could not be stored.
+            sentinels: The destination's declared sentinel, or one per band.
+            fallback: What to use for a band that declares none.
+
+        Returns:
+            One value per invalid cell, in row-major order.
+        """
+        per_band = sentinels if isinstance(sentinels, (list, tuple)) else [sentinels]
+        chosen = [fallback if value is None else value for value in per_band]
+        if np.asarray(invalid).ndim == 3:
+            grid = np.broadcast_to(
+                np.asarray(chosen).reshape(-1, 1, 1), np.asarray(invalid).shape
+            )
+            return grid[invalid]
+        return chosen[0]
 
     def stream_reduce(
         self,

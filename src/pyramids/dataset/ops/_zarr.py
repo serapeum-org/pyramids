@@ -46,6 +46,7 @@ import numpy as np
 from pyramids.base._errors import OverviewTargetError
 from pyramids.base._utils import (
     _is_identity_packing,
+    apply_unpack,
     import_dask,
     import_zarr,
     lazy_extra_hint,
@@ -666,9 +667,22 @@ def _write_overview_levels(
         }
     ]
     for ov_index, factor in enumerate(factors):
+        # Each level in the units the base array is in. GDAL builds the overviews from
+        # the stored counts, so a packed band's levels come back as counts, while `data`
+        # and the metadata beside it describe physical `float64`: a level read back
+        # `[45, 65, 85]` where `data` read `[0, 5, 10]`, and the physical fill was cast
+        # into the counts' integer type. CF packing is affine, so unpacking the averaged
+        # counts equals averaging the physical values.
         levels = [
             np.asarray(
-                ds.raster.GetRasterBand(b + 1).GetOverview(ov_index).ReadAsArray()
+                apply_unpack(
+                    np.asarray(
+                        ds.raster.GetRasterBand(b + 1)
+                        .GetOverview(ov_index)
+                        .ReadAsArray()
+                    ),
+                    *ds._effective_packing(b),
+                )
             )
             for b in range(band_count)
         ]

@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING, Any, Unpack, cast
 
 import numpy as np
 import pandas as pd
-from osgeo import gdal
 from pyproj import CRS
 
 from pyramids import _io
@@ -550,7 +549,11 @@ def _unpack_lazy_timestep(
         RuntimeError: GDAL cannot open the file's header (the same failure the lazy
             blocks would hit when computed).
     """
-    with gdal.config_options(dict(gdal_env or {})):
+    # The same credential scoping the chunk reads use (`_read_chunk` installs
+    # `cloud_config_from_env(gdal_env, path=...)`), so a signed remote file's header is
+    # opened exactly as its pixels will be -- a plain `gdal.config_options` could send
+    # different credentials, or none, for the one request that reads the recipe.
+    with cloud_config_from_env(gdal_env, path=str(path)):
         header = gdal_raster_open(str(path), "read_only", open_options=open_options)
         pairs = [
             (header.GetRasterBand(i).GetScale(), header.GetRasterBand(i).GetOffset())
