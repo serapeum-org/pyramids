@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
-from pyramids.netcdf import LabeledArray
+from pyramids.netcdf import LabeledArray, LabeledDataset
 from pyramids.netcdf.netcdf import Container, NetCDF
 from tests.netcdf.conftest import make_2d_nc
 from tests.netcdf.unit._netcdf_unit_helpers import _make_3d_nc
@@ -311,9 +311,9 @@ class TestTheMaterialisedValuesAreTheStoredOnes:
 
     Every other test around `get_variable`'s non-raster branch asserts the *type* that comes
     back, its `dims` and its declared `shape`. None of them looks at the numbers, so a read
-    that answers with the right shape and the wrong contents passes them all. These two do
-    look: one writes known values through each reader (`ReadAsArray` for numeric, the
-    structured-dtype view for compound) and reads them back.
+    that answers with the right shape and the wrong contents passes them all. These do look:
+    each writes known values through one reader (`ReadAsArray` for numeric, the
+    structured-dtype view for compound, `Read` for string) and reads them back.
     """
 
     @staticmethod
@@ -430,6 +430,51 @@ class TestTheMaterialisedValuesAreTheStoredOnes:
                 f"field {name!r} must decode to the stored values {expected}, got "
                 f"{variable.values[name]}"
             )
+
+    def test_a_string_column_is_object_however_much_of_it_is_written(self):
+        """A string column's dtype must not depend on whether every entry was written.
+
+        Test scenario:
+            `full` has every entry written; `partial` only its first, so the other two are
+            NULL, which `Read` returns as `None`. Left to NumPy, the first came back `<U3` and
+            the second `object` -- one kind of variable, two dtypes, chosen by the data -- so
+            code switching on `dtype.kind` broke on a partially filled file. Expected: `object`
+            for both, the NULL entries still `None`, and the dtype `LabeledDataset` reads the
+            same column with, since the two producers are documented to agree on it.
+        """
+        dataset = gdal.GetDriverByName("MEM").CreateMultiDimensional("test")
+        rg = dataset.GetRootGroup()
+        dim = rg.CreateDimension("n", None, None, 3)
+        full = rg.CreateMDArray("full", [dim], gdal.ExtendedDataType.CreateString())
+        full.Write(["x", "yy", "zzz"])
+        partial = rg.CreateMDArray(
+            "partial", [dim], gdal.ExtendedDataType.CreateString()
+        )
+        partial.Write(["a"], array_start_idx=[0], count=[1])
+        container = Container(dataset)
+        try:
+            full_values = container.get_variable("full").values
+            partial_values = container.get_variable("partial").values
+            labeled = LabeledDataset._from_group(dataset, rg, None)
+
+            assert full_values.dtype == np.dtype(object), (
+                f"a fully written column must be object, got {full_values.dtype}"
+            )
+            assert full_values.tolist() == ["x", "yy", "zzz"], (
+                f"unexpected values {full_values.tolist()}"
+            )
+            assert partial_values.dtype == np.dtype(object), (
+                f"a partially written column must be object, got {partial_values.dtype}"
+            )
+            assert partial_values.tolist() == ["a", None, None], (
+                f"the NULL entries must stay None, got {partial_values.tolist()}"
+            )
+            assert labeled["full"].values.dtype == full_values.dtype, (
+                f"LabeledDataset reads the column as {labeled['full'].values.dtype}, "
+                f"get_variable as {full_values.dtype}"
+            )
+        finally:
+            container.close()
 
 
 class TestNeedsYFlip:

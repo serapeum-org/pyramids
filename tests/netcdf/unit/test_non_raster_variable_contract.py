@@ -1,14 +1,20 @@
 """What a variable with no raster plane promises once it is a `LabeledArray` (#1126).
 
 The sibling suites assert the *type* that comes back from `get_variable` and the values it
-carries. Three things they do not reach are asserted here.
+carries. Four things they do not reach are asserted here.
+
+*The declaration.* `_has_raster_plane` predicts, from an array's rank and dtype class alone, what
+`get_variable` will return for it. The container CRS walk, the raster guard and the fan-out
+classifier all act on that prediction instead of reading the array, so it is checked against the
+type `get_variable` really returns, and the reads it exists to save are counted.
 
 *The refusal.* `_require_raster_variable` is the door every internal caller that needs geometry
 now goes through. It is exercised from the public methods that let a user name the variable --
 `crop_variable`, `reproject_variable`, `resample_variable` and `plot(variable=)` -- because a
 refusal is only useful if it survives the call the user actually makes.
 
-*The labels.* `LabeledArray` grew `name` / `unit` / `no_data_value` / `attributes`. Without them a
+*The labels.* `LabeledArray` grew `name` / `unit` / `no_data_value` / `attributes`, then `scale` /
+`offset`. Without them a
 `-9999.0` sitting in `values` is indistinguishable from real data, so what the wrapper copies off
 the array -- and what it defaults to when the array declares nothing -- is the difference between
 the wrapper being a better answer than the handle it replaced and merely a safer one.
@@ -21,6 +27,8 @@ directly, on the `ExtendedDataType` they take.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 from osgeo import gdal, osr
@@ -28,7 +36,9 @@ from osgeo import gdal, osr
 from pyramids.netcdf import LabeledArray
 from pyramids.netcdf.netcdf import (
     Container,
+    NetCDF,
     _compound_dtype,
+    _has_raster_plane,
     _labeled_array_from_md_array,
     _numpy_dtype_of,
 )
@@ -37,6 +47,16 @@ pytestmark = pytest.mark.core
 
 PADDED_RECORD_SIZE = 24
 PADDED_OFFSETS = [0, 8, 16]
+# Opened classically (`NETCDF:file:var`), this store has no multidimensional group at all.
+CLASSIC_SAMPLE = (
+    Path(__file__).resolve().parents[2]
+    / "data"
+    / "netcdf"
+    / "cf__6v__1d2-2d4__geog__y-asc.nc"
+)
+# Fills a double's 53-bit mantissa cannot hold: each rounds to a value no element equals.
+INT64_FILL = -9223372036854775806
+UINT64_FILL = 18446744073709551614
 
 
 def _mem_store():
@@ -91,6 +111,124 @@ def _padded_record():
             )
         ],
     )
+
+
+def _data_type(kind: str):
+    """Build the extended type a test names.
+
+    Args:
+        kind: `"float64"`; `"string"`; `"record"`, two `Int32` fields; or
+            `"record_with_text"`, an `Int32` and a string field -- the layout of a C struct
+            holding an int and a `char *`.
+
+    Returns:
+        gdal.ExtendedDataType: The type.
+    """
+    int32 = gdal.ExtendedDataType.Create(gdal.GDT_Int32)
+    if kind == "float64":
+        data_type = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+    elif kind == "string":
+        data_type = gdal.ExtendedDataType.CreateString()
+    elif kind == "record":
+        data_type = gdal.ExtendedDataType.CreateCompound(
+            "pair_t",
+            8,
+            [
+                gdal.EDTComponent.Create("a", 0, int32),
+                gdal.EDTComponent.Create("b", 4, int32),
+            ],
+        )
+    else:
+        data_type = gdal.ExtendedDataType.CreateCompound(
+            "station_t",
+            16,
+            [
+                gdal.EDTComponent.Create("id", 0, int32),
+                gdal.EDTComponent.Create(
+                    "label", 8, gdal.ExtendedDataType.CreateString()
+                ),
+            ],
+        )
+    return data_type
+
+
+def _one_array_store(name, sizes, kind, group_name=None):
+    """Build a store holding one unwritten array, at the root or in a sub-group.
+
+    Args:
+        name: The array's name.
+        sizes: Its dimension sizes, outermost first; the dimensions are `d0`, `d1`, ...
+        kind: The data type, as `_data_type` names it.
+        group_name: The sub-group to create the array in, or None for the root.
+
+    Returns:
+        gdal.Dataset: The store; keep the reference alive while its arrays are used.
+    """
+    store = _mem_store()
+    group = store.GetRootGroup()
+    if group_name is not None:
+        group = group.CreateGroup(group_name)
+    dimensions = [
+        group.CreateDimension(f"d{index}", None, None, size)
+        for index, size in enumerate(sizes)
+    ]
+    group.CreateMDArray(name, dimensions, _data_type(kind))
+    return store
+
+
+def _axis_before_a_projected_grid():
+    """Build a store that lists a 1-D `aaa_axis` ahead of a `zzz_grid` declaring EPSG:3857.
+
+    Returns:
+        gdal.Dataset: The store; keep the reference alive while its arrays are used.
+    """
+    store = _mem_store()
+    group = store.GetRootGroup()
+    axis = group.CreateMDArray(
+        "aaa_axis",
+        [group.CreateDimension("n", None, None, 3)],
+        gdal.ExtendedDataType.Create(gdal.GDT_Float64),
+    )
+    axis.Write(np.array([1.0, 2.0, 3.0]))
+    grid = group.CreateMDArray(
+        "zzz_grid",
+        [
+            group.CreateDimension("y", "projection_y_coordinate", "Y", 2),
+            group.CreateDimension("x", "projection_x_coordinate", "X", 3),
+        ],
+        gdal.ExtendedDataType.Create(gdal.GDT_Float64),
+    )
+    grid.Write(np.arange(6, dtype="float64").reshape(2, 3))
+    reference = osr.SpatialReference()
+    reference.ImportFromEPSG(3857)
+    grid.SetSpatialRef(reference)
+    return store
+
+
+@pytest.fixture(scope="function")
+def array_reads(monkeypatch):
+    """Record the name of every array whose values are read while the test runs.
+
+    Both GDAL readers are wrapped -- `ReadAsArray` serves numeric and compound arrays, `Read`
+    string ones -- and each still performs the read, so the code under test behaves exactly
+    as it would unobserved. Request it before building the store to see every read.
+
+    Args:
+        monkeypatch: Pytest's patcher; it puts both readers back on teardown.
+
+    Returns:
+        list[str]: The names read, appended to as the test runs.
+    """
+    names: list[str] = []
+    for method in ("ReadAsArray", "Read"):
+        original = getattr(gdal.MDArray, method)
+
+        def recording(self, *args, _original=original, **kwargs):
+            names.append(self.GetName())
+            return _original(self, *args, **kwargs)
+
+        monkeypatch.setattr(gdal.MDArray, method, recording)
+    return names
 
 
 class _StubDimension:
@@ -296,6 +434,81 @@ class TestARasterOnlyOperationNamesTheVariableItRefuses:
         finally:
             container.close()
 
+    def test_the_refusal_is_decided_without_reading_the_array(
+        self, container, array_reads
+    ):
+        """A refusal must cost nothing: the declaration says "no raster plane" before any read.
+
+        Args:
+            container: Fixture holding a store whose only variable is 1-D.
+            array_reads: Fixture recording every array read during the test.
+
+        Test scenario:
+            The guard used to ask `get_variable`, which materialises the whole array, only to
+            discard the values and refuse -- a full read of a long series spent on an error.
+            It now reads the rank and dtype class off the declaration. Both routes give the
+            same refusal, so only the reads tell them apart. Expected: the refusal, with
+            `series` never read.
+        """
+        with pytest.raises(ValueError, match="no raster plane"):
+            container.crop_variable("series", None)
+
+        assert "series" not in array_reads, (
+            f"the refusal read the array it refused: {array_reads}"
+        )
+
+    def test_the_streaming_fan_out_refuses_by_name_too(self, container, tmp_path):
+        """The streaming path guards the variables it is handed, not only the classifier.
+
+        Args:
+            container: Fixture holding a store whose only variable is 1-D.
+            tmp_path: Where the streamed file would have been written.
+
+        Test scenario:
+            `_stream_apply_to_file` was the one fan-out site still calling `get_variable`
+            directly. The classifier upstream now keeps a non-raster variable out of
+            `spatial_vars`, so one is handed in directly here -- the case the local guard
+            exists for. Without it the stream failed on `_band_dim_names` with an
+            `AttributeError` naming neither the variable nor the reason. Expected: the named
+            refusal, and no file left behind.
+        """
+        destination = tmp_path / "streamed.nc"
+
+        with pytest.raises(ValueError, match="series has no raster plane"):
+            container._stream_apply_to_file(
+                "crop", {"mask": None}, ["series"], [], destination
+            )
+
+        assert not destination.exists(), "a refused stream must not write a file"
+
+    def test_a_store_with_no_multidimensional_group_is_served_by_get_variable(self):
+        """With no declaration to consult, the guard falls back to what `get_variable` answers.
+
+        Test scenario:
+            A store opened classically (`NETCDF:file:var`) has no multidimensional group, so
+            there is no array declaration to classify -- and every variable on that path is a
+            raster. The declaration check must step aside rather than dereference an array it
+            could not open. Expected: the raster subset, with the shape `get_variable` gives
+            the same name.
+        """
+        store = NetCDF.read_file(
+            str(CLASSIC_SAMPLE), read_only=True, open_as_multi_dimensional=False
+        )
+        try:
+            assert store._working_group() is None, "fixture changed: no classic store"
+            name = store.variable_names[0]
+
+            required = store._require_raster_variable(name)
+
+            assert isinstance(required, NetCDF), (
+                f"a classic variable must be handed through, got {type(required).__name__}"
+            )
+            assert required.shape == store.get_variable(name).shape, (
+                "the guard must hand back exactly what `get_variable` answers"
+            )
+        finally:
+            store.close()
+
 
 class TestReadArrayOnAVariableWithNoRasterPlane:
     """`read_array` reuses the values `get_variable` already materialised; unpacking still works."""
@@ -488,6 +701,106 @@ class TestTheLabelsTheWrapperCarries:
             )
             assert variable.attributes == {}, (
                 f"unexpected attributes {variable.attributes!r}"
+            )
+        finally:
+            container.close()
+
+    def test_an_unpacked_array_reports_no_scale_or_offset(self):
+        """No packing declared must read as `None`, not as the identity transform.
+
+        Test scenario:
+            `scale` / `offset` are there so a caller can tell packed values from plain ones.
+            Defaulting them to `1.0` / `0.0` would keep `values * scale + offset` computable
+            but make "is this packed?" unanswerable -- the reason `no_data_value` stays `None`
+            rather than `0.0`. Expected: both `None` on an array that declares neither.
+        """
+        store, _ = _series_store(np.array([1.0, 2.0, 3.0]))
+        container = Container(store)
+        try:
+            variable = container.get_variable("series")
+
+            assert (variable.scale, variable.offset) == (None, None), (
+                f"an unpacked array must report no packing, got "
+                f"{(variable.scale, variable.offset)}"
+            )
+        finally:
+            container.close()
+
+    @pytest.mark.parametrize(
+        "gdal_type, numpy_type, setter, fill",
+        [
+            (gdal.GDT_Int64, "int64", "SetNoDataValueInt64", INT64_FILL),
+            (gdal.GDT_UInt64, "uint64", "SetNoDataValueUInt64", UINT64_FILL),
+        ],
+        ids=["int64", "uint64"],
+    )
+    def test_a_64_bit_integer_fill_value_keeps_every_digit(
+        self, gdal_type, numpy_type, setter, fill
+    ):
+        """A 64-bit fill read through a double matches no element of the array it labels.
+
+        Args:
+            gdal_type: The 64-bit integer type the series is declared with.
+            numpy_type: The matching NumPy dtype for the written values.
+            setter: The `MDArray` method that declares a fill of that type.
+            fill: A fill a double's 53-bit mantissa cannot hold exactly.
+
+        Test scenario:
+            `GetNoDataValueAsDouble` rounds `-9223372036854775806` to
+            `-9.223372036854776e+18`, and the UInt64 fill up to `2**64`; neither equals
+            anything the array holds, so masking by `no_data_value` masked nothing.
+            Expected: the fill as an exact `int`, equal to the one element that carries it.
+        """
+        store, array = _series_store(
+            np.array([1, fill, 3], dtype=numpy_type),
+            gdal.ExtendedDataType.Create(gdal_type),
+        )
+        getattr(array, setter)(fill)
+        container = Container(store)
+        try:
+            variable = container.get_variable("series")
+
+            assert isinstance(variable.no_data_value, int), (
+                f"a 64-bit fill must stay an int, got {variable.no_data_value!r}"
+            )
+            assert variable.no_data_value == fill, (
+                f"expected the fill {fill}, got {variable.no_data_value!r}"
+            )
+            matches = (variable.values == variable.no_data_value).tolist()
+            assert matches == [False, True, False], (
+                f"the fill must pick out exactly the element that carries it: {matches}"
+            )
+        finally:
+            container.close()
+
+    @pytest.mark.parametrize(
+        "gdal_type", [gdal.GDT_Int64, gdal.GDT_UInt64], ids=["int64", "uint64"]
+    )
+    def test_a_64_bit_array_with_no_fill_value_answers_none(self, gdal_type):
+        """The 64-bit accessors must say "none declared" as `None`, as the double one does.
+
+        Args:
+            gdal_type: The 64-bit integer type the series is declared with.
+
+        Test scenario:
+            The defaults test above reaches only the double accessor; these two types read
+            their fill through accessors of their own. `0` is a legal integer fill, so an
+            absent one coming back as a number would read as declared, and one that failed
+            on the absence would make every such variable unreadable. Expected: `None`, with
+            the values intact.
+        """
+        store, _ = _series_store(
+            np.array([1, 2, 3], dtype="int64"), gdal.ExtendedDataType.Create(gdal_type)
+        )
+        container = Container(store)
+        try:
+            variable = container.get_variable("series")
+
+            assert variable.no_data_value is None, (
+                f"an undeclared fill must stay None, got {variable.no_data_value!r}"
+            )
+            assert variable.values.tolist() == [1, 2, 3], (
+                f"unexpected values {variable.values}"
             )
         finally:
             container.close()
@@ -726,6 +1039,141 @@ class TestAReadThatDisagreesWithTheDeclaredDimensions:
         )
 
 
+class TestACompoundRecordWithAStringField:
+    """A record type GDAL's Python bindings cannot read, through either of their readers."""
+
+    def test_get_variable_refuses_it_by_name(self):
+        """The refusal names the variable and the cause, not just GDAL's bare message.
+
+        Test scenario:
+            `ReadAsArray` raises "String buffer data type not supported in SWIG bindings" and
+            `Read` "non-numeric buffer data type not supported", so there is nothing to
+            materialise. Passed through, that message names neither the variable nor why a
+            name the store lists will not read. Expected: a `ValueError` naming `stations`
+            and saying it cannot be read, with GDAL's own error kept as the cause.
+        """
+        container = Container(_one_array_store("stations", (2,), "record_with_text"))
+        try:
+            with pytest.raises(ValueError) as excinfo:
+                container.get_variable("stations")
+        finally:
+            container.close()
+
+        message = str(excinfo.value)
+        assert "stations" in message, f"the refusal must name the variable: {message}"
+        assert "cannot be read" in message, f"the refusal must say why: {message}"
+        assert isinstance(excinfo.value.__cause__, RuntimeError), (
+            f"GDAL's error must stay reachable as the cause: {excinfo.value.__cause__!r}"
+        )
+
+    def test_a_raster_only_operation_refuses_it_for_having_no_plane(self):
+        """Asked to crop one, the guard answers the question asked: it is not a raster.
+
+        Test scenario:
+            `stations(d0, d1)` is 2-D, but a record is not a raster at any rank. Asking
+            `get_variable` first -- what the guard used to do -- surfaced the unreadable-type
+            error instead, an answer to a question the caller did not ask: the record could
+            not be cropped even if it were readable. The declaration answers without a read.
+            Expected: the "no raster plane" refusal, printing both dimensions.
+        """
+        container = Container(_one_array_store("stations", (2, 3), "record_with_text"))
+        try:
+            with pytest.raises(ValueError) as excinfo:
+                container.crop_variable("stations", None)
+        finally:
+            container.close()
+
+        message = str(excinfo.value)
+        assert "no raster plane" in message, f"unexpected refusal: {message}"
+        assert "('d0', 'd1')" in message, (
+            f"the refusal must print the dimensions: {message}"
+        )
+
+
+class TestTheDeclarationAgreesWithWhatGetVariableReturns:
+    """`_has_raster_plane` predicts `get_variable`'s return type without reading; it must not err.
+
+    Three callers act on the prediction rather than on the result: the container CRS walk skips
+    on it, the raster guard refuses on it, and the fan-out classifier excludes on it. A wrong
+    "no" refuses a variable `get_variable` would have served as a raster; a wrong "yes" hands
+    those callers a `LabeledArray` where they expect geometry.
+    """
+
+    @pytest.mark.parametrize(
+        "sizes, kind, expected",
+        [
+            ((3,), "float64", False),
+            ((2, 3), "float64", True),
+            ((2, 2, 3), "float64", True),
+            ((3,), "string", False),
+            ((2, 3), "string", False),
+            ((2, 3), "record", False),
+        ],
+        ids=["1d", "2d", "3d", "1d-string", "2d-string", "2d-record"],
+    )
+    def test_the_prediction_matches_the_returned_type(self, sizes, kind, expected):
+        """Rank and dtype class decide it, and both have to be consulted.
+
+        Args:
+            sizes: The array's dimension sizes.
+            kind: Its data type, as `_data_type` names it.
+            expected: Whether it has a raster plane.
+
+        Test scenario:
+            A 1-D numeric array fails on rank alone and a 2-D string one on dtype alone, so a
+            predicate checking only one of the two gets exactly one of those rows wrong.
+            Expected: the module-level predicate, the method the callers use, and the type
+            `get_variable` actually returns all give the same answer.
+        """
+        store = _one_array_store("v", sizes, kind)
+        container = Container(store)
+        try:
+            predicted = _has_raster_plane(store.GetRootGroup().OpenMDArray("v"))
+            declared = container._declares_raster_plane("v")
+            returned = container.get_variable("v")
+
+            assert predicted is expected, f"_has_raster_plane said {predicted}"
+            assert declared is expected, f"_declares_raster_plane said {declared}"
+            assert isinstance(returned, NetCDF) is expected, (
+                f"get_variable returned a {type(returned).__name__}"
+            )
+        finally:
+            container.close()
+
+    @pytest.mark.parametrize(
+        "sizes, expected", [((3,), False), ((2, 3), True)], ids=["1d", "2d"]
+    )
+    def test_a_group_qualified_name_is_classified_in_its_own_group(
+        self, sizes, expected
+    ):
+        """The CRS walk meets `forecast/v` names and must classify the array they point at.
+
+        Args:
+            sizes: The array's dimension sizes.
+            expected: Whether it has a raster plane.
+
+        Test scenario:
+            `variable_names` qualifies a nested variable with its group path, and the CRS walk
+            classifies every name it lists. The root group holds no array called
+            `forecast/v` -- GDAL answers `Array forecast/v does not exist` -- so the name has
+            to be walked down to its group before the declaration can be read. Expected: the
+            same answer `get_variable` gives through the group, for a series and a grid.
+        """
+        container = Container(_one_array_store("v", sizes, "float64", "forecast"))
+        try:
+            assert "forecast/v" in container.variable_names, "fixture changed"
+
+            declared = container._declares_raster_plane("forecast/v")
+            returned = container.get_variable("forecast/v")
+
+            assert declared is expected, f"_declares_raster_plane said {declared}"
+            assert isinstance(returned, NetCDF) is expected, (
+                f"get_variable returned a {type(returned).__name__}"
+            )
+        finally:
+            container.close()
+
+
 class TestTheContainerCrsSkipsAVariableWithNoRasterPlane:
     """A container borrows its CRS from its variables, and one of them may have no geometry."""
 
@@ -775,3 +1223,48 @@ class TestTheContainerCrsSkipsAVariableWithNoRasterPlane:
             )
         finally:
             container.close()
+
+    def test_the_skipped_variable_is_never_read(self, array_reads):
+        """Stepping over a non-raster variable must not cost a read of it.
+
+        Args:
+            array_reads: Fixture recording every array read during the test.
+
+        Test scenario:
+            The walk used to ask `get_variable` for each name and skip whatever came back as
+            a `LabeledArray` -- correct, but `get_variable` materialises, so it read a whole
+            series only to learn it had no CRS. It now decides on the declaration. Both find
+            the same CRS, so only the reads tell them apart; the recorder is armed before the
+            store is even built, so a read at construction would be caught too. Expected:
+            EPSG:3857 from the grid, and `aaa_axis` never read.
+        """
+        container = Container(_axis_before_a_projected_grid())
+        try:
+            assert container.variable_names[0] == "aaa_axis", "fixture changed"
+
+            assert container.epsg == 3857, f"unexpected EPSG {container.epsg}"
+            assert "aaa_axis" not in array_reads, (
+                f"the CRS walk read the variable it skips: {array_reads}"
+            )
+        finally:
+            container.close()
+
+    def test_a_store_with_no_multidimensional_group_still_borrows_a_crs(self):
+        """A name the declaration check cannot open must count as a raster, not be skipped.
+
+        Test scenario:
+            A classically opened store has no multidimensional group, so the check opens none
+            of its arrays -- yet every variable on that path is a raster. Reading "could not
+            classify" as "no raster plane" skips all of them, and the root of such a store
+            carries no projection of its own, so it would report no CRS at all. Expected: the
+            WGS 84 its variables declare.
+        """
+        store = NetCDF.read_file(
+            str(CLASSIC_SAMPLE), read_only=True, open_as_multi_dimensional=False
+        )
+        try:
+            assert store._working_group() is None, "fixture changed: no classic store"
+
+            assert store.epsg == 4326, f"unexpected EPSG {store.epsg}"
+        finally:
+            store.close()
