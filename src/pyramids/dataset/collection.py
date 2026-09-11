@@ -2649,9 +2649,11 @@ class DatasetCollection:
         "need at least one array to stack", which names neither the collection
         nor the timestep that was missing.
 
-        The empty array carries the collection's own dtype (from :attr:`meta`)
-        rather than NumPy's default float64, so `head(0)` / `tail(0)` match the
-        dtype of a non-empty selection (N1). Taking the dataset list as an
+        The empty array carries the dtype a non-empty read would return -- the
+        collection's own (from :attr:`meta`), or `float64` when the base dataset's
+        band is CF-packed and so reads unpacked -- rather than NumPy's default, so
+        `head(0)` / `tail(0)` match the dtype of a non-empty selection (N1). Taking
+        the dataset list as an
         argument is what lets `head` / `tail` read only the timesteps they
         selected instead of materialising the whole cube via :attr:`values`.
 
@@ -2667,8 +2669,10 @@ class DatasetCollection:
                 `(time, bands, rows, cols)` rather than `(time, rows, cols)`.
 
         Returns:
-            np.typing.NDArray: The stacked cube, or a `(0, rows, cols)` array
-                of the collection's dtype when `datasets` is empty.
+            np.typing.NDArray: The stacked cube, in physical units where a timestep
+                is packed, or -- when `datasets` is empty -- a zero-length array with
+                the rank and dtype that read would have had (`(0, rows, cols)`, or
+                `(0, bands, rows, cols)` for `band=None` on a multi-band collection).
         """
         if not datasets:
             # Shaped to match what a non-empty read of the same request would

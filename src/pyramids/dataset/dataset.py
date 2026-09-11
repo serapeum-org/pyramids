@@ -1280,17 +1280,50 @@ class Dataset(RasterBase):
     def _effective_packing(self, band: int = 0) -> tuple[Any, Any]:
         """The `(scale, offset)` a read of `band` applies, as this class resolves it.
 
-        The single answer every consumer of the packing asks for -- `read_array`,
-        `stats`, the streaming transforms -- so they cannot resolve it differently and
-        report the same band in different units. For a plain raster the band's own
-        `GetScale` / `GetOffset` are the whole story; `NetCDF` overrides this because a
-        variable can also carry the pair in Python, and the two can disagree.
+        The resolver the packing-aware paths share -- `stats`, `get_histogram`, the
+        domain reads behind `apply` and `combine`, `stream_transform`, `map_blocks` and
+        `NetCDF.read_array` -- so they cannot resolve it differently and report the same
+        band in different units. For a plain raster the band's own `GetScale` /
+        `GetOffset` are the whole story; `NetCDF` overrides this because a variable can
+        also carry the pair in Python, and the two can disagree.
 
         Args:
-            band: Zero-based band index.
+            band: Zero-based band index. Defaults to `0`.
 
         Returns:
-            tuple: `(scale, offset)`, either of which may be `None` for "unset".
+            tuple: `(scale, offset)` as GDAL answers them. Either may be `None` for
+                "unset" -- unlike the normalising `scale` / `offset` properties, which
+                report `1.0` / `0` -- and both are `None` when no raster is open.
+
+        Examples:
+            - An unpacked band answers `None` for both slots, where `scale` says `1.0`:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> ds = Dataset.from_array(
+                ...     np.array([[100, 200]], dtype="int16"),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+                ... )
+                >>> ds._effective_packing(0), ds.scale
+                ((None, None), [1.0])
+
+                ```
+            - A packed band answers the pair the default read applies:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> ds = Dataset.from_array(
+                ...     np.array([[100, 200]], dtype="int16"),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+                ... )
+                >>> ds.scale = [0.01]
+                >>> ds.offset = [1.5]
+                >>> ds._effective_packing(0)
+                (0.01, 1.5)
+                >>> ds.read_array().tolist()
+                [[2.5, 3.5]]
+
+                ```
         """
         raster = self._raster
         if raster is None:
@@ -5124,35 +5157,40 @@ class Dataset(RasterBase):
 
         Each input file becomes one band, in order, with its name preserved.
         This is the natural target for an Earth Engine default download
-        (``<assetSlug>.<bandName>.tif`` — one file per band), a Landsat
-        Collection-2 scene (per-band ``.TIF``), or a Sentinel-2 SAFE
+        (`<assetSlug>.<bandName>.tif` — one file per band), a Landsat
+        Collection-2 scene (per-band `.TIF`), or a Sentinel-2 SAFE
         (per-band JP2s).
 
         By default all inputs must already share the same grid and CRS;
-        pass ``align=True`` to resample mismatched rasters onto the first
+        pass `align=True` to resample mismatched rasters onto the first
         file's grid (nearest-neighbour, via :meth:`align`). When the inputs
         have different numpy dtypes the output dtype is the smallest type
         that holds every input without a lossy cast.
 
+        Stacking copies the stores rather than computing anything: each band
+        holds its source's stored values, and each source's CF packing
+        (`scale_factor` / `add_offset`) is carried onto its band, so a packed
+        input still reads back in physical units from the stack.
+
         Args:
-            files: Paths (or URLs / ``/vsi*`` strings) of the single-band
+            files: Paths (or URLs / `/vsi*` strings) of the single-band
                 rasters to stack. Order is preserved as band order.
-            band_names: Explicit band names, one per file. When ``None``
+            band_names: Explicit band names, one per file. When `None`
                 (default) names are derived from the file names
-                (``<slug>.<band>.tif`` → ``<band>``; dotless stems are kept
-                whole; duplicates get a ``_<n>`` suffix).
-            align: When ``False`` (default), a grid/CRS mismatch among the
-                inputs raises :class:`AlignmentError`. When ``True``, every
-                input is resampled onto ``files[0]``'s grid first.
+                (`<slug>.<band>.tif` → `<band>`; dotless stems are kept
+                whole; duplicates get a `_<n>` suffix).
+            align: When `False` (default), a grid/CRS mismatch among the
+                inputs raises :class:`AlignmentError`. When `True`, every
+                input is resampled onto `files[0]`'s grid first.
             no_data_value: No-data value stamped on the output bands. When
                 omitted, it is inherited from the source rasters (a warning
                 is issued if they disagree, and the first file's value
                 wins; if no source declares one, the output has none). Pass
-                an explicit value (including ``None`` for "no no-data
+                an explicit value (including `None` for "no no-data
                 sentinel") to override.
             path: Output path, whose extension selects the driver as it does
-                for every other factory (``.tif`` -> GTiff, ``.nc`` ->
-                netCDF, …). When ``None`` (default) the result is an
+                for every other factory (`.tif` -> GTiff, `.nc` ->
+                netCDF, …). When `None` (default) the result is an
                 in-memory dataset.
 
                 Write-by-copy-only formats (`.png`, `.jp2`) are refused. One
@@ -5165,18 +5203,18 @@ class Dataset(RasterBase):
                 unrelated argument, so both paths answer alike.
 
         Returns:
-            Dataset: A multi-band dataset with ``band_count == len(files)``
-            and ``band_names`` set.
+            Dataset: A multi-band dataset with `band_count == len(files)`
+            and `band_names` set.
 
         Raises:
-            ValueError: ``files`` is empty, ``band_names`` length does not
-                match ``files``, or an input has more than one band.
-            AlignmentError: ``align=False`` and the inputs do not share a
+            ValueError: `files` is empty, `band_names` length does not
+                match `files`, or an input has more than one band.
+            AlignmentError: `align=False` and the inputs do not share a
                 grid/CRS.
             CRSError: An input raster has no CRS.
-            DriverNotExistError: ``path`` has no extension, or one the driver
+            DriverNotExistError: `path` has no extension, or one the driver
                 catalog does not know.
-            FileFormatNotSupportedError: ``path``'s extension maps to a
+            FileFormatNotSupportedError: `path`'s extension maps to a
                 write-by-copy-only format, whichever write path the inputs
                 take.
 
@@ -5216,7 +5254,7 @@ class Dataset(RasterBase):
                 ['blue', 'green', 'red']
 
                 ```
-            - Mismatched grids are rejected unless ``align=True``:
+            - Mismatched grids are rejected unless `align=True`:
                 ```python
                 >>> odd = os.path.join(d, "odd.tif")
                 >>> _ = Dataset.from_array(

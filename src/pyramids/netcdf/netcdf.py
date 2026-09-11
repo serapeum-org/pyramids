@@ -3124,6 +3124,11 @@ class NetCDF(Dataset):
     ) -> ArrayLike:
         """Read array from the dataset (eager by default, lazy with `chunks`).
 
+        A CF-packed variable (`scale_factor` / `add_offset`) is read in physical units
+        unless `unpack=False` asks for the stored counts. Its no-data / `_FillValue`
+        sentinel stays a **stored** value, so either compare it against an `unpack=False`
+        read or let `masked=True` build the mask.
+
         Args:
             variable: When this instance is a root MDIM container,
                 the variable name to read. When the instance is
@@ -3133,27 +3138,33 @@ class NetCDF(Dataset):
             band: Band index to read, or None for all bands. Only
                 honored on the eager path (`chunks=None`).
             window: Spatial window to read. Only honored on the
-                eager path. Mutually exclusive with ``bbox``.
+                eager path. Mutually exclusive with `bbox`.
             unpack: Apply the variable's CF packing,
                 `real = raw * scale + offset`, from its `scale_factor`
                 and/or `add_offset`. **Defaults to True** (#1124); pass
-                `False` for the stored counts. A variable that declares
-                neither is returned unchanged.
+                `False` for the stored counts. The pair is the one
+                `_effective_packing` resolves: the variable's own
+                `scale_factor` / `add_offset` when it declares them, else
+                the classic band's (a container opened with
+                `open_as_multi_dimensional=False`). The eager and lazy
+                paths apply the same pair exactly once, and a packed
+                result is `float64`. A variable that declares neither is
+                returned unchanged, same dtype.
                 Applied lazily via :mod:`dask.array` arithmetic when
                 `chunks` is given — the compute graph stays lazy
                 until the caller materializes it.
-            bbox (keyword-only): ``(west, south, east, north)`` quadruple
-                in the CRS named by ``epsg``. Internally wrapped in a
+            bbox (keyword-only): `(west, south, east, north)` quadruple
+                in the CRS named by `epsg`. Internally wrapped in a
                 one-row :class:`pyramids.feature.FeatureCollection` via
                 :meth:`pyramids.feature.FeatureCollection.from_bbox`
                 and routed through the same window path. Honored on
-                the **eager path only** — same constraint as ``window``.
-                Mutually exclusive with ``window``; combining with
-                ``chunks`` raises :class:`ValueError` (mirroring
+                the **eager path only** — same constraint as `window`.
+                Mutually exclusive with `window`; combining with
+                `chunks` raises :class:`ValueError` (mirroring
                 :class:`pyramids.dataset.engines.IO.read_array`'s
-                ``chunks=`` + ``window=`` rule).
-            epsg (keyword-only): CRS for ``bbox`` — anything geopandas
-                accepts for ``crs=`` (EPSG int, ``"EPSG:4326"``, WKT,
+                `chunks=` + `window=` rule).
+            epsg (keyword-only): CRS for `bbox` — anything geopandas
+                accepts for `crs=` (EPSG int, `"EPSG:4326"`, WKT,
                 :class:`pyproj.CRS`). Defaults to the dataset's own
                 CRS, so a bbox in the dataset's native CRS needs no
                 extra argument.
@@ -3192,18 +3203,20 @@ class NetCDF(Dataset):
         Returns:
             np.ndarray or dask.array.Array: The array data, eager
             (numpy) by default or lazy (dask) when `chunks` is
-            supplied. The lazy array computes chunk-by-chunk through
+            supplied, in physical `float64` units when `unpack=True`
+            and the variable is packed. The lazy array computes
+            chunk-by-chunk through
             `md_arr.ReadAsArray(array_start_idx=starts, count=counts)`.
 
         Raises:
             ValueError: If called on a root MDIM container without a
                 `variable` argument, when a subset is called with a
-                conflicting `variable` name, when both ``window`` and
-                ``bbox`` are supplied, or when both ``chunks`` and
-                ``bbox`` are supplied (the lazy path doesn't yet
+                conflicting `variable` name, when both `window` and
+                `bbox` are supplied, or when both `chunks` and
+                `bbox` are supplied (the lazy path doesn't yet
                 honour bbox windowing — matching
                 :class:`pyramids.dataset.engines.IO.read_array`'s
-                ``chunks=`` + ``window=`` rule).
+                `chunks=` + `window=` rule).
             ImportError: If `chunks` is given but `dask` is not
                 installed. Install the `[lazy]` extra.
             NotImplementedError: If `masked=True` is combined with
@@ -3248,9 +3261,9 @@ class NetCDF(Dataset):
         Examples:
             - Eager bbox read on a root container — the container
               auto-routes to the named variable. The noah fixture's
-              geotransform is ``cell_size=0.5°``, ``origin=(0, 90)``,
+              geotransform is `cell_size=0.5°`, `origin=(0, 90)`,
               512×512 cells — so its coordinate range is
-              ``x ∈ [0, 256)`` and ``y ∈ (-166, 90]``. The bbox
+              `x ∈ [0, 256)` and `y ∈ (-166, 90]`. The bbox
               below sits well inside that range:
                 ```python
                 >>> from pyramids.netcdf import NetCDF
@@ -3265,10 +3278,29 @@ class NetCDF(Dataset):
                 True
 
                 ```
+            - A packed variable reads in physical units by default. The
+              fixture's `z` is stored in `[-100, 100]` with
+              `scale_factor=0.01` and `add_offset=1.5`:
+                ```python
+                >>> from pyramids.netcdf import NetCDF
+                >>> nc = NetCDF.read_file(
+                ...     "tests/data/netcdf/coards__4v__1d2-2d2__scaleoffset__y-asc.nc",
+                ...     open_as_multi_dimensional=True,
+                ... )
+                >>> z = nc.get_variable("z")
+                >>> float(z.read_array(band=0, unpack=False).max())
+                100.0
+                >>> physical = z.read_array(band=0)
+                >>> float(physical.max()), physical.dtype
+                (2.5, dtype('float64'))
+                >>> float(nc.read_array("z", band=0).min())
+                0.5
+
+                ```
 
         See Also:
             - :meth:`pyramids.dataset.Dataset.read_array`: the same
-              ``bbox=`` / ``epsg=`` surface for plain rasters.
+              `bbox=` / `epsg=` surface for plain rasters.
             - :meth:`crop`: clip the whole dataset by bbox.
         """
         read_window = self._resolve_bbox_to_window(window, bbox, epsg, chunks)
@@ -8591,6 +8623,11 @@ class NetCDF(Dataset):
         Convenience method that combines `get_variable` → `to_crs`
         → `set_variable` in one call.
 
+        The warp moves the variable's stored values, and the rebuilt variable
+        is written back with the same CF packing (`scale_factor` /
+        `add_offset`), so a packed variable stays packed at its stored dtype
+        and still reads back in physical units.
+
         Args:
             variable_name: Name of the variable to reproject.
             to_epsg: Target EPSG code (e.g. 4326, 32637).
@@ -8599,6 +8636,31 @@ class NetCDF(Dataset):
 
         Returns:
             NetCDF: This container (modified in-place).
+
+        Raises:
+            CRSError: The variable has no CRS to reproject from.
+
+        Examples:
+            - Reproject a packed variable; it keeps its packing and its units:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> from pyramids.netcdf import NetCDF
+                >>> geo_ref = GeoReference(top_left_corner=(0, 1), cell_size=0.1, epsg=4326)
+                >>> nc = NetCDF.from_array(
+                ...     arr=np.zeros((10, 10), dtype="int16"), geo_ref=geo_ref, variable_name="t"
+                ... )
+                >>> packed = Dataset.from_array(np.full((10, 10), 100, dtype="int16"), geo_ref=geo_ref)
+                >>> packed.scale = [0.01]
+                >>> nc.set_variable("t", packed)
+                >>> _ = nc.reproject_variable("t", 3857)
+                >>> t = nc.get_variable("t")
+                >>> t.epsg, t.read_array(unpack=False).dtype
+                (3857, dtype('int16'))
+                >>> float(t.read_array(masked=True).max())
+                1.0
+
+                ```
         """
         var = self.get_variable(variable_name)
         reprojected = var.to_crs(to_epsg, method=method)

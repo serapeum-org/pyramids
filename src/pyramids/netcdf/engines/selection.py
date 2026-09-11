@@ -870,69 +870,72 @@ class Selection(_Engine["NetCDF"]):
         x_dim: str | None = None,
         **dims: int | tuple[int, int] | slice,
     ) -> NetCDF:
-        """Read a windowed ``(variable, time, bbox)`` slice of a gridded cube.
+        """Read a windowed `(variable, time, bbox)` slice of a gridded cube.
 
-        Reads only the requested window from a CF/GeoZarr ``(time, y, x[, …])``
+        Reads only the requested window from a CF/GeoZarr `(time, y, x[, …])`
         multidimensional store — local or remote — without materialising the
         whole variable, and returns a georeferenced single-variable
-        :class:`~pyramids.netcdf.NetCDF` ready for ``to_file`` / ``to_cog`` /
-        ``to_crs`` / ``crop`` (a ``Dataset`` subclass, so existing
-        ``isinstance(result, Dataset)`` checks keep working).
+        :class:`~pyramids.netcdf.NetCDF` ready for `to_file` / `to_cog` /
+        `to_crs` / `crop` (a `Dataset` subclass, so existing
+        `isinstance(result, Dataset)` checks keep working).
 
         Designed for huge cloud cubes (e.g. the NWM retrospective
-        ``ldasout.zarr``, an 18 TiB ``(128568, 3840, 4608)`` store) opened
+        `ldasout.zarr`, an 18 TiB `(128568, 3840, 4608)` store) opened
         anonymously via :class:`~pyramids.base.remote.CloudConfig`; only the
         sliced cells are fetched. The output CRS is the variable's own grid
         mapping (read from the multidimensional array), so a Lambert Conformal
         Conic store stays on its native grid.
 
         Args:
-            variable: Data-variable name in the store (e.g. ``"ACCET"``).
-            time: Timestep selector along the time dimension. An ``int`` picks
-                one step (one output band); a ``(start, stop)`` tuple or
-                ``slice`` picks a half-open index range (one band per step);
-                ``None`` is allowed only when the time dimension has length 1.
+            variable: Data-variable name in the store (e.g. `"ACCET"`).
+            time: Timestep selector along the time dimension. An `int` picks
+                one step (one output band); a `(start, stop)` tuple or
+                `slice` picks a half-open index range (one band per step);
+                `None` is allowed only when the time dimension has length 1.
                 Selection is by **integer index** — date/label selection needs
-                the store to expose CF time ``units``, which many Zarr stores do
+                the store to expose CF time `units`, which many Zarr stores do
                 not surface through GDAL, so use indices for those.
-            bbox: ``(min_x, min_y, max_x, max_y)`` crop window in ``crs``.
-                ``None`` keeps the full grid. The box is reprojected onto the
+            bbox: `(min_x, min_y, max_x, max_y)` crop window in `crs`.
+                `None` keeps the full grid. The box is reprojected onto the
                 store's native grid (so a lon/lat box over a projected grid is
                 handled) honouring the variable's grid mapping.
-            crs: CRS of ``bbox`` — EPSG int, ``"EPSG:4326"``, or a WKT/PROJ
-                string. Defaults to ``4326`` (lon/lat). Ignored when ``bbox`` is
-                ``None``.
+            crs: CRS of `bbox` — EPSG int, `"EPSG:4326"`, or a WKT/PROJ
+                string. Defaults to `4326` (lon/lat). Ignored when `bbox` is
+                `None`.
             densify: Points per bbox edge used when reprojecting the box onto a
                 projected grid, so the envelope encloses the curved boundary
-                (conservative over-cover). Defaults to ``25``.
-            y_dim: Name of the ``y`` (row) dimension. Defaults to ``None`` —
-                auto-detected from CF axis / ``standard_name`` / ``units``
-                attributes, then well-known names (``y``/``lat``/…), then the
-                trailing two dims. Pass it (with ``x_dim``) to override when the
+                (conservative over-cover). Defaults to `25`.
+            y_dim: Name of the `y` (row) dimension. Defaults to `None` —
+                auto-detected from CF axis / `standard_name` / `units`
+                attributes, then well-known names (`y`/`lat`/…), then the
+                trailing two dims. Pass it (with `x_dim`) to override when the
                 spatial axes can't be inferred.
-            x_dim: Name of the ``x`` (column) dimension. ``None`` auto-detects as
-                for ``y_dim``. Pass both ``y_dim`` and ``x_dim`` together.
+            x_dim: Name of the `x` (column) dimension. `None` auto-detects as
+                for `y_dim`. Pass both `y_dim` and `x_dim` together.
             **dims: Index selector for any extra non-spatial dimension (e.g.
-                ``vis_nir=0``, ``soil_layers_stag=2``). Required for every such
+                `vis_nir=0`, `soil_layers_stag=2`). Required for every such
                 dimension whose length is > 1, **including a layer dim
-                interleaved between ``y`` and ``x``** (e.g. NWM ``SOIL_M`` is
-                ``(time, y, soil_layers_stag, x)`` — pass ``soil_layers_stag=0``).
+                interleaved between `y` and `x`** (e.g. NWM `SOIL_M` is
+                `(time, y, soil_layers_stag, x)` — pass `soil_layers_stag=0`).
                 A key that is not a selectable non-spatial dimension is an error.
 
         Returns:
             NetCDF: A georeferenced single-variable raster on the store's native CRS —
             one band per selected timestep, with the native no-data value applied.
+            The window holds the stored values and the variable's CF packing
+            (`scale_factor` / `add_offset`) is carried onto every band, so a default
+            `read_array` of the result answers in physical units.
 
         Raises:
-            ValueError: When the store is not multidimensional; when ``variable``
+            ValueError: When the store is not multidimensional; when `variable`
                 is absent or has fewer than two dimensions; when a spatial axis
                 has no 1-D coordinate variable; when a non-spatial dimension of
-                length > 1 is not selected, or a ``**dims`` key / index is
+                length > 1 is not selected, or a `**dims` key / index is
                 invalid; or when the bbox selects no cells.
 
         Note:
-            For a purely 2-D ``(y, x)`` variable there is no non-spatial axis, so
-            ``time`` and ``**dims`` are no-ops (the whole grid, optionally bbox-
+            For a purely 2-D `(y, x)` variable there is no non-spatial axis, so
+            `time` and `**dims` are no-ops (the whole grid, optionally bbox-
             cropped, is returned as one band).
 
         Examples:

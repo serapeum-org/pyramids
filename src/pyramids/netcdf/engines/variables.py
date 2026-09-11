@@ -86,6 +86,12 @@ class Variables(_Engine["NetCDF"]):
         operations (crop, reproject, etc.) on a variable subset, use this
         method to store the result back into the NetCDF container.
 
+        The dataset's **stored** values are written (`read_array(unpack=False)`),
+        and its first band's `scale_factor` / `add_offset` are set on the new
+        variable, so a CF-packed raster stays packed and still reads back in
+        physical units. An MDArray holds a single packing, so a multi-band raster
+        whose bands are packed differently keeps only band 1's recipe.
+
         Args:
             variable_name: Name for the variable in this container. If a
                 variable with this name already exists it is replaced.

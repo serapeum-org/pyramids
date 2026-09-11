@@ -514,7 +514,7 @@ class Vectorize(_Engine["Dataset"]):
         return gdf
 
     def translate(self, path: str | Path | None = None, **kwargs) -> Dataset:
-        """Convert, subset, resample, or rescale the raster via ``gdal.Translate``.
+        """Convert, subset, resample, or rescale the raster via `gdal.Translate`.
 
         The translate function can be used to
         - Convert Between Formats: Convert a raster from one format to another (e.g., from GeoTIFF to JPEG).
@@ -579,7 +579,7 @@ class Vectorize(_Engine["Dataset"]):
 
         Returns:
             Dataset:
-                The translated dataset (in memory when ``path`` is None).
+                The translated dataset (in memory when `path` is None).
 
         Raises:
             DriverNotExistError: `path` has no extension, or one the driver catalog does not know.
@@ -587,7 +587,9 @@ class Vectorize(_Engine["Dataset"]):
         Examples:
         Scale & offset:
             - the translate function can be used to get rid of the scale and offset that are used to manipulate the
-            dataset, to get the real values of the dataset.
+            dataset, to get the real values of the dataset. `read_array` already returns those real values by
+            default; `translate(unscale=True)` bakes them into a new dataset that stores them and declares no
+            scale or offset.
 
             Scale:
                 - First we will create a dataset from a float32 array with values between 1 and 10, and then we will
@@ -653,10 +655,10 @@ class Vectorize(_Engine["Dataset"]):
                      [0.2 0.5 0.2 0.2 0.9]]
 
             offset:
-                - You can also unshift the values of the dataset if the dataset has an offset. To remove the offset
-                    from all values in the dataset, you can read the values using the `read_array` and then add the
-                    offset value to the array. we will create a dataset from the same array we created above (values
-                    are between 1, and 10) with an offset of 100.
+                - You can also unshift the values of the dataset if the dataset has an offset: `translate(unscale=True)`
+                    adds the offset to every stored value, which is what `read_array` already returns by default
+                    (`read_array(unpack=False)` gives the stored values). we will create a dataset from the same array
+                    we created above (values are between 1, and 10) with an offset of 100.
 
                     >>> dataset = Dataset.from_array(
                     ...     arr,

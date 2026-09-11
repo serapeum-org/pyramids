@@ -753,6 +753,10 @@ class COG(_Engine["Dataset"]):
         over `/vsicurl/` only the relevant byte ranges are fetched — the
         cloud-native partial-read pattern.
 
+        A window inside the raster answers in physical units, like `read_array`: a
+        CF-packed band (`scale_factor` / `add_offset`) is unpacked and comes back
+        `float64`. See the note below for a window that only partly overlaps.
+
         Args:
             bbox: `(min_x, min_y, max_x, max_y)` window in `bbox_crs`.
             dst_width: Output width in pixels. Defaults to the source window
@@ -792,6 +796,11 @@ class COG(_Engine["Dataset"]):
             padding. This keeps the result aligned to the requested window,
             which matters for edge tiles served by :meth:`read_tile`.
 
+            The padded partial-overlap read is not unpacked: it holds the
+            stored values in the band's stored dtype, padded with the stored
+            NoData, so on a CF-packed band it is in different units from a
+            fully-inside read of the same band.
+
         Examples:
             - Read a 256x256 decimated thumbnail of a bbox:
                 ```python
@@ -802,6 +811,20 @@ class COG(_Engine["Dataset"]):
                 ... )
                 >>> arr.shape[-2:]  # doctest: +SKIP
                 (256, 256)
+
+                ```
+            - A window inside a CF-packed raster comes back in physical units:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> packed = Dataset.from_array(
+                ...     np.full((4, 4), 100, dtype="int16"),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+                ... )
+                >>> packed.scale = [0.01]
+                >>> part = packed.read_part((0, -2, 2, 0), band=0)
+                >>> part.shape, part.dtype, float(part.max())
+                ((2, 2), dtype('float64'), 1.0)
 
                 ```
         """
@@ -924,7 +947,9 @@ class COG(_Engine["Dataset"]):
         """Read a whole-image thumbnail downsampled to `max_size` on the long edge.
 
         Pulls from a coarse overview when one exists, so previewing a huge COG
-        is cheap.
+        is cheap. The thumbnail is the same band at a coarser sampling, so it
+        answers in the same units as `read_array`: a CF-packed band
+        (`scale_factor` / `add_offset`) is unpacked to physical values.
 
         Args:
             max_size: Maximum pixels on the longer edge. Defaults to 1024.
@@ -933,8 +958,9 @@ class COG(_Engine["Dataset"]):
 
         Returns:
             numpy.ndarray: The downsampled array, `(rows, cols)` or
-            `(bands, rows, cols)`. Pixel values only — no transform, bounds,
-            or CRS is attached to the returned array.
+            `(bands, rows, cols)`, `float64` when a band that was read is packed. Pixel
+            values only — no transform, bounds, or CRS is attached to the
+            returned array.
 
         Raises:
             TypeError: `resampling` is not a string.
@@ -948,6 +974,20 @@ class COG(_Engine["Dataset"]):
                 >>> thumb = ds.preview(max_size=128, band=0)  # doctest: +SKIP
                 >>> max(thumb.shape)  # doctest: +SKIP
                 128
+
+                ```
+            - A thumbnail of a CF-packed raster is in physical units:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> packed = Dataset.from_array(
+                ...     np.full((4, 4), 100, dtype="int16"),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+                ... )
+                >>> packed.scale = [0.01]
+                >>> thumb = packed.preview(max_size=2, band=0)
+                >>> thumb.shape, float(thumb[0, 0])
+                ((2, 2), 1.0)
 
                 ```
         """
@@ -984,6 +1024,12 @@ class COG(_Engine["Dataset"]):
     ) -> np.typing.NDArray:
         """Sample band value(s) at a single coordinate.
 
+        The sample answers in the same units as `read_array`: a CF-packed band
+        (`scale_factor` / `add_offset`) is unpacked, so `point` and
+        `read_array()[row, col]` agree. A no-data cell answers its stored
+        sentinel transformed like any other value; compare against
+        `no_data_value` on an `unpack=False` read instead.
+
         Args:
             x: X / longitude / easting in `point_crs`.
             y: Y / latitude / northing in `point_crs`.
@@ -994,8 +1040,8 @@ class COG(_Engine["Dataset"]):
 
         Returns:
             numpy.ndarray: A scalar 0-d array for a single band, or a
-            `(bands,)` array when `band` is `None`. Pixel values only — no
-            coordinate metadata is attached.
+            `(bands,)` array when `band` is `None`, `float64` when a band that was read
+            is packed. Pixel values only — no coordinate metadata is attached.
 
         Raises:
             CRSError: An explicit `point_crs` was given but the raster has no
@@ -1010,6 +1056,19 @@ class COG(_Engine["Dataset"]):
                 >>> ds = Dataset.read_file("scene_cog.tif")  # doctest: +SKIP
                 >>> ds.point(12.5, 41.9)  # doctest: +SKIP
                 array([1234.], dtype=float32)
+
+                ```
+            - On a CF-packed raster the sample matches the default `read_array`:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> packed = Dataset.from_array(
+                ...     np.array([[100, 200], [300, 400]], dtype="int16"),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+                ... )
+                >>> packed.scale = [0.01]
+                >>> float(packed.point(1.5, -0.5, band=0)), float(packed.read_array()[0, 1])
+                (2.0, 2.0)
 
                 ```
         """

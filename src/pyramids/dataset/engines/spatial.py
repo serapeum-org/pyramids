@@ -1147,14 +1147,18 @@ class Spatial(_Engine["Dataset"]):
     ) -> Dataset:
         """Resample a raster to a new cell size.
 
-        Resample the raster to ``cell_size`` using the requested interpolation method, keeping the
+        Resample the raster to `cell_size` using the requested interpolation method, keeping the
         existing CRS and extent. Returns a new in-memory Dataset; the source is left unchanged.
+
+        The warp moves the stored values into bands of the source's own type, so a CF-packed raster
+        (`scale_factor` / `add_offset`) keeps its packing on the result and reads back in the same
+        physical units.
 
         Args:
             cell_size (int | float | tuple):
                 New cell size to resample the raster to, in the units of the raster CRS. A scalar
-                applies to both axes (square cells); an ``(x_res, y_res)`` pair gives non-square
-                cells (e.g. ``(2.0, 1.0)`` for 2° longitude by 1° latitude).
+                applies to both axes (square cells); an `(x_res, y_res)` pair gives non-square
+                cells (e.g. `(2.0, 1.0)` for 2° longitude by 1° latitude).
             method (str):
                 Resampling method, case-insensitive. Default is "nearest neighbor". Allowed values: "nearest"
                 (alias "nearest neighbor"), "bilinear", "cubic", "cubic_spline", "lanczos", "average",
@@ -1169,8 +1173,8 @@ class Spatial(_Engine["Dataset"]):
                 A new resampled Dataset.
 
         Raises:
-            TypeError: If ``method`` is not a string.
-            ValueError: If ``method`` is not one of the supported interpolation methods.
+            TypeError: If `method` is not a string.
+            ValueError: If `method` is not one of the supported interpolation methods.
 
         Examples:
             - Create a 4-band 10×10 dataset at lon/lat (0, 0) with a 0.05° cell size, then resample to a
@@ -1492,9 +1496,12 @@ class Spatial(_Engine["Dataset"]):
 
         Args:
             mask (Dataset | np.ndarray):
-                Mask dataset or array used to determine valid cells.
+                Mask dataset or array used to determine valid cells. A mask raster is read in
+                stored units (`unpack=False`), since its absent cells are found by its stored
+                no-data sentinel.
             src_array (np.ndarray):
-                Source array whose gaps will be filled.
+                Source array whose gaps will be filled, in stored units -- `crop` reads it with
+                `unpack=False` -- because the gaps are matched against a stored sentinel.
             fills (list | None):
                 The value each band's absent cells actually hold. `crop`
                 resolves this before stamping it into `src_array`, and it is
@@ -2153,7 +2160,7 @@ class Spatial(_Engine["Dataset"]):
             - The coordinate system
             - The number of rows and columns
             - Cell size
-        Then resamples values from the current dataset onto that grid using ``method`` (nearest neighbor by
+        Then resamples values from the current dataset onto that grid using `method` (nearest neighbor by
         default, so the historical behaviour is unchanged).
 
         Args:
@@ -2183,6 +2190,9 @@ class Spatial(_Engine["Dataset"]):
               with an interpolating `method` ("bilinear"/"cubic"/...) silently drops the fractional part (the
               interpolated values are cast to the template's integer type). Match the template dtype to the
               source, or use "nearest", to avoid it.
+            - **CF packing follows the source.** The warp moves the source's stored values, so the source's
+              `scale_factor` / `add_offset` are carried onto the result, which reads back in the source's physical
+              units; the template's own packing, if any, plays no part.
             - **Cross-CRS aligns resample twice.** When the source and `alignment_src` CRSes differ, the data is
               first reprojected onto an intermediate grid and then resampled onto the template grid, so a
               non-nearest `method` is applied twice. For interpolating kernels ("bilinear"/"cubic") that means the
