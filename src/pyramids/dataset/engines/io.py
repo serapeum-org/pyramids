@@ -986,29 +986,39 @@ class IO(_Engine["Dataset"]):
             index = 0 if band is None else band
             result = apply_unpack(arr, *self._ds._effective_packing(index))
         else:
-            # Each band's recipe is judged on its own. A band whose factor is 0 or
-            # non-finite is left alone; judging the whole per-band array at once made one
-            # malformed band switch unpacking off for every band in an all-bands read,
-            # while the same bands read one at a time were unpacked.
-            resolved = [
-                (None, None) if _is_identity_packing(*pair) else pair
-                for pair in (
-                    self._ds._effective_packing(i) for i in range(arr.shape[0])
-                )
-            ]
-            scales = [pair[0] for pair in resolved]
-            offsets = [pair[1] for pair in resolved]
-            if all(s is None for s in scales) and all(o is None for o in offsets):
-                result = arr
-            else:
-                scale_arr = np.asarray(
-                    [1.0 if s is None else s for s in scales], dtype=np.float64
-                ).reshape(-1, 1, 1)
-                offset_arr = np.asarray(
-                    [0.0 if o is None else o for o in offsets], dtype=np.float64
-                ).reshape(-1, 1, 1)
-                result = apply_unpack(arr, scale_arr, offset_arr)
+            recipes = self._band_recipes(arr.shape[0])
+            result = arr if recipes is None else apply_unpack(arr, *recipes)
         return result
+
+    def _band_recipes(self, band_count: int) -> tuple[Any, Any] | None:
+        """Every band's recipe, as arrays that broadcast over a `(bands, rows, cols)` read.
+
+        Each band's recipe is judged on its own. A band whose factor is 0 or non-finite is
+        treated as unpacked and left alone; judging the whole per-band array at once made
+        one malformed band switch unpacking off for every band in an all-bands read, while
+        the same bands read one at a time were unpacked.
+
+        Args:
+            band_count: How many bands the read covers.
+
+        Returns:
+            tuple | None: `(scale, offset)`, each shaped `(bands, 1, 1)` with the identity
+                standing in for a band that declares nothing; or `None` when no band is
+                packed, so the caller can hand the array back untouched.
+        """
+        resolved = [
+            (None, None) if _is_identity_packing(*pair) else pair
+            for pair in (self._ds._effective_packing(i) for i in range(band_count))
+        ]
+        recipes = None
+        if any(pair != (None, None) for pair in resolved):
+            scales = [1.0 if pair[0] is None else pair[0] for pair in resolved]
+            offsets = [0.0 if pair[1] is None else pair[1] for pair in resolved]
+            recipes = (
+                np.asarray(scales, dtype=np.float64).reshape(-1, 1, 1),
+                np.asarray(offsets, dtype=np.float64).reshape(-1, 1, 1),
+            )
+        return recipes
 
     def _reopen_open_options(self) -> dict[str, tuple[str, ...]] | None:
         """Opener kwargs carrying the dataset's GDAL open options, or ``None``.

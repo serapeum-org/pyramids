@@ -187,6 +187,57 @@ class CubeNetCDFWriter:
         ):
             self.var_dtype = np.dtype("float64")
 
+    def _packing_attributes(
+        self, materialise: bool
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        """The CF packing attributes each variable carries.
+
+        Per band, because a collection may carry a different factor on each and stamping
+        band 1's recipe onto all of them mislabels the rest; `var_per_band` can honour
+        that. The single 4-D `data` variable cannot, so it takes the packing only when
+        every band agrees. The recipe comes from the timesteps when `_decide_storage`
+        found one that fits them all, and from the template otherwise; a materialised
+        cube holds physical values and declares none.
+
+        Args:
+            materialise: Whether the cube is being written in physical units.
+
+        Returns:
+            tuple: `(per_band, shared)` -- one attribute dict per band, and the one the
+                4-D `data` variable takes (empty unless every band shares a recipe).
+        """
+        band_count = self.band_count
+        recipe = getattr(self, "_recipe", None)
+        if materialise:
+            packing = [(None, None)] * band_count
+        elif recipe is not None:
+            packing = list(recipe)
+        else:
+            base = self._collection._base
+            packing = [base._effective_packing(index) for index in range(band_count)]
+        per_band = [self._recipe_attrs(*pair) for pair in packing]
+        shared = per_band[0] if len(set(packing)) == 1 else {}
+        return per_band, shared
+
+    @staticmethod
+    def _recipe_attrs(scale: Any, offset: Any) -> dict[str, Any]:
+        """`scale_factor` / `add_offset` for one recipe, or nothing for the identity.
+
+        Args:
+            scale: The factor, or `None`.
+            offset: The offset, or `None`.
+
+        Returns:
+            dict: The CF attributes, empty when the pair declares no packing.
+        """
+        attrs: dict[str, Any] = {}
+        if not _is_identity_packing(scale, offset):
+            if scale is not None:
+                attrs["scale_factor"] = scale
+            if offset is not None:
+                attrs["add_offset"] = offset
+        return attrs
+
     def _build_schema(
         self,
         axis: TimeAxis,
@@ -251,40 +302,7 @@ class CubeNetCDFWriter:
         # Writing physical values instead would cast `14.35` back into an `int16` cube as
         # `14`, and writing counts without the recipe would leave them meaning nothing.
         # A materialised cube holds physical values, so it declares no recipe at all.
-        base = self._collection._base
-        recipe = getattr(self, "_recipe", None)
-        if materialise:
-            packing = [(None, None)] * band_count
-        elif recipe is not None:
-            packing = recipe
-        else:
-            packing = [base._effective_packing(index) for index in range(band_count)]
-
-        def _packing_attrs(index: int) -> dict[str, Any]:
-            """The CF packing attributes for one band, empty when it declares none.
-
-            Per band, because a collection may carry a different factor on each and
-            stamping band 1's recipe onto all of them mislabels the rest. `var_per_band`
-            can honour that; the single 4-D `data` variable cannot, so it takes the
-            packing only when every band agrees.
-
-            Args:
-                index: Zero-based band index.
-
-            Returns:
-                dict: `scale_factor` / `add_offset`, or empty for an unpacked band.
-            """
-            scale, offset = packing[index]
-            if _is_identity_packing(scale, offset):
-                return {}
-            attrs: dict[str, Any] = {}
-            if scale is not None:
-                attrs["scale_factor"] = scale
-            if offset is not None:
-                attrs["add_offset"] = offset
-            return attrs
-
-        shared_packing = _packing_attrs(0) if len(set(packing)) == 1 else {}
+        per_band_packing, shared_packing = self._packing_attributes(materialise)
 
         dims: dict[str, int] = {time_dim: int(axis.values.shape[0])}
         coords: dict[str, tuple[np.ndarray, dict[str, Any]]] = {
@@ -298,7 +316,7 @@ class CubeNetCDFWriter:
                 names[i]: (
                     (time_dim, "y", "x"),
                     var_dtype,
-                    {**var_attrs, **_packing_attrs(i)},
+                    {**var_attrs, **per_band_packing[i]},
                 )
                 for i in range(band_count)
             }
@@ -384,6 +402,47 @@ class CubeNetCDFWriter:
             out[index] = values
         return out
 
+    def _timestep_block(
+        self, dataset: Any, index: int, expected: tuple[int, int, int], dtype: np.dtype
+    ) -> np.ndarray:
+        """One timestep as the `(bands, rows, cols)` block the cube stores.
+
+        Stored counts when the cube keeps its recipe, physical values with NaN gaps when
+        `_decide_storage` chose to materialise it. Either way the block is checked against
+        the collection template, since every timestep has to share its grid.
+
+        Args:
+            dataset: The timestep to read.
+            index: Its position in the collection, for the error message.
+            expected: The template's `(bands, rows, cols)`.
+            dtype: The dtype the cube is written at.
+
+        Returns:
+            np.ndarray: The block, cast to `dtype`.
+
+        Raises:
+            AlignmentError: The timestep's shape differs from the template's.
+        """
+        raw = (
+            self._physical_block(dataset)
+            if getattr(self, "_materialise", False)
+            else np.asarray(dataset.read_array(unpack=False))
+        )
+        block = raw.astype(dtype, copy=False)
+        if block.ndim == 2:
+            block = block[np.newaxis, :, :]
+        if block.shape != expected:
+            files = self._collection.files
+            where = (
+                files[index] if files and index < len(files) else f"timestep {index}"
+            )
+            raise AlignmentError(
+                f"to_netcdf: {where} has shape {block.shape}, but the "
+                f"collection template is {expected} (band, rows, cols); "
+                f"every timestep must share the base grid and band count."
+            )
+        return block
+
     def _stream(
         self,
         writer: Any,
@@ -414,27 +473,8 @@ class CubeNetCDFWriter:
         names = self.names
         var_dtype = self.var_dtype
         expected = (band_count, dims["y"], dims["x"])
-        materialise = getattr(self, "_materialise", False)
         for t, ds in enumerate(collection.datasets):
-            raw = (
-                self._physical_block(ds)
-                if materialise
-                else np.asarray(ds.read_array(unpack=False))
-            )
-            block = raw.astype(var_dtype, copy=False)
-            if block.ndim == 2:
-                block = block[np.newaxis, :, :]
-            if block.shape != expected:
-                where = (
-                    collection.files[t]
-                    if collection.files and t < len(collection.files)
-                    else f"timestep {t}"
-                )
-                raise AlignmentError(
-                    f"to_netcdf: {where} has shape {block.shape}, but the "
-                    f"collection template is {expected} (band, rows, cols); "
-                    f"every timestep must share the base grid and band count."
-                )
+            block = self._timestep_block(ds, t, expected, var_dtype)
             if var_per_band:
                 for i in range(band_count):
                     writer.write_slab(names[i], t, block[i])
