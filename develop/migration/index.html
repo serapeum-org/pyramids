@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -7754,8 +7754,7 @@ replace the georeference wholesale.</p>
 <h3 id="unreleased_4"><a class="toclink" href="#unreleased_4">unreleased</a><a class="headerlink" href="#unreleased_4" title="Permanent link">#</a></h3>
 <p><strong><code>get_variable</code> returns a <code>LabeledArray</code>, not a raw <code>gdal.MDArray</code>, for a variable with no raster plane.</strong>
 Two shapes are affected: a 1-D array (a profile axis, a bounds array, a hybrid-sigma coefficient), and a string or
-compound array of any rank — a character column is stored <code>(records, strlen)</code>, so it is 2-D and still not numeric.
-GDAL cannot expose either as a raster, and <code>get_variable</code> used to hand the <code>MDArray</code> straight back.</p>
+compound array. GDAL cannot expose either as a raster, and <code>get_variable</code> used to hand the <code>MDArray</code> straight back.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="n">bounds</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="s2">"time_bounds"</span><span class="p">)</span>   <span class="c1"># was gdal.MDArray, now LabeledArray</span>
 <a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="n">bounds</span><span class="o">.</span><span class="n">values</span>                             <span class="c1"># np.ndarray  (was: bounds.ReadAsArray())</span>
 <a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="n">bounds</span><span class="o">.</span><span class="n">dims</span>                               <span class="c1"># ('number_of_time_bounds',)</span>
@@ -7763,24 +7762,34 @@ GDAL cannot expose either as a raster, and <code>get_variable</code> used to han
 </code></pre></div>
 <ul>
 <li><strong>Replace the GDAL calls with attributes.</strong> <code>ReadAsArray()</code> → <code>.values</code>, <code>GetDimensions()</code> → <code>.dims</code> / <code>.shape</code>,
-  <code>GetDataType()</code> → <code>.values.dtype</code>. <code>Read()</code> has no replacement and needs none: it returned an <em>undecoded</em> byte
-  buffer for numeric data, which is why reading these variables used to require <code>ReadAsArray()</code> instead.</li>
-<li><strong>A compound variable now decodes.</strong> It reads back as a record array rather than the flat byte buffer <code>Read()</code>
-  produced.</li>
-<li><strong>The labels come with it.</strong> <code>LabeledArray</code> carries <code>name</code>, <code>unit</code>, <code>no_data_value</code> and <code>attributes</code> alongside
-  <code>values</code>, so <code>GetUnit()</code> → <code>.unit</code>, <code>GetNoDataValueAsDouble()</code> → <code>.no_data_value</code>, and the attribute API →
-  <code>.attributes</code>. Without these a <code>-9999.0</code> in <code>values</code> would be indistinguishable from real data.</li>
-<li><strong>Values are as stored.</strong> No CF time decoding and no <code>scale_factor</code> / <code>add_offset</code>, matching <code>read_array</code>'s own
-  <code>unpack=False</code> default — <code>read_array(name, unpack=True)</code> is still the way to ask for unpacked values.
-  <code>LabeledDataset["var"]</code> returns the same class but <em>does</em> decode a CF time axis, so the two agree on type and
-  not always on values.</li>
+  <code>GetDataType()</code> → <code>.values.dtype</code>. For a <strong>string</strong> variable <code>Read()</code> was the reader (<code>ReadAsArray</code> cannot serve
+  one), and its replacement is <code>.values</code> — or <code>.values.tolist()</code> for the plain list <code>Read()</code> returned.</li>
+<li><strong>The labels come with it.</strong> <code>GetUnit()</code> → <code>.unit</code>, <code>GetNoDataValueAsDouble()</code> → <code>.no_data_value</code>,
+  <code>GetScale()</code> / <code>GetOffset()</code> → <code>.scale</code> / <code>.offset</code>, and the attribute API → <code>.attributes</code>. Without these a
+  <code>-9999.0</code> in <code>values</code> would be indistinguishable from real data, and a packed variable's unit would label the
+  wrong numbers. <code>.name</code> is the name you asked for, group path included.</li>
+<li><strong>Values are as stored.</strong> No CF time decoding, and no <code>scale_factor</code> / <code>add_offset</code> applied — matching
+  <code>read_array</code>'s own <code>unpack=False</code> default. Unpack with <code>.values * .scale + .offset</code>, or ask
+  <code>read_array(name, unpack=True)</code>.</li>
+<li><strong>A string variable is <code>object</code></strong>, holding <code>str</code> and <code>None</code> for a missing entry. A <code>&lt;U</code> array cannot represent a
+  missing entry, so letting NumPy choose made the dtype depend on whether every record happened to be written.</li>
+<li><strong>A compound variable decodes to a structured <code>ndarray</code></strong> — index fields with <code>values["code"]</code>; it is not an
+  <code>np.recarray</code>, so <code>values.code</code> does not work. GDAL's netCDF driver reduces a fixed-length character-array member
+  of a compound to its first byte (<code>u1</code>); that is a driver limitation this does not correct.</li>
 <li><strong>Windowed and strided reads are gone.</strong> The <code>MDArray</code> allowed <code>Read(array_start_idx=..., count=...)</code> and
-  <code>GetView</code>; the wrapper is materialised, so slice <code>.values</code> instead. For a variable large enough that this
-  matters, <code>read_array</code> remains the streaming route.</li>
-<li><strong>Nothing new raises.</strong> Every variable that could be read before can still be read; only the type of the object
-  changed. <code>LabeledArray</code> is the same class <code>LabeledDataset["var"]</code> already returned, exported from
-  <code>pyramids.netcdf</code>.</li>
-<li>The private <code>_read_md_array</code> still returns the <code>MDArray</code> — only the public accessor wraps.</li>
+  <code>GetView</code>; the wrapper is materialised whole, so slice <code>.values</code>. There is no windowed route for these variables
+  now: <code>read_array(variable=...)</code> also reads the whole array, and refuses <code>window</code>, <code>bbox</code> and <code>chunks</code> for them.</li>
+<li><strong><code>nc.variables[name].values</code> is read-only</strong> for these variables. The mapping caches one object per name and
+  hands it to every caller, so a write would have been visible through <code>variables</code> but not <code>get_variable</code> or
+  <code>read_array</code>. Take <code>.copy()</code> to modify it; <code>get_variable</code> returns a fresh, writeable wrapper each call.</li>
+<li><strong>Two things now raise that did not.</strong> A compound record with a string field cannot be read through GDAL's Python
+  bindings by any means, so <code>get_variable</code> refuses it by name with a <code>ValueError</code>, where it used to return an
+  unreadable handle. And the raster-only operations — <code>crop_variable</code>, <code>reproject_variable</code>, <code>resample_variable</code>,
+  <code>plot(variable=)</code>, <code>open_mfdataset(variable=)</code> — refuse a non-raster variable with a <code>ValueError</code> naming it,
+  where they used to fail with <code>AttributeError: 'MDArray' object has no attribute ...</code>.</li>
+<li><code>LabeledArray</code> is the class <code>LabeledDataset["var"]</code> already returned, exported from <code>pyramids.netcdf</code>. The two
+  agree on type but not always on values: <code>LabeledDataset</code> decodes a CF time axis and applies its store's current
+  selection. The private <code>_read_md_array</code> still returns the <code>MDArray</code>; only the public accessor wraps.</li>
 </ul>
 <p><strong>A time axis outside <code>datetime64[ns]</code>'s range now decodes to <code>cftime</code> objects instead of wrapping.</strong>
 Soft change, warned — a <code>UserWarning</code> names the axis and its units. Only arrays that were previously <strong>wrong</strong> change:

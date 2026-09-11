@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -7697,6 +7697,11 @@ variable access, time dimension handling, and CF-compliant metadata.</p>
 <code>band_count == 0</code> that describes the whole file. Pinning one variable with <code>get_variable</code>,
 <code>variables[name]</code>, <code>sel</code>, or <code>subset</code> returns a <strong><code>Variable</code></strong> — a <code>NetCDF</code> with <code>band_count &gt;= 1</code>
 that behaves as a single raster. <code>get_group</code> opens a nested NetCDF-4 group as its own container.</p>
+<p>A variable GDAL cannot expose as a raster — a 1-D array such as a bounds or coordinate series, or a
+string or compound array of any rank — comes back from <code>get_variable</code> and <code>variables[name]</code> as a
+<strong><code>LabeledArray</code></strong> instead: its <code>values</code>, <code>dims</code> and <code>shape</code>, plus the <code>name</code>, <code>unit</code>,
+<code>no_data_value</code>, <code>scale</code>, <code>offset</code> and <code>attributes</code> it declares. It has no raster operations, so
+<code>crop_variable</code> and the other raster-only methods refuse it by name.</p>
 <div class="panzoom-box" data-key="ctrl" id="panzoom0" oncontextmenu="return false;">
     <div class="panzoom-info-box panzoom-info-box-top panzoom-hidden">
 Hold "Ctrl" to enable pan &amp; zoom
@@ -7727,6 +7732,8 @@ Hold "Ctrl" to enable pan &amp; zoom
     C --&gt;|get_group| C
     C --&gt;|"get_variable · variables[name]&lt;br/&gt;sel · subset"| V
     V["Variable&lt;br/&gt;NetCDF, band_count &gt;= 1&lt;br/&gt;one variable as a raster"]
+    C --&gt;|"get_variable · variables[name]&lt;br/&gt;(1-D, string, compound)"| L
+    L["LabeledArray&lt;br/&gt;values + dims + labels&lt;br/&gt;no raster operations"]
     V --&gt;|plot| G(["cleopatra glyph"])
     C -. "read_array · crop · reduce · to_crs · to_file" .-&gt; V</code></pre> 
     
