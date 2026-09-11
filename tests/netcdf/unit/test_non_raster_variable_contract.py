@@ -27,6 +27,7 @@ directly, on the `ExtendedDataType` they take.
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -329,6 +330,43 @@ class _StubMDArray:
     def GetNoDataValueAsDouble(self):  # noqa: N802 - mirrors the GDAL SWIG spelling
         """No fill value declared."""
         return None
+
+
+class _FailingStubMDArray(_StubMDArray):
+    """A numeric array whose read fails the way an I/O or decompression error does."""
+
+    def ReadAsArray(self):  # noqa: N802 - mirrors the GDAL SWIG spelling
+        """Fail as a corrupt chunk would, with nothing to do with the type."""
+        raise RuntimeError("simulated decompression failure")
+
+
+def _grid_beside_a_flag(flag_type):
+    """Build a store pairing an EPSG:4326 `t2m(y, x)` with a `flag(y, x)` of `flag_type`.
+
+    Args:
+        flag_type: The `gdal.ExtendedDataType` for `flag`, left unwritten.
+
+    Returns:
+        gdal.Dataset: The store; keep the reference alive while its arrays are used.
+    """
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(4326)
+    store = _mem_store()
+    group = store.GetRootGroup()
+    f64 = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+    rows = group.CreateDimension("y", "HORIZONTAL_Y", None, 4)
+    cols = group.CreateDimension("x", "HORIZONTAL_X", None, 5)
+    y_axis = group.CreateMDArray("y", [rows], f64)
+    y_axis.Write(np.array([40.0, 39.0, 38.0, 37.0]))
+    rows.SetIndexingVariable(y_axis)
+    x_axis = group.CreateMDArray("x", [cols], f64)
+    x_axis.Write(np.array([10.0, 11.0, 12.0, 13.0, 14.0]))
+    cols.SetIndexingVariable(x_axis)
+    grid = group.CreateMDArray("t2m", [rows, cols], f64)
+    grid.Write(np.arange(20, dtype="float64").reshape(4, 5))
+    grid.SetSpatialRef(srs)
+    group.CreateMDArray("flag", [rows, cols], flag_type)
+    return store
 
 
 class TestARasterOnlyOperationNamesTheVariableItRefuses:
@@ -1268,3 +1306,125 @@ class TestTheContainerCrsSkipsAVariableWithNoRasterPlane:
             assert store.epsg == 4326, f"unexpected EPSG {store.epsg}"
         finally:
             store.close()
+
+
+@pytest.mark.core
+class TestTheRound2FixesTheirOwnTestPassFound:
+    """Four defects the round-2 test pass found in the round-2 fixes themselves."""
+
+    @pytest.mark.parametrize("kind", ["string", "compound"])
+    def test_a_flag_the_carry_cannot_write_is_absent_not_empty(self, kind):
+        """A variable that cannot be carried is dropped whole, with the true reason.
+
+        Args:
+            kind: The non-numeric dtype class of `flag`.
+
+        Test scenario:
+            Classifying `flag(y, x)` as auxiliary sends it to the carry, and GDAL's
+            Python bindings cannot write a string array of rank >= 2 or any compound.
+            The string branch created the array before writing it, so a failed write
+            left `flag` listed in the result with every value `None`. And the demotion
+            warning told the user to rename axes that already are `y` / `x`. Expected:
+            `flag` absent, the "could not carry" warning present, no rename advice.
+        """
+        flag_type = (
+            gdal.ExtendedDataType.CreateString()
+            if kind == "string"
+            else _data_type("compound")
+        )
+        container = Container(_grid_beside_a_flag(flag_type))
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = container.to_crs(3857)
+        messages = [str(warning.message) for warning in caught]
+
+        assert "flag" not in result.variable_names, "a half-built flag must not remain"
+        assert "t2m" in result.variable_names, "the raster must still be reprojected"
+        assert any("could not carry" in message for message in messages), messages
+        assert not any("rename the axes" in message for message in messages), messages
+
+    def test_a_coordinate_name_gets_the_refusal_get_variable_would_give(self):
+        """A name `get_variable` rejects is not refused for having no raster plane.
+
+        Test scenario:
+            A coordinate array has a declaration, so judging it on that refused `x`
+            for having "no raster plane" and pointed at `get_variable` -- which then
+            rejected the name outright. Expected: `get_variable`'s own refusal.
+        """
+        container = Container(_grid_beside_a_flag(gdal.ExtendedDataType.CreateString()))
+
+        with pytest.raises(ValueError, match="not a valid variable name"):
+            container._require_raster_variable("x")
+
+    def test_a_read_failure_on_an_ordinary_array_keeps_its_own_message(self):
+        """Only a compound read failure is blamed on a string field.
+
+        Test scenario:
+            Every `RuntimeError` from `ReadAsArray` used to be reworded as "a compound
+            type with a string field is the usual cause", including an I/O or
+            decompression failure on a plain float series -- which sent the reader to
+            look for a type problem that was not there. Expected: GDAL's error, as-is.
+        """
+        failing = _FailingStubMDArray([("n", 3)], None)
+
+        with pytest.raises(RuntimeError, match="simulated decompression failure"):
+            _labeled_array_from_md_array(failing, "series")
+
+    @pytest.mark.parametrize(
+        "change",
+        [
+            lambda entry: setattr(entry, "unit", "m"),
+            lambda entry: entry.attributes.__setitem__("added", 1),
+        ],
+        ids=["unit", "attributes"],
+    )
+    def test_the_cached_entry_is_frozen_whole_not_just_its_array(self, change):
+        """Locking only `values` let the labels drift out of step the same way.
+
+        Args:
+            change: A mutation of one of the entry's labels.
+
+        Test scenario:
+            The cache hands one object to every caller. With only its array locked,
+            `.unit = "m"` or a new attribute stuck in the cache while `get_variable`
+            still said `K` and `{}` -- the disagreement the lock was added to prevent.
+            Expected: the change refused, and the cache still agreeing with a fresh read.
+        """
+        store, array = _series_store(np.array([10.0, 20.0, 30.0]))
+        array.SetUnit("K")
+        container = Container(store)
+        try:
+            cached = container.variables["series"]
+
+            with pytest.raises((AttributeError, TypeError)):
+                change(cached)
+
+            fresh = container.get_variable("series")
+            assert (cached.unit, dict(cached.attributes)) == (
+                fresh.unit,
+                fresh.attributes,
+            )
+        finally:
+            container.close()
+
+    def test_a_copy_of_the_cached_entry_is_independent_and_mutable(self):
+        """`.copy()` is the documented way out of the frozen entry.
+
+        Test scenario:
+            A caller who needs to modify the values takes a copy. It must be writeable
+            and must not reach back into the cache.
+        """
+        store, array = _series_store(np.array([10.0, 20.0, 30.0]))
+        array.SetUnit("K")
+        container = Container(store)
+        try:
+            own = container.variables["series"].copy()
+            own.unit = "m"
+            own.values += 1
+
+            cached = container.variables["series"]
+            assert (own.unit, own.values.tolist()) == ("m", [11.0, 21.0, 31.0])
+            assert (cached.unit, cached.values.tolist()) == ("K", [10.0, 20.0, 30.0])
+        finally:
+            container.close()

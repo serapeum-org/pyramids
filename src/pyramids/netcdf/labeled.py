@@ -23,6 +23,7 @@ import warnings
 from collections.abc import Iterable, Sequence
 from contextlib import contextmanager
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Literal, cast
 
 import cftime
@@ -1258,6 +1259,7 @@ class LabeledArray:
         "attributes",
         "scale",
         "offset",
+        "_frozen",
     )
 
     def __init__(
@@ -1298,6 +1300,55 @@ class LabeledArray:
         self.attributes = attributes if attributes is not None else {}
         self.scale = scale
         self.offset = offset
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Refuse a change once the instance is frozen.
+
+        Args:
+            name: The attribute to set.
+            value: Its new value.
+
+        Raises:
+            AttributeError: The instance is frozen -- it is the one the
+                `variables` cache hands to every caller, so a change here would
+                show through that mapping and nowhere else.
+        """
+        if getattr(self, "_frozen", False):
+            raise AttributeError(
+                f"cannot set {name!r}: this LabeledArray is shared by the "
+                "`variables` cache; take `.copy()` to modify one of your own"
+            )
+        object.__setattr__(self, name, value)
+
+    def freeze(self) -> None:
+        """Make the instance and its array read-only.
+
+        Used by the `variables` cache, which hands one object to every caller:
+        a change to it would show through that mapping while `get_variable` and
+        `read_array` still answered the stored values.
+        """
+        self.values.setflags(write=False)
+        object.__setattr__(self, "attributes", MappingProxyType(dict(self.attributes)))
+        object.__setattr__(self, "_frozen", True)
+
+    def copy(self) -> LabeledArray:
+        """A mutable, independent copy -- of a frozen instance or any other.
+
+        Returns:
+            LabeledArray: The same values and labels, with its own array and its
+            own attribute dict.
+        """
+        return LabeledArray(
+            self.values.copy(),
+            self.dims,
+            self.shape,
+            name=self.name,
+            unit=self.unit,
+            no_data_value=self.no_data_value,
+            attributes=dict(self.attributes),
+            scale=self.scale,
+            offset=self.offset,
+        )
 
     def __repr__(self) -> str:
         label = f"{self.name!r}, " if self.name else ""

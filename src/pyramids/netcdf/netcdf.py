@@ -183,14 +183,15 @@ class _LazyVariableDict(dict):
                 raise KeyError(self._refusal(key))
             entry = self._nc.get_variable(key)
             if isinstance(entry, LabeledArray):
-                # This entry is handed to every later `variables[key]`, so its
-                # array is shared in a way `get_variable`'s fresh result is not.
-                # Left writeable, one `values += 1` made this mapping answer
+                # This entry is handed to every later `variables[key]`, so it is
+                # shared in a way `get_variable`'s fresh result is not. Left
+                # mutable, one `values += 1` made this mapping answer
                 # `[11, 21, 31]` while `get_variable` and `read_array` still said
-                # `[10, 20, 30]` -- three accessors disagreeing about one
-                # variable. Read-only turns that into an error at the mutation;
-                # `.copy()` gives a caller an array of their own.
-                entry.values.setflags(write=False)
+                # `[10, 20, 30]` -- and locking only the array still let
+                # `.unit = "m"` or a new attribute stick in the cache the same
+                # way. The whole entry is frozen; `.copy()` gives a caller one of
+                # their own.
+                entry.freeze()
             dict.__setitem__(self, key, entry)
         # The cast this used to carry claimed every entry was a `NetCDF`, which
         # suppressed exactly the error a caller needs to see: a variable with no
@@ -1160,6 +1161,10 @@ def _labeled_array_from_md_array(md_arr: gdal.MDArray, name: str) -> LabeledArra
         try:
             raw = md_arr.ReadAsArray()
         except RuntimeError as error:
+            if type_class != gdal.GEDTC_COMPOUND:
+                # An I/O or decompression failure on an ordinary array: not a
+                # type problem, so GDAL's own message is the accurate one.
+                raise
             # A compound record with a string field is unreadable through the
             # SWIG bindings by *either* reader -- `ReadAsArray` and `Read` both
             # raise ("String buffer" / "non-numeric buffer data type not
@@ -1167,7 +1172,7 @@ def _labeled_array_from_md_array(md_arr: gdal.MDArray, name: str) -> LabeledArra
             # in terms of the variable rather than with GDAL's bare message.
             raise ValueError(
                 f"{name} cannot be read: GDAL's Python bindings do not support "
-                f"its data type ({error}). A compound type with a string field "
+                f"its compound type ({error}). A compound with a string field "
                 "is the usual cause."
             ) from error
     values = np.asarray(raw)
@@ -4138,8 +4143,10 @@ class NetCDF(Dataset):
             # the dimensions of a grid but no raster plane: `get_variable` cannot
             # build one, so treating it as spatial handed it to the fan-out,
             # which then refused the *whole* container's crop / to_crs / reduce
-            # over one auxiliary field. It is carried through like any other
-            # auxiliary variable instead.
+            # over one auxiliary field. It goes to the auxiliary carry instead,
+            # which copies it when GDAL can write it back and otherwise drops it
+            # with a warning naming it -- a rank >= 2 string array, or any
+            # compound, cannot be written through GDAL's Python bindings.
             return False
         return (
             self._cf_spatial_axes(rg, var_dims) is not None
@@ -5133,13 +5140,30 @@ class NetCDF(Dataset):
             except (RuntimeError, AttributeError):
                 pass
 
+    @staticmethod
+    def _declares_numeric(rg: Any, var_name: str) -> bool:
+        """Whether `var_name` declares a numeric dtype, read off its declaration.
+
+        Args:
+            rg: The group to open the array from.
+            var_name: The variable to check.
+
+        Returns:
+            bool: `True` for a numeric array, and for a name that cannot be
+            opened, which is left to the caller's own handling.
+        """
+        md_arr = open_mdarray(rg, var_name)
+        return md_arr is None or md_arr.GetDataType().GetClass() == gdal.GEDTC_NUMERIC
+
     def _warn_demoted_variables(self, rg, aux_vars, operation, warn_demoted) -> None:
         """Warn about auxiliary variables carried through untransformed for lack of spatial axes.
 
         A variable with >= 2 *unrecognised* axes is likely a grid whose axes were not recognised (no
         CF axis attributes / no known x/y names). Axes that are clearly non-spatial (time / vertical
         / ensemble / bounds) don't count, so a legitimately non-spatial N-D aux variable (e.g.
-        ``(time, level)``) does not trip the warning. ``warn_demoted=False`` suppresses the message
+        ``(time, level)``) does not trip the warning. Nor does a string or compound array: its axes
+        may well be `y` / `x`, and telling the user to rename them would be wrong -- it is not a
+        grid because of its dtype, not its axes. ``warn_demoted=False`` suppresses the message
         on the eager fallback recursion, which already warned on the outer call.
         """
         demoted = [
@@ -5153,6 +5177,7 @@ class NetCDF(Dataset):
                 ]
             )
             >= 2
+            and self._declares_numeric(rg, n)
         ]
         if demoted and warn_demoted:
             warnings.warn(
@@ -7403,7 +7428,16 @@ class NetCDF(Dataset):
             ValueError: The variable has no raster plane.
         """
         rg = self._working_group()
-        md_arr = open_mdarray(rg, variable_name) if rg is not None else None
+        # Only a name `get_variable` accepts is judged on its declaration. A
+        # coordinate array (`x`, `lat`) or a 0-D `crs` holder has a declaration
+        # too, and judging it here refused it for having "no raster plane" and
+        # sent the caller to `get_variable` -- which then rejected the name
+        # outright. Leaving such a name to `get_variable` gives its real refusal.
+        md_arr = (
+            open_mdarray(rg, variable_name)
+            if rg is not None and variable_name in self._readable_variable_names()
+            else None
+        )
         # Decided on the declaration first, so the refusal costs nothing: going
         # straight to `get_variable` would read the whole array only to reject it.
         dims = (
@@ -8928,7 +8962,17 @@ class NetCDF(Dataset):
                 var_name, src_dims, gdal.ExtendedDataType.CreateString()
             )
             NetCDF._copy_md_array_attributes(src_mdarray, new_md_array)
-            new_md_array.Write(src_mdarray.Read())
+            try:
+                new_md_array.Write(src_mdarray.Read())
+            except (RuntimeError, TypeError, ValueError):
+                # The array is created before it is written, and GDAL's Python
+                # bindings refuse to write a string array of rank >= 2. Left in
+                # place, the half-built array listed the variable in the result
+                # with every value `None` -- present by name, empty in fact --
+                # while the caller's warning said it could not be carried. It is
+                # removed, so the variable is absent and the warning is true.
+                dst_group.DeleteMDArray(var_name)
+                raise
         else:
             arr = src_mdarray.ReadAsArray()
             dtype = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(arr))
