@@ -945,14 +945,19 @@ class IO(_Engine["Dataset"]):
             The scaled array (``float64`` when any band declares a scale/offset),
             or ``arr`` unchanged when no selected band declares either.
         """
+        # Through the dataset's own resolver, not straight off the GDAL band. A `NetCDF`
+        # variable can carry its packing in `_scale` / `_offset` over a band that
+        # declares none -- `sel()` builds exactly that, from raw `ReadAsArray` counts --
+        # and reading the band here made `point`, `read_part`, `preview` and
+        # `read_overview_array` answer 200 where `read_array` answered 3.5 on the same
+        # cell.
         if arr.ndim == 2:
             index = 0 if band is None else band
-            gdal_band = self._ds._iloc(index)
-            result = apply_unpack(arr, gdal_band.GetScale(), gdal_band.GetOffset())
+            result = apply_unpack(arr, *self._ds._effective_packing(index))
         else:
-            gdal_bands = [self._ds._iloc(i) for i in range(arr.shape[0])]
-            scales = [b.GetScale() for b in gdal_bands]
-            offsets = [b.GetOffset() for b in gdal_bands]
+            resolved = [self._ds._effective_packing(i) for i in range(arr.shape[0])]
+            scales = [pair[0] for pair in resolved]
+            offsets = [pair[1] for pair in resolved]
             if all(s is None for s in scales) and all(o is None for o in offsets):
                 result = arr
             else:

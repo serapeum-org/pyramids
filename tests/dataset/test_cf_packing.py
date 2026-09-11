@@ -1410,3 +1410,56 @@ class TestEveryBandIsUnpackedWithItsOwnFactor:
         finally:
             store.close()
         assert float(np.nanmax(raw)) == pytest.approx(PACKED_RAW_MAX)
+
+
+class TestPythonHeldPackingReachesEveryReader:
+    """A `NetCDF` variable whose packing lives only in `_scale` / `_offset`."""
+
+    @pytest.mark.parametrize(
+        "read",
+        [
+            pytest.param(
+                lambda v, x, y: np.asarray(v.read_array(), dtype="float64").ravel()[0],
+                id="read_array",
+            ),
+            pytest.param(lambda v, x, y: float(v.point(x, y, band=0)), id="point"),
+            pytest.param(
+                lambda v, x, y: np.asarray(
+                    v.read_part((0.0, 0.0, 4.0, 3.0), band=0), dtype="float64"
+                ).ravel()[0],
+                id="read_part",
+            ),
+            pytest.param(
+                lambda v, x, y: np.asarray(v.preview(band=0), dtype="float64").ravel()[
+                    0
+                ],
+                id="preview",
+            ),
+        ],
+    )
+    def test_every_reader_applies_the_variables_own_pair(self, read):
+        """The band declares nothing, so every reader has to consult the variable.
+
+        Test scenario:
+            `sel()` builds its result from raw `ReadAsArray` counts over a band that
+            declares no packing, carrying the recipe only on `_scale` / `_offset`. The
+            shared unpack step read the band directly, so `point`, `read_part` and
+            `preview` answered 1200 where `read_array` answered 13.5 on the same cell.
+        """
+        counts = np.arange(2 * 3 * 4, dtype="int16").reshape(2, 3, 4) * 100
+        container = NetCDF.from_array(
+            counts,
+            geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
+            variable_name="t",
+        )
+        variable = container.get_variable("t")
+        variable._scale, variable._offset = 0.01, 1.5
+        selected = variable.sel(
+            **{variable._band_dim_name: variable._band_dim_values[1]}
+        )
+        assert selected.raster.GetRasterBand(1).GetScale() is None, (
+            "the fixture must hold its packing only in Python to test this"
+        )
+        gt = selected.geotransform
+        x, y = gt[0] + gt[1] * 0.5, gt[3] + gt[5] * 0.5
+        assert read(selected, x, y) == pytest.approx(1200 * 0.01 + 1.5)
