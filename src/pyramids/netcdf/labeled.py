@@ -1347,6 +1347,23 @@ class LabeledArray:
             )
         object.__setattr__(self, name, value)
 
+    def __delattr__(self, name: str) -> None:
+        """Refuse a deletion once the instance is frozen.
+
+        Args:
+            name: The attribute to delete.
+
+        Raises:
+            AttributeError: The instance is frozen; `__setattr__` alone left
+                `del entry.unit` free to change the shared cache entry.
+        """
+        if getattr(self, "_frozen", False):
+            raise AttributeError(
+                f"cannot delete {name!r}: this LabeledArray is frozen; take "
+                "`.copy()` to modify one of your own"
+            )
+        object.__delattr__(self, name)
+
     def freeze(self) -> None:
         """Make the instance and its array read-only, in place.
 
@@ -1429,8 +1446,24 @@ class LabeledArray:
         See Also:
             `LabeledArray.copy`: a mutable, independent instance, frozen original or not.
         """
-        self.values.setflags(write=False)
-        object.__setattr__(self, "attributes", MappingProxyType(dict(self.attributes)))
+        # A read-only *view* of a read-only base, not the array itself. numpy
+        # lets anyone call `setflags(write=True)` on an array that owns its
+        # data, which re-opened the cache: it then answered `[11, 21, 31]` while
+        # `get_variable` still said `[10, 20, 30]`. A view whose base is not
+        # writeable cannot be made writeable, so this lock holds.
+        base = self.values
+        base.setflags(write=False)
+        locked = base.view()
+        locked.setflags(write=False)
+        object.__setattr__(self, "values", locked)
+        # Attribute values are frozen too: a multi-valued attribute comes back
+        # as a list, which the read-only mapping around it did not stop anyone
+        # mutating in place.
+        frozen_attributes = {
+            key: tuple(value) if isinstance(value, list) else value
+            for key, value in self.attributes.items()
+        }
+        object.__setattr__(self, "attributes", MappingProxyType(frozen_attributes))
         object.__setattr__(self, "_frozen", True)
 
     def copy(self) -> LabeledArray:

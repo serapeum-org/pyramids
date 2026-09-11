@@ -4507,7 +4507,12 @@ class NetCDF(Dataset):
                 # references its raster yet, so carry each aux var in place (copy=False)
                 # to avoid a full MEM copy per aux variable (#143).
                 result.add_variable(self, var_name, copy=False)
-            except (RuntimeError, ValueError) as exc:
+            except (RuntimeError, TypeError, ValueError) as exc:
+                # `TypeError` too: a string array with a NULL entry reads back
+                # with `None` in it, and writing that list raises "sequence must
+                # contain strings". Uncaught, one such auxiliary failed the whole
+                # container operation rather than being dropped with a warning
+                # like every other variable that cannot be carried.
                 dropped.append((var_name, exc))
         if dropped:
             # One aggregated warning naming every dropped variable, so a silent
@@ -4651,10 +4656,15 @@ class NetCDF(Dataset):
             # Through the resolver: an aux name from the readable enumeration may
             # be group-qualified, which `OpenMDArray` alone does not walk.
             src_md = open_mdarray(rg, name)
-            if (
-                src_md is not None
-                and src_md.GetDataType().GetClass() == gdal.GEDTC_STRING
+            if src_md is not None and src_md.GetDataType().GetClass() in (
+                gdal.GEDTC_STRING,
+                gdal.GEDTC_COMPOUND,
             ):
+                # Compound as well as string: the streamed write goes through
+                # `numpy_to_gdal_dtype`, which has no mapping for a structured
+                # dtype, so a compound auxiliary failed `to_crs(path=...)` with
+                # "numpy data type is not supported" while the in-memory arm
+                # dropped it with a warning. Declining here sends it to that arm.
                 return False
         return True
 
@@ -9028,6 +9038,16 @@ class NetCDF(Dataset):
                 var_name, src_dims, gdal.ExtendedDataType.CreateString()
             )
             NetCDF._copy_md_array_attributes(src_mdarray, new_md_array)
+            # The numeric branch carries unit and spatial reference; this one
+            # dropped them, so a string auxiliary came out of a crop with a unit
+            # of '' where it went in with '1'. No-data has no meaning for a
+            # string array, so it is the one label left behind.
+            unit = src_mdarray.GetUnit()
+            if unit:
+                new_md_array.SetUnit(unit)
+            srs = src_mdarray.GetSpatialRef()
+            if srs is not None:
+                new_md_array.SetSpatialRef(srs)
             try:
                 new_md_array.Write(src_mdarray.Read())
             except (RuntimeError, TypeError, ValueError):

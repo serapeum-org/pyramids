@@ -55,7 +55,8 @@ CLASSIC_SAMPLE = (
     / "netcdf"
     / "cf__6v__1d2-2d4__geog__y-asc.nc"
 )
-# Fills a double's 53-bit mantissa cannot hold: each rounds to a value no element equals.
+# Fills a double's 53-bit mantissa cannot hold: through a double each one compares equal to
+# its neighbour as well as to itself, so masking by it would hide real data too.
 INT64_FILL = -9223372036854775806
 UINT64_FILL = 18446744073709551614
 
@@ -366,6 +367,32 @@ def _grid_beside_a_flag(flag_type):
     grid.Write(np.arange(20, dtype="float64").reshape(4, 5))
     grid.SetSpatialRef(srs)
     group.CreateMDArray("flag", [rows, cols], flag_type)
+    return store
+
+
+def _grid_with_an_auxiliary(aux_type, aux_values=None, unit=None):
+    """Build a store pairing an EPSG:4326 `t2m(y, x)` with a 1-D auxiliary `aux(k)`.
+
+    Args:
+        aux_type: The `gdal.ExtendedDataType` for `aux`.
+        aux_values: Values to write into `aux`, or None to leave it unwritten -- an
+            unwritten string array reads back as `None` in every entry, which is what a
+            NULL looks like to the carry.
+        unit: A unit to declare on `aux`, or None.
+
+    Returns:
+        gdal.Dataset: The store; keep the reference alive while its arrays are used.
+    """
+    store = _grid_beside_a_flag(gdal.ExtendedDataType.Create(gdal.GDT_Float64))
+    group = store.GetRootGroup()
+    group.DeleteMDArray("flag")
+    aux = group.CreateMDArray(
+        "aux", [group.CreateDimension("k", None, None, 2)], aux_type
+    )
+    if aux_values is not None:
+        aux.Write(aux_values)
+    if unit is not None:
+        aux.SetUnit(unit)
     return store
 
 
@@ -775,7 +802,7 @@ class TestTheLabelsTheWrapperCarries:
     def test_a_64_bit_integer_fill_value_keeps_every_digit(
         self, gdal_type, numpy_type, setter, fill
     ):
-        """A 64-bit fill read through a double matches no element of the array it labels.
+        """A 64-bit fill read through a double matches its neighbour as well as itself.
 
         Args:
             gdal_type: The 64-bit integer type the series is declared with.
@@ -785,12 +812,16 @@ class TestTheLabelsTheWrapperCarries:
 
         Test scenario:
             `GetNoDataValueAsDouble` rounds `-9223372036854775806` to
-            `-9.223372036854776e+18`, and the UInt64 fill up to `2**64`; neither equals
-            anything the array holds, so masking by `no_data_value` masked nothing.
-            Expected: the fill as an exact `int`, equal to the one element that carries it.
+            `-9.223372036854776e+18`, and the UInt64 fill up to `2**64`. numpy compares a
+            64-bit integer array against that double by converting the integers, which
+            loses the same precision, so the rounded fill equals both the fill and the value
+            next to it -- masking by it would hide a real datum. Expected: the fill as an
+            exact `int` that selects the one element carrying it and not its neighbour.
         """
+        # The value next to the fill is the one a double cannot tell apart from it.
+        neighbour = fill + 1 if fill < 0 else fill - 1
         store, array = _series_store(
-            np.array([1, fill, 3], dtype=numpy_type),
+            np.array([1, fill, neighbour, 3], dtype=numpy_type),
             gdal.ExtendedDataType.Create(gdal_type),
         )
         getattr(array, setter)(fill)
@@ -805,7 +836,7 @@ class TestTheLabelsTheWrapperCarries:
                 f"expected the fill {fill}, got {variable.no_data_value!r}"
             )
             matches = (variable.values == variable.no_data_value).tolist()
-            assert matches == [False, True, False], (
+            assert matches == [False, True, False, False], (
                 f"the fill must pick out exactly the element that carries it: {matches}"
             )
         finally:
@@ -1428,3 +1459,110 @@ class TestTheRound2FixesTheirOwnTestPassFound:
             assert (cached.unit, cached.values.tolist()) == ("K", [10.0, 20.0, 30.0])
         finally:
             container.close()
+
+
+@pytest.mark.core
+class TestTheCarryAndTheLockTheDocstringPassFound:
+    """Four defects the round-2 docstring pass found; the first two predate this branch."""
+
+    def test_a_string_auxiliary_with_a_null_entry_is_dropped_not_fatal(self):
+        """One NULL string entry must not fail the whole operation.
+
+        Test scenario:
+            The carry reads a string auxiliary with `Read`, which returns a NULL entry as
+            `None`, and writing that list raises `TypeError: sequence must contain
+            strings`. The carry caught only `RuntimeError` and `ValueError`, so a single
+            such auxiliary failed the whole `to_crs` -- on `main` too. Expected: the
+            raster reprojected, the auxiliary dropped with a warning naming it.
+        """
+        container = Container(
+            _grid_with_an_auxiliary(gdal.ExtendedDataType.CreateString())
+        )
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = container.to_crs(3857)
+
+        assert "t2m" in result.variable_names
+        assert "aux" not in result.variable_names
+        assert any("could not carry" in str(warning.message) for warning in caught)
+
+    def test_a_compound_auxiliary_does_not_fail_a_streamed_write(self, tmp_path):
+        """The streamed arm must decline a compound auxiliary, as the in-memory one drops it.
+
+        Args:
+            tmp_path: Destination for the streamed output.
+
+        Test scenario:
+            `_stream_feasible` screened out string auxiliaries but not compound ones, and
+            the streamed write maps each through `numpy_to_gdal_dtype`, which has no entry
+            for a structured dtype. So `to_crs(path=...)` failed with "numpy data type is
+            not supported" while the same call in memory succeeded -- on `main` too.
+            Expected: the streamed call succeeds.
+        """
+        container = Container(_grid_with_an_auxiliary(_data_type("compound")))
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            container.to_crs(3857, path=str(tmp_path / "out.nc"))
+
+        assert (tmp_path / "out.nc").exists()
+
+    @pytest.mark.parametrize(
+        "attempt",
+        [
+            lambda entry: entry.values.setflags(write=True),
+            lambda entry: delattr(entry, "unit"),
+            lambda entry: entry.attributes["flags"].append("c"),
+        ],
+        ids=["reopen-the-array", "delete-a-label", "mutate-a-list-attribute"],
+    )
+    def test_nothing_reopens_a_frozen_entry(self, attempt):
+        """Every route around the lock is closed, not just assignment.
+
+        Args:
+            attempt: A way of changing the cached entry without assigning to it.
+
+        Test scenario:
+            numpy lets anyone call `setflags(write=True)` on an array that owns its data,
+            which re-opened the cache; `__setattr__` alone left `del entry.unit` free; and
+            a multi-valued attribute came back as a list the read-only mapping around it
+            did not protect. Each let the cache disagree with `get_variable` again.
+            Expected: each refused, and the cache still matching a fresh read.
+        """
+        store, array = _series_store(np.array([10.0, 20.0, 30.0]))
+        array.SetUnit("K")
+        flags = array.CreateAttribute(
+            "flags", [2], gdal.ExtendedDataType.CreateString()
+        )
+        flags.Write(["a", "b"])
+        container = Container(store)
+        try:
+            cached = container.variables["series"]
+
+            with pytest.raises((ValueError, AttributeError, TypeError)):
+                attempt(cached)
+
+            fresh = container.get_variable("series")
+            assert cached.values.tolist() == fresh.values.tolist()
+            assert cached.unit == fresh.unit
+        finally:
+            container.close()
+
+    def test_a_string_auxiliary_keeps_its_unit_through_the_carry(self):
+        """The string branch of the carry keeps the labels the numeric branch does.
+
+        Test scenario:
+            The numeric branch sets unit and spatial reference on the copy; the string
+            branch set neither, so a string auxiliary came out of a crop with a unit of
+            '' where it went in with '1'. Expected: the unit carried.
+        """
+        container = Container(
+            _grid_with_an_auxiliary(
+                gdal.ExtendedDataType.CreateString(), aux_values=["ok", "ok"], unit="1"
+            )
+        )
+
+        result = container.to_crs(3857)
+
+        assert result._working_group().OpenMDArray("aux").GetUnit() == "1"
