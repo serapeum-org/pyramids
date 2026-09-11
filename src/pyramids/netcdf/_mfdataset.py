@@ -70,7 +70,7 @@ def _open_and_extract(
     from pyramids.netcdf import NetCDF
 
     nc = NetCDF.read_file(path)
-    variable_subset = nc.get_variable(variable)
+    variable_subset = nc._require_raster_variable(variable)
     if preprocess is not None:
         variable_subset = preprocess(variable_subset)
     return variable_subset.read_array(chunks=chunks)

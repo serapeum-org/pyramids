@@ -10,7 +10,7 @@ the store's array count for no reason. One walk now serves both.
 
 *Promise.* Its docstring says it lists "every array name `get_variable` will
 accept". That is true, and it was read as promising a `NetCDF` back, which it
-never did: a 1-D or non-numeric array comes back as a raw `gdal.MDArray`. Some
+never did: a 1-D or non-numeric array comes back as a `LabeledArray`. Some
 of those names are not even in the wider list -- GOES ABI declares
 `time_bounds` as a *data* variable -- so `read_array` met them through the
 ordinary container route and died with an `AttributeError`.
@@ -24,7 +24,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
-from pyramids.netcdf import NetCDF
+from pyramids.netcdf import LabeledArray, NetCDF
 
 pytestmark = pytest.mark.core
 
@@ -36,7 +36,7 @@ FLAT = DATA / "cf__7v__1d3-2d3-3d1__y-asc.nc"
 
 # GOES ABI: `time_bounds` / `x_image_bounds` / `y_image_bounds` are 1-D and are
 # enumerated as data variables; `band_id` / `band_wavelength` are 1-D and are
-# not. All five come back from `get_variable` as raw MDArrays.
+# not. All five come back from `get_variable` as `LabeledArray`s.
 GEOS = DATA / "cf__9v__1d7-2d2__geos__y-desc.nc"
 
 GROUPED = DATA / "none__35v__1d35__groups-nc4.nc"
@@ -145,7 +145,7 @@ class TestAnAdvertisedNameThatIsNotARaster:
     @pytest.mark.parametrize(
         "array", ["time_bounds", "x_image_bounds", "y_image_bounds", "band_id"]
     )
-    def test_the_name_resolves_to_a_raw_md_array(self, array):
+    def test_the_name_resolves_to_a_labeled_array(self, array):
         """The documented return type, asserted rather than assumed.
 
         Args:
@@ -154,16 +154,18 @@ class TestAnAdvertisedNameThatIsNotARaster:
         Test scenario:
             Three of these four are in `variable_names`, so a caller iterating
             the enumeration meets them. `get_variable` resolves each -- it does
-            not raise -- and hands back `gdal.MDArray`, which carries none of
-            the `NetCDF` surface.
+            not raise -- and hands back a `LabeledArray`. It used to hand back
+            `gdal.MDArray`, a raw GDAL handle with none of pyramids' surface,
+            which is what #1126 removed.
         """
         dataset = NetCDF.read_file(str(GEOS))
 
         variable = dataset.get_variable(array)
 
-        assert isinstance(variable, gdal.MDArray), (
+        assert isinstance(variable, LabeledArray), (
             f"{array} came back as {type(variable).__name__}"
         )
+        assert variable.values.size, f"{array} came back empty"
 
     def test_read_array_reads_such_a_variable_instead_of_raising(self):
         """The consequence a user actually hits.

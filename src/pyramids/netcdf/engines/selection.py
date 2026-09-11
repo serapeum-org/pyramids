@@ -671,7 +671,7 @@ class Selection(_Engine["NetCDF"]):
         )
         # from_array returns a root container; hand back the variable subset, carrying the
         # windowed 2-D coordinates so the result stays curvilinear (plots on its real geometry).
-        result = container.get_variable(var_name)
+        result = container._require_raster_variable(var_name)
         # The window holds stored counts (`_read_curvilinear_window` asks for them),
         # so the rebuilt variable has to declare what turns them back into
         # measurements, exactly as the affine crop path does.
@@ -1164,7 +1164,7 @@ class Selection(_Engine["NetCDF"]):
         result = None
         found = False
         for var_name in spatial_vars:
-            var = nc.get_variable(var_name)
+            var = nc._require_raster_variable(var_name)
             band_names = list(var._band_dim_names)
             values_map = dict(var._band_dim_values_map)
             ndv = scalar_no_data(var.no_data_value)

@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
+from pyramids.netcdf import LabeledArray, LabeledDataset
 from pyramids.netcdf.netcdf import Container, NetCDF
 from tests.netcdf.conftest import make_2d_nc
 from tests.netcdf.unit._netcdf_unit_helpers import _make_3d_nc
@@ -96,7 +97,12 @@ class TestReadMdArray1D:
 
 
 class TestReadMdArrayNonNumeric:
-    """A non-numeric variable — string/character or compound — comes back as the raw MDArray (#1067).
+    """A non-numeric variable — string/character or compound — is not a raster plane (#1067).
+
+    `_read_md_array` hands the MDArray back to its caller, and `get_variable` materialises
+    that into a `LabeledArray` rather than letting a raw GDAL handle reach the user (#1126).
+    The tests below split accordingly: the private helper is asserted to return the MDArray,
+    the public accessor to return the wrapper.
 
     NetCDF stores a character column two-dimensionally as `(records, max string length)`, so
     `_resolve_spatial_dims` resolves a plane for it via its last-two fallback and the old code
@@ -226,8 +232,8 @@ class TestReadMdArrayNonNumeric:
         Test scenario:
             Write a real `.nc` holding a 2-D string `units` and a 2-D numeric `obs`, both with
             resolvable spatial dims — expected: `get_variable("units")` returns a readable
-            `gdal.MDArray` (it used to raise) while `get_variable("obs")` still returns a
-            raster-backed variable.
+            `LabeledArray` (it used to raise, then leaked the raw `gdal.MDArray`) while
+            `get_variable("obs")` still returns a raster-backed variable.
         """
         path = str(tmp_path / "mixed.nc")
         ds = self._mixed_multidim("netCDF", path)
@@ -241,13 +247,13 @@ class TestReadMdArrayNonNumeric:
                 f"both variables must be discoverable, got {nc.variable_names}"
             )
             string_var = nc.get_variable("units")
-            assert isinstance(string_var, gdal.MDArray), (
-                f"a character variable must come back as an MDArray, got {type(string_var)}"
+            assert isinstance(string_var, LabeledArray), (
+                f"a character variable must come back as a LabeledArray, got {type(string_var)}"
             )
-            assert string_var.GetDataType().GetClass() == gdal.GEDTC_STRING, (
-                "the returned array must keep its string dtype"
+            assert string_var.values.dtype == np.dtype(object), (
+                f"the returned array must keep its string dtype, got {string_var.values.dtype}"
             )
-            assert len(string_var.Read()) == 12, "the MDArray must be readable"
+            assert string_var.values.size == 12, "the values must be readable"
             numeric_var = nc.get_variable("obs")
             assert isinstance(numeric_var, NetCDF), (
                 f"a numeric variable must still be raster-backed, got {type(numeric_var)}"
@@ -257,8 +263,8 @@ class TestReadMdArrayNonNumeric:
 
     @pytest.mark.parametrize("sizes", [(4, 3), (2, 4, 3)], ids=["rank2", "rank3"])
     @pytest.mark.parametrize("dtype_name", ["string", "compound"])
-    def test_get_variable_returns_md_array_for_any_rank(self, sizes, dtype_name):
-        """`get_variable` returns the MDArray for a non-numeric variable of any rank.
+    def test_get_variable_returns_a_labeled_array_for_any_rank(self, sizes, dtype_name):
+        """`get_variable` materialises a non-numeric variable of any rank.
 
         Args:
             sizes: Dimension sizes, covering a rank-2 and a rank-3 array.
@@ -269,8 +275,8 @@ class TestReadMdArrayNonNumeric:
             band-dimension metadata, which derives a primary band view from a band model a raw
             MDArray does not have. Only a rank >= 3 array reaches that code (rank <= 2 exits at
             the empty-`band_dims` branch), so this used to raise
-            `AttributeError: '_band_count'` — expected now: the MDArray, for both ranks and both
-            non-numeric dtype classes.
+            `AttributeError: '_band_count'` — expected now: a `LabeledArray`, for both ranks
+            and both non-numeric dtype classes.
         """
         if dtype_name == "string":
             dtype = gdal.ExtendedDataType.CreateString()
@@ -286,13 +292,189 @@ class TestReadMdArrayNonNumeric:
             )
         nc = Container(self._single_var_multidim(dtype, sizes))
         variable = nc.get_variable("v")
-        assert isinstance(variable, gdal.MDArray), (
-            f"a non-numeric rank-{len(sizes)} variable must come back as an MDArray, "
+        assert isinstance(variable, LabeledArray), (
+            f"a non-numeric rank-{len(sizes)} variable must come back as a LabeledArray, "
             f"got {type(variable).__name__}"
         )
-        assert variable.GetDataType().GetClass() != gdal.GEDTC_NUMERIC, (
-            "the returned array must keep its non-numeric dtype"
+        assert variable.values.dtype.kind in {"U", "V", "O"}, (
+            f"the returned array must keep its non-numeric dtype, got {variable.values.dtype}"
         )
+        assert variable.shape == sizes, f"unexpected shape {variable.shape}"
+        assert variable.values.shape == variable.shape, (
+            f"the values must be laid out on the declared shape {variable.shape}, "
+            f"got {variable.values.shape}"
+        )
+
+
+class TestTheMaterialisedValuesAreTheStoredOnes:
+    """The wrapper is only worth returning if what it carries is the data itself.
+
+    Every other test around `get_variable`'s non-raster branch asserts the *type* that comes
+    back, its `dims` and its declared `shape`. None of them looks at the numbers, so a read
+    that answers with the right shape and the wrong contents passes them all. These do look:
+    each writes known values through one reader (`ReadAsArray` for numeric, the
+    structured-dtype view for compound, `Read` for string) and reads them back.
+    """
+
+    @staticmethod
+    def _one_dimensional(dtype, size, payload=None):
+        """Build a MEM multidim store holding one 1-D array `v`, optionally written.
+
+        Args:
+            dtype: The `gdal.ExtendedDataType` for the array.
+            size: The length of its single dimension.
+            payload: Bytes or an array to write, or None to leave it unwritten.
+
+        Returns:
+            gdal.Dataset: The multidimensional dataset, its root group kept alive by it.
+        """
+        ds = gdal.GetDriverByName("MEM").CreateMultiDimensional("test")
+        rg = ds.GetRootGroup()
+        dim = rg.CreateDimension("n", None, None, size)
+        array = rg.CreateMDArray("v", [dim], dtype)
+        if payload is not None:
+            array.Write(payload)
+        return ds
+
+    def test_a_numeric_axis_answers_with_the_values_it_stores(self):
+        """A 1-D numeric variable carries its own numbers, not merely its own shape.
+
+        Test scenario:
+            Write `[1.5, -2.5, 3.25, 0.0, 9.75]` — signed, fractional and zero, so a
+            truncating or zero-filling read is visible — into a 1-D `Float64` array, the
+            only numeric rank that reaches this branch (rank >= 2 resolves a raster plane
+            and comes back as a `Variable`). Expected: `values` equal to what was written,
+            still `float64`, on the declared shape.
+        """
+        stored = np.array([1.5, -2.5, 3.25, 0.0, 9.75])
+        dataset = self._one_dimensional(
+            gdal.ExtendedDataType.Create(gdal.GDT_Float64), 5, stored
+        )
+        variable = Container(dataset).get_variable("v")
+
+        assert isinstance(variable, LabeledArray), (
+            f"a 1-D numeric variable must come back as a LabeledArray, got {type(variable)}"
+        )
+        assert variable.values.dtype == np.float64, (
+            f"the stored dtype must survive the read, got {variable.values.dtype}"
+        )
+        assert variable.values.shape == variable.shape == (5,), (
+            f"unexpected shape {variable.shape} / {variable.values.shape}"
+        )
+        assert np.array_equal(variable.values, stored), (
+            f"the values must be the stored ones, got {variable.values}"
+        )
+
+    def test_a_compound_record_keeps_the_padding_of_its_layout(self):
+        """A padded record decodes by GDAL's declared layout, not by an assumed packing.
+
+        Test scenario:
+            A `record_t` of `Int32` at 0, `Float64` at 8 and `Int32` at 16, declared 24 bytes
+            wide — the layout a C compiler produces for that field order, padded both between
+            the fields and after the last one. Both paddings are load-bearing, and each is
+            lost by a different shortcut: packing the fields instead of reading their offsets
+            puts them at 0/4/12, and inferring the stride from the offsets instead of reading
+            the declared size gives 20 rather than 24. Either one slides the fields against
+            the buffer and hands back numbers that are neither the stored ones nor obviously
+            wrong. Expected: the declared offsets and stride, and the values written.
+        """
+        offsets = [0, 8, 16]
+        record = gdal.ExtendedDataType.CreateCompound(
+            "record_t",
+            24,
+            [
+                gdal.EDTComponent.Create(
+                    name, offset, gdal.ExtendedDataType.Create(gdal_type)
+                )
+                for name, offset, gdal_type in zip(
+                    ["a", "b", "c"],
+                    offsets,
+                    [gdal.GDT_Int32, gdal.GDT_Float64, gdal.GDT_Int32],
+                )
+            ],
+        )
+        padded = np.dtype(
+            {
+                "names": ["a", "b", "c"],
+                "formats": ["<i4", "<f8", "<i4"],
+                "offsets": offsets,
+                "itemsize": 24,
+            }
+        )
+        stored = np.zeros(3, dtype=padded)
+        stored["a"] = [11, 22, 33]
+        stored["b"] = [1.5, -2.5, 3.25]
+        stored["c"] = [-7, 0, 7]
+        dataset = self._one_dimensional(record, 3, stored.tobytes())
+        variable = Container(dataset).get_variable("v")
+
+        assert variable.values.dtype.names == ("a", "b", "c"), (
+            f"the record's field names must survive, got {variable.values.dtype.names}"
+        )
+        assert variable.values.dtype.itemsize == 24, (
+            f"the record stride must be the declared 24 bytes, got "
+            f"{variable.values.dtype.itemsize}"
+        )
+        assert [
+            variable.values.dtype.fields[name][1] for name in ("a", "b", "c")
+        ] == offsets, (
+            f"the fields must sit at their declared offsets {offsets}, got "
+            f"{[variable.values.dtype.fields[name][1] for name in ('a', 'b', 'c')]}"
+        )
+        for name, expected in [
+            ("a", [11, 22, 33]),
+            ("b", [1.5, -2.5, 3.25]),
+            ("c", [-7, 0, 7]),
+        ]:
+            assert np.array_equal(variable.values[name], expected), (
+                f"field {name!r} must decode to the stored values {expected}, got "
+                f"{variable.values[name]}"
+            )
+
+    def test_a_string_column_is_object_however_much_of_it_is_written(self):
+        """A string column's dtype must not depend on whether every entry was written.
+
+        Test scenario:
+            `full` has every entry written; `partial` only its first, so the other two are
+            NULL, which `Read` returns as `None`. Left to NumPy, the first came back `<U3` and
+            the second `object` -- one kind of variable, two dtypes, chosen by the data -- so
+            code switching on `dtype.kind` broke on a partially filled file. Expected: `object`
+            for both, the NULL entries still `None`, and the dtype `LabeledDataset` reads the
+            same column with, since the two producers are documented to agree on it.
+        """
+        dataset = gdal.GetDriverByName("MEM").CreateMultiDimensional("test")
+        rg = dataset.GetRootGroup()
+        dim = rg.CreateDimension("n", None, None, 3)
+        full = rg.CreateMDArray("full", [dim], gdal.ExtendedDataType.CreateString())
+        full.Write(["x", "yy", "zzz"])
+        partial = rg.CreateMDArray(
+            "partial", [dim], gdal.ExtendedDataType.CreateString()
+        )
+        partial.Write(["a"], array_start_idx=[0], count=[1])
+        container = Container(dataset)
+        try:
+            full_values = container.get_variable("full").values
+            partial_values = container.get_variable("partial").values
+            labeled = LabeledDataset._from_group(dataset, rg, None)
+
+            assert full_values.dtype == np.dtype(object), (
+                f"a fully written column must be object, got {full_values.dtype}"
+            )
+            assert full_values.tolist() == ["x", "yy", "zzz"], (
+                f"unexpected values {full_values.tolist()}"
+            )
+            assert partial_values.dtype == np.dtype(object), (
+                f"a partially written column must be object, got {partial_values.dtype}"
+            )
+            assert partial_values.tolist() == ["a", None, None], (
+                f"the NULL entries must stay None, got {partial_values.tolist()}"
+            )
+            assert labeled["full"].values.dtype == full_values.dtype, (
+                f"LabeledDataset reads the column as {labeled['full'].values.dtype}, "
+                f"get_variable as {full_values.dtype}"
+            )
+        finally:
+            container.close()
 
 
 class TestNeedsYFlip:
@@ -689,12 +871,14 @@ class TestGetVariableYFlipAndErrors:
 class TestGetVariableNonDataset:
     """Tests for get_variable when _read_md_array returns non-Dataset."""
 
-    def test_get_variable_1d_string_returns_md_arr(self):
-        """Verify get_variable handles non-Dataset result from _read_md_array.
+    def test_get_variable_1d_string_returns_a_labeled_array(self):
+        """Verify get_variable materialises a non-Dataset result from _read_md_array.
 
-        Covers the else branch where src from
-        _read_md_array is not a gdal.Dataset (e.g. string-type MDArray),
-        and cube is set to src directly.
+        Covers the else branch where src from `_read_md_array` is not a
+        `gdal.Dataset` (e.g. a string-type MDArray). It used to be returned
+        as-is; it is now wrapped, so no raw GDAL handle reaches the caller
+        (#1126). The wrapper owns its values and defines `__slots__`, so the
+        subset bookkeeping that follows the raster path does not apply to it.
         """
         # Create a dataset with a 1D string variable as a "data variable"
         src = gdal.GetDriverByName("MEM").CreateMultiDimensional("str_var_test")
@@ -722,9 +906,12 @@ class TestGetVariableNonDataset:
             f"'labels' should be a variable, got {nc.variable_names}"
         )
         var = nc.get_variable("labels")
-        # The result should be the MDArray itself (not a Dataset)
-        assert var is not None, "Variable should not be None"
-        assert var._is_subset is True, "Should be marked as subset"
+
+        assert isinstance(var, LabeledArray), (
+            f"a 1-D string variable must come back as a LabeledArray, got {type(var)}"
+        )
+        assert var.dims == ("labels_dim",), f"unexpected dims {var.dims}"
+        assert var.shape == (3,), f"unexpected shape {var.shape}"
 
 
 class TestGetVariableMultipleBandDims:
