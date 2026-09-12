@@ -225,3 +225,23 @@ class TestNearestIndices:
         """An axis of non-numeric coordinates cannot be snapped against."""
         with pytest.raises(ValueError, match="numeric coordinate axis"):
             nearest_indices(["a", "b"], 1.0)
+
+    def test_a_fill_value_in_the_axis_is_never_snapped_to(self):
+        """A NaN coordinate is skipped rather than winning the distance scan.
+
+        Test scenario:
+            NaN compares false against everything, so a plain `min` over the distances
+            used to hand back the fill value's slot — the caller asked for the level
+            nearest 900 and got the hole.
+        """
+        assert nearest_indices([float("nan"), 850.0, 1000.0], 900.0) == [1]
+
+    def test_an_all_fill_axis_is_rejected(self):
+        """An axis with nothing finite to snap to says so instead of guessing."""
+        with pytest.raises(ValueError, match="no finite coordinate"):
+            nearest_indices([float("nan"), float("nan")], 900.0)
+
+    def test_a_non_finite_selector_is_rejected(self):
+        """A NaN or infinite request has no nearest coordinate."""
+        with pytest.raises(ValueError, match="finite selector values"):
+            nearest_indices([1000.0, 850.0], float("nan"))

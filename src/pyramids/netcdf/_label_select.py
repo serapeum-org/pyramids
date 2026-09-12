@@ -20,6 +20,7 @@ Two concerns live here:
 
 from __future__ import annotations
 
+import math
 import numbers
 from collections.abc import Callable
 from typing import Any
@@ -358,12 +359,14 @@ def nearest_indices(coords: list, selector: Any) -> list[int]:
         selector: A number, or a list of numbers (each snapped independently).
 
     Returns:
-        list[int]: Ascending indices of the snapped coordinates — one per requested
-            value, deduplicated when two requests snap to the same coordinate.
+        list[int]: Indices of the snapped coordinates, in **axis** order rather than
+            request order, deduplicated when two requests snap to the same coordinate.
+            Non-finite coordinates (a ``_FillValue`` in the axis) are never snapped to.
 
     Raises:
-        ValueError: The selector is a :class:`slice` (a range has no nearest value), or
-            either the selector or the axis is not numeric.
+        ValueError: The selector is a :class:`slice` (a range has no nearest value), the
+            selector is not a finite number, the axis is not numeric, or the axis holds
+            no finite coordinate to snap to.
 
     Examples:
         - A value between two levels snaps to the closer one:
@@ -403,12 +406,29 @@ def nearest_indices(coords: list, selector: Any) -> list[int]:
         raise ValueError(
             f"method='nearest' needs numeric selector values, got {selector!r}."
         )
-    if not all(_is_number(value) for value in coords):
+    if not all(math.isfinite(value) for value in wanted):
+        raise ValueError(
+            f"method='nearest' needs finite selector values, got {selector!r}."
+        )
+    if not all(_is_number(coord) for coord in coords):
         raise ValueError(
             f"method='nearest' needs a numeric coordinate axis, got {coords!r}."
         )
+    # A `_FillValue` in a coordinate axis arrives as NaN, which compares false against
+    # everything — so a plain `min` over the distances would hand back whichever slot it
+    # was seeded with, silently snapping to the fill value's plane. Scan only the real
+    # coordinates, and say so when there are none.
+    candidates = [
+        (position, coord)
+        for position, coord in enumerate(coords)
+        if math.isfinite(coord)
+    ]
+    if not candidates:
+        raise ValueError(
+            f"method='nearest' found no finite coordinate to snap to on this axis: {coords!r}."
+        )
     found: set[int] = set()
     for value in wanted:
-        distances = [abs(coord - value) for coord in coords]
-        found.add(distances.index(min(distances)))
+        distances = [abs(coord - value) for _, coord in candidates]
+        found.add(candidates[distances.index(min(distances))][0])
     return sorted(found)
