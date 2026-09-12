@@ -27,6 +27,7 @@ pytestmark = pytest.mark.core
 
 COARDS_PATH = "tests/data/netcdf/coards__5v__1d4-4d1__y-desc.nc"
 CF_PATH = "tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc"
+WRF_PATH = "tests/data/netcdf/none__17v__1d1-2d5-3d6-4d5__stag-str.nc"
 
 LEVELS = [1000.0, 925.0, 850.0, 700.0]
 
@@ -179,3 +180,35 @@ class TestInMemoryContainer:
             dims=ExtraDimensions(name="time", values=[0, 6, 12, 18, 24]),
         )
         assert nc.get_variable("temp").get_dimension_values("missing") is None
+
+
+class TestStringTypedCoordinateVariable:
+    """A character coordinate axis (WRF ``Times``) reads rather than raising."""
+
+    def test_container_reads_the_real_timestamps(self):
+        """The container reports the stored strings, matching the xarray bridge.
+
+        Test scenario:
+            `ReadAsArray` refuses a character MDArray in the SWIG bindings, so the
+            accessor used to surface a raw `RuntimeError: String buffer data type not
+            supported`. The list-based read that `to_xarray` uses handles it.
+        """
+        nc = NetCDF.read_file(WRF_PATH)
+        values = nc.get_dimension_values("Time")
+        assert list(values) == [
+            "2000-01-24_12:00:00",
+            "2000-01-24_13:00:00",
+            "2000-01-24_14:00:00",
+        ], f"got {values!r}"
+
+    def test_a_subset_reports_the_tracked_placeholder(self):
+        """A variable subset answers with the integer placeholder it tracks, documented as such.
+
+        Test scenario:
+            The subset build cannot read a string indexing variable either, and records
+            `[0, 1, ...]`. `sel` matches against those same integers, so the accessor and
+            the selector agree — the Returns section says they are not the file's labels.
+        """
+        nc = NetCDF.read_file(WRF_PATH)
+        var = nc.get_variable("IVGTYP")
+        assert list(var.get_dimension_values("Time")) == [0, 1, 2]

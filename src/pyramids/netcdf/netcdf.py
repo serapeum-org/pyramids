@@ -6846,6 +6846,13 @@ class NetCDF(Dataset):
         Returns:
             numpy.ndarray or None: The coordinate values in storage order, or ``None``
             when the dataset has no such dimension or it carries no coordinate variable.
+            One caveat on a variable subset: a band dimension whose indexing variable
+            cannot be read — a string-typed one such as WRF's ``Times``, which the GDAL
+            SWIG bindings refuse — is tracked as the placeholder ``[0, 1, …, size - 1]``,
+            and comes back here as those integers rather than as ``None``. They are also
+            what :meth:`sel` matches against on such an axis, so the two agree; they are
+            just not the file's own labels. Read the container's dimension instead, or
+            the variable through :attr:`variables`, when you need the real values.
 
         Examples:
             - Read the pressure levels of a 4-D cube, then the levels one `sel` kept::
@@ -6865,9 +6872,35 @@ class NetCDF(Dataset):
         if tracked is not None:
             values = np.asarray(tracked)
         elif names is not None and name in names:
-            values = self._read_variable(name)
+            values = self._read_dimension_coordinates(name)
         else:
             values = None
+        return values
+
+    def _read_dimension_coordinates(self, name: str) -> np.typing.NDArray | None:
+        """Read one dimension's coordinate variable, string-typed axes included.
+
+        `_read_variable` goes through `ReadAsArray`, which the GDAL SWIG bindings refuse
+        for a character array — a WRF `Times` axis raised `RuntimeError: String buffer
+        data type not supported` straight out of the accessor. The list-based `Read()`
+        path handles those, and is the one `to_xarray` already uses for the same axes, so
+        falling back to it keeps the two reporting the same coordinates.
+
+        Args:
+            name: Dimension name, already known to be one this dataset declares.
+
+        Returns:
+            numpy.ndarray or None: The coordinate values, or `None` when the dimension
+            has no indexing variable to read.
+        """
+        try:
+            values = self._read_variable(name)
+        except RuntimeError:
+            dim = self._get_dimension(name)
+            indexing_var = None if dim is None else dim.GetIndexingVariable()
+            values = (
+                None if indexing_var is None else self._md_array_to_numpy(indexing_var)
+            )
         return values
 
     def _get_dimension_names(self) -> list[str] | None:
