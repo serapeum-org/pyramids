@@ -501,16 +501,38 @@ class TestSelectionErrorMessages:
         with pytest.raises(ValueError, match="is not a number"):
             cf_var.sel(pressure_level="850", method="nearest")
 
-    def test_a_long_axis_is_elided_in_the_message(self):
-        """A miss on a long axis shows both ends and a count, not every value.
+    def test_a_twelve_step_axis_is_listed_in_full(self):
+        """A monthly axis is short enough to print, and its values are what fixes a typo.
 
         Test scenario:
-            The COARDS cube has 12 time steps; a 128k-step cloud axis would otherwise
-            put every decoded timestamp into the exception string.
+            Eliding is aimed at a 128k-step cloud axis; a 12-step one is the shape of a
+            great many real files, and cutting six of its values helps nobody.
         """
         var = NetCDF.read_file(COARDS_PATH).get_variable("rhum")
-        with pytest.raises(ValueError, match=r"\.\.\..*\(12 values\)"):
+        with pytest.raises(ValueError, match=r"17549208.0.*17549472.0"):
             var.sel(time=-1)
+
+    def test_an_undecodable_axis_says_why_the_label_missed(self):
+        """A label that misses because the axis would not decode is told so.
+
+        Test scenario:
+            The axis declares CF units, so being shown raw offsets with no explanation
+            invites the wrong conclusion — that it is not a time axis at all.
+        """
+        nc = NetCDF.read_file(CF_PATH)
+        holed = nc.get_variable("temperature")
+        holed._band_dim_values_map = dict(holed._band_dim_values_map)
+        holed._band_dim_values_map["time"] = [0.0, float("nan"), 12.0, 18.0]
+        with pytest.raises(
+            ValueError, match="declares CF units, but a coordinate value"
+        ):
+            holed.sel(time="2024-01-01 12:00:00")
+
+    def test_an_axis_with_no_units_gets_no_such_hint(self, cf_var):
+        """An axis that simply has no CF units is not accused of a decode failure."""
+        with pytest.raises(ValueError) as excinfo:
+            cf_var.sel(pressure_level=999)
+        assert "declares CF units" not in str(excinfo.value), str(excinfo.value)
 
     def test_a_short_axis_is_listed_in_full(self, cf_var):
         """A short axis still lists every value — eliding only pays off when there are many."""

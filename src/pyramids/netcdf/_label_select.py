@@ -56,6 +56,47 @@ _PRECISION_FORMATS = {
 }
 
 
+def summarise_values(values: list, full_below: int = 21, edge: int = 3) -> str:
+    """Render an axis' values for an error message, elided in the middle when long.
+
+    A typo'd selector is a routine mistake, and on a 128k-step time axis interpolating
+    every decoded label makes the exception string megabytes of timestamps. The threshold
+    is generous on purpose: on a monthly or hourly axis the values themselves are what a
+    caller needs to fix the typo, so only a genuinely long axis is cut.
+
+    Args:
+        values: The values the selector was matched against.
+        full_below: List everything while there are fewer than this many. Defaults to 21.
+        edge: How many to show at each end once elided. Defaults to 3.
+
+    Returns:
+        str: The full list when it is short, else ``[first, ..., last] (N values)``.
+
+    Examples:
+        - A short axis is listed in full:
+            ```python
+            >>> from pyramids.netcdf._label_select import summarise_values
+            >>> summarise_values([1000.0, 850.0, 500.0])
+            '[1000.0, 850.0, 500.0]'
+
+            ```
+        - A long one keeps both ends and says how many there were:
+            ```python
+            >>> from pyramids.netcdf._label_select import summarise_values
+            >>> summarise_values(list(range(100)))
+            '[0, 1, 2, ..., 97, 98, 99] (100 values)'
+
+            ```
+    """
+    if len(values) < full_below:
+        rendered = repr(values)
+    else:
+        head = ", ".join(repr(value) for value in values[:edge])
+        tail = ", ".join(repr(value) for value in values[-edge:])
+        rendered = f"[{head}, ..., {tail}] ({len(values)} values)"
+    return rendered
+
+
 def normalise_label(text: str) -> str:
     """Normalise a date label to the ``YYYY-MM-DD HH:MM:SS`` spelling this module matches on.
 
@@ -526,7 +567,8 @@ def nearest_indices(coords: list, selector: Any) -> list[int]:
         )
     if not all(_is_number(coord) for coord in coords):
         raise ValueError(
-            f"method='nearest' needs a numeric coordinate axis, got {coords!r}."
+            "method='nearest' needs a numeric coordinate axis, got "
+            f"{summarise_values(coords)}."
         )
     # A `_FillValue` in a coordinate axis arrives as NaN, which compares false against
     # everything — so a plain `min` over the distances would hand back whichever slot it
@@ -539,7 +581,8 @@ def nearest_indices(coords: list, selector: Any) -> list[int]:
     ]
     if not candidates:
         raise ValueError(
-            f"method='nearest' found no finite coordinate to snap to on this axis: {coords!r}."
+            "method='nearest' found no finite coordinate to snap to on this axis: "
+            f"{summarise_values(coords)}."
         )
     found: set[int] = set()
     for value in wanted:

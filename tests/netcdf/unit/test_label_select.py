@@ -24,6 +24,7 @@ from pyramids.netcdf._label_select import (
     normalise_label,
     pad_label,
     probe_format,
+    summarise_values,
 )
 
 pytestmark = pytest.mark.core
@@ -369,3 +370,21 @@ class TestNonStandardCalendars:
             2,
             3,
         ]
+
+
+class TestSummariseValues:
+    """How an axis is rendered into an error message."""
+
+    def test_a_short_axis_is_listed_in_full(self):
+        """Everything below the threshold is printed — those values fix the typo."""
+        assert summarise_values([1000.0, 850.0, 500.0]) == "[1000.0, 850.0, 500.0]"
+
+    def test_a_twenty_value_axis_is_still_listed_in_full(self):
+        """The threshold is generous: a monthly or hourly axis stays readable."""
+        assert "..." not in summarise_values(list(range(20)))
+
+    def test_a_long_axis_keeps_both_ends_and_the_count(self):
+        """A 128k-step cloud axis must not become a megabyte of exception text."""
+        rendered = summarise_values(list(range(5000)))
+        assert rendered.startswith("[0, 1, 2, ...")
+        assert rendered.endswith("4997, 4998, 4999] (5000 values)")

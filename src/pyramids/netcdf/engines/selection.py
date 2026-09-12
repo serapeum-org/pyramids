@@ -46,6 +46,7 @@ from pyramids.netcdf._label_select import (
     nearest_indices,
     non_label_parts,
     probe_format,
+    summarise_values,
 )
 from pyramids.netcdf._mdim import open_mdarray, scalar_no_data
 from pyramids.netcdf._plot import NetCDFPlot
@@ -897,9 +898,10 @@ class Selection(_Engine["NetCDF"]):
             nc, dim_name, coords, selector, method
         )
         if not dim_indices:
+            hint = _undecodable_label_hint(nc, dim_name, coords, selector)
             raise ValueError(
                 f"No bands match {dim_name}={selector}. "
-                f"Available values: {_summarise(available)}"
+                f"Available values: {summarise_values(available)}{hint}"
             )
 
         dim_axis = nc._band_dim_names.index(dim_name)
@@ -1443,27 +1445,41 @@ def _resolve_dim_indices(coords: list, selector: Any) -> list[int]:
     return [i for i, v in enumerate(coords) if v == selector]
 
 
-def _summarise(values: list, edge: int = 3) -> str:
-    """Render an axis' values for an error message, elided in the middle when long.
+def _undecodable_label_hint(
+    nc: NetCDF, dim_name: str, coords: list, selector: Any
+) -> str:
+    """Explain a failed label match on an axis whose CF values would not decode.
 
-    A typo'd selector is a routine mistake, and on a 128k-step time axis interpolating
-    every decoded label makes the exception string megabytes of timestamps. Show enough
-    of each end to recognise the vocabulary, and say how many there are.
+    Without this the caller sees the stored offsets and no reason why their label found
+    nothing — the axis *does* declare ``units``, so "it is not a time axis" would be the
+    wrong conclusion to draw. One coordinate is probed, not the whole axis, and only on
+    the failure path.
 
     Args:
-        values: The values the selector was matched against.
-        edge: How many to show at each end before eliding. Defaults to 3.
+        nc: The variable subset being selected.
+        dim_name: Name of the band dimension.
+        coords: That dimension's stored coordinate values.
+        selector: The selector that matched nothing.
 
     Returns:
-        str: The full list when it is short, else ``[first … last] (N values)``.
+        str: A trailing sentence for the error, or ``""`` when the axis simply has no
+            CF ``units`` (in which case the stored values are the whole story).
     """
-    if len(values) <= edge * 2 + 1:
-        rendered = repr(values)
-    else:
-        head = ", ".join(repr(value) for value in values[:edge])
-        tail = ", ".join(repr(value) for value in values[-edge:])
-        rendered = f"[{head}, ..., {tail}] ({len(values)} values)"
-    return rendered
+    hint = ""
+    if has_label(selector) and coords:
+        try:
+            decodes = (
+                nc._decode_time_labels(dim_name, coords[:1], FULL_FORMAT) is not None
+            )
+        except Exception:
+            decodes = True
+        if decodes:
+            hint = (
+                f" The {dim_name!r} axis declares CF units, but a coordinate value could"
+                " not be decoded, so it has no labels to match — these are its stored"
+                " values."
+            )
+    return hint
 
 
 def _resolve_selector_indices(
