@@ -25,6 +25,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
 
+from pyramids.netcdf._label_select import FULL_FORMAT
 from pyramids.netcdf._plot import NetCDFPlot
 from pyramids.netcdf.netcdf import NetCDF
 from pyramids.netcdf.plot_options import Selectors
@@ -257,41 +258,57 @@ class TestSelSelectorVocabularyFallback:
 
 
 class TestSelUndecodableCoordinateValues:
-    """A coordinate value the CF converter cannot decode must not abort the selection."""
+    """A coordinate value the CF converter cannot decode must not abort the selection.
 
-    def test_fill_value_in_the_time_axis_falls_back_to_stored_values(self, cf_var):
+    Each test builds its variable from a fresh container rather than copying the shared
+    fixture: a copy loses the back-reference the CF ``units`` are resolved through, so
+    the decoder would never be reached and the tests would pass without exercising
+    anything.
+    """
+
+    def test_fill_value_in_the_time_axis_falls_back_to_stored_values(self):
         """A NaN in the time axis leaves the stored-value path working.
 
         Test scenario:
             ``_decode_time_labels`` converts each value outside its own guard, so a
-            ``_FillValue`` / NaN entry used to abort `sel` with "cannot convert float NaN
-            to integer". Selecting by stored offset must still work, and a label selector
+            ``_FillValue`` / NaN entry aborted `sel` with "cannot convert float NaN to
+            integer". Selecting by stored offset must still work, and a label selector
             must degrade to "no bands match" rather than crash.
         """
-        holed = cf_var.copy()
-        holed._band_dim_values_map = dict(cf_var._band_dim_values_map)
+        nc = NetCDF.read_file(CF_PATH)
+        holed = nc.get_variable("temperature")
+        holed._band_dim_values_map = dict(holed._band_dim_values_map)
         holed._band_dim_values_map["time"] = [0.0, float("nan"), 12.0, 18.0]
+        with pytest.raises(ValueError, match="cannot convert float NaN"):
+            holed._decode_time_labels(
+                "time", holed._band_dim_values_map["time"], FULL_FORMAT
+            )
         assert holed.sel(time=12.0)._band_dim_values_map["time"] == [12.0]
         with pytest.raises(ValueError, match="No bands match"):
             holed.sel(time="2024-01-01 12:00:00")
 
-    def test_string_valued_coordinates_still_match_exactly(self, cf_var):
+    def test_string_valued_coordinates_still_match_exactly(self):
         """A coordinate variable holding date strings keeps matching as it did before.
 
         Test scenario:
-            Some stores carry the dates as strings in the coordinate variable itself. The
-            axis then cannot be decoded from its offsets, so the selector has to fall
-            through to an exact string match against the stored values — the behaviour
-            this file's decoding must not take away.
+            Some stores carry the dates as strings in the coordinate variable while the
+            dimension still declares parseable CF units. Decoding those values raises
+            ("could not convert string to float"), so the selector has to fall through
+            to an exact string match — the behaviour this branch must not take away.
         """
-        stringy = cf_var.copy()
-        stringy._band_dim_values_map = dict(cf_var._band_dim_values_map)
+        nc = NetCDF.read_file(CF_PATH)
+        stringy = nc.get_variable("temperature")
+        stringy._band_dim_values_map = dict(stringy._band_dim_values_map)
         stringy._band_dim_values_map["time"] = [
             "2024-01-13",
             "2024-01-14",
             "2024-01-15",
             "2024-01-16",
         ]
+        with pytest.raises(ValueError, match="could not convert string to float"):
+            stringy._decode_time_labels(
+                "time", stringy._band_dim_values_map["time"], FULL_FORMAT
+            )
         result = stringy.sel(time="2024-01-15")
         assert result._band_dim_values_map["time"] == ["2024-01-15"], (
             f"got {result._band_dim_values_map['time']}"

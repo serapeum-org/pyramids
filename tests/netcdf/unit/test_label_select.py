@@ -296,6 +296,16 @@ class TestLabelShapeRecognition:
         """Every supported precision still resolves to its format."""
         assert probe_format(text) is not None, f"{text!r} should read as a date label"
 
+    @pytest.mark.parametrize("selector", [850.0, [1000.0, 850.0], slice(500, 1000)])
+    def test_a_selector_with_no_string_has_no_probe_format(self, selector):
+        """A purely numeric selector needs no decode, so it resolves no format.
+
+        Test scenario:
+            The engine only probes a selector `has_label` accepted, but the primitive is
+            shared and doctested, so it has to answer for a numeric one too.
+        """
+        assert probe_format(selector) is None
+
     def test_a_non_date_string_is_rejected_by_label_format(self):
         """``label_format`` refuses it too, so the two agree on what a label is."""
         with pytest.raises(ValueError, match="not a supported date label"):

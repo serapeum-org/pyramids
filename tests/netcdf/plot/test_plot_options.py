@@ -269,3 +269,17 @@ class TestPlotConsumesOptionDataclasses:
         assert captured["request"].mode.mode == "animate"
         assert captured["kw"]["data_style"].style == "topography"
         assert captured["kw"]["data_style"].hillshade is True
+
+
+class TestSelectorsMethodValidation:
+    """``Selectors`` refuses an unknown matching mode at construction."""
+
+    def test_unknown_method_raises(self):
+        """A typo'd mode fails where it was typed, not part-way through a render."""
+        with pytest.raises(ValueError, match="must be None \(exact\) or 'nearest'"):
+            Selectors(level=900, method="pad")
+
+    @pytest.mark.parametrize("method", [None, "nearest"])
+    def test_the_two_supported_modes_construct(self, method):
+        """Both accepted modes build cleanly."""
+        assert Selectors(level=900, method=method).method == method
