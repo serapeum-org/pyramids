@@ -646,3 +646,58 @@ class TestNetCDFPlotSelectorMethod:
         var = nc.get_variable("temperature")
         with pytest.raises(ValueError, match="No bands match"):
             var.plot(selectors=Selectors(time=0, level=520))
+
+
+class TestNetCDFPlotSelectorMethodPerDim:
+    """``method`` applies per dim, so a label and a snapped value can be pinned together."""
+
+    def test_label_and_nearest_coexist(self):
+        """Pinning a time label exactly while snapping the level is a single call.
+
+        Test scenario:
+            ``method`` used to be handed to every dim, so a date label anywhere made the
+            whole call raise "needs a numeric selector". On a 4-D cube whose time axis
+            carries date strings, the label dim must stay exact while 520 snaps to the
+            500 hPa level.
+        """
+        nc = _make_4d_nc()
+        var = nc.get_variable("temperature")
+        stamps = ["2024-01-13", "2024-01-14", "2024-01-15"]
+        var._band_dim_values_map = dict(var._band_dim_values_map)
+        var._band_dim_values_map["time"] = list(stamps)
+        expected = var.sel(time="2024-01-14").sel(pressure_level=500).read_array()
+        captured: dict = {}
+
+        with patch.object(
+            type(var.analysis),
+            "plot",
+            autospec=True,
+            side_effect=_make_capture(captured),
+        ):
+            var.plot(
+                selectors=Selectors(time="2024-01-14", level=520, method="nearest")
+            )
+        assert_array_equal(
+            captured["data"],
+            expected,
+            err_msg="the label dim should stay exact while the numeric dim snaps",
+        )
+
+    def test_string_label_dim_is_not_snapped(self):
+        """A dim selected by label renders exactly even when ``method='nearest'`` is set."""
+        _nc, _times, var = _make_3d_nc_with_dates()
+        expected = var.sel(time="2024-01-15").read_array()
+        captured: dict = {}
+
+        with patch.object(
+            type(var.analysis),
+            "plot",
+            autospec=True,
+            side_effect=_make_capture(captured),
+        ):
+            var.plot(selectors=Selectors(time="2024-01-15", method="nearest"))
+        assert_array_equal(
+            captured["data"],
+            expected,
+            err_msg="a label selector must stay exact under method='nearest'",
+        )

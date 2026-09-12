@@ -65,12 +65,14 @@ class Selectors:
             converted to the corresponding coord value via the
             variable's band-dim coord map; dims without coord values
             receive the int unchanged. Defaults to None.
-        method: How every label selector above is matched — ``None``
-            (the default) exactly, or ``"nearest"`` to snap each
-            numeric value to the closest coordinate on its axis.
-            Forwarded verbatim to :meth:`NetCDF.sel`, so the same
-            restrictions apply: ``"nearest"`` rejects a slice and a
-            date label. Defaults to None.
+        method: How the selectors above are matched — ``None`` (the
+            default) exactly, or ``"nearest"`` to snap to the closest
+            coordinate on the axis. It applies only to the dims whose
+            selector is **numeric**: a date label already names a
+            period, so a dim pinned by label stays exact and the two
+            can be combined in one call (pin a time label, snap a
+            level). ``"nearest"`` still rejects a slice, which is a
+            range with no nearest value. Defaults to None.
 
     Examples:
         - The default constructor produces an all-``None`` instance

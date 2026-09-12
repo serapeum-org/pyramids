@@ -19,6 +19,7 @@ import numpy as np
 from pyramids.dataset._plot_helpers import ModeSpec, RenderRequest
 from pyramids.dataset._plot_helpers import render_array as _render_array
 from pyramids.netcdf import _coord_match
+from pyramids.netcdf._label_select import has_label
 from pyramids.netcdf.plot_options import CoordinateSpec, FacetSpec, Selectors
 
 if TYPE_CHECKING:
@@ -618,6 +619,25 @@ def _resolve_animate_labels(
     return labels
 
 
+def _dim_method(method: str | None, value: Any) -> str | None:
+    """The matching mode that applies to one resolved selector.
+
+    :class:`~pyramids.netcdf.plot_options.Selectors` carries a single ``method`` while
+    ``plot`` may pin several dimensions at once. ``"nearest"`` describes how to match a
+    *numeric* request; a date label already names a period, and ``sel`` rejects the
+    combination. Narrowing the flag per dimension is what lets one call pin a time label
+    exactly and snap a level — the natural way to use both features together.
+
+    Args:
+        method: The caller's ``Selectors.method`` — ``None`` or ``"nearest"``.
+        value: The resolved selector for one dimension.
+
+    Returns:
+        str or None: ``method`` for a numeric selector, ``None`` for a label one.
+    """
+    return None if has_label(value) else method
+
+
 class NetCDFPlot:
     """Owns the plotting pipeline for a :class:`~pyramids.netcdf.netcdf.NetCDF`.
 
@@ -741,7 +761,12 @@ class NetCDFPlot:
 
         pinned = nc
         for dim_name, value in resolved_sel.items():
-            pinned = pinned.sel(method=selectors.method, **{dim_name: value})
+            # `method` says how to match a *numeric* request. A date label already names a
+            # period, so snapping means nothing for it — applying the flag only where it
+            # applies lets one call pin a time label exactly and snap a level.
+            pinned = pinned.sel(
+                method=_dim_method(selectors.method, value), **{dim_name: value}
+            )
         if (
             not faceting_active
             and animate_dim is None
@@ -948,7 +973,7 @@ class NetCDFPlot:
                         f"No coordinate values available for dimension {dim_name!r}."
                     )
                 dim_indices, _ = _resolve_selector_indices(
-                    nc, dim_name, coords, value, method
+                    nc, dim_name, coords, value, _dim_method(method, value)
                 )
                 dim_axis = nc._band_dim_names.index(dim_name)
                 bands = set(_map_dim_to_band_indices(dim_axis, sizes, dim_indices))
