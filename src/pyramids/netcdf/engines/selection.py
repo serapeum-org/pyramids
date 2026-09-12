@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import math
 import warnings
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -1491,6 +1492,85 @@ def _undecodable_label_hint(
     return hint
 
 
+def _probe_label_format(
+    dim_name: str, selector: Any, decode: Callable[[str], list[str]]
+) -> str | None:
+    """The precision a label selector needs, after rejecting the ones that make no sense.
+
+    Helper of :func:`_resolve_selector_indices`, split out to keep the mode choice there
+    readable. Refuses a selector that mixes the two vocabularies, and -- on an axis that
+    *does* decode -- a string that is not a date-label shape, which is a malformed label
+    rather than a stored value.
+
+    Args:
+        dim_name: Name of the band dimension, for the error messages.
+        selector: The selector, already known to carry at least one string.
+        decode: The memoised axis decoder.
+
+    Returns:
+        str or None: The strftime format to match at, or ``None`` when the selector's
+            string is not date-shaped and the axis has no labels anyway.
+
+    Raises:
+        ValueError: The selector mixes labels with stored values, or names a date
+            precision that is not supported on an axis that decodes.
+    """
+    stray = non_label_parts(selector)
+    if stray:
+        raise ValueError(
+            f"{dim_name}={selector!r} mixes date labels with stored values "
+            f"({stray[0]!r}). Select by label or by stored value, not both."
+        )
+    probe = probe_format(selector)
+    if probe is None and decode(FULL_FORMAT):
+        # The axis decodes as time, so a string that is not a date-label shape is a
+        # malformed label, not a stored value -- `label_format` raises with the
+        # precisions that would have worked. On an axis that does *not* decode, the same
+        # string is simply a stored value (a string-valued coordinate variable, an
+        # ensemble member's name) and falls through to exact matching.
+        label_format(cast("str", first_label(selector)))
+    return probe
+
+
+def _nearest_or_raise(
+    dim_name: str, coords: list, selector: Any, probe: str | None, *, is_label: bool
+) -> list[int]:
+    """Snap a numeric selector, or explain why this one cannot be snapped.
+
+    Helper of :func:`_resolve_selector_indices`. The two refusals differ because the
+    advice does: a date label already names a period, while a non-date string has nothing
+    to measure at all.
+
+    Args:
+        dim_name: Name of the band dimension, for the error messages.
+        coords: That dimension's stored coordinate values.
+        selector: The selector handed to ``sel``.
+        probe: The label format resolved for the selector, or ``None``.
+        is_label: Whether the selector carries a string at all.
+
+    Returns:
+        list[int]: Indices of the snapped coordinates.
+
+    Raises:
+        ValueError: The selector is a date label, or is otherwise not a number.
+    """
+    if is_label and probe is not None:
+        raise ValueError(
+            f"method='nearest' needs a numeric selector; {dim_name}={selector!r} is a "
+            "date label. Select a label exactly -- a partial label such as '2024-01' "
+            "already matches every step inside it."
+        )
+    if is_label:
+        # Not date-shaped, so the date-label advice would be nonsense: this is a string
+        # on an axis that has no labels at all (a pressure level written "850", an
+        # ensemble member's name).
+        raise ValueError(
+            f"method='nearest' needs a numeric selector; {dim_name}={selector!r} is "
+            "not a number. Snapping compares distances, so it has nothing to measure."
+        )
+    return nearest_indices(coords, selector)
+
+
 def _resolve_selector_indices(
     nc: NetCDF,
     dim_name: str,
@@ -1504,10 +1584,10 @@ def _resolve_selector_indices(
     and the plot engine's ``_flat_band_index`` cannot drift apart:
 
     * ``method="nearest"`` snaps each numeric request to the closest coordinate.
-    * A selector carrying a string is a **date label**; the axis is decoded with the
-      dimension's CF ``units`` / ``calendar`` and matched as text. An axis that cannot be
-      decoded (no parseable ``units``) has no labels, so the stored-value path runs and
-      the caller reports "no bands match" against the raw values.
+    * A selector carrying a date-shaped string is a **label**; the axis is decoded with
+      the dimension's CF ``units`` / ``calendar`` and matched as text. An axis that cannot
+      be decoded has no labels, so the stored-value path runs and the caller reports "no
+      bands match" against the raw values.
     * Everything else matches the stored values exactly.
 
     Args:
@@ -1519,23 +1599,22 @@ def _resolve_selector_indices(
 
     Returns:
         tuple[list[int], list]: The matching indices along ``dim_name``, and the values
-            they were matched against — the decoded labels on a label selection, the
-            stored coordinates otherwise — so the caller's error message quotes the
+            they were matched against -- the decoded labels on a label selection, the
+            stored coordinates otherwise -- so the caller's error message quotes the
             vocabulary the caller actually used.
 
     Raises:
-        ValueError: ``"nearest"`` was asked of a date label, a slice, or a non-numeric
-            axis.
+        ValueError: The selector mixes labels with stored values, names an unsupported
+            date precision, or asks ``"nearest"`` of something that is not a number.
     """
-
     decoded: dict[str, list[str]] = {}
 
     def decode(fmt: str) -> list[str]:
         """Decode the axis at one precision, once; empty when it cannot be decoded at all.
 
         ``strict=False`` is the selection contract: a coordinate **value** the converter
-        chokes on — a ``_FillValue``, an infinity, an out-of-range offset, a string, or
-        anything cftime refuses on a non-standard calendar — means this axis has no
+        chokes on -- a ``_FillValue``, an infinity, an out-of-range offset, a string, or
+        anything cftime refuses on a non-standard calendar -- means this axis has no
         labels, not that the caller's ``sel`` should abort. The stored-value path can
         still answer it.
         """
@@ -1545,45 +1624,19 @@ def _resolve_selector_indices(
             )
         return decoded[fmt]
 
-    label_selection = has_label(selector)
-    if label_selection:
-        stray = non_label_parts(selector)
-        if stray:
-            raise ValueError(
-                f"{dim_name}={selector!r} mixes date labels with stored values "
-                f"({stray[0]!r}). Select by label or by stored value, not both."
-            )
     # Probe at the precision this selector needs rather than always at FULL_FORMAT: the
     # match then answers from the same memoised pass, so a decodable axis is decoded once
     # per distinct precision instead of up to four times over the whole coordinate
-    # variable — which on a 128k-step cloud axis is the difference between one cftime
+    # variable -- which on a 128k-step cloud axis is the difference between one cftime
     # pass per `sel` and four, one of them only ever used to build an error string.
-    probe = probe_format(selector) if label_selection else None
-    if label_selection and probe is None and decode(FULL_FORMAT):
-        # The axis decodes as time, so a string that is not a date-label shape is a
-        # malformed label, not a stored value — `label_format` raises with the precisions
-        # that would have worked. On an axis that does *not* decode, the same string is
-        # simply a stored value (a string-valued coordinate variable, an ensemble member
-        # name) and falls through to exact matching below.
-        label_format(cast("str", first_label(selector)))
-    decodable = probe is not None and bool(decode(probe))
+    is_label = has_label(selector)
+    probe = _probe_label_format(dim_name, selector, decode) if is_label else None
     if method == "nearest":
-        if label_selection and probe is not None:
-            raise ValueError(
-                f"method='nearest' needs a numeric selector; {dim_name}={selector!r} is a "
-                "date label. Select a label exactly — a partial label such as '2024-01' "
-                "already matches every step inside it."
-            )
-        if label_selection:
-            # Not date-shaped, so the date-label advice would be nonsense: this is a
-            # string on an axis that has no labels at all (a pressure level written
-            # "850", an ensemble member's name).
-            raise ValueError(
-                f"method='nearest' needs a numeric selector; {dim_name}={selector!r} is "
-                "not a number. Snapping compares distances, so it has nothing to measure."
-            )
-        indices, available = nearest_indices(coords, selector), coords
-    elif decodable:
+        indices = _nearest_or_raise(
+            dim_name, coords, selector, probe, is_label=is_label
+        )
+        available = coords
+    elif probe is not None and decode(probe):
         indices = label_indices(decode, selector)
         # Only a failed match needs the vocabulary spelled out, and only then is the
         # full-precision decode worth paying for.
@@ -1592,7 +1645,7 @@ def _resolve_selector_indices(
         try:
             indices = _resolve_dim_indices(coords, selector)
         except TypeError:
-            # A stored-value comparison the types cannot answer — a string-bounded slice
+            # A stored-value comparison the types cannot answer -- a string-bounded slice
             # against a numeric axis, which is what a label slice degrades to when the
             # axis has no labels. A scalar or a list simply never equals any coordinate
             # and reports "no bands match"; a slice used to raise `TypeError` instead,

@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import math
 import numbers
-import re
 from collections.abc import Callable
 from typing import Any
 
@@ -41,10 +40,9 @@ _UPPER_TEMPLATE = "9999-12-31 23:59:59"
 
 # A label is recognised by its *shape*, not merely its length: "control" is seven
 # characters like "2024-01" but is an ensemble member's name, not a date, and belongs on
-# the stored-value path.
-_LABEL_PATTERN = re.compile(
-    r"\d{4}(?:-\d{2}(?:-\d{2}(?:[ ]\d{2}(?::\d{2}(?::\d{2})?)?)?)?)?\Z"
-)
+# the stored-value path. Each position either holds a digit (written "0" here) or the
+# literal separator, so a prefix of this template describes every supported precision.
+_LABEL_SHAPE = "0000-00-00 00:00:00"
 
 _PRECISION_FORMATS = {
     4: "%Y",
@@ -54,6 +52,21 @@ _PRECISION_FORMATS = {
     16: "%Y-%m-%d %H:%M",
     19: FULL_FORMAT,
 }
+
+
+def _has_label_shape(label: str) -> bool:
+    """Return whether ``label`` reads as a date prefix — digits and separators in place.
+
+    Cheaper and plainer than a nested-optional regular expression, and it says the rule
+    directly: every supported precision is a prefix of ``YYYY-MM-DD HH:MM:SS``, cut at
+    one of the boundaries :data:`_PRECISION_FORMATS` names. The length gate is what keeps
+    a bare ``"850"`` from reading as a three-digit year.
+    """
+    template = _LABEL_SHAPE[: len(label)]
+    return len(label) in _PRECISION_FORMATS and all(
+        character.isdigit() if expected == "0" else character == expected
+        for character, expected in zip(label, template)
+    )
 
 
 def summarise_values(values: list, full_below: int = 21, edge: int = 3) -> str:
@@ -174,7 +187,7 @@ def label_format(text: str) -> str:
         pad_label: extends a partial label to the edge of the period it names.
     """
     label = normalise_label(text)
-    fmt = _PRECISION_FORMATS.get(len(label)) if _LABEL_PATTERN.match(label) else None
+    fmt = _PRECISION_FORMATS.get(len(label)) if _has_label_shape(label) else None
     if fmt is None:
         raise ValueError(
             f"{text!r} is not a supported date label. Write one of "
@@ -394,7 +407,7 @@ def probe_format(selector: Any) -> str | None:
     label = first_label(selector)
     if label is None:
         fmt: str | None = None
-    elif not _LABEL_PATTERN.match(normalise_label(label)):
+    elif not _has_label_shape(normalise_label(label)):
         # The shape test governs a slice too: `slice("control", "x")` is a range of
         # stored values that happen to be strings, not a date range, and routing it
         # through the label path would fail inside `pad_label` instead.

@@ -646,8 +646,9 @@ class TestNetCDFPlotSelectorMethod:
         """
         nc = _make_4d_nc()
         var = nc.get_variable("temperature")
+        selectors = Selectors(time=0, level=520)
         with pytest.raises(ValueError, match="No bands match"):
-            var.plot(selectors=Selectors(time=0, level=520))
+            var.plot(selectors=selectors)
 
 
 class TestNetCDFPlotSelectorMethodPerDim:
@@ -714,12 +715,11 @@ class TestNetCDFPlotSelectorMethodPerDim:
         """
         nc = _make_4d_nc()
         var = nc.get_variable("temperature")
+        selectors = Selectors(
+            sel={"time": 0, "pressure_level": "850"}, method="nearest"
+        )
         with pytest.raises(ValueError, match="is not a number"):
-            var.plot(
-                selectors=Selectors(
-                    sel={"time": 0, "pressure_level": "850"}, method="nearest"
-                )
-            )
+            var.plot(selectors=selectors)
 
 
 class TestNetCDFPlotSelectorMethodOnARealCFAxis:
