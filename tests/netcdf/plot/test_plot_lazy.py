@@ -374,3 +374,38 @@ class TestNetCDFPlotLazySelectorMethod:
             exact,
             err_msg="method='nearest' should draw the slice of the snapped coordinate",
         )
+
+    @pytest.mark.lazy
+    def test_a_decoded_label_with_nearest_renders_the_same_lazily(self):
+        """A CF date label plus a snapped level draws the same plane on both paths.
+
+        Test scenario:
+            The in-memory helpers write no CF `units`, so their "labels" are stored
+            strings; this uses the on-disk fixture whose `hours since 2024-01-01`
+            decodes, which is the path the feature is about.
+        """
+        nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+        sel = Selectors(
+            sel={"time": "2024-01-01 06:00:00", "pressure_level": 900},
+            method="nearest",
+        )
+        eager = np.asarray(nc.plot(variable="temperature", selectors=sel).arr)
+        lazy = np.asarray(
+            nc.plot(
+                variable="temperature", selectors=sel, chunks={"rows": 2, "cols": 2}
+            ).arr
+        )
+        np.testing.assert_array_equal(
+            lazy,
+            eager,
+            err_msg="the chunked path drew a different slice for a decoded label",
+        )
+        exact = np.asarray(
+            nc.plot(
+                variable="temperature",
+                selectors=Selectors(sel={"time": 6.0, "pressure_level": 850.0}),
+            ).arr
+        )
+        np.testing.assert_array_equal(
+            lazy, exact, err_msg="label + nearest should equal the exact selection"
+        )
