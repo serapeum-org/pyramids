@@ -19,6 +19,7 @@ import numpy as np
 from pyramids.dataset._plot_helpers import ModeSpec, RenderRequest
 from pyramids.dataset._plot_helpers import render_array as _render_array
 from pyramids.netcdf import _coord_match
+from pyramids.netcdf._label_select import probe_format
 from pyramids.netcdf.plot_options import CoordinateSpec, FacetSpec, Selectors
 
 if TYPE_CHECKING:
@@ -618,6 +619,30 @@ def _resolve_animate_labels(
     return labels
 
 
+def _dim_method(method: str | None, value: Any) -> str | None:
+    """The matching mode that applies to one resolved selector.
+
+    :class:`~pyramids.netcdf.plot_options.Selectors` carries a single ``method`` while
+    ``plot`` may pin several dimensions at once. ``"nearest"`` describes how to match a
+    *numeric* request; a date label already names a period, and ``sel`` rejects the
+    combination. Narrowing the flag per dimension is what lets one call pin a time label
+    exactly and snap a level — the natural way to use both features together.
+
+    The test is "is this a date label", not "is this a string": a non-label string such
+    as ``"850"`` is neither, and dropping ``method`` for it would swap ``sel``'s precise
+    "needs a numeric selector" complaint for a bare "no bands match" about the wrong
+    thing. Those keep the flag and reach that guard.
+
+    Args:
+        method: The caller's ``Selectors.method`` — ``None`` or ``"nearest"``.
+        value: The resolved selector for one dimension.
+
+    Returns:
+        str or None: ``None`` for a date-label selector, ``method`` for anything else.
+    """
+    return None if probe_format(value) is not None else method
+
+
 class NetCDFPlot:
     """Owns the plotting pipeline for a :class:`~pyramids.netcdf.netcdf.NetCDF`.
 
@@ -741,7 +766,12 @@ class NetCDFPlot:
 
         pinned = nc
         for dim_name, value in resolved_sel.items():
-            pinned = pinned.sel(**{dim_name: value})
+            # `method` says how to match a *numeric* request. A date label already names a
+            # period, so snapping means nothing for it — applying the flag only where it
+            # applies lets one call pin a time label exactly and snap a level.
+            pinned = pinned.sel(
+                method=_dim_method(selectors.method, value), **{dim_name: value}
+            )
         if (
             not faceting_active
             and animate_dim is None
@@ -798,7 +828,7 @@ class NetCDFPlot:
                 # resolved raster plane -- and index the flat band the selection pins to, instead of
                 # storage band 0 (which would silently draw the wrong slice; #728).
                 render_source = nc
-                render_band = self._flat_band_index(nc, resolved_sel)
+                render_band = self._flat_band_index(nc, resolved_sel, selectors.method)
             else:
                 self._maybe_log_lazy_hint(pinned)
                 render_source = pinned
@@ -903,20 +933,26 @@ class NetCDFPlot:
                 resolved[dim_name] = idx if dim_coords is None else dim_coords[idx]
         return resolved
 
-    def _flat_band_index(self, nc: NetCDF, resolved_sel: dict[str, Any]) -> int:
+    def _flat_band_index(
+        self, nc: NetCDF, resolved_sel: dict[str, Any], method: str | None = None
+    ) -> int:
         """Flat classic-band index the selection pins to, for the lazy (`chunks=`) render path.
 
         The lazy `read_array(chunks=)` re-reads the whole source variable and ignores the
         `sel()`-pinned subset, so the chunks render path reads the unpinned variable and indexes
         this band rather than storage band 0. Reuses the exact band-index machinery `sel` uses
-        (`_resolve_dim_indices` + `_map_dim_to_band_indices`) so the flat index matches the eager
-        selection's band order. Every band dim is pinned on this path (`run` asserts
+        (`_resolve_selector_indices` + `_map_dim_to_band_indices`) so the flat index matches the
+        eager selection's band order, `method=` and date labels included. Every band
+        dim is pinned on this path (`run` asserts
         `band_count == 1`), so the per-dim band sets intersect to a single band; returns `0` when no
         selector is active.
 
         Args:
             nc: The unpinned variable subset (carries the full band-dim metadata).
             resolved_sel: `{band_dim_name: label}` from `_resolve_selectors`.
+            method: Matching mode forwarded from `Selectors.method` — `None` (exact) or
+                `"nearest"`. Shared with the eager path so both resolve a selector the
+                same way. Defaults to None.
 
         Returns:
             int: The 0-based flat band index of the selected 2-D slice.
@@ -931,7 +967,7 @@ class NetCDFPlot:
             # cycle (selection imports NetCDFPlot from this module).
             from pyramids.netcdf.engines.selection import (
                 _map_dim_to_band_indices,
-                _resolve_dim_indices,
+                _resolve_selector_indices,
             )
 
             sizes = nc._band_dim_sizes
@@ -942,7 +978,9 @@ class NetCDFPlot:
                     raise ValueError(
                         f"No coordinate values available for dimension {dim_name!r}."
                     )
-                dim_indices = _resolve_dim_indices(coords, value)
+                dim_indices, _ = _resolve_selector_indices(
+                    nc, dim_name, coords, value, _dim_method(method, value)
+                )
                 dim_axis = nc._band_dim_names.index(dim_name)
                 bands = set(_map_dim_to_band_indices(dim_axis, sizes, dim_indices))
                 candidate = bands if candidate is None else candidate & bands
