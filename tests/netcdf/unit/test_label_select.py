@@ -296,6 +296,20 @@ class TestLabelShapeRecognition:
         """Every supported precision still resolves to its format."""
         assert probe_format(text) is not None, f"{text!r} should read as a date label"
 
+    @pytest.mark.parametrize(
+        "selector",
+        [slice("control", "x"), slice("850", "1000"), ["control", "x"]],
+    )
+    def test_a_non_date_container_is_not_a_label_selection(self, selector):
+        """The shape test governs lists and slices, not only scalars.
+
+        Test scenario:
+            The slice arm short-circuited to the full format before consulting the
+            shape, so `slice("control", "x")` read as a date range and failed deep
+            inside the padding instead of matching stored values.
+        """
+        assert probe_format(selector) is None, f"{selector!r} should not read as labels"
+
     @pytest.mark.parametrize("selector", [850.0, [1000.0, 850.0], slice(500, 1000)])
     def test_a_selector_with_no_string_has_no_probe_format(self, selector):
         """A purely numeric selector needs no decode, so it resolves no format.

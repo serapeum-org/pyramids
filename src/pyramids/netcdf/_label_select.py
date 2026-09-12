@@ -351,17 +351,17 @@ def probe_format(selector: Any) -> str | None:
             ```
     """
     label = first_label(selector)
-    if isinstance(selector, slice) and label is not None:
-        fmt: str | None = FULL_FORMAT
-    elif label is None:
+    if label is None:
+        fmt: str | None = None
+    elif not _LABEL_PATTERN.match(normalise_label(label)):
+        # The shape test governs a slice too: `slice("control", "x")` is a range of
+        # stored values that happen to be strings, not a date range, and routing it
+        # through the label path would fail inside `pad_label` instead.
         fmt = None
+    elif isinstance(selector, slice):
+        fmt = FULL_FORMAT
     else:
-        normalised = normalise_label(label)
-        fmt = (
-            _PRECISION_FORMATS.get(len(normalised))
-            if _LABEL_PATTERN.match(normalised)
-            else None
-        )
+        fmt = _PRECISION_FORMATS.get(len(normalise_label(label)))
     return fmt
 
 
