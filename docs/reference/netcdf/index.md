@@ -89,7 +89,13 @@ nc.dimension_sizes                    # {'lon': 72, 'lat': 37, 'level': 4, 'time
 nc.get_dimension_values("level")      # array([1000.,  925.,  850.,  700.])
 ```
 
-The values are the **stored** ones, so they match what `sel` selects on. A CF time axis is stored as
+The values are the **stored** ones — the same array `to_xarray().coords` reports, without needing the
+optional xarray extra. For a **spatial** axis that is not necessarily the raster's order: pyramids
+presents rasters north-up, so on a south-to-north file `get_dimension_values("lat")` ascends while
+`read_array()`'s row 0 is the northernmost row. Use `get_y_lat_dimension_array` when you want to index
+rows; use this when you want to know what the file holds.
+
+They match what `sel` selects on. A CF time axis is stored as
 raw offsets; `get_time_variable()` decodes the same axis to date strings, and `sel` accepts either
 vocabulary:
 

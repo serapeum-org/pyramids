@@ -6827,9 +6827,17 @@ class NetCDF(Dataset):
           its spatial axes — has no coordinate variable to read and answers ``None``;
           those come from the geotransform (:meth:`get_x_lon_dimension_array`).
 
-        Values are the **stored** ones, matching what :meth:`sel` matches against. A CF
-        time axis is therefore raw offsets; :meth:`get_time_variable` decodes the same
-        axis to date strings.
+        Values are the **stored** ones, matching what :meth:`sel` matches against and what
+        ``to_xarray().coords`` reports for the same file. A CF time axis is therefore raw
+        offsets; :meth:`get_time_variable` decodes the same axis to date strings.
+
+        Storage order is also the *array* order, which for a **spatial** axis need not be
+        the raster's. Pyramids presents rasters north-up, but a south-to-north file stores
+        its latitudes ascending, so ``get_dimension_values("lat")`` comes back
+        ``[40, 41, …, 44]`` while :meth:`read_array`'s row 0 is the lat-44 row. Do not
+        index raster rows with this — :meth:`get_y_lat_dimension_array` builds the row
+        centres from the geotransform, in raster order. The values here answer "what does
+        this file store", which is the question :meth:`sel` and the CF metadata ask.
 
         Args:
             name: Dimension name, as listed by :attr:`dimension_names` /

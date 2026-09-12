@@ -67,6 +67,33 @@ class TestRootContainer:
                 f"{name!r}: {len(values)} values for size {size}"
             )
 
+    def test_spatial_coordinates_come_back_in_storage_order(self):
+        """A 1-D spatial axis reports what the file stores, not the raster's row order.
+
+        Test scenario:
+            The y-ascending fixture stores latitudes south-to-north while pyramids
+            presents the raster north-up, so the accessor and `read_array`'s rows run
+            opposite ways. That is the documented contract — it matches `sel` and
+            `to_xarray().coords` — and this pins it against a silent flip.
+        """
+        nc = NetCDF.read_file(CF_PATH)
+        lats = nc.get_dimension_values("lat")
+        assert lats[0] < lats[-1], f"y-asc file should report ascending, got {lats}"
+        gt = nc.get_variable("temperature").geotransform
+        rows = NetCDF.get_y_lat_dimension_array(
+            gt[3], abs(gt[5]), nc.get_variable("temperature").rows
+        )
+        assert_array_equal(
+            np.asarray(rows),
+            lats[::-1],
+            err_msg="the raster row centres should be the reverse of the stored axis here",
+        )
+
+    def test_a_y_descending_file_reports_descending(self, coards_nc):
+        """On a north-to-south file storage order and raster order already agree."""
+        lats = coards_nc.get_dimension_values("lat")
+        assert lats[0] > lats[-1], f"y-desc file should report descending, got {lats}"
+
     def test_unknown_dimension_is_none(self, coards_nc):
         """A name the dataset does not declare answers ``None`` rather than raising."""
         assert coards_nc.get_dimension_values("depth") is None
