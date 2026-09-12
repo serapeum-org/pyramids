@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -11792,50 +11792,50 @@
 <h2 id="0620-2026-09-11"><a class="toclink" href="#0620-2026-09-11">0.62.0 (2026-09-11)</a><a class="headerlink" href="#0620-2026-09-11" title="Permanent link">#</a></h2>
 <h3 id="breaking-change"><a class="toclink" href="#breaking-change">BREAKING CHANGE</a><a class="headerlink" href="#breaking-change" title="Permanent link">#</a></h3>
 <ul>
-<li>get_variable and variables[name] return a                                                           <br />
-  LabeledArray instead of a gdal.MDArray for a variable with no raster                                                 <br />
-  plane. Replace ReadAsArray() with .values, GetDimensions() with                                                      <br />
-  .dims / .shape, GetUnit() with .unit, GetNoDataValueAsDouble() with                                                  <br />
-  .no_data_value and GetScale() / GetOffset() with .scale / .offset.                                                   <br />
-  crop_variable, reproject_variable, resample_variable,                                                                <br />
-  plot(variable=) and open_mfdataset(variable=) raise ValueError for                                                   <br />
-  such a variable instead of AttributeError. A compound variable with a                                                <br />
-  string field raises ValueError, since GDAL's Python bindings cannot                                                  <br />
-  read it. The array behind variables[name] is read-only; take .copy()                                                 <br />
+<li>get_variable and variables[name] return a<br />
+  LabeledArray instead of a gdal.MDArray for a variable with no raster<br />
+  plane. Replace ReadAsArray() with .values, GetDimensions() with<br />
+  .dims / .shape, GetUnit() with .unit, GetNoDataValueAsDouble() with<br />
+  .no_data_value and GetScale() / GetOffset() with .scale / .offset.<br />
+  crop_variable, reproject_variable, resample_variable,<br />
+  plot(variable=) and open_mfdataset(variable=) raise ValueError for<br />
+  such a variable instead of AttributeError. A compound variable with a<br />
+  string field raises ValueError, since GDAL's Python bindings cannot<br />
+  read it. The array behind variables[name] is read-only; take .copy()<br />
   to modify it</li>
 </ul>
 <h3 id="fix"><a class="toclink" href="#fix">Fix</a><a class="headerlink" href="#fix" title="Permanent link">#</a></h3>
 <ul>
 <li><strong>dataset,netcdf</strong>: unpack CF-packed data by default, on one keyword (#1130)</li>
 <li><strong>netcdf</strong>: materialise a non-raster variable instead of leaking a gdal.MDArray (#1131)</li>
-<li><strong>netcdf</strong>: materialise a non-raster variable instead of leaking a gdal.MDArray                                      </li>
+<li><strong>netcdf</strong>: materialise a non-raster variable instead of leaking a gdal.MDArray  </li>
 </ul>
-<p>get_variable returned the raw gdal.MDArray whenever GDAL could not                                                   <br />
-  expose a variable as a raster plane -- a 1-D array, or a string or                                                   <br />
-  compound one. That handle has none of pyramids' API, and its Read()                                                  <br />
-  returns an undecoded buffer for numeric data, so the only route to                                                   <br />
-  the values was ReadAsArray(): raw osgeo in a package meant to hide it.                                                 </p>
+<p>get_variable returned the raw gdal.MDArray whenever GDAL could not<br />
+  expose a variable as a raster plane -- a 1-D array, or a string or<br />
+  compound one. That handle has none of pyramids' API, and its Read()<br />
+  returns an undecoded buffer for numeric data, so the only route to<br />
+  the values was ReadAsArray(): raw osgeo in a package meant to hide it.  </p>
 <ul>
-<li>return a LabeledArray, carrying the values with their dims, shape,                                                 <br />
-    name, unit, no_data_value, scale, offset and attributes                                                              </li>
-<li>read each dtype class with the reader it needs: strings via Read()                                                 <br />
-    into object (a NULL entry stays None), numeric and compound via                                                    <br />
-    ReadAsArray(); build an empty array for a zero-length extent, and                                                  <br />
-    keep a 64-bit integer fill value exact                                                                               </li>
-<li>correct the return annotation to NetCDF | LabeledArray and route the                                               <br />
-    raster-only callers through _require_raster_variable, which refuses                                                <br />
-    a non-raster variable by name instead of raising AttributeError                                                      </li>
-<li>decide raster-ness from the array's declaration, not by reading it,                                                <br />
-    so a CRS lookup no longer materialises a large non-raster array                                                      </li>
-<li>carry a string or compound array on (y, x) as an auxiliary rather                                                  <br />
-    than refusing the whole container crop, to_crs or reduce                                                             </li>
-<li>drop an auxiliary the carry cannot write instead of failing the                                                    <br />
-    operation or leaving an empty array behind, and keep a string                                                      <br />
-    auxiliary's unit and spatial reference                                                                               </li>
-<li>reuse the resolved values in read_array, reading once rather than                                                  <br />
-    twice, and freeze the entry the variables cache shares                                                               </li>
-<li>document the change in the migration guide, the concepts page and                                                  <br />
-    the NetCDF reference                                                                                                 </li>
+<li>return a LabeledArray, carrying the values with their dims, shape,<br />
+    name, unit, no_data_value, scale, offset and attributes  </li>
+<li>read each dtype class with the reader it needs: strings via Read()<br />
+    into object (a NULL entry stays None), numeric and compound via<br />
+    ReadAsArray(); build an empty array for a zero-length extent, and<br />
+    keep a 64-bit integer fill value exact  </li>
+<li>correct the return annotation to NetCDF | LabeledArray and route the<br />
+    raster-only callers through _require_raster_variable, which refuses<br />
+    a non-raster variable by name instead of raising AttributeError  </li>
+<li>decide raster-ness from the array's declaration, not by reading it,<br />
+    so a CRS lookup no longer materialises a large non-raster array  </li>
+<li>carry a string or compound array on (y, x) as an auxiliary rather<br />
+    than refusing the whole container crop, to_crs or reduce  </li>
+<li>drop an auxiliary the carry cannot write instead of failing the<br />
+    operation or leaving an empty array behind, and keep a string<br />
+    auxiliary's unit and spatial reference  </li>
+<li>reuse the resolved values in read_array, reading once rather than<br />
+    twice, and freeze the entry the variables cache shares  </li>
+<li>document the change in the migration guide, the concepts page and<br />
+    the NetCDF reference  </li>
 </ul>
 <p>Closes #1126</p>
 <h2 id="0610-2026-09-09"><a class="toclink" href="#0610-2026-09-09">0.61.0 (2026-09-09)</a><a class="headerlink" href="#0610-2026-09-09" title="Permanent link">#</a></h2>
