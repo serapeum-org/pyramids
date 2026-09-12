@@ -366,6 +366,11 @@ def _label_slice_indices(
     one covers its whole period, and swapped when the axis runs newest-first.
     """
     labels = decode(FULL_FORMAT)
+    if not labels:
+        # An axis with nothing decoded has no label to fall inside the range. The engine
+        # guards this before calling, but the primitive is shared and doctested on its
+        # own, so it must not die in `min()` on an empty axis.
+        return []
     start = None if selector.start is None else normalise_label(selector.start)
     stop = None if selector.stop is None else normalise_label(selector.stop)
     # Order the bounds *before* padding: which end a partial label extends to depends on

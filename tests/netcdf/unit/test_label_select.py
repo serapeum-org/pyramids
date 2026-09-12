@@ -179,6 +179,17 @@ class TestLabelIndices:
         """A label the axis does not carry matches nothing rather than raising."""
         assert label_indices(_decode, "2025-01-01") == []
 
+    def test_an_empty_axis_matches_nothing_rather_than_raising(self):
+        """A slice against an axis with no decoded labels answers empty.
+
+        Test scenario:
+            The open-bound path takes `min(labels)` / `max(labels)`, which used to raise
+            a bare "min() iterable argument is empty" on an axis the caller had not
+            pre-checked.
+        """
+        assert label_indices(lambda fmt: [], slice(None, None)) == []
+        assert label_indices(lambda fmt: [], "2024-01-01") == []
+
 
 class TestNearestIndices:
     """``method="nearest"`` snaps a numeric request to the closest coordinate."""
