@@ -100,11 +100,19 @@ class TestRootContainer:
         assert coards_nc.get_dimension_values("depth") is None
 
     def test_time_axis_reports_stored_offsets(self, coards_nc):
-        """The values are the stored ones, matching what ``sel`` matches against."""
+        """The time axis comes back as the raw CF offsets the file stores.
+
+        Test scenario:
+            Compared against the underlying read rather than against `get_time_values`,
+            which now delegates here — that comparison could not fail.
+        """
         assert_array_equal(
             coards_nc.get_dimension_values("time"),
-            coards_nc.get_time_values("time"),
-            err_msg="get_time_values is the time-axis spelling of this accessor",
+            coards_nc._read_variable("time"),
+            err_msg="the accessor should hand back the stored coordinate variable",
+        )
+        assert coards_nc.get_time_variable("time") is None, (
+            "this fixture's units do not parse — the raw offsets are all there is"
         )
 
 

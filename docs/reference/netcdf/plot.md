@@ -41,7 +41,7 @@ from pyramids.netcdf import NetCDF, Selectors, CoordinateSpec, FacetSpec
 nc = NetCDF.read_file("era5.nc")
 
 # pick a variable, select along non-spatial dims, labeled-array-style colour kwargs
-nc.plot("t2m", selectors=Selectors(time="2020-01-01", level=850),
+nc.plot("t2m", selectors=Selectors(time="2020-01-01 12:00:00", level=850),
         cmap="coolwarm", robust=True)
 
 # curvilinear (WRF) grid -> pcolormesh, faceted over time
@@ -60,7 +60,7 @@ animate=None, chunks=None, basemap=None, exclude_value=None, title=None, **kwarg
 | Parameter   | Type                                | Notes |
 |-------------|-------------------------------------|-------|
 | `variable`  | `str`, optional                     | Variable to plot; defaults to the dataset's single / active variable. |
-| `selectors` | `Selectors`, optional               | Slice along non-spatial dims — `time=`, `level=`, `member=`, `sel=`, `isel=`, `method=`. |
+| `selectors` | `Selectors`, optional | Pin non-spatial dims: `time=`, `level=`, `member=`, `sel=`, `isel=`, `method=` |
 | `facet`     | `FacetSpec`, optional               | Small-multiples grid — `col=`, `row=`, `col_wrap=`. |
 | `axes`      | `CoordinateSpec`, optional          | Curvilinear coords / dimension names — `coords=(x_2d, y_2d)` (-> `pcolormesh`), `x_dim=`, `y_dim=`. Auto-detected from CF / WRF / ROMS / NEMO when omitted. |
 | `kind`      | `str`, optional                     | `"auto"`, `"imshow"`, `"pcolormesh"`, `"contour"`, `"contourf"`. |

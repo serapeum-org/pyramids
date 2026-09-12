@@ -85,7 +85,7 @@ class TestLabelFormat:
         Test scenario:
             ``"2024-01-01 06:0"`` sits between two supported precisions.
         """
-        with pytest.raises(ValueError, match="Supported precisions"):
+        with pytest.raises(ValueError, match="Write one of"):
             label_format("2024-01-01 06:0")
 
 

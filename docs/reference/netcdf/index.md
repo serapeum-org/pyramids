@@ -95,9 +95,8 @@ presents rasters north-up, so on a south-to-north file `get_dimension_values("la
 `read_array()`'s row 0 is the northernmost row. Use `get_y_lat_dimension_array` when you want to index
 rows; use this when you want to know what the file holds.
 
-They match what `sel` selects on. A CF time axis is stored as
-raw offsets; `get_time_variable()` decodes the same axis to date strings, and `sel` accepts either
-vocabulary:
+Whatever the axis, these are the values `sel` selects on. A CF time axis is stored as raw offsets;
+`get_time_variable()` decodes the same axis to date strings, and `sel` accepts either vocabulary:
 
 ```python
 var = nc.get_variable("rhum")
@@ -129,7 +128,9 @@ pinned = var.sel(level=900, method="nearest")
 pinned.get_dimension_values("level")   # array([925.])
 ```
 
-Both reach `NetCDF.plot` through `Selectors(..., method="nearest")`.
+Both vocabularies reach `NetCDF.plot` through `Selectors`; `method="nearest"` is the extra knob
+for the numeric one, and applies only to the dims whose selector is numeric, so a date label on
+another dim stays exact in the same call.
 
 ## Lazy / Dask reads
 

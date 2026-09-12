@@ -201,7 +201,7 @@ class TestSelByDateLabel:
 
     def test_unsupported_label_precision_is_rejected(self, cf_var):
         """A label at an unsupported precision raises rather than silently matching nothing."""
-        with pytest.raises(ValueError, match="Supported precisions"):
+        with pytest.raises(ValueError, match="Write one of"):
             cf_var.sel(time="2024-01-01 06:0")
 
 
@@ -362,7 +362,7 @@ class TestSelMixedVocabularySelectors:
 
     def test_a_non_date_string_on_a_time_axis_is_still_a_malformed_label(self, cf_var):
         """On an axis that does decode, a non-label string is a typo, and says so."""
-        with pytest.raises(ValueError, match="Supported precisions"):
+        with pytest.raises(ValueError, match="Write one of"):
             cf_var.sel(time="control")
 
 

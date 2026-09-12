@@ -852,14 +852,14 @@ class Selection(_Engine["NetCDF"]):
               (`TestSelNearest` / `TestSelByDateLabel` — snapping and
               date-label selection, including the vocabulary a failed
               match reports and the axis whose units do not parse).
-            - `tests/netcdf/test_sel.py::TestSelSingleValue` /
+            - `tests/netcdf/selection/test_sel.py::TestSelSingleValue` /
               `TestSelList` / `TestSelSlice` (3-D scenarios — single
               value, list selector, slice selector including the
               direction-agnostic path).
-            - `tests/netcdf/test_sel_4d.py::TestSelByPressureLevel` /
+            - `tests/netcdf/selection/test_sel_4d.py::TestSelByPressureLevel` /
               `TestSelByTime` / `TestSelChained` (4-D scenarios —
               pin secondary / primary dim, chained `sel().sel()`).
-            - `tests/netcdf/test_sel_4d.py::TestSelErrorMessages` (the
+            - `tests/netcdf/selection/test_sel_4d.py::TestSelErrorMessages` (the
               error contract).
 
         See Also:

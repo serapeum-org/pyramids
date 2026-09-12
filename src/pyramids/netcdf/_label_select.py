@@ -125,7 +125,7 @@ def label_format(text: str) -> str:
             >>> label_format("2024-01-01 06:0")  # doctest: +ELLIPSIS
             Traceback (most recent call last):
                 ...
-            ValueError: '2024-01-01 06:0' is not a supported date label. Supported...
+            ValueError: '2024-01-01 06:0' is not a supported date label. Write one of...
 
             ```
 
@@ -135,9 +135,10 @@ def label_format(text: str) -> str:
     label = normalise_label(text)
     fmt = _PRECISION_FORMATS.get(len(label)) if _LABEL_PATTERN.match(label) else None
     if fmt is None:
-        supported = ", ".join(sorted(_PRECISION_FORMATS.values(), key=len))
         raise ValueError(
-            f"{text!r} is not a supported date label. Supported precisions: {supported}."
+            f"{text!r} is not a supported date label. Write one of "
+            "'2024', '2024-01', '2024-01-01', '2024-01-01 06', '2024-01-01 06:00', "
+            "'2024-01-01 06:00:00'."
         )
     return fmt
 
@@ -175,7 +176,7 @@ def pad_label(text: str, *, upper: bool) -> str:
             ```
     """
     label = normalise_label(text)
-    label_format(label)
+    label_format(label)  # validates the precision; the format itself is not needed here
     template = _UPPER_TEMPLATE if upper else _LOWER_TEMPLATE
     return label + template[len(label) :]
 
