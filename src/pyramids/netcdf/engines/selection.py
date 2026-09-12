@@ -747,8 +747,13 @@ class Selection(_Engine["NetCDF"]):
                   meaning a partial label matches every step inside the
                   period it names (`"2024-01"` takes the whole month,
                   `"2024-01-01 06:00:00"` takes one step). This is the
-                  form `get_time_variable` hands back. An axis whose
-                  `units` cannot be parsed has no labels to match, and a
+                  vocabulary `get_time_variable` hands back — note its
+                  **default** `time_format` is `"%Y-%m-%d"`, so feeding
+                  one of its labels back selects that whole day; ask for
+                  `get_time_variable(dim, "%Y-%m-%d %H:%M:%S")` to get
+                  the labels that pin a single step. An axis whose
+                  `units` cannot be parsed, or whose values the CF
+                  converter cannot decode, has no labels to match, and a
                   label selector on it finds nothing.
 
         Returns:
@@ -812,13 +817,25 @@ class Selection(_Engine["NetCDF"]):
                 array([850.])
 
                 ```
-            - Select a time step by its date label — the form
-              `get_time_variable()` returns — rather than by the raw
-              CF offset:
+            - Select a time step by its date label rather than by the
+              raw CF offset. A full-precision label pins one step:
                 ```python
                 >>> sub = var.sel(time="2024-01-01 12:00:00")  # doctest: +SKIP
                 >>> sub._band_dim_values_map["time"]  # doctest: +SKIP
                 [12.0]
+
+                ```
+            - A label from `get_time_variable()` at its default
+              `"%Y-%m-%d"` names a **day**, so it keeps every step in
+              that day — ask for the finer format to pin one:
+                ```python
+                >>> nc.get_time_variable("time")[1]  # doctest: +SKIP
+                '2024-01-01'
+                >>> var.sel(time="2024-01-01")._band_dim_values_map["time"]  # doctest: +SKIP
+                [0.0, 6.0, 12.0, 18.0]
+                >>> fine = nc.get_time_variable("time", "%Y-%m-%d %H:%M:%S")  # doctest: +SKIP
+                >>> var.sel(time=fine[1])._band_dim_values_map["time"]  # doctest: +SKIP
+                [6.0]
 
                 ```
 

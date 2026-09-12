@@ -296,3 +296,38 @@ class TestSelUndecodableCoordinateValues:
         assert result._band_dim_values_map["time"] == ["2024-01-15"], (
             f"got {result._band_dim_values_map['time']}"
         )
+
+
+class TestGetTimeVariableRoundTrip:
+    """A label handed back by ``get_time_variable`` selects the period it names."""
+
+    def test_default_format_label_selects_the_whole_day(self):
+        """``get_time_variable()``'s default label is date-only, so it keeps every step that day.
+
+        Test scenario:
+            The documented round-trip has to say which precision it round-trips at —
+            ``"%Y-%m-%d"`` is a day, and on this 6-hourly fixture that is four steps.
+        """
+        nc = NetCDF.read_file(CF_PATH)
+        var = nc.get_variable("temperature")
+        label = nc.get_time_variable("time")[1]
+        assert label == "2024-01-01", f"got {label!r}"
+        assert var.sel(time=label)._band_dim_values_map["time"] == TIME_VALUES
+
+    def test_full_precision_format_label_pins_one_step(self):
+        """Asking ``get_time_variable`` for the finer format gives labels that pin one step."""
+        nc = NetCDF.read_file(CF_PATH)
+        var = nc.get_variable("temperature")
+        labels = nc.get_time_variable("time", "%Y-%m-%d %H:%M:%S")
+        assert labels[1] == "2024-01-01 06:00:00", f"got {labels[1]!r}"
+        assert var.sel(time=labels[1])._band_dim_values_map["time"] == [6.0]
+
+    def test_every_full_precision_label_round_trips_to_its_own_step(self):
+        """Each finer-format label selects exactly the offset it was decoded from."""
+        nc = NetCDF.read_file(CF_PATH)
+        var = nc.get_variable("temperature")
+        labels = nc.get_time_variable("time", "%Y-%m-%d %H:%M:%S")
+        for label, offset in zip(labels, TIME_VALUES, strict=True):
+            assert var.sel(time=label)._band_dim_values_map["time"] == [offset], (
+                f"{label!r} should select {offset}"
+            )

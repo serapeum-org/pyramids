@@ -98,9 +98,19 @@ var = nc.get_variable("rhum")
 
 var.sel(level=850)                            # exact stored value
 var.sel(level=900, method="nearest")          # snap to the closest level (925)
-var.sel(time="2024-01-01 12:00:00")           # the label get_time_variable() reports
+var.sel(time="2024-01-01 12:00:00")           # a full-precision label pins one step
 var.sel(time="2024-01")                       # a partial label takes the whole month
 var.sel(time=slice("2024-01-01", "2024-01-03"))
+```
+
+A label names a **period**, not an instant, so its precision decides how much it selects. That matters
+when the label comes from `get_time_variable()`: its default `time_format` is `"%Y-%m-%d"`, so feeding
+one of those labels straight back keeps every step of that day. Ask for the finer format when you want
+one step:
+
+```python
+nc.get_time_variable("time")[1]                       # '2024-01-01'  -> the whole day
+nc.get_time_variable("time", "%Y-%m-%d %H:%M:%S")[1]  # '2024-01-01 06:00:00'  -> one step
 ```
 
 `method="nearest"` snaps each requested value to the closest coordinate on its axis, so a caller can

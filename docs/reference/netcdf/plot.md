@@ -70,9 +70,12 @@ animate=None, chunks=None, basemap=None, exclude_value=None, title=None, **kwarg
 | `**kwargs`  |                                     | Colour, exactly as `Dataset.plot`: loose kwargs (`cmap`, `vmin`, `vmax`, `robust`, `center`, `extend`, `levels`, `norm`) + cleopatra bags `colorbar=` (`ColorBar(...)` / `False`), `color=`, `contour=`, `cells=`, `data_style=`; plus `ax`, `figsize`. |
 
 `Selectors` forwards its selectors to `NetCDF.sel`, so they take the same two vocabularies: a `time=`
-selector may be the stored CF offset or the date label `get_time_variable()` reports, whole
-(`"2020-01-01 12:00:00"`) or partial (`"2020-01"` names the whole month), and `method="nearest"`
-snaps each numeric selector to the closest coordinate on its axis instead of requiring an exact one.
+selector may be the stored CF offset or a decoded date label. A label names a period, so its precision
+decides how much it pins — `"2020-01-01 12:00:00"` is one step, `"2020-01-01"` the whole day, `"2020-01"`
+the whole month. `get_time_variable()` reports date-only labels unless asked for a finer
+`time_format`, so pass `"%Y-%m-%d %H:%M:%S"` when you need a label that pins a single slice.
+`method="nearest"` snaps each **numeric** selector to the closest coordinate on its axis; label
+selectors on other dims are unaffected and stay exact.
 See [Dimension coordinates and selection](index.md#dimension-coordinates-and-selection).
 
 The GeoTIFF-only kwargs `band`, `rgb`, `surface_reflectance`, `cutoff`, `percentile`, `overview`,
