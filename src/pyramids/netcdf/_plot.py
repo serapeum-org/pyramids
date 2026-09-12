@@ -741,7 +741,7 @@ class NetCDFPlot:
 
         pinned = nc
         for dim_name, value in resolved_sel.items():
-            pinned = pinned.sel(**{dim_name: value})
+            pinned = pinned.sel(method=selectors.method, **{dim_name: value})
         if (
             not faceting_active
             and animate_dim is None
@@ -798,7 +798,7 @@ class NetCDFPlot:
                 # resolved raster plane -- and index the flat band the selection pins to, instead of
                 # storage band 0 (which would silently draw the wrong slice; #728).
                 render_source = nc
-                render_band = self._flat_band_index(nc, resolved_sel)
+                render_band = self._flat_band_index(nc, resolved_sel, selectors.method)
             else:
                 self._maybe_log_lazy_hint(pinned)
                 render_source = pinned
@@ -903,7 +903,9 @@ class NetCDFPlot:
                 resolved[dim_name] = idx if dim_coords is None else dim_coords[idx]
         return resolved
 
-    def _flat_band_index(self, nc: NetCDF, resolved_sel: dict[str, Any]) -> int:
+    def _flat_band_index(
+        self, nc: NetCDF, resolved_sel: dict[str, Any], method: str | None = None
+    ) -> int:
         """Flat classic-band index the selection pins to, for the lazy (`chunks=`) render path.
 
         The lazy `read_array(chunks=)` re-reads the whole source variable and ignores the
@@ -917,6 +919,9 @@ class NetCDFPlot:
         Args:
             nc: The unpinned variable subset (carries the full band-dim metadata).
             resolved_sel: `{band_dim_name: label}` from `_resolve_selectors`.
+            method: Matching mode forwarded from `Selectors.method` — `None` (exact) or
+                `"nearest"`. Shared with the eager path so both resolve a selector the
+                same way. Defaults to None.
 
         Returns:
             int: The 0-based flat band index of the selected 2-D slice.
@@ -931,7 +936,7 @@ class NetCDFPlot:
             # cycle (selection imports NetCDFPlot from this module).
             from pyramids.netcdf.engines.selection import (
                 _map_dim_to_band_indices,
-                _resolve_dim_indices,
+                _resolve_selector_indices,
             )
 
             sizes = nc._band_dim_sizes
@@ -942,7 +947,9 @@ class NetCDFPlot:
                     raise ValueError(
                         f"No coordinate values available for dimension {dim_name!r}."
                     )
-                dim_indices = _resolve_dim_indices(coords, value)
+                dim_indices, _ = _resolve_selector_indices(
+                    nc, dim_name, coords, value, method
+                )
                 dim_axis = nc._band_dim_names.index(dim_name)
                 bands = set(_map_dim_to_band_indices(dim_axis, sizes, dim_indices))
                 candidate = bands if candidate is None else candidate & bands

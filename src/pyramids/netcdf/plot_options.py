@@ -65,6 +65,12 @@ class Selectors:
             converted to the corresponding coord value via the
             variable's band-dim coord map; dims without coord values
             receive the int unchanged. Defaults to None.
+        method: How every label selector above is matched — ``None``
+            (the default) exactly, or ``"nearest"`` to snap each
+            numeric value to the closest coordinate on its axis.
+            Forwarded verbatim to :meth:`NetCDF.sel`, so the same
+            restrictions apply: ``"nearest"`` rejects a slice and a
+            date label. Defaults to None.
 
     Examples:
         - The default constructor produces an all-``None`` instance
@@ -92,6 +98,16 @@ class Selectors:
 
             ```
 
+        - Ask for the level nearest a target rather than an exact one:
+
+            ```python
+            >>> from pyramids.netcdf.plot_options import Selectors
+            >>> sel = Selectors(level=900, method="nearest")
+            >>> sel.method
+            'nearest'
+
+            ```
+
         - Frozen instances reject attribute assignment so the option
           bag stays stable after construction:
 
@@ -113,6 +129,7 @@ class Selectors:
     member: Any = None
     sel: dict[str, Any] | None = None
     isel: dict[str, int] | None = None
+    method: str | None = None
 
 
 @dataclass(frozen=True)

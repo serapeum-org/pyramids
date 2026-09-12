@@ -6799,11 +6799,66 @@ class NetCDF(Dataset):
 
                 >>> nc.get_time_values("time")[:3]  # doctest: +SKIP
                 array([0, 3, 6])
+
+        See Also:
+            `get_dimension_values`: the same read for any dimension — this method is
+                the time-axis spelling of it.
         """
+        return self.get_dimension_values(var_name)
+
+    def get_dimension_values(self, name: str) -> np.typing.NDArray | None:
+        """Stored coordinate values of any dimension, or ``None`` if it has none.
+
+        The general form of :meth:`get_time_values` — the accessor for a *non-spatial,
+        non-time* axis (``level``, ``depth``, ``member``, …), whose values were
+        previously reachable only through the optional `to_xarray` bridge or by
+        provoking `sel`'s "Available values" error.
+
+        Answers from whichever source the receiver has:
+
+        * On a **variable subset** (what :meth:`get_variable` returns) a band dimension
+          is answered from the subset's own band-dim coordinates, so after a
+          :meth:`sel` the values reflect what that view actually holds — which is how a
+          `sel(..., method="nearest")` caller reads back the coordinate it snapped to.
+        * On a **root container** the coordinate variable is read from the store, for
+          any dimension it declares. A subset asked for a dimension it does not track —
+          its spatial axes — has no coordinate variable to read and answers ``None``;
+          those come from the geotransform (:meth:`get_x_lon_dimension_array`).
+
+        Values are the **stored** ones, matching what :meth:`sel` matches against. A CF
+        time axis is therefore raw offsets; :meth:`get_time_variable` decodes the same
+        axis to date strings.
+
+        Args:
+            name: Dimension name, as listed by :attr:`dimension_names` /
+                :attr:`dimension_sizes` (e.g. ``"level"``).
+
+        Returns:
+            numpy.ndarray or None: The coordinate values in storage order, or ``None``
+            when the dataset has no such dimension or it carries no coordinate variable.
+
+        Examples:
+            - Read the pressure levels of a 4-D cube, then the levels one `sel` kept::
+
+                >>> nc.get_dimension_values("level")  # doctest: +SKIP
+                array([1000.,  925.,  850.,  700.])
+                >>> nc.get_variable("rhum").sel(level=850).get_dimension_values("level")  # doctest: +SKIP
+                array([850.])
+
+        See Also:
+            `get_time_variable`: decodes a CF time axis to date strings.
+            `sel`: selects bands by these values.
+        """
+        tracked = self._band_dim_values_map.get(name)
         names = self.dimension_names
-        if names is None or var_name not in names:
-            return None
-        return self._read_variable(var_name)
+        values: np.typing.NDArray | None
+        if tracked is not None:
+            values = np.asarray(tracked)
+        elif names is not None and name in names:
+            values = self._read_variable(name)
+        else:
+            values = None
+        return values
 
     def _get_dimension_names(self) -> list[str] | None:
         """Return all dimension names, in storage order.

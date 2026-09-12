@@ -37,6 +37,12 @@ from pyramids.dataset.engines.spatial import (
     _stitch_lon_halves,
 )
 from pyramids.feature import FeatureCollection
+from pyramids.netcdf._label_select import (
+    FULL_FORMAT,
+    has_label,
+    label_indices,
+    nearest_indices,
+)
 from pyramids.netcdf._mdim import open_mdarray, scalar_no_data
 from pyramids.netcdf._plot import NetCDFPlot
 from pyramids.netcdf.array_options import GeoReference
@@ -684,7 +690,7 @@ class Selection(_Engine["NetCDF"]):
         result._curvilinear_coords = (lon_win, lat_win)
         return result
 
-    def sel(self, **kwargs: Any) -> NetCDF:
+    def sel(self, *, method: str | None = None, **kwargs: Any) -> NetCDF:
         """Select a subset of bands by coordinate values along a band dim.
 
         Extracts bands whose coordinate values match the given criteria.
@@ -711,6 +717,16 @@ class Selection(_Engine["NetCDF"]):
         `band_indices == dim_indices`.
 
         Args:
+            method: How a selector is matched against the axis.
+                `None` (the default) matches exactly; `"nearest"`
+                snaps each requested value to the closest coordinate,
+                so a caller can ask for "the level nearest 100 m"
+                without knowing the axis values. `"nearest"` needs a
+                numeric selector — it rejects a `slice` (a range has
+                no nearest value) and a date label (select a label
+                exactly; a partial one already names a period). The
+                coordinate it chose is on the result, readable with
+                `get_dimension_values(dim)`.
             **kwargs: Exactly one keyword argument. The key must name a
                 tracked band dim (one of `self._band_dim_names`); the
                 value is one of:
@@ -723,6 +739,17 @@ class Selection(_Engine["NetCDF"]):
                   direction-agnostic — works on both ascending and
                   descending coord axes (e.g. `latitude` stored
                   north-to-south).
+                - A date label, a list of them, or a slice of them, on
+                  a CF time axis: `"2024-01-01"`. The axis is stored as
+                  raw offsets (`[0.0, 6.0, 12.0, 18.0]`), so a label is
+                  matched by decoding the axis with the dimension's
+                  `units` / `calendar` at the label's own precision —
+                  meaning a partial label matches every step inside the
+                  period it names (`"2024-01"` takes the whole month,
+                  `"2024-01-01 06:00:00"` takes one step). This is the
+                  form `get_time_variable` hands back. An axis whose
+                  `units` cannot be parsed has no labels to match, and a
+                  label selector on it finds nothing.
 
         Returns:
             NetCDF: A new variable subset with only the selected bands
@@ -734,11 +761,13 @@ class Selection(_Engine["NetCDF"]):
                 in the map.
 
         Raises:
-            ValueError: If exactly one kwarg isn't passed, the variable
-                has no tracked band dims, the named dim isn't one of
+            ValueError: If exactly one kwarg isn't passed, `method` is
+                neither `None` nor `"nearest"`, the variable has no
+                tracked band dims, the named dim isn't one of
                 `_band_dim_names`, the dim has no coord values
-                (`_band_dim_values_map[dim] is None`), or no bands match
-                the selector.
+                (`_band_dim_values_map[dim] is None`), `"nearest"` is
+                asked of a slice / a date label / a non-numeric axis,
+                or no bands match the selector.
 
         Examples:
             - Pin a pressure level on a 4-D file:
@@ -775,6 +804,23 @@ class Selection(_Engine["NetCDF"]):
                 [1000.0, 850.0, 500.0]
 
                 ```
+            - Snap to the nearest level, then read back which one was
+              chosen:
+                ```python
+                >>> sub = var.sel(pressure_level=900, method="nearest")  # doctest: +SKIP
+                >>> sub.get_dimension_values("pressure_level")  # doctest: +SKIP
+                array([850.])
+
+                ```
+            - Select a time step by its date label — the form
+              `get_time_variable()` returns — rather than by the raw
+              CF offset:
+                ```python
+                >>> sub = var.sel(time="2024-01-01 12:00:00")  # doctest: +SKIP
+                >>> sub._band_dim_values_map["time"]  # doctest: +SKIP
+                [12.0]
+
+                ```
 
         Notes:
             All four examples above are tagged `# doctest: +SKIP`
@@ -798,6 +844,10 @@ class Selection(_Engine["NetCDF"]):
         nc = self._ds
         if len(kwargs) != 1:
             raise ValueError("sel() requires exactly one keyword argument.")
+        if method not in (None, "nearest"):
+            raise ValueError(
+                f"sel() method must be None (exact) or 'nearest', got {method!r}."
+            )
 
         dim_name, selector = next(iter(kwargs.items()))
 
@@ -818,10 +868,12 @@ class Selection(_Engine["NetCDF"]):
                 f"No coordinate values available for dimension {dim_name!r}."
             )
 
-        dim_indices = _resolve_dim_indices(coords, selector)
+        dim_indices, available = _resolve_selector_indices(
+            nc, dim_name, coords, selector, method
+        )
         if not dim_indices:
             raise ValueError(
-                f"No bands match {dim_name}={selector}. Available values: {coords}"
+                f"No bands match {dim_name}={selector}. Available values: {available}"
             )
 
         dim_axis = nc._band_dim_names.index(dim_name)
@@ -1363,6 +1415,63 @@ def _resolve_dim_indices(coords: list, selector: Any) -> list[int]:
         coord_set = set(selector)
         return [i for i, v in enumerate(coords) if v in coord_set]
     return [i for i, v in enumerate(coords) if v == selector]
+
+
+def _resolve_selector_indices(
+    nc: NetCDF,
+    dim_name: str,
+    coords: list,
+    selector: Any,
+    method: str | None = None,
+) -> tuple[list[int], list]:
+    """Resolve one ``sel`` selector to band-dim indices, and the values it matched against.
+
+    The single place the three matching modes are chosen between, so :meth:`Selection.sel`
+    and the plot engine's ``_flat_band_index`` cannot drift apart:
+
+    * ``method="nearest"`` snaps each numeric request to the closest coordinate.
+    * A selector carrying a string is a **date label**; the axis is decoded with the
+      dimension's CF ``units`` / ``calendar`` and matched as text. An axis that cannot be
+      decoded (no parseable ``units``) has no labels, so the stored-value path runs and
+      the caller reports "no bands match" against the raw values.
+    * Everything else matches the stored values exactly.
+
+    Args:
+        nc: The variable subset being selected (carries the CF dimension attributes).
+        dim_name: Name of the band dimension the selector applies to.
+        coords: That dimension's stored coordinate values.
+        selector: The value, list, or :class:`slice` handed to ``sel``.
+        method: ``None`` for exact matching, ``"nearest"`` to snap. Defaults to ``None``.
+
+    Returns:
+        tuple[list[int], list]: The matching indices along ``dim_name``, and the values
+            they were matched against — the decoded labels on a label selection, the
+            stored coordinates otherwise — so the caller's error message quotes the
+            vocabulary the caller actually used.
+
+    Raises:
+        ValueError: ``"nearest"`` was asked of a date label, a slice, or a non-numeric
+            axis.
+    """
+
+    def decode(fmt: str) -> list[str]:
+        """Decode the axis at one precision; empty when its CF units cannot be parsed."""
+        return nc._decode_time_labels(dim_name, coords, fmt) or []
+
+    labels = decode(FULL_FORMAT) if has_label(selector) else []
+    if method == "nearest":
+        if has_label(selector):
+            raise ValueError(
+                f"method='nearest' needs a numeric selector; {dim_name}={selector!r} is a "
+                "date label. Select a label exactly — a partial label such as '2024-01' "
+                "already matches every step inside it."
+            )
+        indices, available = nearest_indices(coords, selector), coords
+    elif labels:
+        indices, available = label_indices(decode, selector), cast("list", labels)
+    else:
+        indices, available = _resolve_dim_indices(coords, selector), coords
+    return indices, available
 
 
 def _map_dim_to_band_indices(

@@ -1,0 +1,227 @@
+"""Unit tests for the label / nearest matching primitives behind ``NetCDF.sel``.
+
+Pure functions over a synthetic axis — no GDAL, no fixtures. The end-to-end
+behaviour on a real file lives in
+``tests/netcdf/selection/test_sel_nearest_and_labels.py``.
+
+Style: Google-style docstrings, <=120 char lines, no inline imports,
+descriptive assertion messages.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta
+
+import numpy as np
+import pytest
+
+from pyramids.netcdf._label_select import (
+    FULL_FORMAT,
+    has_label,
+    label_format,
+    label_indices,
+    nearest_indices,
+    normalise_label,
+    pad_label,
+)
+
+pytestmark = pytest.mark.core
+
+LEVELS = [1000.0, 925.0, 850.0, 700.0]
+STEPS = [datetime(2024, 1, 1) + timedelta(hours=hours) for hours in (0, 6, 12, 18)]
+
+
+def _decode(fmt: str) -> list[str]:
+    """Decode the synthetic 6-hourly axis at ``fmt`` — stands in for the CF decoder."""
+    return [step.strftime(fmt) for step in STEPS]
+
+
+class TestNormaliseLabel:
+    """A label is accepted in the ISO spellings a user is likely to paste."""
+
+    @pytest.mark.parametrize(
+        ("given", "expected"),
+        [
+            ("2024-01-01T06:00:00Z", "2024-01-01 06:00:00"),
+            ("2024-01-01T06:00:00", "2024-01-01 06:00:00"),
+            ("  2024-01-01 06:00:00  ", "2024-01-01 06:00:00"),
+            ("2024-01", "2024-01"),
+        ],
+    )
+    def test_spellings_collapse_to_one_form(self, given: str, expected: str):
+        """Every accepted spelling normalises to the space-separated, zone-free form.
+
+        Test scenario:
+            The ISO ``T`` separator, a trailing ``Z``, and surrounding whitespace are
+            all removed; a partial label is otherwise untouched.
+        """
+        assert normalise_label(given) == expected, (
+            f"{given!r} -> {normalise_label(given)!r}"
+        )
+
+
+class TestLabelFormat:
+    """A label's length picks the strftime format that decodes the axis to match it."""
+
+    @pytest.mark.parametrize(
+        ("label", "fmt"),
+        [
+            ("2024", "%Y"),
+            ("2024-01", "%Y-%m"),
+            ("2024-01-01", "%Y-%m-%d"),
+            ("2024-01-01 06", "%Y-%m-%d %H"),
+            ("2024-01-01 06:00", "%Y-%m-%d %H:%M"),
+            ("2024-01-01 06:00:00", FULL_FORMAT),
+        ],
+    )
+    def test_each_precision_maps_to_its_format(self, label: str, fmt: str):
+        """Each supported precision maps to the format decoding the axis at that precision."""
+        assert label_format(label) == fmt, f"{label!r} -> {label_format(label)!r}"
+
+    def test_unsupported_precision_is_rejected(self):
+        """A label of an unsupported length raises, listing the precisions that work.
+
+        Test scenario:
+            ``"2024-01-01 06:0"`` sits between two supported precisions.
+        """
+        with pytest.raises(ValueError, match="Supported precisions"):
+            label_format("2024-01-01 06:0")
+
+
+class TestPadLabel:
+    """A partial label names a period, so it pads to that period's first or last instant."""
+
+    @pytest.mark.parametrize(
+        ("label", "lower", "upper"),
+        [
+            ("2024", "2024-01-01 00:00:00", "2024-12-31 23:59:59"),
+            ("2024-06", "2024-06-01 00:00:00", "2024-06-31 23:59:59"),
+            ("2024-06-15", "2024-06-15 00:00:00", "2024-06-15 23:59:59"),
+        ],
+    )
+    def test_bounds_cover_the_whole_period(self, label: str, lower: str, upper: str):
+        """The lower bound is the period's first instant, the upper its last.
+
+        Test scenario:
+            The upper template pads to day 31 whatever the month's length — it is only
+            ever compared as text, and no real label for that month sorts above it.
+        """
+        assert pad_label(label, upper=False) == lower, f"lower of {label!r}"
+        assert pad_label(label, upper=True) == upper, f"upper of {label!r}"
+
+
+class TestHasLabel:
+    """A selector carrying a string selects by label; anything else by stored value."""
+
+    @pytest.mark.parametrize(
+        ("selector", "expected"),
+        [
+            ("2024-01-01", True),
+            (["2024-01-01", "2024-01-02"], True),
+            (slice("2024-01-01", None), True),
+            (slice(None, "2024-01-01"), True),
+            (850.0, False),
+            ([1000.0, 850.0], False),
+            (slice(500, 1000), False),
+            (slice(None, None), False),
+        ],
+    )
+    def test_string_anywhere_means_label_selection(self, selector, expected: bool):
+        """A string anywhere in the selector flags it as a label selection."""
+        assert has_label(selector) is expected, f"{selector!r} -> {has_label(selector)}"
+
+
+class TestLabelIndices:
+    """A label matches at its own precision, so a partial one takes a whole period."""
+
+    def test_full_precision_label_matches_one_step(self):
+        """A fully-qualified label pins a single step."""
+        assert label_indices(_decode, "2024-01-01 12:00:00") == [2]
+
+    def test_date_only_label_matches_every_step_that_day(self):
+        """A date-only label matches every step inside that day, as xarray's partial indexing does."""
+        assert label_indices(_decode, "2024-01-01") == [0, 1, 2, 3]
+
+    def test_year_label_matches_the_whole_year(self):
+        """A year-only label matches the whole axis when it all falls in that year."""
+        assert label_indices(_decode, "2024") == [0, 1, 2, 3]
+
+    def test_list_unions_its_labels_in_axis_order(self):
+        """A list of labels unions their matches and reports them in ascending axis order."""
+        selector = ["2024-01-01 18:00:00", "2024-01-01 00:00:00"]
+        assert label_indices(_decode, selector) == [0, 3], (
+            "union should be axis-ordered"
+        )
+
+    def test_list_may_mix_precisions(self):
+        """Each label in a list is matched at its own precision, so mixing them is fine."""
+        selector = ["2024-01-01 06", "2024-01-01 12:00:00"]
+        assert label_indices(_decode, selector) == [1, 2]
+
+    def test_slice_bounds_are_inclusive(self):
+        """A label slice takes an inclusive range, padding each bound to its period edge."""
+        assert label_indices(
+            _decode, slice("2024-01-01 06:00", "2024-01-01 12:00")
+        ) == [1, 2]
+
+    def test_open_slice_runs_to_the_axis_end(self):
+        """An open bound runs to the corresponding end of the axis."""
+        assert label_indices(_decode, slice("2024-01-01 12:00:00", None)) == [2, 3]
+        assert label_indices(_decode, slice(None, "2024-01-01 06:00:00")) == [0, 1]
+
+    def test_reversed_slice_bounds_are_normalised(self):
+        """Bounds given newest-first still select the range, matching the stored-value path."""
+        reversed_bounds = slice("2024-01-01 12:00", "2024-01-01 06:00")
+        assert label_indices(_decode, reversed_bounds) == [1, 2]
+
+    def test_label_outside_the_axis_matches_nothing(self):
+        """A label the axis does not carry matches nothing rather than raising."""
+        assert label_indices(_decode, "2025-01-01") == []
+
+
+class TestNearestIndices:
+    """``method="nearest"`` snaps a numeric request to the closest coordinate."""
+
+    def test_snaps_to_the_closer_neighbour(self):
+        """A value between two coordinates snaps to the closer one."""
+        assert nearest_indices(LEVELS, 900.0) == [1], "900 is closer to 925 than to 850"
+
+    def test_exact_value_snaps_to_itself(self):
+        """A value already on the axis snaps to itself."""
+        assert nearest_indices(LEVELS, 925.0) == [1]
+
+    def test_out_of_range_value_snaps_to_the_end(self):
+        """A value beyond either end snaps to that end rather than failing."""
+        assert nearest_indices(LEVELS, 10.0) == [3], (
+            "below the axis -> its lowest level"
+        )
+        assert nearest_indices(LEVELS, 5000.0) == [0], (
+            "above the axis -> its highest level"
+        )
+
+    def test_each_value_in_a_list_snaps_independently(self):
+        """Every value in a list snaps on its own, and the result is axis-ordered."""
+        assert nearest_indices(LEVELS, [990.0, 710.0]) == [0, 3]
+
+    def test_collisions_are_deduplicated(self):
+        """Two requests snapping to the same coordinate yield one index."""
+        assert nearest_indices(LEVELS, [995.0, 1005.0]) == [0]
+
+    def test_numpy_scalars_are_numeric(self):
+        """A numpy scalar off a coordinate array counts as numeric."""
+        assert nearest_indices(list(np.array(LEVELS)), np.float64(900.0)) == [1]
+
+    def test_slice_is_rejected(self):
+        """A slice has no nearest value, so it is rejected with a pointer to the fix."""
+        with pytest.raises(ValueError, match="does not accept a slice"):
+            nearest_indices(LEVELS, slice(700, 1000))
+
+    def test_non_numeric_selector_is_rejected(self):
+        """A non-numeric selector cannot be snapped."""
+        with pytest.raises(ValueError, match="numeric selector values"):
+            nearest_indices(LEVELS, "850")
+
+    def test_non_numeric_axis_is_rejected(self):
+        """An axis of non-numeric coordinates cannot be snapped against."""
+        with pytest.raises(ValueError, match="numeric coordinate axis"):
+            nearest_indices(["a", "b"], 1.0)

@@ -77,6 +77,44 @@ classDiagram
     note for Variable "band_count >= 1 · one raster variable"
 ```
 
+## Dimension coordinates and selection
+
+`dimension_names` / `dimension_sizes` name a cube's axes; `get_dimension_values(name)` reads the
+coordinate values of any one of them — the vertical, ensemble or other non-spatial axis included,
+which previously had no native accessor:
+
+```python
+nc = NetCDF.read_file("rhum.nc")
+nc.dimension_sizes                    # {'lon': 72, 'lat': 37, 'level': 4, 'time': 12}
+nc.get_dimension_values("level")      # array([1000.,  925.,  850.,  700.])
+```
+
+The values are the **stored** ones, so they match what `sel` selects on. A CF time axis is stored as
+raw offsets; `get_time_variable()` decodes the same axis to date strings, and `sel` accepts either
+vocabulary:
+
+```python
+var = nc.get_variable("rhum")
+
+var.sel(level=850)                            # exact stored value
+var.sel(level=900, method="nearest")          # snap to the closest level (925)
+var.sel(time="2024-01-01 12:00:00")           # the label get_time_variable() reports
+var.sel(time="2024-01")                       # a partial label takes the whole month
+var.sel(time=slice("2024-01-01", "2024-01-03"))
+```
+
+`method="nearest"` snaps each requested value to the closest coordinate on its axis, so a caller can
+ask for "the level nearest 100 m" without knowing the axis values up front. It needs a numeric
+selector — a slice has no nearest value, and a date label already names a period. Read back the
+coordinate it chose with `get_dimension_values` on the result:
+
+```python
+pinned = var.sel(level=900, method="nearest")
+pinned.get_dimension_values("level")   # array([925.])
+```
+
+Both reach `NetCDF.plot` through `Selectors(..., method="nearest")`.
+
 ## Lazy / Dask reads
 
 Every NetCDF entry point has a lazy variant that keeps memory bounded
