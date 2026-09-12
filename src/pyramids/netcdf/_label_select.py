@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import math
 import numbers
+import re
 from collections.abc import Callable
 from typing import Any
 
@@ -30,6 +31,13 @@ FULL_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 _LOWER_TEMPLATE = "0001-01-01 00:00:00"
 _UPPER_TEMPLATE = "9999-12-31 23:59:59"
+
+# A label is recognised by its *shape*, not merely its length: "control" is seven
+# characters like "2024-01" but is an ensemble member's name, not a date, and belongs on
+# the stored-value path.
+_LABEL_PATTERN = re.compile(
+    r"\d{4}(?:-\d{2}(?:-\d{2}(?:[ ]\d{2}(?::\d{2}(?::\d{2})?)?)?)?)?\Z"
+)
 
 _PRECISION_FORMATS = {
     4: "%Y",
@@ -118,7 +126,7 @@ def label_format(text: str) -> str:
         pad_label: extends a partial label to the edge of the period it names.
     """
     label = normalise_label(text)
-    fmt = _PRECISION_FORMATS.get(len(label))
+    fmt = _PRECISION_FORMATS.get(len(label)) if _LABEL_PATTERN.match(label) else None
     if fmt is None:
         supported = ", ".join(sorted(_PRECISION_FORMATS.values(), key=len))
         raise ValueError(
@@ -258,6 +266,95 @@ def non_label_parts(selector: Any) -> list[Any]:
     else:
         parts = (selector,)
     return [part for part in parts if not isinstance(part, str)]
+
+
+def first_label(selector: Any) -> str | None:
+    """The first string in a selector, or ``None`` when it carries none.
+
+    Args:
+        selector: A ``sel`` selector — a scalar, a list, or a :class:`slice`.
+
+    Returns:
+        str or None: The first string part, in the order the selector writes them.
+
+    Examples:
+        - A list answers with its first label:
+            ```python
+            >>> from pyramids.netcdf._label_select import first_label
+            >>> first_label(["2024-01-02", "2024-01-03"])
+            '2024-01-02'
+
+            ```
+        - A purely numeric selector has none:
+            ```python
+            >>> from pyramids.netcdf._label_select import first_label
+            >>> first_label(slice(500, 1000)) is None
+            True
+
+            ```
+    """
+    if isinstance(selector, slice):
+        parts: tuple[Any, ...] = (selector.start, selector.stop)
+    elif isinstance(selector, list):
+        parts = tuple(selector)
+    else:
+        parts = (selector,)
+    return next((part for part in parts if isinstance(part, str)), None)
+
+
+def probe_format(selector: Any) -> str | None:
+    """The precision an axis must decode at to answer this label selector.
+
+    Lets a caller test "does this axis decode at all" with the *same* format the match
+    will use, so a memoised decoder answers both from one pass over the axis instead of
+    decoding the whole coordinate variable again.
+
+    Args:
+        selector: A label selector — a label, a list of them, or a :class:`slice`.
+
+    Returns:
+        str or None: :data:`FULL_FORMAT` for a slice, whose bounds are compared at full
+            precision; the format of the selector's first label otherwise; and ``None``
+            when the selector carries no string, or its string is not a date-label shape
+            at all (``"control"``, ``"850"``) — such a selector is a stored value, not a
+            label, and belongs on the exact-match path.
+
+    Examples:
+        - A date-only label only needs the axis decoded to dates:
+            ```python
+            >>> from pyramids.netcdf._label_select import probe_format
+            >>> probe_format("2024-01-01")
+            '%Y-%m-%d'
+
+            ```
+        - A slice compares fully-qualified labels:
+            ```python
+            >>> from pyramids.netcdf._label_select import probe_format
+            >>> probe_format(slice("2024-01", "2024-03"))
+            '%Y-%m-%d %H:%M:%S'
+
+            ```
+        - A string that is not a date label at all is not a label selection:
+            ```python
+            >>> from pyramids.netcdf._label_select import probe_format
+            >>> probe_format("control") is None
+            True
+
+            ```
+    """
+    label = first_label(selector)
+    if isinstance(selector, slice) and label is not None:
+        fmt: str | None = FULL_FORMAT
+    elif label is None:
+        fmt = None
+    else:
+        normalised = normalise_label(label)
+        fmt = (
+            _PRECISION_FORMATS.get(len(normalised))
+            if _LABEL_PATTERN.match(normalised)
+            else None
+        )
+    return fmt
 
 
 def _label_slice_indices(

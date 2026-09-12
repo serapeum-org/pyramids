@@ -23,6 +23,7 @@ from pyramids.netcdf._label_select import (
     nearest_indices,
     normalise_label,
     pad_label,
+    probe_format,
 )
 
 pytestmark = pytest.mark.core
@@ -261,3 +262,30 @@ class TestNearestIndices:
         """
         index = nearest_indices(axis, 887.5)[0]
         assert axis[index] == 850.0, f"tie resolved to {axis[index]}"
+
+
+class TestLabelShapeRecognition:
+    """A label is recognised by its shape, so an arbitrary string is a stored value."""
+
+    @pytest.mark.parametrize("text", ["control", "member01", "hi", "20240101"])
+    def test_a_non_date_string_is_not_a_label(self, text: str):
+        """A string that is not shaped like a date resolves no probe format.
+
+        Test scenario:
+            ``"control"`` is seven characters like ``"2024-01"``, so a length-only test
+            classified it as a month and sent an ensemble member's name down the date
+            path. Shape decides instead.
+        """
+        assert probe_format(text) is None, f"{text!r} should not read as a date label"
+
+    @pytest.mark.parametrize(
+        "text", ["2024", "2024-01", "2024-01-01", "2024-01-01 06:00:00"]
+    )
+    def test_a_date_shaped_string_resolves_a_format(self, text: str):
+        """Every supported precision still resolves to its format."""
+        assert probe_format(text) is not None, f"{text!r} should read as a date label"
+
+    def test_a_non_date_string_is_rejected_by_label_format(self):
+        """``label_format`` refuses it too, so the two agree on what a label is."""
+        with pytest.raises(ValueError, match="not a supported date label"):
+            label_format("control")

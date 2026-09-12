@@ -359,3 +359,45 @@ class TestSelMixedVocabularySelectors:
         """A half-open label slice is still a pure label selection."""
         result = cf_var.sel(time=slice("2024-01-01 12:00:00", None))
         assert result._band_dim_values_map["time"] == [12.0, 18.0]
+
+    def test_a_non_date_string_on_a_time_axis_is_still_a_malformed_label(self, cf_var):
+        """On an axis that does decode, a non-label string is a typo, and says so."""
+        with pytest.raises(ValueError, match="Supported precisions"):
+            cf_var.sel(time="control")
+
+
+class TestSelDecodesTheAxisOncePerPrecision:
+    """A label selection must not walk the whole coordinate axis more times than it needs."""
+
+    def _count_decodes(self, monkeypatch, var, selector):
+        """Run one `sel` and return how many times the axis was decoded."""
+        calls = {"n": 0}
+        original = NetCDF._decode_time_labels
+
+        def counted(self, *args, **kwargs):
+            calls["n"] += 1
+            return original(self, *args, **kwargs)
+
+        monkeypatch.setattr(NetCDF, "_decode_time_labels", counted)
+        var.sel(time=selector)
+        return calls["n"]
+
+    def test_a_list_of_labels_decodes_once(self, cf_var, monkeypatch):
+        """Three labels of one precision cost one pass, not one per label plus a probe.
+
+        Test scenario:
+            The resolver used to decode at full precision to test the axis, again per
+            label to match, and the first result was only ever used to build an error
+            message that a successful match never raises.
+        """
+        selector = [
+            "2024-01-01 00:00:00",
+            "2024-01-01 06:00:00",
+            "2024-01-01 12:00:00",
+        ]
+        assert self._count_decodes(monkeypatch, cf_var, selector) == 1
+
+    def test_a_label_slice_decodes_once(self, cf_var, monkeypatch):
+        """A slice compares full-precision labels, so one pass answers it."""
+        selector = slice("2024-01-01 00:00:00", "2024-01-01 12:00:00")
+        assert self._count_decodes(monkeypatch, cf_var, selector) == 1

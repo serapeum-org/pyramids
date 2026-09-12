@@ -39,10 +39,13 @@ from pyramids.dataset.engines.spatial import (
 from pyramids.feature import FeatureCollection
 from pyramids.netcdf._label_select import (
     FULL_FORMAT,
+    first_label,
     has_label,
+    label_format,
     label_indices,
     nearest_indices,
     non_label_parts,
+    probe_format,
 )
 from pyramids.netcdf._mdim import open_mdarray, scalar_no_data
 from pyramids.netcdf._plot import NetCDFPlot
@@ -1476,8 +1479,10 @@ def _resolve_selector_indices(
             axis.
     """
 
+    decoded: dict[str, list[str]] = {}
+
     def decode(fmt: str) -> list[str]:
-        """Decode the axis at one precision; empty when it cannot be decoded at all.
+        """Decode the axis at one precision, once; empty when it cannot be decoded at all.
 
         ``_decode_time_labels`` guards only the *units* parse — a coordinate **value**
         the converter chokes on still propagates, which is the right contract for a
@@ -1486,11 +1491,12 @@ def _resolve_selector_indices(
         path can still answer. Catching it here makes an undecodable axis simply an axis
         with no labels.
         """
-        try:
-            labels = nc._decode_time_labels(dim_name, coords, fmt) or []
-        except (TypeError, ValueError):
-            labels = []
-        return labels
+        if fmt not in decoded:
+            try:
+                decoded[fmt] = nc._decode_time_labels(dim_name, coords, fmt) or []
+            except (TypeError, ValueError):
+                decoded[fmt] = []
+        return decoded[fmt]
 
     label_selection = has_label(selector)
     if label_selection:
@@ -1500,7 +1506,20 @@ def _resolve_selector_indices(
                 f"{dim_name}={selector!r} mixes date labels with stored values "
                 f"({stray[0]!r}). Select by label or by stored value, not both."
             )
-    labels = decode(FULL_FORMAT) if label_selection else []
+    # Probe at the precision this selector needs rather than always at FULL_FORMAT: the
+    # match then answers from the same memoised pass, so a decodable axis is decoded once
+    # per distinct precision instead of up to four times over the whole coordinate
+    # variable — which on a 128k-step cloud axis is the difference between one cftime
+    # pass per `sel` and four, one of them only ever used to build an error string.
+    probe = probe_format(selector) if label_selection else None
+    if label_selection and probe is None and decode(FULL_FORMAT):
+        # The axis decodes as time, so a string that is not a date-label shape is a
+        # malformed label, not a stored value — `label_format` raises with the precisions
+        # that would have worked. On an axis that does *not* decode, the same string is
+        # simply a stored value (a string-valued coordinate variable, an ensemble member
+        # name) and falls through to exact matching below.
+        label_format(cast("str", first_label(selector)))
+    decodable = probe is not None and bool(decode(probe))
     if method == "nearest":
         if label_selection:
             raise ValueError(
@@ -1509,8 +1528,11 @@ def _resolve_selector_indices(
                 "already matches every step inside it."
             )
         indices, available = nearest_indices(coords, selector), coords
-    elif labels:
-        indices, available = label_indices(decode, selector), cast("list", labels)
+    elif decodable:
+        indices = label_indices(decode, selector)
+        # Only a failed match needs the vocabulary spelled out, and only then is the
+        # full-precision decode worth paying for.
+        available = cast("list", decode(FULL_FORMAT)) if not indices else coords
     else:
         indices, available = _resolve_dim_indices(coords, selector), coords
     return indices, available
