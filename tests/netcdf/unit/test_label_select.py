@@ -245,3 +245,19 @@ class TestNearestIndices:
         """A NaN or infinite request has no nearest coordinate."""
         with pytest.raises(ValueError, match="finite selector values"):
             nearest_indices([1000.0, 850.0], float("nan"))
+
+    @pytest.mark.parametrize(
+        "axis",
+        [[700.0, 850.0, 925.0, 1000.0], [1000.0, 925.0, 850.0, 700.0]],
+        ids=["ascending", "descending"],
+    )
+    def test_a_tie_resolves_to_the_same_coordinate_either_direction(self, axis):
+        """An exact midpoint snaps to the smaller coordinate whichever way the axis is stored.
+
+        Test scenario:
+            887.5 is equidistant from 850 and 925. Taking the lowest *index* made the
+            answer depend on storage order — 850 on an ascending file, 925 on a
+            descending one — for the same physical request.
+        """
+        index = nearest_indices(axis, 887.5)[0]
+        assert axis[index] == 850.0, f"tie resolved to {axis[index]}"

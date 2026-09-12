@@ -354,6 +354,10 @@ def _is_number(value: Any) -> bool:
 def nearest_indices(coords: list, selector: Any) -> list[int]:
     """Snap a numeric selector to the closest coordinate(s) on an axis.
 
+    A request exactly between two coordinates resolves to the **smaller** one, whichever
+    end of the axis it is stored at, so the same physical request answers the same way on
+    an ascending and a descending axis.
+
     Args:
         coords: The axis' stored coordinate values.
         selector: A number, or a list of numbers (each snapped independently).
@@ -429,6 +433,12 @@ def nearest_indices(coords: list, selector: Any) -> list[int]:
         )
     found: set[int] = set()
     for value in wanted:
-        distances = [abs(coord - value) for _, coord in candidates]
-        found.add(candidates[distances.index(min(distances))][0])
+        # Rank by (distance, coordinate) rather than by position, so a request that falls
+        # exactly between two coordinates resolves to the same one whether the file
+        # stores the axis ascending or descending — the direction-agnostic rule `sel`'s
+        # slice path already advertises. The smaller coordinate wins a tie.
+        _, _, position = min(
+            (abs(coord - value), coord, index) for index, coord in candidates
+        )
+        found.add(position)
     return sorted(found)
