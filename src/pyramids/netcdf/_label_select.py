@@ -16,6 +16,13 @@ Two concerns live here:
 * **Nearest-value selection.** ``method="nearest"`` snaps a numeric selector to the
   closest coordinate on the axis, which is how a caller asks for "the level nearest
   100 m" without knowing the axis values up front.
+
+Ranges are compared as text, which is exact while ``%Y`` renders a zero-padded
+four-digit year — true for every calendar cftime decodes in the CE range, and the reason
+:data:`_UPPER_TEMPLATE` can stop at 9999. A palaeo or idealised axis outside that range
+would not sort correctly, and is not supported. The *labels* themselves are whatever the
+dimension's CF ``calendar`` produces, so a ``360_day`` axis with a real ``2024-02-30``
+sorts and pads like any other — nothing here assumes a Gregorian month length.
 """
 
 from __future__ import annotations

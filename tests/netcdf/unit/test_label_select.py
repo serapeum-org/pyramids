@@ -300,3 +300,48 @@ class TestLabelShapeRecognition:
         """``label_format`` refuses it too, so the two agree on what a label is."""
         with pytest.raises(ValueError, match="not a supported date label"):
             label_format("control")
+
+
+class TestNonStandardCalendars:
+    """A label axis from a non-Gregorian CF calendar selects like any other.
+
+    The decoding itself is cftime's; what is exercised here is that nothing in the
+    matcher assumes Gregorian month lengths — a ``360_day`` axis has a real 30th of
+    February, and ``pad_label``'s day-31 upper bound has to cover it.
+    """
+
+    THIRTY_DAY_FEBRUARY = [
+        "2024-02-28 00:00:00",
+        "2024-02-29 00:00:00",
+        "2024-02-30 00:00:00",
+        "2024-03-01 00:00:00",
+    ]
+
+    def _decode_360(self, fmt: str) -> list[str]:
+        """Decode the synthetic 360-day axis at ``fmt`` by truncating the full labels."""
+        widths = {"%Y": 4, "%Y-%m": 7, "%Y-%m-%d": 10, FULL_FORMAT: 19}
+        return [label[: widths[fmt]] for label in self.THIRTY_DAY_FEBRUARY]
+
+    def test_a_thirtieth_of_february_selects(self):
+        """A date that exists only in a 360-day calendar matches exactly."""
+        assert label_indices(self._decode_360, "2024-02-30") == [2]
+
+    def test_the_month_covers_its_thirtieth_day(self):
+        """A month label covers day 30, which the Gregorian calendar has no February for."""
+        assert label_indices(self._decode_360, "2024-02") == [0, 1, 2]
+
+    def test_a_slice_reaching_day_thirty_includes_it(self):
+        """A range ending on the 30th keeps it — no Gregorian month length is assumed."""
+        assert label_indices(self._decode_360, slice("2024-02-29", "2024-02-30")) == [
+            1,
+            2,
+        ]
+
+    def test_a_month_bound_pads_past_its_last_day(self):
+        """A month as the upper bound covers day 30, which `pad_label` pads past."""
+        assert label_indices(self._decode_360, slice("2024-02", "2024-03")) == [
+            0,
+            1,
+            2,
+            3,
+        ]
