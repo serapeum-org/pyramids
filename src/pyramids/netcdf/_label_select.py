@@ -209,6 +209,56 @@ def has_label(selector: Any) -> bool:
     return any(isinstance(part, str) for part in parts)
 
 
+def non_label_parts(selector: Any) -> list[Any]:
+    """Parts of a label selector that are not labels — empty when it is purely labels.
+
+    :func:`has_label` is true when *any* part of a selector is a string, but the label
+    path assumes *every* part is. This names the parts that would break it, so the caller
+    can refuse a half-converted selector such as ``slice("2024-01-01", 12)`` with a
+    message instead of an ``AttributeError`` from inside the matcher. An open slice bound
+    (``None``) is not a stray part — it means "the end of the axis".
+
+    Args:
+        selector: A ``sel`` selector — a scalar, a list, or a :class:`slice`.
+
+    Returns:
+        list: The non-string parts, in the order they appear; empty when every part is a
+            label (or an open slice bound).
+
+    Examples:
+        - A selector that is entirely labels has no stray parts:
+            ```python
+            >>> from pyramids.netcdf._label_select import non_label_parts
+            >>> non_label_parts(["2024-01-01", "2024-01-02"])
+            []
+
+            ```
+        - A half-converted range names the part that does not belong:
+            ```python
+            >>> from pyramids.netcdf._label_select import non_label_parts
+            >>> non_label_parts(slice("2024-01-01", 12))
+            [12]
+
+            ```
+        - An open bound is not a stray part:
+            ```python
+            >>> from pyramids.netcdf._label_select import non_label_parts
+            >>> non_label_parts(slice("2024-01-01", None))
+            []
+
+            ```
+    """
+    if isinstance(selector, slice):
+        parts: tuple[Any, ...] = tuple(
+            part for part in (selector.start, selector.stop) if part is not None
+        )
+    elif isinstance(selector, list):
+        parts = tuple(selector)
+    else:
+        parts = (selector,)
+    return [part for part in parts if not isinstance(part, str)]
+
+
 def _label_slice_indices(
     decode: Callable[[str], list[str]], selector: slice
 ) -> list[int]:

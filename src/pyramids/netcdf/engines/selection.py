@@ -42,6 +42,7 @@ from pyramids.netcdf._label_select import (
     has_label,
     label_indices,
     nearest_indices,
+    non_label_parts,
 )
 from pyramids.netcdf._mdim import open_mdarray, scalar_no_data
 from pyramids.netcdf._plot import NetCDFPlot
@@ -1491,9 +1492,17 @@ def _resolve_selector_indices(
             labels = []
         return labels
 
-    labels = decode(FULL_FORMAT) if has_label(selector) else []
+    label_selection = has_label(selector)
+    if label_selection:
+        stray = non_label_parts(selector)
+        if stray:
+            raise ValueError(
+                f"{dim_name}={selector!r} mixes date labels with stored values "
+                f"({stray[0]!r}). Select by label or by stored value, not both."
+            )
+    labels = decode(FULL_FORMAT) if label_selection else []
     if method == "nearest":
-        if has_label(selector):
+        if label_selection:
             raise ValueError(
                 f"method='nearest' needs a numeric selector; {dim_name}={selector!r} is a "
                 "date label. Select a label exactly — a partial label such as '2024-01' "

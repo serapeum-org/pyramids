@@ -331,3 +331,31 @@ class TestGetTimeVariableRoundTrip:
             assert var.sel(time=label)._band_dim_values_map["time"] == [offset], (
                 f"{label!r} should select {offset}"
             )
+
+
+class TestSelMixedVocabularySelectors:
+    """A selector must be all labels or all stored values, and says so when it is not."""
+
+    @pytest.mark.parametrize(
+        "selector",
+        [
+            ["2024-01-01 06:00:00", 12],
+            slice("2024-01-01", 12),
+            slice(12, "2024-01-01"),
+        ],
+    )
+    def test_mixed_selector_raises_value_error(self, cf_var, selector):
+        """Mixing the two vocabularies raises the documented ``ValueError``.
+
+        Test scenario:
+            ``has_label`` is true when any part is a string while the matcher assumes
+            every part is, so these used to leak an ``AttributeError`` ('int' object has
+            no attribute 'strip') from inside a private helper.
+        """
+        with pytest.raises(ValueError, match="mixes date labels with stored values"):
+            cf_var.sel(time=selector)
+
+    def test_an_open_bound_is_not_a_mixed_selector(self, cf_var):
+        """A half-open label slice is still a pure label selection."""
+        result = cf_var.sel(time=slice("2024-01-01 12:00:00", None))
+        assert result._band_dim_values_map["time"] == [12.0, 18.0]
