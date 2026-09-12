@@ -1459,8 +1459,20 @@ def _resolve_selector_indices(
     """
 
     def decode(fmt: str) -> list[str]:
-        """Decode the axis at one precision; empty when its CF units cannot be parsed."""
-        return nc._decode_time_labels(dim_name, coords, fmt) or []
+        """Decode the axis at one precision; empty when it cannot be decoded at all.
+
+        ``_decode_time_labels`` guards only the *units* parse — a coordinate **value**
+        the converter chokes on still propagates, which is the right contract for a
+        display label but not for a selection. A ``_FillValue`` / NaN in a time axis, or
+        a coordinate variable holding strings, would abort a ``sel`` the stored-value
+        path can still answer. Catching it here makes an undecodable axis simply an axis
+        with no labels.
+        """
+        try:
+            labels = nc._decode_time_labels(dim_name, coords, fmt) or []
+        except (TypeError, ValueError):
+            labels = []
+        return labels
 
     labels = decode(FULL_FORMAT) if has_label(selector) else []
     if method == "nearest":

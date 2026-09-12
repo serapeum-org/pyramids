@@ -254,3 +254,45 @@ class TestSelSelectorVocabularyFallback:
         """Passing ``method=None`` explicitly behaves exactly as omitting it."""
         result = cf_var.sel(pressure_level=850, method=None)
         assert result._band_dim_values_map["pressure_level"] == [850.0]
+
+
+class TestSelUndecodableCoordinateValues:
+    """A coordinate value the CF converter cannot decode must not abort the selection."""
+
+    def test_fill_value_in_the_time_axis_falls_back_to_stored_values(self, cf_var):
+        """A NaN in the time axis leaves the stored-value path working.
+
+        Test scenario:
+            ``_decode_time_labels`` converts each value outside its own guard, so a
+            ``_FillValue`` / NaN entry used to abort `sel` with "cannot convert float NaN
+            to integer". Selecting by stored offset must still work, and a label selector
+            must degrade to "no bands match" rather than crash.
+        """
+        holed = cf_var.copy()
+        holed._band_dim_values_map = dict(cf_var._band_dim_values_map)
+        holed._band_dim_values_map["time"] = [0.0, float("nan"), 12.0, 18.0]
+        assert holed.sel(time=12.0)._band_dim_values_map["time"] == [12.0]
+        with pytest.raises(ValueError, match="No bands match"):
+            holed.sel(time="2024-01-01 12:00:00")
+
+    def test_string_valued_coordinates_still_match_exactly(self, cf_var):
+        """A coordinate variable holding date strings keeps matching as it did before.
+
+        Test scenario:
+            Some stores carry the dates as strings in the coordinate variable itself. The
+            axis then cannot be decoded from its offsets, so the selector has to fall
+            through to an exact string match against the stored values — the behaviour
+            this file's decoding must not take away.
+        """
+        stringy = cf_var.copy()
+        stringy._band_dim_values_map = dict(cf_var._band_dim_values_map)
+        stringy._band_dim_values_map["time"] = [
+            "2024-01-13",
+            "2024-01-14",
+            "2024-01-15",
+            "2024-01-16",
+        ]
+        result = stringy.sel(time="2024-01-15")
+        assert result._band_dim_values_map["time"] == ["2024-01-15"], (
+            f"got {result._band_dim_values_map['time']}"
+        )
