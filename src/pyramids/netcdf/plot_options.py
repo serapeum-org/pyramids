@@ -35,7 +35,7 @@ Examples:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 
 @dataclass(frozen=True)
@@ -110,6 +110,18 @@ class Selectors:
 
             ```
 
+        - An unknown matching mode is refused at construction, not
+          part-way through a render:
+
+            ```python
+            >>> from pyramids.netcdf.plot_options import Selectors
+            >>> Selectors(level=900, method="pad")
+            Traceback (most recent call last):
+                ...
+            ValueError: Selectors method must be None (exact) or 'nearest', got 'pad'.
+
+            ```
+
         - Frozen instances reject attribute assignment so the option
           bag stays stable after construction:
 
@@ -131,7 +143,20 @@ class Selectors:
     member: Any = None
     sel: dict[str, Any] | None = None
     isel: dict[str, int] | None = None
-    method: str | None = None
+    method: Literal["nearest"] | None = None
+
+    def __post_init__(self) -> None:
+        """Reject an unknown ``method`` where the caller typed it, not mid-render.
+
+        Raises:
+            ValueError: ``method`` is neither ``None`` nor ``"nearest"``. The wording
+                matches :meth:`NetCDF.sel`'s own guard, which would otherwise be the
+                first thing to complain — several frames into the plot.
+        """
+        if self.method not in (None, "nearest"):
+            raise ValueError(
+                f"Selectors method must be None (exact) or 'nearest', got {self.method!r}."
+            )
 
 
 @dataclass(frozen=True)
