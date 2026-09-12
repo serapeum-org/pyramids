@@ -6691,6 +6691,8 @@ class NetCDF(Dataset):
         var_name: str,
         raw_values: list[Any],
         time_format: str = "%Y-%m-%d",
+        *,
+        strict: bool = True,
     ) -> list[str] | None:
         """Decode already-read raw time values into formatted date strings.
 
@@ -6710,6 +6712,11 @@ class NetCDF(Dataset):
             raw_values: The raw coordinate values to decode (one per frame).
             time_format: strftime format for the output strings. Defaults to
                 ``"%Y-%m-%d"``.
+            strict: When ``True`` (the default) a coordinate value the converter
+                cannot handle propagates, so a malformed axis is not hidden behind
+                raw labels. When ``False`` it returns ``None`` instead, which is what
+                a selection needs: an axis that cannot be decoded simply has no labels
+                and the stored-value path still answers.
 
         Returns:
             list[str] or None: One formatted string per value, or ``None`` when no
@@ -6741,10 +6748,22 @@ class NetCDF(Dataset):
                 # None" contract and matching the pre-#1013 subset behaviour.
                 labels = None
                 continue
-            # The value conversion runs outside the guard, so a genuinely malformed
-            # coordinate value surfaces as an error rather than being hidden behind
-            # a silent raw-label fallback.
-            labels = [func(value) for value in raw_values]
+            # By default the value conversion runs outside the guard, so a genuinely
+            # malformed coordinate value surfaces as an error rather than being hidden
+            # behind a silent raw-label fallback. `strict=False` is for a *selection*,
+            # where a value the converter chokes on means "this axis has no labels" and
+            # the stored-value path can still answer — a `_FillValue`, an infinity or an
+            # out-of-range offset must not abort the caller's `sel`. The converters fail
+            # in several ways (`ValueError`, `OverflowError`, and `AttributeError` out of
+            # cftime), so the non-strict arm catches broadly; the metadata resolution
+            # above stays unguarded either way.
+            if strict:
+                labels = [func(value) for value in raw_values]
+            else:
+                try:
+                    labels = [func(value) for value in raw_values]
+                except Exception:
+                    labels = None
             break
         return labels
 

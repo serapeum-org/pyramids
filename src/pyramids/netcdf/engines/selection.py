@@ -1508,18 +1508,16 @@ def _resolve_selector_indices(
     def decode(fmt: str) -> list[str]:
         """Decode the axis at one precision, once; empty when it cannot be decoded at all.
 
-        ``_decode_time_labels`` guards only the *units* parse — a coordinate **value**
-        the converter chokes on still propagates, which is the right contract for a
-        display label but not for a selection. A ``_FillValue`` / NaN in a time axis, or
-        a coordinate variable holding strings, would abort a ``sel`` the stored-value
-        path can still answer. Catching it here makes an undecodable axis simply an axis
-        with no labels.
+        ``strict=False`` is the selection contract: a coordinate **value** the converter
+        chokes on — a ``_FillValue``, an infinity, an out-of-range offset, a string, or
+        anything cftime refuses on a non-standard calendar — means this axis has no
+        labels, not that the caller's ``sel`` should abort. The stored-value path can
+        still answer it.
         """
         if fmt not in decoded:
-            try:
-                decoded[fmt] = nc._decode_time_labels(dim_name, coords, fmt) or []
-            except (TypeError, ValueError):
-                decoded[fmt] = []
+            decoded[fmt] = (
+                nc._decode_time_labels(dim_name, coords, fmt, strict=False) or []
+            )
         return decoded[fmt]
 
     label_selection = has_label(selector)
@@ -1566,7 +1564,17 @@ def _resolve_selector_indices(
         # full-precision decode worth paying for.
         available = cast("list", decode(FULL_FORMAT)) if not indices else coords
     else:
-        indices, available = _resolve_dim_indices(coords, selector), coords
+        try:
+            indices = _resolve_dim_indices(coords, selector)
+        except TypeError:
+            # A stored-value comparison the types cannot answer — a string-bounded slice
+            # against a numeric axis, which is what a label slice degrades to when the
+            # axis has no labels. A scalar or a list simply never equals any coordinate
+            # and reports "no bands match"; a slice used to raise `TypeError` instead,
+            # outside the documented contract. Nothing matches, which is what the caller
+            # is then told.
+            indices = []
+        available = coords
     return indices, available
 
 

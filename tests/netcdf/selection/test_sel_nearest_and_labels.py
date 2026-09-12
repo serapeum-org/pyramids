@@ -287,6 +287,74 @@ class TestSelUndecodableCoordinateValues:
         with pytest.raises(ValueError, match="No bands match"):
             holed.sel(time="2024-01-01 12:00:00")
 
+    @pytest.mark.parametrize(
+        ("hole", "raises"),
+        [
+            (9.96920996839e36, OverflowError),
+            (-9.9e36, OverflowError),
+            (float("inf"), OverflowError),
+            (float("nan"), ValueError),
+        ],
+        ids=["default-fill", "negative-fill", "infinity", "nan"],
+    )
+    def test_every_undecodable_value_shape_degrades(self, hole, raises):
+        """Whatever way the converter fails, the selection degrades instead of aborting.
+
+        Test scenario:
+            netCDF's default float `_FillValue` and an infinity raise `OverflowError`,
+            not the `ValueError` a NaN raises — and a `_FillValue` reaches a coordinate
+            as the raw sentinel unless something masks it first, so it is the likelier
+            shape of the two.
+        """
+        nc = NetCDF.read_file(CF_PATH)
+        holed = nc.get_variable("temperature")
+        holed._band_dim_values_map = dict(holed._band_dim_values_map)
+        holed._band_dim_values_map["time"] = [0.0, hole, 12.0, 18.0]
+        with pytest.raises(raises):
+            holed._decode_time_labels(
+                "time", holed._band_dim_values_map["time"], FULL_FORMAT
+            )
+        assert holed.sel(time=12.0)._band_dim_values_map["time"] == [12.0]
+        with pytest.raises(ValueError, match="No bands match"):
+            holed.sel(time="2024-01-01 12:00:00")
+
+    def test_the_lazy_render_path_degrades_too(self):
+        """`_flat_band_index` resolves through the same guard, so it cannot crash either.
+
+        Test scenario:
+            Both render paths reach `_resolve_selector_indices`; only `sel` was covered.
+        """
+        nc = NetCDF.read_file(CF_PATH)
+        holed = nc.get_variable("temperature")
+        holed._band_dim_values_map = dict(holed._band_dim_values_map)
+        holed._band_dim_values_map["time"] = [0.0, 9.96920996839e36, 12.0, 18.0]
+        index = NetCDFPlot(holed)._flat_band_index(
+            holed, {"time": "2024-01-01 12:00:00", "pressure_level": 850.0}
+        )
+        assert isinstance(index, int), f"got {index!r}"
+
+    def test_a_label_slice_on_an_undecodable_axis_finds_nothing(self):
+        """A label slice degrades like a scalar rather than comparing str against float.
+
+        Test scenario:
+            The stored-value fallback compares the slice bounds against the coordinates,
+            so a string-bounded slice over a numeric axis raised
+            `TypeError: '<=' not supported between instances of 'str' and 'float'` —
+            outside the `ValueError` contract `sel` documents, and where the scalar and
+            list forms both degraded correctly.
+        """
+        nc = NetCDF.read_file(CF_PATH)
+        holed = nc.get_variable("temperature")
+        holed._band_dim_values_map = dict(holed._band_dim_values_map)
+        holed._band_dim_values_map["time"] = [0.0, float("nan"), 12.0, 18.0]
+        with pytest.raises(ValueError, match="No bands match"):
+            holed.sel(time=slice("2024-01-01", "2024-01-02"))
+
+    def test_a_string_slice_on_a_numeric_axis_finds_nothing(self, cf_var):
+        """The same holds for an axis that was never a time axis at all."""
+        with pytest.raises(ValueError, match="No bands match"):
+            cf_var.sel(pressure_level=slice("500", "1000"))
+
     def test_string_valued_coordinates_still_match_exactly(self):
         """A coordinate variable holding date strings keeps matching as it did before.
 
