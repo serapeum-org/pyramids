@@ -6791,7 +6791,9 @@ class NetCDF(Dataset):
 
         Returns:
             numpy.ndarray or None: The raw coordinate values, or ``None`` when
-            the store has no such dimension.
+            the store has no such dimension. On a variable subset the values are
+            that view's own — a time-subsetted cube reports the steps it kept, not
+            the source file's whole axis.
 
         Examples:
             - Raw 3-hourly offsets of the NWM retrospective cube (needs the

@@ -103,6 +103,18 @@ def label_format(text: str) -> str:
             '%Y'
 
             ```
+        - A label between two precisions is rejected, listing the ones that work:
+            ```python
+            >>> from pyramids.netcdf._label_select import label_format
+            >>> label_format("2024-01-01 06:0")  # doctest: +ELLIPSIS
+            Traceback (most recent call last):
+                ...
+            ValueError: '2024-01-01 06:0' is not a supported date label. Supported...
+
+            ```
+
+    See Also:
+        pad_label: extends a partial label to the edge of the period it names.
     """
     label = normalise_label(text)
     fmt = _PRECISION_FORMATS.get(len(label))
@@ -176,6 +188,17 @@ def has_label(selector: Any) -> bool:
             False
 
             ```
+        - One label anywhere in a list is enough to make it a label selection:
+            ```python
+            >>> from pyramids.netcdf._label_select import has_label
+            >>> has_label(["2024-01-01", "2024-01-02"])
+            True
+
+            ```
+
+    See Also:
+        label_indices: resolves the selectors this predicate accepts.
+        nearest_indices: resolves the numeric selectors it rejects.
     """
     if isinstance(selector, slice):
         parts: tuple[Any, ...] = (selector.start, selector.stop)
@@ -302,10 +325,23 @@ def nearest_indices(coords: list, selector: Any) -> list[int]:
             ```
         - Each value in a list snaps independently:
             ```python
+            >>> from pyramids.netcdf._label_select import nearest_indices
             >>> nearest_indices([1000.0, 925.0, 850.0, 700.0], [990.0, 710.0])
             [0, 3]
 
             ```
+        - A range has no nearest value, so a slice is refused:
+            ```python
+            >>> from pyramids.netcdf._label_select import nearest_indices
+            >>> nearest_indices([1000.0, 925.0], slice(900, 1000))  # doctest: +ELLIPSIS
+            Traceback (most recent call last):
+                ...
+            ValueError: method='nearest' does not accept a slice selector...
+
+            ```
+
+    See Also:
+        label_indices: the date-label counterpart, which this deliberately refuses.
     """
     if isinstance(selector, slice):
         raise ValueError(

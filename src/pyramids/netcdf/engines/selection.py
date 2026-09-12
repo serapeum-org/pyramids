@@ -823,10 +823,14 @@ class Selection(_Engine["NetCDF"]):
                 ```
 
         Notes:
-            All four examples above are tagged `# doctest: +SKIP`
+            All six examples above are tagged `# doctest: +SKIP`
             because they need a real on-disk NetCDF fixture. The
             runnable equivalents live in:
 
+            - `tests/netcdf/selection/test_sel_nearest_and_labels.py`
+              (`TestSelNearest` / `TestSelByDateLabel` — snapping and
+              date-label selection, including the vocabulary a failed
+              match reports and the axis whose units do not parse).
             - `tests/netcdf/test_sel.py::TestSelSingleValue` /
               `TestSelList` / `TestSelSlice` (3-D scenarios — single
               value, list selector, slice selector including the
