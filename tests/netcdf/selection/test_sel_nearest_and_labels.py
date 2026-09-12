@@ -235,3 +235,22 @@ class TestSelectorsMethodPlumbing:
             cf_var, {"time": "2024-01-01 06:00:00"}
         )
         assert index == len(LEVEL_VALUES), f"got band {index}"
+
+
+class TestSelSelectorVocabularyFallback:
+    """A string on an axis that is not a decodable CF time axis stays a stored value."""
+
+    def test_string_on_a_non_time_axis_matches_stored_values(self, cf_var):
+        """A string selector on a numeric non-time axis falls through to exact matching.
+
+        Test scenario:
+            ``pressure_level`` carries pressure units, not a CF time origin, so there
+            are no labels to decode against; the error quotes the stored values.
+        """
+        with pytest.raises(ValueError, match=r"Available values: \[1000.0"):
+            cf_var.sel(pressure_level="850")
+
+    def test_explicit_method_none_is_exact(self, cf_var):
+        """Passing ``method=None`` explicitly behaves exactly as omitting it."""
+        result = cf_var.sel(pressure_level=850, method=None)
+        assert result._band_dim_values_map["pressure_level"] == [850.0]

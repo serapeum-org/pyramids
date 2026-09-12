@@ -605,3 +605,44 @@ class TestNetCDFPlotIselNoCoordValues:
         sel = Selectors(isel={"time": 1})
         with pytest.raises(ValueError, match=r"No coordinate values"):
             var.plot(selectors=sel)
+
+
+class TestNetCDFPlotSelectorMethod:
+    """``Selectors.method`` reaches ``sel`` through the eager render path."""
+
+    def test_nearest_pins_the_snapped_slice(self):
+        """``method="nearest"`` renders the slice the snapped coordinate names.
+
+        Test scenario:
+            The 4-D fixture carries ``pressure_level=[1000, 500]``. Asking for 520 with
+            ``method="nearest"`` must render the same array as pinning 500 exactly.
+        """
+        nc = _make_4d_nc()
+        var = nc.get_variable("temperature")
+        expected = var.sel(time=0).sel(pressure_level=500).read_array()
+        captured: dict = {}
+
+        with patch.object(
+            type(var.analysis),
+            "plot",
+            autospec=True,
+            side_effect=_make_capture(captured),
+        ):
+            var.plot(selectors=Selectors(time=0, level=520, method="nearest"))
+        assert_array_equal(
+            captured["data"],
+            expected,
+            err_msg="method='nearest' should pin the slice of the snapped coordinate",
+        )
+
+    def test_default_method_still_requires_an_exact_value(self):
+        """Without ``method`` the same off-axis value is still rejected.
+
+        Test scenario:
+            ``Selectors(level=520)`` alone must raise, so snapping stays opt-in on the
+            plot path exactly as it is on ``sel``.
+        """
+        nc = _make_4d_nc()
+        var = nc.get_variable("temperature")
+        with pytest.raises(ValueError, match="No bands match"):
+            var.plot(selectors=Selectors(time=0, level=520))

@@ -20,6 +20,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
 
+from pyramids.netcdf import ExtraDimensions, GeoReference
 from pyramids.netcdf.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
@@ -116,3 +117,38 @@ class TestGetTimeValuesDelegation:
     def test_absent_axis_is_none(self, coards_nc):
         """Asking for an axis the store has no dimension for still answers ``None``."""
         assert coards_nc.get_time_values("valid_time") is None
+
+
+class TestInMemoryContainer:
+    """A cube built with ``from_array`` answers for the dimension it declares."""
+
+    def test_extra_dimension_values_are_readable(self):
+        """A band dim declared through ``ExtraDimensions`` is readable on both views.
+
+        Test scenario:
+            The accessor must not depend on an on-disk MDIM root group — an in-memory
+            container and the variable it yields report the same coordinates.
+        """
+        arr = np.arange(60, dtype=np.float64).reshape(5, 3, 4)
+        nc = NetCDF.from_array(
+            arr=arr,
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0, 3.0, 0, -1.0)),
+            variable_name="temp",
+            dims=ExtraDimensions(name="time", values=[0, 6, 12, 18, 24]),
+        )
+        expected = np.array([0, 6, 12, 18, 24])
+        assert_array_equal(nc.get_dimension_values("time"), expected)
+        assert_array_equal(
+            nc.get_variable("temp").get_dimension_values("time"), expected
+        )
+
+    def test_unknown_name_on_a_subset_is_none(self):
+        """A subset asked for a name it neither tracks nor declares answers ``None``."""
+        arr = np.arange(60, dtype=np.float64).reshape(5, 3, 4)
+        nc = NetCDF.from_array(
+            arr=arr,
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0, 3.0, 0, -1.0)),
+            variable_name="temp",
+            dims=ExtraDimensions(name="time", values=[0, 6, 12, 18, 24]),
+        )
+        assert nc.get_variable("temp").get_dimension_values("missing") is None

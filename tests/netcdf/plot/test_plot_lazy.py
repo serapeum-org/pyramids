@@ -331,3 +331,46 @@ class TestNetCDFPlotLazyEdges:
         assert not msgs, (
             f"Boundary at threshold (size == 100 MB) must not fire hint; got {msgs}"
         )
+
+
+class TestNetCDFPlotLazySelectorMethod:
+    """``Selectors.method`` reaches the lazy (`chunks=`) flat-band resolution too."""
+
+    @pytest.mark.lazy
+    def test_nearest_chunked_render_matches_the_eager_one(self, tmp_path):
+        """A snapped selector resolves to the same band on both render paths.
+
+        Test scenario:
+            The lazy path re-reads the whole variable and indexes the flat band
+            `_flat_band_index` resolves, so it has to apply `method=` exactly as the
+            eager `sel()` does. Asking for `pressure_level=520` with `method="nearest"`
+            on the `[1000, 500]` axis must draw the 500 hPa plane in both, and not the
+            (0, 0) corner band.
+        """
+        nc_mem = _make_4d_nc()
+        out = tmp_path / "cube4d_nearest.nc"
+        nc_mem.to_file(out)
+        nc = NetCDF.read_file(str(out))
+        sel = Selectors(time=6, sel={"pressure_level": 520}, method="nearest")
+        eager = np.asarray(nc.plot(variable="temperature", selectors=sel).arr)
+        lazy = np.asarray(
+            nc.plot(
+                variable="temperature", selectors=sel, chunks={"cols": 1, "rows": 1}
+            ).arr
+        )
+        np.testing.assert_array_equal(
+            lazy,
+            eager,
+            err_msg="chunked plot drew a different slice than eager under method='nearest'",
+        )
+        exact = np.asarray(
+            nc.plot(
+                variable="temperature",
+                selectors=Selectors(time=6, sel={"pressure_level": 500}),
+            ).arr
+        )
+        np.testing.assert_array_equal(
+            lazy,
+            exact,
+            err_msg="method='nearest' should draw the slice of the snapped coordinate",
+        )
