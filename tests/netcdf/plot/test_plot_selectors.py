@@ -701,3 +701,20 @@ class TestNetCDFPlotSelectorMethodPerDim:
             expected,
             err_msg="a label selector must stay exact under method='nearest'",
         )
+
+    def test_a_non_label_string_still_reaches_sel_s_guard(self):
+        """A string that is neither numeric nor a date label keeps `method` and is told why.
+
+        Test scenario:
+            Narrowing on "is a string" dropped the flag for `"850"`, so the caller got
+            "No bands match pressure_level=850" — the wrong problem — instead of
+            `sel`'s "needs a numeric selector" explanation.
+        """
+        nc = _make_4d_nc()
+        var = nc.get_variable("temperature")
+        with pytest.raises(ValueError, match="is not a number"):
+            var.plot(
+                selectors=Selectors(
+                    sel={"time": 0, "pressure_level": "850"}, method="nearest"
+                )
+            )

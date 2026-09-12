@@ -19,7 +19,7 @@ import numpy as np
 from pyramids.dataset._plot_helpers import ModeSpec, RenderRequest
 from pyramids.dataset._plot_helpers import render_array as _render_array
 from pyramids.netcdf import _coord_match
-from pyramids.netcdf._label_select import has_label
+from pyramids.netcdf._label_select import probe_format
 from pyramids.netcdf.plot_options import CoordinateSpec, FacetSpec, Selectors
 
 if TYPE_CHECKING:
@@ -628,14 +628,19 @@ def _dim_method(method: str | None, value: Any) -> str | None:
     combination. Narrowing the flag per dimension is what lets one call pin a time label
     exactly and snap a level — the natural way to use both features together.
 
+    The test is "is this a date label", not "is this a string": a non-label string such
+    as ``"850"`` is neither, and dropping ``method`` for it would swap ``sel``'s precise
+    "needs a numeric selector" complaint for a bare "no bands match" about the wrong
+    thing. Those keep the flag and reach that guard.
+
     Args:
         method: The caller's ``Selectors.method`` — ``None`` or ``"nearest"``.
         value: The resolved selector for one dimension.
 
     Returns:
-        str or None: ``method`` for a numeric selector, ``None`` for a label one.
+        str or None: ``None`` for a date-label selector, ``method`` for anything else.
     """
-    return None if has_label(value) else method
+    return None if probe_format(value) is not None else method
 
 
 class NetCDFPlot:
