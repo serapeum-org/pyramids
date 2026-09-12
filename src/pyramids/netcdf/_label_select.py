@@ -61,6 +61,13 @@ def _has_label_shape(label: str) -> bool:
     directly: every supported precision is a prefix of ``YYYY-MM-DD HH:MM:SS``, cut at
     one of the boundaries :data:`_PRECISION_FORMATS` names. The length gate is what keeps
     a bare ``"850"`` from reading as a three-digit year.
+
+    Args:
+        label: An already-normalised candidate label.
+
+    Returns:
+        bool: ``True`` when every position holds the digit or separator the template
+            requires, and the length is one of the supported precisions.
     """
     template = _LABEL_SHAPE[: len(label)]
     return len(label) in _PRECISION_FORMATS and all(
