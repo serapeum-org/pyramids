@@ -59,8 +59,14 @@ class TestRootContainer:
             err_msg="level coordinates should come straight off the container",
         )
 
-    def test_every_declared_dimension_is_reachable(self, coards_nc):
-        """Each name in ``dimension_sizes`` resolves to an array of that length."""
+    def test_each_coards_dimension_resolves_to_its_declared_length(self, coards_nc):
+        """Every dimension of *this* fixture resolves to an array of the declared length.
+
+        Test scenario:
+            Not a general guarantee — a dimension with no indexing variable correctly
+            answers ``None`` (the WRF fixture has eight of them). This one carries a
+            coordinate variable for each of its four dimensions.
+        """
         for name, size in coards_nc.dimension_sizes.items():
             values = coards_nc.get_dimension_values(name)
             assert values is not None, f"{name!r} declared but has no coordinates"

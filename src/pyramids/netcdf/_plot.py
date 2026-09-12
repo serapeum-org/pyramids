@@ -942,7 +942,8 @@ class NetCDFPlot:
         `sel()`-pinned subset, so the chunks render path reads the unpinned variable and indexes
         this band rather than storage band 0. Reuses the exact band-index machinery `sel` uses
         (`_resolve_selector_indices` + `_map_dim_to_band_indices`) so the flat index matches the
-        eager selection's band order, `method=` and date labels included. Every band dim is pinned on this path (`run` asserts
+        eager selection's band order, `method=` and date labels included. Every band
+        dim is pinned on this path (`run` asserts
         `band_count == 1`), so the per-dim band sets intersect to a single band; returns `0` when no
         selector is active.
 

@@ -845,6 +845,15 @@ class Selection(_Engine["NetCDF"]):
                 ```
 
         Notes:
+            A slice's `step` is ignored, on the label path as on the
+            stored-value one: `slice(a, b, 2)` selects the same bands
+            as `slice(a, b)`. Pass a list to pick specific values.
+
+            `method` is a keyword of this method, so a band dim
+            actually named `method` cannot be selected through it;
+            such a call reports "requires exactly one keyword
+            argument" because the selector was taken as the option.
+
             All six examples above are tagged `# doctest: +SKIP`
             because they need a real on-disk NetCDF fixture. The
             runnable equivalents live in:

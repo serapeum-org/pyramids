@@ -3059,7 +3059,7 @@ class NetCDF(Dataset):
         The public surface is shaped around **variables** and **dimensions** — ``band``
         is not a NetCDF concept and has been removed from the signature. Variable
         selection is by name; the slice to render is pinned via a :class:`Selectors`
-        option bag (``time`` / ``level`` / ``member`` / ``sel`` / ``isel``); multi-panel
+        option bag (``time`` / ``level`` / ``member`` / ``sel`` / ``isel`` / ``method``); multi-panel
         layout is described by a :class:`FacetSpec` bag (``col`` / ``row`` / ``col_wrap``);
         and the spatial-axis interpretation by a :class:`CoordinateSpec` bag (``coords`` /
         ``x_dim`` / ``y_dim``). Each is a frozen dataclass — construct it inline at the call

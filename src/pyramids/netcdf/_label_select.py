@@ -444,7 +444,8 @@ def label_indices(decode: Callable[[str], list[str]], selector: Any) -> list[int
     Args:
         decode: Callable turning a strftime format into the axis' decoded labels, one
             per coordinate value (``nc._decode_time_labels`` bound to the dimension).
-        selector: A label, a list of labels, or a :class:`slice` of labels.
+        selector: A label, a list of labels, or a :class:`slice` of labels. A slice's
+            ``step`` is ignored, matching the stored-value path.
 
     Returns:
         list[int]: Ascending indices of the matching coordinates; empty when none match.

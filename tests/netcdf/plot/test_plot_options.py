@@ -276,7 +276,7 @@ class TestSelectorsMethodValidation:
 
     def test_unknown_method_raises(self):
         """A typo'd mode fails where it was typed, not part-way through a render."""
-        with pytest.raises(ValueError, match="must be None \(exact\) or 'nearest'"):
+        with pytest.raises(ValueError, match=r"must be None \(exact\) or 'nearest'"):
             Selectors(level=900, method="pad")
 
     @pytest.mark.parametrize("method", [None, "nearest"])
