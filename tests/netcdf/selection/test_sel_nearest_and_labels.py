@@ -540,3 +540,20 @@ class TestSelectionErrorMessages:
             ValueError, match=r"Available values: \[1000.0, 850.0, 500.0\]"
         ):
             cf_var.sel(pressure_level=999)
+
+    def test_the_hint_survives_a_hole_in_the_first_coordinate(self):
+        """The explanation is reached even when the probed coordinate is the bad one.
+
+        Test scenario:
+            The hint probes one value to tell "no CF units" apart from "units, but a
+            value would not decode". When that value is itself the hole, the probe
+            raises, which still means the axis declares units.
+        """
+        nc = NetCDF.read_file(CF_PATH)
+        holed = nc.get_variable("temperature")
+        holed._band_dim_values_map = dict(holed._band_dim_values_map)
+        holed._band_dim_values_map["time"] = [float("nan"), 6.0, 12.0, 18.0]
+        with pytest.raises(
+            ValueError, match="declares CF units, but a coordinate value"
+        ):
+            holed.sel(time="2024-01-01 12:00:00")

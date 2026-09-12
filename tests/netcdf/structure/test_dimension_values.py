@@ -239,3 +239,24 @@ class TestStringTypedCoordinateVariable:
         var = nc.get_variable("IVGTYP")
         pinned = var.sel(Time="2000-01-24_13:00:00")
         assert list(pinned.get_dimension_values("Time")) == ["2000-01-24_13:00:00"]
+
+
+class TestUnreadableIndexingVariable:
+    """When neither read works, the subset falls back to integer indices."""
+
+    def test_the_placeholder_is_the_last_resort(self, monkeypatch):
+        """A coordinate variable no read can handle still yields a usable axis.
+
+        Test scenario:
+            `ReadAsArray` already refuses this WRF `Times` axis; with the list-based
+            read stubbed out to fail too, the build must not raise — it records
+            `[0, 1, ..., size - 1]`, which is what `sel` then matches against.
+        """
+
+        def refuse(_md_array):
+            raise RuntimeError("no read path available")
+
+        monkeypatch.setattr(NetCDF, "_md_array_to_numpy", staticmethod(refuse))
+        nc = NetCDF.read_file(WRF_PATH)
+        var = nc.get_variable("IVGTYP")
+        assert list(var.get_dimension_values("Time")) == [0, 1, 2]
