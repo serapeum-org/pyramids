@@ -6866,12 +6866,10 @@ class NetCDF(Dataset):
             numpy.ndarray or None: The coordinate values in storage order, or ``None``
             when the dataset has no such dimension or it carries no coordinate variable.
             One caveat on a variable subset: a band dimension whose indexing variable
-            cannot be read — a string-typed one such as WRF's ``Times``, which the GDAL
-            SWIG bindings refuse — is tracked as the placeholder ``[0, 1, …, size - 1]``,
+            cannot be read at all is tracked as the placeholder ``[0, 1, …, size - 1]``
             and comes back here as those integers rather than as ``None``. They are also
             what :meth:`sel` matches against on such an axis, so the two agree; they are
-            just not the file's own labels. Read the container's dimension instead, or
-            the variable through :attr:`variables`, when you need the real values.
+            just not the file's own labels.
 
         Examples:
             - Read the pressure levels of a 4-D cube, then the levels one `sel` kept::
@@ -8683,15 +8681,21 @@ class NetCDF(Dataset):
         """Indexing-variable values for a band dimension, or integer indices when unreadable.
 
         String-typed indexing variables (e.g. WRF `Times`) cannot be read via `ReadAsArray` in the
-        GDAL SWIG bindings, so they fall back to `[0, 1, ..., size - 1]`.
+        GDAL SWIG bindings; the list-based `Read()` path handles those, and is the one the container
+        accessor and `to_xarray` use, so a subset reports the same coordinates as its container.
+        `[0, 1, ..., size - 1]` remains only when that read fails too.
         """
         indexing_var = dim.GetIndexingVariable()
         if indexing_var is None:
             return None
         try:
-            return indexing_var.ReadAsArray().tolist()
+            values = indexing_var.ReadAsArray().tolist()
         except RuntimeError:
-            return list(range(dim.GetSize()))
+            try:
+                values = NetCDF._md_array_to_numpy(indexing_var).tolist()
+            except Exception:
+                values = list(range(dim.GetSize()))
+        return values
 
     @staticmethod
     def _copy_variable_attrs(cube: NetCDF, md_arr) -> None:

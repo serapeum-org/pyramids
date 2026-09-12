@@ -209,14 +209,27 @@ class TestStringTypedCoordinateVariable:
             "2000-01-24_14:00:00",
         ], f"got {values!r}"
 
-    def test_a_subset_reports_the_tracked_placeholder(self):
-        """A variable subset answers with the integer placeholder it tracks, documented as such.
+    def test_a_subset_agrees_with_its_container(self):
+        """A subset reports the same timestamps its container does, not integer indices.
 
         Test scenario:
-            The subset build cannot read a string indexing variable either, and records
-            `[0, 1, ...]`. `sel` matches against those same integers, so the accessor and
-            the selector agree — the Returns section says they are not the file's labels.
+            The subset build hit the same SWIG refusal and recorded `[0, 1, 2]`, so one
+            file answered two different vocabularies for one dimension depending on which
+            object was asked — and `sel(Time=<timestamp>)` found nothing.
         """
         nc = NetCDF.read_file(WRF_PATH)
         var = nc.get_variable("IVGTYP")
-        assert list(var.get_dimension_values("Time")) == [0, 1, 2]
+        stamps = [
+            "2000-01-24_12:00:00",
+            "2000-01-24_13:00:00",
+            "2000-01-24_14:00:00",
+        ]
+        assert list(var.get_dimension_values("Time")) == stamps
+        assert list(nc.get_dimension_values("Time")) == stamps
+
+    def test_a_subset_selects_by_that_timestamp(self):
+        """The coordinates a subset reports are the ones `sel` matches against."""
+        nc = NetCDF.read_file(WRF_PATH)
+        var = nc.get_variable("IVGTYP")
+        pinned = var.sel(Time="2000-01-24_13:00:00")
+        assert list(pinned.get_dimension_values("Time")) == ["2000-01-24_13:00:00"]
