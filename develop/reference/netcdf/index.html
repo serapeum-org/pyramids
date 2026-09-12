@@ -18279,7 +18279,7 @@ The NetCDF class contains methods to deal with NetCDF files.</p>
 <a id="__codelineno-0-3059" name="__codelineno-0-3059"></a><span class="sd">        The public surface is shaped around **variables** and **dimensions** — ``band``</span>
 <a id="__codelineno-0-3060" name="__codelineno-0-3060"></a><span class="sd">        is not a NetCDF concept and has been removed from the signature. Variable</span>
 <a id="__codelineno-0-3061" name="__codelineno-0-3061"></a><span class="sd">        selection is by name; the slice to render is pinned via a :class:`Selectors`</span>
-<a id="__codelineno-0-3062" name="__codelineno-0-3062"></a><span class="sd">        option bag (``time`` / ``level`` / ``member`` / ``sel`` / ``isel``); multi-panel</span>
+<a id="__codelineno-0-3062" name="__codelineno-0-3062"></a><span class="sd">        option bag (``time`` / ``level`` / ``member`` / ``sel`` / ``isel`` / ``method``); multi-panel</span>
 <a id="__codelineno-0-3063" name="__codelineno-0-3063"></a><span class="sd">        layout is described by a :class:`FacetSpec` bag (``col`` / ``row`` / ``col_wrap``);</span>
 <a id="__codelineno-0-3064" name="__codelineno-0-3064"></a><span class="sd">        and the spatial-axis interpretation by a :class:`CoordinateSpec` bag (``coords`` /</span>
 <a id="__codelineno-0-3065" name="__codelineno-0-3065"></a><span class="sd">        ``x_dim`` / ``y_dim``). Each is a frozen dataclass — construct it inline at the call</span>
@@ -27733,7 +27733,7 @@ when building the summary raised.</p>
 <p>The public surface is shaped around <strong>variables</strong> and <strong>dimensions</strong> — <code>band</code>
 is not a NetCDF concept and has been removed from the signature. Variable
 selection is by name; the slice to render is pinned via a :class:<code>Selectors</code>
-option bag (<code>time</code> / <code>level</code> / <code>member</code> / <code>sel</code> / <code>isel</code>); multi-panel
+option bag (<code>time</code> / <code>level</code> / <code>member</code> / <code>sel</code> / <code>isel</code> / <code>method</code>); multi-panel
 layout is described by a :class:<code>FacetSpec</code> bag (<code>col</code> / <code>row</code> / <code>col_wrap</code>);
 and the spatial-axis interpretation by a :class:<code>CoordinateSpec</code> bag (<code>coords</code> /
 <code>x_dim</code> / <code>y_dim</code>). Each is a frozen dataclass — construct it inline at the call
@@ -29058,7 +29058,7 @@ selectors do not pin to a single 2-D slice, or if
 <a id="__codelineno-0-3059" name="__codelineno-0-3059"></a><span class="sd">    The public surface is shaped around **variables** and **dimensions** — ``band``</span>
 <a id="__codelineno-0-3060" name="__codelineno-0-3060"></a><span class="sd">    is not a NetCDF concept and has been removed from the signature. Variable</span>
 <a id="__codelineno-0-3061" name="__codelineno-0-3061"></a><span class="sd">    selection is by name; the slice to render is pinned via a :class:`Selectors`</span>
-<a id="__codelineno-0-3062" name="__codelineno-0-3062"></a><span class="sd">    option bag (``time`` / ``level`` / ``member`` / ``sel`` / ``isel``); multi-panel</span>
+<a id="__codelineno-0-3062" name="__codelineno-0-3062"></a><span class="sd">    option bag (``time`` / ``level`` / ``member`` / ``sel`` / ``isel`` / ``method``); multi-panel</span>
 <a id="__codelineno-0-3063" name="__codelineno-0-3063"></a><span class="sd">    layout is described by a :class:`FacetSpec` bag (``col`` / ``row`` / ``col_wrap``);</span>
 <a id="__codelineno-0-3064" name="__codelineno-0-3064"></a><span class="sd">    and the spatial-axis interpretation by a :class:`CoordinateSpec` bag (``coords`` /</span>
 <a id="__codelineno-0-3065" name="__codelineno-0-3065"></a><span class="sd">    ``x_dim`` / ``y_dim``). Each is a frozen dataclass — construct it inline at the call</span>
