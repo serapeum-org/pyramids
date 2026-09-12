@@ -898,7 +898,8 @@ class Selection(_Engine["NetCDF"]):
         )
         if not dim_indices:
             raise ValueError(
-                f"No bands match {dim_name}={selector}. Available values: {available}"
+                f"No bands match {dim_name}={selector}. "
+                f"Available values: {_summarise(available)}"
             )
 
         dim_axis = nc._band_dim_names.index(dim_name)
@@ -1442,6 +1443,29 @@ def _resolve_dim_indices(coords: list, selector: Any) -> list[int]:
     return [i for i, v in enumerate(coords) if v == selector]
 
 
+def _summarise(values: list, edge: int = 3) -> str:
+    """Render an axis' values for an error message, elided in the middle when long.
+
+    A typo'd selector is a routine mistake, and on a 128k-step time axis interpolating
+    every decoded label makes the exception string megabytes of timestamps. Show enough
+    of each end to recognise the vocabulary, and say how many there are.
+
+    Args:
+        values: The values the selector was matched against.
+        edge: How many to show at each end before eliding. Defaults to 3.
+
+    Returns:
+        str: The full list when it is short, else ``[first … last] (N values)``.
+    """
+    if len(values) <= edge * 2 + 1:
+        rendered = repr(values)
+    else:
+        head = ", ".join(repr(value) for value in values[:edge])
+        tail = ", ".join(repr(value) for value in values[-edge:])
+        rendered = f"[{head}, ..., {tail}] ({len(values)} values)"
+    return rendered
+
+
 def _resolve_selector_indices(
     nc: NetCDF,
     dim_name: str,
@@ -1521,11 +1545,19 @@ def _resolve_selector_indices(
         label_format(cast("str", first_label(selector)))
     decodable = probe is not None and bool(decode(probe))
     if method == "nearest":
-        if label_selection:
+        if label_selection and probe is not None:
             raise ValueError(
                 f"method='nearest' needs a numeric selector; {dim_name}={selector!r} is a "
                 "date label. Select a label exactly — a partial label such as '2024-01' "
                 "already matches every step inside it."
+            )
+        if label_selection:
+            # Not date-shaped, so the date-label advice would be nonsense: this is a
+            # string on an axis that has no labels at all (a pressure level written
+            # "850", an ensemble member's name).
+            raise ValueError(
+                f"method='nearest' needs a numeric selector; {dim_name}={selector!r} is "
+                "not a number. Snapping compares distances, so it has nothing to measure."
             )
         indices, available = nearest_indices(coords, selector), coords
     elif decodable:

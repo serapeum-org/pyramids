@@ -401,3 +401,35 @@ class TestSelDecodesTheAxisOncePerPrecision:
         """A slice compares full-precision labels, so one pass answers it."""
         selector = slice("2024-01-01 00:00:00", "2024-01-01 12:00:00")
         assert self._count_decodes(monkeypatch, cf_var, selector) == 1
+
+
+class TestSelectionErrorMessages:
+    """What a failed selection tells the caller."""
+
+    def test_a_non_numeric_selector_is_not_called_a_date_label(self, cf_var):
+        """A string on an axis with no labels is reported as non-numeric, not as a date.
+
+        Test scenario:
+            ``pressure_level="850"`` with ``method="nearest"`` used to be told it was a
+            date label and advised about partial labels — nonsense for a pressure axis.
+        """
+        with pytest.raises(ValueError, match="is not a number"):
+            cf_var.sel(pressure_level="850", method="nearest")
+
+    def test_a_long_axis_is_elided_in_the_message(self):
+        """A miss on a long axis shows both ends and a count, not every value.
+
+        Test scenario:
+            The COARDS cube has 12 time steps; a 128k-step cloud axis would otherwise
+            put every decoded timestamp into the exception string.
+        """
+        var = NetCDF.read_file(COARDS_PATH).get_variable("rhum")
+        with pytest.raises(ValueError, match=r"\.\.\..*\(12 values\)"):
+            var.sel(time=-1)
+
+    def test_a_short_axis_is_listed_in_full(self, cf_var):
+        """A short axis still lists every value — eliding only pays off when there are many."""
+        with pytest.raises(
+            ValueError, match=r"Available values: \[1000.0, 850.0, 500.0\]"
+        ):
+            cf_var.sel(pressure_level=999)
