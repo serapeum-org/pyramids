@@ -18,9 +18,11 @@ import traceback
 import warnings
 import weakref
 from contextlib import contextmanager, suppress
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import cftime
 import numpy as np
 from osgeo import gdal, osr
 
@@ -38,6 +40,7 @@ from pyramids.netcdf.cf import (
 from pyramids.netcdf.utils import (
     CF_EPOCH_CALENDAR,
     cf_epoch_units,
+    is_cf_time_units,
     read_cf_attributes,
 )
 
@@ -210,7 +213,9 @@ class Interop(_Engine["NetCDF"]):
     than on this instance-bound engine.
     """
 
-    def to_xarray(self, chunks: dict | str | int | None = None) -> Any:
+    def to_xarray(
+        self, chunks: dict | str | int | None = None, *, decode_times: bool = True
+    ) -> Any:
         """Convert this NetCDF container to an `xarray.Dataset`.
 
         Builds an `xarray.Dataset` that mirrors the variables,
@@ -237,6 +242,10 @@ class Interop(_Engine["NetCDF"]):
         - conda-forge: ``conda install -c conda-forge xarray``
 
         Args:
+            decode_times: When ``True`` (the default) a dimension whose CF ``units``
+                name a time origin is exported as datetimes, so xarray's own
+                ``resample`` / ``.dt`` / ``groupby("time.month")`` work on the result.
+                ``False`` exports the stored offsets unchanged.
             chunks: Chunk spec forwarded to the lazy reader per data
                 variable. `None` (default) reads eagerly.
 
@@ -275,7 +284,7 @@ class Interop(_Engine["NetCDF"]):
                 "Open the file with open_as_multi_dimensional=True."
             )
 
-        coords = _coords_from_dimensions(rg, ds)
+        coords = _coords_from_dimensions(rg, ds, decode_times=decode_times)
         data_vars, export_names = _data_vars_from_arrays(rg, ds, chunks, set(coords))
         exported = xr.Dataset(
             data_vars=data_vars,
@@ -365,11 +374,61 @@ def _promote_cf_non_data_arrays(
     return result
 
 
-def _coords_from_dimensions(rg: Any, ds: NetCDF) -> dict[str, Any]:
+def _decode_time_coordinate(values: Any, attrs: dict) -> Any | None:
+    """Decode a CF time axis' stored offsets into datetimes, or ``None`` if it is not one.
+
+    A CF time coordinate is stored as numbers against an origin (``hours since
+    2024-01-01``). Handing those raw numbers to xarray leaves it with a plain numeric
+    index, which its own time machinery cannot use: ``resample``, ``.dt`` and
+    ``groupby("time.month")`` all fail on the result. Decoding here is what makes the
+    exported object a cube xarray can actually work on (#1137).
+
+    Only a **standard** calendar is decoded, to ``datetime64[ns]``. A non-standard one
+    (``360_day``, ``noleap``) would decode to ``cftime`` objects — an object-dtype array
+    GDAL cannot write back, so exporting it would fix the xarray side at the cost of the
+    round trip. Those axes keep their stored offsets; re-encoding them on write is the
+    work that would lift that restriction.
+
+    Args:
+        values: The dimension's stored coordinate values.
+        attrs: That dimension's CF attributes, read from the indexing variable.
+
+    Returns:
+        The decoded array, or ``None`` when the axis declares no CF time ``units`` or
+        the values cannot be decoded — in which case the caller keeps the raw numbers.
+    """
+    units = attrs.get("units")
+    if not is_cf_time_units(units):
+        return None
+    calendar = attrs.get("calendar") or "standard"
+    try:
+        decoded = cftime.num2date(
+            np.asarray(values), units, calendar, only_use_cftime_datetimes=False
+        )
+    except Exception:
+        # A malformed origin, an out-of-range offset or a fill value in the axis. The
+        # export must not fail because a coordinate could not be decoded, so fall back
+        # to the raw offsets — the same degrade-rather-than-abort contract `sel` uses.
+        return None
+    array = np.asarray(decoded)
+    if not (array.size and isinstance(array.flat[0], datetime)):
+        # A non-standard calendar (`360_day`, `noleap`) decodes to `cftime` objects, an
+        # object-dtype array GDAL has no band type for: exporting it would give xarray a
+        # usable index but break the write-back round trip, which is a worse trade than
+        # leaving the offsets alone. Those axes keep their stored numbers.
+        return None
+    return array.astype("datetime64[ns]")
+
+
+def _coords_from_dimensions(
+    rg: Any, ds: NetCDF, *, decode_times: bool = True
+) -> dict[str, Any]:
     """Build the ``xr.Dataset`` ``coords`` mapping from the root group's dimensions.
 
     Each dimension with an indexing variable becomes a 1-D coordinate; bare
-    dimensions (no indexing variable) are skipped.
+    dimensions (no indexing variable) are skipped. A CF time axis is decoded to
+    datetimes unless ``decode_times`` is ``False`` — see
+    :func:`_decode_time_coordinate`.
     """
     coords: dict[str, Any] = {}
     for d in rg.GetDimensions() or []:
@@ -378,7 +437,17 @@ def _coords_from_dimensions(rg: Any, ds: NetCDF) -> dict[str, Any]:
             continue
         dim_name = d.GetName()
         coord_attrs = read_cf_attributes(iv)
-        coords[dim_name] = ([dim_name], ds._md_array_to_numpy(iv), coord_attrs)
+        raw = ds._md_array_to_numpy(iv)
+        decoded = _decode_time_coordinate(raw, coord_attrs) if decode_times else None
+        if decoded is not None:
+            raw = decoded
+            # The values are no longer expressed in those units, so carrying them
+            # would describe the coordinate wrongly and invite a double decode on
+            # write. xarray keeps them in `encoding` for the same reason.
+            coord_attrs = {
+                k: v for k, v in coord_attrs.items() if k not in ("units", "calendar")
+            }
+        coords[dim_name] = ([dim_name], raw, coord_attrs)
     return coords
 
 
