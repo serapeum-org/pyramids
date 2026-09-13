@@ -404,3 +404,34 @@ class DtypeNarrowingWarning(UserWarning):
         from pyramids.errors import DtypeNarrowingWarning
         warnings.filterwarnings("ignore", category=DtypeNarrowingWarning)
     """
+
+
+class TimeDecodingWarning(UserWarning):
+    """Pyramids-emitted warning that a CF time axis was exported as raw offsets.
+
+    Emitted by :meth:`pyramids.netcdf.NetCDF.to_xarray` when a dimension declares CF
+    time `units` that it then declines to decode. The export degrades rather than
+    aborting — a bad coordinate is not the export's to discover — but without a
+    diagnostic the caller only meets the consequence: xarray's own time machinery
+    (`resample`, `.dt`, `groupby("time.month")`) raising on a numeric index, with
+    nothing saying pyramids decided not to decode, or why.
+
+    Three reasons are reported, all of them ordinary:
+
+    * **a non-standard calendar** (`360_day`, `noleap`) decodes to `cftime` objects, an
+      object-dtype array GDAL has no band type for, so exporting it would gain a usable
+      index and lose the write-back round trip;
+    * **an instant outside `datetime64[ns]`** — the type spans 1678-09-21 to 2262-04-11
+      and numpy *wraps* beyond it rather than raising, so a paleo reconstruction or a
+      post-2262 projection would come back silently wrong;
+    * **a conversion failure** — a malformed origin, an out-of-range offset, or a fill
+      value sitting in the axis.
+
+    The axis keeps its stored numbers and its `units` / `calendar` attributes in every
+    case, so nothing is lost; pass `decode_times=False` to ask for that deliberately and
+    silence this::
+
+        import warnings
+        from pyramids.errors import TimeDecodingWarning
+        warnings.filterwarnings("ignore", category=TimeDecodingWarning)
+    """

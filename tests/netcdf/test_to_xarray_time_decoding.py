@@ -10,9 +10,12 @@ descriptive assertion messages.
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pytest
 
+from pyramids.base._errors import TimeDecodingWarning
 from pyramids.netcdf.engines import interop
 from pyramids.netcdf.netcdf import NetCDF
 
@@ -373,3 +376,94 @@ class TestEncodingATimeAxis:
             interop._encode_in_declared_units(values, "fortnights since 2024-01-01", "standard")
             is None
         )
+
+
+class TestTheUndecodedAxisIsReported:
+    """A declined CF time axis warns rather than degrading in silence (M9)."""
+
+    def test_a_non_standard_calendar_warns(self):
+        """The `noleap` fixture names the dimension and why it kept its offsets.
+
+        Test scenario:
+            Five of the repo's own fixtures silently keep numeric time axes. A caller
+            who then reaches for `resample` meets only xarray's error about a
+            non-datetime index, with nothing saying pyramids decided not to decode.
+        """
+        with pytest.warns(TimeDecodingWarning, match="time"):
+            NetCDF.read_file(NOLEAP_PATH).to_xarray()
+
+    def test_the_warning_names_the_dimension(self):
+        """The message carries the coordinate's own name, not just "a time axis"."""
+        with pytest.warns(TimeDecodingWarning) as caught:
+            NetCDF.read_file(NOLEAP_PATH).to_xarray()
+        assert "'time'" in str(caught[0].message), f"got {caught[0].message}"
+
+    def test_an_out_of_range_axis_warns_with_its_span(self):
+        """An instant outside `datetime64[ns]` reports the span that did not fit."""
+        with pytest.warns(TimeDecodingWarning, match="datetime64"):
+            interop._decode_time_coordinate(
+                np.array([0.0, 24.0]), {"units": "days since 2300-01-01"}, "time"
+            )
+
+    def test_a_decode_failure_warns_with_the_exception(self, monkeypatch):
+        """A converter that raises reports the exception it swallowed.
+
+        Args:
+            monkeypatch: pytest's patcher.
+
+        Test scenario:
+            The `except` used to be silent, so a malformed origin or a fill value in
+            the axis became an undecoded coordinate with no trace of the cause.
+        """
+
+        def explode(*_args, **_kwargs):
+            raise ValueError("cannot convert")
+
+        monkeypatch.setattr(interop.cftime, "num2date", explode)
+        with pytest.warns(TimeDecodingWarning, match="cannot convert"):
+            interop._decode_time_coordinate(
+                np.array([0.0]), {"units": "hours since 2024-01-01"}, "time"
+            )
+
+    def test_a_decoded_axis_says_nothing(self):
+        """The CF fixture decodes cleanly, so no warning is emitted."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", TimeDecodingWarning)
+            NetCDF.read_file(CF_PATH).to_xarray()
+
+    def test_a_non_time_axis_says_nothing(self):
+        """A `hPa` axis is not a decoding candidate, so it is not reported."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", TimeDecodingWarning)
+            assert (
+                interop._decode_time_coordinate(
+                    np.array([1000.0]), {"units": "hPa"}, "pressure_level"
+                )
+                is None
+            )
+
+    def test_decode_times_false_says_nothing(self):
+        """Asking for the offsets deliberately is not a degradation to report."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", TimeDecodingWarning)
+            NetCDF.read_file(NOLEAP_PATH).to_xarray(decode_times=False)
+
+    def test_an_unexpected_error_is_not_swallowed(self, monkeypatch):
+        """A defect inside `num2date` propagates instead of becoming a numeric axis.
+
+        Args:
+            monkeypatch: pytest's patcher.
+
+        Test scenario:
+            The `except` was `Exception`, so an `AttributeError` from a future bug in
+            the call would have been converted into a quietly undecoded coordinate.
+        """
+
+        def explode(*_args, **_kwargs):
+            raise AttributeError("a defect, not a bad coordinate")
+
+        monkeypatch.setattr(interop.cftime, "num2date", explode)
+        with pytest.raises(AttributeError, match="a defect"):
+            interop._decode_time_coordinate(
+                np.array([0.0]), {"units": "hours since 2024-01-01"}, "time"
+            )

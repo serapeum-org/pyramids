@@ -26,6 +26,7 @@ import cftime
 import numpy as np
 from osgeo import gdal, osr
 
+from pyramids.base._errors import TimeDecodingWarning
 from pyramids.base._utils import import_xarray, numpy_to_gdal_dtype
 from pyramids.base.remote import is_remote
 from pyramids.dataset.engines._base import _Engine
@@ -385,7 +386,25 @@ def _promote_cf_non_data_arrays(
     return result
 
 
-def _decode_time_coordinate(values: Any, attrs: dict) -> Any | None:
+def _warn_not_decoded(name: str, units: Any, reason: str) -> None:
+    """Report that a CF time axis was exported as its stored offsets.
+
+    Args:
+        name: The dimension's name, or `""` when the caller did not supply one.
+        units: The CF `units` string that made the axis a decoding candidate.
+        reason: Why it was not decoded, phrased to follow "because".
+    """
+    labelled = f"{name!r} " if name else ""
+    warnings.warn(
+        f"time coordinate {labelled}declares {units!r} but was exported as stored "
+        f"offsets because {reason}. xarray's resample/.dt/groupby will not work on it; "
+        "pass decode_times=False to ask for the offsets deliberately.",
+        TimeDecodingWarning,
+        stacklevel=4,
+    )
+
+
+def _decode_time_coordinate(values: Any, attrs: dict, name: str = "") -> Any | None:
     """Decode a CF time axis' stored offsets into datetimes, or ``None`` if it is not one.
 
     A CF time coordinate is stored as numbers against an origin (``hours since
@@ -400,44 +419,75 @@ def _decode_time_coordinate(values: Any, attrs: dict) -> Any | None:
     round trip. Those axes keep their stored offsets; re-encoding them on write is the
     work that would lift that restriction.
 
+    An axis that declares CF time ``units`` and is then declined warns with
+    :class:`~pyramids.errors.TimeDecodingWarning` naming the dimension and the reason.
+    The export still degrades rather than aborting — a bad coordinate is not the
+    export's to discover — but silently not decoding left the caller meeting only the
+    consequence, an xarray error about a non-datetime index. An axis whose ``units`` are
+    not time units at all is not a candidate and says nothing.
+
     Args:
         values: The dimension's stored coordinate values.
         attrs: That dimension's CF attributes, read from the indexing variable.
+        name: The dimension's name, used only to name it in the warning.
 
     Returns:
         The decoded array, or ``None`` when the axis declares no CF time ``units``, the
         values cannot be decoded, or the decoded instants fall outside the
         ``datetime64[ns]`` range — in which case the caller keeps the raw numbers.
+
+    Warns:
+        TimeDecodingWarning: The axis declares CF time ``units`` but was left as stored
+            offsets — a non-standard calendar, an instant outside ``datetime64[ns]``, or
+            a conversion failure.
     """
     units = attrs.get("units")
     if not is_cf_time_units(units):
         return None
     calendar = attrs.get("calendar") or "standard"
+    decoded: Any = None
     try:
-        decoded = cftime.num2date(
+        converted = cftime.num2date(
             np.asarray(values), units, calendar, only_use_cftime_datetimes=False
         )
-    except Exception:
+    except (ValueError, TypeError, OverflowError) as error:
         # A malformed origin, an out-of-range offset or a fill value in the axis. The
         # export must not fail because a coordinate could not be decoded, so fall back
-        # to the raw offsets — the same degrade-rather-than-abort contract `sel` uses.
-        return None
-    array = np.asarray(decoded)
-    if not (array.size and isinstance(array.flat[0], datetime)):
-        # A non-standard calendar (`360_day`, `noleap`) decodes to `cftime` objects, an
-        # object-dtype array GDAL has no band type for: exporting it would give xarray a
-        # usable index but break the write-back round trip, which is a worse trade than
-        # leaving the offsets alone. Those axes keep their stored numbers.
-        return None
-    # `datetime64[ns]` spans 1678-09-21 to 2262-04-11 and numpy *wraps* an instant outside
-    # it rather than raising, so an unchecked cast turns `hours since 1600-01-01` into
-    # dates in 2184 with no error anywhere. Decode at microsecond resolution first, which
-    # reaches well beyond any CF axis, and hand the axis back undecoded when it will not
-    # fit. Paleo reconstructions and post-2262 climate projections are the real cases.
-    micro = array.astype("datetime64[us]")
-    if micro.min() < _NS_MIN or micro.max() > _NS_MAX:
-        return None
-    return micro.astype("datetime64[ns]")
+        # to the raw offsets -- the same degrade-rather-than-abort contract `sel` uses.
+        # Narrow on purpose: anything else raised in there is a defect of ours, and
+        # swallowing it would turn it into a quietly numeric axis with no trace of why.
+        _warn_not_decoded(name, units, f"{type(error).__name__}: {error}")
+    else:
+        array = np.asarray(converted)
+        if not (array.size and isinstance(array.flat[0], datetime)):
+            # A non-standard calendar (`360_day`, `noleap`) decodes to `cftime` objects,
+            # an object-dtype array GDAL has no band type for: exporting it would give
+            # xarray a usable index but break the write-back round trip, which is a
+            # worse trade than leaving the offsets alone. Those axes keep their numbers.
+            produced = type(array.flat[0]).__name__ if array.size else "no"
+            _warn_not_decoded(
+                name,
+                units,
+                f"it decodes to {produced} objects, which GDAL has no band type for "
+                f"(the {calendar!r} calendar, or an origin before the 1582 reform)",
+            )
+        else:
+            # `datetime64[ns]` spans 1678-09-21 to 2262-04-11 and numpy *wraps* an
+            # instant outside it rather than raising, so an unchecked cast turns `hours
+            # since 1600-01-01` into dates in 2184 with no error anywhere. Decode at
+            # microsecond resolution first, which reaches well beyond any CF axis, and
+            # hand the axis back undecoded when it will not fit. Paleo reconstructions
+            # and post-2262 climate projections are the real cases.
+            micro = array.astype("datetime64[us]")
+            if micro.min() < _NS_MIN or micro.max() > _NS_MAX:
+                _warn_not_decoded(
+                    name,
+                    units,
+                    f"{micro.min()} to {micro.max()} falls outside datetime64[ns]",
+                )
+            else:
+                decoded = micro.astype("datetime64[ns]")
+    return decoded
 
 
 def _coords_from_dimensions(
@@ -459,7 +509,9 @@ def _coords_from_dimensions(
         coord_attrs = read_cf_attributes(iv)
         raw = ds._md_array_to_numpy(iv)
         encoding: dict[str, Any] = {}
-        decoded = _decode_time_coordinate(raw, coord_attrs) if decode_times else None
+        decoded = (
+            _decode_time_coordinate(raw, coord_attrs, dim_name) if decode_times else None
+        )
         if decoded is not None:
             raw = decoded
             # The values are no longer expressed in those units, so carrying them in
