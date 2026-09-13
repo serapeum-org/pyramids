@@ -464,6 +464,26 @@ def _is_identity(op: Callable, scalar: Any) -> bool:
     return (op is operator.add and scalar == 0) or (op is operator.mul and scalar == 1)
 
 
+def _numeric_scalar(other: Real) -> Any:
+    """Narrow a real scalar to one NumPy can put in a band.
+
+    `numbers.Real` admits more than NumPy handles: a `fractions.Fraction` makes every
+    arithmetic expression resolve to an **object**-dtype array, which
+    `numpy_to_gdal_dtype` then rejects with a type table naming neither the operand nor
+    the operator. Such an operand is converted to `float`; `int`, `float` and the NumPy
+    scalar types are returned untouched, so `ds * 2` stays an integer multiply and does
+    not widen to `float64` on its way through here.
+
+    Args:
+        other: The real, non-boolean scalar operand.
+
+    Returns:
+        The scalar itself, or its `float` value when NumPy cannot type it.
+    """
+    ordinary = isinstance(other, (int, float, np.integer, np.floating))
+    return other if ordinary else float(other)
+
+
 class Dataset(RasterBase):
     """Single-band or multi-band raster dataset (GeoTIFF, etc.).
 
@@ -2230,7 +2250,8 @@ class Dataset(RasterBase):
             # while `combine` is typed for the concrete raster.
             result = self.combine(cast("Dataset", other), op)
         elif isinstance(other, Real) and not isinstance(other, bool):
-            if _is_identity(op, other):
+            scalar = _numeric_scalar(other)
+            if _is_identity(op, scalar):
                 # `ds + 0` and `ds * 1` are no-ops, so they answer with the raster
                 # unchanged -- the same short-circuit `__radd__` and `__rmul__` apply
                 # from the left. Without it the two spellings of one commutative
@@ -2246,7 +2267,7 @@ class Dataset(RasterBase):
                 # every rule `combine` already enforces -- band span, dtype width,
                 # sentinel derivation -- applies unchanged. The second array is ignored
                 # on purpose; it is there to satisfy `combine`'s two-operand shape.
-                result = self.combine(self, lambda values, _ignored: op(values, other))
+                result = self.combine(self, lambda values, _ignored: op(values, scalar))
         return result
 
     def _reflected_arithmetic(self, other: Any, op: Callable) -> Any:
@@ -2267,7 +2288,8 @@ class Dataset(RasterBase):
         """
         result: Any = NotImplemented
         if isinstance(other, Real) and not isinstance(other, bool):
-            result = self.combine(self, lambda values, _ignored: op(other, values))
+            scalar = _numeric_scalar(other)
+            result = self.combine(self, lambda values, _ignored: op(scalar, values))
         return result
 
     def __add__(self, other: Any) -> Any:

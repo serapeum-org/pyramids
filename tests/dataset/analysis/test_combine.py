@@ -10,6 +10,8 @@ from __future__ import annotations
 import inspect
 import math
 import operator
+from decimal import Decimal
+from fractions import Fraction
 from functools import reduce
 
 import numpy as np
@@ -1574,3 +1576,49 @@ class TestOneOperandIsReadOnce:
             f"the masked cell should stay masked, got {result[0, 1]}"
         )
         assert result[1, 1] == pytest.approx(8.0), f"got {result[1, 1]}"
+
+
+class TestExoticRealScalars:
+    """`numbers.Real` admits more than NumPy can type (review round-1 M2)."""
+
+    def test_a_fraction_multiplies(self):
+        """`ds * Fraction(1, 3)` computes, where it raised a GDAL type-table dump.
+
+        Test scenario:
+            NumPy resolves an expression against a `Fraction` to an object-dtype array,
+            which `numpy_to_gdal_dtype` rejects with a message naming neither the
+            operand nor the operator. Coercing to `float` first keeps the expression in
+            a dtype a band can hold.
+        """
+        result = _raster(np.full((2, 2), 6.0, "float32")) * Fraction(1, 3)
+        assert float(np.asarray(result.read_array()).mean()) == pytest.approx(2.0)
+
+    def test_a_fraction_on_the_left_divides(self):
+        """The reflected path coerces too — `Fraction(1, 2) / ds` is not special."""
+        result = Fraction(1, 2) / _raster(np.full((2, 2), 4.0, "float32"))
+        assert float(np.asarray(result.read_array()).mean()) == pytest.approx(0.125)
+
+    def test_a_zero_fraction_is_still_absorbed(self):
+        """`Fraction(0) + ds` keeps the documented identity short-circuit."""
+        source = _raster(np.full((2, 2), 6.0, "float32"))
+        assert (Fraction(0) + source).dtype == source.dtype, (
+            "an absorbed identity must not widen the band"
+        )
+
+    def test_an_integer_scalar_is_not_widened(self):
+        """`ds * 2` stays an integer multiply; the coercion touches only exotic Reals."""
+        result = _raster(np.full((2, 2), 3, "int16")) * 2
+        assert np.issubdtype(np.asarray(result.read_array()).dtype, np.integer), (
+            f"got {np.asarray(result.read_array()).dtype}"
+        )
+
+    def test_a_decimal_is_still_declined(self):
+        """`Decimal` is not a `Real`, so Python raises its own `TypeError`.
+
+        Test scenario:
+            The guard is `numbers.Real`, and `Decimal` registers as `Number` only. It
+            keeps returning `NotImplemented` so the error names the two types rather
+            than arriving from inside a raster op.
+        """
+        with pytest.raises(TypeError):
+            _raster(np.full((2, 2), 6.0, "float32")) * Decimal("0.5")

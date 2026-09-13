@@ -154,6 +154,12 @@ still raise. "Real" is `numbers.Real`, so `Fraction(0)` and every numpy float or
 int zero are absorbed while `Decimal(0)` — which registers as `Number` but not
 `Real` — is not.
 
+A `Real` NumPy cannot put in a band — a `Fraction`, say — is converted to
+`float` before it is applied, because NumPy resolves an expression against one
+to an object-dtype array that has no GDAL band type. `int`, `float` and the
+numpy scalar types are left exactly as written, so `ds * 2` stays an integer
+multiply rather than widening to `float64`.
+
 !!! warning "Three things to know before folding with `sum()`"
 
     * **`sum([])` is the integer `0`,** not a raster. A fold over a glob that
