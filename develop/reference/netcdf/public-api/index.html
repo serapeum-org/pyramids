@@ -6352,8 +6352,9 @@
 <p>A one-line map of every public member the <code>NetCDF</code> class itself defines — 65 in all: 38 methods, 20 properties,
 6 classmethods and 1 staticmethod. For the full signatures, arguments and examples, see the rendered
 <a href="../">NetCDF Class</a> reference; this page is the index you scan to find the member you want.</p>
-<p><code>NetCDF</code> extends <code>Dataset</code>, so it also inherits a further 119 public members it does not redefine — band
-handling, the COG surface, and the rest of the raster API. Those live in the
+<p><code>NetCDF</code> extends <code>Dataset</code>, so it also inherits a further 134 public members it does not redefine — band
+handling, the COG surface, and the rest of the raster API. 119 of those are declared in <code>Dataset</code>'s own body
+and the remaining 15 come from <code>RasterBase</code> above it. They live in the
 <a href="../../dataset/">Dataset reference</a>.</p>
 <p>Two object shapes share this class, and several members behave differently across them:</p>
 <ul>
@@ -6499,7 +6500,7 @@ handling, the COG surface, and the rest of the raster API. Those live in the
 </tr>
 <tr>
 <td><code>get_time_values()</code></td>
-<td>Raw, undecoded values of the time axis — the time spelling of the above.</td>
+<td>Raw, undecoded values of the time axis — <code>get_dimension_values()</code> for it.</td>
 </tr>
 <tr>
 <td><code>create_main_dimension()</code></td>

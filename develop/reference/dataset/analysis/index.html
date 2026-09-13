@@ -7057,6 +7057,12 @@ int zero are absorbed while <code>Decimal(0)</code> — which registers as <code
 to an object-dtype array that has no GDAL band type. <code>int</code>, <code>float</code> and the
 numpy scalar types are left exactly as written, so <code>ds * 2</code> stays an integer
 multiply rather than widening to <code>float64</code>.</p>
+<p><strong>A numpy scalar carries its own dtype into the result; a Python one does not.</strong>
+That is NEP 50's weak promotion, and it decides the width of the band you get:
+on a <code>float32</code> raster, <code>ds * 2</code> and <code>ds * 2.0</code> both stay <code>float32</code>, while
+<code>ds * np.float64(2)</code> comes back <code>float64</code> — twice the bytes for the same
+arithmetic. Write the plain Python spelling unless the wider band is what you
+want.</p>
 <div class="admonition warning">
 <p class="admonition-title">Three things to know before folding with <code>sum()</code></p>
 <ul>
