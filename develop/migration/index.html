@@ -7153,8 +7153,10 @@ inputs and wrapping the result with <code>from_array</code> — the step where g
 <li><code>sum(rasters)</code> works: <code>__radd__</code> absorbs the <code>0</code> that <code>sum()</code> seeds with, returning a copy so a one-element
   sum never aliases its input. Absorption is symmetric and is not limited to the integer seed — adding any real
   scalar equal to zero, or multiplying by any equal to one, short-circuits to a copy on <strong>either</strong> side, so
-  <code>ds + 0</code>, <code>0.0 + ds</code> and <code>ds * 1</code> are copies too. That is what keeps the two spellings of one commutative
-  expression from disagreeing: routed through <code>combine</code>, <code>ds + 0.0</code> would widen an <code>int16</code> band to <code>float64</code>
+  <code>ds + 0</code>, <code>0.0 + ds</code> and <code>ds * 1</code> are copies too. <code>ds - 0</code> is absorbed as well, on the right only — <code>0 - ds</code>
+  negates. <code>ds / 1</code> is not: true division widens an integer band to <code>float64</code>, so it is no no-op. Absorption
+  is what keeps the two spellings of one commutative expression from disagreeing: routed through
+  <code>combine</code>, <code>ds + 0.0</code> would widen an <code>int16</code> band to <code>float64</code>
   where <code>0.0 + ds</code> is byte-identical, and <code>ds + 0</code> would drop the band's declared sentinel. Every other scalar
   computes through <code>combine</code>, so <code>1 + ds</code> returns a raster rather than raising. The copy is a real cost:
   <code>sum()</code> and <code>math.prod()</code> each materialise one extra full raster that <code>functools.reduce(operator.add,
