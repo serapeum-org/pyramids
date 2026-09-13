@@ -230,6 +230,7 @@ nav:
       - Command line: reference/cog/cli.md
     - NetCDF:
       - NetCDF Class: reference/netcdf/index.md
+      - Public API: reference/netcdf/public-api.md
       - Plotting: reference/netcdf/plot.md
       - Data Models: reference/netcdf/models.md
       - Metadata: reference/netcdf/metadata.md
