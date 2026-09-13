@@ -407,7 +407,7 @@ class DtypeNarrowingWarning(UserWarning):
 
 
 class TimeDecodingWarning(UserWarning):
-    """Pyramids-emitted warning that a CF time axis was exported as raw offsets.
+    """Pyramids-emitted warning that a CF time axis kept, or lost, its stored units.
 
     Emitted by :meth:`pyramids.netcdf.NetCDF.to_xarray` when a dimension declares CF
     time `units` that it then declines to decode. The export degrades rather than
@@ -429,7 +429,14 @@ class TimeDecodingWarning(UserWarning):
 
     The axis keeps its stored numbers and its `units` / `calendar` attributes in every
     case, so nothing is lost; pass `decode_times=False` to ask for that deliberately and
-    silence this::
+    silence this.
+
+    :meth:`pyramids.netcdf.NetCDF.from_xarray` emits it on the way back for the mirror
+    case: an array whose `encoding` names CF `units` that `cftime` will not encode into
+    -- an unknown calendar, a unit it does not count in, an unparseable origin -- or
+    that holds no instant to anchor on. That array is written against the 1970 epoch
+    instead, so the instants survive and the stored offsets and units do not. Silence
+    either with::
 
         import warnings
         from pyramids.errors import TimeDecodingWarning

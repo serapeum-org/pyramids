@@ -645,3 +645,73 @@ class TestTheFacadeSignature:
         """`to_xarray("auto")` keeps working — the spelled-out signature is compatible."""
         exported = NetCDF.read_file(CF_PATH).to_xarray("auto")
         assert exported["temperature"].chunks is not None
+
+
+class TestTheEpochFallbackIsReported:
+    """A write that could not use the declared units says so (round-2 M3)."""
+
+    def test_an_unusable_calendar_warns(self):
+        """An encoding `cftime` refuses is reported, not silently rebased.
+
+        Test scenario:
+            The write is the side that changes a file: the caller asked for one epoch
+            and another went to disk. The decode side already warns; this one did not.
+        """
+        values = np.array(["2024-01-01T00"], dtype="datetime64[ns]")
+        with pytest.warns(TimeDecodingWarning, match="calendar must be one of"):
+            interop._encode_temporal_array(
+                values, {"units": "hours since 2024-01-01", "calendar": "bogus"}, "time"
+            )
+
+    def test_the_warning_names_the_array_and_both_units(self):
+        """The message carries the name, the units asked for and the epoch used."""
+        values = np.array(["2024-01-01T00"], dtype="datetime64[ns]")
+        with pytest.warns(TimeDecodingWarning) as caught:
+            interop._encode_temporal_array(
+                values, {"units": "fortnights since 2024-01-01"}, "time"
+            )
+        message = str(caught[0].message)
+        assert "'time'" in message, f"got {message}"
+        assert "fortnights since 2024-01-01" in message, f"got {message}"
+        assert "seconds since 1970-01-01" in message, f"got {message}"
+
+    def test_an_all_missing_axis_warns(self):
+        """With every instant `NaT` there is nothing to anchor on, and that is reported."""
+        values = np.array(["NaT", "NaT"], dtype="datetime64[ns]")
+        with pytest.warns(TimeDecodingWarning, match="NaT"):
+            interop._encode_temporal_array(
+                values, {"units": "hours since 2024-01-01"}, "time"
+            )
+
+    def test_a_usable_encoding_says_nothing(self):
+        """The ordinary path is silent — only the fallback is worth reporting."""
+        values = np.array(["2024-01-01T00"], dtype="datetime64[ns]")
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", TimeDecodingWarning)
+            interop._encode_temporal_array(
+                values, {"units": "hours since 2024-01-01"}, "time"
+            )
+
+    def test_no_encoding_at_all_says_nothing(self):
+        """An array that never declared units has nothing to fall back from."""
+        values = np.array(["2024-01-01T00"], dtype="datetime64[ns]")
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", TimeDecodingWarning)
+            interop._encode_temporal_array(values)
+
+    def test_an_unexpected_error_is_not_swallowed(self, monkeypatch):
+        """A defect inside `date2num` propagates rather than rebasing the axis.
+
+        Args:
+            monkeypatch: pytest's patcher.
+        """
+
+        def explode(*_args, **_kwargs):
+            raise AttributeError("a defect, not a bad encoding")
+
+        monkeypatch.setattr(interop.cftime, "date2num", explode)
+        values = np.array(["2024-01-01T00"], dtype="datetime64[ns]")
+        with pytest.raises(AttributeError, match="a defect"):
+            interop._encode_temporal_array(
+                values, {"units": "hours since 2024-01-01"}, "time"
+            )

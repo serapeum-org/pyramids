@@ -930,8 +930,30 @@ def from_xarray(
     return result
 
 
+def _warn_not_encoded(name: str, units: Any, reason: str) -> None:
+    """Report that a time array was written against the epoch, not its declared units.
+
+    The write is the side that changes a file, so a silent fallback here is worse than
+    the decode-side one it mirrors: the caller asked for one epoch and another was put
+    on disk, with the instants intact but the axis rebased.
+
+    Args:
+        name: The array's name, or `""` when the caller did not supply one.
+        units: The CF `units` the array's encoding declared.
+        reason: Why they could not be used, phrased to follow "because".
+    """
+    labelled = f"{name!r} " if name else ""
+    warnings.warn(
+        f"time array {labelled}declares {units!r} in its encoding but was written as "
+        f"{cf_epoch_units('seconds')!r} because {reason}. The instants are unchanged; "
+        "the stored offsets and units are not.",
+        TimeDecodingWarning,
+        stacklevel=5,
+    )
+
+
 def _encode_in_declared_units(
-    values: np.ndarray, units: str, calendar: str
+    values: np.ndarray, units: str, calendar: str, name: str = ""
 ) -> np.ndarray | None:
     """Encode datetime64 values back into the CF ``units`` they were decoded from.
 
@@ -939,33 +961,50 @@ def _encode_in_declared_units(
         values: A `datetime64` array.
         units: The CF time units to encode into, e.g. `"hours since 2024-01-01"`.
         calendar: The CF calendar those units are counted in.
+        name: The array's name, used only to name it in the warning.
 
     Returns:
         The float64 offsets in `units` (`NaN` where the input was `NaT`), or `None`
         when the array carries no valid instant to anchor on or `cftime` refuses the
         units — in which case the caller falls back to the epoch encoding.
+
+    Warns:
+        TimeDecodingWarning: The declared units could not be used, so the caller will
+            write the array against the 1970 epoch instead.
     """
     as_us = values.astype("datetime64[us]")
     flat = as_us.ravel()
     missing = np.isnat(flat)
+    result: np.ndarray | None = None
     if missing.all():
-        return None
-    instants = flat.astype(object)
-    # `date2num` has no notion of a missing instant, so the `NaT` slots are handed a
-    # real one to encode and overwritten with `NaN` afterwards.
-    instants = np.where(missing, instants[~missing][0], instants)
-    try:
-        numbers = np.asarray(
-            cftime.date2num(instants.tolist(), units, calendar), dtype="float64"
+        _warn_not_encoded(
+            name,
+            units,
+            "every instant is NaT, leaving nothing to anchor the offsets on",
         )
-    except Exception:
-        return None
-    numbers[missing] = np.nan
-    return numbers.reshape(values.shape)
+    else:
+        instants = flat.astype(object)
+        # `date2num` has no notion of a missing instant, so the `NaT` slots are handed a
+        # real one to encode and overwritten with `NaN` afterwards.
+        instants = np.where(missing, instants[~missing][0], instants)
+        try:
+            numbers = np.asarray(
+                cftime.date2num(instants.tolist(), units, calendar), dtype="float64"
+            )
+        except (ValueError, TypeError, OverflowError) as error:
+            # An unknown calendar, a unit `cftime` does not count in, a units string
+            # with no `since`, an unparseable origin. Narrow on purpose, for the reason
+            # the decode side gives: anything else raised in there is a defect, and
+            # swallowing it would rebase the axis with no trace of the cause.
+            _warn_not_encoded(name, units, f"{type(error).__name__}: {error}")
+        else:
+            numbers[missing] = np.nan
+            result = numbers.reshape(values.shape)
+    return result
 
 
 def _encode_temporal_array(
-    values: np.ndarray, encoding: dict[str, Any] | None = None
+    values: np.ndarray, encoding: dict[str, Any] | None = None, name: str = ""
 ) -> tuple[np.ndarray, dict[str, Any]]:
     """Encode datetime64/timedelta64 arrays to CF-numeric seconds (GDAL has no datetime dtype).
 
@@ -988,6 +1027,7 @@ def _encode_temporal_array(
         values: The raw coordinate / variable array.
         encoding: The xarray `encoding` of the array, if any. A CF `units` key (with an optional
             `calendar`) is encoded back into; anything else is ignored.
+        name: The array's name, used only to name it if the declared units cannot be used.
 
     Returns:
         A `(encoded_values, cf_attrs)` pair. For a non-temporal array the values are returned unchanged
@@ -1000,7 +1040,7 @@ def _encode_temporal_array(
         if is_cf_time_units(declared):
             stated_calendar = (encoding or {}).get("calendar")
             offsets = _encode_in_declared_units(
-                values, str(declared), stated_calendar or "standard"
+                values, str(declared), stated_calendar or "standard", name
             )
             if offsets is not None:
                 # An undeclared calendar stays undeclared: `standard` is the CF
@@ -1128,7 +1168,9 @@ def _write_data_var(
         shape = tuple(var_values.shape)
         write_dtype = dtype
     else:
-        values, cf_attrs = _encode_temporal_array(np.asarray(var_values), var_encoding)
+        values, cf_attrs = _encode_temporal_array(
+            np.asarray(var_values), var_encoding, var_name
+        )
         shape = values.shape
         write_dtype = values.dtype
     expected = tuple(dims[d] for d in var_dims)
@@ -1393,7 +1435,7 @@ def _build_multidim(
             continue
         coord_values, coord_attrs, coord_encoding = _coord_entry(coord_spec)
         values, cf_attrs = _encode_temporal_array(
-            np.asarray(coord_values), coord_encoding
+            np.asarray(coord_values), coord_encoding, coord_name
         )
         if values.shape != (dims[coord_name],):
             raise ValueError(
@@ -1730,7 +1772,7 @@ def _build_streaming_multidim(
             continue
         coord_values, coord_attrs, coord_encoding = _coord_entry(coord_spec)
         values, cf_attrs = _encode_temporal_array(
-            np.asarray(coord_values), coord_encoding
+            np.asarray(coord_values), coord_encoding, coord_name
         )
         if values.shape != (dims[coord_name],):
             raise ValueError(
