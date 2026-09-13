@@ -406,19 +406,23 @@ inputs and wrapping the result with `from_array` — the step where georeferenci
   it, and one that masked nothing declares **no** sentinel at all. A **floating** result always declares `NaN`:
   a cell `func` computed as `NaN` (`0/0` in a normalised difference) has no value, so it is a gap and the result
   says so. Pass `no_data_value=` to choose one, or `no_data_value=None` for no masking.
-- `sum(rasters)` works: `__radd__` absorbs the integer `0` that `sum()` seeds with, returning a copy so a
-  one-element sum never aliases its input. Only that exact integer seed short-circuits — every other scalar
-  computes through `combine`, so `1 + ds` returns a raster rather than raising. That copy is a real cost: `sum()`
-  and `math.prod()` each materialise one extra full raster that `functools.reduce(operator.add, rasters)` does
-  not, which matters near the memory limit.
+- `sum(rasters)` works: `__radd__` absorbs the `0` that `sum()` seeds with, returning a copy so a one-element
+  sum never aliases its input. Absorption is symmetric and is not limited to the integer seed — adding any real
+  scalar equal to zero, or multiplying by any equal to one, short-circuits to a copy on **either** side, so
+  `ds + 0`, `0.0 + ds` and `ds * 1` are copies too. That is what keeps the two spellings of one commutative
+  expression from disagreeing: routed through `combine`, `ds + 0.0` would widen an `int16` band to `float64`
+  where `0.0 + ds` is byte-identical, and `ds + 0` would drop the band's declared sentinel. Every other scalar
+  computes through `combine`, so `1 + ds` returns a raster rather than raising. The copy is a real cost:
+  `sum()` and `math.prod()` each materialise one extra full raster that `functools.reduce(operator.add,
+  rasters)` does not, which matters near the memory limit.
 - `combine` is whole-array: both operands are read in full. For rasters near the memory limit use
   `apply(elementwise=True)` or `read_array(chunks=)`.
 - The module-private `_same_grid` helper in `pyramids.dataset.dataset` moved to `Spatial.same_grid`, faced on
   `Dataset`. It was never public, but anyone importing it directly must switch to `a.same_grid(b)`.
-- `<`, `<=`, `>` and `>=` between two rasters return a Byte mask (`1`/`0`, and `255` wherever either operand was
-  no-data). `==` and `!=` are **not** overridden — they stay identity-based, so `Dataset` remains usable in
+- `<`, `<=`, `>` and `>=` between two rasters, or between a raster and a real scalar, return a Byte mask
+  (`1`/`0`, and `255` wherever either operand was no-data). `==` and `!=` are **not** overridden — they stay identity-based, so `Dataset` remains usable in
   `assert`, in sets and as a dict key; use `a.combine(b, np.equal)` for the mask.
-- `math.prod(rasters)` folds like `sum(rasters)`; both absorb their identity scalar from the left only, and
+- `math.prod(rasters)` folds like `sum(rasters)`; both absorb their identity scalar from either side, and
   compute for every other scalar.
 
 **`bool(ds)` now raises — replace `if ds:` with `if ds is not None:`.** Hard change. A raster holds one value per
