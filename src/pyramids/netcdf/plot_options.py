@@ -35,7 +35,7 @@ Examples:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 
 @dataclass(frozen=True)
@@ -65,6 +65,14 @@ class Selectors:
             converted to the corresponding coord value via the
             variable's band-dim coord map; dims without coord values
             receive the int unchanged. Defaults to None.
+        method: How the selectors above are matched — ``None`` (the
+            default) exactly, or ``"nearest"`` to snap to the closest
+            coordinate on the axis. It applies only to the dims whose
+            selector is **numeric**: a date label already names a
+            period, so a dim pinned by label stays exact and the two
+            can be combined in one call (pin a time label, snap a
+            level). ``"nearest"`` still rejects a slice, which is a
+            range with no nearest value. Defaults to None.
 
     Examples:
         - The default constructor produces an all-``None`` instance
@@ -92,6 +100,28 @@ class Selectors:
 
             ```
 
+        - Ask for the level nearest a target rather than an exact one:
+
+            ```python
+            >>> from pyramids.netcdf.plot_options import Selectors
+            >>> sel = Selectors(level=900, method="nearest")
+            >>> sel.method
+            'nearest'
+
+            ```
+
+        - An unknown matching mode is refused at construction, not
+          part-way through a render:
+
+            ```python
+            >>> from pyramids.netcdf.plot_options import Selectors
+            >>> Selectors(level=900, method="pad")
+            Traceback (most recent call last):
+                ...
+            ValueError: Selectors method must be None (exact) or 'nearest', got 'pad'.
+
+            ```
+
         - Frozen instances reject attribute assignment so the option
           bag stays stable after construction:
 
@@ -113,6 +143,20 @@ class Selectors:
     member: Any = None
     sel: dict[str, Any] | None = None
     isel: dict[str, int] | None = None
+    method: Literal["nearest"] | None = None
+
+    def __post_init__(self) -> None:
+        """Reject an unknown ``method`` where the caller typed it, not mid-render.
+
+        Raises:
+            ValueError: ``method`` is neither ``None`` nor ``"nearest"``. The wording
+                matches :meth:`NetCDF.sel`'s own guard, which would otherwise be the
+                first thing to complain — several frames into the plot.
+        """
+        if self.method not in (None, "nearest"):
+            raise ValueError(
+                f"Selectors method must be None (exact) or 'nearest', got {self.method!r}."
+            )
 
 
 @dataclass(frozen=True)

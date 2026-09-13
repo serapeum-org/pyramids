@@ -41,7 +41,7 @@ from pyramids.netcdf import NetCDF, Selectors, CoordinateSpec, FacetSpec
 nc = NetCDF.read_file("era5.nc")
 
 # pick a variable, select along non-spatial dims, labeled-array-style colour kwargs
-nc.plot("t2m", selectors=Selectors(time="2020-01-01", level=850),
+nc.plot("t2m", selectors=Selectors(time="2020-01-01 12:00:00", level=850),
         cmap="coolwarm", robust=True)
 
 # curvilinear (WRF) grid -> pcolormesh, faceted over time
@@ -60,7 +60,7 @@ animate=None, chunks=None, basemap=None, exclude_value=None, title=None, **kwarg
 | Parameter   | Type                                | Notes |
 |-------------|-------------------------------------|-------|
 | `variable`  | `str`, optional                     | Variable to plot; defaults to the dataset's single / active variable. |
-| `selectors` | `Selectors`, optional               | Slice along non-spatial dimensions — `time=`, `level=`, `member=`, plus generic `sel=` / `isel=`. |
+| `selectors` | `Selectors`, optional | Pin non-spatial dims: `time=`, `level=`, `member=`, `sel=`, `isel=`, `method=` |
 | `facet`     | `FacetSpec`, optional               | Small-multiples grid — `col=`, `row=`, `col_wrap=`. |
 | `axes`      | `CoordinateSpec`, optional          | Curvilinear coords / dimension names — `coords=(x_2d, y_2d)` (-> `pcolormesh`), `x_dim=`, `y_dim=`. Auto-detected from CF / WRF / ROMS / NEMO when omitted. |
 | `kind`      | `str`, optional                     | `"auto"`, `"imshow"`, `"pcolormesh"`, `"contour"`, `"contourf"`. |
@@ -68,6 +68,15 @@ animate=None, chunks=None, basemap=None, exclude_value=None, title=None, **kwarg
 | `chunks`    | `dict`, optional                    | Dask chunking — switches to a lazy read; only the rendered slice / frame is materialised. Requires the `[lazy]` extra. |
 | `basemap`   | `bool` or `str`, optional           | Overlay a web-tile basemap (provider name as a string, e.g. `"CartoDB.Positron"`). Requires the `[viz]` extra. |
 | `**kwargs`  |                                     | Colour, exactly as `Dataset.plot`: loose kwargs (`cmap`, `vmin`, `vmax`, `robust`, `center`, `extend`, `levels`, `norm`) + cleopatra bags `colorbar=` (`ColorBar(...)` / `False`), `color=`, `contour=`, `cells=`, `data_style=`; plus `ax`, `figsize`. |
+
+`Selectors` forwards its selectors to `NetCDF.sel`, so they take the same two vocabularies: a `time=`
+selector may be the stored CF offset or a decoded date label. A label names a period, so its precision
+decides how much it pins — `"2020-01-01 12:00:00"` is one step, `"2020-01-01"` the whole day, `"2020-01"`
+the whole month. `get_time_variable()` reports date-only labels unless asked for a finer
+`time_format`, so pass `"%Y-%m-%d %H:%M:%S"` when you need a label that pins a single slice.
+`method="nearest"` snaps each **numeric** selector to the closest coordinate on its axis; label
+selectors on other dims are unaffected and stay exact.
+See [Dimension coordinates and selection](index.md#dimension-coordinates-and-selection).
 
 The GeoTIFF-only kwargs `band`, `rgb`, `surface_reflectance`, `cutoff`, `percentile`, `overview`,
 and `overview_index` are **not** accepted on `NetCDF.plot` — passing any of them raises `TypeError`

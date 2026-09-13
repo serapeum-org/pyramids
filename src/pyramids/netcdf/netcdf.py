@@ -3059,7 +3059,7 @@ class NetCDF(Dataset):
         The public surface is shaped around **variables** and **dimensions** — ``band``
         is not a NetCDF concept and has been removed from the signature. Variable
         selection is by name; the slice to render is pinned via a :class:`Selectors`
-        option bag (``time`` / ``level`` / ``member`` / ``sel`` / ``isel``); multi-panel
+        option bag (``time`` / ``level`` / ``member`` / ``sel`` / ``isel`` / ``method``); multi-panel
         layout is described by a :class:`FacetSpec` bag (``col`` / ``row`` / ``col_wrap``);
         and the spatial-axis interpretation by a :class:`CoordinateSpec` bag (``coords`` /
         ``x_dim`` / ``y_dim``). Each is a frozen dataclass — construct it inline at the call
@@ -6691,6 +6691,8 @@ class NetCDF(Dataset):
         var_name: str,
         raw_values: list[Any],
         time_format: str = "%Y-%m-%d",
+        *,
+        strict: bool = True,
     ) -> list[str] | None:
         """Decode already-read raw time values into formatted date strings.
 
@@ -6710,6 +6712,11 @@ class NetCDF(Dataset):
             raw_values: The raw coordinate values to decode (one per frame).
             time_format: strftime format for the output strings. Defaults to
                 ``"%Y-%m-%d"``.
+            strict: When ``True`` (the default) a coordinate value the converter
+                cannot handle propagates, so a malformed axis is not hidden behind
+                raw labels. When ``False`` it returns ``None`` instead, which is what
+                a selection needs: an axis that cannot be decoded simply has no labels
+                and the stored-value path still answers.
 
         Returns:
             list[str] or None: One formatted string per value, or ``None`` when no
@@ -6741,10 +6748,22 @@ class NetCDF(Dataset):
                 # None" contract and matching the pre-#1013 subset behaviour.
                 labels = None
                 continue
-            # The value conversion runs outside the guard, so a genuinely malformed
-            # coordinate value surfaces as an error rather than being hidden behind
-            # a silent raw-label fallback.
-            labels = [func(value) for value in raw_values]
+            # By default the value conversion runs outside the guard, so a genuinely
+            # malformed coordinate value surfaces as an error rather than being hidden
+            # behind a silent raw-label fallback. `strict=False` is for a *selection*,
+            # where a value the converter chokes on means "this axis has no labels" and
+            # the stored-value path can still answer — a `_FillValue`, an infinity or an
+            # out-of-range offset must not abort the caller's `sel`. The converters fail
+            # in several ways (`ValueError`, `OverflowError`, and `AttributeError` out of
+            # cftime), so the non-strict arm catches broadly; the metadata resolution
+            # above stays unguarded either way.
+            if strict:
+                labels = [func(value) for value in raw_values]
+            else:
+                try:
+                    labels = [func(value) for value in raw_values]
+                except Exception:
+                    labels = None
             break
         return labels
 
@@ -6791,7 +6810,9 @@ class NetCDF(Dataset):
 
         Returns:
             numpy.ndarray or None: The raw coordinate values, or ``None`` when
-            the store has no such dimension.
+            the store has no such dimension. On a variable subset the values are
+            that view's own — a time-subsetted cube reports the steps it kept, not
+            the source file's whole axis.
 
         Examples:
             - Raw 3-hourly offsets of the NWM retrospective cube (needs the
@@ -6799,11 +6820,105 @@ class NetCDF(Dataset):
 
                 >>> nc.get_time_values("time")[:3]  # doctest: +SKIP
                 array([0, 3, 6])
+
+        See Also:
+            `get_dimension_values`: the same read for any dimension — this method is
+                the time-axis spelling of it.
         """
+        return self.get_dimension_values(var_name)
+
+    def get_dimension_values(self, name: str) -> np.typing.NDArray | None:
+        """Stored coordinate values of any dimension, or ``None`` if it has none.
+
+        The general form of :meth:`get_time_values` — the accessor for a *non-spatial,
+        non-time* axis (``level``, ``depth``, ``member``, …), whose values were
+        previously reachable only through the optional `to_xarray` bridge or by
+        provoking `sel`'s "Available values" error.
+
+        Answers from whichever source the receiver has:
+
+        * On a **variable subset** (what :meth:`get_variable` returns) a band dimension
+          is answered from the subset's own band-dim coordinates, so after a
+          :meth:`sel` the values reflect what that view actually holds — which is how a
+          `sel(..., method="nearest")` caller reads back the coordinate it snapped to.
+        * On a **root container** the coordinate variable is read from the store, for
+          any dimension it declares. A subset asked for a dimension it does not track —
+          its spatial axes — has no coordinate variable to read and answers ``None``;
+          those come from the geotransform (:meth:`get_x_lon_dimension_array`).
+
+        Values are the **stored** ones, matching what :meth:`sel` matches against and what
+        ``to_xarray().coords`` reports for the same file. A CF time axis is therefore raw
+        offsets; :meth:`get_time_variable` decodes the same axis to date strings.
+
+        Storage order is also the *array* order, which for a **spatial** axis need not be
+        the raster's. Pyramids presents rasters north-up, but a south-to-north file stores
+        its latitudes ascending, so ``get_dimension_values("lat")`` comes back
+        ``[40, 41, …, 44]`` while :meth:`read_array`'s row 0 is the lat-44 row. Do not
+        index raster rows with this — :meth:`get_y_lat_dimension_array` builds the row
+        centres from the geotransform, in raster order. The values here answer "what does
+        this file store", which is the question :meth:`sel` and the CF metadata ask.
+
+        Args:
+            name: Dimension name, as listed by :attr:`dimension_names` /
+                :attr:`dimension_sizes` (e.g. ``"level"``).
+
+        Returns:
+            numpy.ndarray or None: The coordinate values in storage order, or ``None``
+            when the dataset has no such dimension or it carries no coordinate variable.
+            One caveat on a variable subset: a band dimension whose indexing variable
+            cannot be read at all is tracked as the placeholder ``[0, 1, …, size - 1]``
+            and comes back here as those integers rather than as ``None``. They are also
+            what :meth:`sel` matches against on such an axis, so the two agree; they are
+            just not the file's own labels.
+
+        Examples:
+            - Read the pressure levels of a 4-D cube, then the levels one `sel` kept::
+
+                >>> nc.get_dimension_values("level")  # doctest: +SKIP
+                array([1000.,  925.,  850.,  700.])
+                >>> nc.get_variable("rhum").sel(level=850).get_dimension_values("level")  # doctest: +SKIP
+                array([850.])
+
+        See Also:
+            `get_time_variable`: decodes a CF time axis to date strings.
+            `sel`: selects bands by these values.
+        """
+        tracked = self._band_dim_values_map.get(name)
         names = self.dimension_names
-        if names is None or var_name not in names:
-            return None
-        return self._read_variable(var_name)
+        values: np.typing.NDArray | None
+        if tracked is not None:
+            values = np.asarray(tracked)
+        elif names is not None and name in names:
+            values = self._read_dimension_coordinates(name)
+        else:
+            values = None
+        return values
+
+    def _read_dimension_coordinates(self, name: str) -> np.typing.NDArray | None:
+        """Read one dimension's coordinate variable, string-typed axes included.
+
+        `_read_variable` goes through `ReadAsArray`, which the GDAL SWIG bindings refuse
+        for a character array — a WRF `Times` axis raised `RuntimeError: String buffer
+        data type not supported` straight out of the accessor. The list-based `Read()`
+        path handles those, and is the one `to_xarray` already uses for the same axes, so
+        falling back to it keeps the two reporting the same coordinates.
+
+        Args:
+            name: Dimension name, already known to be one this dataset declares.
+
+        Returns:
+            numpy.ndarray or None: The coordinate values, or `None` when the dimension
+            has no indexing variable to read.
+        """
+        try:
+            values = self._read_variable(name)
+        except RuntimeError:
+            dim = self._get_dimension(name)
+            indexing_var = None if dim is None else dim.GetIndexingVariable()
+            values = (
+                None if indexing_var is None else self._md_array_to_numpy(indexing_var)
+            )
+        return values
 
     def _get_dimension_names(self) -> list[str] | None:
         """Return all dimension names, in storage order.
@@ -8566,15 +8681,21 @@ class NetCDF(Dataset):
         """Indexing-variable values for a band dimension, or integer indices when unreadable.
 
         String-typed indexing variables (e.g. WRF `Times`) cannot be read via `ReadAsArray` in the
-        GDAL SWIG bindings, so they fall back to `[0, 1, ..., size - 1]`.
+        GDAL SWIG bindings; the list-based `Read()` path handles those, and is the one the container
+        accessor and `to_xarray` use, so a subset reports the same coordinates as its container.
+        `[0, 1, ..., size - 1]` remains only when that read fails too.
         """
         indexing_var = dim.GetIndexingVariable()
         if indexing_var is None:
             return None
         try:
-            return indexing_var.ReadAsArray().tolist()
+            values = indexing_var.ReadAsArray().tolist()
         except RuntimeError:
-            return list(range(dim.GetSize()))
+            try:
+                values = NetCDF._md_array_to_numpy(indexing_var).tolist()
+            except Exception:
+                values = list(range(dim.GetSize()))
+        return values
 
     @staticmethod
     def _copy_variable_attrs(cube: NetCDF, md_arr) -> None:

@@ -77,6 +77,61 @@ classDiagram
     note for Variable "band_count >= 1 · one raster variable"
 ```
 
+## Dimension coordinates and selection
+
+`dimension_names` / `dimension_sizes` name a cube's axes; `get_dimension_values(name)` reads the
+coordinate values of any one of them — the vertical, ensemble or other non-spatial axis included,
+which previously had no native accessor:
+
+```python
+nc = NetCDF.read_file("rhum.nc")
+nc.dimension_sizes                    # {'lon': 72, 'lat': 37, 'level': 4, 'time': 12}
+nc.get_dimension_values("level")      # array([1000.,  925.,  850.,  700.])
+```
+
+The values are the **stored** ones — the same array `to_xarray().coords` reports, without needing the
+optional xarray extra. For a **spatial** axis that is not necessarily the raster's order: pyramids
+presents rasters north-up, so on a south-to-north file `get_dimension_values("lat")` ascends while
+`read_array()`'s row 0 is the northernmost row. Use `get_y_lat_dimension_array` when you want to index
+rows; use this when you want to know what the file holds.
+
+Whatever the axis, these are the values `sel` selects on. A CF time axis is stored as raw offsets;
+`get_time_variable()` decodes the same axis to date strings, and `sel` accepts either vocabulary:
+
+```python
+var = nc.get_variable("rhum")
+
+var.sel(level=850)                            # exact stored value
+var.sel(level=900, method="nearest")          # snap to the closest level (925)
+var.sel(time="2024-01-01 12:00:00")           # a full-precision label pins one step
+var.sel(time="2024-01")                       # a partial label takes the whole month
+var.sel(time=slice("2024-01-01", "2024-01-03"))
+```
+
+A label names a **period**, not an instant, so its precision decides how much it selects. That matters
+when the label comes from `get_time_variable()`: its default `time_format` is `"%Y-%m-%d"`, so feeding
+one of those labels straight back keeps every step of that day. Ask for the finer format when you want
+one step:
+
+```python
+nc.get_time_variable("time")[1]                       # '2024-01-01'  -> the whole day
+nc.get_time_variable("time", "%Y-%m-%d %H:%M:%S")[1]  # '2024-01-01 06:00:00'  -> one step
+```
+
+`method="nearest"` snaps each requested value to the closest coordinate on its axis, so a caller can
+ask for "the level nearest 100 m" without knowing the axis values up front. It needs a numeric
+selector — a slice has no nearest value, and a date label already names a period. Read back the
+coordinate it chose with `get_dimension_values` on the result:
+
+```python
+pinned = var.sel(level=900, method="nearest")
+pinned.get_dimension_values("level")   # array([925.])
+```
+
+Both vocabularies reach `NetCDF.plot` through `Selectors`; `method="nearest"` is the extra knob
+for the numeric one, and applies only to the dims whose selector is numeric, so a date label on
+another dim stays exact in the same call.
+
 ## Lazy / Dask reads
 
 Every NetCDF entry point has a lazy variant that keeps memory bounded

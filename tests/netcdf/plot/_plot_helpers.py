@@ -1,4 +1,11 @@
-"""Shared in-memory NetCDF builders and render side-effects for the plot tests."""
+"""Shared in-memory NetCDF builders and render side-effects for the plot tests.
+
+Note on time coordinates: `NetCDF.from_array` writes no CF `units` on a dimension, so
+the cubes built here have no decodable time axis. A string time coordinate on one of
+them is matched as a **stored value**, by exact string comparison — not as a decoded CF
+date label. Tests that need the label path proper use an on-disk fixture whose `units`
+parse (e.g. `tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc`).
+"""
 
 from __future__ import annotations
 

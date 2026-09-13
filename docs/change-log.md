@@ -5,51 +5,51 @@
 
 ### BREAKING CHANGE
 
-- get_variable and variables[name] return a                                                             
-  LabeledArray instead of a gdal.MDArray for a variable with no raster                                                   
-  plane. Replace ReadAsArray() with .values, GetDimensions() with                                                        
-  .dims / .shape, GetUnit() with .unit, GetNoDataValueAsDouble() with                                                    
-  .no_data_value and GetScale() / GetOffset() with .scale / .offset.                                                     
-  crop_variable, reproject_variable, resample_variable,                                                                  
-  plot(variable=) and open_mfdataset(variable=) raise ValueError for                                                     
-  such a variable instead of AttributeError. A compound variable with a                                                  
-  string field raises ValueError, since GDAL's Python bindings cannot                                                    
-  read it. The array behind variables[name] is read-only; take .copy()                                                   
+- get_variable and variables[name] return a  
+  LabeledArray instead of a gdal.MDArray for a variable with no raster  
+  plane. Replace ReadAsArray() with .values, GetDimensions() with  
+  .dims / .shape, GetUnit() with .unit, GetNoDataValueAsDouble() with  
+  .no_data_value and GetScale() / GetOffset() with .scale / .offset.  
+  crop_variable, reproject_variable, resample_variable,  
+  plot(variable=) and open_mfdataset(variable=) raise ValueError for  
+  such a variable instead of AttributeError. A compound variable with a  
+  string field raises ValueError, since GDAL's Python bindings cannot  
+  read it. The array behind variables[name] is read-only; take .copy()  
   to modify it
 
 ### Fix
 
 - **dataset,netcdf**: unpack CF-packed data by default, on one keyword (#1130)
 - **netcdf**: materialise a non-raster variable instead of leaking a gdal.MDArray (#1131)
-- **netcdf**: materialise a non-raster variable instead of leaking a gdal.MDArray                                      
-                                                                                                                         
-  get_variable returned the raw gdal.MDArray whenever GDAL could not                                                     
-  expose a variable as a raster plane -- a 1-D array, or a string or                                                     
-  compound one. That handle has none of pyramids' API, and its Read()                                                    
-  returns an undecoded buffer for numeric data, so the only route to                                                     
-  the values was ReadAsArray(): raw osgeo in a package meant to hide it.                                                 
-                                                                                                                         
-  - return a LabeledArray, carrying the values with their dims, shape,                                                   
-    name, unit, no_data_value, scale, offset and attributes                                                              
-  - read each dtype class with the reader it needs: strings via Read()                                                   
-    into object (a NULL entry stays None), numeric and compound via                                                      
-    ReadAsArray(); build an empty array for a zero-length extent, and                                                    
-    keep a 64-bit integer fill value exact                                                                               
-  - correct the return annotation to NetCDF | LabeledArray and route the                                                 
-    raster-only callers through _require_raster_variable, which refuses                                                  
-    a non-raster variable by name instead of raising AttributeError                                                      
-  - decide raster-ness from the array's declaration, not by reading it,                                                  
-    so a CRS lookup no longer materialises a large non-raster array                                                      
-  - carry a string or compound array on (y, x) as an auxiliary rather                                                    
-    than refusing the whole container crop, to_crs or reduce                                                             
-  - drop an auxiliary the carry cannot write instead of failing the                                                      
-    operation or leaving an empty array behind, and keep a string                                                        
-    auxiliary's unit and spatial reference                                                                               
-  - reuse the resolved values in read_array, reading once rather than                                                    
-    twice, and freeze the entry the variables cache shares                                                               
-  - document the change in the migration guide, the concepts page and                                                    
-    the NetCDF reference                                                                                                 
-                                                                                                                         
+- **netcdf**: materialise a non-raster variable instead of leaking a gdal.MDArray  
+
+  get_variable returned the raw gdal.MDArray whenever GDAL could not  
+  expose a variable as a raster plane -- a 1-D array, or a string or  
+  compound one. That handle has none of pyramids' API, and its Read()  
+  returns an undecoded buffer for numeric data, so the only route to  
+  the values was ReadAsArray(): raw osgeo in a package meant to hide it.  
+
+  - return a LabeledArray, carrying the values with their dims, shape,  
+    name, unit, no_data_value, scale, offset and attributes  
+  - read each dtype class with the reader it needs: strings via Read()  
+    into object (a NULL entry stays None), numeric and compound via  
+    ReadAsArray(); build an empty array for a zero-length extent, and  
+    keep a 64-bit integer fill value exact  
+  - correct the return annotation to NetCDF | LabeledArray and route the  
+    raster-only callers through _require_raster_variable, which refuses  
+    a non-raster variable by name instead of raising AttributeError  
+  - decide raster-ness from the array's declaration, not by reading it,  
+    so a CRS lookup no longer materialises a large non-raster array  
+  - carry a string or compound array on (y, x) as an auxiliary rather  
+    than refusing the whole container crop, to_crs or reduce  
+  - drop an auxiliary the carry cannot write instead of failing the  
+    operation or leaving an empty array behind, and keep a string  
+    auxiliary's unit and spatial reference  
+  - reuse the resolved values in read_array, reading once rather than  
+    twice, and freeze the entry the variables cache shares  
+  - document the change in the migration guide, the concepts page and  
+    the NetCDF reference  
+
   Closes #1126
 
 ## 0.61.0 (2026-09-09)

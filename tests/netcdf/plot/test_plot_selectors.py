@@ -9,6 +9,8 @@ import pytest
 from numpy.testing import assert_array_equal
 
 from pyramids.netcdf import Selectors
+from pyramids.netcdf._plot import NetCDFPlot
+from pyramids.netcdf.netcdf import NetCDF
 from tests.netcdf.conftest import make_plot_3d_nc
 from tests.netcdf.plot._plot_helpers import (
     _make_3d_nc_with_dates,
@@ -605,3 +607,175 @@ class TestNetCDFPlotIselNoCoordValues:
         sel = Selectors(isel={"time": 1})
         with pytest.raises(ValueError, match=r"No coordinate values"):
             var.plot(selectors=sel)
+
+
+class TestNetCDFPlotSelectorMethod:
+    """``Selectors.method`` reaches ``sel`` through the eager render path."""
+
+    def test_nearest_pins_the_snapped_slice(self):
+        """``method="nearest"`` renders the slice the snapped coordinate names.
+
+        Test scenario:
+            The 4-D fixture carries ``pressure_level=[1000, 500]``. Asking for 520 with
+            ``method="nearest"`` must render the same array as pinning 500 exactly.
+        """
+        nc = _make_4d_nc()
+        var = nc.get_variable("temperature")
+        expected = var.sel(time=0).sel(pressure_level=500).read_array()
+        captured: dict = {}
+
+        with patch.object(
+            type(var.analysis),
+            "plot",
+            autospec=True,
+            side_effect=_make_capture(captured),
+        ):
+            var.plot(selectors=Selectors(time=0, level=520, method="nearest"))
+        assert_array_equal(
+            captured["data"],
+            expected,
+            err_msg="method='nearest' should pin the slice of the snapped coordinate",
+        )
+
+    def test_default_method_still_requires_an_exact_value(self):
+        """Without ``method`` the same off-axis value is still rejected.
+
+        Test scenario:
+            ``Selectors(level=520)`` alone must raise, so snapping stays opt-in on the
+            plot path exactly as it is on ``sel``.
+        """
+        nc = _make_4d_nc()
+        var = nc.get_variable("temperature")
+        selectors = Selectors(time=0, level=520)
+        with pytest.raises(ValueError, match="No bands match"):
+            var.plot(selectors=selectors)
+
+
+class TestNetCDFPlotSelectorMethodPerDim:
+    """``method`` applies per dim, so a label and a snapped value can be pinned together."""
+
+    def test_label_and_nearest_coexist(self):
+        """Pinning a time label exactly while snapping the level is a single call.
+
+        Test scenario:
+            ``method`` used to be handed to every dim, so a date label anywhere made the
+            whole call raise "needs a numeric selector". On a 4-D cube whose time axis
+            carries date strings, the label dim must stay exact while 520 snaps to the
+            500 hPa level.
+        """
+        nc = _make_4d_nc()
+        var = nc.get_variable("temperature")
+        stamps = ["2024-01-13", "2024-01-14", "2024-01-15"]
+        var._band_dim_values_map = dict(var._band_dim_values_map)
+        var._band_dim_values_map["time"] = list(stamps)
+        expected = var.sel(time="2024-01-14").sel(pressure_level=500).read_array()
+        captured: dict = {}
+
+        with patch.object(
+            type(var.analysis),
+            "plot",
+            autospec=True,
+            side_effect=_make_capture(captured),
+        ):
+            var.plot(
+                selectors=Selectors(time="2024-01-14", level=520, method="nearest")
+            )
+        assert_array_equal(
+            captured["data"],
+            expected,
+            err_msg="the label dim should stay exact while the numeric dim snaps",
+        )
+
+    def test_string_label_dim_is_not_snapped(self):
+        """A dim selected by label renders exactly even when ``method='nearest'`` is set."""
+        _nc, _times, var = _make_3d_nc_with_dates()
+        expected = var.sel(time="2024-01-15").read_array()
+        captured: dict = {}
+
+        with patch.object(
+            type(var.analysis),
+            "plot",
+            autospec=True,
+            side_effect=_make_capture(captured),
+        ):
+            var.plot(selectors=Selectors(time="2024-01-15", method="nearest"))
+        assert_array_equal(
+            captured["data"],
+            expected,
+            err_msg="a label selector must stay exact under method='nearest'",
+        )
+
+    def test_a_non_label_string_still_reaches_sel_s_guard(self):
+        """A string that is neither numeric nor a date label keeps `method` and is told why.
+
+        Test scenario:
+            Narrowing on "is a string" dropped the flag for `"850"`, so the caller got
+            "No bands match pressure_level=850" — the wrong problem — instead of
+            `sel`'s "needs a numeric selector" explanation.
+        """
+        nc = _make_4d_nc()
+        var = nc.get_variable("temperature")
+        selectors = Selectors(
+            sel={"time": 0, "pressure_level": "850"}, method="nearest"
+        )
+        with pytest.raises(ValueError, match="is not a number"):
+            var.plot(selectors=selectors)
+
+
+class TestNetCDFPlotSelectorMethodOnARealCFAxis:
+    """The label-plus-nearest combination on an axis whose CF units actually decode.
+
+    The in-memory helpers build their cubes with `from_array`, which writes no CF
+    `units`, so a string time coordinate there is matched by the plain string
+    exact-match fallback and the label decoder is never reached. This class uses the
+    on-disk fixture, where `hours since 2024-01-01` decodes, so the decoded-label path
+    is the one under test.
+    """
+
+    CF_PATH = "tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc"
+
+    def test_a_decoded_label_and_a_snapped_level_pin_the_same_plane_as_exact_values(
+        self,
+    ):
+        """A CF date label and `method="nearest"` coexist and pin the expected slice.
+
+        Test scenario:
+            `time="2024-01-01 06:00:00"` decodes to offset 6 and stays exact, while 900
+            snaps to the 850 hPa level — the same plane as pinning 6.0 and 850 directly.
+        """
+        nc = NetCDF.read_file(self.CF_PATH)
+        var = nc.get_variable("temperature")
+        expected = var.sel(time=6.0).sel(pressure_level=850.0).read_array()
+        captured: dict = {}
+
+        with patch.object(
+            type(var.analysis),
+            "plot",
+            autospec=True,
+            side_effect=_make_capture(captured),
+        ):
+            var.plot(
+                selectors=Selectors(
+                    sel={"time": "2024-01-01 06:00:00", "pressure_level": 900},
+                    method="nearest",
+                )
+            )
+        assert_array_equal(
+            captured["data"],
+            expected,
+            err_msg="a decoded label should stay exact while the numeric dim snaps",
+        )
+
+    def test_the_flat_band_index_agrees(self):
+        """The lazy path resolves the same combination to the matching flat band.
+
+        Test scenario:
+            Time index 1 on a `(time=4, pressure_level=3)` cube starts at band 3; the
+            850 hPa level is level index 1, so the pinned band is 4.
+        """
+        nc = NetCDF.read_file(self.CF_PATH)
+        var = nc.get_variable("temperature")
+        index = NetCDFPlot(var)._flat_band_index(
+            var, {"time": "2024-01-01 06:00:00", "pressure_level": 900}, "nearest"
+        )
+        assert index == 4, f"got band {index}"
