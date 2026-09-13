@@ -238,7 +238,7 @@ class TestOutOfRangeInstants:
         assert str(decoded[0]).startswith("1700-01-01"), f"got {decoded[0]}"
 
 
-@pytest.fixture()
+@pytest.fixture
 def round_tripped(tmp_path):
     """The CF fixture exported to xarray and written straight back through `from_xarray`.
 
@@ -361,7 +361,8 @@ class TestEncodingATimeAxis:
         encoded, _ = interop._encode_temporal_array(
             values, {"units": "hours since 2024-01-01"}
         )
-        assert encoded[0] == 0.0 and encoded[2] == 12.0, f"got {encoded}"
+        assert encoded[0] == 0.0, f"got {encoded}"
+        assert encoded[2] == 12.0, f"got {encoded}"
         assert np.isnan(encoded[1]), f"expected NaN at the NaT slot, got {encoded}"
 
     def test_an_all_missing_axis_falls_back_to_the_epoch(self):
@@ -414,13 +415,15 @@ class TestTheUndecodedAxisIsReported:
             who then reaches for `resample` meets only xarray's error about a
             non-datetime index, with nothing saying pyramids decided not to decode.
         """
+        nc = NetCDF.read_file(NOLEAP_PATH)
         with pytest.warns(TimeDecodingWarning, match="time"):
-            NetCDF.read_file(NOLEAP_PATH).to_xarray()
+            nc.to_xarray()
 
     def test_the_warning_names_the_dimension(self):
         """The message carries the coordinate's own name, not just "a time axis"."""
+        nc = NetCDF.read_file(NOLEAP_PATH)
         with pytest.warns(TimeDecodingWarning) as caught:
-            NetCDF.read_file(NOLEAP_PATH).to_xarray()
+            nc.to_xarray()
         # By category, not by position: GDAL's netCDF driver emits its own
         # RuntimeWarnings from the same call on other stores.
         reported = [w for w in caught if issubclass(w.category, TimeDecodingWarning)]
@@ -497,7 +500,7 @@ class TestTheUndecodedAxisIsReported:
             )
 
 
-@pytest.fixture()
+@pytest.fixture
 def bounded_time_file(tmp_path):
     """A standard-calendar file whose `time` names a `time_bnds` bounds array.
 
@@ -774,8 +777,9 @@ class TestTheWarningBlamesTheCaller:
             frame deeper than the dimension path — and a warning naming a pyramids
             source line is unreadable and unfilterable by `module=`.
         """
+        nc = NetCDF.read_file(NOLEAP_PATH)
         with pytest.warns(TimeDecodingWarning) as caught:
-            NetCDF.read_file(NOLEAP_PATH).to_xarray()
+            nc.to_xarray()
         reported = [w for w in caught if issubclass(w.category, TimeDecodingWarning)]
         assert reported[0].filename == __file__, f"got {reported[0].filename}"
 
@@ -801,8 +805,9 @@ class TestTheWarningBlamesTheCaller:
         )
         path = tmp_path / "pre-gregorian.nc"
         NetCDF.from_xarray(source, path)
+        nc = NetCDF.read_file(str(path))
         with pytest.warns(TimeDecodingWarning) as caught:
-            NetCDF.read_file(str(path)).to_xarray()
+            nc.to_xarray()
         reported = [w for w in caught if issubclass(w.category, TimeDecodingWarning)]
         assert reported[0].filename == __file__, f"got {reported[0].filename}"
 
@@ -817,7 +822,7 @@ class TestTheWarningBlamesTheCaller:
         assert reported[0].filename == __file__, f"got {reported[0].filename}"
 
 
-@pytest.fixture()
+@pytest.fixture
 def auxiliary_time_file(tmp_path):
     """A file with a 2-D auxiliary time coordinate declaring its own CF units.
 

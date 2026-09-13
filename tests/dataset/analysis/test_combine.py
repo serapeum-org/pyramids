@@ -1664,8 +1664,9 @@ class TestExoticRealScalars:
             keeps returning `NotImplemented` so the error names the two types rather
             than arriving from inside a raster op.
         """
+        raster = _raster(np.full((2, 2), 6.0, "float32"))
         with pytest.raises(TypeError):
-            _raster(np.full((2, 2), 6.0, "float32")) * Decimal("0.5")
+            raster * Decimal("0.5")
 
 
 class TestDeclinedReflectedOperands:
@@ -1696,8 +1697,9 @@ class TestDeclinedReflectedOperands:
             hook answers `NotImplemented` rather than raising itself, so the error is
             Python's own and names both operand types.
         """
+        raster = _raster(np.full((2, 2), 6.0, "float32"))
         with pytest.raises(TypeError, match="unsupported operand type") as exc_info:
-            apply_operator(_raster(np.full((2, 2), 6.0, "float32")))
+            apply_operator(raster)
         assert named_type in str(exc_info.value), (
             f"the error should name {named_type}, got: {exc_info.value}"
         )
