@@ -402,7 +402,11 @@ class Interop(_Engine["NetCDF"]):
             attrs=ds.global_attributes,
         )
         return _promote_cf_non_data_arrays(
-            exported, ds, export_names, bounds_encodings=bounds_encodings
+            exported,
+            ds,
+            export_names,
+            bounds_encodings=bounds_encodings,
+            decode_times=decode_times,
         )
 
 
@@ -427,6 +431,7 @@ def _promote_cf_non_data_arrays(
     export_names: dict[str, str],
     *,
     bounds_encodings: dict[str, dict[str, Any]] | None = None,
+    decode_times: bool = True,
 ) -> Any:
     """Move the exported CF non-data arrays from ``data_vars`` into ``coords``.
 
@@ -460,6 +465,9 @@ def _promote_cf_non_data_arrays(
             of the decoded coordinate that names it, from
             :func:`_coords_from_dimensions`. Translated to export names here, as the
             roles are, and each such array is decoded with them once promoted.
+        decode_times: Whether to decode a promoted coordinate's time axis. `False`
+            leaves every promoted array exactly as stored, matching the dimension
+            coordinates.
 
     Returns:
         xr.Dataset: The same dataset with those names promoted. Unchanged when
@@ -499,42 +507,56 @@ def _promote_cf_non_data_arrays(
             export_names.get(name, name): encoding
             for name, encoding in (bounds_encodings or {}).items()
         }
-        for key in promote:
-            result = _decode_bounds_coordinate(result, key, by_export.get(key))
+        for key in promote if decode_times else []:
+            result = _decode_promoted_coordinate(result, key, by_export.get(key))
     return result
 
 
-def _decode_bounds_coordinate(
-    exported: Any, key: str, encoding: dict[str, Any] | None
+def _decode_promoted_coordinate(
+    exported: Any, key: str, inherited: dict[str, Any] | None
 ) -> Any:
-    """Decode a promoted CF bounds array with its parent coordinate's time units.
+    """Decode a promoted CF coordinate's time axis, from its own units or its parent's.
 
-    CF says a bounds variable carries no `units` of its own and inherits the
-    coordinate that names it, so the decoder cannot recognise one by looking at its
-    attributes -- and a `time` exported as `datetime64[ns]` beside a numeric
-    `time_bnds` is an internally inconsistent CF object: nothing downstream can
-    relate the two. xarray decodes bounds the same way, by lending them the parent's
-    attributes first.
+    Two kinds reach here. An **auxiliary** time coordinate -- a 2-D `valid_time` field
+    on a curvilinear grid, a promoted `coordinate` column -- declares CF time `units` of
+    its own and is decoded from them. A **bounds** array declares none: CF says it
+    inherits the coordinate that names it, so the decoder cannot recognise one by
+    looking at its attributes, and the parent's encoding is lent to it instead. xarray
+    decodes bounds the same way.
+
+    Either left numeric beside a decoded dimension axis is an internally inconsistent CF
+    object: nothing downstream can relate the two.
 
     Args:
         exported: The `xr.Dataset` whose coordinate is to be replaced.
         key: The promoted coordinate's name.
-        encoding: The parent coordinate's CF `units` / `calendar`, or `None` when this
-            array is not the bounds of a decoded time axis.
+        inherited: The CF `units` / `calendar` of the decoded axis that names this array
+            as its bounds, or `None` when no axis does. Used only when the array
+            declares no time units itself.
 
     Returns:
-        The dataset with that coordinate decoded, or unchanged when it is not a
-        decodable time bounds array.
+        The dataset with that coordinate decoded, or unchanged when it carries no CF
+        time units by either route, or when the decoder declines it.
     """
+    variable = exported[key]
+    own = {
+        name: variable.attrs[name]
+        for name in ("units", "calendar")
+        if name in variable.attrs
+    }
+    source = own if is_cf_time_units(own.get("units")) else dict(inherited or {})
     result = exported
-    if encoding:
-        variable = exported[key]
-        decoded = _decode_time_coordinate(
-            np.asarray(variable.values), dict(encoding), key
-        )
+    if source:
+        decoded = _decode_time_coordinate(np.asarray(variable.values), source, key)
         if decoded is not None:
+            # Only attributes the array actually carried are stripped: a bounds array
+            # never declared them, so it has nothing to lose and the parent's encoding
+            # is simply recorded on it.
+            attrs = {
+                name: value for name, value in variable.attrs.items() if name not in own
+            }
             result = exported.assign_coords(
-                {key: (variable.dims, decoded, dict(variable.attrs), dict(encoding))}
+                {key: (variable.dims, decoded, attrs, dict(source))}
             )
     return result
 
@@ -663,7 +685,7 @@ def _coords_from_dimensions(
     Returns:
         The coordinate mapping, and the CF ``units`` / ``calendar`` of each decoded
         axis keyed by the ``bounds`` variable it names — which
-        :func:`_decode_bounds_coordinate` needs, because a bounds array declares no
+        :func:`_decode_promoted_coordinate` needs, because a bounds array declares no
         units of its own.
     """
     coords: dict[str, Any] = {}

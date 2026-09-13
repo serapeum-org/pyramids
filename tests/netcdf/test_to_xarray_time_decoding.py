@@ -613,7 +613,7 @@ class TestPromotedBoundsAreDecodedToo:
             }
         )
         with pytest.warns(TimeDecodingWarning, match="falls outside datetime64"):
-            result = interop._decode_bounds_coordinate(
+            result = interop._decode_promoted_coordinate(
                 source, "time_bnds", {"units": "days since 2000-01-01"}
             )
         assert result["time_bnds"].dtype == np.dtype("float64"), (
@@ -808,3 +808,97 @@ class TestTheWarningBlamesTheCaller:
                 values, {"units": "fortnights since 2024-01-01"}, "time"
             )
         assert caught[0].filename == __file__, f"got {caught[0].filename}"
+
+
+@pytest.fixture()
+def auxiliary_time_file(tmp_path):
+    """A file with a 2-D auxiliary time coordinate declaring its own CF units.
+
+    Args:
+        tmp_path: pytest's per-test temporary directory.
+
+    Returns:
+        Path: The written `.nc` file. `valid_time` is the shape a curvilinear or
+        swath store carries — a time field that is not a dimension coordinate.
+    """
+    source = xr.Dataset(
+        data_vars={
+            # CF identifies an auxiliary coordinate by the data variable that names
+            # it, so without this `valid_time` classifies as data and is never
+            # promoted.
+            "temperature": (
+                ("time", "lat"),
+                np.arange(6.0).reshape(3, 2),
+                {"coordinates": "valid_time"},
+            ),
+        },
+        coords={
+            "time": (
+                "time",
+                [0.0, 6.0, 12.0],
+                {"units": "hours since 2024-01-01", "axis": "T"},
+            ),
+            "lat": ("lat", [40.0, 41.0], {"units": "degrees_north"}),
+            "valid_time": (
+                ("time", "lat"),
+                np.array([[0.0, 1.0], [6.0, 7.0], [12.0, 13.0]]),
+                {"units": "hours since 2024-01-01", "standard_name": "time"},
+            ),
+        },
+        attrs={"Conventions": "CF-1.8"},
+    )
+    path = tmp_path / "auxiliary.nc"
+    NetCDF.from_xarray(source, path)
+    return path
+
+
+class TestAnAuxiliaryTimeCoordinateIsDecoded:
+    """A promoted time field decodes from its own units (round-2 L2)."""
+
+    def test_it_comes_back_as_datetimes(self, auxiliary_time_file):
+        """`valid_time` decodes, where only bounds arrays used to.
+
+        Args:
+            auxiliary_time_file: The synthetic auxiliary-coordinate file.
+
+        Test scenario:
+            An auxiliary time coordinate left numeric beside a decoded `time` is the
+            same inconsistency a numeric `time_bnds` was — and unlike a dimension axis
+            it warned nothing, so the caller got no signal either.
+        """
+        exported = NetCDF.read_file(str(auxiliary_time_file)).to_xarray()
+        assert exported["valid_time"].dtype == np.dtype("datetime64[ns]"), (
+            f"got {exported['valid_time'].dtype}"
+        )
+
+    def test_its_units_move_to_encoding(self, auxiliary_time_file):
+        """It declared `units` itself, so they leave `attrs` as a dimension axis's do.
+
+        Args:
+            auxiliary_time_file: The synthetic auxiliary-coordinate file.
+        """
+        exported = NetCDF.read_file(str(auxiliary_time_file)).to_xarray()
+        valid = exported["valid_time"]
+        assert "units" not in valid.attrs, f"got {valid.attrs}"
+        assert valid.encoding.get("units") == "hours since 2024-01-01"
+
+    def test_its_other_attributes_survive(self, auxiliary_time_file):
+        """Only `units` and `calendar` are stripped — nothing else on the array.
+
+        Args:
+            auxiliary_time_file: The synthetic auxiliary-coordinate file.
+        """
+        exported = NetCDF.read_file(str(auxiliary_time_file)).to_xarray()
+        assert exported["valid_time"].attrs.get("standard_name") == "time"
+
+    def test_decode_times_false_leaves_it_numeric(self, auxiliary_time_file):
+        """The escape hatch covers promoted arrays as well as dimension coordinates.
+
+        Args:
+            auxiliary_time_file: The synthetic auxiliary-coordinate file.
+        """
+        exported = NetCDF.read_file(str(auxiliary_time_file)).to_xarray(
+            decode_times=False
+        )
+        assert exported["valid_time"].dtype == np.dtype("float64")
+        assert exported["valid_time"].attrs["units"] == "hours since 2024-01-01"
