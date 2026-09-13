@@ -33,7 +33,7 @@ canopy = surface - bare                               # the same call
 raster or a real scalar on either side: `ds * 2`, `2 * ds`, `20 - ds` and `ds >= 5`
 all work. A scalar takes the same route as a raster operand, with the constant
 folded into the callable, so `ds * 2` and `ds * other` agree on band count, dtype
-and sentinel.
+and sentinel — including the integer wraparound the warning below describes.
 
 That is deliberately *not* the same as `ds.apply(lambda v: v * 2)`. `apply`
 transforms one band and keeps the source's sentinel; `combine` spans every band
@@ -65,13 +65,20 @@ canopy = surface - bare
 | Integer overflow?                        | Wraps, as numpy does — see the warning below                        |
 | Band count?                              | All bands by default; `band=` picks one from each operand           |
 
-!!! warning "Integer subtraction wraps"
+!!! warning "Integer arithmetic wraps"
 
     The result takes whatever dtype `func` returns, which for two integer bands
     is that same integer dtype — with numpy's wraparound, not an error and not a
     promotion. On `uint8`, `10 - 20` is `246`; on `int16`, `30000 - (-30000)` is
     `-5536`. Nothing marks those cells: an integer result that masked nothing
     declares no sentinel, so they read as ordinary data.
+
+    **A scalar operand wraps the same way**, because it takes the same route.
+    `byte_ds * 2` is `144` wherever the band held `200`, and `byte_ds + 5` lands
+    exactly on `255` wherever it held `250` — the sentinel a `uint8` band gets by
+    default, so those cells read as no-data to the next consumer. A scalar too
+    wide for the band's dtype is numpy's error verbatim: `byte_ds + 300` raises
+    `OverflowError: Python integer 300 out of bounds for uint8`.
 
     This bites hardest on the difference this page leads with. Promote before
     subtracting when the operands are integers and the answer can go negative or
@@ -80,6 +87,7 @@ canopy = surface - bare
     ```python
     canopy = surface.combine(bare, lambda a, b: a.astype("int32") - b)
     canopy = surface.combine(bare, lambda a, b: a.astype("float32") - b)
+    scaled = byte_ds.combine(byte_ds, lambda v, _: v.astype("int16") * 2)
     ```
 
 ### How the result's no-data value is chosen

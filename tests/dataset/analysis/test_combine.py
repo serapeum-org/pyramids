@@ -1622,3 +1622,45 @@ class TestExoticRealScalars:
         """
         with pytest.raises(TypeError):
             _raster(np.full((2, 2), 6.0, "float32")) * Decimal("0.5")
+
+
+class TestIntegerScalarEdges:
+    """Integer scalars wrap and overflow exactly as numpy does (review round-1 M3)."""
+
+    def test_multiplication_wraps_on_a_byte_band(self):
+        """`uint8 * 2` wraps mod 256 rather than promoting, as two byte bands do.
+
+        Test scenario:
+            `200 * 2` is `144` on `uint8`. Nothing marks those cells: an integer result
+            that masked nothing declares no sentinel, so they read as ordinary data.
+        """
+        result = _raster(np.full((2, 2), 200, "uint8")) * 2
+        assert int(np.asarray(result.read_array())[0, 0]) == 144, (
+            f"got {np.asarray(result.read_array())[0, 0]}"
+        )
+
+    def test_subtraction_underflows_on_a_byte_band(self):
+        """`uint8 0 - 1` underflows to `255`, numpy's answer for the same expression."""
+        result = _raster(np.zeros((2, 2), "uint8")) - 1
+        assert int(np.asarray(result.read_array())[0, 0]) == 255
+
+    def test_a_sum_landing_on_the_byte_sentinel_is_masked(self):
+        """`uint8 250 + 5` lands on `255`, the default byte sentinel, and reads as a gap.
+
+        Test scenario:
+            The derived sentinel is chosen against the computed values, so a result that
+            occupies `255` everywhere cannot also declare it — this pins which way the
+            collision is resolved rather than asserting it does not happen.
+        """
+        result = _raster(np.full((2, 2), 250, "uint8")) + 5
+        assert int(np.asarray(result.read_array())[0, 0]) == 255
+
+    def test_a_scalar_too_wide_for_the_band_overflows(self):
+        """`uint8 + 300` raises numpy's `OverflowError` rather than wrapping silently."""
+        with pytest.raises(OverflowError):
+            _raster(np.full((2, 2), 1, "uint8")) + 300
+
+    def test_integer_division_widens_to_float(self):
+        """`int32 / 2` gives floats, as `int / int` does everywhere else in the package."""
+        result = _raster(np.full((2, 2), 7, "int32")) / 2
+        assert float(np.asarray(result.read_array())[0, 0]) == pytest.approx(3.5)
