@@ -13,6 +13,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from pyramids.netcdf.engines import interop
 from pyramids.netcdf.netcdf import NetCDF
 
 pytestmark = pytest.mark.interop
@@ -121,3 +122,23 @@ class TestAxesThatAreNotDecoded:
         raw = nc.to_xarray(decode_times=False).coords["time"]
         assert raw.dtype == np.dtype("float64")
         assert list(np.asarray(raw.values)) == [0.0, 6.0, 12.0, 18.0]
+
+    def test_a_decode_failure_falls_back_to_the_offsets(self, monkeypatch):
+        """A converter that raises degrades to the stored numbers rather than failing.
+
+        Test scenario:
+            A malformed origin, an out-of-range offset or a fill value in the axis makes
+            `cftime.num2date` raise. Exporting the cube must still succeed — the export
+            is not the place to discover a bad coordinate — so the axis keeps its raw
+            values.
+        """
+
+        def explode(*_args, **_kwargs):
+            raise ValueError("cannot convert")
+
+        monkeypatch.setattr(interop.cftime, "num2date", explode)
+        xds = NetCDF.read_file(CF_PATH).to_xarray()
+        assert xds.coords["time"].dtype == np.dtype("float64"), (
+            "a failed decode should leave the stored offsets in place"
+        )
+        assert list(np.asarray(xds.coords["time"].values)) == [0.0, 6.0, 12.0, 18.0]
