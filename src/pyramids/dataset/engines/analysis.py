@@ -1175,7 +1175,11 @@ class Analysis(_Engine["Dataset"]):
                 The second operand. Must occupy this dataset's grid and CRS
                 (:meth:`Spatial.same_grid <pyramids.dataset.engines.Spatial.same_grid>`).
                 Passing **this same dataset** is allowed and reads it twice, as
-                two operands always are. A one-operand transform that wants
+                two operands always are — `func` therefore receives two independent
+                arrays and may mutate either. (:meth:`_fold`, the route `ds * 2`
+                takes, hands it the *same* array twice, which is why it is private:
+                a callable that writes into its arguments would see the other change
+                under it.) A one-operand transform that wants
                 `combine`'s contract should ask for :meth:`_fold` instead, which
                 is the same machinery over a single read — it is the route
                 `ds * 2` takes.
@@ -1550,7 +1554,14 @@ class Analysis(_Engine["Dataset"]):
         """
         expected = left.size if domain is None else int(domain.sum())
         left_values = left.ravel() if domain is None else left[domain]
-        right_values = right.ravel() if domain is None else right[domain]
+        # `is`, so a folded call (one dataset, both operands) selects once. `left[domain]`
+        # allocates a full copy of the domain values, which is the peak-memory half of
+        # reading one raster instead of two.
+        right_values = (
+            left_values
+            if right is left
+            else (right.ravel() if domain is None else right[domain])
+        )
         values = np.asarray(cls._combine_domain(func, left_values, right_values))
         if values.shape != (expected,):
             # Shape, not just size: a `func` returning a column vector has the
