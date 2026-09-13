@@ -320,12 +320,55 @@ class TestScalarOperandsOnSubclasses:
         variable = _variable(tmp_path, "a.nc", 10.0)
         assert (variable * 2).band_count == variable.band_count
 
-    def test_a_container_still_refuses(self, tmp_path):
-        """A root container has no single raster to compute over, scalar or not."""
+    @pytest.mark.parametrize(
+        "apply_operator",
+        [operator.add, operator.sub, operator.mul, operator.truediv, operator.ge],
+        ids=["add", "sub", "mul", "truediv", "ge"],
+    )
+    def test_a_container_refuses_anything_it_must_compute(
+        self, tmp_path, apply_operator
+    ):
+        """A root container has no single raster to compute over.
+
+        Args:
+            tmp_path: pytest temp directory.
+            apply_operator: The operator under test.
+        """
         path = str(tmp_path / "c.nc")
         NetCDF.from_array(
             np.full((4, 4), 10.0, "float32"), geo_ref=GEO_REF, variable_name="t"
         ).to_file(path)
         container = NetCDF.read_file(path)
         with pytest.raises(ValueError, match="get_variable"):
-            container * 2
+            apply_operator(container, 2)
+
+    @pytest.mark.parametrize(
+        ("apply_operator", "scalar"),
+        [(operator.add, 0), (operator.mul, 1)],
+        ids=["add-zero", "mul-one"],
+    )
+    def test_an_identity_scalar_copies_a_container(
+        self, tmp_path, apply_operator, scalar
+    ):
+        """`c + 0` and `c * 1` answer with a copy rather than reaching a band.
+
+        Args:
+            tmp_path: pytest temp directory.
+            apply_operator: The commutative operator under test.
+            scalar: Its identity.
+
+        Test scenario:
+            The short-circuit runs before anything touches a band, so the container
+            guard is never reached. That is deliberate and predates the scalar arm on
+            the reflected side — `sum([container])` has always returned a copy — and
+            absorbing from either side is what keeps the two spellings agreeing. It is
+            pinned here because it is the one scalar a container accepts.
+        """
+        path = str(tmp_path / "c.nc")
+        NetCDF.from_array(
+            np.full((4, 4), 10.0, "float32"), geo_ref=GEO_REF, variable_name="t"
+        ).to_file(path)
+        container = NetCDF.read_file(path)
+
+        assert isinstance(apply_operator(container, scalar), Container)
+        assert isinstance(apply_operator(scalar, container), Container)

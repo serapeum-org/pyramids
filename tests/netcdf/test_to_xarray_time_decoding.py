@@ -421,7 +421,10 @@ class TestTheUndecodedAxisIsReported:
         """The message carries the coordinate's own name, not just "a time axis"."""
         with pytest.warns(TimeDecodingWarning) as caught:
             NetCDF.read_file(NOLEAP_PATH).to_xarray()
-        assert "'time'" in str(caught[0].message), f"got {caught[0].message}"
+        # By category, not by position: GDAL's netCDF driver emits its own
+        # RuntimeWarnings from the same call on other stores.
+        reported = [w for w in caught if issubclass(w.category, TimeDecodingWarning)]
+        assert "'time'" in str(reported[0].message), f"got {reported[0].message}"
 
     def test_an_out_of_range_axis_warns_with_its_span(self):
         """An instant outside `datetime64[ns]` reports the span that did not fit."""
@@ -670,7 +673,8 @@ class TestTheEpochFallbackIsReported:
             interop._encode_temporal_array(
                 values, {"units": "fortnights since 2024-01-01"}, "time"
             )
-        message = str(caught[0].message)
+        reported = [w for w in caught if issubclass(w.category, TimeDecodingWarning)]
+        message = str(reported[0].message)
         assert "'time'" in message, f"got {message}"
         assert "fortnights since 2024-01-01" in message, f"got {message}"
         assert "seconds since 1970-01-01" in message, f"got {message}"
@@ -772,7 +776,8 @@ class TestTheWarningBlamesTheCaller:
         """
         with pytest.warns(TimeDecodingWarning) as caught:
             NetCDF.read_file(NOLEAP_PATH).to_xarray()
-        assert caught[0].filename == __file__, f"got {caught[0].filename}"
+        reported = [w for w in caught if issubclass(w.category, TimeDecodingWarning)]
+        assert reported[0].filename == __file__, f"got {reported[0].filename}"
 
     def test_a_declined_bounds_array_points_at_this_file(self, tmp_path):
         """The bounds path sits one frame deeper and still blames the caller.
@@ -798,7 +803,8 @@ class TestTheWarningBlamesTheCaller:
         NetCDF.from_xarray(source, path)
         with pytest.warns(TimeDecodingWarning) as caught:
             NetCDF.read_file(str(path)).to_xarray()
-        assert caught[0].filename == __file__, f"got {caught[0].filename}"
+        reported = [w for w in caught if issubclass(w.category, TimeDecodingWarning)]
+        assert reported[0].filename == __file__, f"got {reported[0].filename}"
 
     def test_the_write_side_points_at_this_file(self):
         """The encode fallback reports the caller too, at its own different depth."""
@@ -807,7 +813,8 @@ class TestTheWarningBlamesTheCaller:
             interop._encode_temporal_array(
                 values, {"units": "fortnights since 2024-01-01"}, "time"
             )
-        assert caught[0].filename == __file__, f"got {caught[0].filename}"
+        reported = [w for w in caught if issubclass(w.category, TimeDecodingWarning)]
+        assert reported[0].filename == __file__, f"got {reported[0].filename}"
 
 
 @pytest.fixture()

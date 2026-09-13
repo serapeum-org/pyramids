@@ -2330,7 +2330,11 @@ class Dataset(RasterBase):
             if _is_identity(op, scalar):
                 # `ds + 0` and `ds * 1` are no-ops, so they answer with the raster
                 # unchanged -- the same short-circuit `__radd__` and `__rmul__` apply
-                # from the left. Without it the two spellings of one commutative
+                # from the left. It runs before anything touches a band, so a NetCDF
+                # root container answers with a copy where `c * 2` raises its
+                # container guard: `sum([container])` has always worked that way, and
+                # absorbing from one side only is what this exists to prevent.
+                # Without it the two spellings of one commutative
                 # expression disagree: `combine` would widen `ds + 0.0` from `int16` to
                 # `float64` where `0.0 + ds` is a byte-identical copy, and `ds + 0`
                 # would *drop* the band's declared sentinel, because an integer result
