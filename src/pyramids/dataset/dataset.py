@@ -2161,12 +2161,24 @@ class Dataset(RasterBase):
         holds, `0` where it does not, `255` wherever either operand was
         no-data.
 
-        Only a second raster is handled here. Scalar arithmetic stays with
-        :meth:`apply`, which keeps the source band's dtype — routing it here as
-        well would give ``ds * 2`` and ``ds.apply(lambda v: v * 2)`` different
-        dtypes for the same expression. Anything else yields
+        A second raster or a real scalar is handled here; anything else yields
         ``NotImplemented``, so Python raises its own ``TypeError`` naming both
         operand types.
+
+        A scalar takes the **same** route as a raster operand — :meth:`combine`,
+        with the constant folded into the callable — so ``ds * 2`` agrees with
+        ``ds * other`` on band count, dtype and sentinel. It does *not* always
+        agree with ``ds.apply(lambda v: v * 2)``: :meth:`apply` transforms one
+        band and keeps the source's sentinel, while :meth:`combine` spans every
+        band and derives one (``NaN`` for a floating result). The two are
+        different tools and the operator can only match one of them; it matches
+        the operator family, because ``ds * 2`` and ``ds * other`` are the same
+        syntax and should not mean different things. Reach for :meth:`apply`
+        when you want its single-band, sentinel-preserving contract.
+
+        ``bool`` is declined deliberately: ``True`` is a ``Real`` equal to ``1``,
+        and ``ds * True`` silently succeeding reads as a caller's bug. So is a
+        complex scalar — no band holds an imaginary part.
 
         A comparison — `<`, `<=`, `>`, `>=` — is the same journey with a
         callable that returns booleans. GDAL has no boolean band type, so the
@@ -2200,6 +2212,34 @@ class Dataset(RasterBase):
             # accepts. `cast` because `RasterBase` is the ABC the engine checks
             # while `combine` is typed for the concrete raster.
             result = self.combine(cast("Dataset", other), op)
+        elif isinstance(other, Real) and not isinstance(other, bool):
+            # The scalar is folded into the callable and `self` is passed as the
+            # second operand, so the grid and band count match by construction and
+            # every rule `combine` already enforces -- band span, dtype width,
+            # sentinel derivation -- applies unchanged. The second array is ignored
+            # on purpose; it is there to satisfy `combine`'s two-operand shape.
+            result = self.combine(self, lambda values, _ignored: op(values, other))
+        return result
+
+    def _reflected_arithmetic(self, other: Any, op: Callable) -> Any:
+        """Route a *reflected* binary operator — the scalar is the left operand.
+
+        `2 - ds` is not `ds - 2`, so subtraction and division need the operands in
+        the order the caller wrote them. Addition and multiplication commute and
+        reuse :meth:`_arithmetic` directly.
+
+        Args:
+            other: The left-hand operand, which reached here because its own
+                operator declined this dataset.
+            op: The two-argument operator to apply cell by cell.
+
+        Returns:
+            Dataset | NotImplemented: The computed raster, or `NotImplemented`
+            when `other` is not a real, non-boolean scalar.
+        """
+        result: Any = NotImplemented
+        if isinstance(other, Real) and not isinstance(other, bool):
+            result = self.combine(self, lambda values, _ignored: op(other, values))
         return result
 
     def __add__(self, other: Any) -> Any:
@@ -2280,8 +2320,15 @@ class Dataset(RasterBase):
         # explicitly because `False` is a `Real` equal to `0`, and `False + ds`
         # handing back a raster reads as the caller's bug quietly succeeding;
         # `sum()` seeds with the integer `0`, never with `False`.
-        if isinstance(other, Real) and not isinstance(other, bool) and other == 0:
-            result = self.copy()
+        if isinstance(other, Real) and not isinstance(other, bool):
+            # Zero stays a `copy()` rather than a `combine()`: `sum()` seeds with it,
+            # and routing the one-element fold through `combine` would hand back a
+            # derived sentinel where the caller expects the source's. Every other
+            # scalar takes the ordinary path — addition commutes, so `2 + ds` is
+            # `ds + 2`.
+            result = (
+                self.copy() if other == 0 else self._arithmetic(other, operator.add)
+            )
         return result
 
     def __rmul__(self, other: Any) -> Any:
@@ -2302,9 +2349,22 @@ class Dataset(RasterBase):
             real numeric one, else `NotImplemented`.
         """
         result: Any = NotImplemented
-        if isinstance(other, Real) and not isinstance(other, bool) and other == 1:
-            result = self.copy()
+        if isinstance(other, Real) and not isinstance(other, bool):
+            # One stays a `copy()` for the reason zero does in `__radd__`:
+            # `math.prod()` seeds with it. Multiplication commutes, so any other
+            # scalar is `ds * other`.
+            result = (
+                self.copy() if other == 1 else self._arithmetic(other, operator.mul)
+            )
         return result
+
+    def __rsub__(self, other: Any) -> Any:
+        """Subtract this raster from a scalar — `2 - ds`, not `ds - 2`."""
+        return self._reflected_arithmetic(other, operator.sub)
+
+    def __rtruediv__(self, other: Any) -> Any:
+        """Divide a scalar by this raster — `1 / ds`, not `ds / 1`."""
+        return self._reflected_arithmetic(other, operator.truediv)
 
     def __lt__(self, other: Any) -> Any:
         """Cell-by-cell `<` against another raster — see :meth:`_arithmetic`."""

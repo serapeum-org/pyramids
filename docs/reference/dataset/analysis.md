@@ -29,11 +29,22 @@ canopy = surface.combine(bare, lambda a, b: a - b)
 canopy = surface - bare                               # the same call
 ```
 
-`-`, `+`, `*` and `/` between two rasters are thin wrappers over `combine`. A
-scalar operand is *not* accepted: `ds * 2` raises `TypeError`, and scalar
-arithmetic is spelled `ds.apply(lambda v: v * 2)` instead. Keeping the two apart
-is deliberate — `apply` preserves the band's dtype while `combine` takes whatever
-`func` returns, so one expression written two ways cannot disagree about it.
+`-`, `+`, `*` and `/` are thin wrappers over `combine`, and accept either another
+raster or a real scalar on either side: `ds * 2`, `2 * ds`, `20 - ds` and `ds >= 5`
+all work. A scalar takes the same route as a raster operand, with the constant
+folded into the callable, so `ds * 2` and `ds * other` agree on band count, dtype
+and sentinel.
+
+That is deliberately *not* the same as `ds.apply(lambda v: v * 2)`. `apply`
+transforms one band and keeps the source's sentinel; `combine` spans every band
+and derives one (`NaN` for a floating result). The two are different tools, and
+the operator matches the operator family — `ds * 2` and `ds * other` are the same
+syntax and should not mean different things. Reach for `apply` when you want its
+single-band, sentinel-preserving contract.
+
+`bool` and complex scalars are still refused: `True` is a `Real` equal to `1`, so
+`ds * True` succeeding would read as a caller's bug, and no band holds an
+imaginary part.
 
 The operands must already share a grid; `combine` never resamples. Use
 [`align`](spatial.md) first when they do not, and
@@ -129,11 +140,13 @@ A wrapper that forwards `no_data_value` should accept it in `**kwargs` and pass
 the whole mapping on, rather than naming a default of its own — the "derive it"
 default is a private sentinel, and `**kwargs` forwards it without spelling it.
 
-A real numeric zero (or one) is the only scalar the operators accept, and only
-from the left: `1 + ds`, `False + ds`, `0j + ds` and `ds + 0` all raise, so this
-is not a back door into scalar arithmetic. "Real" is `numbers.Real`, so
-`Fraction(0)` and every numpy float or int zero are absorbed while `Decimal(0)`
-— which registers as `Number` but not `Real` — is not.
+A real numeric zero (or one) on the **left** short-circuits to a `copy()` rather
+than computing, because `sum()` and `math.prod()` seed their accumulators with
+them and a one-element fold should keep the source's sentinel. Every other real
+scalar computes through `combine`. `False + ds` and `0j + ds` still raise. "Real"
+is `numbers.Real`, so `Fraction(0)` and every numpy float or int zero are
+absorbed while `Decimal(0)` — which registers as `Number` but not `Real` — is
+not.
 
 !!! warning "Three things to know before folding with `sum()`"
 

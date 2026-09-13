@@ -389,15 +389,28 @@ class TestCombine:
         assert result.shape == left.shape
         assert np.allclose(np.asarray(result.read_array()), 6.0)
 
-    def test_a_scalar_operand_is_declined(self):
-        """Scalar arithmetic is not silently routed through combine.
+    def test_a_scalar_operand_is_combined(self):
+        """A scalar takes the same route as a raster operand (#1136).
 
         Test scenario:
-            `ds - 2` raises Python's own TypeError naming both operand types, so scalar
-            work keeps going through `apply`, which preserves the band dtype.
+            `ds - 2` used to raise, on the grounds that scalar work belonged to
+            `apply`. It now goes through `combine` with the constant folded into the
+            callable, so `ds - 2` and `ds - other` agree on band count, dtype and
+            sentinel. `apply` keeps its own single-band, sentinel-preserving contract
+            and is still the tool to reach for when that is what you want.
         """
+        result = _raster(np.full((4, 4), 5.0, "float32")) - 2
+        assert np.allclose(np.asarray(result.read_array()), 3.0)
+
+    def test_a_boolean_operand_is_still_declined(self):
+        """`True` is a `Real` equal to `1`, and `ds * True` reads as a caller's bug."""
         with pytest.raises(TypeError, match="unsupported operand type"):
-            _raster(np.zeros((4, 4), "float32")) - 2
+            _raster(np.zeros((4, 4), "float32")) * True
+
+    def test_a_complex_operand_is_still_declined(self):
+        """No band holds an imaginary part."""
+        with pytest.raises(TypeError, match="unsupported operand type"):
+            _raster(np.zeros((4, 4), "float32")) * 1j
 
     def test_a_non_dataset_operand_is_refused(self):
         """`combine` states what it wants rather than failing deep inside numpy.
@@ -986,18 +999,19 @@ class TestSummingRasters:
         with pytest.raises(TypeError, match="unsupported operand type"):
             False + raster
 
-    def test_zero_is_absorbed_only_from_the_left(self):
-        """The identity exists for `sum()`, not as general scalar arithmetic.
+    def test_zero_is_absorbed_from_the_left_and_computed_from_the_right(self):
+        """`0 + ds` short-circuits to a copy; `ds + 0` computes (#1136).
 
         Test scenario:
-            `ds + 0` raises even though `0 + ds` works. The asymmetry is deliberate:
-            accepting it on the right would make "adding zero is a no-op" a general rule
-            and invite `ds + 1`, which the operators refuse on dtype grounds.
+            The asymmetry is now about *how*, not *whether*. `sum()` seeds with `0`, so
+            the left-hand identity stays a `copy()` and a one-element fold keeps the
+            source's sentinel. On the right it is ordinary scalar arithmetic and takes
+            the `combine` path like any other scalar.
         """
         raster = _raster(np.full((4, 4), 2.0, "float32"))
 
-        with pytest.raises(TypeError, match="unsupported operand type"):
-            raster + 0
+        assert np.allclose(np.asarray((raster + 0).read_array()), 2.0)
+        assert np.allclose(np.asarray((0 + raster).read_array()), 2.0)
 
     def test_summing_rasters_off_one_grid_is_refused(self):
         """A fold inherits `combine`'s grid rule rather than quietly broadcasting.
@@ -1026,28 +1040,19 @@ class TestSummingRasters:
         assert isinstance(product, Dataset), "math.prod must fold into a Dataset"
         assert np.allclose(np.asarray(product.read_array()), 6.0)
 
-    def test_a_non_unit_scalar_on_the_left_is_declined_for_multiplication(self):
-        """Only the multiplicative identity is absorbed, not scalars in general.
-
-        Test scenario:
-            `2 * ds` raises, so `__rmul__` is no more a scalar back door than `__radd__`.
-        """
+    def test_a_non_unit_scalar_on_the_left_multiplies(self):
+        """`2 * ds` computes; only the identity `1` short-circuits to a copy (#1136)."""
         raster = _raster(np.full((4, 4), 1.0, "float32"))
 
-        with pytest.raises(TypeError, match="unsupported operand type"):
-            2 * raster
+        assert np.allclose(np.asarray((2 * raster).read_array()), 2.0)
+        assert np.allclose(np.asarray((1 * raster).read_array()), 1.0)
 
-    def test_a_non_zero_scalar_on_the_left_is_still_declined(self):
-        """Only the additive identity is absorbed, not scalars in general.
-
-        Test scenario:
-            `1 + ds` raises, so `__radd__` cannot be used as a back door to the scalar
-            arithmetic the operators deliberately refuse.
-        """
+    def test_a_non_zero_scalar_on_the_left_adds(self):
+        """`1 + ds` computes; only the identity `0` short-circuits to a copy (#1136)."""
         raster = _raster(np.full((4, 4), 1.0, "float32"))
 
-        with pytest.raises(TypeError, match="unsupported operand type"):
-            1 + raster
+        assert np.allclose(np.asarray((1 + raster).read_array()), 2.0)
+        assert np.allclose(np.asarray((0 + raster).read_array()), 1.0)
 
 
 class TestComparisonOperators:
@@ -1132,17 +1137,18 @@ class TestComparisonOperators:
         with pytest.raises(AlignmentError, match="do not share a grid"):
             here >= there
 
-    def test_comparing_against_a_scalar_is_declined(self):
-        """Scalars are refused here for the same reason as in the arithmetic.
+    def test_comparing_against_a_scalar_thresholds(self):
+        """`ds >= 5` thresholds, following the raster-to-raster mask rule (#1136).
 
         Test scenario:
-            `ds >= 5` raises rather than thresholding — `combine(other, func)` is the
-            spelling for that, and it keeps the dtype rules in one place.
+            The result is the same Byte mask a raster operand produces — `1` where the
+            test holds, `0` where it does not — so `ds >= 5` and `ds >= other` agree.
         """
         raster = _raster(np.full((3, 3), 30.0, "float32"))
 
-        with pytest.raises(TypeError, match="not supported between instances"):
-            raster >= 5
+        mask = np.asarray((raster >= 5).read_array())
+        assert mask.dtype == np.uint8
+        assert (mask == 1).all()
 
     def test_no_raster_has_a_truth_value(self):
         """A raster holds one value per cell, so there is no honest yes/no to give.
@@ -1341,3 +1347,87 @@ class TestSameGrid:
         assert not _raster(np.zeros((5, 5), "float32")).same_grid(
             _raster(np.zeros((5, 5), "float32"), geo_ref=projected)
         )
+
+
+class TestScalarOperands:
+    """Arithmetic and comparison with a plain number on either side (#1136)."""
+
+    @pytest.mark.parametrize(
+        ("apply_operator", "expected"),
+        [
+            (lambda ds: ds + 1, 6.0),
+            (lambda ds: ds - 2, 3.0),
+            (lambda ds: ds * 3, 15.0),
+            (lambda ds: ds / 5, 1.0),
+            (lambda ds: 1 + ds, 6.0),
+            (lambda ds: 3 * ds, 15.0),
+            (lambda ds: 20 - ds, 15.0),
+            (lambda ds: 20 / ds, 4.0),
+        ],
+    )
+    def test_scalar_arithmetic_on_either_side(self, apply_operator, expected):
+        """Each operator accepts a scalar left or right and computes cell by cell."""
+        result = apply_operator(_raster(np.full((4, 4), 5.0, "float32")))
+        assert np.allclose(np.asarray(result.read_array()), expected), (
+            f"expected {expected}, got {np.asarray(result.read_array()).flat[0]}"
+        )
+
+    @pytest.mark.parametrize(
+        ("apply_operator", "expected"),
+        [
+            (lambda ds: ds > 4, 1),
+            (lambda ds: ds > 9, 0),
+            (lambda ds: ds >= 5, 1),
+            (lambda ds: ds < 9, 1),
+            (lambda ds: ds <= 4, 0),
+        ],
+    )
+    def test_scalar_comparison_yields_a_byte_mask(self, apply_operator, expected):
+        """A scalar comparison follows the raster-to-raster rule: a Byte 1/0 mask."""
+        result = apply_operator(_raster(np.full((4, 4), 5.0, "float32")))
+        array = np.asarray(result.read_array())
+        assert array.dtype == np.uint8, f"expected a Byte mask, got {array.dtype}"
+        assert (array == expected).all()
+
+    def test_every_band_is_transformed(self):
+        """A scalar spans all bands, like `combine` and unlike single-band `apply`."""
+        source = _raster(np.full((3, 4, 4), 5.0, "float32"))
+        result = source * 2
+        assert result.band_count == source.band_count, "bands must not be dropped"
+        assert np.allclose(np.asarray(result.read_array()), 10.0)
+
+    def test_a_scalar_agrees_with_the_equivalent_raster_operand(self):
+        """`ds * 2` equals `ds * <raster of 2s>` — the operator family stays consistent.
+
+        Test scenario:
+            This is the property the scalar arm exists to guarantee: the same syntax
+            means the same thing whichever operand kind is on the right.
+        """
+        source = _raster(np.full((4, 4), 5.0, "float32"))
+        twos = _raster(np.full((4, 4), 2.0, "float32"))
+        np.testing.assert_allclose(
+            np.asarray((source * 2).read_array()),
+            np.asarray((source * twos).read_array()),
+        )
+
+    def test_no_data_cells_stay_no_data(self):
+        """A masked cell is still masked after scalar arithmetic."""
+        array = np.full((4, 4), 5.0, "float32")
+        array[0, 0] = -9999.0
+        source = Dataset.from_array(array, geo_ref=GEO_REF, no_data_value=-9999.0)
+        result = source * 2
+        assert np.isnan(np.asarray(result.read_array())[0, 0]), (
+            "the masked cell should come back as the derived sentinel"
+        )
+
+    def test_the_folding_identities_are_unchanged(self):
+        """`sum()` and `math.prod()` still short-circuit on their seeds.
+
+        Test scenario:
+            `0 + ds` and `1 * ds` stay a `copy()` rather than routing through
+            `combine`, so a one-element fold keeps the source's sentinel.
+        """
+        source = _raster(np.full((4, 4), 5.0, "float32"))
+        assert np.allclose(np.asarray(sum([source]).read_array()), 5.0)
+        assert np.allclose(np.asarray(math.prod([source]).read_array()), 5.0)
+        assert np.allclose(np.asarray(sum([source, source]).read_array()), 10.0)
