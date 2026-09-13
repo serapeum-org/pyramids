@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6915,11 +6915,20 @@ two-argument function over the matching cells of two rasters and hands back a
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="n">canopy</span> <span class="o">=</span> <span class="n">surface</span><span class="o">.</span><span class="n">combine</span><span class="p">(</span><span class="n">bare</span><span class="p">,</span> <span class="k">lambda</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">:</span> <span class="n">a</span> <span class="o">-</span> <span class="n">b</span><span class="p">)</span>
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="n">canopy</span> <span class="o">=</span> <span class="n">surface</span> <span class="o">-</span> <span class="n">bare</span>                               <span class="c1"># the same call</span>
 </code></pre></div>
-<p><code>-</code>, <code>+</code>, <code>*</code> and <code>/</code> between two rasters are thin wrappers over <code>combine</code>. A
-scalar operand is <em>not</em> accepted: <code>ds * 2</code> raises <code>TypeError</code>, and scalar
-arithmetic is spelled <code>ds.apply(lambda v: v * 2)</code> instead. Keeping the two apart
-is deliberate — <code>apply</code> preserves the band's dtype while <code>combine</code> takes whatever
-<code>func</code> returns, so one expression written two ways cannot disagree about it.</p>
+<p><code>-</code>, <code>+</code>, <code>*</code> and <code>/</code> are thin wrappers over <code>combine</code>, and accept either another
+raster or a real scalar on either side: <code>ds * 2</code>, <code>2 * ds</code>, <code>20 - ds</code> and <code>ds &gt;= 5</code>
+all work. A scalar takes the same route as a raster operand, with the constant
+folded into the callable, so <code>ds * 2</code> and <code>ds * other</code> agree on band count, dtype
+and sentinel.</p>
+<p>That is deliberately <em>not</em> the same as <code>ds.apply(lambda v: v * 2)</code>. <code>apply</code>
+transforms one band and keeps the source's sentinel; <code>combine</code> spans every band
+and derives one (<code>NaN</code> for a floating result). The two are different tools, and
+the operator matches the operator family — <code>ds * 2</code> and <code>ds * other</code> are the same
+syntax and should not mean different things. Reach for <code>apply</code> when you want its
+single-band, sentinel-preserving contract.</p>
+<p><code>bool</code> and complex scalars are still refused: <code>True</code> is a <code>Real</code> equal to <code>1</code>, so
+<code>ds * True</code> succeeding would read as a caller's bug, and no band holds an
+imaginary part.</p>
 <p>The operands must already share a grid; <code>combine</code> never resamples. Use
 <a href="../spatial/"><code>align</code></a> first when they do not, and
 <code>ds.same_grid(other)</code> to ask before trying:</p>
@@ -7024,11 +7033,13 @@ total" would reach into the input.</p>
 <p>A wrapper that forwards <code>no_data_value</code> should accept it in <code>**kwargs</code> and pass
 the whole mapping on, rather than naming a default of its own — the "derive it"
 default is a private sentinel, and <code>**kwargs</code> forwards it without spelling it.</p>
-<p>A real numeric zero (or one) is the only scalar the operators accept, and only
-from the left: <code>1 + ds</code>, <code>False + ds</code>, <code>0j + ds</code> and <code>ds + 0</code> all raise, so this
-is not a back door into scalar arithmetic. "Real" is <code>numbers.Real</code>, so
-<code>Fraction(0)</code> and every numpy float or int zero are absorbed while <code>Decimal(0)</code>
-— which registers as <code>Number</code> but not <code>Real</code> — is not.</p>
+<p>A real numeric zero (or one) on the <strong>left</strong> short-circuits to a <code>copy()</code> rather
+than computing, because <code>sum()</code> and <code>math.prod()</code> seed their accumulators with
+them and a one-element fold should keep the source's sentinel. Every other real
+scalar computes through <code>combine</code>. <code>False + ds</code> and <code>0j + ds</code> still raise. "Real"
+is <code>numbers.Real</code>, so <code>Fraction(0)</code> and every numpy float or int zero are
+absorbed while <code>Decimal(0)</code> — which registers as <code>Number</code> but not <code>Real</code> — is
+not.</p>
 <div class="admonition warning">
 <p class="admonition-title">Three things to know before folding with <code>sum()</code></p>
 <ul>
