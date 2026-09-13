@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6985,10 +6985,13 @@ promotion. On <code>uint8</code>, <code>10 - 20</code> is <code>246</code>; on <
 <code>-5536</code>. Nothing marks those cells: an integer result that masked nothing
 declares no sentinel, so they read as ordinary data.</p>
 <p><strong>A scalar operand wraps the same way</strong>, because it takes the same route.
-<code>byte_ds * 2</code> is <code>144</code> wherever the band held <code>200</code>, and <code>byte_ds + 5</code> lands
-exactly on <code>255</code> wherever it held <code>250</code> — the sentinel a <code>uint8</code> band gets by
-default, so those cells read as no-data to the next consumer. A scalar too
-wide for the band's dtype is numpy's error verbatim: <code>byte_ds + 300</code> raises
+<code>byte_ds * 2</code> is <code>144</code> wherever the band held <code>200</code>, and <code>byte_ds + 5</code> is
+<code>255</code> wherever it held <code>250</code>. Those cells are ordinary <strong>data</strong>, not gaps:
+the sentinel is derived against the values just computed, so a result that
+holds <code>255</code> cannot also claim it — the raster comes back declaring no
+sentinel at all when nothing was masked, and some other free value when
+something was. Nothing marks a wrapped cell. A scalar too wide for the
+band's dtype is numpy's error verbatim: <code>byte_ds + 300</code> raises
 <code>OverflowError: Python integer 300 out of bounds for uint8</code>.</p>
 <p>This bites hardest on the difference this page leads with. Promote before
 subtracting when the operands are integers and the answer can go negative or
