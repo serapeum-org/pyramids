@@ -19,15 +19,14 @@ Two object shapes share this class, and several members behave differently acros
 
 ## Opening, construction and lifetime
 
-| Member             | What it does                                                                     |
-|--------------------|----------------------------------------------------------------------------------|
-| `read_file()`      | Opens a `.nc` from a path, URL, or archive member; returns a Container.          |
-| `from_bytes()`     | Opens a NetCDF held in memory as a byte string.                                  |
-| `from_array()`     | Builds a Container from a NumPy array plus a geo-reference.                      |
-| `from_xarray()`    | Builds a `NetCDF` from an `xarray.Dataset` (needs the optional xarray peer dep). |
-| `open_mfdataset()` | Opens many files and stacks one variable into a single lazy dask array.          |
-| `copy()`           | Deep, standalone copy of this dataset, optionally written to `path`.             |
-| `close()`          | Releases every GDAL handle this container holds, then closes the base.           |
+| Member          | What it does                                                                     |
+|-----------------|----------------------------------------------------------------------------------|
+| `read_file()`   | Opens a `.nc` from a path, URL, or archive member; returns a Container.          |
+| `from_bytes()`  | Opens a NetCDF held in memory as a byte string.                                  |
+| `from_array()`  | Builds a Container from a NumPy array plus a geo-reference.                      |
+| `from_xarray()` | Builds a `NetCDF` from an `xarray.Dataset` (needs the optional xarray peer dep). |
+| `copy()`        | Deep, standalone copy of this dataset, optionally written to `path`.             |
+| `close()`       | Releases every GDAL handle this container holds, then closes the base.           |
 
 ## Variables, dimensions and groups
 
@@ -48,34 +47,35 @@ Two object shapes share this class, and several members behave differently acros
 
 ## Coordinates and time
 
-| Member                    | What it does                                                             |
-|---------------------------|--------------------------------------------------------------------------|
-| `lon` / `x`               | Longitude / x coordinate values as a 1-D array.                          |
-| `lat` / `y`               | Latitude / y coordinate values as a 1-D array.                           |
-| `top_left_corner`         | Coordinates of the raster's top-left corner.                             |
-| `geotransform`            | Geotransform derived from the coordinate arrays, then cached.            |
-| `epsg`                    | EPSG code, resolved from the variables when asked of a Container.        |
-| `time_stamp`              | Time coordinate values parsed from the CF `time` variable.               |
-| `get_time_variable()`     | Decodes the time axis to date strings; `time_format` sets the precision. |
+| Member                    | What it does                                                              |
+|---------------------------|---------------------------------------------------------------------------|
+| `lon` / `x`               | Longitude / x coordinate values as a 1-D array.                           |
+| `lat` / `y`               | Latitude / y coordinate values as a 1-D array.                            |
+| `top_left_corner`         | Coordinates of the raster's top-left corner.                              |
+| `geotransform`            | Geotransform derived from the coordinate arrays, then cached.             |
+| `epsg`                    | EPSG code, resolved from the variables when asked of a Container.         |
+| `time_stamp`              | Time coordinate values parsed from the CF `time` variable.                |
+| `get_time_variable()`     | Decodes the time axis to date strings; `time_format` sets the precision.  |
 | `get_time_values()`       | Raw, undecoded values of the time axis — `get_dimension_values()` for it. |
-| `create_main_dimension()` | Creates a dimension with its indexing variable (static helper).          |
+| `create_main_dimension()` | Creates a dimension with its indexing variable (static helper).           |
 
 ## Reading and selecting
 
-| Member         | What it does                                                                    |
-|----------------|---------------------------------------------------------------------------------|
-| `read_array()` | Reads eagerly, or lazily into dask with `chunks=`. Needs `variable=` on a Container.  |
-| `subset()`     | Reads a windowed `(variable, time, bbox)` slice without materialising the cube. |
-| `sel()`        | Selects bands by coordinate value, date label, or `method="nearest"`.           |
-| `reduce()`     | Reduces every variable along a named dimension (`how`, `groupby`, `skipna`).    |
+| Member             | What it does                                                                         |
+|--------------------|--------------------------------------------------------------------------------------|
+| `read_array()`     | Reads eagerly, or lazily into dask with `chunks=`. Needs `variable=` on a Container. |
+| `subset()`         | Reads a windowed `(variable, time, bbox)` slice without materialising the cube.      |
+| `sel()`            | Selects bands by coordinate value, date label, or `method="nearest"`.                |
+| `open_mfdataset()` | Stacks one variable across many files into a single lazy dask array.                 |
+| `reduce()`         | Reduces every variable along `dim` — `how`, `groupby`, `skipna`.                     |
 
 ## Spatial operations
 
-| Member          | What it does                                                         |
-|-----------------|----------------------------------------------------------------------|
-| `crop()`        | Crops by polygon mask, raster mask, or bbox tuple. `chunks=` is Variable only. |
-| `to_crs()`      | Reprojects the dataset to another CRS.                               |
-| `resample()`    | Resamples to a different cell size.                                  |
+| Member          | What it does                                                                        |
+|-----------------|-------------------------------------------------------------------------------------|
+| `crop()`        | Crops by polygon mask, raster mask, or bbox tuple. `chunks=` is Variable only.      |
+| `to_crs()`      | Reprojects the dataset to another CRS.                                              |
+| `resample()`    | Resamples to a different cell size.                                                 |
 | `warped_view()` | A lazy, reprojected view of a Variable — no data is read until used. Variable only. |
 
 ## Editing variables in place
@@ -92,38 +92,38 @@ Two object shapes share this class, and several members behave differently acros
 
 ## Metadata and attributes
 
-| Member | What it does |
-|---|---|
-| `meta_data` | Structured metadata for this NetCDF (cached). |
-| `get_all_metadata()` | The same, re-traversed from GDAL rather than served from cache. |
-| `global_attributes` | Global attributes on the root group. |
-| `set_global_attribute()` | Sets one global attribute on the root group. |
-| `delete_global_attribute()` | Deletes one global attribute from the root group. |
-| `scale` | Per-band CF `scale_factor` a read applies, per band. |
-| `offset` | Per-band CF `add_offset` a read applies, per band. |
+| Member                      | What it does                                                    |
+|-----------------------------|-----------------------------------------------------------------|
+| `meta_data`                 | Structured metadata for this NetCDF (cached).                   |
+| `get_all_metadata()`        | The same, re-traversed from GDAL rather than served from cache. |
+| `global_attributes`         | Global attributes on the root group.                            |
+| `set_global_attribute()`    | Sets one global attribute on the root group.                    |
+| `delete_global_attribute()` | Deletes one global attribute from the root group.               |
+| `scale`                     | Per-band CF `scale_factor` a read applies, per band.            |
+| `offset`                    | Per-band CF `add_offset` a read applies, per band.              |
 
 ## Writing and interop
 
-| Member | What it does |
-|---|---|
-| `to_file()` | Saves the dataset to disk. |
-| `to_xarray()` | Converts the container to an `xarray.Dataset` — `chunks=`, `decode_times=`. |
-| `to_kerchunk()` | Emits a kerchunk JSON reference manifest for this file. |
-| `combine_kerchunk()` | Combines per-file manifests into one cube index. |
-| `to_cog()` | Writes a Cloud-Optimized GeoTIFF. Variable only. |
-| `to_feature_collection()` | Converts the raster to a vector `FeatureCollection`. Variable only. |
-| `write_array()` | Writes an array into the raster bands. Variable only. |
+| Member                    | What it does                                                                |
+|---------------------------|-----------------------------------------------------------------------------|
+| `to_file()`               | Saves the dataset to disk.                                                  |
+| `to_xarray()`             | Converts the container to an `xarray.Dataset` — `chunks=`, `decode_times=`. |
+| `to_kerchunk()`           | Emits a kerchunk JSON reference manifest for this file.                     |
+| `combine_kerchunk()`      | Combines per-file manifests into one cube index.                            |
+| `to_cog()`                | Writes a Cloud-Optimized GeoTIFF. Variable only.                            |
+| `to_feature_collection()` | Converts the raster to a vector `FeatureCollection`. Variable only.         |
+| `write_array()`           | Writes an array into the raster bands. Variable only.                       |
 
 ## Analysis and plotting
 
-| Member | What it does |
-|---|---|
-| `plot()` | Plots a 2-D slice — `selectors`, `facet`, `axes`, `animate`, `chunks`, colour. |
-| `stats()` | Per-band summary statistics. Variable only. |
-| `slope()` | Slope raster from an elevation variable. Variable only. |
-| `hillshade()` | Hillshade raster from an elevation variable. Variable only. |
-| `zonal_stats()` | Statistics per zone of a mask or feature set. Variable only. |
-| `sample()` | Samples values at points. Variable only. |
+| Member          | What it does                                                                   |
+|-----------------|--------------------------------------------------------------------------------|
+| `plot()`        | Plots a 2-D slice — `selectors`, `facet`, `axes`, `animate`, `chunks`, colour. |
+| `stats()`       | Per-band summary statistics. Variable only.                                    |
+| `slope()`       | Slope raster from an elevation variable. Variable only.                        |
+| `hillshade()`   | Hillshade raster from an elevation variable. Variable only.                    |
+| `zonal_stats()` | Statistics per zone of a mask or feature set. Variable only.                   |
+| `sample()`      | Samples values at points. Variable only.                                       |
 
 ---
 
