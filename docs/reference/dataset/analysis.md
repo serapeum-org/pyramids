@@ -29,11 +29,30 @@ canopy = surface.combine(bare, lambda a, b: a - b)
 canopy = surface - bare                               # the same call
 ```
 
-`-`, `+`, `*` and `/` between two rasters are thin wrappers over `combine`. A
-scalar operand is *not* accepted: `ds * 2` raises `TypeError`, and scalar
-arithmetic is spelled `ds.apply(lambda v: v * 2)` instead. Keeping the two apart
-is deliberate — `apply` preserves the band's dtype while `combine` takes whatever
-`func` returns, so one expression written two ways cannot disagree about it.
+`-`, `+`, `*` and `/` are thin wrappers over `combine`, and accept either another
+raster or a real scalar on either side: `ds * 2`, `2 * ds`, `20 - ds` and `ds >= 5`
+all work. A scalar takes the same route as a raster operand, with the constant
+folded into the callable, so `ds * 2` and `ds * other` agree on band count, dtype
+and sentinel — including the integer wraparound the warning below describes.
+
+That is deliberately *not* the same as `ds.apply(lambda v: v * 2)`. `apply`
+transforms one band and keeps the source's sentinel; `combine` spans every band
+and derives one (`NaN` for a floating result). The two are different tools, and
+the operator matches the operator family — `ds * 2` and `ds * other` are the same
+syntax and should not mean different things. Reach for `apply` when you want its
+single-band, sentinel-preserving contract.
+
+`bool` and complex scalars are still refused: `True` is a `Real` equal to `1`, so
+`ds * True` succeeding would read as a caller's bug, and no band holds an
+imaginary part.
+
+`nan` and `inf` are **not** refused, and `ds * float("nan")` is the one scalar
+that quietly empties a raster: every cell computes to `nan`, a floating result
+takes `nan` as its sentinel, and what comes back reads as entirely no-data to
+every consumer. `ds * float("inf")` stores infinities the same way. That is what
+the arithmetic says, so neither is second-guessed — but a non-finite scalar is
+almost always an uninitialised variable rather than an intention. Check the
+scalar before applying it if it came from a computation.
 
 The operands must already share a grid; `combine` never resamples. Use
 [`align`](spatial.md) first when they do not, and
@@ -54,13 +73,23 @@ canopy = surface - bare
 | Integer overflow?                        | Wraps, as numpy does — see the warning below                        |
 | Band count?                              | All bands by default; `band=` picks one from each operand           |
 
-!!! warning "Integer subtraction wraps"
+!!! warning "Integer arithmetic wraps"
 
     The result takes whatever dtype `func` returns, which for two integer bands
     is that same integer dtype — with numpy's wraparound, not an error and not a
     promotion. On `uint8`, `10 - 20` is `246`; on `int16`, `30000 - (-30000)` is
     `-5536`. Nothing marks those cells: an integer result that masked nothing
     declares no sentinel, so they read as ordinary data.
+
+    **A scalar operand wraps the same way**, because it takes the same route.
+    `byte_ds * 2` is `144` wherever the band held `200`, and `byte_ds + 5` is
+    `255` wherever it held `250`. Those cells are ordinary **data**, not gaps:
+    the sentinel is derived against the values just computed, so a result that
+    holds `255` cannot also claim it — the raster comes back declaring no
+    sentinel at all when nothing was masked, and some other free value when
+    something was. Nothing marks a wrapped cell. A scalar too wide for the
+    band's dtype is numpy's error verbatim: `byte_ds + 300` raises
+    `OverflowError: Python integer 300 out of bounds for uint8`.
 
     This bites hardest on the difference this page leads with. Promote before
     subtracting when the operands are integers and the answer can go negative or
@@ -69,6 +98,7 @@ canopy = surface - bare
     ```python
     canopy = surface.combine(bare, lambda a, b: a.astype("int32") - b)
     canopy = surface.combine(bare, lambda a, b: a.astype("float32") - b)
+    scaled = byte_ds.combine(byte_ds, lambda v, _: v.astype("int16") * 2)
     ```
 
 ### How the result's no-data value is chosen
@@ -129,11 +159,38 @@ A wrapper that forwards `no_data_value` should accept it in `**kwargs` and pass
 the whole mapping on, rather than naming a default of its own — the "derive it"
 default is a private sentinel, and `**kwargs` forwards it without spelling it.
 
-A real numeric zero (or one) is the only scalar the operators accept, and only
-from the left: `1 + ds`, `False + ds`, `0j + ds` and `ds + 0` all raise, so this
-is not a back door into scalar arithmetic. "Real" is `numbers.Real`, so
-`Fraction(0)` and every numpy float or int zero are absorbed while `Decimal(0)`
-— which registers as `Number` but not `Real` — is not.
+Adding zero, multiplying by one and subtracting zero short-circuit to a `copy()`
+rather than computing — the first two on **either** side, the third on the right
+only, since `0 - ds` negates. Two reasons: `sum()` and `math.prod()` seed their
+accumulators with those identities and a one-element fold should keep the
+source's sentinel; and a no-op must not change the raster. Routed through
+`combine`, `ds + 0.0` would widen an `int16` band to `float64` where `0.0 + ds`
+is a byte-identical copy, and `ds + 0` would *drop* the declared no-data value —
+because an integer result that masked nothing declares no sentinel — so a
+no-op would strip the no-data tag off a raster on its way to disk.
+
+`ds / 1` is **not** absorbed, and is the one right identity that is not: true
+division widens an integer band to `float64` as it does everywhere else in
+numpy, so short-circuiting it would make `ds / 1` the one division that does
+not widen. It computes, and the result declares `NaN`.
+
+Every other real scalar computes through `combine`. `False + ds` and `0j + ds`
+still raise. "Real" is `numbers.Real`, so `Fraction(0)` and every numpy float or
+int zero are absorbed while `Decimal(0)` — which registers as `Number` but not
+`Real` — is not.
+
+A `Real` NumPy cannot put in a band — a `Fraction`, say — is converted to
+`float` before it is applied, because NumPy resolves an expression against one
+to an object-dtype array that has no GDAL band type. `int`, `float` and the
+numpy scalar types are left exactly as written, so `ds * 2` stays an integer
+multiply rather than widening to `float64`.
+
+**A numpy scalar carries its own dtype into the result; a Python one does not.**
+That is NEP 50's weak promotion, and it decides the width of the band you get:
+on a `float32` raster, `ds * 2` and `ds * 2.0` both stay `float32`, while
+`ds * np.float64(2)` comes back `float64` — twice the bytes for the same
+arithmetic. Write the plain Python spelling unless the wider band is what you
+want.
 
 !!! warning "Three things to know before folding with `sum()`"
 

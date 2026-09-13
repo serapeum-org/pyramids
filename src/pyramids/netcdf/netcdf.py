@@ -6847,8 +6847,9 @@ class NetCDF(Dataset):
           those come from the geotransform (:meth:`get_x_lon_dimension_array`).
 
         Values are the **stored** ones, matching what :meth:`sel` matches against and what
-        ``to_xarray().coords`` reports for the same file. A CF time axis is therefore raw
-        offsets; :meth:`get_time_variable` decodes the same axis to date strings.
+        ``to_xarray(decode_times=False).coords`` reports for the same file. A CF time axis
+        is therefore raw offsets; :meth:`get_time_variable` decodes the same axis to date
+        strings, and :meth:`to_xarray` decodes it to ``datetime64[ns]`` by default.
 
         Storage order is also the *array* order, which for a **spatial** axis need not be
         the raster's. Pyramids presents rasters north-up, but a south-to-north file stores
@@ -9756,9 +9757,63 @@ class NetCDF(Dataset):
         """Facade — :meth:`rename_variable <pyramids.netcdf.engines.variables.Variables.rename_variable>`."""
         return self.varops.rename_variable(*args, **kwargs)
 
-    def to_xarray(self, *args, **kwargs) -> Any:
-        """Facade — delegates to :meth:`Interop.to_xarray <pyramids.netcdf.engines.interop.Interop.to_xarray>`."""
-        return self.interop.to_xarray(*args, **kwargs)
+    def to_xarray(
+        self, chunks: dict | str | int | None = None, *, decode_times: bool = True
+    ) -> Any:
+        """Facade — delegates to :meth:`Interop.to_xarray <pyramids.netcdf.engines.interop.Interop.to_xarray>`.
+
+        Spelled out rather than `*args, **kwargs` so the keywords are visible where
+        callers look for them: the rendered reference, `help(NetCDF.to_xarray)` and
+        editor completion all read the facade, not the engine behind it.
+
+        Args:
+            chunks: Dask chunking for a lazy read, or `None` to read eagerly.
+            decode_times: Whether to decode a CF time axis to `datetime64[ns]`. `False`
+                returns the stored offsets.
+
+        Returns:
+            xarray.Dataset: The exported cube. See the engine method for the full
+            contract.
+
+        Raises:
+            pyramids.base._errors.OptionalPackageDoesNotExist: `xarray` is not installed.
+            ImportError: `chunks` was given but the `[lazy]` (dask) extra is not installed.
+            ValueError: This container is not multidimensional — open the file with
+                `open_as_multi_dimensional=True`.
+
+        Warns:
+            TimeDecodingWarning: A dimension declares CF time `units` that could not be
+                decoded, so it was exported as its stored offsets.
+
+        Examples:
+            - Export a CF container and group its cube by a time component:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> xds = nc.to_xarray()
+              >>> str(xds.coords["time"].dtype)
+              'datetime64[ns]'
+              >>> xds["temperature"].groupby("time.month").mean().shape
+              (1, 3, 5, 6)
+
+              ```
+            - Keep the axis as the offsets the file stores:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> raw = nc.to_xarray(decode_times=False)
+              >>> [float(offset) for offset in raw.coords["time"].values]
+              [0.0, 6.0, 12.0, 18.0]
+
+              ```
+
+        See Also:
+            NetCDF.from_xarray: The inverse, which writes a decoded axis back in the
+                CF units this put in its `encoding`.
+        """
+        return self.interop.to_xarray(chunks, decode_times=decode_times)
 
     def subset(self, *args, **kwargs) -> NetCDF:
         """Facade — :meth:`Selection.subset <pyramids.netcdf.engines.selection.Selection.subset>`."""

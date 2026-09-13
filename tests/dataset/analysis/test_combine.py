@@ -10,6 +10,8 @@ from __future__ import annotations
 import inspect
 import math
 import operator
+from decimal import Decimal
+from fractions import Fraction
 from functools import reduce
 
 import numpy as np
@@ -18,7 +20,7 @@ import pytest
 from pyramids.base._errors import AlignmentError, NoDataCollisionWarning
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
-from pyramids.dataset.engines.analysis import _DERIVE_NO_DATA
+from pyramids.dataset.engines.analysis import _DERIVE_NO_DATA, Analysis
 
 pytestmark = pytest.mark.core
 
@@ -389,15 +391,28 @@ class TestCombine:
         assert result.shape == left.shape
         assert np.allclose(np.asarray(result.read_array()), 6.0)
 
-    def test_a_scalar_operand_is_declined(self):
-        """Scalar arithmetic is not silently routed through combine.
+    def test_a_scalar_operand_is_combined(self):
+        """A scalar takes the same route as a raster operand (#1136).
 
         Test scenario:
-            `ds - 2` raises Python's own TypeError naming both operand types, so scalar
-            work keeps going through `apply`, which preserves the band dtype.
+            `ds - 2` used to raise, on the grounds that scalar work belonged to
+            `apply`. It now goes through `combine` with the constant folded into the
+            callable, so `ds - 2` and `ds - other` agree on band count, dtype and
+            sentinel. `apply` keeps its own single-band, sentinel-preserving contract
+            and is still the tool to reach for when that is what you want.
         """
+        result = _raster(np.full((4, 4), 5.0, "float32")) - 2
+        assert np.allclose(np.asarray(result.read_array()), 3.0)
+
+    def test_a_boolean_operand_is_still_declined(self):
+        """`True` is a `Real` equal to `1`, and `ds * True` reads as a caller's bug."""
         with pytest.raises(TypeError, match="unsupported operand type"):
-            _raster(np.zeros((4, 4), "float32")) - 2
+            _raster(np.zeros((4, 4), "float32")) * True
+
+    def test_a_complex_operand_is_still_declined(self):
+        """No band holds an imaginary part."""
+        with pytest.raises(TypeError, match="unsupported operand type"):
+            _raster(np.zeros((4, 4), "float32")) * 1j
 
     def test_a_non_dataset_operand_is_refused(self):
         """`combine` states what it wants rather than failing deep inside numpy.
@@ -986,18 +1001,35 @@ class TestSummingRasters:
         with pytest.raises(TypeError, match="unsupported operand type"):
             False + raster
 
-    def test_zero_is_absorbed_only_from_the_left(self):
-        """The identity exists for `sum()`, not as general scalar arithmetic.
+    @pytest.mark.parametrize("zero", [0, 0.0], ids=["int", "float"])
+    @pytest.mark.parametrize("reflected", [False, True], ids=["ds+0", "0+ds"])
+    def test_zero_is_absorbed_from_either_side(self, zero, reflected):
+        """Adding zero is a copy whichever side it is written on (#1136).
+
+        Args:
+            zero: The additive identity, as an `int` and as a `float`.
+            reflected: Whether the scalar is on the left.
 
         Test scenario:
-            `ds + 0` raises even though `0 + ds` works. The asymmetry is deliberate:
-            accepting it on the right would make "adding zero is a no-op" a general rule
-            and invite `ds + 1`, which the operators refuse on dtype grounds.
+            Values alone do not distinguish the short-circuit from the computed
+            answer — both give 2. The dtype and the sentinel do: routed through
+            `combine`, `ds + 0.0` would widen the `int16` band to `float64` where
+            `0.0 + ds` is a byte-identical copy, and `ds + 0` would *drop* the declared
+            sentinel, because an integer result that masked nothing declares none. A
+            no-op must not strip the no-data tag off a raster on its way to disk.
         """
-        raster = _raster(np.full((4, 4), 2.0, "float32"))
+        raster = Dataset.from_array(
+            np.full((4, 4), 2, "int16"), geo_ref=GEO_REF, no_data_value=-9999
+        )
 
-        with pytest.raises(TypeError, match="unsupported operand type"):
-            raster + 0
+        result = zero + raster if reflected else raster + zero
+        values = np.asarray(result.read_array())
+
+        assert np.allclose(values, 2), f"got {values}"
+        assert values.dtype == np.dtype("int16"), f"the band widened to {values.dtype}"
+        assert result.no_data_value[0] == -9999, (
+            f"the declared sentinel was lost: {result.no_data_value[0]}"
+        )
 
     def test_summing_rasters_off_one_grid_is_refused(self):
         """A fold inherits `combine`'s grid rule rather than quietly broadcasting.
@@ -1026,28 +1058,19 @@ class TestSummingRasters:
         assert isinstance(product, Dataset), "math.prod must fold into a Dataset"
         assert np.allclose(np.asarray(product.read_array()), 6.0)
 
-    def test_a_non_unit_scalar_on_the_left_is_declined_for_multiplication(self):
-        """Only the multiplicative identity is absorbed, not scalars in general.
-
-        Test scenario:
-            `2 * ds` raises, so `__rmul__` is no more a scalar back door than `__radd__`.
-        """
+    def test_a_non_unit_scalar_on_the_left_multiplies(self):
+        """`2 * ds` computes; only the identity `1` short-circuits to a copy (#1136)."""
         raster = _raster(np.full((4, 4), 1.0, "float32"))
 
-        with pytest.raises(TypeError, match="unsupported operand type"):
-            2 * raster
+        assert np.allclose(np.asarray((2 * raster).read_array()), 2.0)
+        assert np.allclose(np.asarray((1 * raster).read_array()), 1.0)
 
-    def test_a_non_zero_scalar_on_the_left_is_still_declined(self):
-        """Only the additive identity is absorbed, not scalars in general.
-
-        Test scenario:
-            `1 + ds` raises, so `__radd__` cannot be used as a back door to the scalar
-            arithmetic the operators deliberately refuse.
-        """
+    def test_a_non_zero_scalar_on_the_left_adds(self):
+        """`1 + ds` computes; only the identity `0` short-circuits to a copy (#1136)."""
         raster = _raster(np.full((4, 4), 1.0, "float32"))
 
-        with pytest.raises(TypeError, match="unsupported operand type"):
-            1 + raster
+        assert np.allclose(np.asarray((1 + raster).read_array()), 2.0)
+        assert np.allclose(np.asarray((0 + raster).read_array()), 1.0)
 
 
 class TestComparisonOperators:
@@ -1132,17 +1155,18 @@ class TestComparisonOperators:
         with pytest.raises(AlignmentError, match="do not share a grid"):
             here >= there
 
-    def test_comparing_against_a_scalar_is_declined(self):
-        """Scalars are refused here for the same reason as in the arithmetic.
+    def test_comparing_against_a_scalar_thresholds(self):
+        """`ds >= 5` thresholds, following the raster-to-raster mask rule (#1136).
 
         Test scenario:
-            `ds >= 5` raises rather than thresholding — `combine(other, func)` is the
-            spelling for that, and it keeps the dtype rules in one place.
+            The result is the same Byte mask a raster operand produces — `1` where the
+            test holds, `0` where it does not — so `ds >= 5` and `ds >= other` agree.
         """
         raster = _raster(np.full((3, 3), 30.0, "float32"))
 
-        with pytest.raises(TypeError, match="not supported between instances"):
-            raster >= 5
+        mask = np.asarray((raster >= 5).read_array())
+        assert mask.dtype == np.uint8
+        assert (mask == 1).all()
 
     def test_no_raster_has_a_truth_value(self):
         """A raster holds one value per cell, so there is no honest yes/no to give.
@@ -1341,3 +1365,521 @@ class TestSameGrid:
         assert not _raster(np.zeros((5, 5), "float32")).same_grid(
             _raster(np.zeros((5, 5), "float32"), geo_ref=projected)
         )
+
+
+class TestScalarOperands:
+    """Arithmetic and comparison with a plain number on either side (#1136)."""
+
+    @pytest.mark.parametrize(
+        ("apply_operator", "expected"),
+        [
+            (lambda ds: ds + 1, 6.0),
+            (lambda ds: ds - 2, 3.0),
+            (lambda ds: ds * 3, 15.0),
+            (lambda ds: ds / 5, 1.0),
+            (lambda ds: 1 + ds, 6.0),
+            (lambda ds: 3 * ds, 15.0),
+            (lambda ds: 20 - ds, 15.0),
+            (lambda ds: 20 / ds, 4.0),
+        ],
+    )
+    def test_scalar_arithmetic_on_either_side(self, apply_operator, expected):
+        """Each operator accepts a scalar left or right and computes cell by cell."""
+        result = apply_operator(_raster(np.full((4, 4), 5.0, "float32")))
+        assert np.allclose(np.asarray(result.read_array()), expected), (
+            f"expected {expected}, got {np.asarray(result.read_array()).flat[0]}"
+        )
+
+    @pytest.mark.parametrize(
+        ("apply_operator", "expected"),
+        [
+            (lambda ds: ds > 4, 1),
+            (lambda ds: ds > 9, 0),
+            (lambda ds: ds >= 5, 1),
+            (lambda ds: ds < 9, 1),
+            (lambda ds: ds <= 4, 0),
+        ],
+    )
+    def test_scalar_comparison_yields_a_byte_mask(self, apply_operator, expected):
+        """A scalar comparison follows the raster-to-raster rule: a Byte 1/0 mask."""
+        result = apply_operator(_raster(np.full((4, 4), 5.0, "float32")))
+        array = np.asarray(result.read_array())
+        assert array.dtype == np.uint8, f"expected a Byte mask, got {array.dtype}"
+        assert (array == expected).all()
+
+    def test_every_band_is_transformed(self):
+        """A scalar spans all bands, like `combine` and unlike single-band `apply`."""
+        source = _raster(np.full((3, 4, 4), 5.0, "float32"))
+        result = source * 2
+        assert result.band_count == source.band_count, "bands must not be dropped"
+        assert np.allclose(np.asarray(result.read_array()), 10.0)
+
+    def test_a_scalar_agrees_with_the_equivalent_raster_operand(self):
+        """`ds * 2` equals `ds * <raster of 2s>` — the operator family stays consistent.
+
+        Test scenario:
+            This is the property the scalar arm exists to guarantee: the same syntax
+            means the same thing whichever operand kind is on the right.
+        """
+        source = _raster(np.full((4, 4), 5.0, "float32"))
+        twos = _raster(np.full((4, 4), 2.0, "float32"))
+        np.testing.assert_allclose(
+            np.asarray((source * 2).read_array()),
+            np.asarray((source * twos).read_array()),
+        )
+
+    def test_no_data_cells_stay_no_data(self):
+        """A masked cell is still masked after scalar arithmetic."""
+        array = np.full((4, 4), 5.0, "float32")
+        array[0, 0] = -9999.0
+        source = Dataset.from_array(array, geo_ref=GEO_REF, no_data_value=-9999.0)
+        result = source * 2
+        assert np.isnan(np.asarray(result.read_array())[0, 0]), (
+            "the masked cell should come back as the derived sentinel"
+        )
+
+    def test_the_folding_identities_are_unchanged(self):
+        """`sum()` and `math.prod()` still short-circuit on their seeds.
+
+        Test scenario:
+            `0 + ds` and `1 * ds` stay a `copy()` rather than routing through
+            `combine`, so a one-element fold keeps the source's sentinel.
+        """
+        source = _raster(np.full((4, 4), 5.0, "float32"))
+        assert np.allclose(np.asarray(sum([source]).read_array()), 5.0)
+        assert np.allclose(np.asarray(math.prod([source]).read_array()), 5.0)
+        assert np.allclose(np.asarray(sum([source, source]).read_array()), 10.0)
+
+
+class TestNonFiniteResults:
+    """What a division by zero actually produces (H1)."""
+
+    def test_an_infinity_is_stored_not_masked(self):
+        """`1 / ds` stores `inf` where the divisor is zero; only `NaN` reads as a gap.
+
+        Test scenario:
+            `combine` derives `NaN` as the sentinel for a floating result but has no
+            non-finite handling, so the infinities are data. Pinned because the
+            docstring previously claimed the opposite.
+        """
+        source = _raster(np.array([[0.0, 2.0], [4.0, 0.0]], "float32"))
+        result = 1 / source
+        values = np.asarray(result.read_array())
+        assert np.isinf(values[0, 0]), "a divide by zero should store an infinity"
+        assert values[0, 1] == 0.5
+        assert np.isnan(result.no_data_value[0]), "the derived sentinel is NaN"
+
+    def test_zero_divided_by_zero_is_a_gap(self):
+        """`0/0` is `NaN`, which *is* the derived sentinel, so it reads as no-data."""
+        source = _raster(np.zeros((2, 2), "float32"))
+        values = np.asarray((0 / source).read_array())
+        assert np.isnan(values).all(), "0/0 should come back as the NaN sentinel"
+
+
+class TestIdentityScalars:
+    """`ds + 0` and `ds * 1` are no-ops on either side (H3)."""
+
+    @staticmethod
+    def _int_raster():
+        """An int16 raster declaring a sentinel, with no masked cell present."""
+        return Dataset.from_array(
+            np.full((3, 3), 5, "int16"), geo_ref=GEO_REF, no_data_value=-9999
+        )
+
+    @pytest.mark.parametrize(
+        "apply_operator",
+        [
+            lambda ds: 0 + ds,
+            lambda ds: ds + 0,
+            lambda ds: 0.0 + ds,
+            lambda ds: ds + 0.0,
+            lambda ds: 1 * ds,
+            lambda ds: ds * 1,
+            lambda ds: 1.0 * ds,
+            lambda ds: ds * 1.0,
+        ],
+    )
+    def test_every_spelling_agrees_on_dtype_and_sentinel(self, apply_operator):
+        """All eight identity spellings return the source unchanged.
+
+        Test scenario:
+            Two spellings of one commutative expression must not disagree. Before this,
+            `ds + 0.0` widened `int16` to `float64` while `0.0 + ds` was a copy, and
+            `ds + 0` *dropped* the declared sentinel — a no-op silently stripping the
+            no-data tag off a raster on its way to disk.
+        """
+        result = apply_operator(self._int_raster())
+        values = np.asarray(result.read_array())
+        assert values.dtype == np.int16, f"dtype changed to {values.dtype}"
+        assert result.no_data_value[0] == -9999, (
+            f"the declared sentinel was lost: {result.no_data_value}"
+        )
+        assert (values == 5).all()
+
+    def test_a_non_identity_scalar_still_computes(self):
+        """The short-circuit is exactly the identities, not scalars in general."""
+        result = self._int_raster() + 1
+        assert (np.asarray(result.read_array()) == 6).all()
+
+    def test_the_identity_returns_a_copy_not_the_source(self):
+        """A no-op hands back a fresh raster, so a later write cannot reach the input."""
+        source = self._int_raster()
+        assert (source + 0) is not source
+
+
+class TestOneOperandIsReadOnce:
+    """A scalar operation costs one read of the raster, not two (review round-1 M1)."""
+
+    @staticmethod
+    def _counting_operand_arrays(monkeypatch) -> list:
+        """Instrument `Analysis._operand_arrays` and return the list it appends to.
+
+        Args:
+            monkeypatch: pytest's patcher, so the original is restored after the test.
+
+        Returns:
+            list: One entry per call, holding the dataset that was read.
+        """
+        seen: list = []
+        original = Analysis._operand_arrays
+
+        def counted(ds, band):
+            seen.append(ds)
+            return original(ds, band)
+
+        monkeypatch.setattr(Analysis, "_operand_arrays", staticmethod(counted))
+        return seen
+
+    def test_a_scalar_operation_reads_the_raster_once(self, monkeypatch):
+        """`ds * 2` reads one array, where it used to read the same one twice.
+
+        Args:
+            monkeypatch: pytest's patcher.
+
+        Test scenario:
+            The scalar arm passes `self` as `combine`'s second operand to satisfy its
+            two-operand shape. Reading it again doubled the I/O, the CF unpack and the
+            peak memory of what is a single-operand transform.
+        """
+        seen = self._counting_operand_arrays(monkeypatch)
+        _raster(np.full((4, 4), 3.0, "float32")) * 2
+        assert len(seen) == 1, f"expected one read, got {len(seen)}"
+
+    def test_two_rasters_are_still_read_separately(self, monkeypatch):
+        """A genuine two-operand combine still reads both.
+
+        Args:
+            monkeypatch: pytest's patcher.
+        """
+        seen = self._counting_operand_arrays(monkeypatch)
+        _raster(np.full((4, 4), 3.0, "float32")) * _raster(
+            np.full((4, 4), 2.0, "float32")
+        )
+        assert len(seen) == 2, f"expected two reads, got {len(seen)}"
+
+    def test_combining_a_raster_with_itself_is_still_correct(self):
+        """`ds.combine(ds, add)` doubles the values — the two-operand path, twice read."""
+        ds = _raster(np.full((4, 4), 3.0, "float32"))
+        assert float(np.asarray(ds.combine(ds, np.add).read_array()).mean()) == 6.0
+
+    def test_the_shared_path_is_declared_not_inferred(self, monkeypatch):
+        """`ds.combine(ds, …)` reads twice; only `_fold` declares the single read.
+
+        Args:
+            monkeypatch: pytest's patcher.
+
+        Test scenario:
+            Inferring the shared operand from `==` would rest on no raster class ever
+            defining an elementwise `__eq__` — which the four comparisons it already
+            defines make a plausible next request, and which nothing enforces.
+        """
+        seen = self._counting_operand_arrays(monkeypatch)
+        ds = _raster(np.full((4, 4), 3.0, "float32"))
+        ds.combine(ds, np.add)
+        assert len(seen) == 2, f"expected two reads, got {len(seen)}"
+
+    def test_fold_reads_once_and_matches_the_two_operand_answer(self, monkeypatch):
+        """`_fold` is the single-read spelling and computes what `combine` would.
+
+        Args:
+            monkeypatch: pytest's patcher.
+        """
+        seen = self._counting_operand_arrays(monkeypatch)
+        ds = _raster(np.full((4, 4), 3.0, "float32"))
+        folded = ds.analysis._fold(lambda values: values * 2)
+        assert len(seen) == 1, f"expected one read, got {len(seen)}"
+        assert float(np.asarray(folded.read_array()).mean()) == 6.0
+
+    def test_the_shared_domain_still_masks(self):
+        """A no-data cell stays no-data when the raster is combined with itself."""
+        values = np.array([[1.0, -9999.0], [3.0, 4.0]], dtype="float32")
+        ds = Dataset.from_array(values, geo_ref=GEO_REF, no_data_value=-9999.0)
+        doubled = ds * 2
+        result = np.asarray(doubled.read_array())
+        assert result[0, 1] == pytest.approx(doubled.no_data_value[0], nan_ok=True), (
+            f"the masked cell should stay masked, got {result[0, 1]}"
+        )
+        assert result[1, 1] == pytest.approx(8.0), f"got {result[1, 1]}"
+
+
+class TestExoticRealScalars:
+    """`numbers.Real` admits more than NumPy can type (review round-1 M2)."""
+
+    def test_a_fraction_multiplies(self):
+        """`ds * Fraction(1, 3)` computes, where it raised a GDAL type-table dump.
+
+        Test scenario:
+            NumPy resolves an expression against a `Fraction` to an object-dtype array,
+            which `numpy_to_gdal_dtype` rejects with a message naming neither the
+            operand nor the operator. Coercing to `float` first keeps the expression in
+            a dtype a band can hold.
+        """
+        result = _raster(np.full((2, 2), 6.0, "float32")) * Fraction(1, 3)
+        assert float(np.asarray(result.read_array()).mean()) == pytest.approx(2.0)
+
+    def test_a_fraction_on_the_left_divides(self):
+        """The reflected path coerces too — `Fraction(1, 2) / ds` is not special."""
+        result = Fraction(1, 2) / _raster(np.full((2, 2), 4.0, "float32"))
+        assert float(np.asarray(result.read_array()).mean()) == pytest.approx(0.125)
+
+    def test_a_zero_fraction_is_still_absorbed(self):
+        """`Fraction(0) + ds` keeps the documented identity short-circuit."""
+        source = _raster(np.full((2, 2), 6.0, "float32"))
+        assert (Fraction(0) + source).dtype == source.dtype, (
+            "an absorbed identity must not widen the band"
+        )
+
+    def test_an_integer_scalar_is_not_widened(self):
+        """`ds * 2` stays an integer multiply; the coercion touches only exotic Reals."""
+        result = _raster(np.full((2, 2), 3, "int16")) * 2
+        assert np.issubdtype(np.asarray(result.read_array()).dtype, np.integer), (
+            f"got {np.asarray(result.read_array()).dtype}"
+        )
+
+    def test_a_decimal_is_still_declined(self):
+        """`Decimal` is not a `Real`, so Python raises its own `TypeError`.
+
+        Test scenario:
+            The guard is `numbers.Real`, and `Decimal` registers as `Number` only. It
+            keeps returning `NotImplemented` so the error names the two types rather
+            than arriving from inside a raster op.
+        """
+        raster = _raster(np.full((2, 2), 6.0, "float32"))
+        with pytest.raises(TypeError):
+            raster * Decimal("0.5")
+
+
+class TestDeclinedReflectedOperands:
+    """`_reflected_arithmetic` declines a left operand no band can hold."""
+
+    @pytest.mark.parametrize(
+        ("apply_operator", "named_type"),
+        [
+            (lambda ds: True - ds, "bool"),
+            (lambda ds: True / ds, "bool"),
+            (lambda ds: Decimal("1") - ds, "decimal.Decimal"),
+            (lambda ds: Decimal("1") / ds, "decimal.Decimal"),
+            (lambda ds: 0j - ds, "complex"),
+            (lambda ds: 0j / ds, "complex"),
+        ],
+    )
+    def test_a_non_numeric_left_operand_raises(self, apply_operator, named_type):
+        """A reflected operator refuses the operands the forward one refuses.
+
+        Args:
+            apply_operator: The reflected expression to evaluate.
+            named_type: The left operand's type name, which the error must carry.
+
+        Test scenario:
+            `True` is a `Real` equal to `1` and a complex has no imaginary part a band
+            can hold, so both are turned away on the reflected side exactly as they are
+            on the forward one — `2 - ds` must not mean something `ds - 2` refuses. The
+            hook answers `NotImplemented` rather than raising itself, so the error is
+            Python's own and names both operand types.
+        """
+        raster = _raster(np.full((2, 2), 6.0, "float32"))
+        with pytest.raises(TypeError, match="unsupported operand type") as exc_info:
+            apply_operator(raster)
+        assert named_type in str(exc_info.value), (
+            f"the error should name {named_type}, got: {exc_info.value}"
+        )
+
+    @pytest.mark.parametrize("other", [True, Decimal("1"), 0j, "2", None])
+    def test_the_reflected_hooks_answer_not_implemented(self, other):
+        """`__rsub__` / `__rtruediv__` return the sentinel rather than raising.
+
+        Args:
+            other: A left operand that is not a real, non-boolean scalar.
+
+        Test scenario:
+            Returning `NotImplemented` is what lets Python fall through to its own
+            `TypeError`; raising here instead would produce an error from inside a
+            raster op naming neither operand.
+        """
+        source = _raster(np.full((2, 2), 6.0, "float32"))
+        assert source.__rsub__(other) is NotImplemented, (
+            f"__rsub__({other!r}) should decline, got {source.__rsub__(other)}"
+        )
+        assert source.__rtruediv__(other) is NotImplemented, (
+            f"__rtruediv__({other!r}) should decline, got {source.__rtruediv__(other)}"
+        )
+
+
+class TestIntegerScalarEdges:
+    """Integer scalars wrap and overflow exactly as numpy does (review round-1 M3)."""
+
+    def test_multiplication_wraps_on_a_byte_band(self):
+        """`uint8 * 2` wraps mod 256 rather than promoting, as two byte bands do.
+
+        Test scenario:
+            `200 * 2` is `144` on `uint8`. Nothing marks those cells: an integer result
+            that masked nothing declares no sentinel, so they read as ordinary data.
+        """
+        result = _raster(np.full((2, 2), 200, "uint8")) * 2
+        assert int(np.asarray(result.read_array())[0, 0]) == 144, (
+            f"got {np.asarray(result.read_array())[0, 0]}"
+        )
+
+    def test_subtraction_underflows_on_a_byte_band(self):
+        """`uint8 0 - 1` underflows to `255`, numpy's answer for the same expression."""
+        result = _raster(np.zeros((2, 2), "uint8")) - 1
+        assert int(np.asarray(result.read_array())[0, 0]) == 255
+
+    def test_a_sum_landing_on_the_byte_sentinel_stays_data(self):
+        """`uint8 250 + 5` lands on `255` and is still data, not a gap.
+
+        Test scenario:
+            `255` is the sentinel a `uint8` band gets by default, so the collision has
+            to be resolved somehow. It is resolved against the sentinel: the derivation
+            runs on the values just computed, and a result holding `255` everywhere
+            cannot claim it, so nothing is declared and the wrapped cells read as
+            ordinary data to every consumer.
+        """
+        result = _raster(np.full((2, 2), 250, "uint8")) + 5
+        assert int(np.asarray(result.read_array())[0, 0]) == 255
+        assert result.no_data_value[0] is None, (
+            f"the wrapped cells must not be masked, got {result.no_data_value[0]}"
+        )
+
+    def test_a_masked_byte_sum_derives_a_free_sentinel(self):
+        """With a real gap present the derivation picks a value the result does not hold.
+
+        Test scenario:
+            `255` is taken by the computed values, so the sentinel cannot be it — and
+            the cells that wrapped onto `255` stay data either way.
+        """
+        source = Dataset.from_array(
+            np.array([[250, 255], [250, 250]], "uint8"),
+            geo_ref=GEO_REF,
+            no_data_value=255,
+        )
+        result = source + 5
+        assert result.no_data_value[0] != 255, f"got {result.no_data_value[0]}"
+        assert int(np.asarray(result.read_array())[0, 0]) == 255
+
+    def test_a_scalar_too_wide_for_the_band_overflows(self):
+        """`uint8 + 300` raises numpy's `OverflowError` rather than wrapping silently."""
+        with pytest.raises(OverflowError):
+            _raster(np.full((2, 2), 1, "uint8")) + 300
+
+    def test_integer_division_widens_to_float(self):
+        """`int32 / 2` gives floats, as `int / int` does everywhere else in the package."""
+        result = _raster(np.full((2, 2), 7, "int32")) / 2
+        assert float(np.asarray(result.read_array())[0, 0]) == pytest.approx(3.5)
+
+
+class TestNumpyScalarPromotion:
+    """NEP 50 weak promotion decides the result's band width (review round-1 L3)."""
+
+    def test_a_python_scalar_keeps_the_band_width(self):
+        """`float32 * 2` stays `float32` — a Python scalar promotes weakly."""
+        result = _raster(np.full((2, 2), 3.0, "float32")) * 2
+        assert np.asarray(result.read_array()).dtype == np.dtype("float32")
+
+    def test_a_python_float_keeps_the_band_width(self):
+        """`float32 * 2.0` stays `float32` too; the literal's kind does not matter."""
+        result = _raster(np.full((2, 2), 3.0, "float32")) * 2.0
+        assert np.asarray(result.read_array()).dtype == np.dtype("float32")
+
+    def test_a_numpy_scalar_widens_the_band(self):
+        """`float32 * np.float64(2)` doubles the band's width.
+
+        Test scenario:
+            Both spellings are `numbers.Real` and both are admitted, so the choice of
+            literal silently decides how many bytes the result occupies.
+        """
+        result = _raster(np.full((2, 2), 3.0, "float32")) * np.float64(2)
+        assert np.asarray(result.read_array()).dtype == np.dtype("float64")
+
+
+class TestNonFiniteScalars:
+    """`nan` and `inf` are accepted and are destructive (review round-1 L8)."""
+
+    def test_a_nan_scalar_empties_the_raster(self):
+        """Every cell computes to `nan` and the derived sentinel is `nan` too.
+
+        Test scenario:
+            The result reads as entirely no-data to every consumer. It is what the
+            arithmetic says, and it is pinned here so it cannot change unnoticed.
+        """
+        result = _raster(np.full((2, 2), 6.0, "float32")) * float("nan")
+        assert np.isnan(np.asarray(result.read_array())).all()
+        assert np.isnan(result.no_data_value[0]), f"got {result.no_data_value[0]}"
+
+    def test_an_inf_scalar_stores_infinities(self):
+        """`ds * inf` stores `inf` as a value rather than masking it."""
+        result = _raster(np.full((2, 2), 6.0, "float32")) * float("inf")
+        assert np.isinf(np.asarray(result.read_array())).all()
+
+    def test_a_comparison_against_nan_is_false_everywhere(self):
+        """`ds > nan` is `0` in every cell, as numpy's own comparison is."""
+        result = _raster(np.full((2, 2), 6.0, "float32")) > float("nan")
+        assert set(np.asarray(result.read_array()).ravel()) == {0}
+
+
+class TestTheRightIdentities:
+    """`ds - 0` is a no-op too; `ds / 1` is not (review round-2 L4)."""
+
+    def test_subtracting_zero_keeps_the_dtype_and_sentinel(self):
+        """`ds - 0` is a copy, so the declared sentinel survives.
+
+        Test scenario:
+            It has no reflected twin — `0 - ds` negates — but the reason the
+            commutative identities short-circuit applies word for word: routed through
+            `combine` it would drop the sentinel, because an integer result that masked
+            nothing declares none.
+        """
+        raster = Dataset.from_array(
+            np.full((4, 4), 2, "int16"), geo_ref=GEO_REF, no_data_value=-9999
+        )
+        result = raster - 0
+        values = np.asarray(result.read_array())
+
+        assert np.allclose(values, 2), f"got {values}"
+        assert values.dtype == np.dtype("int16"), f"the band widened to {values.dtype}"
+        assert result.no_data_value[0] == -9999, f"got {result.no_data_value[0]}"
+
+    def test_subtracting_a_float_zero_is_absorbed_too(self):
+        """`ds - 0.0` follows `ds + 0.0`; the literal's kind does not decide it."""
+        raster = Dataset.from_array(
+            np.full((4, 4), 2, "int16"), geo_ref=GEO_REF, no_data_value=-9999
+        )
+        assert np.asarray((raster - 0.0).read_array()).dtype == np.dtype("int16")
+
+    def test_dividing_by_one_still_widens(self):
+        """`ds / 1` computes, because true division widens an integer band.
+
+        Test scenario:
+            Absorbing it would make this the one division that does not widen, which is
+            a worse surprise than the copy it would save.
+        """
+        raster = Dataset.from_array(
+            np.full((4, 4), 2, "int16"), geo_ref=GEO_REF, no_data_value=-9999
+        )
+        values = np.asarray((raster / 1).read_array())
+        assert np.issubdtype(values.dtype, np.floating), f"got {values.dtype}"
+
+    def test_zero_minus_the_raster_still_negates(self):
+        """`0 - ds` is not an identity and must keep computing."""
+        result = 0 - _raster(np.full((2, 2), 3.0, "float32"))
+        assert float(np.asarray(result.read_array()).mean()) == pytest.approx(-3.0)

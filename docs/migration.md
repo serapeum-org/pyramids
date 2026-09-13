@@ -396,25 +396,37 @@ inputs and wrapping the result with `from_array` — the step where georeferenci
 
 - The operands must already share a grid; a mismatch raises `AlignmentError` rather than resampling. The new
   `ds.same_grid(other)` predicate answers the question in advance, and `align()` is the explicit fix.
-- A **scalar** operand is not accepted. `ds * 2` raises `TypeError`; scalar arithmetic stays with
-  `ds.apply(lambda v: v * 2)`, which preserves the band's dtype where `combine` takes whatever `func` returns.
+- A **scalar** operand is accepted on either side: `ds * 2`, `2 * ds`, `20 - ds` and `ds >= 5` all work. A scalar
+  takes the same route as a raster operand, so `ds * 2` and `ds * other` agree on band count, dtype and sentinel.
+  That is deliberately not the same as `ds.apply(lambda v: v * 2)`, which transforms one band and keeps the
+  source's sentinel — reach for `apply` when you want that contract. `bool` and complex scalars are still
+  refused.
 - A cell that is no-data in either operand is no-data in the result. An **integer** result's sentinel is derived
   against the values `func` computed, so no in-range number is claimed as a gap by the arithmetic that produced
   it, and one that masked nothing declares **no** sentinel at all. A **floating** result always declares `NaN`:
   a cell `func` computed as `NaN` (`0/0` in a normalised difference) has no value, so it is a gap and the result
   says so. Pass `no_data_value=` to choose one, or `no_data_value=None` for no masking.
-- `sum(rasters)` works: `__radd__` absorbs the integer `0` that `sum()` seeds with, returning a copy so a
-  one-element sum never aliases its input. `0` is the only scalar accepted anywhere in the operators, and only
-  from the left — `1 + ds` still raises. That copy is a real cost: `sum()` and `math.prod()` each materialise one
-  extra full raster that `functools.reduce(operator.add, rasters)` does not, which matters near the memory limit.
+- `sum(rasters)` works: `__radd__` absorbs the `0` that `sum()` seeds with, returning a copy so a one-element
+  sum never aliases its input. Absorption is symmetric and is not limited to the integer seed — adding any real
+  scalar equal to zero, or multiplying by any equal to one, short-circuits to a copy on **either** side, so
+  `ds + 0`, `0.0 + ds` and `ds * 1` are copies too. `ds - 0` is absorbed as well, on the right only — `0 - ds`
+  negates. `ds / 1` is not: true division widens an integer band to `float64`, so it is no no-op. Absorption
+  is what keeps the two spellings of one commutative expression from disagreeing: routed through
+  `combine`, `ds + 0.0` would widen an `int16` band to `float64`
+  where `0.0 + ds` is byte-identical, and `ds + 0` would drop the band's declared sentinel. Every other scalar
+  computes through `combine`, so `1 + ds` returns a raster rather than raising. The copy is a real cost:
+  `sum()` and `math.prod()` each materialise one extra full raster that `functools.reduce(operator.add,
+  rasters)` does not, which matters near the memory limit.
 - `combine` is whole-array: both operands are read in full. For rasters near the memory limit use
   `apply(elementwise=True)` or `read_array(chunks=)`.
 - The module-private `_same_grid` helper in `pyramids.dataset.dataset` moved to `Spatial.same_grid`, faced on
   `Dataset`. It was never public, but anyone importing it directly must switch to `a.same_grid(b)`.
-- `<`, `<=`, `>` and `>=` between two rasters return a Byte mask (`1`/`0`, and `255` wherever either operand was
-  no-data). `==` and `!=` are **not** overridden — they stay identity-based, so `Dataset` remains usable in
-  `assert`, in sets and as a dict key; use `a.combine(b, np.equal)` for the mask.
-- `math.prod(rasters)` folds like `sum(rasters)`; both absorb their identity scalar from the left only.
+- `<`, `<=`, `>` and `>=` between two rasters, or between a raster and a real scalar, return a Byte mask
+  (`1`/`0`, and `255` wherever either operand was no-data). `==` and `!=` are **not** overridden — they stay
+  identity-based, so `Dataset` remains usable in `assert`, in sets and as a dict key; use
+  `a.combine(b, np.equal)` for the mask.
+- `math.prod(rasters)` folds like `sum(rasters)`; both absorb their identity scalar from either side, and
+  compute for every other scalar.
 
 **`bool(ds)` now raises — replace `if ds:` with `if ds is not None:`.** Hard change. A raster holds one value per
 cell, and a comparison between two rasters is itself a raster, so there is no honest single truth value. Reduce
@@ -1020,6 +1032,39 @@ replace the georeference wholesale.
 ## netcdf
 
 ### unreleased
+
+**`to_xarray()` decodes the CF time axis, so the coordinate is `datetime64[ns]` rather than `float64`.**
+Hard change, silent for the read side — nothing raises and nothing warns when the axis decodes. The bridge
+exists to hand you to xarray, and `resample`, `.dt` and `groupby("time.<component>")` all raised on the numeric
+index it used to produce.
+
+```python
+xds = nc.to_xarray()
+xds.coords["time"].values[:2]   # was [0., 6.]  ->  now ['2024-01-01T00:00', '2024-01-01T06:00']
+xds.coords["time"].attrs["units"]      # was 'hours since 2024-01-01'  ->  now KeyError
+xds.coords["time"].encoding["units"]   # 'hours since 2024-01-01'
+```
+
+- **`units` and `calendar` move from `attrs` to `encoding`.** The values are no longer expressed in them, so
+  carrying them as attributes would describe the coordinate wrongly and invite a double decode on write. That
+  is where xarray itself keeps them. Code reading `xds.time.attrs["units"]` must read `.encoding["units"]`.
+- **`to_xarray(decode_times=False)` restores the old output exactly** — the stored offsets, with `units` and
+  `calendar` still in `attrs`. It is the spelling that now matches `get_dimension_values("time")`.
+- **A CF bounds array follows the coordinate that names it.** CF says a bounds variable declares no units of its
+  own and inherits the parent's, so a decoded `time` no longer sits beside a numeric `time_bnds`.
+- **Only a standard calendar inside `datetime64[ns]` decodes.** A `360_day` or `noleap` axis would decode to
+  `cftime` objects, which GDAL has no band type for, and an instant outside the type's range would wrap rather
+  than raise. Those axes keep their offsets — and now say so, with a new `TimeDecodingWarning` naming the
+  dimension and the reason. Five of the repo's own fixtures take that path, so a project running
+  `-W error::UserWarning` will see it. Silence it with
+  `warnings.filterwarnings("ignore", category=TimeDecodingWarning)` from `pyramids.errors`.
+
+**`from_xarray()` writes the time axis in the CF units the array's `encoding` names, not `seconds since
+1970-01-01`.** Hard change, silent — the instants are the same, the file is byte-for-byte different. A
+`datetime64` coordinate carrying `units` (and optionally `calendar`) in its `encoding` is encoded back into
+them, so a `to_xarray()` → `from_xarray()` round trip returns the axis it started with instead of rebasing it on
+the epoch and stamping a `proleptic_gregorian` calendar the source never declared. An array with no such
+encoding still takes the epoch, unchanged.
 
 **`get_variable` returns a `LabeledArray`, not a raw `gdal.MDArray`, for a variable with no raster plane.**
 Two shapes are affected: a 1-D array (a profile axis, a bounds array, a hybrid-sigma coefficient), and a string or

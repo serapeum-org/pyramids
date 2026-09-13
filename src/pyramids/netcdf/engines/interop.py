@@ -17,13 +17,17 @@ import tempfile
 import traceback
 import warnings
 import weakref
+from collections.abc import Mapping
 from contextlib import contextmanager, suppress
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import cftime
 import numpy as np
 from osgeo import gdal, osr
 
+from pyramids.base._errors import TimeDecodingWarning
 from pyramids.base._utils import import_xarray, numpy_to_gdal_dtype
 from pyramids.base.remote import is_remote
 from pyramids.dataset.engines._base import _Engine
@@ -38,7 +42,35 @@ from pyramids.netcdf.cf import (
 from pyramids.netcdf.utils import (
     CF_EPOCH_CALENDAR,
     cf_epoch_units,
+    is_cf_time_units,
     read_cf_attributes,
+)
+
+# The window `datetime64[ns]` can represent, in microseconds: 1677-09-21T00:12:43.145225
+# to 2262-04-11T23:47:16.854775. Numpy wraps silently outside it. Derived from the int64
+# tick count rather than written out, because a hand-picked bound that is even a day too
+# narrow refuses representable instants while telling the user the type cannot hold them.
+# The nanosecond ends are rounded inward to whole microseconds (ceil the floor, floor the
+# ceiling) so a value inside these bounds always survives the cast up to nanoseconds.
+# The dtype the decoder targets. Named once: three code paths cast to it, and a typo
+# in any of them would produce a differently-resolved axis rather than an error.
+_NS_DTYPE = "datetime64[ns]"
+_NS_TICKS = np.iinfo("int64")
+_NS_MIN = np.datetime64((_NS_TICKS.min + 1 + 999) // 1000, "us")
+_NS_MAX = np.datetime64(_NS_TICKS.max // 1000, "us")
+
+# A coordinate as the writers take it: `(values, attrs)`, or `(values, attrs, encoding)`
+# when the caller knows the CF units a decoded time axis has to go back out in.
+_CoordSpec = (
+    tuple[np.ndarray, dict[str, Any]]
+    | tuple[np.ndarray, dict[str, Any], dict[str, Any]]
+)
+
+# A variable as the writers take it: `(dims, values, attrs)`, plus the same optional
+# encoding slot, which carries a decoded time array back out in its own CF units.
+_VarSpec = (
+    tuple[tuple[str, ...], Any, dict[str, Any]]
+    | tuple[tuple[str, ...], Any, dict[str, Any], dict[str, Any]]
 )
 
 _XARRAY_HINT = (
@@ -210,7 +242,9 @@ class Interop(_Engine["NetCDF"]):
     than on this instance-bound engine.
     """
 
-    def to_xarray(self, chunks: dict | str | int | None = None) -> Any:
+    def to_xarray(
+        self, chunks: dict | str | int | None = None, *, decode_times: bool = True
+    ) -> Any:
         """Convert this NetCDF container to an `xarray.Dataset`.
 
         Builds an `xarray.Dataset` that mirrors the variables,
@@ -236,9 +270,20 @@ class Interop(_Engine["NetCDF"]):
         - PyPI: ``pip install xarray``
         - conda-forge: ``conda install -c conda-forge xarray``
 
+        A decoded time axis moves its CF `units` / `calendar` out of `attrs` and
+        into the coordinate's `encoding`, where xarray itself keeps them: the
+        values are no longer expressed in those units, so leaving them in `attrs`
+        would describe the axis wrongly and invite a second decode on write.
+        :func:`from_xarray` reads them back from `encoding`, so a container read
+        here and written back keeps the origin and calendar it arrived with.
+
         Args:
             chunks: Chunk spec forwarded to the lazy reader per data
                 variable. `None` (default) reads eagerly.
+            decode_times: When `True` (the default) a dimension whose CF `units`
+                name a time origin is exported as datetimes, so xarray's own
+                `resample` / `.dt` / `groupby("time.month")` work on the result.
+                `False` exports the stored offsets unchanged, `units` and all.
 
         Returns:
             xarray.Dataset: An xarray Dataset with the same
@@ -253,17 +298,94 @@ class Interop(_Engine["NetCDF"]):
                 multidimensional container (open the file with
                 `open_as_multi_dimensional=True`).
 
+        Warns:
+            TimeDecodingWarning: A dimension declares CF time `units` that could
+                not be decoded — a non-standard calendar, an instant outside
+                `datetime64[ns]`, or a conversion failure. The axis is exported as
+                its stored offsets and the export continues; see
+                :class:`~pyramids.errors.TimeDecodingWarning` for the three reasons.
+
         Examples:
-            Convert a pyramids NetCDF to xarray::
+            - Export a CF container and use xarray's own time machinery on the
+              result:
 
-                nc = NetCDF.read_file("temperature.nc")
-                ds = nc.to_xarray()
-                print(ds)
+                ```python
+                >>> from pyramids.netcdf import NetCDF
+                >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+                >>> xds = nc.to_xarray()
+                >>> str(xds.coords["time"].dtype)
+                'datetime64[ns]'
+                >>> [int(hour) for hour in xds.coords["time"].dt.hour.values]
+                [0, 6, 12, 18]
+                >>> xds["temperature"].resample(time="1D").mean().shape
+                (1, 3, 5, 6)
 
-            Build a lazy (dask-backed) dataset::
+                ```
+            - The decoded axis keeps its CF units in `encoding`, not in `attrs`,
+              so the write-back path can re-use the file's own origin:
 
-                lazy = nc.to_xarray(chunks="auto")
-                lazy["temperature"].data  # dask.array.Array
+                ```python
+                >>> from pyramids.netcdf import NetCDF
+                >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+                >>> time = nc.to_xarray().coords["time"]
+                >>> time.attrs
+                {}
+                >>> time.encoding["units"]
+                'hours since 2024-01-01'
+
+                ```
+            - Ask for the stored offsets instead, and the axis comes back numeric
+              with its `units` still on it:
+
+                ```python
+                >>> from pyramids.netcdf import NetCDF
+                >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+                >>> raw = nc.to_xarray(decode_times=False)
+                >>> [float(offset) for offset in raw.coords["time"].values]
+                [0.0, 6.0, 12.0, 18.0]
+                >>> raw.coords["time"].attrs["units"]
+                'hours since 2024-01-01'
+
+                ```
+            - Build the cube lazily instead, so each data variable arrives as a
+              dask-backed array that is only read when it is computed:
+
+                ```python
+                >>> from pyramids.netcdf import NetCDF
+                >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+                >>> lazy = nc.to_xarray(chunks="auto")
+                >>> lazy["temperature"].chunks
+                ((4,), (3,), (5,), (6,))
+                >>> round(float(lazy["temperature"].mean().compute()), 1)
+                1622.5
+
+                ```
+            - An axis that declares CF time units but cannot be decoded warns and
+              degrades to those offsets rather than failing the export:
+
+                ```python
+                >>> import warnings
+                >>> from pyramids.errors import TimeDecodingWarning
+                >>> from pyramids.netcdf import NetCDF
+                >>> nc = NetCDF.read_file("tests/data/netcdf/coards__5v__1d4-4d1__y-desc.nc")
+                >>> with warnings.catch_warnings(record=True) as caught:
+                ...     warnings.simplefilter("always")
+                ...     legacy = nc.to_xarray()
+                >>> reported = [w for w in caught if w.category is TimeDecodingWarning]
+                >>> str(reported[0].message).split(" but ")[0]
+                "time coordinate 'time' declares 'hours since 1-1-1 00:00:0.0'"
+                >>> str(legacy.coords["time"].dtype)
+                'float64'
+                >>> legacy.coords["time"].attrs["units"]
+                'hours since 1-1-1 00:00:0.0'
+
+                ```
+
+        See Also:
+            from_xarray: The inverse, which re-encodes a decoded axis into the
+                `units` carried in its `encoding`.
+            pyramids.errors.TimeDecodingWarning: The category emitted when an
+                axis is left undecoded, and why.
         """
         ds = self._ds
         xr = import_xarray(_XARRAY_HINT.format(func="to_xarray"))
@@ -275,14 +397,22 @@ class Interop(_Engine["NetCDF"]):
                 "Open the file with open_as_multi_dimensional=True."
             )
 
-        coords = _coords_from_dimensions(rg, ds)
+        coords, bounds_encodings = _coords_from_dimensions(
+            rg, ds, decode_times=decode_times
+        )
         data_vars, export_names = _data_vars_from_arrays(rg, ds, chunks, set(coords))
         exported = xr.Dataset(
             data_vars=data_vars,
             coords=coords,
             attrs=ds.global_attributes,
         )
-        return _promote_cf_non_data_arrays(exported, ds, export_names)
+        return _promote_cf_non_data_arrays(
+            exported,
+            ds,
+            export_names,
+            bounds_encodings=bounds_encodings,
+            decode_times=decode_times,
+        )
 
 
 # The CF roles xarray represents as coordinates rather than data variables.
@@ -301,7 +431,12 @@ _COORDINATE_CF_ROLES = frozenset(
 
 
 def _promote_cf_non_data_arrays(
-    exported: Any, ds: NetCDF, export_names: dict[str, str]
+    exported: Any,
+    ds: NetCDF,
+    export_names: dict[str, str],
+    *,
+    bounds_encodings: dict[str, dict[str, Any]] | None = None,
+    decode_times: bool = True,
 ) -> Any:
     """Move the exported CF non-data arrays from ``data_vars`` into ``coords``.
 
@@ -331,11 +466,23 @@ def _promote_cf_non_data_arrays(
         export_names: Store name to the key it was exported under, from
             :func:`_data_vars_from_arrays`. A name absent from it is its own
             key.
+        bounds_encodings: Bounds-variable **store** name to the CF `units` / `calendar`
+            of the decoded coordinate that names it, from
+            :func:`_coords_from_dimensions`. Translated to export names here, as the
+            roles are, and each such array is decoded with them once promoted.
+        decode_times: Whether to decode a promoted coordinate's time axis. `False`
+            leaves every promoted array exactly as stored, matching the dimension
+            coordinates.
 
     Returns:
         xr.Dataset: The same dataset with those names promoted. Unchanged when
             the store carries no CF classification, so a non-CF file is not
             second-guessed.
+
+    Warns:
+        TimeDecodingWarning: A promoted array carried CF time units — its own, or its
+            parent coordinate's — that could not be decoded. Only reachable while
+            `decode_times` is `True`; the promotion itself never warns.
 
     Notes:
         `exported` and the return are typed `Any` rather than `xr.Dataset`
@@ -362,24 +509,410 @@ def _promote_cf_non_data_arrays(
         )
         promote = [key for key in candidates if key in exported.data_vars]
         result = exported.set_coords(promote) if promote else exported
+        # A coordinate's CF `bounds` attribute names a *store* array, and the keys here
+        # are export names -- the same two namespaces the roles above are translated
+        # between, and for the same reason. The two are identical for every store in
+        # the suite, which is exactly why an implicit join would go unnoticed.
+        by_export = {
+            export_names.get(name, name): encoding
+            for name, encoding in (bounds_encodings or {}).items()
+        }
+        for key in promote if decode_times else []:
+            result = _decode_promoted_coordinate(result, key, by_export.get(key))
     return result
 
 
-def _coords_from_dimensions(rg: Any, ds: NetCDF) -> dict[str, Any]:
+def _decode_promoted_coordinate(
+    exported: Any, key: str, inherited: dict[str, Any] | None
+) -> Any:
+    """Decode a promoted CF coordinate's time axis, from its own units or its parent's.
+
+    Two kinds reach here. An **auxiliary** time coordinate -- a 2-D `valid_time` field
+    on a curvilinear grid, a promoted `coordinate` column -- declares CF time `units` of
+    its own and is decoded from them. A **bounds** array declares none: CF says it
+    inherits the coordinate that names it, so the decoder cannot recognise one by
+    looking at its attributes, and the parent's encoding is lent to it instead. xarray
+    decodes bounds the same way.
+
+    Either left numeric beside a decoded dimension axis is an internally inconsistent CF
+    object: nothing downstream can relate the two.
+
+    Args:
+        exported: The `xr.Dataset` whose coordinate is to be replaced.
+        key: The promoted coordinate's name.
+        inherited: The CF `units` / `calendar` of the decoded axis that names this array
+            as its bounds, or `None` when no axis does. Used only when the array
+            declares no time units itself.
+
+    Returns:
+        The dataset with that coordinate decoded, or unchanged when it carries no CF
+        time units by either route, or when the decoder declines it.
+
+    Warns:
+        TimeDecodingWarning: The array declares CF time units of its own, or inherits a
+            parent's, that could not be decoded — so it stays numeric beside a decoded
+            dimension axis. Raised through :func:`_decode_time_coordinate`.
+
+    See Also:
+        _decode_time_coordinate: The decoder both routes end in.
+        _promote_cf_non_data_arrays: The caller, which decides what is promoted.
+    """
+    variable = exported[key]
+    own = {
+        name: variable.attrs[name]
+        for name in ("units", "calendar")
+        if name in variable.attrs
+    }
+    source = own if is_cf_time_units(own.get("units")) else dict(inherited or {})
+    result = exported
+    if source:
+        decoded = _decode_time_coordinate(np.asarray(variable.values), source, key)
+        if decoded is not None:
+            # Only attributes the array actually carried are stripped: a bounds array
+            # never declared them, so it has nothing to lose and the parent's encoding
+            # is simply recorded on it.
+            attrs = {
+                name: value for name, value in variable.attrs.items() if name not in own
+            }
+            result = exported.assign_coords(
+                {key: (variable.dims, decoded, attrs, dict(source))}
+            )
+    return result
+
+
+def _warn_not_decoded(name: str, units: Any, reason: str) -> None:
+    """Report that a CF time axis was exported as its stored offsets.
+
+    Every read-side degrade arrives here, so the three reasons
+    :class:`~pyramids.errors.TimeDecodingWarning` reports share one message: a `cftime`
+    conversion failure, a decode to `cftime` objects GDAL has no band type for, and an
+    instant outside `datetime64[ns]`. The message names the axis and the `units` it
+    declared, then the reason, then `decode_times=False` as the way to ask for the raw
+    offsets on purpose.
+
+    Args:
+        name: The dimension's name, or `""` when the caller did not supply one.
+        units: The CF `units` string that made the axis a decoding candidate.
+        reason: Why it was not decoded, phrased to follow "because".
+
+    Warns:
+        TimeDecodingWarning: Always — emitting it is what this function is for. The
+            `stacklevel` is walked rather than counted, so the warning points at the
+            first frame outside pyramids however deep the call arrived.
+
+    Examples:
+        - The message names the axis, its units and the reason it kept its offsets:
+
+            ```python
+            >>> import warnings
+            >>> from pyramids.netcdf.engines.interop import _warn_not_decoded
+            >>> with warnings.catch_warnings(record=True) as caught:
+            ...     warnings.simplefilter("always")
+            ...     _warn_not_decoded("time", "hours since 1-1-1", "the origin predates 1582")
+            >>> str(caught[0].message).split(" but ")[0]
+            "time coordinate 'time' declares 'hours since 1-1-1'"
+            >>> str(caught[0].message).split("because ")[1].split(".")[0]
+            'the origin predates 1582'
+
+            ```
+        - Promoting the category to an error is how a pipeline that must not ship a
+          numeric time axis catches one:
+
+            ```python
+            >>> import warnings
+            >>> from pyramids.errors import TimeDecodingWarning
+            >>> from pyramids.netcdf.engines.interop import _warn_not_decoded
+            >>> with warnings.catch_warnings():
+            ...     warnings.simplefilter("error", TimeDecodingWarning)
+            ...     _warn_not_decoded("time", "days since 2024-01-01", "a 360_day calendar")
+            Traceback (most recent call last):
+                ...
+            pyramids.base._errors.TimeDecodingWarning: time coordinate 'time' declares ...
+
+            ```
+
+    See Also:
+        _warn_not_encoded: The mirror on the write side.
+    """
+    labelled = f"{name!r} " if name else ""
+    warnings.warn(
+        f"time coordinate {labelled}declares {units!r} but was exported as stored "
+        f"offsets because {reason}. xarray's resample/.dt/groupby will not work on it; "
+        "pass decode_times=False to ask for the offsets deliberately.",
+        TimeDecodingWarning,
+        # Walked, not counted: the coordinate path and the bounds path reach here
+        # through different depths, and either would drift the moment a hop is added.
+        stacklevel=_caller_stacklevel(),
+    )
+
+
+def _decode_time_coordinate(values: Any, attrs: dict, name: str = "") -> Any | None:
+    """Decode a CF time axis' stored offsets into datetimes, or ``None`` if it is not one.
+
+    A CF time coordinate is stored as numbers against an origin (``hours since
+    2024-01-01``). Handing those raw numbers to xarray leaves it with a plain numeric
+    index, which its own time machinery cannot use: ``resample``, ``.dt`` and
+    ``groupby("time.month")`` all fail on the result. Decoding here is what makes the
+    exported object a cube xarray can actually work on (#1137).
+
+    Only a **standard** calendar whose instants fit ``datetime64[ns]`` is decoded. A non-standard one
+    (``360_day``, ``noleap``) would decode to ``cftime`` objects — an object-dtype array
+    GDAL cannot write back, so exporting it would fix the xarray side at the cost of the
+    round trip. Those axes keep their stored offsets; re-encoding them on write is the
+    work that would lift that restriction.
+
+    An axis that declares CF time ``units`` and is then declined warns with
+    :class:`~pyramids.errors.TimeDecodingWarning` naming the dimension and the reason.
+    The export still degrades rather than aborting — a bad coordinate is not the
+    export's to discover — but silently not decoding left the caller meeting only the
+    consequence, an xarray error about a non-datetime index. An axis whose ``units`` are
+    not time units at all is not a candidate and says nothing.
+
+    Args:
+        values: The dimension's stored coordinate values.
+        attrs: That dimension's CF attributes, read from the indexing variable.
+        name: The dimension's name, used only to name it in the warning.
+
+    Returns:
+        The decoded array, or ``None`` when the axis declares no CF time ``units``, the
+        values cannot be decoded, or the decoded instants fall outside the
+        ``datetime64[ns]`` range — in which case the caller keeps the raw numbers.
+
+    Warns:
+        TimeDecodingWarning: The axis declares CF time ``units`` but was left as stored
+            offsets — a non-standard calendar, an instant outside ``datetime64[ns]``, or
+            a conversion failure.
+
+    Examples:
+        - A CF time axis comes back as datetimes an xarray index can use:
+
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.netcdf.engines.interop import _decode_time_coordinate
+            >>> decoded = _decode_time_coordinate(
+            ...     np.array([0, 6, 12]), {"units": "hours since 2024-03-01"}, "time"
+            ... )
+            >>> [str(instant)[:16] for instant in decoded]
+            ['2024-03-01T00:00', '2024-03-01T06:00', '2024-03-01T12:00']
+
+            ```
+        - An axis whose units are not time units is not a candidate, and says nothing:
+
+            ```python
+            >>> import numpy as np
+            >>> import warnings
+            >>> from pyramids.netcdf.engines.interop import _decode_time_coordinate
+            >>> with warnings.catch_warnings(record=True) as caught:
+            ...     warnings.simplefilter("always")
+            ...     answer = _decode_time_coordinate(np.array([1.0, 2.0]), {"units": "m"})
+            >>> answer is None, len(caught)
+            (True, 0)
+
+            ```
+
+    See Also:
+        _decode_cf_offsets: Where the conversion and the three degrade paths live.
+    """
+    units = attrs.get("units")
+    decoded: Any = None
+    if is_cf_time_units(units):
+        decoded = _decode_cf_offsets(
+            values, units, attrs.get("calendar") or "standard", name
+        )
+    return decoded
+
+
+def _decode_cf_offsets(values: Any, units: Any, calendar: str, name: str) -> Any | None:
+    """Convert CF offsets to ``datetime64[ns]``, or ``None`` with a reason warned.
+
+    Split out of :func:`_decode_time_coordinate` so that function stays one guard and
+    one call; this is where the three degrade paths live.
+
+    Args:
+        values: The axis' stored offsets.
+        units: The CF time units they are counted in.
+        calendar: The CF calendar those units are counted in.
+        name: The axis' name, for the warning.
+
+    Returns:
+        The decoded array, or `None` when it could not be decoded. An **empty** axis is
+        decoded, not declined: it becomes an empty `datetime64[ns]` array, because a
+        length of zero raises no calendar question to answer.
+
+    Warns:
+        TimeDecodingWarning: The axis was left as stored offsets, with the reason.
+
+    Examples:
+        - A standard calendar inside the `datetime64[ns]` window decodes:
+
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.netcdf.engines.interop import _decode_cf_offsets
+            >>> decoded = _decode_cf_offsets(
+            ...     np.array([0, 24]), "hours since 2024-01-01", "standard", "time"
+            ... )
+            >>> [str(instant) for instant in decoded]
+            ['2024-01-01T00:00:00.000000000', '2024-01-02T00:00:00.000000000']
+
+            ```
+        - A `360_day` calendar decodes to `cftime` objects, so the offsets are kept and
+          the reason is warned:
+
+            ```python
+            >>> import numpy as np
+            >>> import warnings
+            >>> from pyramids.netcdf.engines.interop import _decode_cf_offsets
+            >>> with warnings.catch_warnings(record=True) as caught:
+            ...     warnings.simplefilter("always")
+            ...     declined = _decode_cf_offsets(
+            ...         np.array([0, 30]), "days since 2024-01-01", "360_day", "time"
+            ...     )
+            >>> declined is None
+            True
+            >>> str(caught[0].message).split("because ")[1].split(", which")[0]
+            'it decodes to Datetime360Day objects'
+
+            ```
+        - An instant before the `datetime64[ns]` floor is declined rather than wrapped:
+
+            ```python
+            >>> import numpy as np
+            >>> import warnings
+            >>> from pyramids.netcdf.engines.interop import _decode_cf_offsets
+            >>> with warnings.catch_warnings(record=True) as caught:
+            ...     warnings.simplefilter("always")
+            ...     declined = _decode_cf_offsets(
+            ...         np.array([0.0]), "days since 1600-01-01", "standard", "time"
+            ...     )
+            >>> declined is None
+            True
+            >>> "falls outside datetime64[ns]" in str(caught[0].message)
+            True
+
+            ```
+        - An empty axis decodes to an empty axis, with nothing warned:
+
+            ```python
+            >>> import numpy as np
+            >>> import warnings
+            >>> from pyramids.netcdf.engines.interop import _decode_cf_offsets
+            >>> with warnings.catch_warnings(record=True) as caught:
+            ...     warnings.simplefilter("always")
+            ...     empty = _decode_cf_offsets(
+            ...         np.array([], dtype="float64"), "hours since 2024-01-01", "standard", "t"
+            ...     )
+            >>> empty.shape, str(empty.dtype), len(caught)
+            ((0,), 'datetime64[ns]', 0)
+
+            ```
+
+    See Also:
+        _decode_time_coordinate: The guard that decides whether an axis is a candidate.
+    """
+    decoded: Any = None
+    try:
+        converted = cftime.num2date(
+            np.asarray(values), units, calendar, only_use_cftime_datetimes=False
+        )
+    except (ValueError, TypeError, OverflowError) as error:
+        # A malformed origin, an out-of-range offset or a fill value in the axis. The
+        # export must not fail because a coordinate could not be decoded, so fall back
+        # to the raw offsets -- the same degrade-rather-than-abort contract `sel` uses.
+        # Narrow on purpose: anything else raised in there is a defect of ours, and
+        # swallowing it would turn it into a quietly numeric axis with no trace of why.
+        _warn_not_decoded(name, units, f"{type(error).__name__}: {error}")
+    else:
+        array = np.asarray(converted)
+        if not array.size:
+            # An empty axis decodes to an empty axis. There is no calendar question to
+            # answer and nothing to warn about -- the branch below would have blamed
+            # the calendar for a length of zero.
+            decoded = array.astype(_NS_DTYPE)
+        elif not isinstance(array.flat[0], datetime):
+            # A non-standard calendar (`360_day`, `noleap`) decodes to `cftime` objects,
+            # an object-dtype array GDAL has no band type for: exporting it would give
+            # xarray a usable index but break the write-back round trip, which is a
+            # worse trade than leaving the offsets alone. Those axes keep their numbers.
+            _warn_not_decoded(
+                name,
+                units,
+                f"it decodes to {type(array.flat[0]).__name__} objects, which GDAL has "
+                f"no band type for (the {calendar!r} calendar, or an origin before the "
+                "1582 reform)",
+            )
+        else:
+            # `datetime64[ns]` spans 1677-09-21 to 2262-04-11 and numpy *wraps* an
+            # instant outside it rather than raising, so an unchecked cast turns `hours
+            # since 1600-01-01` into dates in 2184 with no error anywhere. Decode at
+            # microsecond resolution first, which reaches well beyond any CF axis, and
+            # hand the axis back undecoded when it will not fit. Paleo reconstructions
+            # and post-2262 climate projections are the real cases.
+            micro = array.astype("datetime64[us]")
+            if micro.min() < _NS_MIN or micro.max() > _NS_MAX:
+                _warn_not_decoded(
+                    name,
+                    units,
+                    f"{micro.min()} to {micro.max()} falls outside datetime64[ns]",
+                )
+            else:
+                decoded = micro.astype(_NS_DTYPE)
+    return decoded
+
+
+def _coords_from_dimensions(
+    rg: Any, ds: NetCDF, *, decode_times: bool = True
+) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
     """Build the ``xr.Dataset`` ``coords`` mapping from the root group's dimensions.
 
     Each dimension with an indexing variable becomes a 1-D coordinate; bare
-    dimensions (no indexing variable) are skipped.
+    dimensions (no indexing variable) are skipped. A CF time axis is decoded to
+    datetimes unless ``decode_times`` is ``False`` — see
+    :func:`_decode_time_coordinate`.
+
+    Args:
+        rg: The container's root group.
+        ds: The container being exported, for its array reader.
+        decode_times: Whether to decode a CF time axis to datetimes.
+
+    Returns:
+        The coordinate mapping, and the CF ``units`` / ``calendar`` of each decoded
+        axis keyed by the ``bounds`` variable it names — which
+        :func:`_decode_promoted_coordinate` needs, because a bounds array declares no
+        units of its own.
     """
     coords: dict[str, Any] = {}
+    bounds_encodings: dict[str, dict[str, Any]] = {}
     for d in rg.GetDimensions() or []:
         iv = d.GetIndexingVariable()
         if iv is None:
             continue
         dim_name = d.GetName()
         coord_attrs = read_cf_attributes(iv)
-        coords[dim_name] = ([dim_name], ds._md_array_to_numpy(iv), coord_attrs)
-    return coords
+        raw = ds._md_array_to_numpy(iv)
+        encoding: dict[str, Any] = {}
+        decoded = (
+            _decode_time_coordinate(raw, coord_attrs, dim_name)
+            if decode_times
+            else None
+        )
+        if decoded is not None:
+            raw = decoded
+            # The values are no longer expressed in those units, so carrying them in
+            # `attrs` would describe the coordinate wrongly and invite a double decode
+            # on write. They move to `encoding` instead -- where xarray itself puts
+            # them, and where `from_xarray` looks to re-encode the axis in the units
+            # it arrived in rather than inventing an epoch of its own.
+            encoding = {
+                k: coord_attrs[k] for k in ("units", "calendar") if k in coord_attrs
+            }
+            bounds = coord_attrs.get("bounds")
+            if bounds:
+                bounds_encodings[str(bounds)] = encoding
+            coord_attrs = {
+                k: v for k, v in coord_attrs.items() if k not in ("units", "calendar")
+            }
+        coords[dim_name] = ([dim_name], raw, coord_attrs, encoding)
+    return coords, bounds_encodings
 
 
 def _data_vars_from_arrays(
@@ -566,6 +1099,14 @@ def from_xarray(
         var = nc.get_variable("temperature")
         cropped = var.crop(mask)
 
+    A CF-decoded time axis — `datetime64`, which GDAL has no band type for — is
+    re-encoded on the way in. The CF `units` and `calendar` in the array's xarray
+    `encoding` are used when they are there, so a container read with
+    :meth:`Interop.to_xarray` and written back keeps the origin and calendar it
+    arrived with; only an axis that carries no such encoding falls back to the
+    writer's own `seconds since 1970-01-01` epoch. The same applies to a data
+    variable and to an auxiliary array such as a CF bounds variable.
+
     Requires the optional `xarray` package. Install with one of:
 
     - PyPI: ``pip install xarray``
@@ -588,6 +1129,10 @@ def from_xarray(
         pyramids.base._errors.OptionalPackageDoesNotExist:
             If `xarray` is not installed.
         TypeError: If *dataset* is not an `xarray.Dataset`.
+
+    See Also:
+        Interop.to_xarray: The inverse, which puts the CF `units` this reads into
+            the exported coordinate's `encoding`.
     """
     xr = import_xarray(_XARRAY_HINT.format(func="from_xarray"))
 
@@ -614,7 +1159,172 @@ def from_xarray(
     return result
 
 
-def _encode_temporal_array(values: np.ndarray) -> tuple[np.ndarray, dict[str, Any]]:
+def _warn_not_encoded(name: str, units: Any, reason: str) -> None:
+    """Report that a time array was written against the epoch, not its declared units.
+
+    The write is the side that changes a file, so a silent fallback here is worse than
+    the decode-side one it mirrors: the caller asked for one epoch and another was put
+    on disk, with the instants intact but the axis rebased.
+
+    Two reasons reach here, and only two: the array holds no instant to anchor the
+    offsets on (every value is `NaT`), or `cftime` refused the declared units — an
+    unknown calendar, a unit it does not count in, a units string with no parseable
+    origin. The message names the units asked for, the epoch units written instead, and
+    says plainly what survived: the instants, not the stored offsets.
+
+    Args:
+        name: The array's name, or `""` when the caller did not supply one.
+        units: The CF `units` the array's encoding declared.
+        reason: Why they could not be used, phrased to follow "because".
+
+    Warns:
+        TimeDecodingWarning: Always — emitting it is what this function is for. The
+            `stacklevel` is walked rather than counted, because a coordinate, a data
+            variable and a streamed write all reach here at different depths.
+
+    Examples:
+        - The message names both unit strings and what the fallback cost:
+
+            ```python
+            >>> import warnings
+            >>> from pyramids.netcdf.engines.interop import _warn_not_encoded
+            >>> with warnings.catch_warnings(record=True) as caught:
+            ...     warnings.simplefilter("always")
+            ...     _warn_not_encoded("time", "hours since 2024-01-01", "the calendar is unknown")
+            >>> str(caught[0].message).split(" in its encoding")[0]
+            "time array 'time' declares 'hours since 2024-01-01'"
+            >>> str(caught[0].message).split("because ")[1]
+            'the calendar is unknown. The instants are unchanged; the stored offsets and units are not.'
+
+            ```
+        - An array the caller did not name is still reported, without a name:
+
+            ```python
+            >>> import warnings
+            >>> from pyramids.netcdf.engines.interop import _warn_not_encoded
+            >>> with warnings.catch_warnings(record=True) as caught:
+            ...     warnings.simplefilter("always")
+            ...     _warn_not_encoded("", "days since 2024-01-01", "every instant is NaT")
+            >>> str(caught[0].message).split(" in its encoding")[0]
+            "time array declares 'days since 2024-01-01'"
+
+            ```
+
+    See Also:
+        _warn_not_decoded: The mirror on the read side.
+    """
+    labelled = f"{name!r} " if name else ""
+    warnings.warn(
+        f"time array {labelled}declares {units!r} in its encoding but was written as "
+        f"{cf_epoch_units('seconds')!r} because {reason}. The instants are unchanged; "
+        "the stored offsets and units are not.",
+        TimeDecodingWarning,
+        # Walked, not counted, for the reason `_warn_not_decoded` gives: a coordinate,
+        # a data variable and a streamed write all reach here at different depths.
+        stacklevel=_caller_stacklevel(),
+    )
+
+
+def _encode_in_declared_units(
+    values: np.ndarray, units: str, calendar: str, name: str = ""
+) -> np.ndarray | None:
+    """Encode datetime64 values back into the CF ``units`` they were decoded from.
+
+    Args:
+        values: A `datetime64` array.
+        units: The CF time units to encode into, e.g. `"hours since 2024-01-01"`.
+        calendar: The CF calendar those units are counted in.
+        name: The array's name, used only to name it in the warning.
+
+    Returns:
+        The float64 offsets in `units` (`NaN` where the input was `NaT`), or `None`
+        when the array carries no valid instant to anchor on or `cftime` refuses the
+        units — in which case the caller falls back to the epoch encoding.
+
+    Warns:
+        TimeDecodingWarning: The declared units could not be used, so the caller will
+            write the array against the 1970 epoch instead.
+
+    Examples:
+        - Instants go back out as offsets in the units they were decoded from:
+
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.netcdf.engines.interop import _encode_in_declared_units
+            >>> stamps = np.array(["2024-01-01T00", "2024-01-01T06"], dtype="datetime64[h]")
+            >>> _encode_in_declared_units(stamps, "hours since 2024-01-01", "standard").tolist()
+            [0.0, 6.0]
+
+            ```
+        - A `NaT` keeps its slot as `NaN`, so the offsets stay aligned to the axis:
+
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.netcdf.engines.interop import _encode_in_declared_units
+            >>> stamps = np.array(["2024-01-01", "NaT", "2024-01-03"], dtype="datetime64[D]")
+            >>> offsets = _encode_in_declared_units(stamps, "days since 2024-01-01", "standard")
+            >>> float(offsets[0]), bool(np.isnan(offsets[1])), float(offsets[2])
+            (0.0, True, 2.0)
+
+            ```
+        - An axis of nothing but `NaT` has no anchor, so it declines and warns:
+
+            ```python
+            >>> import numpy as np
+            >>> import warnings
+            >>> from pyramids.netcdf.engines.interop import _encode_in_declared_units
+            >>> with warnings.catch_warnings(record=True) as caught:
+            ...     warnings.simplefilter("always")
+            ...     offsets = _encode_in_declared_units(
+            ...         np.array(["NaT"], dtype="datetime64[ns]"),
+            ...         "hours since 2024-01-01",
+            ...         "standard",
+            ...         "time",
+            ...     )
+            >>> offsets is None
+            True
+            >>> str(caught[0].message).split("because ")[1].split(".")[0]
+            'every instant is NaT, leaving nothing to anchor the offsets on'
+
+            ```
+
+    See Also:
+        _encode_temporal_array: The caller, which falls back to the epoch units.
+    """
+    as_us = values.astype("datetime64[us]")
+    flat = as_us.ravel()
+    missing = np.isnat(flat)
+    result: np.ndarray | None = None
+    if missing.all():
+        _warn_not_encoded(
+            name,
+            units,
+            "every instant is NaT, leaving nothing to anchor the offsets on",
+        )
+    else:
+        instants = flat.astype(object)
+        # `date2num` has no notion of a missing instant, so the `NaT` slots are handed a
+        # real one to encode and overwritten with `NaN` afterwards.
+        instants = np.where(missing, instants[~missing][0], instants)
+        try:
+            numbers = np.asarray(
+                cftime.date2num(instants.tolist(), units, calendar), dtype="float64"
+            )
+        except (ValueError, TypeError, OverflowError) as error:
+            # An unknown calendar, a unit `cftime` does not count in, a units string
+            # with no `since`, an unparseable origin. Narrow on purpose, for the reason
+            # the decode side gives: anything else raised in there is a defect, and
+            # swallowing it would rebase the axis with no trace of the cause.
+            _warn_not_encoded(name, units, f"{type(error).__name__}: {error}")
+        else:
+            numbers[missing] = np.nan
+            result = numbers.reshape(values.shape)
+    return result
+
+
+def _encode_temporal_array(
+    values: np.ndarray, encoding: dict[str, Any] | None = None, name: str = ""
+) -> tuple[np.ndarray, dict[str, Any]]:
     """Encode datetime64/timedelta64 arrays to CF-numeric seconds (GDAL has no datetime dtype).
 
     A CF-decoded xarray time axis is `datetime64[ns]`, which `numpy_to_gdal_dtype` cannot map, so
@@ -627,36 +1337,111 @@ def _encode_temporal_array(values: np.ndarray) -> tuple[np.ndarray, dict[str, An
     only ~sub-microsecond precision (float64 has ~0.35 µs resolution near 2e9 s); an exact nanosecond
     round-trip would need a non-portable `nanoseconds since ...` unit.
 
+    An `encoding` naming CF time `units` takes precedence over that epoch: it is what the axis was
+    decoded from, so encoding back into it returns the file's own numbers. Without it a file read with
+    `to_xarray()` and written back came home as `seconds since 1970-01-01` on a `proleptic_gregorian`
+    calendar it never declared — the same instants, but a rewritten axis (review round-1 M4).
+
     Args:
         values: The raw coordinate / variable array.
+        encoding: The xarray `encoding` of the array, if any. A CF `units` key (with an optional
+            `calendar`) is encoded back into; anything else is ignored.
+        name: The array's name, used only to name it if the declared units cannot be used.
 
     Returns:
         A `(encoded_values, cf_attrs)` pair. For a non-temporal array the values are returned unchanged
-        with an empty attribute dict; for a temporal array the values are float64 seconds (`NaN` where
+        with an empty attribute dict; for a temporal array the values are float64 offsets (`NaN` where
         the input was `NaT`) and `cf_attrs` carries the CF `units` (plus `calendar` for absolute
-        datetimes).
+        datetimes) they are counted in.
+
+    Warns:
+        TimeDecodingWarning: The `encoding` declared CF time `units` that could not be
+            encoded into, so the epoch fallback below was taken instead. Silent when the
+            encoding named no time units at all — there was nothing to fall back from.
+
+    Examples:
+        - A declared encoding wins, so the axis returns in the file's own numbers:
+
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.netcdf.engines.interop import _encode_temporal_array
+            >>> stamps = np.array(["2024-01-01", "2024-01-02"], dtype="datetime64[D]")
+            >>> values, attrs = _encode_temporal_array(stamps, {"units": "days since 2024-01-01"})
+            >>> values.tolist(), attrs
+            ([0.0, 1.0], {'units': 'days since 2024-01-01'})
+
+            ```
+        - With no encoding the array is counted in fractional seconds from the epoch,
+          and the calendar that epoch implies is declared with it:
+
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.netcdf.engines.interop import _encode_temporal_array
+            >>> stamps = np.array(["2024-01-01", "2024-01-02"], dtype="datetime64[D]")
+            >>> values, attrs = _encode_temporal_array(stamps)
+            >>> values.tolist()
+            [1704067200.0, 1704153600.0]
+            >>> attrs["units"], attrs["calendar"]
+            ('seconds since 1970-01-01 00:00:00', 'proleptic_gregorian')
+
+            ```
+        - A `timedelta64` array becomes plain seconds, and a numeric array is handed
+          straight back with nothing added to it:
+
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.netcdf.engines.interop import _encode_temporal_array
+            >>> _encode_temporal_array(np.array([3600, 7200], dtype="timedelta64[s]"))[1]
+            {'units': 'seconds'}
+            >>> values, attrs = _encode_temporal_array(np.array([1.0, 2.0]))
+            >>> values.tolist(), attrs
+            ([1.0, 2.0], {})
+
+            ```
+
+    See Also:
+        _encode_in_declared_units: The declared-units path, and the two ways it declines.
     """
+    encoded: np.ndarray = values
+    cf_attrs: dict[str, Any] = {}
     if np.issubdtype(values.dtype, np.datetime64):
-        as_ns = values.astype("datetime64[ns]")
-        seconds = as_ns.astype("int64").astype("float64") / 1e9
-        # `np.where` keeps this scalar-safe: a 0-d input's `/ 1e9` is a NumPy scalar that does not
-        # support in-place item assignment (review round-2 M1).
-        seconds = np.where(np.isnat(as_ns), np.nan, seconds)
-        # Counting in *fractional* seconds is this path's own choice: it has to
-        # carry `NaT` as `NaN`, which an integer count cannot. Dividing the
-        # nanosecond count rather than casting to `datetime64[s]` is deliberate
-        # too -- the cast truncates, losing sub-second times. Only the epoch and
-        # calendar are shared, with the module that decodes them.
-        return seconds, {
-            "units": cf_epoch_units("seconds"),
-            "calendar": CF_EPOCH_CALENDAR,
-        }
-    if np.issubdtype(values.dtype, np.timedelta64):
+        declared = (encoding or {}).get("units")
+        stated_calendar = (encoding or {}).get("calendar")
+        offsets = (
+            _encode_in_declared_units(
+                values, str(declared), stated_calendar or "standard", name
+            )
+            if is_cf_time_units(declared)
+            else None
+        )
+        if offsets is not None:
+            # An undeclared calendar stays undeclared: `standard` is the CF
+            # default, so writing it would add an attribute the source never had.
+            encoded = offsets
+            cf_attrs = {"units": declared}
+            if stated_calendar:
+                cf_attrs["calendar"] = stated_calendar
+        else:
+            as_ns = values.astype(_NS_DTYPE)
+            seconds = as_ns.astype("int64").astype("float64") / 1e9
+            # `np.where` keeps this scalar-safe: a 0-d input's `/ 1e9` is a NumPy scalar that does not
+            # support in-place item assignment (review round-2 M1).
+            # Counting in *fractional* seconds is this path's own choice: it has to
+            # carry `NaT` as `NaN`, which an integer count cannot. Dividing the
+            # nanosecond count rather than casting to `datetime64[s]` is deliberate
+            # too -- the cast truncates, losing sub-second times. Only the epoch and
+            # calendar are shared, with the module that decodes them.
+            encoded = np.where(np.isnat(as_ns), np.nan, seconds)
+            cf_attrs = {
+                "units": cf_epoch_units("seconds"),
+                "calendar": CF_EPOCH_CALENDAR,
+            }
+    elif np.issubdtype(values.dtype, np.timedelta64):
         as_ns = values.astype("timedelta64[ns]")
         seconds = as_ns.astype("int64").astype("float64") / 1e9
-        seconds = np.where(np.isnat(as_ns), np.nan, seconds)
-        return seconds, {"units": "seconds"}
-    return values, {}
+        encoded = np.where(np.isnat(as_ns), np.nan, seconds)
+        cf_attrs = {"units": "seconds"}
+    return encoded, cf_attrs
 
 
 def _apply_md_array_attrs(md_arr: gdal.MDArray, attrs: dict[str, Any]) -> None:
@@ -710,6 +1495,7 @@ def _write_data_var(
     var_dims: tuple[str, ...],
     var_values: Any,
     var_attrs: dict[str, Any],
+    var_encoding: dict[str, Any] | None = None,
 ) -> gdal.MDArray:
     """Create and fill one data variable's MDArray, streaming a dask-backed one block by block.
 
@@ -717,6 +1503,18 @@ def _write_data_var(
     `_build_multidim_from_xarray`) is written block by block so it never becomes fully resident; a
     NumPy variable, or a temporal one that must be CF-encoded, is materialised and written in one
     shot (the prior behaviour).
+
+    Args:
+        root: The root group the MDArray is created in.
+        gdal_dims: Dimension name to the `gdal.Dimension` already created for it.
+        dims: Dimension name to length, used to check the variable's shape.
+        var_name: The variable's name.
+        var_dims: The dimension names the variable spans, outermost first.
+        var_values: The variable's values — a NumPy array, or a dask-backed array to stream.
+        var_attrs: The variable's own CF attributes.
+        var_encoding: The xarray `encoding` of the variable, if any. Only a temporal variable
+            reads it, to be written back in the CF `units` it was decoded from rather than in
+            the writer's own epoch; `None` (the default) is what every GDAL-native caller passes.
 
     Returns:
         gdal.MDArray: The created (and filled) data-variable MDArray, so the caller can attach a
@@ -743,7 +1541,9 @@ def _write_data_var(
         shape = tuple(var_values.shape)
         write_dtype = dtype
     else:
-        values, cf_attrs = _encode_temporal_array(np.asarray(var_values))
+        values, cf_attrs = _encode_temporal_array(
+            np.asarray(var_values), var_encoding, var_name
+        )
         shape = values.shape
         write_dtype = values.dtype
     expected = tuple(dims[d] for d in var_dims)
@@ -770,6 +1570,133 @@ def _write_data_var(
     merged.update(cf_attrs)
     _apply_md_array_attrs(md_arr, merged)
     return md_arr
+
+
+def _coord_entry(
+    entry: tuple[Any, ...],
+) -> tuple[Any, dict[str, Any], dict[str, Any]]:
+    """Split a coordinate spec into its ``(values, attrs, encoding)`` parts.
+
+    The encoding is optional: the GDAL-native writers pass a `(values, attrs)` pair and
+    only the xarray adapter has an encoding to carry, so both shapes are accepted here
+    rather than forcing every caller to append an empty dict.
+
+    Args:
+        entry: A `(values, attrs)` pair or a `(values, attrs, encoding)` triple.
+
+    Returns:
+        The values, the attributes, and the encoding (empty when the entry omitted it).
+
+    Raises:
+        ValueError: `entry` is neither a pair nor a triple. The length is checked rather
+            than unpacked positionally, so a malformed spec is named here instead of
+            surfacing as an `IndexError` — or, worse, a silently dropped element — from
+            a GDAL write several frames on.
+
+    Examples:
+        - A GDAL-native caller's pair gets an empty encoding:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.netcdf.engines.interop import _coord_entry
+            >>> values, attrs, encoding = _coord_entry((np.array([0.0, 6.0]), {"axis": "T"}))
+            >>> values.tolist(), attrs, encoding
+            ([0.0, 6.0], {'axis': 'T'}, {})
+
+            ```
+        - The xarray adapter's triple carries the units the axis is written back in:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.netcdf.engines.interop import _coord_entry
+            >>> _, _, encoding = _coord_entry(
+            ...     (np.array([0.0, 6.0]), {}, {"units": "hours since 2024-01-01"})
+            ... )
+            >>> encoding["units"]
+            'hours since 2024-01-01'
+
+            ```
+        - Any other length is refused by name, before GDAL sees it:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.netcdf.engines.interop import _coord_entry
+            >>> _coord_entry((np.array([0.0, 6.0]),))
+            Traceback (most recent call last):
+                ...
+            ValueError: a coordinate spec must be `(values, attrs)` or ... got 1 element(s)
+
+            ```
+    """
+    if not 2 <= len(entry) <= 3:
+        raise ValueError(
+            f"a coordinate spec must be `(values, attrs)` or "
+            f"`(values, attrs, encoding)`, got {len(entry)} element(s)"
+        )
+    encoding = entry[2] if len(entry) > 2 else None
+    return entry[0], entry[1], encoding or {}
+
+
+def _var_entry(
+    entry: tuple[Any, ...],
+) -> tuple[tuple[str, ...], Any, dict[str, Any], dict[str, Any]]:
+    """Split a variable spec into its ``(dims, values, attrs, encoding)`` parts.
+
+    The encoding is optional for the same reason it is on a coordinate: only the
+    xarray adapter has one to carry, and the GDAL-native writers pass a triple.
+
+    Args:
+        entry: A `(dims, values, attrs)` triple or a `(dims, values, attrs, encoding)`
+            quadruple.
+
+    Returns:
+        The dimension names, the values, the attributes, and the encoding (empty when
+        the entry omitted it).
+
+    Raises:
+        ValueError: `entry` is neither a triple nor a quadruple, checked for the reason
+            :func:`_coord_entry` gives.
+
+    Examples:
+        - A GDAL-native caller's triple gets an empty encoding:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.netcdf.engines.interop import _var_entry
+            >>> dims, values, attrs, encoding = _var_entry(
+            ...     (("time", "lat"), np.zeros((2, 3)), {"units": "K"})
+            ... )
+            >>> dims, attrs, encoding
+            (('time', 'lat'), {'units': 'K'}, {})
+            >>> values.shape
+            (2, 3)
+
+            ```
+        - The xarray adapter's quadruple keeps the encoding it read off the variable:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.netcdf.engines.interop import _var_entry
+            >>> *_, encoding = _var_entry(
+            ...     (("time",), np.zeros(2), {}, {"units": "days since 2000-01-01"})
+            ... )
+            >>> encoding["units"]
+            'days since 2000-01-01'
+
+            ```
+        - A spec missing its attributes is refused by name, not unpacked short:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.netcdf.engines.interop import _var_entry
+            >>> _var_entry((("time",), np.zeros(2)))
+            Traceback (most recent call last):
+                ...
+            ValueError: a variable spec must be `(dims, values, attrs)` or ... got 2 element(s)
+
+            ```
+    """
+    if not 3 <= len(entry) <= 4:
+        raise ValueError(
+            f"a variable spec must be `(dims, values, attrs)` or "
+            f"`(dims, values, attrs, encoding)`, got {len(entry)} element(s)"
+        )
+    encoding = entry[3] if len(entry) > 3 else None
+    return entry[0], entry[1], entry[2], encoding or {}
 
 
 def _dim_type(name: str) -> str:
@@ -856,11 +1783,11 @@ def _apply_grid_mapping(
 
 def _build_multidim(
     dims: dict[str, int],
-    coords: dict[str, tuple[np.ndarray, dict[str, Any]]],
-    data_vars: dict[str, tuple[tuple[str, ...], Any, dict[str, Any]]],
+    coords: Mapping[str, _CoordSpec],
+    data_vars: Mapping[str, _VarSpec],
     global_attrs: dict[str, Any],
     crs_wkt: str | None = None,
-    aux_vars: dict[str, tuple[tuple[str, ...], Any, dict[str, Any]]] | None = None,
+    aux_vars: Mapping[str, _VarSpec] | None = None,
 ) -> gdal.Dataset:
     """Build an in-memory GDAL multidim container from plain arrays and attrs.
 
@@ -880,16 +1807,19 @@ def _build_multidim(
     Args:
         dims: Dimension name to length.
         coords: Coordinate name (which must also be a dimension) to a
-            `(values, attrs)` pair. Entries whose name is not a dimension are
-            skipped.
+            `(values, attrs)` pair, or a `(values, attrs, encoding)` triple whose
+            encoding names the CF `units` a decoded time axis is written back in.
+            Entries whose name is not a dimension are skipped.
         data_vars: Variable name to a `(dimension-name tuple, values, attrs)`
-            triple.
+            triple, or a `(dimension-name tuple, values, attrs, encoding)`
+            quadruple carrying the same CF `units` slot a coordinate's encoding
+            carries. A dask-backed `values` is streamed block by block.
         global_attrs: Root-group (global) attributes.
         crs_wkt: The dataset CRS as a WKT string, or None. Drives the CF coordinate
             attributes and the `grid_mapping` variable.
         aux_vars: Auxiliary arrays -- CF bounds, 2-D curvilinear coordinate
-            fields, label columns -- in the same `(dimension-name tuple, values,
-            attrs)` shape as `data_vars`. They are written as ordinary MDArrays
+            fields, label columns -- in the same shape as `data_vars`, optional
+            encoding slot included. They are written as ordinary MDArrays
             but are **not** linked to the grid mapping, because a coordinate
             variable is not itself georeferenced by one. `coords` cannot carry
             them: an entry there must name a dimension, and these do not.
@@ -911,10 +1841,13 @@ def _build_multidim(
         for name, size in dims.items()
     }
 
-    for coord_name, (coord_values, coord_attrs) in coords.items():
+    for coord_name, coord_spec in coords.items():
         if coord_name not in gdal_dims:
             continue
-        values, cf_attrs = _encode_temporal_array(np.asarray(coord_values))
+        coord_values, coord_attrs, coord_encoding = _coord_entry(coord_spec)
+        values, cf_attrs = _encode_temporal_array(
+            np.asarray(coord_values), coord_encoding, coord_name
+        )
         if values.shape != (dims[coord_name],):
             raise ValueError(
                 f"coordinate {coord_name!r} has shape {values.shape} but its "
@@ -928,14 +1861,30 @@ def _build_multidim(
         )
 
     data_arrays: dict[str, gdal.MDArray] = {}
-    for var_name, (var_dims, var_values, var_attrs) in data_vars.items():
+    for var_name, var_spec in data_vars.items():
+        var_dims, var_values, var_attrs, var_encoding = _var_entry(var_spec)
         data_arrays[var_name] = _write_data_var(
-            root, gdal_dims, dims, var_name, var_dims, var_values, var_attrs
+            root,
+            gdal_dims,
+            dims,
+            var_name,
+            var_dims,
+            var_values,
+            var_attrs,
+            var_encoding,
         )
 
-    for var_name, (var_dims, var_values, var_attrs) in (aux_vars or {}).items():
+    for var_name, var_spec in (aux_vars or {}).items():
+        var_dims, var_values, var_attrs, var_encoding = _var_entry(var_spec)
         _write_data_var(
-            root, gdal_dims, dims, var_name, var_dims, var_values, var_attrs
+            root,
+            gdal_dims,
+            dims,
+            var_name,
+            var_dims,
+            var_values,
+            var_attrs,
+            var_encoding,
         )
 
     if srs is not None:
@@ -1020,7 +1969,13 @@ def _build_multidim_from_xarray(dataset: Any) -> gdal.Dataset:
     crs_wkt = _crs_wkt_from_xarray(dataset)
     dims = {name: int(size) for name, size in dataset.sizes.items()}
     coords = {
-        name: (np.asarray(coord.values), _without_store_name(coord.attrs))
+        # The encoding rides along so a CF-decoded time axis is written back in the
+        # units it was decoded from instead of the writer's own epoch (round-1 M4).
+        name: (
+            np.asarray(coord.values),
+            _without_store_name(coord.attrs),
+            dict(coord.encoding),
+        )
         for name, coord in dataset.coords.items()
         if name in dims
     }
@@ -1037,7 +1992,12 @@ def _build_multidim_from_xarray(dataset: Any) -> gdal.Dataset:
     # array ("Illegal numpy array rank 1"), and pyramids' own enumeration drops
     # 0-dimensional MDArrays anyway, so no `to_xarray` export can carry one in.
     aux_vars = {
-        name: (tuple(coord.dims), coord.data, _without_store_name(coord.attrs))
+        name: (
+            tuple(coord.dims),
+            coord.data,
+            _without_store_name(coord.attrs),
+            dict(coord.encoding),
+        )
         for name, coord in dataset.coords.items()
         if name not in dims and coord.ndim > 0
     }
@@ -1045,7 +2005,12 @@ def _build_multidim_from_xarray(dataset: Any) -> gdal.Dataset:
         # `var.data` hands the underlying array through WITHOUT computing it, so a
         # dask-backed variable stays lazy and `_build_multidim` can stream it block by
         # block (ARC-48); `.values` would force a full materialisation up front.
-        name: (tuple(var.dims), var.data, _without_store_name(var.attrs))
+        name: (
+            tuple(var.dims),
+            var.data,
+            _without_store_name(var.attrs),
+            dict(var.encoding),
+        )
         for name, var in dataset.data_vars.items()
         if not (name in skip and var.ndim == 0)
     }
@@ -1082,8 +2047,8 @@ def _create_copy_to_netcdf(mem_src: gdal.Dataset, path: str) -> None:
 def write_multidim_netcdf(
     path: str | Path,
     dims: dict[str, int],
-    coords: dict[str, tuple[np.ndarray, dict[str, Any]]],
-    data_vars: dict[str, tuple[tuple[str, ...], np.ndarray, dict[str, Any]]],
+    coords: Mapping[str, _CoordSpec],
+    data_vars: Mapping[str, _VarSpec],
     global_attrs: dict[str, Any],
     crs_wkt: str | None = None,
 ) -> None:
@@ -1098,18 +2063,29 @@ def write_multidim_netcdf(
     Args:
         path: Output `.nc` path.
         dims: Dimension name to length.
-        coords: Coordinate name to a `(values, attrs)` pair.
-        data_vars: Variable name to a `(dimension-name tuple, values, attrs)`
-            triple.
+        coords: Coordinate name to a `(values, attrs)` pair, or a
+            `(values, attrs, encoding)` triple whose encoding names the CF `units` a
+            decoded time axis is written back in.
+        data_vars: Variable name to a `(dimension-name tuple, values, attrs)` triple,
+            or a `(dims, values, attrs, encoding)` quadruple whose encoding names the CF
+            `units` a decoded time array is written back in.
         global_attrs: Root-group (global) attributes.
         crs_wkt: The dataset CRS as a WKT string, or None. When given, the x/y
             coordinates gain CF attributes and a `grid_mapping` variable is written
             (see :func:`_build_multidim`).
 
     Raises:
-        ValueError: When a variable references an unknown dimension, or a
-            coordinate/variable array shape does not match its dimension sizes.
+        ValueError: When a variable references an unknown dimension, when a
+            coordinate/variable array shape does not match its dimension sizes, or when
+            a coordinate/variable spec is not one of the two shapes above.
         RuntimeError: When the GDAL netCDF writer fails to create the file.
+
+    Warns:
+        TimeDecodingWarning: A `datetime64` coordinate or variable declared CF `units`
+            in its encoding that could not be encoded into — an unknown calendar, a unit
+            `cftime` does not count in, an unparseable origin — or held no instant to
+            anchor on. It is written against the 1970 epoch instead: the instants
+            survive, the stored offsets and units do not.
     """
     mem_src = _build_multidim(dims, coords, data_vars, global_attrs, crs_wkt)
     _create_copy_to_netcdf(mem_src, str(path))
@@ -1167,7 +2143,7 @@ class _StreamingMultidimWriter:
 def _build_streaming_multidim(
     dataset: gdal.Dataset,
     dims: dict[str, int],
-    coords: dict[str, tuple[np.ndarray, dict[str, Any]]],
+    coords: Mapping[str, _CoordSpec],
     var_specs: dict[str, tuple[tuple[str, ...], np.dtype | str, dict[str, Any]]],
     global_attrs: dict[str, Any],
     crs_wkt: str | None = None,
@@ -1188,7 +2164,9 @@ def _build_streaming_multidim(
     Args:
         dataset: A freshly created netCDF multidim dataset.
         dims: Dimension name to length.
-        coords: Coordinate name to a ``(values, attrs)`` pair; entries whose name
+        coords: Coordinate name to a ``(values, attrs)`` pair, or a
+            ``(values, attrs, encoding)`` triple whose encoding names the CF
+            ``units`` a decoded time axis is written back in; entries whose name
             is not a dimension are skipped.
         var_specs: Variable name to a ``(dimension-name tuple, numpy dtype,
             attrs)`` triple.
@@ -1211,10 +2189,13 @@ def _build_streaming_multidim(
         for name, size in dims.items()
     }
 
-    for coord_name, (coord_values, coord_attrs) in coords.items():
+    for coord_name, coord_spec in coords.items():
         if coord_name not in gdal_dims:
             continue
-        values, cf_attrs = _encode_temporal_array(np.asarray(coord_values))
+        coord_values, coord_attrs, coord_encoding = _coord_entry(coord_spec)
+        values, cf_attrs = _encode_temporal_array(
+            np.asarray(coord_values), coord_encoding, coord_name
+        )
         if values.shape != (dims[coord_name],):
             raise ValueError(
                 f"coordinate {coord_name!r} has shape {values.shape} but its "
@@ -1260,7 +2241,7 @@ def _build_streaming_multidim(
 def open_streaming_multidim_netcdf(
     path: str | Path,
     dims: dict[str, int],
-    coords: dict[str, tuple[np.ndarray, dict[str, Any]]],
+    coords: Mapping[str, _CoordSpec],
     var_specs: dict[str, tuple[tuple[str, ...], np.dtype | str, dict[str, Any]]],
     global_attrs: dict[str, Any],
     crs_wkt: str | None = None,
@@ -1286,9 +2267,10 @@ def open_streaming_multidim_netcdf(
         path: Output ``.nc`` path.
         dims: Dimension name to length (the full shape, including the streamed
             leading dimension).
-        coords: Coordinate name (also a dimension) to a ``(values, attrs)`` pair;
-            written whole up front. Entries whose name is not a dimension are
-            skipped.
+        coords: Coordinate name (also a dimension) to a ``(values, attrs)`` pair, or a
+            ``(values, attrs, encoding)`` triple carrying the CF ``units`` to write a
+            decoded time axis back in; written whole up front. Entries whose name is not
+            a dimension are skipped.
         var_specs: Variable name to a ``(dimension-name tuple, numpy dtype,
             attrs)`` triple. The first entry of the dimension tuple is the
             streamed (leading) dimension.
@@ -1303,8 +2285,15 @@ def open_streaming_multidim_netcdf(
 
     Raises:
         RuntimeError: When the GDAL netCDF driver fails to create the file.
-        ValueError: When a variable references an unknown dimension, or a
-            coordinate array shape does not match its dimension size.
+        ValueError: When a variable references an unknown dimension, when a
+            coordinate array shape does not match its dimension size, or when a
+            coordinate spec is neither of the two shapes above.
+
+    Warns:
+        TimeDecodingWarning: A ``datetime64`` **coordinate** declared CF ``units`` in
+            its encoding that could not be encoded into, so it was written against the
+            1970 epoch instead. Variable data is written raw here and is never
+            CF-encoded, so it cannot reach this.
     """
     final_path = Path(path)
     tmp_path = final_path.with_name(f".{final_path.name}.{os.getpid()}.tmp")

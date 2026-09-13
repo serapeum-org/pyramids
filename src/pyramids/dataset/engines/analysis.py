@@ -1174,6 +1174,15 @@ class Analysis(_Engine["Dataset"]):
             other (Dataset):
                 The second operand. Must occupy this dataset's grid and CRS
                 (:meth:`Spatial.same_grid <pyramids.dataset.engines.Spatial.same_grid>`).
+                Passing **this same dataset** is allowed and reads it twice, as
+                two operands always are, so `func` receives two independent arrays
+                and may mutate either. A one-operand transform that wants this
+                method's contract — every band, a dtype from the computed values,
+                a derived sentinel — should ask for :meth:`_fold`, the same
+                machinery over a single read and the route `ds * 2` takes. `_fold`
+                is private because it hands `func` the *same* array as both
+                arguments: a callable that writes into its arguments would see the
+                other change under it.
             func (Callable):
                 Callable taking the two operands' cell values — as flat arrays,
                 the same contract :meth:`apply` uses — and returning one array
@@ -1224,6 +1233,12 @@ class Analysis(_Engine["Dataset"]):
                 the operands masked out; `func` returned a different number of
                 values than it was given, or a dtype GDAL has no band type for.
 
+        Warns:
+            NoDataCollisionWarning: An explicit `no_data_value=` is also a value
+                `func` computed, so those cells read back as gaps. Only an
+                explicit sentinel can collide — a derived one is chosen against
+                the computed values precisely so it cannot.
+
         Examples:
             - Two aligned rasters, differenced without leaving the Dataset:
 
@@ -1254,6 +1269,22 @@ class Analysis(_Engine["Dataset"]):
               0.5
               >>> ndvi.shape
               (1, 4, 4)
+
+              ```
+
+            - A *scalar* operator is the same machinery over one read, through
+              :meth:`_fold`, and agrees with the two-operand spelling:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> ds = Dataset.from_array(np.full((4, 4), 5.0, "float32"), geo_ref=geo_ref)
+              >>> folded = ds.combine(ds, lambda values, _ignored: values * 2)
+              >>> float(np.asarray(folded.read_array()).mean())
+              10.0
+              >>> float(np.asarray((ds * 2).read_array()).mean())
+              10.0
 
               ```
 
@@ -1307,21 +1338,179 @@ class Analysis(_Engine["Dataset"]):
             Spatial.align: Puts a mismatched raster onto this one's grid, which
                 is the explicit step `combine` refuses to take implicitly.
         """
+        return self._combine(
+            other, func, band=band, no_data_value=no_data_value, folded=False
+        )
+
+    def _fold(
+        self,
+        func: Callable[[np.ndarray], np.ndarray],
+        *,
+        band: int | None = None,
+        no_data_value: Any = _DERIVE_NO_DATA,
+    ) -> Dataset:
+        """Run a **one**-operand callable through :meth:`combine`'s machinery.
+
+        The scalar operators are this: `ds * 2` folds its constant into a callable and
+        wants everything `combine` gives a raster operand — every band, a dtype from the
+        computed values, a derived sentinel — with only one array to read. Routing it
+        through `combine` with this dataset as its own second operand would read,
+        CF-unpack and mask that array twice, so the second read is skipped here rather
+        than inferred from the operands being equal.
+
+        Args:
+            func: A callable taking one flat array of domain values and returning one
+                array of the same length.
+            band: Zero-based band, or `None` for every band.
+            no_data_value: The result's sentinel; the default derives one, and `None`
+                turns masking off.
+
+        Returns:
+            Dataset: A new raster on this one's grid, carrying `func`'s values.
+
+        Raises:
+            TypeError: `func` is not callable.
+            ValueError: `band` is out of range; an explicit `no_data_value=` does not
+                fit the result dtype, or no sentinel is free to mark what was masked
+                out; `func` returned an array of the wrong shape, or a dtype GDAL has
+                no band type for.
+
+        Warns:
+            NoDataCollisionWarning: An explicit `no_data_value=` is also a value `func`
+                computed. The arithmetic operators never pass one, so this is out of
+                reach on the route they take.
+
+        Examples:
+            - Scale a band, the operation `ds * 2` performs:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> ds = Dataset.from_array(np.full((4, 4), 5.0, "float32"), geo_ref=geo_ref)
+              >>> float(np.asarray(ds.analysis._fold(lambda v: v * 2).read_array()).mean())
+              10.0
+
+              ```
+
+            - Every band is folded, not just the first, and a floating result declares
+              `NaN` — the contract :meth:`combine` gives, over one read:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> stack = Dataset.from_array(
+              ...     np.stack([np.full((4, 4), 1.0, "float32"), np.full((4, 4), 2.0, "float32")]),
+              ...     geo_ref=geo_ref,
+              ... )
+              >>> shifted = stack.analysis._fold(lambda v: v + 10)
+              >>> shifted.band_count
+              2
+              >>> [float(band.mean()) for band in np.asarray(shifted.read_array())]
+              [11.0, 12.0]
+              >>> shifted.no_data_value
+              (nan, nan)
+
+              ```
+
+            - An integer result that masked nothing declares no sentinel at all, which
+              is why an identity such as `ds * 1` short-circuits to `copy()` rather than
+              folding — folding it would drop the band's declared no-data value:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> ints = Dataset.from_array(np.full((4, 4), 3, "int16"), geo_ref=geo_ref)
+              >>> float(ints.no_data_value[0])
+              -9999.0
+              >>> doubled = ints.analysis._fold(lambda v: v * 2)
+              >>> str(np.asarray(doubled.read_array()).dtype), doubled.no_data_value
+              ('int16', (None,))
+              >>> (ints * 1).no_data_value == ints.no_data_value
+              True
+
+              ```
+
+        See Also:
+            Analysis.combine: The two-operand form this shares its machinery with.
+            Analysis.apply: The single-band, sentinel-preserving alternative.
+            pyramids.dataset.dataset._is_identity: The short-circuit that keeps a
+                no-op off this path.
+        """
+        return self._combine(
+            self._ds,
+            lambda values, _ignored: func(values),
+            band=band,
+            no_data_value=no_data_value,
+            folded=True,
+        )
+
+    def _combine(
+        self,
+        other: Dataset,
+        func: Callable[[np.ndarray, np.ndarray], np.ndarray],
+        *,
+        band: int | None,
+        no_data_value: Any,
+        folded: bool,
+    ) -> Dataset:
+        """Shared body of :meth:`combine` and :meth:`_fold`.
+
+        Args:
+            other: The second operand. Ignored as a *source* when `folded` is set — it
+                is this dataset, and reading it again would only cost.
+            func: The binary callable.
+            band: Zero-based band, or `None` for every band.
+            no_data_value: The result's sentinel, or the derive sentinel.
+            folded: Whether the caller has declared both operands to be this dataset.
+                Declared, not inferred: an identity test cannot be spelled here (the
+                engine holds a `weakref.proxy`, which no `is` can match), and inferring
+                it from `==` would rest on no raster class ever defining an elementwise
+                `__eq__` — which the four other comparisons make a plausible next
+                request.
+
+        Returns:
+            Dataset: The combined raster, built with the **left** operand's class and
+            carrying this dataset's geotransform, CRS, metadata and band names.
+
+        Raises:
+            TypeError: `other` is not a raster, or `func` is not callable.
+            AlignmentError: The operands do not share a grid/CRS.
+            ValueError: The band counts differ; `band` is out of range; an explicit
+                `no_data_value` does not fit the result dtype, or no candidate sentinel
+                is both storable and absent from the result; `func` returned the wrong
+                shape, or a dtype GDAL has no band type for.
+
+        Warns:
+            NoDataCollisionWarning: An explicit `no_data_value` occurs among the values
+                `func` computed. The `stacklevel` below is counted for the
+                `Dataset.combine` facade, the documented entry point.
+        """
         if not isinstance(other, RasterBase):
             raise TypeError(f"`other` must be a Dataset, got {type(other).__name__}")
         self._check_combinable(other, func, band)
 
         left, left_sentinels, left_domain = self._operand_arrays(self._ds, band)
-        right, right_sentinels, right_domain = self._operand_arrays(other, band)
+        right_sentinels: list[Any]
+        if folded:
+            # One array, offered to `func` as both arguments and to the sentinel
+            # derivation once — its candidates are already in `left_sentinels`.
+            right, right_sentinels, right_domain = left, [], left_domain
+        else:
+            right, right_sentinels, right_domain = self._operand_arrays(other, band)
         masked = no_data_value is not None
-        domain = (
-            left_domain & right_domain
-            if masked
+        domain: np.typing.NDArray | None
+        if not masked:
             # `None`, not an all-True mask: the unmasked path exists because the
             # caller asked for no masking, so allocating a full boolean array and
             # fancy-indexing through it twice is pure overhead.
-            else None
-        )
+            domain = None
+        elif right_domain is left_domain:
+            domain = left_domain
+        else:
+            domain = left_domain & right_domain
 
         values, boolean = self._computed_values(func, left, right, domain)
         sentinel = (
@@ -1430,7 +1619,15 @@ class Analysis(_Engine["Dataset"]):
         """
         expected = left.size if domain is None else int(domain.sum())
         left_values = left.ravel() if domain is None else left[domain]
-        right_values = right.ravel() if domain is None else right[domain]
+        # `is`, so a folded call (one dataset, both operands) selects once. `left[domain]`
+        # allocates a full copy of the domain values, which is the peak-memory half of
+        # reading one raster instead of two.
+        if right is left:
+            right_values = left_values
+        elif domain is None:
+            right_values = right.ravel()
+        else:
+            right_values = right[domain]
         values = np.asarray(cls._combine_domain(func, left_values, right_values))
         if values.shape != (expected,):
             # Shape, not just size: a `func` returning a column vector has the
@@ -1650,14 +1847,17 @@ class Analysis(_Engine["Dataset"]):
                     "`func` computed, so those cells read back as gaps; pass a "
                     "`no_data_value=` the result cannot hold",
                     NoDataCollisionWarning,
-                    # 4 frames out is the caller of `Dataset.combine`: warn ->
-                    # _resolve_combined_no_data -> Analysis.combine ->
-                    # Dataset.combine -> user. Reached as `ds.analysis.combine`
-                    # the facade frame is absent, so the same count lands one
-                    # frame too far -- on whatever called the caller. A single
-                    # constant cannot serve both entry points; the facade is the
-                    # documented one, so it is the one that is right.
-                    stacklevel=4,
+                    # 5 frames out is the caller of `Dataset.combine`: warn ->
+                    # _resolve_combined_no_data -> Analysis._combine ->
+                    # Analysis.combine -> Dataset.combine -> user. Reached as
+                    # `ds.analysis.combine` the facade frame is absent, so the
+                    # same count lands one frame too far -- on whatever called
+                    # the caller. A single constant cannot serve both entry
+                    # points; the facade is the documented one, so it is the one
+                    # that is right. `_fold`'s callers never reach here: the
+                    # operators always let it derive its sentinel, and only an
+                    # explicit one can collide.
+                    stacklevel=5,
                 )
         elif np.issubdtype(dtype, np.floating):
             sentinel = np.nan
