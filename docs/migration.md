@@ -396,17 +396,21 @@ inputs and wrapping the result with `from_array` — the step where georeferenci
 
 - The operands must already share a grid; a mismatch raises `AlignmentError` rather than resampling. The new
   `ds.same_grid(other)` predicate answers the question in advance, and `align()` is the explicit fix.
-- A **scalar** operand is not accepted. `ds * 2` raises `TypeError`; scalar arithmetic stays with
-  `ds.apply(lambda v: v * 2)`, which preserves the band's dtype where `combine` takes whatever `func` returns.
+- A **scalar** operand is accepted on either side: `ds * 2`, `2 * ds`, `20 - ds` and `ds >= 5` all work. A scalar
+  takes the same route as a raster operand, so `ds * 2` and `ds * other` agree on band count, dtype and sentinel.
+  That is deliberately not the same as `ds.apply(lambda v: v * 2)`, which transforms one band and keeps the
+  source's sentinel — reach for `apply` when you want that contract. `bool` and complex scalars are still
+  refused.
 - A cell that is no-data in either operand is no-data in the result. An **integer** result's sentinel is derived
   against the values `func` computed, so no in-range number is claimed as a gap by the arithmetic that produced
   it, and one that masked nothing declares **no** sentinel at all. A **floating** result always declares `NaN`:
   a cell `func` computed as `NaN` (`0/0` in a normalised difference) has no value, so it is a gap and the result
   says so. Pass `no_data_value=` to choose one, or `no_data_value=None` for no masking.
 - `sum(rasters)` works: `__radd__` absorbs the integer `0` that `sum()` seeds with, returning a copy so a
-  one-element sum never aliases its input. `0` is the only scalar accepted anywhere in the operators, and only
-  from the left — `1 + ds` still raises. That copy is a real cost: `sum()` and `math.prod()` each materialise one
-  extra full raster that `functools.reduce(operator.add, rasters)` does not, which matters near the memory limit.
+  one-element sum never aliases its input. Only that exact integer seed short-circuits — every other scalar
+  computes through `combine`, so `1 + ds` returns a raster rather than raising. That copy is a real cost: `sum()`
+  and `math.prod()` each materialise one extra full raster that `functools.reduce(operator.add, rasters)` does
+  not, which matters near the memory limit.
 - `combine` is whole-array: both operands are read in full. For rasters near the memory limit use
   `apply(elementwise=True)` or `read_array(chunks=)`.
 - The module-private `_same_grid` helper in `pyramids.dataset.dataset` moved to `Spatial.same_grid`, faced on
@@ -414,7 +418,8 @@ inputs and wrapping the result with `from_array` — the step where georeferenci
 - `<`, `<=`, `>` and `>=` between two rasters return a Byte mask (`1`/`0`, and `255` wherever either operand was
   no-data). `==` and `!=` are **not** overridden — they stay identity-based, so `Dataset` remains usable in
   `assert`, in sets and as a dict key; use `a.combine(b, np.equal)` for the mask.
-- `math.prod(rasters)` folds like `sum(rasters)`; both absorb their identity scalar from the left only.
+- `math.prod(rasters)` folds like `sum(rasters)`; both absorb their identity scalar from the left only, and
+  compute for every other scalar.
 
 **`bool(ds)` now raises — replace `if ds:` with `if ds is not None:`.** Hard change. A raster holds one value per
 cell, and a comparison between two rasters is itself a raster, so there is no honest single truth value. Reduce
