@@ -909,3 +909,134 @@ class TestAnAuxiliaryTimeCoordinateIsDecoded:
         )
         assert exported["valid_time"].dtype == np.dtype("float64")
         assert exported["valid_time"].attrs["units"] == "hours since 2024-01-01"
+
+
+class TestAnEmptyTimeAxis:
+    """A zero-length CF time axis decodes to an empty axis rather than a complaint."""
+
+    @pytest.mark.parametrize("dtype", ["float64", "int32"])
+    def test_it_decodes_to_an_empty_datetime64_array(self, dtype: str):
+        """An axis carrying no offsets comes back as an empty `datetime64[ns]` array.
+
+        Args:
+            dtype: The stored offsets' numeric dtype, which must not survive into the
+                decoded array.
+
+        Test scenario:
+            `cftime` returns an empty result for an empty input, so there is no first
+            element for the calendar question the next branch asks. The axis is still
+            decoded — empty — and keeps the dtype every other decoded axis has.
+        """
+        decoded = interop._decode_time_coordinate(
+            np.array([], dtype=dtype), {"units": "hours since 2024-01-01"}, "time"
+        )
+        assert decoded is not None, "an empty axis is decodable, not undecodable"
+        assert decoded.dtype == np.dtype("datetime64[ns]"), f"got {decoded.dtype}"
+        assert decoded.size == 0, f"expected no values, got {decoded.size}"
+
+    def test_it_is_not_reported_as_undecodable(self):
+        """No `TimeDecodingWarning` is raised: a length of zero is not a bad calendar.
+
+        Test scenario:
+            The empty axis used to fall through to the non-standard-calendar branch,
+            which blamed the calendar for the length and reported that the offsets had
+            been kept — of an axis that has none.
+        """
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            interop._decode_time_coordinate(
+                np.array([], dtype="float64"),
+                {"units": "hours since 2024-01-01"},
+                "time",
+            )
+        reported = [w for w in caught if w.category is TimeDecodingWarning]
+        assert not reported, (
+            f"an empty axis should decode quietly, got {[str(w.message) for w in reported]}"
+        )
+
+
+class TestAMalformedCoordinateSpec:
+    """`_coord_entry` refuses anything but `(values, attrs)` or `(values, attrs, encoding)`."""
+
+    @pytest.mark.parametrize(
+        "entry",
+        [(np.zeros(2),), (np.zeros(2), {}, {}, {})],
+        ids=["one-element", "four-element"],
+    )
+    def test_a_wrong_length_spec_is_refused(self, entry: tuple):
+        """A spec shorter than the pair or longer than the triple raises `ValueError`.
+
+        Args:
+            entry: A malformed spec, one element short of the accepted pair and one
+                past the accepted triple.
+
+        Test scenario:
+            The entry used to be unpacked positionally, so a short spec surfaced as an
+            `IndexError` from inside the writer and a long one was accepted with its
+            extra element silently ignored. Both now name the two shapes that are
+            allowed and the length that arrived.
+        """
+        with pytest.raises(ValueError, match=r"coordinate spec must be") as excinfo:
+            interop._coord_entry(entry)
+        assert f"got {len(entry)} element(s)" in str(excinfo.value), (
+            f"the message should name the length it got: {excinfo.value}"
+        )
+
+    def test_both_accepted_lengths_still_pass(self):
+        """The pair and the triple are the inclusive ends of the guard, not near-misses.
+
+        Test scenario:
+            An off-by-one in the bounds would reject a shape the writers rely on, so
+            the two accepted lengths are pinned alongside the rejected ones.
+        """
+        values = np.array([0.0, 6.0])
+        encoding = {"units": "hours since 2024-01-01"}
+        assert interop._coord_entry((values, {"axis": "T"}))[2] == {}, (
+            "a pair carries no encoding"
+        )
+        assert interop._coord_entry((values, {"axis": "T"}, encoding))[2] == encoding, (
+            "a triple carries its encoding through unchanged"
+        )
+
+
+class TestAMalformedVariableSpec:
+    """`_var_entry` refuses anything but `(dims, values, attrs)` plus the encoding slot."""
+
+    @pytest.mark.parametrize(
+        "entry",
+        [(("time",), np.zeros(2)), (("time",), np.zeros(2), {}, {}, {})],
+        ids=["two-element", "five-element"],
+    )
+    def test_a_wrong_length_spec_is_refused(self, entry: tuple):
+        """A spec shorter than the triple or longer than the quad raises `ValueError`.
+
+        Args:
+            entry: A malformed spec, one element short of the accepted triple and one
+                past the accepted quad.
+
+        Test scenario:
+            The same positional unpack the coordinate side had: a short spec raised
+            `IndexError` deep in the writer and a long one lost its tail without a
+            word.
+        """
+        with pytest.raises(ValueError, match=r"variable spec must be") as excinfo:
+            interop._var_entry(entry)
+        assert f"got {len(entry)} element(s)" in str(excinfo.value), (
+            f"the message should name the length it got: {excinfo.value}"
+        )
+
+    def test_both_accepted_lengths_still_pass(self):
+        """The triple and the quad are the inclusive ends of the guard.
+
+        Test scenario:
+            The quad's fourth element is the encoding slot that carries a decoded time
+            array back out in its own CF units, so it must survive the guard intact.
+        """
+        values = np.zeros(2)
+        encoding = {"units": "days since 2000-01-01"}
+        assert interop._var_entry((("time",), values, {}))[3] == {}, (
+            "a triple carries no encoding"
+        )
+        assert interop._var_entry((("time",), values, {}, encoding))[3] == encoding, (
+            "a quad carries its encoding through unchanged"
+        )
