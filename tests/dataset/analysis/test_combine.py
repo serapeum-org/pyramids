@@ -1640,6 +1640,61 @@ class TestExoticRealScalars:
             _raster(np.full((2, 2), 6.0, "float32")) * Decimal("0.5")
 
 
+class TestDeclinedReflectedOperands:
+    """`_reflected_arithmetic` declines a left operand no band can hold."""
+
+    @pytest.mark.parametrize(
+        ("apply_operator", "named_type"),
+        [
+            (lambda ds: True - ds, "bool"),
+            (lambda ds: True / ds, "bool"),
+            (lambda ds: Decimal("1") - ds, "decimal.Decimal"),
+            (lambda ds: Decimal("1") / ds, "decimal.Decimal"),
+            (lambda ds: 0j - ds, "complex"),
+            (lambda ds: 0j / ds, "complex"),
+        ],
+    )
+    def test_a_non_numeric_left_operand_raises(self, apply_operator, named_type):
+        """A reflected operator refuses the operands the forward one refuses.
+
+        Args:
+            apply_operator: The reflected expression to evaluate.
+            named_type: The left operand's type name, which the error must carry.
+
+        Test scenario:
+            `True` is a `Real` equal to `1` and a complex has no imaginary part a band
+            can hold, so both are turned away on the reflected side exactly as they are
+            on the forward one — `2 - ds` must not mean something `ds - 2` refuses. The
+            hook answers `NotImplemented` rather than raising itself, so the error is
+            Python's own and names both operand types.
+        """
+        with pytest.raises(TypeError, match="unsupported operand type") as exc_info:
+            apply_operator(_raster(np.full((2, 2), 6.0, "float32")))
+        assert named_type in str(exc_info.value), (
+            f"the error should name {named_type}, got: {exc_info.value}"
+        )
+
+    @pytest.mark.parametrize("other", [True, Decimal("1"), 0j, "2", None])
+    def test_the_reflected_hooks_answer_not_implemented(self, other):
+        """`__rsub__` / `__rtruediv__` return the sentinel rather than raising.
+
+        Args:
+            other: A left operand that is not a real, non-boolean scalar.
+
+        Test scenario:
+            Returning `NotImplemented` is what lets Python fall through to its own
+            `TypeError`; raising here instead would produce an error from inside a
+            raster op naming neither operand.
+        """
+        source = _raster(np.full((2, 2), 6.0, "float32"))
+        assert source.__rsub__(other) is NotImplemented, (
+            f"__rsub__({other!r}) should decline, got {source.__rsub__(other)}"
+        )
+        assert source.__rtruediv__(other) is NotImplemented, (
+            f"__rtruediv__({other!r}) should decline, got {source.__rtruediv__(other)}"
+        )
+
+
 class TestIntegerScalarEdges:
     """Integer scalars wrap and overflow exactly as numpy does (review round-1 M3)."""
 

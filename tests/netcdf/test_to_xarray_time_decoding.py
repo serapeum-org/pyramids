@@ -384,6 +384,24 @@ class TestEncodingATimeAxis:
             is None
         )
 
+    def test_declared_units_the_encoder_refuses_fall_back_to_the_epoch(self):
+        """When the declared-units encoder declines, the epoch encoding takes over.
+
+        Test scenario:
+            `_encode_in_declared_units` returning `None` is covered on its own, but the
+            wiring that catches it is what keeps the write going: an all-`NaT` axis has
+            no instant to anchor on, so the array must still come back encoded — against
+            the 1970 epoch — rather than carrying `units` with no numbers under them.
+        """
+        values = np.array(["NaT", "NaT"], dtype="datetime64[ns]")
+        encoded, attrs = interop._encode_temporal_array(
+            values, {"units": "hours since 2024-01-01"}
+        )
+        assert np.isnan(encoded).all(), f"every slot should be NaN, got {encoded}"
+        assert attrs["units"].startswith("seconds since 1970-01-01"), (
+            f"the declined units should not be written back, got {attrs}"
+        )
+
 
 class TestTheUndecodedAxisIsReported:
     """A declined CF time axis warns rather than degrading in silence (M9)."""
@@ -577,6 +595,30 @@ class TestPromotedBoundsAreDecodedToo:
         written = NetCDF.from_xarray(exported, tmp_path / "round-trip.nc")
         raw = written.to_xarray(decode_times=False)["time_bnds"]
         assert list(np.asarray(raw.values).ravel()) == [0.0, 6.0, 6.0, 12.0, 12.0, 18.0]
+
+    def test_an_undecodable_bounds_array_keeps_its_offsets(self):
+        """A bounds array its parent's units cannot decode is handed back untouched.
+
+        Test scenario:
+            The parent axis decoded, so the bounds inherit its `units` — but an interval
+            edge outside `datetime64[ns]` declines like any other axis would. The export
+            degrades to the stored offsets rather than failing, and warns while it does,
+            so the caller is not left to discover a numeric bounds array on its own.
+        """
+        source = xr.Dataset(
+            coords={
+                "time": ("time", np.array(["2024-01-01"], dtype="datetime64[ns]")),
+                "bnds": ("bnds", [0, 1]),
+                "time_bnds": (("time", "bnds"), np.array([[-150000.0, -149000.0]])),
+            }
+        )
+        with pytest.warns(TimeDecodingWarning, match="falls outside datetime64"):
+            result = interop._decode_bounds_coordinate(
+                source, "time_bnds", {"units": "days since 2000-01-01"}
+            )
+        assert result["time_bnds"].dtype == np.dtype("float64"), (
+            f"the offsets should survive undecoded, got {result['time_bnds'].dtype}"
+        )
 
 
 class TestTheFacadeSignature:
