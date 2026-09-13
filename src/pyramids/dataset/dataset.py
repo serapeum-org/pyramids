@@ -2269,8 +2269,9 @@ class Dataset(RasterBase):
         `NotImplemented`, so Python raises its own `TypeError` naming both
         operand types.
 
-        A scalar takes the **same** route as a raster operand — :meth:`combine`,
-        with the constant folded into the callable — so `ds * 2` agrees with
+        A scalar takes the **same** route as a raster operand — `combine`'s
+        machinery, with the constant folded into the callable and this raster read
+        once rather than twice (:meth:`Analysis._fold`) — so `ds * 2` agrees with
         `ds * other` on band count, dtype and sentinel. It does *not* always
         agree with `ds.apply(lambda v: v * 2)`: :meth:`apply` transforms one
         band and keeps the source's sentinel, while :meth:`combine` spans every
@@ -2283,9 +2284,15 @@ class Dataset(RasterBase):
         The scalar's own type is kept where NumPy can hold it, so `ds * 2` on an
         `int16` band stays `int16` rather than widening to `float64`; only an
         exotic `numbers.Real` such as a `fractions.Fraction` is narrowed, to
-        `float` — see :func:`_numeric_scalar`. `ds + 0` and `ds * 1` short-circuit
-        to :meth:`copy`, from either side of the operator, so a no-op cannot widen
-        the dtype or drop the band's declared sentinel — see :func:`_is_identity`.
+        `float` — see :func:`_numeric_scalar`. `ds + 0`, `ds * 1` and `ds - 0`
+        short-circuit to :meth:`copy`: the commutative two from either side of the
+        operator, `ds - 0` from the right only, since `0 - ds` negates. A no-op
+        therefore cannot widen the dtype or drop the band's declared sentinel.
+        `ds / 1` is deliberately not one of them — true division widens an integer
+        band to `float64` everywhere else, and absorbing it would make this the one
+        division that does not. The short-circuit also runs before anything reads a
+        band, so a NetCDF root container answers `c + 0` with a copy where `c * 2`
+        raises its container guard — see :func:`_is_identity`.
 
         `bool` is declined deliberately: `True` is a `Real` equal to `1`, and
         `ds * True` silently succeeding reads as a caller's bug. So is a complex
@@ -2370,7 +2377,14 @@ class Dataset(RasterBase):
 
         `2 - ds` is not `ds - 2`, so subtraction and division need the operands in
         the order the caller wrote them. Addition and multiplication commute and
-        reuse :meth:`_arithmetic` directly.
+        reuse :meth:`_arithmetic` directly, which is how `0 + ds` and `1 * ds` reach
+        the same identity short-circuit their left-hand spellings take.
+
+        Nothing short-circuits *here*: the operators that land on this method have no
+        left identity to absorb — `0 - ds` negates and `1 / ds` is a reciprocal — so
+        every call computes. It does so through :meth:`Analysis._fold`, one read of
+        this raster with the scalar folded into the callable, which is what keeps
+        `2 - ds` agreeing with `ds - 2` on band span, dtype and derived sentinel.
 
         Args:
             other: The left-hand operand, which reached here because its own
@@ -2379,7 +2393,20 @@ class Dataset(RasterBase):
 
         Returns:
             Dataset | NotImplemented: The computed raster, or `NotImplemented`
-            when `other` is not a real, non-boolean scalar.
+            when `other` is not a real, non-boolean scalar, which makes Python raise
+            its own `TypeError` naming both operand types.
+
+        Raises:
+            ValueError: The values `op` produced have a dtype GDAL has no band type
+                for, or an integer result masked something and no candidate sentinel
+                is free to mark it — both raised by the machinery behind
+                :meth:`combine`.
+
+        See Also:
+            Dataset._arithmetic: The left-hand form, and the identity short-circuit
+                the commutative operators share with it.
+            Analysis._fold: The single-read path the computed result comes back
+                through.
         """
         result: Any = NotImplemented
         if isinstance(other, Real) and not isinstance(other, bool):

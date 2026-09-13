@@ -409,8 +409,10 @@ class DtypeNarrowingWarning(UserWarning):
 class TimeDecodingWarning(UserWarning):
     """Pyramids-emitted warning that a CF time axis kept, or lost, its stored units.
 
-    Emitted by :meth:`pyramids.netcdf.NetCDF.to_xarray` when a dimension declares CF
-    time `units` that it then declines to decode. The export degrades rather than
+    Emitted by :meth:`pyramids.netcdf.NetCDF.to_xarray` when an axis declares CF time
+    `units` that it then declines to decode — a dimension coordinate, a promoted
+    auxiliary time coordinate declaring units of its own, or a bounds array inheriting
+    the units of the coordinate that names it. The export degrades rather than
     aborting — a bad coordinate is not the export's to discover — but without a
     diagnostic the caller only meets the consequence: xarray's own time machinery
     (`resample`, `.dt`, `groupby("time.month")`) raising on a numeric index, with
@@ -432,11 +434,13 @@ class TimeDecodingWarning(UserWarning):
     silence this.
 
     :meth:`pyramids.netcdf.NetCDF.from_xarray` emits it on the way back for the mirror
-    case: an array whose `encoding` names CF `units` that `cftime` will not encode into
-    -- an unknown calendar, a unit it does not count in, an unparseable origin -- or
-    that holds no instant to anchor on. That array is written against the 1970 epoch
-    instead, so the instants survive and the stored offsets and units do not. Silence
-    either with::
+    case, and only **two** reasons reach it there: an array whose `encoding` names CF
+    `units` that `cftime` will not encode into -- an unknown calendar, a unit it does not
+    count in, an unparseable origin -- or one that holds no instant to anchor on, every
+    value being `NaT`. That array is written against the 1970 epoch instead, so the
+    instants survive and the stored offsets and units do not. The GDAL-native writers
+    take the same encoding slot, so a `to_netcdf` whose coordinate carries CF `units`
+    reaches this too. Silence either direction with::
 
         import warnings
         from pyramids.errors import TimeDecodingWarning
