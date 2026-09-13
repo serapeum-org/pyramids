@@ -2390,9 +2390,14 @@ class Dataset(RasterBase):
     def __rtruediv__(self, other: Any) -> Any:
         """Divide a scalar by this raster — `1000 / ds`, not `ds / 1000`.
 
-        Division does not commute, so this cannot defer to :meth:`__truediv__`. A cell
-        holding zero divides to an infinity, which :meth:`combine` treats as a gap and
-        masks with the derived sentinel rather than storing.
+        Division does not commute, so this cannot defer to :meth:`__truediv__`.
+
+        A cell holding zero divides to an infinity, and that infinity is **stored as a
+        value**, not masked: :meth:`combine` derives `NaN` as the result's sentinel but
+        has no non-finite handling, so only a `0/0` — which is `NaN` — reads as a gap.
+        numpy's own `RuntimeWarning: divide by zero` reaches the caller. Mask the zeros
+        first, or post-process with :meth:`apply`, if an infinity is not what you want
+        downstream.
 
         Args:
             other: The left-hand operand, which reached here because its own

@@ -1431,3 +1431,28 @@ class TestScalarOperands:
         assert np.allclose(np.asarray(sum([source]).read_array()), 5.0)
         assert np.allclose(np.asarray(math.prod([source]).read_array()), 5.0)
         assert np.allclose(np.asarray(sum([source, source]).read_array()), 10.0)
+
+
+class TestNonFiniteResults:
+    """What a division by zero actually produces (H1)."""
+
+    def test_an_infinity_is_stored_not_masked(self):
+        """`1 / ds` stores `inf` where the divisor is zero; only `NaN` reads as a gap.
+
+        Test scenario:
+            `combine` derives `NaN` as the sentinel for a floating result but has no
+            non-finite handling, so the infinities are data. Pinned because the
+            docstring previously claimed the opposite.
+        """
+        source = _raster(np.array([[0.0, 2.0], [4.0, 0.0]], "float32"))
+        result = 1 / source
+        values = np.asarray(result.read_array())
+        assert np.isinf(values[0, 0]), "a divide by zero should store an infinity"
+        assert values[0, 1] == 0.5
+        assert np.isnan(result.no_data_value[0]), "the derived sentinel is NaN"
+
+    def test_zero_divided_by_zero_is_a_gap(self):
+        """`0/0` is `NaN`, which *is* the derived sentinel, so it reads as no-data."""
+        source = _raster(np.zeros((2, 2), "float32"))
+        values = np.asarray((0 / source).read_array())
+        assert np.isnan(values).all(), "0/0 should come back as the NaN sentinel"
