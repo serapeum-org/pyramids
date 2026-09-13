@@ -1688,3 +1688,28 @@ class TestNumpyScalarPromotion:
         """
         result = _raster(np.full((2, 2), 3.0, "float32")) * np.float64(2)
         assert np.asarray(result.read_array()).dtype == np.dtype("float64")
+
+
+class TestNonFiniteScalars:
+    """`nan` and `inf` are accepted and are destructive (review round-1 L8)."""
+
+    def test_a_nan_scalar_empties_the_raster(self):
+        """Every cell computes to `nan` and the derived sentinel is `nan` too.
+
+        Test scenario:
+            The result reads as entirely no-data to every consumer. It is what the
+            arithmetic says, and it is pinned here so it cannot change unnoticed.
+        """
+        result = _raster(np.full((2, 2), 6.0, "float32")) * float("nan")
+        assert np.isnan(np.asarray(result.read_array())).all()
+        assert np.isnan(result.no_data_value[0]), f"got {result.no_data_value[0]}"
+
+    def test_an_inf_scalar_stores_infinities(self):
+        """`ds * inf` stores `inf` as a value rather than masking it."""
+        result = _raster(np.full((2, 2), 6.0, "float32")) * float("inf")
+        assert np.isinf(np.asarray(result.read_array())).all()
+
+    def test_a_comparison_against_nan_is_false_everywhere(self):
+        """`ds > nan` is `0` in every cell, as numpy's own comparison is."""
+        result = _raster(np.full((2, 2), 6.0, "float32")) > float("nan")
+        assert set(np.asarray(result.read_array()).ravel()) == {0}

@@ -46,6 +46,14 @@ single-band, sentinel-preserving contract.
 `ds * True` succeeding would read as a caller's bug, and no band holds an
 imaginary part.
 
+`nan` and `inf` are **not** refused, and `ds * float("nan")` is the one scalar
+that quietly empties a raster: every cell computes to `nan`, a floating result
+takes `nan` as its sentinel, and what comes back reads as entirely no-data to
+every consumer. `ds * float("inf")` stores infinities the same way. That is what
+the arithmetic says, so neither is second-guessed — but a non-finite scalar is
+almost always an uninitialised variable rather than an intention. Check the
+scalar before applying it if it came from a computation.
+
 The operands must already share a grid; `combine` never resamples. Use
 [`align`](spatial.md) first when they do not, and
 `ds.same_grid(other)` to ask before trying:
