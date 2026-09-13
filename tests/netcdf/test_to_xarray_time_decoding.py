@@ -96,10 +96,36 @@ class TestXarrayTimeOperationsNowWork:
 class TestAxesThatAreNotDecoded:
     """Axes the decoder must leave alone rather than fail on."""
 
-    def test_an_unparseable_units_axis_keeps_its_offsets(self):
-        """The COARDS fixture's `units` do not parse, so the raw values survive."""
+    def test_a_pre_gregorian_origin_keeps_its_offsets(self):
+        """The COARDS fixture's year-1 origin puts it on the mixed Julian calendar.
+
+        Test scenario:
+            Its `units` — `hours since 1-1-1 00:00:0.0` — parse perfectly well. The
+            axis is left numeric because an origin predating the 1582 reform makes
+            `cftime` return its own objects rather than `datetime`s, which is the same
+            guard the `noleap` fixture trips, not the `is_cf_time_units` early exit.
+        """
         xds = NetCDF.read_file(COARDS_PATH).to_xarray()
         assert xds.coords["time"].dtype == np.dtype("float64")
+        assert xds.coords["time"].attrs["units"] == "hours since 1-1-1 00:00:0.0"
+
+    def test_an_axis_that_is_not_time_at_all_is_untouched(self):
+        """A `hPa` axis never reaches the decoder — the `is_cf_time_units` early exit.
+
+        Test scenario:
+            This is the function's first branch and the only one no other test covered:
+            every "kept its offsets" fixture was tripping a later guard.
+        """
+        pressure = NetCDF.read_file(CF_PATH).to_xarray().coords["pressure_level"]
+        assert pressure.dtype == np.dtype("float64"), f"got {pressure.dtype}"
+        assert pressure.attrs["units"] == "hPa", f"got {pressure.attrs}"
+
+    def test_non_time_units_are_declined_by_the_decoder(self):
+        """`_decode_time_coordinate` declines `hPa` directly, without calling `cftime`."""
+        assert (
+            interop._decode_time_coordinate(np.array([1000.0]), {"units": "hPa"})
+            is None
+        )
 
     def test_a_non_standard_calendar_keeps_its_offsets(self):
         """A `noleap` axis comes back as the float64 offsets the file stores.
