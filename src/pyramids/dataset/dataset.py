@@ -2362,23 +2362,11 @@ class Dataset(RasterBase):
 
               ```
         """
-        result: Any = NotImplemented
-        # `Real`, not `Number`: it admits `int`, `float` and their numpy
-        # equivalents -- what a fold actually starts from -- while turning away
-        # `0j`, whose imaginary part no raster band can hold. `bool` is excluded
-        # explicitly because `False` is a `Real` equal to `0`, and `False + ds`
-        # handing back a raster reads as the caller's bug quietly succeeding;
-        # `sum()` seeds with the integer `0`, never with `False`.
-        if isinstance(other, Real) and not isinstance(other, bool):
-            # Zero stays a `copy()` rather than a `combine()`: `sum()` seeds with it,
-            # and routing the one-element fold through `combine` would hand back a
-            # derived sentinel where the caller expects the source's. Every other
-            # scalar takes the ordinary path — addition commutes, so `2 + ds` is
-            # `ds + 2`.
-            result = (
-                self.copy() if other == 0 else self._arithmetic(other, operator.add)
-            )
-        return result
+        # Addition commutes, so this is `ds + other` outright. `_arithmetic` owns both
+        # halves of what used to be duplicated here: the `Real`-and-not-`bool` guard
+        # that turns away `False` and `0j`, and the zero short-circuit to `copy()` --
+        # which it applies from either side, so the two spellings cannot disagree.
+        return self._arithmetic(other, operator.add)
 
     def __rmul__(self, other: Any) -> Any:
         """Multiply from the right, so `math.prod()` folds a list of rasters.
@@ -2398,15 +2386,9 @@ class Dataset(RasterBase):
             real numeric one, the computed raster for any other real scalar,
             else `NotImplemented`.
         """
-        result: Any = NotImplemented
-        if isinstance(other, Real) and not isinstance(other, bool):
-            # One stays a `copy()` for the reason zero does in `__radd__`:
-            # `math.prod()` seeds with it. Multiplication commutes, so any other
-            # scalar is `ds * other`.
-            result = (
-                self.copy() if other == 1 else self._arithmetic(other, operator.mul)
-            )
-        return result
+        # `ds * other`, for the reason `__radd__` gives: multiplication commutes and
+        # `_arithmetic` already short-circuits the multiplicative identity to `copy()`.
+        return self._arithmetic(other, operator.mul)
 
     def __rsub__(self, other: Any) -> Any:
         """Subtract this raster from a scalar — `100 - ds`, not `ds - 100`.
