@@ -19,6 +19,8 @@ from pyramids.base._errors import TimeDecodingWarning
 from pyramids.netcdf.engines import interop
 from pyramids.netcdf.netcdf import NetCDF
 
+xr = pytest.importorskip("xarray")
+
 pytestmark = pytest.mark.interop
 
 CF_PATH = "tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc"
@@ -467,3 +469,104 @@ class TestTheUndecodedAxisIsReported:
             interop._decode_time_coordinate(
                 np.array([0.0]), {"units": "hours since 2024-01-01"}, "time"
             )
+
+
+@pytest.fixture()
+def bounded_time_file(tmp_path):
+    """A standard-calendar file whose `time` names a `time_bnds` bounds array.
+
+    Args:
+        tmp_path: pytest's per-test temporary directory.
+
+    Returns:
+        Path: The written `.nc` file. No repo fixture pairs a decodable time axis with
+        bounds — the two that carry `time_bnds` are on `noleap` and `360_day` calendars,
+        so neither axis decodes and neither can show the inconsistency.
+    """
+    source = xr.Dataset(
+        data_vars={
+            "temperature": (("time", "lat", "lon"), np.arange(12.0).reshape(3, 2, 2)),
+            "time_bnds": (
+                ("time", "bnds"),
+                np.array([[0.0, 6.0], [6.0, 12.0], [12.0, 18.0]]),
+            ),
+        },
+        coords={
+            "time": (
+                "time",
+                [0.0, 6.0, 12.0],
+                {"units": "hours since 2024-01-01", "bounds": "time_bnds", "axis": "T"},
+            ),
+            "lat": ("lat", [40.0, 41.0], {"units": "degrees_north"}),
+            "lon": ("lon", [-10.0, -9.0], {"units": "degrees_east"}),
+            "bnds": ("bnds", [0, 1]),
+        },
+        attrs={"Conventions": "CF-1.8"},
+    )
+    path = tmp_path / "bounded.nc"
+    NetCDF.from_xarray(source, path)
+    return path
+
+
+class TestPromotedBoundsAreDecodedToo:
+    """A CF bounds array follows the coordinate that names it (review round-1 L2)."""
+
+    def test_the_bounds_array_is_decoded(self, bounded_time_file):
+        """`time_bnds` comes back as datetimes, not as the offsets beside a decoded `time`.
+
+        Args:
+            bounded_time_file: The synthetic bounded-time file.
+
+        Test scenario:
+            Only dimension coordinates went through the decoder, so a decoded `time`
+            was exported next to a numeric `time_bnds` — an internally inconsistent CF
+            object, since nothing downstream can relate the two.
+        """
+        exported = NetCDF.read_file(str(bounded_time_file)).to_xarray()
+        assert exported["time_bnds"].dtype == np.dtype("datetime64[ns]"), (
+            f"got {exported['time_bnds'].dtype}"
+        )
+
+    def test_the_bounds_match_the_coordinate(self, bounded_time_file):
+        """Each interval's left edge is the instant its cell's coordinate holds.
+
+        Args:
+            bounded_time_file: The synthetic bounded-time file.
+        """
+        exported = NetCDF.read_file(str(bounded_time_file)).to_xarray()
+        left = np.asarray(exported["time_bnds"].values)[:, 0]
+        assert list(left) == list(np.asarray(exported["time"].values)), (
+            "the bounds and the coordinate should be on the same clock"
+        )
+
+    def test_the_bounds_inherit_the_parents_units(self, bounded_time_file):
+        """CF says a bounds array declares no units of its own — it borrows them.
+
+        Args:
+            bounded_time_file: The synthetic bounded-time file.
+        """
+        exported = NetCDF.read_file(str(bounded_time_file)).to_xarray()
+        assert exported["time_bnds"].encoding.get("units") == "hours since 2024-01-01"
+
+    def test_decode_times_false_leaves_the_bounds_numeric(self, bounded_time_file):
+        """The escape hatch covers the bounds as well as the coordinate.
+
+        Args:
+            bounded_time_file: The synthetic bounded-time file.
+        """
+        exported = NetCDF.read_file(str(bounded_time_file)).to_xarray(
+            decode_times=False
+        )
+        assert exported["time_bnds"].dtype == np.dtype("float64")
+
+    def test_the_bounds_round_trip_in_their_own_units(self, bounded_time_file, tmp_path):
+        """A decoded bounds array is written back in the units it was decoded from.
+
+        Args:
+            bounded_time_file: The synthetic bounded-time file.
+            tmp_path: pytest's per-test temporary directory.
+        """
+        exported = NetCDF.read_file(str(bounded_time_file)).to_xarray()
+        written = NetCDF.from_xarray(exported, tmp_path / "round-trip.nc")
+        raw = written.to_xarray(decode_times=False)["time_bnds"]
+        assert list(np.asarray(raw.values).ravel()) == [0.0, 6.0, 6.0, 12.0, 12.0, 18.0]

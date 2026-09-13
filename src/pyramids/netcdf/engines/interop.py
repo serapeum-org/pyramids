@@ -56,6 +56,13 @@ CoordSpec = (
     | tuple[np.ndarray, dict[str, Any], dict[str, Any]]
 )
 
+# A variable as the writers take it: `(dims, values, attrs)`, plus the same optional
+# encoding slot, which carries a decoded time array back out in its own CF units.
+VarSpec = (
+    tuple[tuple[str, ...], Any, dict[str, Any]]
+    | tuple[tuple[str, ...], Any, dict[str, Any], dict[str, Any]]
+)
+
 _XARRAY_HINT = (
     "xarray is required for {func}(). Install with one of:\n"
     "  - PyPI:        pip install xarray\n"
@@ -296,14 +303,18 @@ class Interop(_Engine["NetCDF"]):
                 "Open the file with open_as_multi_dimensional=True."
             )
 
-        coords = _coords_from_dimensions(rg, ds, decode_times=decode_times)
+        coords, bounds_encodings = _coords_from_dimensions(
+            rg, ds, decode_times=decode_times
+        )
         data_vars, export_names = _data_vars_from_arrays(rg, ds, chunks, set(coords))
         exported = xr.Dataset(
             data_vars=data_vars,
             coords=coords,
             attrs=ds.global_attributes,
         )
-        return _promote_cf_non_data_arrays(exported, ds, export_names)
+        return _promote_cf_non_data_arrays(
+            exported, ds, export_names, bounds_encodings=bounds_encodings
+        )
 
 
 # The CF roles xarray represents as coordinates rather than data variables.
@@ -322,7 +333,11 @@ _COORDINATE_CF_ROLES = frozenset(
 
 
 def _promote_cf_non_data_arrays(
-    exported: Any, ds: NetCDF, export_names: dict[str, str]
+    exported: Any,
+    ds: NetCDF,
+    export_names: dict[str, str],
+    *,
+    bounds_encodings: dict[str, dict[str, Any]] | None = None,
 ) -> Any:
     """Move the exported CF non-data arrays from ``data_vars`` into ``coords``.
 
@@ -352,6 +367,9 @@ def _promote_cf_non_data_arrays(
         export_names: Store name to the key it was exported under, from
             :func:`_data_vars_from_arrays`. A name absent from it is its own
             key.
+        bounds_encodings: Bounds-variable name to the CF `units` / `calendar` of the
+            decoded coordinate that names it, from :func:`_coords_from_dimensions`.
+            Each such array is decoded with them once promoted.
 
     Returns:
         xr.Dataset: The same dataset with those names promoted. Unchanged when
@@ -383,6 +401,45 @@ def _promote_cf_non_data_arrays(
         )
         promote = [key for key in candidates if key in exported.data_vars]
         result = exported.set_coords(promote) if promote else exported
+        for key in promote:
+            result = _decode_bounds_coordinate(
+                result, key, (bounds_encodings or {}).get(key)
+            )
+    return result
+
+
+def _decode_bounds_coordinate(
+    exported: Any, key: str, encoding: dict[str, Any] | None
+) -> Any:
+    """Decode a promoted CF bounds array with its parent coordinate's time units.
+
+    CF says a bounds variable carries no `units` of its own and inherits the
+    coordinate that names it, so the decoder cannot recognise one by looking at its
+    attributes -- and a `time` exported as `datetime64[ns]` beside a numeric
+    `time_bnds` is an internally inconsistent CF object: nothing downstream can
+    relate the two. xarray decodes bounds the same way, by lending them the parent's
+    attributes first.
+
+    Args:
+        exported: The `xr.Dataset` whose coordinate is to be replaced.
+        key: The promoted coordinate's name.
+        encoding: The parent coordinate's CF `units` / `calendar`, or `None` when this
+            array is not the bounds of a decoded time axis.
+
+    Returns:
+        The dataset with that coordinate decoded, or unchanged when it is not a
+        decodable time bounds array.
+    """
+    result = exported
+    if encoding:
+        variable = exported[key]
+        decoded = _decode_time_coordinate(
+            np.asarray(variable.values), dict(encoding), key
+        )
+        if decoded is not None:
+            result = exported.assign_coords(
+                {key: (variable.dims, decoded, dict(variable.attrs), dict(encoding))}
+            )
     return result
 
 
@@ -492,15 +549,27 @@ def _decode_time_coordinate(values: Any, attrs: dict, name: str = "") -> Any | N
 
 def _coords_from_dimensions(
     rg: Any, ds: NetCDF, *, decode_times: bool = True
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
     """Build the ``xr.Dataset`` ``coords`` mapping from the root group's dimensions.
 
     Each dimension with an indexing variable becomes a 1-D coordinate; bare
     dimensions (no indexing variable) are skipped. A CF time axis is decoded to
     datetimes unless ``decode_times`` is ``False`` — see
     :func:`_decode_time_coordinate`.
+
+    Args:
+        rg: The container's root group.
+        ds: The container being exported, for its array reader.
+        decode_times: Whether to decode a CF time axis to datetimes.
+
+    Returns:
+        The coordinate mapping, and the CF ``units`` / ``calendar`` of each decoded
+        axis keyed by the ``bounds`` variable it names — which
+        :func:`_decode_bounds_coordinate` needs, because a bounds array declares no
+        units of its own.
     """
     coords: dict[str, Any] = {}
+    bounds_encodings: dict[str, dict[str, Any]] = {}
     for d in rg.GetDimensions() or []:
         iv = d.GetIndexingVariable()
         if iv is None:
@@ -522,11 +591,14 @@ def _coords_from_dimensions(
             encoding = {
                 k: coord_attrs[k] for k in ("units", "calendar") if k in coord_attrs
             }
+            bounds = coord_attrs.get("bounds")
+            if bounds:
+                bounds_encodings[str(bounds)] = encoding
             coord_attrs = {
                 k: v for k, v in coord_attrs.items() if k not in ("units", "calendar")
             }
         coords[dim_name] = ([dim_name], raw, coord_attrs, encoding)
-    return coords
+    return coords, bounds_encodings
 
 
 def _data_vars_from_arrays(
@@ -913,6 +985,7 @@ def _write_data_var(
     var_dims: tuple[str, ...],
     var_values: Any,
     var_attrs: dict[str, Any],
+    var_encoding: dict[str, Any] | None = None,
 ) -> gdal.MDArray:
     """Create and fill one data variable's MDArray, streaming a dask-backed one block by block.
 
@@ -946,7 +1019,7 @@ def _write_data_var(
         shape = tuple(var_values.shape)
         write_dtype = dtype
     else:
-        values, cf_attrs = _encode_temporal_array(np.asarray(var_values))
+        values, cf_attrs = _encode_temporal_array(np.asarray(var_values), var_encoding)
         shape = values.shape
         write_dtype = values.dtype
     expected = tuple(dims[d] for d in var_dims)
@@ -993,6 +1066,27 @@ def _coord_entry(
     values, attrs = entry[0], entry[1]
     encoding = entry[2] if len(entry) > 2 else None
     return values, attrs, encoding or {}
+
+
+def _var_entry(
+    entry: tuple[Any, ...],
+) -> tuple[tuple[str, ...], Any, dict[str, Any], dict[str, Any]]:
+    """Split a variable spec into its ``(dims, values, attrs, encoding)`` parts.
+
+    The encoding is optional for the same reason it is on a coordinate: only the
+    xarray adapter has one to carry, and the GDAL-native writers pass a triple.
+
+    Args:
+        entry: A `(dims, values, attrs)` triple or a `(dims, values, attrs, encoding)`
+            quadruple.
+
+    Returns:
+        The dimension names, the values, the attributes, and the encoding (empty when
+        the entry omitted it).
+    """
+    dims, values, attrs = entry[0], entry[1], entry[2]
+    encoding = entry[3] if len(entry) > 3 else None
+    return dims, values, attrs, encoding or {}
 
 
 def _dim_type(name: str) -> str:
@@ -1080,10 +1174,10 @@ def _apply_grid_mapping(
 def _build_multidim(
     dims: dict[str, int],
     coords: dict[str, CoordSpec],
-    data_vars: dict[str, tuple[tuple[str, ...], Any, dict[str, Any]]],
+    data_vars: dict[str, VarSpec],
     global_attrs: dict[str, Any],
     crs_wkt: str | None = None,
-    aux_vars: dict[str, tuple[tuple[str, ...], Any, dict[str, Any]]] | None = None,
+    aux_vars: dict[str, VarSpec] | None = None,
 ) -> gdal.Dataset:
     """Build an in-memory GDAL multidim container from plain arrays and attrs.
 
@@ -1155,14 +1249,16 @@ def _build_multidim(
         )
 
     data_arrays: dict[str, gdal.MDArray] = {}
-    for var_name, (var_dims, var_values, var_attrs) in data_vars.items():
+    for var_name, var_spec in data_vars.items():
+        var_dims, var_values, var_attrs, var_encoding = _var_entry(var_spec)
         data_arrays[var_name] = _write_data_var(
-            root, gdal_dims, dims, var_name, var_dims, var_values, var_attrs
+            root, gdal_dims, dims, var_name, var_dims, var_values, var_attrs, var_encoding
         )
 
-    for var_name, (var_dims, var_values, var_attrs) in (aux_vars or {}).items():
+    for var_name, var_spec in (aux_vars or {}).items():
+        var_dims, var_values, var_attrs, var_encoding = _var_entry(var_spec)
         _write_data_var(
-            root, gdal_dims, dims, var_name, var_dims, var_values, var_attrs
+            root, gdal_dims, dims, var_name, var_dims, var_values, var_attrs, var_encoding
         )
 
     if srs is not None:
@@ -1270,7 +1366,12 @@ def _build_multidim_from_xarray(dataset: Any) -> gdal.Dataset:
     # array ("Illegal numpy array rank 1"), and pyramids' own enumeration drops
     # 0-dimensional MDArrays anyway, so no `to_xarray` export can carry one in.
     aux_vars = {
-        name: (tuple(coord.dims), coord.data, _without_store_name(coord.attrs))
+        name: (
+            tuple(coord.dims),
+            coord.data,
+            _without_store_name(coord.attrs),
+            dict(coord.encoding),
+        )
         for name, coord in dataset.coords.items()
         if name not in dims and coord.ndim > 0
     }
@@ -1278,7 +1379,12 @@ def _build_multidim_from_xarray(dataset: Any) -> gdal.Dataset:
         # `var.data` hands the underlying array through WITHOUT computing it, so a
         # dask-backed variable stays lazy and `_build_multidim` can stream it block by
         # block (ARC-48); `.values` would force a full materialisation up front.
-        name: (tuple(var.dims), var.data, _without_store_name(var.attrs))
+        name: (
+            tuple(var.dims),
+            var.data,
+            _without_store_name(var.attrs),
+            dict(var.encoding),
+        )
         for name, var in dataset.data_vars.items()
         if not (name in skip and var.ndim == 0)
     }
