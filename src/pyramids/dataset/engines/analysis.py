@@ -1312,16 +1312,30 @@ class Analysis(_Engine["Dataset"]):
         self._check_combinable(other, func, band)
 
         left, left_sentinels, left_domain = self._operand_arrays(self._ds, band)
-        right, right_sentinels, right_domain = self._operand_arrays(other, band)
+        # `==`, not `is`: this engine holds a `weakref.proxy` back-reference, which
+        # cannot satisfy an identity check against the dataset it points at. Neither
+        # class overrides `__eq__`, so the proxy forwards to the referent's
+        # identity-based comparison and this is an identity test in all but spelling.
+        if self._ds == other:
+            # A scalar operator (`ds * 2`) folds its constant into `func` and hands
+            # this same dataset back as the second operand, purely to satisfy the
+            # two-operand shape. Reading it again would double the I/O, the CF unpack
+            # and the peak memory of a one-operand transform. Its sentinels are
+            # already in `left_sentinels`, so the candidate list stays deduplicated.
+            right, right_sentinels, right_domain = left, [], left_domain
+        else:
+            right, right_sentinels, right_domain = self._operand_arrays(other, band)
         masked = no_data_value is not None
-        domain = (
-            left_domain & right_domain
-            if masked
+        domain: np.typing.NDArray | None
+        if not masked:
             # `None`, not an all-True mask: the unmasked path exists because the
             # caller asked for no masking, so allocating a full boolean array and
             # fancy-indexing through it twice is pure overhead.
-            else None
-        )
+            domain = None
+        elif right_domain is left_domain:
+            domain = left_domain
+        else:
+            domain = left_domain & right_domain
 
         values, boolean = self._computed_values(func, left, right, domain)
         sentinel = (

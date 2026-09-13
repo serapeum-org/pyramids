@@ -18,7 +18,7 @@ import pytest
 from pyramids.base._errors import AlignmentError, NoDataCollisionWarning
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
-from pyramids.dataset.engines.analysis import _DERIVE_NO_DATA
+from pyramids.dataset.engines.analysis import _DERIVE_NO_DATA, Analysis
 
 pytestmark = pytest.mark.core
 
@@ -1507,3 +1507,70 @@ class TestIdentityScalars:
         """A no-op hands back a fresh raster, so a later write cannot reach the input."""
         source = self._int_raster()
         assert (source + 0) is not source
+
+
+class TestOneOperandIsReadOnce:
+    """A scalar operation costs one read of the raster, not two (review round-1 M1)."""
+
+    @staticmethod
+    def _counting_operand_arrays(monkeypatch) -> list:
+        """Instrument `Analysis._operand_arrays` and return the list it appends to.
+
+        Args:
+            monkeypatch: pytest's patcher, so the original is restored after the test.
+
+        Returns:
+            list: One entry per call, holding the dataset that was read.
+        """
+        seen: list = []
+        original = Analysis._operand_arrays
+
+        def counted(ds, band):
+            seen.append(ds)
+            return original(ds, band)
+
+        monkeypatch.setattr(Analysis, "_operand_arrays", staticmethod(counted))
+        return seen
+
+    def test_a_scalar_operation_reads_the_raster_once(self, monkeypatch):
+        """`ds * 2` reads one array, where it used to read the same one twice.
+
+        Args:
+            monkeypatch: pytest's patcher.
+
+        Test scenario:
+            The scalar arm passes `self` as `combine`'s second operand to satisfy its
+            two-operand shape. Reading it again doubled the I/O, the CF unpack and the
+            peak memory of what is a single-operand transform.
+        """
+        seen = self._counting_operand_arrays(monkeypatch)
+        _raster(np.full((4, 4), 3.0, "float32")) * 2
+        assert len(seen) == 1, f"expected one read, got {len(seen)}"
+
+    def test_two_rasters_are_still_read_separately(self, monkeypatch):
+        """A genuine two-operand combine still reads both.
+
+        Args:
+            monkeypatch: pytest's patcher.
+        """
+        seen = self._counting_operand_arrays(monkeypatch)
+        _raster(np.full((4, 4), 3.0, "float32")) * _raster(
+            np.full((4, 4), 2.0, "float32")
+        )
+        assert len(seen) == 2, f"expected two reads, got {len(seen)}"
+
+    def test_combining_a_raster_with_itself_is_still_correct(self):
+        """`ds.combine(ds, add)` doubles the values, sharing one array does not break it."""
+        ds = _raster(np.full((4, 4), 3.0, "float32"))
+        assert float(np.asarray(ds.combine(ds, np.add).read_array()).mean()) == 6.0
+
+    def test_the_shared_domain_still_masks(self):
+        """A no-data cell stays no-data when the raster is combined with itself."""
+        values = np.array([[1.0, -9999.0], [3.0, 4.0]], dtype="float32")
+        ds = Dataset.from_array(values, geo_ref=GEO_REF, no_data_value=-9999.0)
+        doubled = ds * 2
+        result = np.asarray(doubled.read_array())
+        assert result[0, 1] == pytest.approx(doubled.no_data_value[0], nan_ok=True), (
+            f"the masked cell should stay masked, got {result[0, 1]}"
+        )
+        assert result[1, 1] == pytest.approx(8.0), f"got {result[1, 1]}"
