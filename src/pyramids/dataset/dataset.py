@@ -2359,11 +2359,62 @@ class Dataset(RasterBase):
         return result
 
     def __rsub__(self, other: Any) -> Any:
-        """Subtract this raster from a scalar — `2 - ds`, not `ds - 2`."""
+        """Subtract this raster from a scalar — `100 - ds`, not `ds - 100`.
+
+        Subtraction does not commute, so this cannot defer to :meth:`__sub__`; the
+        operands keep the order the caller wrote them in.
+
+        Args:
+            other: The left-hand operand, which reached here because its own
+                `__sub__` declined this dataset.
+
+        Returns:
+            Dataset | NotImplemented: The computed raster, or `NotImplemented` when
+            `other` is not a real, non-boolean scalar.
+
+        Examples:
+            - Invert a normalised band, the common use for a reflected subtraction:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> ds = Dataset.from_array(np.full((3, 3), 0.25, "float32"), geo_ref=geo_ref)
+              >>> float(np.asarray((1 - ds).read_array()).mean())
+              0.75
+
+              ```
+        """
         return self._reflected_arithmetic(other, operator.sub)
 
     def __rtruediv__(self, other: Any) -> Any:
-        """Divide a scalar by this raster — `1 / ds`, not `ds / 1`."""
+        """Divide a scalar by this raster — `1000 / ds`, not `ds / 1000`.
+
+        Division does not commute, so this cannot defer to :meth:`__truediv__`. A cell
+        holding zero divides to an infinity, which :meth:`combine` treats as a gap and
+        masks with the derived sentinel rather than storing.
+
+        Args:
+            other: The left-hand operand, which reached here because its own
+                `__truediv__` declined this dataset.
+
+        Returns:
+            Dataset | NotImplemented: The computed raster, or `NotImplemented` when
+            `other` is not a real, non-boolean scalar.
+
+        Examples:
+            - Turn a rate into its reciprocal:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> ds = Dataset.from_array(np.full((3, 3), 4.0, "float32"), geo_ref=geo_ref)
+              >>> float(np.asarray((1 / ds).read_array()).mean())
+              0.25
+
+              ```
+        """
         return self._reflected_arithmetic(other, operator.truediv)
 
     def __lt__(self, other: Any) -> Any:
