@@ -1001,19 +1001,35 @@ class TestSummingRasters:
         with pytest.raises(TypeError, match="unsupported operand type"):
             False + raster
 
-    def test_zero_is_absorbed_from_the_left_and_computed_from_the_right(self):
-        """`0 + ds` short-circuits to a copy; `ds + 0` computes (#1136).
+    @pytest.mark.parametrize("zero", [0, 0.0], ids=["int", "float"])
+    @pytest.mark.parametrize("reflected", [False, True], ids=["ds+0", "0+ds"])
+    def test_zero_is_absorbed_from_either_side(self, zero, reflected):
+        """Adding zero is a copy whichever side it is written on (#1136).
+
+        Args:
+            zero: The additive identity, as an `int` and as a `float`.
+            reflected: Whether the scalar is on the left.
 
         Test scenario:
-            The asymmetry is now about *how*, not *whether*. `sum()` seeds with `0`, so
-            the left-hand identity stays a `copy()` and a one-element fold keeps the
-            source's sentinel. On the right it is ordinary scalar arithmetic and takes
-            the `combine` path like any other scalar.
+            Values alone do not distinguish the short-circuit from the computed
+            answer — both give 2. The dtype and the sentinel do: routed through
+            `combine`, `ds + 0.0` would widen the `int16` band to `float64` where
+            `0.0 + ds` is a byte-identical copy, and `ds + 0` would *drop* the declared
+            sentinel, because an integer result that masked nothing declares none. A
+            no-op must not strip the no-data tag off a raster on its way to disk.
         """
-        raster = _raster(np.full((4, 4), 2.0, "float32"))
+        raster = Dataset.from_array(
+            np.full((4, 4), 2, "int16"), geo_ref=GEO_REF, no_data_value=-9999
+        )
 
-        assert np.allclose(np.asarray((raster + 0).read_array()), 2.0)
-        assert np.allclose(np.asarray((0 + raster).read_array()), 2.0)
+        result = zero + raster if reflected else raster + zero
+        values = np.asarray(result.read_array())
+
+        assert np.allclose(values, 2), f"got {values}"
+        assert values.dtype == np.dtype("int16"), f"the band widened to {values.dtype}"
+        assert result.no_data_value[0] == -9999, (
+            f"the declared sentinel was lost: {result.no_data_value[0]}"
+        )
 
     def test_summing_rasters_off_one_grid_is_refused(self):
         """A fold inherits `combine`'s grid rule rather than quietly broadcasting.
