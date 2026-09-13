@@ -10,6 +10,7 @@ descriptive assertion messages.
 
 from __future__ import annotations
 
+import inspect
 import warnings
 
 import numpy as np
@@ -570,3 +571,29 @@ class TestPromotedBoundsAreDecodedToo:
         written = NetCDF.from_xarray(exported, tmp_path / "round-trip.nc")
         raw = written.to_xarray(decode_times=False)["time_bnds"]
         assert list(np.asarray(raw.values).ravel()) == [0.0, 6.0, 6.0, 12.0, 12.0, 18.0]
+
+
+class TestTheFacadeSignature:
+    """`decode_times` is visible where callers look for it (review round-1 L6)."""
+
+    def test_the_keyword_is_in_the_facade_signature(self):
+        """`NetCDF.to_xarray` names it, so help() and editor completion show it.
+
+        Test scenario:
+            The facade was `*args, **kwargs`, so the keyword worked but appeared in no
+            rendered reference, no `help()` output and no completion list.
+        """
+        parameters = inspect.signature(NetCDF.to_xarray).parameters
+        assert "decode_times" in parameters, f"got {list(parameters)}"
+
+    def test_it_defaults_to_decoding(self):
+        """The declared default is the documented one."""
+        assert (
+            inspect.signature(NetCDF.to_xarray).parameters["decode_times"].default
+            is True
+        )
+
+    def test_chunks_is_still_positional(self):
+        """`to_xarray("auto")` keeps working — the spelled-out signature is compatible."""
+        exported = NetCDF.read_file(CF_PATH).to_xarray("auto")
+        assert exported["temperature"].chunks is not None

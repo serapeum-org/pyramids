@@ -107,7 +107,7 @@ Two object shapes share this class, and several members behave differently acros
 | Member | What it does |
 |---|---|
 | `to_file()` | Saves the dataset to disk. |
-| `to_xarray()` | Converts the container to an `xarray.Dataset`, optionally chunked. |
+| `to_xarray()` | Converts the container to an `xarray.Dataset` — `chunks=`, `decode_times=`. |
 | `to_kerchunk()` | Emits a kerchunk JSON reference manifest for this file. |
 | `combine_kerchunk()` | Combines per-file manifests into one cube index. |
 | `to_cog()` | Writes a Cloud-Optimized GeoTIFF. Variable only. |

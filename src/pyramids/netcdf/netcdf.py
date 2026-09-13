@@ -9756,9 +9756,25 @@ class NetCDF(Dataset):
         """Facade — :meth:`rename_variable <pyramids.netcdf.engines.variables.Variables.rename_variable>`."""
         return self.varops.rename_variable(*args, **kwargs)
 
-    def to_xarray(self, *args, **kwargs) -> Any:
-        """Facade — delegates to :meth:`Interop.to_xarray <pyramids.netcdf.engines.interop.Interop.to_xarray>`."""
-        return self.interop.to_xarray(*args, **kwargs)
+    def to_xarray(
+        self, chunks: dict | str | int | None = None, *, decode_times: bool = True
+    ) -> Any:
+        """Facade — delegates to :meth:`Interop.to_xarray <pyramids.netcdf.engines.interop.Interop.to_xarray>`.
+
+        Spelled out rather than `*args, **kwargs` so the keywords are visible where
+        callers look for them: the rendered reference, `help(NetCDF.to_xarray)` and
+        editor completion all read the facade, not the engine behind it.
+
+        Args:
+            chunks: Dask chunking for a lazy read, or `None` to read eagerly.
+            decode_times: Whether to decode a CF time axis to `datetime64[ns]`. `False`
+                returns the stored offsets.
+
+        Returns:
+            xarray.Dataset: The exported cube. See the engine method for the full
+            contract.
+        """
+        return self.interop.to_xarray(chunks, decode_times=decode_times)
 
     def subset(self, *args, **kwargs) -> NetCDF:
         """Facade — :meth:`Selection.subset <pyramids.netcdf.engines.selection.Selection.subset>`."""
