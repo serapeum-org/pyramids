@@ -6919,7 +6919,7 @@ two-argument function over the matching cells of two rasters and hands back a
 raster or a real scalar on either side: <code>ds * 2</code>, <code>2 * ds</code>, <code>20 - ds</code> and <code>ds &gt;= 5</code>
 all work. A scalar takes the same route as a raster operand, with the constant
 folded into the callable, so <code>ds * 2</code> and <code>ds * other</code> agree on band count, dtype
-and sentinel.</p>
+and sentinel — including the integer wraparound the warning below describes.</p>
 <p>That is deliberately <em>not</em> the same as <code>ds.apply(lambda v: v * 2)</code>. <code>apply</code>
 transforms one band and keeps the source's sentinel; <code>combine</code> spans every band
 and derives one (<code>NaN</code> for a floating result). The two are different tools, and
@@ -6971,17 +6971,24 @@ imaginary part.</p>
 </tbody>
 </table>
 <div class="admonition warning">
-<p class="admonition-title">Integer subtraction wraps</p>
+<p class="admonition-title">Integer arithmetic wraps</p>
 <p>The result takes whatever dtype <code>func</code> returns, which for two integer bands
 is that same integer dtype — with numpy's wraparound, not an error and not a
 promotion. On <code>uint8</code>, <code>10 - 20</code> is <code>246</code>; on <code>int16</code>, <code>30000 - (-30000)</code> is
 <code>-5536</code>. Nothing marks those cells: an integer result that masked nothing
 declares no sentinel, so they read as ordinary data.</p>
+<p><strong>A scalar operand wraps the same way</strong>, because it takes the same route.
+<code>byte_ds * 2</code> is <code>144</code> wherever the band held <code>200</code>, and <code>byte_ds + 5</code> lands
+exactly on <code>255</code> wherever it held <code>250</code> — the sentinel a <code>uint8</code> band gets by
+default, so those cells read as no-data to the next consumer. A scalar too
+wide for the band's dtype is numpy's error verbatim: <code>byte_ds + 300</code> raises
+<code>OverflowError: Python integer 300 out of bounds for uint8</code>.</p>
 <p>This bites hardest on the difference this page leads with. Promote before
 subtracting when the operands are integers and the answer can go negative or
 overflow:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">canopy</span> <span class="o">=</span> <span class="n">surface</span><span class="o">.</span><span class="n">combine</span><span class="p">(</span><span class="n">bare</span><span class="p">,</span> <span class="k">lambda</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">:</span> <span class="n">a</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s2">"int32"</span><span class="p">)</span> <span class="o">-</span> <span class="n">b</span><span class="p">)</span>
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">canopy</span> <span class="o">=</span> <span class="n">surface</span><span class="o">.</span><span class="n">combine</span><span class="p">(</span><span class="n">bare</span><span class="p">,</span> <span class="k">lambda</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">:</span> <span class="n">a</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s2">"float32"</span><span class="p">)</span> <span class="o">-</span> <span class="n">b</span><span class="p">)</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">scaled</span> <span class="o">=</span> <span class="n">byte_ds</span><span class="o">.</span><span class="n">combine</span><span class="p">(</span><span class="n">byte_ds</span><span class="p">,</span> <span class="k">lambda</span> <span class="n">v</span><span class="p">,</span> <span class="n">_</span><span class="p">:</span> <span class="n">v</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s2">"int16"</span><span class="p">)</span> <span class="o">*</span> <span class="mi">2</span><span class="p">)</span>
 </code></pre></div>
 </div>
 <h3 id="how-the-results-no-data-value-is-chosen"><a class="toclink" href="#how-the-results-no-data-value-is-chosen">How the result's no-data value is chosen</a><a class="headerlink" href="#how-the-results-no-data-value-is-chosen" title="Permanent link">#</a></h3>

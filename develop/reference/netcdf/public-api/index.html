@@ -6518,7 +6518,7 @@ handling, the COG surface, and the rest of the raster API. Those live in the
 <tbody>
 <tr>
 <td><code>read_array()</code></td>
-<td>Reads a variable eagerly, or lazily into dask when <code>chunks</code> is given.</td>
+<td>Reads eagerly, or lazily into dask with <code>chunks=</code>. Needs <code>variable=</code> on a Container.</td>
 </tr>
 <tr>
 <td><code>subset()</code></td>
@@ -6545,7 +6545,7 @@ handling, the COG surface, and the rest of the raster API. Those live in the
 <tbody>
 <tr>
 <td><code>crop()</code></td>
-<td>Crops by polygon mask, raster mask, or bbox tuple.</td>
+<td>Crops by polygon mask, raster mask, or bbox tuple. <code>chunks=</code> is Variable only.</td>
 </tr>
 <tr>
 <td><code>to_crs()</code></td>
@@ -6557,7 +6557,7 @@ handling, the COG surface, and the rest of the raster API. Those live in the
 </tr>
 <tr>
 <td><code>warped_view()</code></td>
-<td>A lazy, reprojected view of a Variable — no data is read until used.</td>
+<td>A lazy, reprojected view of a Variable — no data is read until used. Variable only.</td>
 </tr>
 </tbody>
 </table>
@@ -6715,7 +6715,9 @@ handling, the COG surface, and the rest of the raster API. Those live in the
 </table>
 <hr />
 <p><strong>"Variable only"</strong> marks the members that are container-guarded: they are <code>Dataset</code> operations that need a
-single raster, so calling them on a Container raises with a message pointing at <code>get_variable</code>.</p>
+single raster, so calling them on a Container raises with a message pointing at <code>get_variable</code>. Two members
+are restricted only in part, noted in their own rows: <code>read_array()</code> needs <code>variable=</code> on a Container, and
+<code>crop()</code> accepts <code>chunks=</code> only on a Variable.</p>
 
 
 
