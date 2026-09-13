@@ -2320,13 +2320,11 @@ class Dataset(RasterBase):
         total" would reach into the input in the one-element case only. numpy
         makes the same choice: `sum([arr]) is arr` is `False`.
 
-        It is the one scalar the operators accept, and only when it is a real
-        number equal to zero — `0`, `0.0`, `np.int32(0)`, `np.float64(0)`. Any
-        other scalar would reopen the dtype disagreement :meth:`_arithmetic`
-        declines them to avoid, so `1 + ds` raises; so do `False + ds` (a bool
-        is not a numeric seed), `0j + ds` (no band holds an imaginary part) and
-        `ds + 0` — the identity is absorbed only on the left, where `sum()`
-        puts it.
+        Zero is absorbed from **either** side — `ds + 0` is the same copy — so
+        the two spellings of one commutative expression cannot disagree. Every
+        other real scalar computes through :meth:`combine`, so `1 + ds` is
+        `ds + 1`. `False + ds` still raises (a bool is not a numeric seed) and
+        so does `0j + ds` (no band holds an imaginary part).
 
         Two wrinkles worth knowing. `sum()` of a **single** raster never reaches
         :meth:`combine`, so it returns that raster's values and sentinel
@@ -2345,7 +2343,8 @@ class Dataset(RasterBase):
 
         Returns:
             Dataset | NotImplemented: A copy of this dataset when `other` is
-            zero, else `NotImplemented` so Python raises its own `TypeError`.
+            zero, the computed raster for any other real scalar, else
+            `NotImplemented` so Python raises its own `TypeError`.
 
         Examples:
             - Fold a list of aligned rasters into their total:
@@ -2396,7 +2395,8 @@ class Dataset(RasterBase):
 
         Returns:
             Dataset | NotImplemented: A copy of this dataset when `other` is a
-            real numeric one, else `NotImplemented`.
+            real numeric one, the computed raster for any other real scalar,
+            else `NotImplemented`.
         """
         result: Any = NotImplemented
         if isinstance(other, Real) and not isinstance(other, bool):
