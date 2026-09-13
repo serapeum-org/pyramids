@@ -4,8 +4,9 @@ A one-line map of every public member the `NetCDF` class itself defines — 65 i
 6 classmethods and 1 staticmethod. For the full signatures, arguments and examples, see the rendered
 [NetCDF Class](index.md) reference; this page is the index you scan to find the member you want.
 
-`NetCDF` extends `Dataset`, so it also inherits a further 119 public members it does not redefine — band
-handling, the COG surface, and the rest of the raster API. Those live in the
+`NetCDF` extends `Dataset`, so it also inherits a further 134 public members it does not redefine — band
+handling, the COG surface, and the rest of the raster API. 119 of those are declared in `Dataset`'s own body
+and the remaining 15 come from `RasterBase` above it. They live in the
 [Dataset reference](../dataset/index.md).
 
 Two object shapes share this class, and several members behave differently across them:
@@ -56,7 +57,7 @@ Two object shapes share this class, and several members behave differently acros
 | `epsg`                    | EPSG code, resolved from the variables when asked of a Container.        |
 | `time_stamp`              | Time coordinate values parsed from the CF `time` variable.               |
 | `get_time_variable()`     | Decodes the time axis to date strings; `time_format` sets the precision. |
-| `get_time_values()`       | Raw, undecoded values of the time axis — the time spelling of the above. |
+| `get_time_values()`       | Raw, undecoded values of the time axis — `get_dimension_values()` for it. |
 | `create_main_dimension()` | Creates a dimension with its indexing variable (static helper).          |
 
 ## Reading and selecting
