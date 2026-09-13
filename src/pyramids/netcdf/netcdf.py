@@ -6847,8 +6847,9 @@ class NetCDF(Dataset):
           those come from the geotransform (:meth:`get_x_lon_dimension_array`).
 
         Values are the **stored** ones, matching what :meth:`sel` matches against and what
-        ``to_xarray().coords`` reports for the same file. A CF time axis is therefore raw
-        offsets; :meth:`get_time_variable` decodes the same axis to date strings.
+        ``to_xarray(decode_times=False).coords`` reports for the same file. A CF time axis
+        is therefore raw offsets; :meth:`get_time_variable` decodes the same axis to date
+        strings, and :meth:`to_xarray` decodes it to ``datetime64[ns]`` by default.
 
         Storage order is also the *array* order, which for a **spatial** axis need not be
         the raster's. Pyramids presents rasters north-up, but a south-to-north file stores
