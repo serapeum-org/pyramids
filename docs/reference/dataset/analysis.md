@@ -82,10 +82,13 @@ canopy = surface - bare
     declares no sentinel, so they read as ordinary data.
 
     **A scalar operand wraps the same way**, because it takes the same route.
-    `byte_ds * 2` is `144` wherever the band held `200`, and `byte_ds + 5` lands
-    exactly on `255` wherever it held `250` — the sentinel a `uint8` band gets by
-    default, so those cells read as no-data to the next consumer. A scalar too
-    wide for the band's dtype is numpy's error verbatim: `byte_ds + 300` raises
+    `byte_ds * 2` is `144` wherever the band held `200`, and `byte_ds + 5` is
+    `255` wherever it held `250`. Those cells are ordinary **data**, not gaps:
+    the sentinel is derived against the values just computed, so a result that
+    holds `255` cannot also claim it — the raster comes back declaring no
+    sentinel at all when nothing was masked, and some other free value when
+    something was. Nothing marks a wrapped cell. A scalar too wide for the
+    band's dtype is numpy's error verbatim: `byte_ds + 300` raises
     `OverflowError: Python integer 300 out of bounds for uint8`.
 
     This bites hardest on the difference this page leads with. Promote before

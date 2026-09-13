@@ -1715,15 +1715,36 @@ class TestIntegerScalarEdges:
         result = _raster(np.zeros((2, 2), "uint8")) - 1
         assert int(np.asarray(result.read_array())[0, 0]) == 255
 
-    def test_a_sum_landing_on_the_byte_sentinel_is_masked(self):
-        """`uint8 250 + 5` lands on `255`, the default byte sentinel, and reads as a gap.
+    def test_a_sum_landing_on_the_byte_sentinel_stays_data(self):
+        """`uint8 250 + 5` lands on `255` and is still data, not a gap.
 
         Test scenario:
-            The derived sentinel is chosen against the computed values, so a result that
-            occupies `255` everywhere cannot also declare it — this pins which way the
-            collision is resolved rather than asserting it does not happen.
+            `255` is the sentinel a `uint8` band gets by default, so the collision has
+            to be resolved somehow. It is resolved against the sentinel: the derivation
+            runs on the values just computed, and a result holding `255` everywhere
+            cannot claim it, so nothing is declared and the wrapped cells read as
+            ordinary data to every consumer.
         """
         result = _raster(np.full((2, 2), 250, "uint8")) + 5
+        assert int(np.asarray(result.read_array())[0, 0]) == 255
+        assert result.no_data_value[0] is None, (
+            f"the wrapped cells must not be masked, got {result.no_data_value[0]}"
+        )
+
+    def test_a_masked_byte_sum_derives_a_free_sentinel(self):
+        """With a real gap present the derivation picks a value the result does not hold.
+
+        Test scenario:
+            `255` is taken by the computed values, so the sentinel cannot be it — and
+            the cells that wrapped onto `255` stay data either way.
+        """
+        source = Dataset.from_array(
+            np.array([[250, 255], [250, 250]], "uint8"),
+            geo_ref=GEO_REF,
+            no_data_value=255,
+        )
+        result = source + 5
+        assert result.no_data_value[0] != 255, f"got {result.no_data_value[0]}"
         assert int(np.asarray(result.read_array())[0, 0]) == 255
 
     def test_a_scalar_too_wide_for_the_band_overflows(self):
