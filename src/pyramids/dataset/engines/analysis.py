@@ -1312,6 +1312,7 @@ class Analysis(_Engine["Dataset"]):
         self._check_combinable(other, func, band)
 
         left, left_sentinels, left_domain = self._operand_arrays(self._ds, band)
+        right_sentinels: list[Any]
         # `==`, not `is`: this engine holds a `weakref.proxy` back-reference, which
         # cannot satisfy an identity check against the dataset it points at. Neither
         # class overrides `__eq__`, so the proxy forwards to the referent's

@@ -17,6 +17,7 @@ import tempfile
 import traceback
 import warnings
 import weakref
+from collections.abc import Mapping
 from contextlib import contextmanager, suppress
 from datetime import datetime
 from pathlib import Path
@@ -905,7 +906,7 @@ def _encode_temporal_array(
         if is_cf_time_units(declared):
             stated_calendar = (encoding or {}).get("calendar")
             offsets = _encode_in_declared_units(
-                values, declared, stated_calendar or "standard"
+                values, str(declared), stated_calendar or "standard"
             )
             if offsets is not None:
                 # An undeclared calendar stays undeclared: `standard` is the CF
@@ -1175,11 +1176,11 @@ def _apply_grid_mapping(
 
 def _build_multidim(
     dims: dict[str, int],
-    coords: dict[str, CoordSpec],
-    data_vars: dict[str, VarSpec],
+    coords: Mapping[str, CoordSpec],
+    data_vars: Mapping[str, VarSpec],
     global_attrs: dict[str, Any],
     crs_wkt: str | None = None,
-    aux_vars: dict[str, VarSpec] | None = None,
+    aux_vars: Mapping[str, VarSpec] | None = None,
 ) -> gdal.Dataset:
     """Build an in-memory GDAL multidim container from plain arrays and attrs.
 
@@ -1522,7 +1523,7 @@ class _StreamingMultidimWriter:
 def _build_streaming_multidim(
     dataset: gdal.Dataset,
     dims: dict[str, int],
-    coords: dict[str, CoordSpec],
+    coords: Mapping[str, CoordSpec],
     var_specs: dict[str, tuple[tuple[str, ...], np.dtype | str, dict[str, Any]]],
     global_attrs: dict[str, Any],
     crs_wkt: str | None = None,
