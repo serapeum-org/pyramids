@@ -1,11 +1,12 @@
 """Every operator `Dataset` defines, exercised on the classes that inherit it.
 
 `NetCDF`, `Variable` and `Container` are `Dataset` subclasses, so `__add__`, `__sub__`,
-`__mul__`, `__truediv__`, `__radd__`, `__rmul__`, the four comparisons and `__bool__` all
-reach them for free — and "for free" is exactly the kind of inheritance that goes untested
-until it breaks. It did: carrying `meta_data` through `combine` with `dict(...)` worked for
-a plain `Dataset`, whose `meta_data` is a dict, and turned every operator on a NetCDF
-variable into `TypeError: 'NetCDFMetadata' object is not iterable`.
+`__mul__`, `__truediv__`, `__radd__`, `__rsub__`, `__rmul__`, `__rtruediv__`, the four
+comparisons and `__bool__` all reach them for free — and "for free" is exactly the kind of
+inheritance that goes untested until it breaks. It did: carrying `meta_data` through
+`combine` with `dict(...)` worked for a plain `Dataset`, whose `meta_data` is a dict, and
+turned every operator on a NetCDF variable into `TypeError: 'NetCDFMetadata' object is not
+iterable`.
 
 `UgridDataset` is not a `Dataset` subclass, so it inherits none of this. That is pinned
 here too, so the absence is a recorded fact rather than an assumption.
@@ -249,3 +250,82 @@ class TestUgridDatasetIsNotARaster:
 
         assert bool(mesh) is True
         assert mesh is not None
+
+
+class TestScalarOperandsOnSubclasses:
+    """A scalar on either side keeps the subclass, not a plain `Dataset`."""
+
+    @pytest.mark.parametrize(
+        ("apply_operator", "expected"),
+        [
+            (operator.sub, 8.0),
+            (operator.add, 12.0),
+            (operator.mul, 20.0),
+            (operator.truediv, 5.0),
+        ],
+        ids=["sub", "add", "mul", "truediv"],
+    )
+    def test_a_scalar_on_the_right(self, tmp_path, apply_operator, expected):
+        """`variable <op> 2` computes and answers with a `Variable`.
+
+        Args:
+            tmp_path: pytest temp directory.
+            apply_operator: The operator under test.
+            expected: The value every result cell must hold.
+        """
+        result = apply_operator(_variable(tmp_path, "a.nc", 10.0), 2)
+        assert isinstance(result, Variable), f"got {type(result).__name__}"
+        assert np.asarray(result.read_array()).mean() == pytest.approx(expected)
+
+    @pytest.mark.parametrize(
+        ("apply_operator", "expected"),
+        [
+            (operator.sub, -8.0),
+            (operator.add, 12.0),
+            (operator.mul, 20.0),
+            (operator.truediv, 0.2),
+        ],
+        ids=["rsub", "radd", "rmul", "rtruediv"],
+    )
+    def test_a_scalar_on_the_left(self, tmp_path, apply_operator, expected):
+        """`2 <op> variable` reaches the reflected dunder and keeps the subclass.
+
+        Args:
+            tmp_path: pytest temp directory.
+            apply_operator: The operator under test.
+            expected: The value every result cell must hold.
+
+        Test scenario:
+            `__rsub__` and `__rtruediv__` are new, and subtraction and division do not
+            commute — `2 - variable` is not `variable - 2`, so the operand order is
+            part of what is pinned here.
+        """
+        result = apply_operator(2, _variable(tmp_path, "a.nc", 10.0))
+        assert isinstance(result, Variable), f"got {type(result).__name__}"
+        assert np.asarray(result.read_array()).mean() == pytest.approx(expected)
+
+    def test_a_scalar_comparison_gives_a_variable(self, tmp_path):
+        """`variable > 5` is a Byte mask that is still a `Variable`."""
+        result = _variable(tmp_path, "a.nc", 10.0) > 5
+        assert isinstance(result, Variable), f"got {type(result).__name__}"
+        assert set(np.asarray(result.read_array()).ravel()) == {1}
+
+    def test_the_band_count_survives(self, tmp_path):
+        """A scalar operation spans every band, as `combine` does.
+
+        Test scenario:
+            The scalar arm routes through `combine`, which is the all-bands path —
+            `apply` would have returned one band.
+        """
+        variable = _variable(tmp_path, "a.nc", 10.0)
+        assert (variable * 2).band_count == variable.band_count
+
+    def test_a_container_still_refuses(self, tmp_path):
+        """A root container has no single raster to compute over, scalar or not."""
+        path = str(tmp_path / "c.nc")
+        NetCDF.from_array(
+            np.full((4, 4), 10.0, "float32"), geo_ref=GEO_REF, variable_name="t"
+        ).to_file(path)
+        container = NetCDF.read_file(path)
+        with pytest.raises(ValueError, match="get_variable"):
+            container * 2
