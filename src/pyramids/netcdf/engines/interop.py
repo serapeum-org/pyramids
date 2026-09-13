@@ -44,6 +44,10 @@ from pyramids.netcdf.utils import (
     read_cf_attributes,
 )
 
+# The window `datetime64[ns]` can represent. Numpy wraps silently outside it.
+_NS_MIN = np.datetime64("1678-09-22", "us")
+_NS_MAX = np.datetime64("2262-04-10", "us")
+
 _XARRAY_HINT = (
     "xarray is required for {func}(). Install with one of:\n"
     "  - PyPI:        pip install xarray\n"
@@ -383,7 +387,7 @@ def _decode_time_coordinate(values: Any, attrs: dict) -> Any | None:
     ``groupby("time.month")`` all fail on the result. Decoding here is what makes the
     exported object a cube xarray can actually work on (#1137).
 
-    Only a **standard** calendar is decoded, to ``datetime64[ns]``. A non-standard one
+    Only a **standard** calendar whose instants fit ``datetime64[ns]`` is decoded. A non-standard one
     (``360_day``, ``noleap``) would decode to ``cftime`` objects — an object-dtype array
     GDAL cannot write back, so exporting it would fix the xarray side at the cost of the
     round trip. Those axes keep their stored offsets; re-encoding them on write is the
@@ -394,8 +398,9 @@ def _decode_time_coordinate(values: Any, attrs: dict) -> Any | None:
         attrs: That dimension's CF attributes, read from the indexing variable.
 
     Returns:
-        The decoded array, or ``None`` when the axis declares no CF time ``units`` or
-        the values cannot be decoded — in which case the caller keeps the raw numbers.
+        The decoded array, or ``None`` when the axis declares no CF time ``units``, the
+        values cannot be decoded, or the decoded instants fall outside the
+        ``datetime64[ns]`` range — in which case the caller keeps the raw numbers.
     """
     units = attrs.get("units")
     if not is_cf_time_units(units):
@@ -417,7 +422,15 @@ def _decode_time_coordinate(values: Any, attrs: dict) -> Any | None:
         # usable index but break the write-back round trip, which is a worse trade than
         # leaving the offsets alone. Those axes keep their stored numbers.
         return None
-    return array.astype("datetime64[ns]")
+    # `datetime64[ns]` spans 1678-09-21 to 2262-04-11 and numpy *wraps* an instant outside
+    # it rather than raising, so an unchecked cast turns `hours since 1600-01-01` into
+    # dates in 2184 with no error anywhere. Decode at microsecond resolution first, which
+    # reaches well beyond any CF axis, and hand the axis back undecoded when it will not
+    # fit. Paleo reconstructions and post-2262 climate projections are the real cases.
+    micro = array.astype("datetime64[us]")
+    if micro.min() < _NS_MIN or micro.max() > _NS_MAX:
+        return None
+    return micro.astype("datetime64[ns]")
 
 
 def _coords_from_dimensions(

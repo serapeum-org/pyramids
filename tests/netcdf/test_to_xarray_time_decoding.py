@@ -142,3 +142,49 @@ class TestAxesThatAreNotDecoded:
             "a failed decode should leave the stored offsets in place"
         )
         assert list(np.asarray(xds.coords["time"].values)) == [0.0, 6.0, 12.0, 18.0]
+
+
+class TestOutOfRangeInstants:
+    """Axes whose decoded instants do not fit `datetime64[ns]` (C1)."""
+
+    @pytest.mark.parametrize(
+        "units",
+        ["hours since 1600-01-01", "days since 2300-01-01", "seconds since 1000-01-01"],
+    )
+    def test_an_out_of_range_origin_is_left_undecoded(self, units: str):
+        """An instant outside 1678-2262 keeps its offsets rather than wrapping.
+
+        Test scenario:
+            `datetime64[ns]` spans 1678-09-21 to 2262-04-11 and numpy *wraps* outside it
+            instead of raising, so an unchecked cast turned `hours since 1600-01-01`
+            into dates in 2184 with no error. Paleo reconstructions and post-2262
+            climate projections are the real cases.
+        """
+        assert (
+            interop._decode_time_coordinate(np.array([0.0, 24.0]), {"units": units})
+            is None
+        )
+
+    @pytest.mark.parametrize(
+        "units",
+        ["hours since 2024-01-01", "days since 1900-01-01", "days since 1700-01-01"],
+    )
+    def test_an_in_range_origin_still_decodes(self, units: str):
+        """An axis comfortably inside the window is unaffected by the bound check."""
+        decoded = interop._decode_time_coordinate(
+            np.array([0.0, 24.0]), {"units": units}
+        )
+        assert decoded is not None, f"{units} should still decode"
+        assert decoded.dtype == np.dtype("datetime64[ns]")
+
+    def test_the_decoded_instant_is_the_origin(self):
+        """A bounded decode returns the right instant, not merely a plausible one.
+
+        Test scenario:
+            The wrap produced dates ~584 years off while still looking like valid
+            datetimes, so the guard is only meaningful alongside a value assertion.
+        """
+        decoded = interop._decode_time_coordinate(
+            np.array([0.0]), {"units": "days since 1700-01-01"}
+        )
+        assert str(decoded[0]).startswith("1700-01-01"), f"got {decoded[0]}"
