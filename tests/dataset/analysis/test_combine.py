@@ -1456,3 +1456,54 @@ class TestNonFiniteResults:
         source = _raster(np.zeros((2, 2), "float32"))
         values = np.asarray((0 / source).read_array())
         assert np.isnan(values).all(), "0/0 should come back as the NaN sentinel"
+
+
+class TestIdentityScalars:
+    """`ds + 0` and `ds * 1` are no-ops on either side (H3)."""
+
+    @staticmethod
+    def _int_raster():
+        """An int16 raster declaring a sentinel, with no masked cell present."""
+        return Dataset.from_array(
+            np.full((3, 3), 5, "int16"), geo_ref=GEO_REF, no_data_value=-9999
+        )
+
+    @pytest.mark.parametrize(
+        "apply_operator",
+        [
+            lambda ds: 0 + ds,
+            lambda ds: ds + 0,
+            lambda ds: 0.0 + ds,
+            lambda ds: ds + 0.0,
+            lambda ds: 1 * ds,
+            lambda ds: ds * 1,
+            lambda ds: 1.0 * ds,
+            lambda ds: ds * 1.0,
+        ],
+    )
+    def test_every_spelling_agrees_on_dtype_and_sentinel(self, apply_operator):
+        """All eight identity spellings return the source unchanged.
+
+        Test scenario:
+            Two spellings of one commutative expression must not disagree. Before this,
+            `ds + 0.0` widened `int16` to `float64` while `0.0 + ds` was a copy, and
+            `ds + 0` *dropped* the declared sentinel — a no-op silently stripping the
+            no-data tag off a raster on its way to disk.
+        """
+        result = apply_operator(self._int_raster())
+        values = np.asarray(result.read_array())
+        assert values.dtype == np.int16, f"dtype changed to {values.dtype}"
+        assert result.no_data_value[0] == -9999, (
+            f"the declared sentinel was lost: {result.no_data_value}"
+        )
+        assert (values == 5).all()
+
+    def test_a_non_identity_scalar_still_computes(self):
+        """The short-circuit is exactly the identities, not scalars in general."""
+        result = self._int_raster() + 1
+        assert (np.asarray(result.read_array()) == 6).all()
+
+    def test_the_identity_returns_a_copy_not_the_source(self):
+        """A no-op hands back a fresh raster, so a later write cannot reach the input."""
+        source = self._int_raster()
+        assert (source + 0) is not source

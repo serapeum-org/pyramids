@@ -447,6 +447,23 @@ def _crs_wkt_from_epsg(epsg: str | int | None) -> str:
     return wkt
 
 
+def _is_identity(op: Callable, scalar: Any) -> bool:
+    """Whether applying `op` with `scalar` leaves every value unchanged.
+
+    Only the two commutative identities count: adding zero and multiplying by one.
+    Subtraction and division have a right identity too, but they do not commute, so
+    short-circuiting them would not buy the symmetry this exists for.
+
+    Args:
+        op: The operator about to be applied.
+        scalar: The real, non-boolean scalar operand.
+
+    Returns:
+        bool: `True` when the operation cannot change any cell.
+    """
+    return (op is operator.add and scalar == 0) or (op is operator.mul and scalar == 1)
+
+
 class Dataset(RasterBase):
     """Single-band or multi-band raster dataset (GeoTIFF, etc.).
 
@@ -2213,12 +2230,23 @@ class Dataset(RasterBase):
             # while `combine` is typed for the concrete raster.
             result = self.combine(cast("Dataset", other), op)
         elif isinstance(other, Real) and not isinstance(other, bool):
-            # The scalar is folded into the callable and `self` is passed as the
-            # second operand, so the grid and band count match by construction and
-            # every rule `combine` already enforces -- band span, dtype width,
-            # sentinel derivation -- applies unchanged. The second array is ignored
-            # on purpose; it is there to satisfy `combine`'s two-operand shape.
-            result = self.combine(self, lambda values, _ignored: op(values, other))
+            if _is_identity(op, other):
+                # `ds + 0` and `ds * 1` are no-ops, so they answer with the raster
+                # unchanged -- the same short-circuit `__radd__` and `__rmul__` apply
+                # from the left. Without it the two spellings of one commutative
+                # expression disagree: `combine` would widen `ds + 0.0` from `int16` to
+                # `float64` where `0.0 + ds` is a byte-identical copy, and `ds + 0`
+                # would *drop* the band's declared sentinel, because an integer result
+                # that masked nothing declares none. A no-op must not strip the no-data
+                # tag off a raster on its way to disk.
+                result = self.copy()
+            else:
+                # The scalar is folded into the callable and `self` is passed as the
+                # second operand, so the grid and band count match by construction and
+                # every rule `combine` already enforces -- band span, dtype width,
+                # sentinel derivation -- applies unchanged. The second array is ignored
+                # on purpose; it is there to satisfy `combine`'s two-operand shape.
+                result = self.combine(self, lambda values, _ignored: op(values, other))
         return result
 
     def _reflected_arithmetic(self, other: Any, op: Callable) -> Any:

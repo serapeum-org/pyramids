@@ -140,13 +140,19 @@ A wrapper that forwards `no_data_value` should accept it in `**kwargs` and pass
 the whole mapping on, rather than naming a default of its own — the "derive it"
 default is a private sentinel, and `**kwargs` forwards it without spelling it.
 
-A real numeric zero (or one) on the **left** short-circuits to a `copy()` rather
-than computing, because `sum()` and `math.prod()` seed their accumulators with
-them and a one-element fold should keep the source's sentinel. Every other real
-scalar computes through `combine`. `False + ds` and `0j + ds` still raise. "Real"
-is `numbers.Real`, so `Fraction(0)` and every numpy float or int zero are
-absorbed while `Decimal(0)` — which registers as `Number` but not `Real` — is
-not.
+Adding zero or multiplying by one short-circuits to a `copy()` on **either**
+side, rather than computing. Two reasons: `sum()` and `math.prod()` seed their
+accumulators with those identities and a one-element fold should keep the
+source's sentinel; and a no-op must not change the raster. Routed through
+`combine`, `ds + 0.0` would widen an `int16` band to `float64` where `0.0 + ds`
+is a byte-identical copy, and `ds + 0` would *drop* the declared no-data value —
+because an integer result that masked nothing declares no sentinel — so a
+no-op would strip the no-data tag off a raster on its way to disk.
+
+Every other real scalar computes through `combine`. `False + ds` and `0j + ds`
+still raise. "Real" is `numbers.Real`, so `Fraction(0)` and every numpy float or
+int zero are absorbed while `Decimal(0)` — which registers as `Number` but not
+`Real` — is not.
 
 !!! warning "Three things to know before folding with `sum()`"
 
