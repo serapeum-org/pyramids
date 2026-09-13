@@ -1833,3 +1833,51 @@ class TestNonFiniteScalars:
         """`ds > nan` is `0` in every cell, as numpy's own comparison is."""
         result = _raster(np.full((2, 2), 6.0, "float32")) > float("nan")
         assert set(np.asarray(result.read_array()).ravel()) == {0}
+
+
+class TestTheRightIdentities:
+    """`ds - 0` is a no-op too; `ds / 1` is not (review round-2 L4)."""
+
+    def test_subtracting_zero_keeps_the_dtype_and_sentinel(self):
+        """`ds - 0` is a copy, so the declared sentinel survives.
+
+        Test scenario:
+            It has no reflected twin — `0 - ds` negates — but the reason the
+            commutative identities short-circuit applies word for word: routed through
+            `combine` it would drop the sentinel, because an integer result that masked
+            nothing declares none.
+        """
+        raster = Dataset.from_array(
+            np.full((4, 4), 2, "int16"), geo_ref=GEO_REF, no_data_value=-9999
+        )
+        result = raster - 0
+        values = np.asarray(result.read_array())
+
+        assert np.allclose(values, 2), f"got {values}"
+        assert values.dtype == np.dtype("int16"), f"the band widened to {values.dtype}"
+        assert result.no_data_value[0] == -9999, f"got {result.no_data_value[0]}"
+
+    def test_subtracting_a_float_zero_is_absorbed_too(self):
+        """`ds - 0.0` follows `ds + 0.0`; the literal's kind does not decide it."""
+        raster = Dataset.from_array(
+            np.full((4, 4), 2, "int16"), geo_ref=GEO_REF, no_data_value=-9999
+        )
+        assert np.asarray((raster - 0.0).read_array()).dtype == np.dtype("int16")
+
+    def test_dividing_by_one_still_widens(self):
+        """`ds / 1` computes, because true division widens an integer band.
+
+        Test scenario:
+            Absorbing it would make this the one division that does not widen, which is
+            a worse surprise than the copy it would save.
+        """
+        raster = Dataset.from_array(
+            np.full((4, 4), 2, "int16"), geo_ref=GEO_REF, no_data_value=-9999
+        )
+        values = np.asarray((raster / 1).read_array())
+        assert np.issubdtype(values.dtype, np.floating), f"got {values.dtype}"
+
+    def test_zero_minus_the_raster_still_negates(self):
+        """`0 - ds` is not an identity and must keep computing."""
+        result = 0 - _raster(np.full((2, 2), 3.0, "float32"))
+        assert float(np.asarray(result.read_array()).mean()) == pytest.approx(-3.0)

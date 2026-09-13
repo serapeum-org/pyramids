@@ -159,14 +159,20 @@ A wrapper that forwards `no_data_value` should accept it in `**kwargs` and pass
 the whole mapping on, rather than naming a default of its own — the "derive it"
 default is a private sentinel, and `**kwargs` forwards it without spelling it.
 
-Adding zero or multiplying by one short-circuits to a `copy()` on **either**
-side, rather than computing. Two reasons: `sum()` and `math.prod()` seed their
+Adding zero, multiplying by one and subtracting zero short-circuit to a `copy()`
+rather than computing — the first two on **either** side, the third on the right
+only, since `0 - ds` negates. Two reasons: `sum()` and `math.prod()` seed their
 accumulators with those identities and a one-element fold should keep the
 source's sentinel; and a no-op must not change the raster. Routed through
 `combine`, `ds + 0.0` would widen an `int16` band to `float64` where `0.0 + ds`
 is a byte-identical copy, and `ds + 0` would *drop* the declared no-data value —
 because an integer result that masked nothing declares no sentinel — so a
 no-op would strip the no-data tag off a raster on its way to disk.
+
+`ds / 1` is **not** absorbed, and is the one right identity that is not: true
+division widens an integer band to `float64` as it does everywhere else in
+numpy, so short-circuiting it would make `ds / 1` the one division that does
+not widen. It computes, and the result declares `NaN`.
 
 Every other real scalar computes through `combine`. `False + ds` and `0j + ds`
 still raise. "Real" is `numbers.Real`, so `Fraction(0)` and every numpy float or

@@ -409,8 +409,10 @@ inputs and wrapping the result with `from_array` — the step where georeferenci
 - `sum(rasters)` works: `__radd__` absorbs the `0` that `sum()` seeds with, returning a copy so a one-element
   sum never aliases its input. Absorption is symmetric and is not limited to the integer seed — adding any real
   scalar equal to zero, or multiplying by any equal to one, short-circuits to a copy on **either** side, so
-  `ds + 0`, `0.0 + ds` and `ds * 1` are copies too. That is what keeps the two spellings of one commutative
-  expression from disagreeing: routed through `combine`, `ds + 0.0` would widen an `int16` band to `float64`
+  `ds + 0`, `0.0 + ds` and `ds * 1` are copies too. `ds - 0` is absorbed as well, on the right only — `0 - ds`
+  negates. `ds / 1` is not: true division widens an integer band to `float64`, so it is no no-op. Absorption
+  is what keeps the two spellings of one commutative expression from disagreeing: routed through
+  `combine`, `ds + 0.0` would widen an `int16` band to `float64`
   where `0.0 + ds` is byte-identical, and `ds + 0` would drop the band's declared sentinel. Every other scalar
   computes through `combine`, so `1 + ds` returns a raster rather than raising. The copy is a real cost:
   `sum()` and `math.prod()` each materialise one extra full raster that `functools.reduce(operator.add,

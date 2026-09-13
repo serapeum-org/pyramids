@@ -450,9 +450,19 @@ def _crs_wkt_from_epsg(epsg: str | int | None) -> str:
 def _is_identity(op: Callable, scalar: Any) -> bool:
     """Whether applying `op` with `scalar` leaves every value unchanged.
 
-    Only the two commutative identities count: adding zero and multiplying by one.
-    Subtraction and division have a right identity too, but they do not commute, so
-    short-circuiting them would not buy the symmetry this exists for.
+    Three spellings qualify: adding zero, multiplying by one, and subtracting zero.
+    The first two are the commutative identities `sum()` and `math.prod()` seed with,
+    absorbed from either side so the two spellings of one expression cannot disagree.
+    The third has no reflected twin — `0 - ds` negates — but it is a no-op just the
+    same, and the reason the others are short-circuited applies to it word for word:
+    routed through `combine` it would drop the band's declared sentinel, because an
+    integer result that masked nothing declares none, and a no-op must not strip the
+    no-data tag off a raster on its way to disk.
+
+    **Division is deliberately not here.** `ds / 1` is not a no-op: true division
+    widens an integer band to `float64`, as it does everywhere else in numpy, and a
+    floating result declares `NaN`. Short-circuiting it would make `ds / 1` the one
+    division that does not widen.
 
     Args:
         op: The operator about to be applied.
@@ -462,25 +472,26 @@ def _is_identity(op: Callable, scalar: Any) -> bool:
         bool: `True` when the operation cannot change any cell.
 
     Examples:
-        - The two identities are recognised; any other operand computes:
+        - The three identities are recognised; any other operand computes:
 
           ```python
           >>> import operator
           >>> from pyramids.dataset.dataset import _is_identity
           >>> _is_identity(operator.add, 0), _is_identity(operator.mul, 1)
           (True, True)
+          >>> _is_identity(operator.sub, 0)
+          True
           >>> _is_identity(operator.add, 1), _is_identity(operator.mul, 2)
           (False, False)
 
           ```
-        - Subtraction and division are never short-circuited, not even by the
-          right identity they do have:
+        - Division keeps its widening, so its right identity is not absorbed:
 
           ```python
           >>> import operator
           >>> from pyramids.dataset.dataset import _is_identity
-          >>> _is_identity(operator.sub, 0), _is_identity(operator.truediv, 1)
-          (False, False)
+          >>> _is_identity(operator.truediv, 1)
+          False
 
           ```
 
@@ -488,7 +499,11 @@ def _is_identity(op: Callable, scalar: Any) -> bool:
         Dataset._arithmetic: The caller, which answers with a `copy()` when this
             is `True`.
     """
-    return (op is operator.add and scalar == 0) or (op is operator.mul and scalar == 1)
+    return (
+        (op is operator.add and scalar == 0)
+        or (op is operator.mul and scalar == 1)
+        or (op is operator.sub and scalar == 0)
+    )
 
 
 def _numeric_scalar(other: Real) -> Any:
