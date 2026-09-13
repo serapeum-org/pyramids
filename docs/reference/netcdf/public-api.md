@@ -63,7 +63,7 @@ Two object shapes share this class, and several members behave differently acros
 
 | Member         | What it does                                                                    |
 |----------------|---------------------------------------------------------------------------------|
-| `read_array()` | Reads a variable eagerly, or lazily into dask when `chunks` is given.           |
+| `read_array()` | Reads eagerly, or lazily into dask with `chunks=`. Needs `variable=` on a Container.  |
 | `subset()`     | Reads a windowed `(variable, time, bbox)` slice without materialising the cube. |
 | `sel()`        | Selects bands by coordinate value, date label, or `method="nearest"`.           |
 | `reduce()`     | Reduces every variable along a named dimension (`how`, `groupby`, `skipna`).    |
@@ -72,10 +72,10 @@ Two object shapes share this class, and several members behave differently acros
 
 | Member          | What it does                                                         |
 |-----------------|----------------------------------------------------------------------|
-| `crop()`        | Crops by polygon mask, raster mask, or bbox tuple.                   |
+| `crop()`        | Crops by polygon mask, raster mask, or bbox tuple. `chunks=` is Variable only. |
 | `to_crs()`      | Reprojects the dataset to another CRS.                               |
 | `resample()`    | Resamples to a different cell size.                                  |
-| `warped_view()` | A lazy, reprojected view of a Variable — no data is read until used. |
+| `warped_view()` | A lazy, reprojected view of a Variable — no data is read until used. Variable only. |
 
 ## Editing variables in place
 
@@ -127,4 +127,6 @@ Two object shapes share this class, and several members behave differently acros
 ---
 
 **"Variable only"** marks the members that are container-guarded: they are `Dataset` operations that need a
-single raster, so calling them on a Container raises with a message pointing at `get_variable`.
+single raster, so calling them on a Container raises with a message pointing at `get_variable`. Two members
+are restricted only in part, noted in their own rows: `read_array()` needs `variable=` on a Container, and
+`crop()` accepts `chunks=` only on a Variable.
