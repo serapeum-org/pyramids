@@ -343,19 +343,25 @@ class TestScalarOperandsOnSubclasses:
             apply_operator(container, 2)
 
     @pytest.mark.parametrize(
-        ("apply_operator", "scalar"),
-        [(operator.add, 0), (operator.mul, 1)],
-        ids=["add-zero", "mul-one"],
+        ("apply_operator", "scalar", "commutes"),
+        [
+            (operator.add, 0, True),
+            (operator.mul, 1, True),
+            (operator.sub, 0, False),
+        ],
+        ids=["add-zero", "mul-one", "sub-zero"],
     )
     def test_an_identity_scalar_copies_a_container(
-        self, tmp_path, apply_operator, scalar
+        self, tmp_path, apply_operator, scalar, commutes
     ):
         """`c + 0` and `c * 1` answer with a copy rather than reaching a band.
 
         Args:
             tmp_path: pytest temp directory.
-            apply_operator: The commutative operator under test.
-            scalar: Its identity.
+            apply_operator: The operator under test.
+            scalar: Its right identity.
+            commutes: Whether the scalar is absorbed from the left as well —
+                `0 - container` negates, so subtraction is right-side only.
 
         Test scenario:
             The short-circuit runs before anything touches a band, so the container
@@ -371,4 +377,5 @@ class TestScalarOperandsOnSubclasses:
         container = NetCDF.read_file(path)
 
         assert isinstance(apply_operator(container, scalar), Container)
-        assert isinstance(apply_operator(scalar, container), Container)
+        if commutes:
+            assert isinstance(apply_operator(scalar, container), Container)
