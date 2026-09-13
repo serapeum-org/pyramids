@@ -579,7 +579,9 @@ def _coords_from_dimensions(
         raw = ds._md_array_to_numpy(iv)
         encoding: dict[str, Any] = {}
         decoded = (
-            _decode_time_coordinate(raw, coord_attrs, dim_name) if decode_times else None
+            _decode_time_coordinate(raw, coord_attrs, dim_name)
+            if decode_times
+            else None
         )
         if decoded is not None:
             raw = decoded
@@ -1252,13 +1254,27 @@ def _build_multidim(
     for var_name, var_spec in data_vars.items():
         var_dims, var_values, var_attrs, var_encoding = _var_entry(var_spec)
         data_arrays[var_name] = _write_data_var(
-            root, gdal_dims, dims, var_name, var_dims, var_values, var_attrs, var_encoding
+            root,
+            gdal_dims,
+            dims,
+            var_name,
+            var_dims,
+            var_values,
+            var_attrs,
+            var_encoding,
         )
 
     for var_name, var_spec in (aux_vars or {}).items():
         var_dims, var_values, var_attrs, var_encoding = _var_entry(var_spec)
         _write_data_var(
-            root, gdal_dims, dims, var_name, var_dims, var_values, var_attrs, var_encoding
+            root,
+            gdal_dims,
+            dims,
+            var_name,
+            var_dims,
+            var_values,
+            var_attrs,
+            var_encoding,
         )
 
     if srs is not None:

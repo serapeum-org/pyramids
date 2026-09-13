@@ -368,7 +368,9 @@ class TestEncodingATimeAxis:
         """With no valid instant to anchor on, the declared-units encoder declines."""
         values = np.array(["NaT", "NaT"], dtype="datetime64[ns]")
         assert (
-            interop._encode_in_declared_units(values, "hours since 2024-01-01", "standard")
+            interop._encode_in_declared_units(
+                values, "hours since 2024-01-01", "standard"
+            )
             is None
         )
 
@@ -376,7 +378,9 @@ class TestEncodingATimeAxis:
         """Units `cftime` cannot encode into degrade to the epoch rather than raising."""
         values = np.array(["2024-01-01T00"], dtype="datetime64[ns]")
         assert (
-            interop._encode_in_declared_units(values, "fortnights since 2024-01-01", "standard")
+            interop._encode_in_declared_units(
+                values, "fortnights since 2024-01-01", "standard"
+            )
             is None
         )
 
@@ -560,7 +564,9 @@ class TestPromotedBoundsAreDecodedToo:
         )
         assert exported["time_bnds"].dtype == np.dtype("float64")
 
-    def test_the_bounds_round_trip_in_their_own_units(self, bounded_time_file, tmp_path):
+    def test_the_bounds_round_trip_in_their_own_units(
+        self, bounded_time_file, tmp_path
+    ):
         """A decoded bounds array is written back in the units it was decoded from.
 
         Args:
