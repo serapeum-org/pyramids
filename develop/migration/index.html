@@ -7140,17 +7140,21 @@ inputs and wrapping the result with <code>from_array</code> — the step where g
 <ul>
 <li>The operands must already share a grid; a mismatch raises <code>AlignmentError</code> rather than resampling. The new
   <code>ds.same_grid(other)</code> predicate answers the question in advance, and <code>align()</code> is the explicit fix.</li>
-<li>A <strong>scalar</strong> operand is not accepted. <code>ds * 2</code> raises <code>TypeError</code>; scalar arithmetic stays with
-  <code>ds.apply(lambda v: v * 2)</code>, which preserves the band's dtype where <code>combine</code> takes whatever <code>func</code> returns.</li>
+<li>A <strong>scalar</strong> operand is accepted on either side: <code>ds * 2</code>, <code>2 * ds</code>, <code>20 - ds</code> and <code>ds &gt;= 5</code> all work. A scalar
+  takes the same route as a raster operand, so <code>ds * 2</code> and <code>ds * other</code> agree on band count, dtype and sentinel.
+  That is deliberately not the same as <code>ds.apply(lambda v: v * 2)</code>, which transforms one band and keeps the
+  source's sentinel — reach for <code>apply</code> when you want that contract. <code>bool</code> and complex scalars are still
+  refused.</li>
 <li>A cell that is no-data in either operand is no-data in the result. An <strong>integer</strong> result's sentinel is derived
   against the values <code>func</code> computed, so no in-range number is claimed as a gap by the arithmetic that produced
   it, and one that masked nothing declares <strong>no</strong> sentinel at all. A <strong>floating</strong> result always declares <code>NaN</code>:
   a cell <code>func</code> computed as <code>NaN</code> (<code>0/0</code> in a normalised difference) has no value, so it is a gap and the result
   says so. Pass <code>no_data_value=</code> to choose one, or <code>no_data_value=None</code> for no masking.</li>
 <li><code>sum(rasters)</code> works: <code>__radd__</code> absorbs the integer <code>0</code> that <code>sum()</code> seeds with, returning a copy so a
-  one-element sum never aliases its input. <code>0</code> is the only scalar accepted anywhere in the operators, and only
-  from the left — <code>1 + ds</code> still raises. That copy is a real cost: <code>sum()</code> and <code>math.prod()</code> each materialise one
-  extra full raster that <code>functools.reduce(operator.add, rasters)</code> does not, which matters near the memory limit.</li>
+  one-element sum never aliases its input. Only that exact integer seed short-circuits — every other scalar
+  computes through <code>combine</code>, so <code>1 + ds</code> returns a raster rather than raising. That copy is a real cost: <code>sum()</code>
+  and <code>math.prod()</code> each materialise one extra full raster that <code>functools.reduce(operator.add, rasters)</code> does
+  not, which matters near the memory limit.</li>
 <li><code>combine</code> is whole-array: both operands are read in full. For rasters near the memory limit use
   <code>apply(elementwise=True)</code> or <code>read_array(chunks=)</code>.</li>
 <li>The module-private <code>_same_grid</code> helper in <code>pyramids.dataset.dataset</code> moved to <code>Spatial.same_grid</code>, faced on
@@ -7158,7 +7162,8 @@ inputs and wrapping the result with <code>from_array</code> — the step where g
 <li><code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code> and <code>&gt;=</code> between two rasters return a Byte mask (<code>1</code>/<code>0</code>, and <code>255</code> wherever either operand was
   no-data). <code>==</code> and <code>!=</code> are <strong>not</strong> overridden — they stay identity-based, so <code>Dataset</code> remains usable in
   <code>assert</code>, in sets and as a dict key; use <code>a.combine(b, np.equal)</code> for the mask.</li>
-<li><code>math.prod(rasters)</code> folds like <code>sum(rasters)</code>; both absorb their identity scalar from the left only.</li>
+<li><code>math.prod(rasters)</code> folds like <code>sum(rasters)</code>; both absorb their identity scalar from the left only, and
+  compute for every other scalar.</li>
 </ul>
 <p><strong><code>bool(ds)</code> now raises — replace <code>if ds:</code> with <code>if ds is not None:</code>.</strong> Hard change. A raster holds one value per
 cell, and a comparison between two rasters is itself a raster, so there is no honest single truth value. Reduce

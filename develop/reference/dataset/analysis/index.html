@@ -7033,13 +7033,18 @@ total" would reach into the input.</p>
 <p>A wrapper that forwards <code>no_data_value</code> should accept it in <code>**kwargs</code> and pass
 the whole mapping on, rather than naming a default of its own — the "derive it"
 default is a private sentinel, and <code>**kwargs</code> forwards it without spelling it.</p>
-<p>A real numeric zero (or one) on the <strong>left</strong> short-circuits to a <code>copy()</code> rather
-than computing, because <code>sum()</code> and <code>math.prod()</code> seed their accumulators with
-them and a one-element fold should keep the source's sentinel. Every other real
-scalar computes through <code>combine</code>. <code>False + ds</code> and <code>0j + ds</code> still raise. "Real"
-is <code>numbers.Real</code>, so <code>Fraction(0)</code> and every numpy float or int zero are
-absorbed while <code>Decimal(0)</code> — which registers as <code>Number</code> but not <code>Real</code> — is
-not.</p>
+<p>Adding zero or multiplying by one short-circuits to a <code>copy()</code> on <strong>either</strong>
+side, rather than computing. Two reasons: <code>sum()</code> and <code>math.prod()</code> seed their
+accumulators with those identities and a one-element fold should keep the
+source's sentinel; and a no-op must not change the raster. Routed through
+<code>combine</code>, <code>ds + 0.0</code> would widen an <code>int16</code> band to <code>float64</code> where <code>0.0 + ds</code>
+is a byte-identical copy, and <code>ds + 0</code> would <em>drop</em> the declared no-data value —
+because an integer result that masked nothing declares no sentinel — so a
+no-op would strip the no-data tag off a raster on its way to disk.</p>
+<p>Every other real scalar computes through <code>combine</code>. <code>False + ds</code> and <code>0j + ds</code>
+still raise. "Real" is <code>numbers.Real</code>, so <code>Fraction(0)</code> and every numpy float or
+int zero are absorbed while <code>Decimal(0)</code> — which registers as <code>Number</code> but not
+<code>Real</code> — is not.</p>
 <div class="admonition warning">
 <p class="admonition-title">Three things to know before folding with <code>sum()</code></p>
 <ul>
