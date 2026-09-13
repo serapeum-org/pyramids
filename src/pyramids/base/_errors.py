@@ -421,7 +421,7 @@ class TimeDecodingWarning(UserWarning):
     * **a non-standard calendar** (`360_day`, `noleap`) decodes to `cftime` objects, an
       object-dtype array GDAL has no band type for, so exporting it would gain a usable
       index and lose the write-back round trip;
-    * **an instant outside `datetime64[ns]`** — the type spans 1678-09-21 to 2262-04-11
+    * **an instant outside `datetime64[ns]`** — the type spans 1677-09-21 to 2262-04-11
       and numpy *wraps* beyond it rather than raising, so a paleo reconstruction or a
       post-2262 projection would come back silently wrong;
     * **a conversion failure** — a malformed origin, an out-of-range offset, or a fill

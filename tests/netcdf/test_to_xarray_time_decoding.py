@@ -200,10 +200,10 @@ class TestOutOfRangeInstants:
         ["hours since 1600-01-01", "days since 2300-01-01", "seconds since 1000-01-01"],
     )
     def test_an_out_of_range_origin_is_left_undecoded(self, units: str):
-        """An instant outside 1678-2262 keeps its offsets rather than wrapping.
+        """An instant outside 1677-2262 keeps its offsets rather than wrapping.
 
         Test scenario:
-            `datetime64[ns]` spans 1678-09-21 to 2262-04-11 and numpy *wraps* outside it
+            `datetime64[ns]` spans 1677-09-21 to 2262-04-11 and numpy *wraps* outside it
             instead of raising, so an unchecked cast turned `hours since 1600-01-01`
             into dates in 2184 with no error. Paleo reconstructions and post-2262
             climate projections are the real cases.
@@ -715,3 +715,45 @@ class TestTheEpochFallbackIsReported:
             interop._encode_temporal_array(
                 values, {"units": "hours since 2024-01-01"}, "time"
             )
+
+
+class TestTheRangeGuardIsTheTypesOwn:
+    """The bounds are the ones `datetime64[ns]` actually has (round-2 M4)."""
+
+    def test_the_bounds_match_the_int64_tick_range(self):
+        """`_NS_MIN`/`_NS_MAX` come from the type, not from a hand-picked date.
+
+        Test scenario:
+            They were written out a year too narrow, so instants the type represents
+            perfectly well were refused with a message claiming it could not hold them.
+        """
+        ticks = np.iinfo("int64")
+        assert str(interop._NS_MIN) == "1677-09-21T00:12:43.145225", (
+            f"got {interop._NS_MIN}"
+        )
+        assert str(interop._NS_MAX) == "2262-04-11T23:47:16.854775", (
+            f"got {interop._NS_MAX}"
+        )
+        assert np.datetime64(ticks.min + 1, "ns") <= interop._NS_MIN.astype(
+            "datetime64[ns]"
+        )
+        assert interop._NS_MAX.astype("datetime64[ns]") <= np.datetime64(
+            ticks.max, "ns"
+        )
+
+    def test_an_instant_just_inside_the_floor_decodes(self):
+        """A 1678 origin is representable, so it is decoded rather than refused."""
+        decoded = interop._decode_time_coordinate(
+            np.array([0.0]), {"units": "days since 1678-01-01"}, "time"
+        )
+        assert decoded is not None, "1678-01-01 is inside datetime64[ns]"
+        assert str(decoded[0]).startswith("1678-01-01"), f"got {decoded[0]}"
+
+    def test_an_instant_below_the_floor_is_still_refused(self):
+        """1677-01-01 really is outside the type, and still keeps its offsets."""
+        assert (
+            interop._decode_time_coordinate(
+                np.array([0.0]), {"units": "days since 1677-01-01"}, "time"
+            )
+            is None
+        )

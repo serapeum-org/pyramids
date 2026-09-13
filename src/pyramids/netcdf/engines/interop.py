@@ -46,9 +46,15 @@ from pyramids.netcdf.utils import (
     read_cf_attributes,
 )
 
-# The window `datetime64[ns]` can represent. Numpy wraps silently outside it.
-_NS_MIN = np.datetime64("1678-09-22", "us")
-_NS_MAX = np.datetime64("2262-04-10", "us")
+# The window `datetime64[ns]` can represent, in microseconds: 1677-09-21T00:12:43.145225
+# to 2262-04-11T23:47:16.854775. Numpy wraps silently outside it. Derived from the int64
+# tick count rather than written out, because a hand-picked bound that is even a day too
+# narrow refuses representable instants while telling the user the type cannot hold them.
+# The nanosecond ends are rounded inward to whole microseconds (ceil the floor, floor the
+# ceiling) so a value inside these bounds always survives the cast up to nanoseconds.
+_NS_TICKS = np.iinfo("int64")
+_NS_MIN = np.datetime64((_NS_TICKS.min + 1 + 999) // 1000, "us")
+_NS_MAX = np.datetime64(_NS_TICKS.max // 1000, "us")
 
 # A coordinate as the writers take it: `(values, attrs)`, or `(values, attrs, encoding)`
 # when the caller knows the CF units a decoded time axis has to go back out in.
@@ -612,7 +618,7 @@ def _decode_time_coordinate(values: Any, attrs: dict, name: str = "") -> Any | N
                 f"(the {calendar!r} calendar, or an origin before the 1582 reform)",
             )
         else:
-            # `datetime64[ns]` spans 1678-09-21 to 2262-04-11 and numpy *wraps* an
+            # `datetime64[ns]` spans 1677-09-21 to 2262-04-11 and numpy *wraps* an
             # instant outside it rather than raising, so an unchecked cast turns `hours
             # since 1600-01-01` into dates in 2184 with no error anywhere. Decode at
             # microsecond resolution first, which reaches well beyond any CF axis, and
