@@ -188,3 +188,146 @@ class TestOutOfRangeInstants:
             np.array([0.0]), {"units": "days since 1700-01-01"}
         )
         assert str(decoded[0]).startswith("1700-01-01"), f"got {decoded[0]}"
+
+
+@pytest.fixture()
+def round_tripped(tmp_path):
+    """The CF fixture exported to xarray and written straight back through `from_xarray`.
+
+    Args:
+        tmp_path: pytest's per-test temporary directory, so the written file has a real
+            path and no temporary one is left for the finaliser to chase.
+
+    Returns:
+        A `(exported, written_back)` pair: the `xr.Dataset` `to_xarray` produced and the
+        `NetCDF` `from_xarray` built from it.
+    """
+    exported = NetCDF.read_file(CF_PATH).to_xarray()
+    return exported, NetCDF.from_xarray(exported, tmp_path / "round-trip.nc")
+
+
+class TestTheTimeAxisSurvivesTheRoundTrip:
+    """`to_xarray()` -> `from_xarray()` returns the axis in the units it arrived in (M4/M5)."""
+
+    def test_the_encoding_carries_the_units(self):
+        """The `units` dropped from `attrs` are kept in `encoding`, as xarray does.
+
+        Test scenario:
+            The decoded values are no longer expressed in `hours since 2024-01-01`, so
+            that string cannot stay an attribute — but discarding it entirely is what
+            made the write-back invent an epoch of its own.
+        """
+        xds = NetCDF.read_file(CF_PATH).to_xarray()
+        assert xds.coords["time"].encoding.get("units") == "hours since 2024-01-01", (
+            f"got {xds.coords['time'].encoding}"
+        )
+
+    def test_the_written_axis_keeps_its_own_units(self, round_tripped):
+        """A round trip returns `hours since 2024-01-01`, not the writer's epoch.
+
+        Args:
+            round_tripped: The exported/written-back pair.
+        """
+        _, written = round_tripped
+        raw = written.to_xarray(decode_times=False).coords["time"]
+        assert raw.attrs["units"] == "hours since 2024-01-01", f"got {raw.attrs}"
+
+    def test_the_written_axis_keeps_its_own_offsets(self, round_tripped):
+        """The stored numbers come back unchanged, not rebased on 1970.
+
+        Args:
+            round_tripped: The exported/written-back pair.
+        """
+        _, written = round_tripped
+        raw = written.to_xarray(decode_times=False).coords["time"]
+        assert list(np.asarray(raw.values)) == [0.0, 6.0, 12.0, 18.0], (
+            f"got {raw.values}"
+        )
+
+    def test_no_calendar_is_invented(self, round_tripped):
+        """An axis that declared no calendar does not gain one on the way out.
+
+        Args:
+            round_tripped: The exported/written-back pair.
+
+        Test scenario:
+            The writer used to stamp `proleptic_gregorian` on every encoded axis. CF's
+            default is `standard`, so writing anything at all changes what the file says.
+        """
+        _, written = round_tripped
+        raw = written.to_xarray(decode_times=False).coords["time"]
+        assert "calendar" not in raw.attrs, f"got {raw.attrs}"
+
+    def test_the_instants_are_unchanged(self, round_tripped):
+        """Re-reading the written file yields the same timestamps it started with.
+
+        Args:
+            round_tripped: The exported/written-back pair.
+        """
+        exported, written = round_tripped
+        again = written.to_xarray().coords["time"]
+        assert list(np.asarray(again.values)) == list(
+            np.asarray(exported.coords["time"].values)
+        ), "the round trip should preserve the instants"
+
+
+class TestEncodingATimeAxis:
+    """`_encode_temporal_array` and the declared-units encoder behind it."""
+
+    def test_a_declared_unit_is_used(self):
+        """An encoding naming CF units encodes back into them."""
+        values = np.array(["2024-01-01T00", "2024-01-01T06"], dtype="datetime64[ns]")
+        encoded, attrs = interop._encode_temporal_array(
+            values, {"units": "hours since 2024-01-01"}
+        )
+        assert list(encoded) == [0.0, 6.0], f"got {encoded}"
+        assert attrs == {"units": "hours since 2024-01-01"}, f"got {attrs}"
+
+    def test_a_declared_calendar_is_preserved(self):
+        """A stated calendar is written back; an unstated one is not invented."""
+        values = np.array(["2024-01-01T00"], dtype="datetime64[ns]")
+        _, attrs = interop._encode_temporal_array(
+            values, {"units": "hours since 2024-01-01", "calendar": "standard"}
+        )
+        assert attrs["calendar"] == "standard", f"got {attrs}"
+
+    def test_no_encoding_falls_back_to_the_epoch(self):
+        """Without an encoding the array still encodes, against the 1970 epoch."""
+        values = np.array(["1970-01-02T00"], dtype="datetime64[ns]")
+        encoded, attrs = interop._encode_temporal_array(values)
+        assert list(encoded) == [86400.0], f"got {encoded}"
+        assert attrs["units"].startswith("seconds since 1970-01-01"), f"got {attrs}"
+
+    def test_unparseable_units_fall_back_to_the_epoch(self):
+        """An `encoding` whose `units` are not CF time units is ignored."""
+        values = np.array(["1970-01-02T00"], dtype="datetime64[ns]")
+        encoded, attrs = interop._encode_temporal_array(values, {"units": "metres"})
+        assert list(encoded) == [86400.0], f"got {encoded}"
+        assert attrs["units"].startswith("seconds since 1970-01-01"), f"got {attrs}"
+
+    def test_a_missing_instant_encodes_as_nan(self):
+        """A `NaT` becomes `NaN`, not the int64 sentinel's bogus year-1677 offset."""
+        values = np.array(
+            ["2024-01-01T00", "NaT", "2024-01-01T12"], dtype="datetime64[ns]"
+        )
+        encoded, _ = interop._encode_temporal_array(
+            values, {"units": "hours since 2024-01-01"}
+        )
+        assert encoded[0] == 0.0 and encoded[2] == 12.0, f"got {encoded}"
+        assert np.isnan(encoded[1]), f"expected NaN at the NaT slot, got {encoded}"
+
+    def test_an_all_missing_axis_falls_back_to_the_epoch(self):
+        """With no valid instant to anchor on, the declared-units encoder declines."""
+        values = np.array(["NaT", "NaT"], dtype="datetime64[ns]")
+        assert (
+            interop._encode_in_declared_units(values, "hours since 2024-01-01", "standard")
+            is None
+        )
+
+    def test_a_refused_unit_falls_back_to_the_epoch(self):
+        """Units `cftime` cannot encode into degrade to the epoch rather than raising."""
+        values = np.array(["2024-01-01T00"], dtype="datetime64[ns]")
+        assert (
+            interop._encode_in_declared_units(values, "fortnights since 2024-01-01", "standard")
+            is None
+        )

@@ -48,6 +48,13 @@ from pyramids.netcdf.utils import (
 _NS_MIN = np.datetime64("1678-09-22", "us")
 _NS_MAX = np.datetime64("2262-04-10", "us")
 
+# A coordinate as the writers take it: `(values, attrs)`, or `(values, attrs, encoding)`
+# when the caller knows the CF units a decoded time axis has to go back out in.
+CoordSpec = (
+    tuple[np.ndarray, dict[str, Any]]
+    | tuple[np.ndarray, dict[str, Any], dict[str, Any]]
+)
+
 _XARRAY_HINT = (
     "xarray is required for {func}(). Install with one of:\n"
     "  - PyPI:        pip install xarray\n"
@@ -451,16 +458,22 @@ def _coords_from_dimensions(
         dim_name = d.GetName()
         coord_attrs = read_cf_attributes(iv)
         raw = ds._md_array_to_numpy(iv)
+        encoding: dict[str, Any] = {}
         decoded = _decode_time_coordinate(raw, coord_attrs) if decode_times else None
         if decoded is not None:
             raw = decoded
-            # The values are no longer expressed in those units, so carrying them
-            # would describe the coordinate wrongly and invite a double decode on
-            # write. xarray keeps them in `encoding` for the same reason.
+            # The values are no longer expressed in those units, so carrying them in
+            # `attrs` would describe the coordinate wrongly and invite a double decode
+            # on write. They move to `encoding` instead -- where xarray itself puts
+            # them, and where `from_xarray` looks to re-encode the axis in the units
+            # it arrived in rather than inventing an epoch of its own.
+            encoding = {
+                k: coord_attrs[k] for k in ("units", "calendar") if k in coord_attrs
+            }
             coord_attrs = {
                 k: v for k, v in coord_attrs.items() if k not in ("units", "calendar")
             }
-        coords[dim_name] = ([dim_name], raw, coord_attrs)
+        coords[dim_name] = ([dim_name], raw, coord_attrs, encoding)
     return coords
 
 
@@ -696,7 +709,43 @@ def from_xarray(
     return result
 
 
-def _encode_temporal_array(values: np.ndarray) -> tuple[np.ndarray, dict[str, Any]]:
+def _encode_in_declared_units(
+    values: np.ndarray, units: str, calendar: str
+) -> np.ndarray | None:
+    """Encode datetime64 values back into the CF ``units`` they were decoded from.
+
+    Args:
+        values: A `datetime64` array.
+        units: The CF time units to encode into, e.g. `"hours since 2024-01-01"`.
+        calendar: The CF calendar those units are counted in.
+
+    Returns:
+        The float64 offsets in `units` (`NaN` where the input was `NaT`), or `None`
+        when the array carries no valid instant to anchor on or `cftime` refuses the
+        units — in which case the caller falls back to the epoch encoding.
+    """
+    as_us = values.astype("datetime64[us]")
+    flat = as_us.ravel()
+    missing = np.isnat(flat)
+    if missing.all():
+        return None
+    instants = flat.astype(object)
+    # `date2num` has no notion of a missing instant, so the `NaT` slots are handed a
+    # real one to encode and overwritten with `NaN` afterwards.
+    instants = np.where(missing, instants[~missing][0], instants)
+    try:
+        numbers = np.asarray(
+            cftime.date2num(instants.tolist(), units, calendar), dtype="float64"
+        )
+    except Exception:
+        return None
+    numbers[missing] = np.nan
+    return numbers.reshape(values.shape)
+
+
+def _encode_temporal_array(
+    values: np.ndarray, encoding: dict[str, Any] | None = None
+) -> tuple[np.ndarray, dict[str, Any]]:
     """Encode datetime64/timedelta64 arrays to CF-numeric seconds (GDAL has no datetime dtype).
 
     A CF-decoded xarray time axis is `datetime64[ns]`, which `numpy_to_gdal_dtype` cannot map, so
@@ -709,16 +758,36 @@ def _encode_temporal_array(values: np.ndarray) -> tuple[np.ndarray, dict[str, An
     only ~sub-microsecond precision (float64 has ~0.35 µs resolution near 2e9 s); an exact nanosecond
     round-trip would need a non-portable `nanoseconds since ...` unit.
 
+    An `encoding` naming CF time `units` takes precedence over that epoch: it is what the axis was
+    decoded from, so encoding back into it returns the file's own numbers. Without it a file read with
+    `to_xarray()` and written back came home as `seconds since 1970-01-01` on a `proleptic_gregorian`
+    calendar it never declared — the same instants, but a rewritten axis (review round-1 M4).
+
     Args:
         values: The raw coordinate / variable array.
+        encoding: The xarray `encoding` of the array, if any. A CF `units` key (with an optional
+            `calendar`) is encoded back into; anything else is ignored.
 
     Returns:
         A `(encoded_values, cf_attrs)` pair. For a non-temporal array the values are returned unchanged
-        with an empty attribute dict; for a temporal array the values are float64 seconds (`NaN` where
+        with an empty attribute dict; for a temporal array the values are float64 offsets (`NaN` where
         the input was `NaT`) and `cf_attrs` carries the CF `units` (plus `calendar` for absolute
-        datetimes).
+        datetimes) they are counted in.
     """
     if np.issubdtype(values.dtype, np.datetime64):
+        declared = (encoding or {}).get("units")
+        if is_cf_time_units(declared):
+            stated_calendar = (encoding or {}).get("calendar")
+            offsets = _encode_in_declared_units(
+                values, declared, stated_calendar or "standard"
+            )
+            if offsets is not None:
+                # An undeclared calendar stays undeclared: `standard` is the CF
+                # default, so writing it would add an attribute the source never had.
+                cf: dict[str, Any] = {"units": declared}
+                if stated_calendar:
+                    cf["calendar"] = stated_calendar
+                return offsets, cf
         as_ns = values.astype("datetime64[ns]")
         seconds = as_ns.astype("int64").astype("float64") / 1e9
         # `np.where` keeps this scalar-safe: a 0-d input's `/ 1e9` is a NumPy scalar that does not
@@ -854,6 +923,26 @@ def _write_data_var(
     return md_arr
 
 
+def _coord_entry(
+    entry: tuple[Any, ...],
+) -> tuple[Any, dict[str, Any], dict[str, Any]]:
+    """Split a coordinate spec into its ``(values, attrs, encoding)`` parts.
+
+    The encoding is optional: the GDAL-native writers pass a `(values, attrs)` pair and
+    only the xarray adapter has an encoding to carry, so both shapes are accepted here
+    rather than forcing every caller to append an empty dict.
+
+    Args:
+        entry: A `(values, attrs)` pair or a `(values, attrs, encoding)` triple.
+
+    Returns:
+        The values, the attributes, and the encoding (empty when the entry omitted it).
+    """
+    values, attrs = entry[0], entry[1]
+    encoding = entry[2] if len(entry) > 2 else None
+    return values, attrs, encoding or {}
+
+
 def _dim_type(name: str) -> str:
     """CF dimension type for a coordinate name, or ``""`` when it is not spatial/temporal.
 
@@ -938,7 +1027,7 @@ def _apply_grid_mapping(
 
 def _build_multidim(
     dims: dict[str, int],
-    coords: dict[str, tuple[np.ndarray, dict[str, Any]]],
+    coords: dict[str, CoordSpec],
     data_vars: dict[str, tuple[tuple[str, ...], Any, dict[str, Any]]],
     global_attrs: dict[str, Any],
     crs_wkt: str | None = None,
@@ -962,8 +1051,9 @@ def _build_multidim(
     Args:
         dims: Dimension name to length.
         coords: Coordinate name (which must also be a dimension) to a
-            `(values, attrs)` pair. Entries whose name is not a dimension are
-            skipped.
+            `(values, attrs)` pair, or a `(values, attrs, encoding)` triple whose
+            encoding names the CF `units` a decoded time axis is written back in.
+            Entries whose name is not a dimension are skipped.
         data_vars: Variable name to a `(dimension-name tuple, values, attrs)`
             triple.
         global_attrs: Root-group (global) attributes.
@@ -993,10 +1083,13 @@ def _build_multidim(
         for name, size in dims.items()
     }
 
-    for coord_name, (coord_values, coord_attrs) in coords.items():
+    for coord_name, coord_spec in coords.items():
         if coord_name not in gdal_dims:
             continue
-        values, cf_attrs = _encode_temporal_array(np.asarray(coord_values))
+        coord_values, coord_attrs, coord_encoding = _coord_entry(coord_spec)
+        values, cf_attrs = _encode_temporal_array(
+            np.asarray(coord_values), coord_encoding
+        )
         if values.shape != (dims[coord_name],):
             raise ValueError(
                 f"coordinate {coord_name!r} has shape {values.shape} but its "
@@ -1102,7 +1195,13 @@ def _build_multidim_from_xarray(dataset: Any) -> gdal.Dataset:
     crs_wkt = _crs_wkt_from_xarray(dataset)
     dims = {name: int(size) for name, size in dataset.sizes.items()}
     coords = {
-        name: (np.asarray(coord.values), _without_store_name(coord.attrs))
+        # The encoding rides along so a CF-decoded time axis is written back in the
+        # units it was decoded from instead of the writer's own epoch (round-1 M4).
+        name: (
+            np.asarray(coord.values),
+            _without_store_name(coord.attrs),
+            dict(coord.encoding),
+        )
         for name, coord in dataset.coords.items()
         if name in dims
     }
@@ -1249,7 +1348,7 @@ class _StreamingMultidimWriter:
 def _build_streaming_multidim(
     dataset: gdal.Dataset,
     dims: dict[str, int],
-    coords: dict[str, tuple[np.ndarray, dict[str, Any]]],
+    coords: dict[str, CoordSpec],
     var_specs: dict[str, tuple[tuple[str, ...], np.dtype | str, dict[str, Any]]],
     global_attrs: dict[str, Any],
     crs_wkt: str | None = None,
@@ -1270,7 +1369,9 @@ def _build_streaming_multidim(
     Args:
         dataset: A freshly created netCDF multidim dataset.
         dims: Dimension name to length.
-        coords: Coordinate name to a ``(values, attrs)`` pair; entries whose name
+        coords: Coordinate name to a ``(values, attrs)`` pair, or a
+            ``(values, attrs, encoding)`` triple whose encoding names the CF
+            ``units`` a decoded time axis is written back in; entries whose name
             is not a dimension are skipped.
         var_specs: Variable name to a ``(dimension-name tuple, numpy dtype,
             attrs)`` triple.
@@ -1293,10 +1394,13 @@ def _build_streaming_multidim(
         for name, size in dims.items()
     }
 
-    for coord_name, (coord_values, coord_attrs) in coords.items():
+    for coord_name, coord_spec in coords.items():
         if coord_name not in gdal_dims:
             continue
-        values, cf_attrs = _encode_temporal_array(np.asarray(coord_values))
+        coord_values, coord_attrs, coord_encoding = _coord_entry(coord_spec)
+        values, cf_attrs = _encode_temporal_array(
+            np.asarray(coord_values), coord_encoding
+        )
         if values.shape != (dims[coord_name],):
             raise ValueError(
                 f"coordinate {coord_name!r} has shape {values.shape} but its "
