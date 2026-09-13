@@ -757,3 +757,54 @@ class TestTheRangeGuardIsTheTypesOwn:
             )
             is None
         )
+
+
+class TestTheWarningBlamesTheCaller:
+    """The reported location is the user's line, not a pyramids frame (round-2 L1)."""
+
+    def test_a_declined_dimension_axis_points_at_this_file(self):
+        """The coordinate path reports the `to_xarray()` call, not `interop.py`.
+
+        Test scenario:
+            A counted `stacklevel` cannot serve both routes — the bounds path is one
+            frame deeper than the dimension path — and a warning naming a pyramids
+            source line is unreadable and unfilterable by `module=`.
+        """
+        with pytest.warns(TimeDecodingWarning) as caught:
+            NetCDF.read_file(NOLEAP_PATH).to_xarray()
+        assert caught[0].filename == __file__, f"got {caught[0].filename}"
+
+    def test_a_declined_bounds_array_points_at_this_file(self, tmp_path):
+        """The bounds path sits one frame deeper and still blames the caller.
+
+        Args:
+            tmp_path: pytest's per-test temporary directory.
+        """
+        source = xr.Dataset(
+            data_vars={
+                "t": (("time",), np.array([1.0, 2.0])),
+                "time_bnds": (("time", "bnds"), np.array([[0.0, 6.0], [6.0, 12.0]])),
+            },
+            coords={
+                "time": (
+                    "time",
+                    [0.0, 6.0],
+                    {"units": "days since 0001-01-01", "bounds": "time_bnds"},
+                ),
+                "bnds": ("bnds", [0, 1]),
+            },
+        )
+        path = tmp_path / "pre-gregorian.nc"
+        NetCDF.from_xarray(source, path)
+        with pytest.warns(TimeDecodingWarning) as caught:
+            NetCDF.read_file(str(path)).to_xarray()
+        assert caught[0].filename == __file__, f"got {caught[0].filename}"
+
+    def test_the_write_side_points_at_this_file(self):
+        """The encode fallback reports the caller too, at its own different depth."""
+        values = np.array(["2024-01-01T00"], dtype="datetime64[ns]")
+        with pytest.warns(TimeDecodingWarning) as caught:
+            interop._encode_temporal_array(
+                values, {"units": "fortnights since 2024-01-01"}, "time"
+            )
+        assert caught[0].filename == __file__, f"got {caught[0].filename}"

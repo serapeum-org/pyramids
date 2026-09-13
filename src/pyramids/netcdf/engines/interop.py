@@ -546,7 +546,9 @@ def _warn_not_decoded(name: str, units: Any, reason: str) -> None:
         f"offsets because {reason}. xarray's resample/.dt/groupby will not work on it; "
         "pass decode_times=False to ask for the offsets deliberately.",
         TimeDecodingWarning,
-        stacklevel=4,
+        # Walked, not counted: the coordinate path and the bounds path reach here
+        # through different depths, and either would drift the moment a hop is added.
+        stacklevel=_caller_stacklevel(),
     )
 
 
@@ -954,7 +956,9 @@ def _warn_not_encoded(name: str, units: Any, reason: str) -> None:
         f"{cf_epoch_units('seconds')!r} because {reason}. The instants are unchanged; "
         "the stored offsets and units are not.",
         TimeDecodingWarning,
-        stacklevel=5,
+        # Walked, not counted, for the reason `_warn_not_decoded` gives: a coordinate,
+        # a data variable and a streamed write all reach here at different depths.
+        stacklevel=_caller_stacklevel(),
     )
 
 
