@@ -102,19 +102,35 @@ class TestAxesThatAreNotDecoded:
         assert xds.coords["time"].dtype == np.dtype("float64")
 
     def test_a_non_standard_calendar_keeps_its_offsets(self):
-        """A `noleap` axis stays numeric so the write-back round trip still works.
+        """A `noleap` axis comes back as the float64 offsets the file stores.
 
         Test scenario:
             Decoding it would produce an object array of `cftime` objects, which GDAL
             has no band type for — the export would gain a usable index and lose the
-            round trip.
+            round trip. Asserting the positive fact (float64, the stored numbers) is
+            what pins the guard: `_decode_time_coordinate` has no path that returns an
+            object array, so asserting `dtype != object` would pass with the guard
+            deleted.
         """
-        xds = NetCDF.read_file(NOLEAP_PATH).to_xarray()
-        times = [n for n in xds.coords if "time" in str(n).lower()]
-        for name in times:
-            assert xds.coords[name].dtype != np.dtype("O"), (
-                f"{name} should not be exported as cftime objects"
-            )
+        nc = NetCDF.read_file(NOLEAP_PATH)
+        decoded = nc.to_xarray().coords["time"]
+        stored = nc.to_xarray(decode_times=False).coords["time"]
+        assert decoded.dtype == np.dtype("float64"), f"got {decoded.dtype}"
+        assert list(np.asarray(decoded.values)) == list(np.asarray(stored.values)), (
+            "the offsets should be exported exactly as stored"
+        )
+
+    def test_a_non_standard_calendar_keeps_its_cf_attributes(self):
+        """`units` and `calendar` stay on an axis that was not decoded.
+
+        Test scenario:
+            They are stripped only once the values stop being expressed in them. An
+            axis that kept its offsets must keep the attributes that explain them, or
+            nothing downstream can interpret the numbers.
+        """
+        time = NetCDF.read_file(NOLEAP_PATH).to_xarray().coords["time"]
+        assert time.attrs["calendar"] == "noleap", f"got {time.attrs}"
+        assert time.attrs["units"] == "days since 0001-01-01", f"got {time.attrs}"
 
     def test_decode_times_false_restores_the_offsets(self):
         """The escape hatch returns exactly what the bridge used to produce."""
