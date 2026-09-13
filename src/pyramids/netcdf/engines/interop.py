@@ -456,9 +456,10 @@ def _promote_cf_non_data_arrays(
         export_names: Store name to the key it was exported under, from
             :func:`_data_vars_from_arrays`. A name absent from it is its own
             key.
-        bounds_encodings: Bounds-variable name to the CF `units` / `calendar` of the
-            decoded coordinate that names it, from :func:`_coords_from_dimensions`.
-            Each such array is decoded with them once promoted.
+        bounds_encodings: Bounds-variable **store** name to the CF `units` / `calendar`
+            of the decoded coordinate that names it, from
+            :func:`_coords_from_dimensions`. Translated to export names here, as the
+            roles are, and each such array is decoded with them once promoted.
 
     Returns:
         xr.Dataset: The same dataset with those names promoted. Unchanged when
@@ -490,10 +491,16 @@ def _promote_cf_non_data_arrays(
         )
         promote = [key for key in candidates if key in exported.data_vars]
         result = exported.set_coords(promote) if promote else exported
+        # A coordinate's CF `bounds` attribute names a *store* array, and the keys here
+        # are export names -- the same two namespaces the roles above are translated
+        # between, and for the same reason. The two are identical for every store in
+        # the suite, which is exactly why an implicit join would go unnoticed.
+        by_export = {
+            export_names.get(name, name): encoding
+            for name, encoding in (bounds_encodings or {}).items()
+        }
         for key in promote:
-            result = _decode_bounds_coordinate(
-                result, key, (bounds_encodings or {}).get(key)
-            )
+            result = _decode_bounds_coordinate(result, key, by_export.get(key))
     return result
 
 
