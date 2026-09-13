@@ -420,8 +420,9 @@ inputs and wrapping the result with `from_array` — the step where georeferenci
 - The module-private `_same_grid` helper in `pyramids.dataset.dataset` moved to `Spatial.same_grid`, faced on
   `Dataset`. It was never public, but anyone importing it directly must switch to `a.same_grid(b)`.
 - `<`, `<=`, `>` and `>=` between two rasters, or between a raster and a real scalar, return a Byte mask
-  (`1`/`0`, and `255` wherever either operand was no-data). `==` and `!=` are **not** overridden — they stay identity-based, so `Dataset` remains usable in
-  `assert`, in sets and as a dict key; use `a.combine(b, np.equal)` for the mask.
+  (`1`/`0`, and `255` wherever either operand was no-data). `==` and `!=` are **not** overridden — they stay
+  identity-based, so `Dataset` remains usable in `assert`, in sets and as a dict key; use
+  `a.combine(b, np.equal)` for the mask.
 - `math.prod(rasters)` folds like `sum(rasters)`; both absorb their identity scalar from either side, and
   compute for every other scalar.
 
