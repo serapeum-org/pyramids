@@ -1031,6 +1031,39 @@ replace the georeference wholesale.
 
 ### unreleased
 
+**`to_xarray()` decodes the CF time axis, so the coordinate is `datetime64[ns]` rather than `float64`.**
+Hard change, silent for the read side — nothing raises and nothing warns when the axis decodes. The bridge
+exists to hand you to xarray, and `resample`, `.dt` and `groupby("time.<component>")` all raised on the numeric
+index it used to produce.
+
+```python
+xds = nc.to_xarray()
+xds.coords["time"].values[:2]   # was [0., 6.]  ->  now ['2024-01-01T00:00', '2024-01-01T06:00']
+xds.coords["time"].attrs["units"]      # was 'hours since 2024-01-01'  ->  now KeyError
+xds.coords["time"].encoding["units"]   # 'hours since 2024-01-01'
+```
+
+- **`units` and `calendar` move from `attrs` to `encoding`.** The values are no longer expressed in them, so
+  carrying them as attributes would describe the coordinate wrongly and invite a double decode on write. That
+  is where xarray itself keeps them. Code reading `xds.time.attrs["units"]` must read `.encoding["units"]`.
+- **`to_xarray(decode_times=False)` restores the old output exactly** — the stored offsets, with `units` and
+  `calendar` still in `attrs`. It is the spelling that now matches `get_dimension_values("time")`.
+- **A CF bounds array follows the coordinate that names it.** CF says a bounds variable declares no units of its
+  own and inherits the parent's, so a decoded `time` no longer sits beside a numeric `time_bnds`.
+- **Only a standard calendar inside `datetime64[ns]` decodes.** A `360_day` or `noleap` axis would decode to
+  `cftime` objects, which GDAL has no band type for, and an instant outside the type's range would wrap rather
+  than raise. Those axes keep their offsets — and now say so, with a new `TimeDecodingWarning` naming the
+  dimension and the reason. Five of the repo's own fixtures take that path, so a project running
+  `-W error::UserWarning` will see it. Silence it with
+  `warnings.filterwarnings("ignore", category=TimeDecodingWarning)` from `pyramids.errors`.
+
+**`from_xarray()` writes the time axis in the CF units the array's `encoding` names, not `seconds since
+1970-01-01`.** Hard change, silent — the instants are the same, the file is byte-for-byte different. A
+`datetime64` coordinate carrying `units` (and optionally `calendar`) in its `encoding` is encoded back into
+them, so a `to_xarray()` → `from_xarray()` round trip returns the axis it started with instead of rebasing it on
+the epoch and stamping a `proleptic_gregorian` calendar the source never declared. An array with no such
+encoding still takes the epoch, unchanged.
+
 **`get_variable` returns a `LabeledArray`, not a raw `gdal.MDArray`, for a variable with no raster plane.**
 Two shapes are affected: a 1-D array (a profile axis, a bounds array, a hybrid-sigma coefficient), and a string or
 compound array. GDAL cannot expose either as a raster, and `get_variable` used to hand the `MDArray` straight back.
