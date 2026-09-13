@@ -1664,3 +1664,27 @@ class TestIntegerScalarEdges:
         """`int32 / 2` gives floats, as `int / int` does everywhere else in the package."""
         result = _raster(np.full((2, 2), 7, "int32")) / 2
         assert float(np.asarray(result.read_array())[0, 0]) == pytest.approx(3.5)
+
+
+class TestNumpyScalarPromotion:
+    """NEP 50 weak promotion decides the result's band width (review round-1 L3)."""
+
+    def test_a_python_scalar_keeps_the_band_width(self):
+        """`float32 * 2` stays `float32` — a Python scalar promotes weakly."""
+        result = _raster(np.full((2, 2), 3.0, "float32")) * 2
+        assert np.asarray(result.read_array()).dtype == np.dtype("float32")
+
+    def test_a_python_float_keeps_the_band_width(self):
+        """`float32 * 2.0` stays `float32` too; the literal's kind does not matter."""
+        result = _raster(np.full((2, 2), 3.0, "float32")) * 2.0
+        assert np.asarray(result.read_array()).dtype == np.dtype("float32")
+
+    def test_a_numpy_scalar_widens_the_band(self):
+        """`float32 * np.float64(2)` doubles the band's width.
+
+        Test scenario:
+            Both spellings are `numbers.Real` and both are admitted, so the choice of
+            literal silently decides how many bytes the result occupies.
+        """
+        result = _raster(np.full((2, 2), 3.0, "float32")) * np.float64(2)
+        assert np.asarray(result.read_array()).dtype == np.dtype("float64")

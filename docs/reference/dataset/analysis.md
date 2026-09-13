@@ -168,6 +168,13 @@ to an object-dtype array that has no GDAL band type. `int`, `float` and the
 numpy scalar types are left exactly as written, so `ds * 2` stays an integer
 multiply rather than widening to `float64`.
 
+**A numpy scalar carries its own dtype into the result; a Python one does not.**
+That is NEP 50's weak promotion, and it decides the width of the band you get:
+on a `float32` raster, `ds * 2` and `ds * 2.0` both stay `float32`, while
+`ds * np.float64(2)` comes back `float64` — twice the bytes for the same
+arithmetic. Write the plain Python spelling unless the wider band is what you
+want.
+
 !!! warning "Three things to know before folding with `sum()`"
 
     * **`sum([])` is the integer `0`,** not a raster. A fold over a glob that
