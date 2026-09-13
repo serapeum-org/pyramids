@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6389,10 +6389,6 @@ and the remaining 15 come from <code>RasterBase</code> above it. They live in th
 <td>Builds a <code>NetCDF</code> from an <code>xarray.Dataset</code> (needs the optional xarray peer dep).</td>
 </tr>
 <tr>
-<td><code>open_mfdataset()</code></td>
-<td>Opens many files and stacks one variable into a single lazy dask array.</td>
-</tr>
-<tr>
 <td><code>copy()</code></td>
 <td>Deep, standalone copy of this dataset, optionally written to <code>path</code>.</td>
 </tr>
@@ -6530,8 +6526,12 @@ and the remaining 15 come from <code>RasterBase</code> above it. They live in th
 <td>Selects bands by coordinate value, date label, or <code>method="nearest"</code>.</td>
 </tr>
 <tr>
+<td><code>open_mfdataset()</code></td>
+<td>Stacks one variable across many files into a single lazy dask array.</td>
+</tr>
+<tr>
 <td><code>reduce()</code></td>
-<td>Reduces every variable along a named dimension (<code>how</code>, <code>groupby</code>, <code>skipna</code>).</td>
+<td>Reduces every variable along <code>dim</code> — <code>how</code>, <code>groupby</code>, <code>skipna</code>.</td>
 </tr>
 </tbody>
 </table>
@@ -6655,7 +6655,7 @@ and the remaining 15 come from <code>RasterBase</code> above it. They live in th
 </tr>
 <tr>
 <td><code>to_xarray()</code></td>
-<td>Converts the container to an <code>xarray.Dataset</code>, optionally chunked.</td>
+<td>Converts the container to an <code>xarray.Dataset</code> — <code>chunks=</code>, <code>decode_times=</code>.</td>
 </tr>
 <tr>
 <td><code>to_kerchunk()</code></td>

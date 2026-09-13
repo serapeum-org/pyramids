@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6929,6 +6929,13 @@ single-band, sentinel-preserving contract.</p>
 <p><code>bool</code> and complex scalars are still refused: <code>True</code> is a <code>Real</code> equal to <code>1</code>, so
 <code>ds * True</code> succeeding would read as a caller's bug, and no band holds an
 imaginary part.</p>
+<p><code>nan</code> and <code>inf</code> are <strong>not</strong> refused, and <code>ds * float("nan")</code> is the one scalar
+that quietly empties a raster: every cell computes to <code>nan</code>, a floating result
+takes <code>nan</code> as its sentinel, and what comes back reads as entirely no-data to
+every consumer. <code>ds * float("inf")</code> stores infinities the same way. That is what
+the arithmetic says, so neither is second-guessed — but a non-finite scalar is
+almost always an uninitialised variable rather than an intention. Check the
+scalar before applying it if it came from a computation.</p>
 <p>The operands must already share a grid; <code>combine</code> never resamples. Use
 <a href="../spatial/"><code>align</code></a> first when they do not, and
 <code>ds.same_grid(other)</code> to ask before trying:</p>
