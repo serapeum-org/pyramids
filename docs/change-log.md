@@ -1,6 +1,26 @@
 ﻿# Change log
 
 
+## 0.63.0 (2026-09-13)
+
+### BREAKING CHANGE
+
+- `to_xarray()` returns a `datetime64[ns]` time coordinate
+where it returned `float64`, and `units` / `calendar` move from that
+coordinate's `attrs` to its `encoding`, so `xds.time.attrs["units"]`
+raises `KeyError`. `from_xarray` writes the CF units the encoding names
+instead of `seconds since 1970-01-01`, producing a byte-for-byte
+different file for the same input. Pass `decode_times=False` for the
+previous output.
+
+### Feat
+
+- **netcdf**: read any dimension's coordinates, and select by label or nearest (#1133)
+
+### Fix
+
+- **dataset,netcdf**: accept scalar operands and decode the time axis in to_xarray (#1134)
+
 ## 0.62.0 (2026-09-11)
 
 ### BREAKING CHANGE
