@@ -9773,6 +9773,44 @@ class NetCDF(Dataset):
         Returns:
             xarray.Dataset: The exported cube. See the engine method for the full
             contract.
+
+        Raises:
+            pyramids.base._errors.OptionalPackageDoesNotExist: `xarray` is not installed.
+            ImportError: `chunks` was given but the `[lazy]` (dask) extra is not installed.
+            ValueError: This container is not multidimensional — open the file with
+                `open_as_multi_dimensional=True`.
+
+        Warns:
+            TimeDecodingWarning: A dimension declares CF time `units` that could not be
+                decoded, so it was exported as its stored offsets.
+
+        Examples:
+            - Export a CF container and group its cube by a time component:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> xds = nc.to_xarray()
+              >>> str(xds.coords["time"].dtype)
+              'datetime64[ns]'
+              >>> xds["temperature"].groupby("time.month").mean().shape
+              (1, 3, 5, 6)
+
+              ```
+            - Keep the axis as the offsets the file stores:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> raw = nc.to_xarray(decode_times=False)
+              >>> [float(offset) for offset in raw.coords["time"].values]
+              [0.0, 6.0, 12.0, 18.0]
+
+              ```
+
+        See Also:
+            NetCDF.from_xarray: The inverse, which writes a decoded axis back in the
+                CF units this put in its `encoding`.
         """
         return self.interop.to_xarray(chunks, decode_times=decode_times)
 

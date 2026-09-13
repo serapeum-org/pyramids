@@ -460,6 +460,33 @@ def _is_identity(op: Callable, scalar: Any) -> bool:
 
     Returns:
         bool: `True` when the operation cannot change any cell.
+
+    Examples:
+        - The two identities are recognised; any other operand computes:
+
+          ```python
+          >>> import operator
+          >>> from pyramids.dataset.dataset import _is_identity
+          >>> _is_identity(operator.add, 0), _is_identity(operator.mul, 1)
+          (True, True)
+          >>> _is_identity(operator.add, 1), _is_identity(operator.mul, 2)
+          (False, False)
+
+          ```
+        - Subtraction and division are never short-circuited, not even by the
+          right identity they do have:
+
+          ```python
+          >>> import operator
+          >>> from pyramids.dataset.dataset import _is_identity
+          >>> _is_identity(operator.sub, 0), _is_identity(operator.truediv, 1)
+          (False, False)
+
+          ```
+
+    See Also:
+        Dataset._arithmetic: The caller, which answers with a `copy()` when this
+            is `True`.
     """
     return (op is operator.add and scalar == 0) or (op is operator.mul and scalar == 1)
 
@@ -479,6 +506,31 @@ def _numeric_scalar(other: Real) -> Any:
 
     Returns:
         The scalar itself, or its `float` value when NumPy cannot type it.
+
+    Examples:
+        - An `int` and a `float` pass through untouched, which is what keeps
+          `ds * 2` an integer multiply:
+
+          ```python
+          >>> from pyramids.dataset.dataset import _numeric_scalar
+          >>> _numeric_scalar(2), _numeric_scalar(0.5)
+          (2, 0.5)
+
+          ```
+        - A `Fraction` is a `Real` that NumPy can only hold in an object array,
+          so it is narrowed to the `float` it is worth:
+
+          ```python
+          >>> from fractions import Fraction
+          >>> from pyramids.dataset.dataset import _numeric_scalar
+          >>> _numeric_scalar(Fraction(3, 4))
+          0.75
+
+          ```
+
+    See Also:
+        pyramids.base._utils.numpy_to_gdal_dtype: The mapping an object-dtype
+            result would fail, which is what this narrowing avoids.
     """
     ordinary = isinstance(other, (int, float, np.integer, np.floating))
     return other if ordinary else float(other)
@@ -2199,23 +2251,30 @@ class Dataset(RasterBase):
         no-data.
 
         A second raster or a real scalar is handled here; anything else yields
-        ``NotImplemented``, so Python raises its own ``TypeError`` naming both
+        `NotImplemented`, so Python raises its own `TypeError` naming both
         operand types.
 
         A scalar takes the **same** route as a raster operand — :meth:`combine`,
-        with the constant folded into the callable — so ``ds * 2`` agrees with
-        ``ds * other`` on band count, dtype and sentinel. It does *not* always
-        agree with ``ds.apply(lambda v: v * 2)``: :meth:`apply` transforms one
+        with the constant folded into the callable — so `ds * 2` agrees with
+        `ds * other` on band count, dtype and sentinel. It does *not* always
+        agree with `ds.apply(lambda v: v * 2)`: :meth:`apply` transforms one
         band and keeps the source's sentinel, while :meth:`combine` spans every
-        band and derives one (``NaN`` for a floating result). The two are
+        band and derives one (`NaN` for a floating result). The two are
         different tools and the operator can only match one of them; it matches
-        the operator family, because ``ds * 2`` and ``ds * other`` are the same
+        the operator family, because `ds * 2` and `ds * other` are the same
         syntax and should not mean different things. Reach for :meth:`apply`
         when you want its single-band, sentinel-preserving contract.
 
-        ``bool`` is declined deliberately: ``True`` is a ``Real`` equal to ``1``,
-        and ``ds * True`` silently succeeding reads as a caller's bug. So is a
-        complex scalar — no band holds an imaginary part.
+        The scalar's own type is kept where NumPy can hold it, so `ds * 2` on an
+        `int16` band stays `int16` rather than widening to `float64`; only an
+        exotic `numbers.Real` such as a `fractions.Fraction` is narrowed, to
+        `float` — see :func:`_numeric_scalar`. `ds + 0` and `ds * 1` short-circuit
+        to :meth:`copy`, from either side of the operator, so a no-op cannot widen
+        the dtype or drop the band's declared sentinel — see :func:`_is_identity`.
+
+        `bool` is declined deliberately: `True` is a `Real` equal to `1`, and
+        `ds * True` silently succeeding reads as a caller's bug. So is a complex
+        scalar — no band holds an imaginary part.
 
         A comparison — `<`, `<=`, `>`, `>=` — is the same journey with a
         callable that returns booleans. GDAL has no boolean band type, so the
@@ -2235,12 +2294,29 @@ class Dataset(RasterBase):
         all at once. Ask for `a.combine(b, np.equal)` when you want that mask.
 
         Args:
-            other: The right-hand operand.
+            other: The right-hand operand — another raster, or a real,
+                non-boolean scalar. Anything else is declined.
             op: The two-argument operator to apply cell by cell.
 
         Returns:
-            Dataset | NotImplemented: The combined raster, or `NotImplemented`
-            when `other` is not a Dataset.
+            Dataset | NotImplemented: The combined raster — a :meth:`copy` when
+            `op` and `other` form an identity — or `NotImplemented` when `other`
+            is neither a raster nor a real, non-boolean scalar, which makes
+            Python raise its own `TypeError` naming both operand types.
+
+        Raises:
+            AlignmentError: `other` is a raster that does not share this one's
+                grid and CRS. :meth:`combine` refuses rather than resampling;
+                :meth:`align` is the explicit step.
+            ValueError: `other` is a raster with a different band count, or the
+                values `op` produced have a dtype GDAL has no band type for —
+                both raised by :meth:`combine`.
+
+        See Also:
+            Analysis.combine: The engine method every non-identity operand goes
+                through, and the source of the dtype and sentinel rules.
+            Analysis.apply: The single-band, sentinel-preserving alternative for
+                a one-raster transform.
         """
         result: Any = NotImplemented
         if isinstance(other, RasterBase):
@@ -2293,19 +2369,273 @@ class Dataset(RasterBase):
         return result
 
     def __add__(self, other: Any) -> Any:
-        """Add another raster cell by cell — see :meth:`combine`."""
+        """Add another raster, or a real scalar, cell by cell.
+
+        Routed through :meth:`_arithmetic`, so both operand kinds land in
+        :meth:`combine` and agree on band span, dtype and derived sentinel.
+        `ds + 0` is the one exception: it short-circuits to :meth:`copy`, which
+        is why a no-op keeps the band's declared no-data value where a computed
+        integer result that masked nothing declares none.
+
+        Args:
+            other: Another raster on this one's grid, or a real, non-boolean
+                scalar.
+
+        Returns:
+            Dataset | NotImplemented: The summed raster, or `NotImplemented` for
+            any other operand, which makes Python raise its own `TypeError`.
+
+        Raises:
+            AlignmentError: `other` is a raster on a different grid or CRS.
+
+        Examples:
+            - Add two aligned rasters, then a constant to one of them:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> rain = Dataset.from_array(np.full((3, 3), 30.0, "float32"), geo_ref=geo_ref)
+              >>> melt = Dataset.from_array(np.full((3, 3), 22.0, "float32"), geo_ref=geo_ref)
+              >>> float(np.asarray((rain + melt).read_array()).mean())
+              52.0
+
+              ```
+            - A constant keeps an integer band integer, and the computed result
+              declares no sentinel because it masked nothing:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> counts = Dataset.from_array(np.full((3, 3), 10, "int16"), geo_ref=geo_ref)
+              >>> (counts + 5).dtype
+              ['int16']
+              >>> int(np.asarray((counts + 5).read_array())[0, 0])
+              15
+              >>> (counts + 5).no_data_value
+              (None,)
+
+              ```
+            - Adding zero is a no-op, so it hands back a copy that still carries
+              the source's no-data value:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> counts = Dataset.from_array(np.full((3, 3), 10, "int16"), geo_ref=geo_ref)
+              >>> (counts + 0).no_data_value == counts.no_data_value
+              True
+
+              ```
+            - A non-numeric operand is declined, so Python reports the pair:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> Dataset.from_array(np.full((3, 3), 1.0, "float32"), geo_ref=geo_ref) + "2"
+              Traceback (most recent call last):
+                  ...
+              TypeError: unsupported operand type(s) for +: 'Dataset' and 'str'
+
+              ```
+
+        See Also:
+            Dataset._arithmetic: The shared router, with the full operand rules.
+            Analysis.combine: The engine method that does the work.
+        """
         return self._arithmetic(other, operator.add)
 
     def __sub__(self, other: Any) -> Any:
-        """Subtract another raster cell by cell — see :meth:`combine`."""
+        """Subtract another raster, or a real scalar, cell by cell.
+
+        Routed through :meth:`_arithmetic` into :meth:`combine`. Subtraction has
+        no identity to short-circuit on this side, so every operand computes;
+        `100 - ds` is the reflected spelling and lives in :meth:`__rsub__`.
+
+        Args:
+            other: Another raster on this one's grid, or a real, non-boolean
+                scalar.
+
+        Returns:
+            Dataset | NotImplemented: The difference raster, or `NotImplemented`
+            for any other operand.
+
+        Raises:
+            AlignmentError: `other` is a raster on a different grid or CRS.
+
+        Examples:
+            - Difference two aligned surfaces — a canopy height model:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> surface = Dataset.from_array(np.full((3, 3), 30.0, "float32"), geo_ref=geo_ref)
+              >>> bare = Dataset.from_array(np.full((3, 3), 22.0, "float32"), geo_ref=geo_ref)
+              >>> float(np.asarray((surface - bare).read_array()).mean())
+              8.0
+
+              ```
+            - Subtract a constant offset from every cell:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> gauge = Dataset.from_array(np.full((3, 3), 20.0, "float32"), geo_ref=geo_ref)
+              >>> float(np.asarray((gauge - 5).read_array()).mean())
+              15.0
+
+              ```
+
+        See Also:
+            Dataset.__rsub__: The reflected form, `scalar - ds`.
+            Analysis.combine: The engine method that does the work.
+        """
         return self._arithmetic(other, operator.sub)
 
     def __mul__(self, other: Any) -> Any:
-        """Multiply by another raster cell by cell — see :meth:`combine`."""
+        """Multiply by another raster, or by a real scalar, cell by cell.
+
+        Routed through :meth:`_arithmetic` into :meth:`combine`. A scalar keeps
+        its own NumPy type, so scaling an integer band by an integer stays in
+        that band's dtype; `ds * 1` short-circuits to :meth:`copy`.
+
+        Args:
+            other: Another raster on this one's grid, or a real, non-boolean
+                scalar.
+
+        Returns:
+            Dataset | NotImplemented: The product raster, or `NotImplemented`
+            for any other operand.
+
+        Raises:
+            AlignmentError: `other` is a raster on a different grid or CRS.
+
+        Examples:
+            - Scale an integer band by a constant without widening its dtype:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> counts = Dataset.from_array(np.full((3, 3), 10, "int16"), geo_ref=geo_ref)
+              >>> (counts * 2).dtype
+              ['int16']
+              >>> int(np.asarray((counts * 2).read_array())[0, 0])
+              20
+
+              ```
+            - A scalar spans every band, unlike :meth:`apply`, which transforms one:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> stack = np.stack(
+              ...     [np.full((3, 3), 1.0, "float32"), np.full((3, 3), 2.0, "float32")]
+              ... )
+              >>> scaled = Dataset.from_array(stack, geo_ref=geo_ref) * 3
+              >>> scaled.shape
+              (2, 3, 3)
+              >>> [float(band.mean()) for band in np.asarray(scaled.read_array())]
+              [3.0, 6.0]
+
+              ```
+            - Weight one raster by another, cell by cell:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> depth = Dataset.from_array(np.full((3, 3), 3.0, "float32"), geo_ref=geo_ref)
+              >>> weight = Dataset.from_array(np.full((3, 3), 0.5, "float32"), geo_ref=geo_ref)
+              >>> float(np.asarray((depth * weight).read_array()).mean())
+              1.5
+
+              ```
+            - A `bool` is declined on purpose, so `ds * True` does not quietly
+              succeed:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> Dataset.from_array(np.full((3, 3), 1.0, "float32"), geo_ref=geo_ref) * True
+              Traceback (most recent call last):
+                  ...
+              TypeError: unsupported operand type(s) for *: 'Dataset' and 'bool'
+
+              ```
+
+        See Also:
+            Dataset._arithmetic: The shared router, with the full operand rules.
+            Analysis.apply: The single-band, sentinel-preserving alternative.
+        """
         return self._arithmetic(other, operator.mul)
 
     def __truediv__(self, other: Any) -> Any:
-        """Divide by another raster cell by cell — see :meth:`combine`."""
+        """Divide by another raster, or by a real scalar, cell by cell.
+
+        Routed through :meth:`_arithmetic` into :meth:`combine`. A true divide
+        always produces a floating result, so the sentinel :meth:`combine`
+        derives is `NaN`; a division by zero stores an infinity as a **value**
+        rather than masking it, and numpy's own `RuntimeWarning` reaches the
+        caller — only `0/0`, which is `NaN`, reads back as a gap.
+
+        Args:
+            other: Another raster on this one's grid, or a real, non-boolean
+                scalar.
+
+        Returns:
+            Dataset | NotImplemented: The quotient raster, or `NotImplemented`
+            for any other operand.
+
+        Raises:
+            AlignmentError: `other` is a raster on a different grid or CRS.
+
+        Warns:
+            RuntimeWarning: numpy's own `divide by zero` / `invalid value`
+                warning, raised where a divisor cell holds zero. The infinity
+                (or `NaN`) it produces is stored, so mask the zeros first if that
+                is not what you want downstream.
+
+        Examples:
+            - Turn a count raster into a rate by dividing by a constant:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> counts = Dataset.from_array(np.full((3, 3), 3.0, "float32"), geo_ref=geo_ref)
+              >>> float(np.asarray((counts / 0.5).read_array()).mean())
+              6.0
+
+              ```
+            - A band ratio between two aligned rasters, and the `NaN` sentinel a
+              floating result declares:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> nir = Dataset.from_array(np.full((3, 3), 3.0, "float32"), geo_ref=geo_ref)
+              >>> red = Dataset.from_array(np.full((3, 3), 0.5, "float32"), geo_ref=geo_ref)
+              >>> ratio = nir / red
+              >>> float(np.asarray(ratio.read_array()).mean())
+              6.0
+              >>> float(ratio.no_data_value[0])
+              nan
+
+              ```
+
+        See Also:
+            Dataset.__rtruediv__: The reflected form, `scalar / ds`.
+            Analysis.combine: The engine method that derives the sentinel.
+        """
         return self._arithmetic(other, operator.truediv)
 
     def __radd__(self, other: Any) -> Any:
@@ -2361,6 +2691,23 @@ class Dataset(RasterBase):
               6.0
 
               ```
+
+            - A scalar on the left computes the same raster as one on the right,
+              because addition commutes:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> ds = Dataset.from_array(np.full((3, 3), 4.0, "float32"), geo_ref=geo_ref)
+              >>> float(np.asarray((10 + ds).read_array()).mean())
+              14.0
+
+              ```
+
+        See Also:
+            Dataset.__add__: The same router from the other side.
+            Analysis.combine: The engine method every non-zero seed goes through.
         """
         # Addition commutes, so this is `ds + other` outright. `_arithmetic` owns both
         # halves of what used to be duplicated here: the `Real`-and-not-`bool` guard
@@ -2385,6 +2732,39 @@ class Dataset(RasterBase):
             Dataset | NotImplemented: A copy of this dataset when `other` is a
             real numeric one, the computed raster for any other real scalar,
             else `NotImplemented`.
+
+        Examples:
+            - Fold a list of aligned rasters into their product:
+
+              ```python
+              >>> import math
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> rasters = [
+              ...     Dataset.from_array(np.full((3, 3), value, "float32"), geo_ref=geo_ref)
+              ...     for value in (2.0, 3.0)
+              ... ]
+              >>> float(np.asarray(math.prod(rasters).read_array()).mean())
+              6.0
+
+              ```
+            - Multiplying by one is a no-op, so it hands back a copy that still
+              carries the source's no-data value:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> counts = Dataset.from_array(np.full((3, 3), 10, "int16"), geo_ref=geo_ref)
+              >>> (1 * counts).no_data_value == counts.no_data_value
+              True
+
+              ```
+
+        See Also:
+            Dataset.__radd__: The additive twin, and the aliasing reason both
+                return a copy rather than `self`.
         """
         # `ds * other`, for the reason `__radd__` gives: multiplication commutes and
         # `_arithmetic` already short-circuits the multiplicative identity to `copy()`.
@@ -2439,6 +2819,10 @@ class Dataset(RasterBase):
             Dataset | NotImplemented: The computed raster, or `NotImplemented` when
             `other` is not a real, non-boolean scalar.
 
+        Warns:
+            RuntimeWarning: numpy's own `divide by zero` / `invalid value`
+                warning, raised where a cell of this raster holds zero.
+
         Examples:
             - Turn a rate into its reciprocal:
 
@@ -2455,19 +2839,19 @@ class Dataset(RasterBase):
         return self._reflected_arithmetic(other, operator.truediv)
 
     def __lt__(self, other: Any) -> Any:
-        """Cell-by-cell `<` against another raster — see :meth:`_arithmetic`."""
+        """Cell-by-cell `<` against another raster or a real scalar — see :meth:`_arithmetic`."""
         return self._arithmetic(other, operator.lt)
 
     def __le__(self, other: Any) -> Any:
-        """Cell-by-cell `<=` against another raster — see :meth:`_arithmetic`."""
+        """Cell-by-cell `<=` against another raster or a real scalar — see :meth:`_arithmetic`."""
         return self._arithmetic(other, operator.le)
 
     def __gt__(self, other: Any) -> Any:
-        """Cell-by-cell `>` against another raster — see :meth:`_arithmetic`."""
+        """Cell-by-cell `>` against another raster or a real scalar — see :meth:`_arithmetic`."""
         return self._arithmetic(other, operator.gt)
 
     def __ge__(self, other: Any) -> Any:
-        """Cell-by-cell `>=` against another raster, as a Byte mask.
+        """Cell-by-cell `>=` against another raster or a real scalar, as a Byte mask.
 
         See :meth:`_arithmetic` for the mask's dtype, sentinel and NaN rules.
 

@@ -1174,6 +1174,13 @@ class Analysis(_Engine["Dataset"]):
             other (Dataset):
                 The second operand. Must occupy this dataset's grid and CRS
                 (:meth:`Spatial.same_grid <pyramids.dataset.engines.Spatial.same_grid>`).
+                Passing **this same dataset** is supported and cheap: the array
+                is read, CF-unpacked and masked once rather than twice, and its
+                sentinels are offered to the derivation only once. That is the
+                route the scalar operators take — `ds * 2` folds its constant
+                into `func` and passes `self` as `other` purely to satisfy the
+                two-operand shape, so the second array `func` receives is a
+                duplicate of the first and is meant to be ignored.
             func (Callable):
                 Callable taking the two operands' cell values — as flat arrays,
                 the same contract :meth:`apply` uses — and returning one array
@@ -1254,6 +1261,22 @@ class Analysis(_Engine["Dataset"]):
               0.5
               >>> ndvi.shape
               (1, 4, 4)
+
+              ```
+
+            - So is a *scalar* operator, with the constant folded into `func` and
+              this dataset passed as its own second operand:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> ds = Dataset.from_array(np.full((4, 4), 5.0, "float32"), geo_ref=geo_ref)
+              >>> folded = ds.combine(ds, lambda values, _ignored: values * 2)
+              >>> float(np.asarray(folded.read_array()).mean())
+              10.0
+              >>> float(np.asarray((ds * 2).read_array()).mean())
+              10.0
 
               ```
 
