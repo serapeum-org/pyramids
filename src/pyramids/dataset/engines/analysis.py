@@ -1174,13 +1174,11 @@ class Analysis(_Engine["Dataset"]):
             other (Dataset):
                 The second operand. Must occupy this dataset's grid and CRS
                 (:meth:`Spatial.same_grid <pyramids.dataset.engines.Spatial.same_grid>`).
-                Passing **this same dataset** is supported and cheap: the array
-                is read, CF-unpacked and masked once rather than twice, and its
-                sentinels are offered to the derivation only once. That is the
-                route the scalar operators take — `ds * 2` folds its constant
-                into `func` and passes `self` as `other` purely to satisfy the
-                two-operand shape, so the second array `func` receives is a
-                duplicate of the first and is meant to be ignored.
+                Passing **this same dataset** is allowed and reads it twice, as
+                two operands always are. A one-operand transform that wants
+                `combine`'s contract should ask for :meth:`_fold` instead, which
+                is the same machinery over a single read — it is the route
+                `ds * 2` takes.
             func (Callable):
                 Callable taking the two operands' cell values — as flat arrays,
                 the same contract :meth:`apply` uses — and returning one array
@@ -1264,8 +1262,8 @@ class Analysis(_Engine["Dataset"]):
 
               ```
 
-            - So is a *scalar* operator, with the constant folded into `func` and
-              this dataset passed as its own second operand:
+            - A *scalar* operator is the same machinery over one read, through
+              :meth:`_fold`, and agrees with the two-operand spelling:
 
               ```python
               >>> import numpy as np
@@ -1330,22 +1328,106 @@ class Analysis(_Engine["Dataset"]):
             Spatial.align: Puts a mismatched raster onto this one's grid, which
                 is the explicit step `combine` refuses to take implicitly.
         """
+        return self._combine(
+            other, func, band=band, no_data_value=no_data_value, folded=False
+        )
+
+    def _fold(
+        self,
+        func: Callable[[np.ndarray], np.ndarray],
+        *,
+        band: int | None = None,
+        no_data_value: Any = _DERIVE_NO_DATA,
+    ) -> Dataset:
+        """Run a **one**-operand callable through :meth:`combine`'s machinery.
+
+        The scalar operators are this: `ds * 2` folds its constant into a callable and
+        wants everything `combine` gives a raster operand — every band, a dtype from the
+        computed values, a derived sentinel — with only one array to read. Routing it
+        through `combine` with this dataset as its own second operand would read,
+        CF-unpack and mask that array twice, so the second read is skipped here rather
+        than inferred from the operands being equal.
+
+        Args:
+            func: A callable taking one flat array of domain values and returning one
+                array of the same length.
+            band: Zero-based band, or `None` for every band.
+            no_data_value: The result's sentinel; the default derives one, and `None`
+                turns masking off.
+
+        Returns:
+            Dataset: A new raster on this one's grid, carrying `func`'s values.
+
+        Raises:
+            TypeError: `func` is not callable.
+            ValueError: `func` returned an array of the wrong shape.
+
+        Examples:
+            - Scale a band, the operation `ds * 2` performs:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> ds = Dataset.from_array(np.full((4, 4), 5.0, "float32"), geo_ref=geo_ref)
+              >>> float(np.asarray(ds.analysis._fold(lambda v: v * 2).read_array()).mean())
+              10.0
+
+              ```
+
+        See Also:
+            Analysis.combine: The two-operand form this shares its machinery with.
+            Analysis.apply: The single-band, sentinel-preserving alternative.
+        """
+        return self._combine(
+            self._ds,
+            lambda values, _ignored: func(values),
+            band=band,
+            no_data_value=no_data_value,
+            folded=True,
+        )
+
+    def _combine(
+        self,
+        other: Dataset,
+        func: Callable[[np.ndarray, np.ndarray], np.ndarray],
+        *,
+        band: int | None,
+        no_data_value: Any,
+        folded: bool,
+    ) -> Dataset:
+        """Shared body of :meth:`combine` and :meth:`_fold`.
+
+        Args:
+            other: The second operand. Ignored as a *source* when `folded` is set — it
+                is this dataset, and reading it again would only cost.
+            func: The binary callable.
+            band: Zero-based band, or `None` for every band.
+            no_data_value: The result's sentinel, or the derive sentinel.
+            folded: Whether the caller has declared both operands to be this dataset.
+                Declared, not inferred: an identity test cannot be spelled here (the
+                engine holds a `weakref.proxy`, which no `is` can match), and inferring
+                it from `==` would rest on no raster class ever defining an elementwise
+                `__eq__` — which the four other comparisons make a plausible next
+                request.
+
+        Returns:
+            Dataset: The combined raster.
+
+        Raises:
+            TypeError: `other` is not a raster, or `func` is not callable.
+            AlignmentError: The operands do not share a grid/CRS.
+            ValueError: The band counts differ, or `func` returned the wrong shape.
+        """
         if not isinstance(other, RasterBase):
             raise TypeError(f"`other` must be a Dataset, got {type(other).__name__}")
         self._check_combinable(other, func, band)
 
         left, left_sentinels, left_domain = self._operand_arrays(self._ds, band)
         right_sentinels: list[Any]
-        # `==`, not `is`: this engine holds a `weakref.proxy` back-reference, which
-        # cannot satisfy an identity check against the dataset it points at. Neither
-        # class overrides `__eq__`, so the proxy forwards to the referent's
-        # identity-based comparison and this is an identity test in all but spelling.
-        if self._ds == other:
-            # A scalar operator (`ds * 2`) folds its constant into `func` and hands
-            # this same dataset back as the second operand, purely to satisfy the
-            # two-operand shape. Reading it again would double the I/O, the CF unpack
-            # and the peak memory of a one-operand transform. Its sentinels are
-            # already in `left_sentinels`, so the candidate list stays deduplicated.
+        if folded:
+            # One array, offered to `func` as both arguments and to the sentinel
+            # derivation once — its candidates are already in `left_sentinels`.
             right, right_sentinels, right_domain = left, [], left_domain
         else:
             right, right_sentinels, right_domain = self._operand_arrays(other, band)
@@ -1688,14 +1770,16 @@ class Analysis(_Engine["Dataset"]):
                     "`func` computed, so those cells read back as gaps; pass a "
                     "`no_data_value=` the result cannot hold",
                     NoDataCollisionWarning,
-                    # 4 frames out is the caller of `Dataset.combine`: warn ->
-                    # _resolve_combined_no_data -> Analysis.combine ->
-                    # Dataset.combine -> user. Reached as `ds.analysis.combine`
-                    # the facade frame is absent, so the same count lands one
-                    # frame too far -- on whatever called the caller. A single
-                    # constant cannot serve both entry points; the facade is the
-                    # documented one, so it is the one that is right.
-                    stacklevel=4,
+                    # 5 frames out is the caller of `Dataset.combine`: warn ->
+                    # _resolve_combined_no_data -> Analysis._combine ->
+                    # Analysis.combine -> Dataset.combine -> user. Reached as
+                    # `ds.analysis.combine` the facade frame is absent, so the
+                    # same count lands one frame too far -- on whatever called
+                    # the caller. A single constant cannot serve both entry
+                    # points; the facade is the documented one, so it is the one
+                    # that is right. `_fold` never reaches here: it always derives
+                    # its sentinel, and only an explicit one can collide.
+                    stacklevel=5,
                 )
         elif np.issubdtype(dtype, np.floating):
             sentinel = np.nan

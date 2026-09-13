@@ -1578,9 +1578,37 @@ class TestOneOperandIsReadOnce:
         assert len(seen) == 2, f"expected two reads, got {len(seen)}"
 
     def test_combining_a_raster_with_itself_is_still_correct(self):
-        """`ds.combine(ds, add)` doubles the values, sharing one array does not break it."""
+        """`ds.combine(ds, add)` doubles the values — the two-operand path, twice read."""
         ds = _raster(np.full((4, 4), 3.0, "float32"))
         assert float(np.asarray(ds.combine(ds, np.add).read_array()).mean()) == 6.0
+
+    def test_the_shared_path_is_declared_not_inferred(self, monkeypatch):
+        """`ds.combine(ds, …)` reads twice; only `_fold` declares the single read.
+
+        Args:
+            monkeypatch: pytest's patcher.
+
+        Test scenario:
+            Inferring the shared operand from `==` would rest on no raster class ever
+            defining an elementwise `__eq__` — which the four comparisons it already
+            defines make a plausible next request, and which nothing enforces.
+        """
+        seen = self._counting_operand_arrays(monkeypatch)
+        ds = _raster(np.full((4, 4), 3.0, "float32"))
+        ds.combine(ds, np.add)
+        assert len(seen) == 2, f"expected two reads, got {len(seen)}"
+
+    def test_fold_reads_once_and_matches_the_two_operand_answer(self, monkeypatch):
+        """`_fold` is the single-read spelling and computes what `combine` would.
+
+        Args:
+            monkeypatch: pytest's patcher.
+        """
+        seen = self._counting_operand_arrays(monkeypatch)
+        ds = _raster(np.full((4, 4), 3.0, "float32"))
+        folded = ds.analysis._fold(lambda values: values * 2)
+        assert len(seen) == 1, f"expected one read, got {len(seen)}"
+        assert float(np.asarray(folded.read_array()).mean()) == 6.0
 
     def test_the_shared_domain_still_masks(self):
         """A no-data cell stays no-data when the raster is combined with itself."""

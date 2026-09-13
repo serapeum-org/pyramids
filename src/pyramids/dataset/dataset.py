@@ -2343,7 +2343,7 @@ class Dataset(RasterBase):
                 # every rule `combine` already enforces -- band span, dtype width,
                 # sentinel derivation -- applies unchanged. The second array is ignored
                 # on purpose; it is there to satisfy `combine`'s two-operand shape.
-                result = self.combine(self, lambda values, _ignored: op(values, scalar))
+                result = self.analysis._fold(lambda values: op(values, scalar))
         return result
 
     def _reflected_arithmetic(self, other: Any, op: Callable) -> Any:
@@ -2365,7 +2365,7 @@ class Dataset(RasterBase):
         result: Any = NotImplemented
         if isinstance(other, Real) and not isinstance(other, bool):
             scalar = _numeric_scalar(other)
-            result = self.combine(self, lambda values, _ignored: op(scalar, values))
+            result = self.analysis._fold(lambda values: op(scalar, values))
         return result
 
     def __add__(self, other: Any) -> Any:
