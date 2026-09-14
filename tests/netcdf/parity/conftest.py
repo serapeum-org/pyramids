@@ -137,8 +137,9 @@ PARITY_FIXTURES: tuple[ParityFixture, ...] = (
     ),
 )
 
-#: The repo's only variable declaring a NaN fill value, so the only one that exercises the
-#: `isnan` arm of the gap rule end to end.
+#: A variable declaring a NaN fill value, which exercises the `isnan` arm of the gap rule
+#: end to end — `==` cannot find a NaN. It is not the only one in the repo, but it is the
+#: one on a store the harness can otherwise handle.
 NAN_SENTINEL = ParityFixture(
     "cf__5v__1d4-3d1__geog__y-desc.nc",
     "t2m",
@@ -169,16 +170,3 @@ def open_fixture(path: str) -> NetCDF:
         NetCDF: The opened container.
     """
     return NetCDF.read_file(str(DATA / path))
-
-
-@pytest.fixture(params=PARITY_FIXTURES, ids=[case.id for case in PARITY_FIXTURES])
-def parity_case(request: pytest.FixtureRequest) -> ParityFixture:
-    """Each catalogue entry in turn, for a test that should hold across the whole set.
-
-    Args:
-        request: The pytest request carrying the parametrized entry.
-
-    Returns:
-        ParityFixture: The entry under test.
-    """
-    return request.param

@@ -17,7 +17,9 @@ place, visibly, instead of being re-derived (and re-got-wrong) per test:
    order — and never by the geotransform. Not because the geotransform is unreliable, but
    because it describes the view rather than the file: pyramids *always* presents north-up, so
    its y step is always negative and it cannot distinguish a file stored south-to-north from
-   one stored north-to-south. The stored coordinate is the only thing that carries that.
+   one stored north-to-south. The stored coordinate is the only thing that carries that. On
+   several containers here the geotransform is a bare placeholder as well, but that is a
+   separate defect and not the reason.
 
    Where the coordinate cannot carry it either — it is absent, a synthesised row index, or not
    monotonic — the harness raises rather than defaults. See :func:`flip_needed`; the stores
@@ -196,8 +198,9 @@ def _unrenamed(name: str, known: set[str]) -> str:
     """The container's spelling of a dimension a variable subset renamed.
 
     `get_variable` reports its y axis as `subset_<name>_<start>_<step>_<count>` —
-    `subset_lat_4_-1_5`, `subset_lines_479_-1_480` — because the subset carries the window it
-    was cut with. Both sides have to agree on one spelling, and the container's is the one
+    `subset_y_20_-1_21` on the scale/offset store, `subset_lines_479_-1_480` on the
+    curvilinear one — because the subset carries the window it was cut with. Both sides have
+    to agree on one spelling, and the container's is the one
     `to_xarray` uses. Resolved by pattern rather than by looking only at the y slot, so a store
     whose y is spelled something the harness does not recognise is still labelled correctly.
 

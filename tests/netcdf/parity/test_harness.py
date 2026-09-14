@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import dataclasses
 import doctest
+import warnings
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
+from pyramids.base._errors import TimeDecodingWarning
 from pyramids.netcdf.netcdf import NetCDF
 from tests.netcdf.parity import _harness as harness_module
 from tests.netcdf.parity._harness import (
@@ -49,16 +51,8 @@ FIXTURE_IDS = [case.id for case in PARITY_FIXTURES]
 UNSUPPORTED_IDS = ["roms-eta-rho", "curvilinear-y", "goes-index-y"]
 
 
-def _read(name: str) -> NetCDF:
-    """Open one of the parity fixtures by file name.
-
-    Args:
-        name: The `.nc` file name under `tests/data/netcdf`.
-
-    Returns:
-        NetCDF: The opened container.
-    """
-    return open_fixture(name)
+#: The catalogue's loader, under the short name this module reads better with.
+_read = open_fixture
 
 
 class OnlyDimensions:
@@ -319,7 +313,12 @@ class TestTheGapRule:
         assert np.array_equal(from_pyramids(nc, "tcw").gaps, stored == sentinel)
 
     def test_a_disagreement_about_the_gaps_fails(self):
-        """One extra masked cell on one side must be caught, not averaged away."""
+        """A side that marks cells the other calls data is caught, not averaged away.
+
+        Test scenario:
+            Every unmasked cell is marked, so the two masks disagree on 63072 of 126144 — the
+            check is on the positions, not on how many.
+        """
         nc = _read("cf__20v__1d3-3d17__y-desc.nc")
         pyr = from_pyramids(nc, "tcw")
         moved = pyr.gaps.copy()
@@ -415,14 +414,6 @@ class TestThePackingRule:
         # 100.000008, which is the packing's own precision rather than a normalisation error.
         assert float(np.nanmin(view.values)) == pytest.approx(0.0, abs=1e-4)
         assert float(np.nanmax(view.values)) == pytest.approx(100.0, abs=1e-4)
-
-    def test_an_unpacked_fixture_is_left_alone(self):
-        """A variable with no packing must not be shifted by an identity that is not applied."""
-        nc = _read("cf__5v__1d4-4d1__y-asc.nc")
-        handle = nc.get_variable("temperature")
-        assert handle.scale[0] in (None, 1.0)
-        assert handle.offset[0] in (None, 0.0)
-        assert_parity(from_pyramids(nc, "temperature"), to_xr(nc, "temperature"))
 
     def test_absent_factors_default_to_the_identity(self):
         """A variable declaring neither `scale_factor` nor `add_offset` is left untouched.
@@ -860,3 +851,40 @@ class TestTheExportIsStored:
         )
         physical = from_pyramids(nc, "rhum").values
         assert not np.allclose(stored.reshape(physical.shape), physical)
+
+
+class TestTheWarningsTheCatalogueMentions:
+    """Two catalogued stores emit a `TimeDecodingWarning`; pin it rather than let it drift."""
+
+    @pytest.mark.parametrize(
+        ("name", "variable", "calendar"),
+        [
+            ("coards__5v__1d4-4d1__y-desc.nc", "rhum", "origin before the 1582 reform"),
+            ("cf__12v__1d4-2d5-3d2-4d1__y-asc.nc", "pr", "calendar"),
+        ],
+        ids=["pre-gregorian", "non-standard-calendar"],
+    )
+    def test_an_undecoded_axis_is_reported(self, name, variable, calendar):
+        """The store's time axis keeps its offsets, and says so.
+
+        Args:
+            name: The fixture file name.
+            variable: The variable to export.
+            calendar: A phrase the warning has to carry.
+
+        Test scenario:
+            The catalogue records these warnings in prose. Asserting them means a change in
+            `to_xarray`'s decoding shows up here as a failure rather than as a quietly
+            different reference array — which is exactly what happened to the time axis once
+            already this cycle.
+        """
+        nc = _read(name)
+        with pytest.warns(TimeDecodingWarning, match=calendar):
+            to_xr(nc, variable)
+
+    def test_a_decoded_axis_is_silent(self):
+        """The catalogue's flip fixture decodes cleanly, so nothing is reported for it."""
+        nc = _read("cf__5v__1d4-4d1__y-asc.nc")
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", TimeDecodingWarning)
+            to_xr(nc, "temperature")
