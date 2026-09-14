@@ -42,7 +42,7 @@ is a single read and cannot drift from whatever the mask rules become.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -72,7 +72,12 @@ class ParityView:
             stores, because the comparison is `assert_allclose` on physical units.
         gaps: Boolean mask of the no-data cells, shaped like `values`.
         dims: The dimension names of `values`, spatial axes last.
-        coords: The dimension coordinates, y normalised to raster (north-up) order.
+        coords: The dimension coordinates as each side presents them, y normalised to raster
+            (north-up) order.
+        decoded_coords: The same coordinates as instants, for the axes that carry CF time
+            units. `to_xarray()` decodes a time axis and `get_dimension_values` does not, so
+            the two sides present it differently; this is what makes them comparable, and the
+            two decodings are independent, which makes the comparison a real cross-check.
         dtype: The dtype the *source* held, before the float64 promotion this view applies.
             This is what a dtype contract is asserted against, not `values.dtype`.
 
@@ -134,6 +139,7 @@ class ParityView:
     dims: tuple[str, ...]
     coords: dict[str, np.ndarray]
     dtype: np.dtype
+    decoded_coords: dict[str, np.ndarray] = field(default_factory=dict)
 
 
 class ParityUnsupported(RuntimeError):
@@ -462,6 +468,30 @@ def _gap_mask(stored: np.ndarray, sentinel: Any) -> np.ndarray:
     return mask
 
 
+def _decoded_time(nc: NetCDF, name: str) -> np.ndarray | None:
+    """The instants of a CF time dimension, decoded by pyramids' own reader.
+
+    `get_time_variable` answers `None` for an axis that is not a time axis, which is the
+    discriminator used here. It is a different code path from the one `to_xarray` decodes
+    with, so comparing the two is a genuine cross-check rather than a tautology.
+
+    Args:
+        nc: The container to read.
+        name: The dimension to decode.
+
+    Returns:
+        The instants as `datetime64[ns]`, or `None` when the axis is not a decodable time axis.
+    """
+    decoded: np.ndarray | None = None
+    try:
+        stamps = nc.get_time_variable(name, "%Y-%m-%d %H:%M:%S")
+    except (ValueError, TypeError, KeyError):
+        stamps = None
+    if stamps:
+        decoded = np.asarray(stamps, dtype="datetime64[s]").astype("datetime64[ns]")
+    return decoded
+
+
 def to_xr(nc: NetCDF, variable: str) -> ParityView:
     """The xarray view of `variable`, normalised onto pyramids' raster orientation.
 
@@ -538,10 +568,24 @@ def to_xr(nc: NetCDF, variable: str) -> ParityView:
     values = np.where(gaps, np.nan, stored.astype("float64") * scale + offset)
 
     name = y_dimension(nc)
+    # The stored coordinates come from a second export with the decoding turned off, so the
+    # two sides can always be compared like with like: `get_dimension_values` reports stored
+    # offsets, and `to_xarray()` decodes a CF time axis to `datetime64[ns]`. The decoded form
+    # is kept alongside and compared only where *both* sides managed to decode -- pyramids'
+    # two decoders do not always agree (`get_time_variable` declines the axis
+    # `cf__20v__1d3-3d17__y-desc.nc` exports as 2002 dates), and that disagreement is a
+    # finding about pyramids rather than a reason to fail the value comparison.
+    as_stored = nc.to_xarray(decode_times=False)
     coords = {
-        key: np.asarray(exported.coords[key].values)
+        key: np.asarray(as_stored.coords[key].values)
+        for key in array.dims
+        if key in as_stored.coords
+    }
+    decoded_coords = {
+        key: np.asarray(exported.coords[key].values).astype("datetime64[ns]")
         for key in array.dims
         if key in exported.coords
+        and np.issubdtype(np.asarray(exported.coords[key].values).dtype, np.datetime64)
     }
     if name in array.dims and stored_y_ascends(nc):
         axis = list(array.dims).index(name)
@@ -549,7 +593,11 @@ def to_xr(nc: NetCDF, variable: str) -> ParityView:
         gaps = np.flip(gaps, axis)
         if name in coords:
             coords[name] = coords[name][::-1]
-    return ParityView(values, gaps, tuple(array.dims), coords, stored.dtype)
+        if name in decoded_coords:
+            decoded_coords[name] = decoded_coords[name][::-1]
+    return ParityView(
+        values, gaps, tuple(array.dims), coords, stored.dtype, decoded_coords
+    )
 
 
 def from_pyramids(nc: NetCDF, variable: str, values: Any = None) -> ParityView:
@@ -669,12 +717,19 @@ def from_pyramids(nc: NetCDF, variable: str, values: Any = None) -> ParityView:
 
     y_name = y_dimension(nc)
     coords: dict[str, np.ndarray] = {}
+    decoded_coords: dict[str, np.ndarray] = {}
     for name in dims:
         stored_coord = np.asarray(nc.get_dimension_values(name))
+        instants = _decoded_time(nc, name)
         if name == y_name and stored_y_ascends(nc):
             stored_coord = stored_coord[::-1]
+            instants = None if instants is None else instants[::-1]
         coords[name] = stored_coord
-    return ParityView(physical, gaps, dims, coords, np.dtype(handle.dtype[0]))
+        if instants is not None:
+            decoded_coords[name] = instants
+    return ParityView(
+        physical, gaps, dims, coords, np.dtype(handle.dtype[0]), decoded_coords
+    )
 
 
 def assert_parity(
@@ -682,20 +737,30 @@ def assert_parity(
     xr_obj: ParityView,
     *,
     rtol: float = 1e-9,
+    atol: float = 0.0,
     dtype: Any = None,
+    coords: bool = True,
 ) -> None:
     """Assert that a pyramids result and the xarray view agree.
 
-    Checks the four things a parity claim actually rests on, in the order that fails most
-    informatively: the shape, then *where* the gaps are, then the values, then the dtype
-    contract when the caller states one. Each failure names both sides, so the message says
-    which normalisation did not hold rather than only that two arrays differ.
+    Checks everything a parity claim rests on, in the order that fails most informatively: the
+    dimension names, the shape, the coordinates, then *where* the gaps are, then the values,
+    then the dtype contract when the caller states one. Each failure names both sides, so the
+    message says which normalisation did not hold rather than only that two arrays differ.
+
+    The names and coordinates are checked because the values alone cannot see a mislabelled or
+    transposed result: `coards__4v__1d2-2d2__scaleoffset__y-asc.nc::z` is 21x21 and symmetric
+    under transpose, so a swapped axis order compares equal cell for cell.
 
     Args:
         pyr: The pyramids side, from `from_pyramids`.
         xr_obj: The xarray side, from `to_xr`.
-        rtol: Relative tolerance for the value comparison. NaN matches NaN, so the gaps are
-            compared as positions by the mask check and skipped here.
+        rtol: Relative tolerance for the value and coordinate comparisons. NaN matches NaN, so
+            the gaps are compared as positions by the mask check and skipped here.
+        atol: Absolute tolerance, for a result whose values pass through zero — a relative
+            tolerance alone can never be met there.
+        coords: Whether to compare the coordinates. `False` for an operation that deliberately
+            changes them, which must then assert them itself.
         dtype: The dtype the pyramids side must hold, when the operation contracts for one.
             Checked against `ParityView.dtype` — the dtype the file stores — not against the
             float64 `values`. `None` skips the check: a reduction promotes to float64 whatever
@@ -760,10 +825,41 @@ def assert_parity(
         from_pyramids: Builds the `pyr` side.
         to_xr: Builds the `xr_obj` side.
     """
+    assert pyr.dims == xr_obj.dims, (
+        f"the dimension names differ: pyramids {pyr.dims} vs xarray {xr_obj.dims}"
+    )
     assert pyr.values.shape == xr_obj.values.shape, (
         f"shape differs: pyramids {pyr.values.shape} vs xarray {xr_obj.values.shape}"
         f" (dims {pyr.dims} vs {xr_obj.dims})"
     )
+    if coords:
+        assert set(pyr.coords) == set(xr_obj.coords), (
+            f"the coordinate names differ: pyramids {sorted(pyr.coords)} vs xarray "
+            f"{sorted(xr_obj.coords)}"
+        )
+        for name in pyr.coords:
+            # A time axis is compared as instants: `to_xarray` decodes it and
+            # `get_dimension_values` does not, so the stored offsets and the datetimes are the
+            # same axis in two representations. Both decodings are pyramids' own, by different
+            # paths, so agreeing is a real check.
+            np.testing.assert_allclose(
+                np.asarray(pyr.coords[name], dtype="float64"),
+                np.asarray(xr_obj.coords[name], dtype="float64"),
+                rtol=rtol,
+                atol=atol,
+                equal_nan=True,
+                err_msg=f"the {name!r} coordinate differs between the two sides",
+            )
+            # Where both sides decoded the axis, the instants have to agree too. The two
+            # decodings come from different code paths, so this is a real cross-check.
+            if name in pyr.decoded_coords and name in xr_obj.decoded_coords:
+                assert np.array_equal(
+                    pyr.decoded_coords[name], xr_obj.decoded_coords[name]
+                ), (
+                    f"the {name!r} instants differ: pyramids "
+                    f"{pyr.decoded_coords[name][:3]} vs xarray "
+                    f"{xr_obj.decoded_coords[name][:3]}"
+                )
     assert np.array_equal(pyr.gaps, xr_obj.gaps), (
         f"the gap masks differ: pyramids marks {int(pyr.gaps.sum())} cells, "
         f"xarray {int(xr_obj.gaps.sum())}, disagreeing on "
@@ -773,6 +869,7 @@ def assert_parity(
         pyr.values,
         xr_obj.values,
         rtol=rtol,
+        atol=atol,
         equal_nan=True,
         err_msg="the values differ after orientation, packing and gap normalisation",
     )

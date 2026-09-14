@@ -569,3 +569,96 @@ class TestAViewIsItsOwnParity:
         """
         view: ParityView = from_pyramids(_read(name), variable)
         assert_parity(view, view)
+
+
+class TestTheLabelChecks:
+    """`assert_parity` compares the names and the coordinates, not only the numbers (C1)."""
+
+    def test_wrong_dimension_names_fail(self):
+        """A mislabelled result is caught even when every cell matches.
+
+        Test scenario:
+            The values cannot see a naming error at all, and the plan's deliverable for the
+            harness names `dims` among the four things `assert_parity` checks.
+        """
+        nc = _read("cf__5v__1d4-4d1__y-asc.nc")
+        pyr = from_pyramids(nc, "temperature")
+        with pytest.raises(AssertionError, match="dimension names differ"):
+            assert_parity(
+                dataclasses.replace(pyr, dims=("WRONG", "NAMES", "HERE", "TOO")),
+                to_xr(nc, "temperature"),
+            )
+
+    def test_a_transposed_result_fails(self):
+        """A swapped axis order is caught on a grid the value check cannot see it on.
+
+        Test scenario:
+            `z` is 21x21 and symmetric under transpose, so the cells compare equal either way.
+            Only the axis labels distinguish them, which is why they are asserted.
+        """
+        nc = _read("coards__4v__1d2-2d2__scaleoffset__y-asc.nc")
+        pyr = from_pyramids(nc, "z")
+        transposed = dataclasses.replace(
+            pyr,
+            values=pyr.values.T,
+            gaps=pyr.gaps.T,
+            dims=pyr.dims[::-1],
+            coords={name: pyr.coords[name] for name in pyr.dims[::-1]},
+        )
+        with pytest.raises(AssertionError, match="dimension names differ"):
+            assert_parity(transposed, to_xr(nc, "z"))
+
+    def test_a_shifted_coordinate_fails(self):
+        """A result on the right grid but the wrong coordinates is not parity."""
+        nc = _read("cf__5v__1d4-4d1__y-asc.nc")
+        pyr = from_pyramids(nc, "temperature")
+        moved = dict(pyr.coords)
+        moved["lat"] = moved["lat"] + 1.0
+        with pytest.raises(AssertionError, match="'lat' coordinate differs"):
+            assert_parity(
+                dataclasses.replace(pyr, coords=moved), to_xr(nc, "temperature")
+            )
+
+    def test_the_coordinate_check_can_be_waived(self):
+        """`coords=False` is for an operation that deliberately changes them."""
+        nc = _read("cf__5v__1d4-4d1__y-asc.nc")
+        pyr = from_pyramids(nc, "temperature")
+        moved = dict(pyr.coords)
+        moved["lat"] = moved["lat"] + 1.0
+        assert_parity(
+            dataclasses.replace(pyr, coords=moved),
+            to_xr(nc, "temperature"),
+            coords=False,
+        )
+
+    def test_a_missing_coordinate_fails(self):
+        """Dropping a coordinate is a difference, not an omission to tolerate."""
+        nc = _read("cf__5v__1d4-4d1__y-asc.nc")
+        pyr = from_pyramids(nc, "temperature")
+        fewer = {k: v for k, v in pyr.coords.items() if k != "lat"}
+        with pytest.raises(AssertionError, match="coordinate names differ"):
+            assert_parity(
+                dataclasses.replace(pyr, coords=fewer), to_xr(nc, "temperature")
+            )
+
+    def test_the_time_instants_are_cross_checked(self):
+        """Where both sides decode the axis, the instants must agree.
+
+        Test scenario:
+            `get_time_variable` and the interop decoder are different code paths, so their
+            agreeing is a real check rather than a tautology. They do not always both decode —
+            `cf__20v__1d3-3d17__y-desc.nc` is exported as 2002 dates while `get_time_variable`
+            declines it — which is why the stored offsets are what is always compared.
+        """
+        nc = _read("cf__5v__1d4-4d1__y-asc.nc")
+        pyr = from_pyramids(nc, "temperature")
+        assert "time" in pyr.decoded_coords, "pyramids should decode this axis"
+        assert "time" in to_xr(nc, "temperature").decoded_coords
+
+        wrong = dict(pyr.decoded_coords)
+        wrong["time"] = wrong["time"] + np.timedelta64(1, "D")
+        with pytest.raises(AssertionError, match="'time' instants differ"):
+            assert_parity(
+                dataclasses.replace(pyr, decoded_coords=wrong),
+                to_xr(nc, "temperature"),
+            )
