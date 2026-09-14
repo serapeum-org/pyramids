@@ -27,12 +27,13 @@ place, visibly, instead of being re-derived (and re-got-wrong) per test:
    xarray keeps them separate. The pyramids array is reshaped back through
    :func:`~pyramids.netcdf._mdim.unflatten_band_axes` before comparing.
 
-The sentinel mask is taken from the **stored** values on both sides, never from the unpacked
-ones. On a packed variable `read_array()` scales the fill value along with the data, so the
-declared sentinel no longer occurs in the result: on `cf__20v__1d3-3d17__y-desc.nc` the 63072
-cells holding `-32767` come back as `0.0748…`, indistinguishable from a real measurement.
-Masking after unpacking would therefore find no gaps at all and quietly compare fill against
-fill.
+The gaps come from `read_array(masked=True)` on the pyramids side and from the stored values
+on the xarray side. Neither side compares an unpacked value against the declared sentinel:
+`no_data_value` is a **stored** value, and on a packed variable an unpacked read carries the
+fill scaled along with the data — on `cf__20v__1d3-3d17__y-desc.nc` the 63072 cells holding
+`-32767` read back as `0.0864`. That is documented behaviour with two supported routes around
+it (`unpack=False` or `masked=True`), not a trap; the harness takes the masked one because it
+is a single read and cannot drift from whatever the mask rules become.
 """
 
 from __future__ import annotations
@@ -255,16 +256,17 @@ def from_pyramids(nc: NetCDF, variable: str, values: Any = None) -> ParityView:
           ```
     """
     handle = nc.get_variable(variable)
-    scale, offset = _packing(handle)
-    stored = np.asarray(nc.read_array(variable=variable, unpack=False))
-    gaps = _gap_mask(stored, handle.no_data_value[0])
+    # `masked=True` is the supported way to read physical values and keep the gaps
+    # identifiable: it unpacks and masks in one read, so the mask cannot drift from the
+    # packing the way a hand-rolled comparison against `no_data_value` would.
+    masked = nc.read_array(variable=variable, masked=True)
+    gaps = np.ma.getmaskarray(np.ma.asarray(masked))
 
     physical = (
-        np.asarray(nc.read_array(variable=variable), dtype="float64")
+        np.ma.filled(np.ma.asarray(masked).astype("float64"), np.nan)
         if values is None
-        else np.asarray(values, dtype="float64")
+        else np.where(gaps, np.nan, np.asarray(values, dtype="float64"))
     )
-    physical = np.where(gaps, np.nan, physical)
 
     # `_band_dim_names` is the variable's own non-spatial axes in storage order, which is what
     # GDAL flattened; the variable's `dimension_names` is not usable here because a subset
@@ -289,7 +291,7 @@ def from_pyramids(nc: NetCDF, variable: str, values: Any = None) -> ParityView:
         if name == y_name and stored_y_ascends(nc):
             stored_coord = stored_coord[::-1]
         coords[name] = stored_coord
-    return ParityView(physical, gaps, dims, coords, stored.dtype)
+    return ParityView(physical, gaps, dims, coords, np.dtype(handle.dtype[0]))
 
 
 def assert_parity(

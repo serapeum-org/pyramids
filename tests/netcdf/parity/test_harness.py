@@ -212,23 +212,30 @@ class TestTheGapRule:
             "no unmasked cell should be NaN"
         )
 
-    def test_masking_after_unpacking_would_find_nothing(self):
-        """The reason the mask is taken from the stored values, asserted rather than asserted-of.
+    def test_the_declared_sentinel_is_not_matched_against_physical_values(self):
+        """Why the harness reads `masked=True` rather than comparing against `no_data_value`.
 
         Test scenario:
-            `read_array()` scales the fill value along with the data, so on this packed variable
-            the declared `-32767` does not occur anywhere in the unpacked result. A harness that
-            masked afterwards would compare fill against fill and pass.
+            `no_data_value` is a stored value, and an unpacked read carries the fill scaled
+            along with the data, so `arr == no_data_value` finds nothing on a packed variable.
+            `read_array` documents exactly this and offers `unpack=False` or `masked=True`; the
+            harness takes the masked route, and this pins the reason.
         """
         nc = _read("cf__20v__1d3-3d17__y-desc.nc")
         sentinel = nc.get_variable("tcw").no_data_value[0]
         unpacked = np.asarray(nc.read_array(variable="tcw"))
 
         assert int((unpacked == sentinel).sum()) == 0, (
-            "the declared sentinel should not survive unpacking — if it now does, the harness "
-            "can be simplified"
+            "matching a stored sentinel against physical values should find nothing"
         )
         assert int(from_pyramids(nc, "tcw").gaps.sum()) == 63072
+
+    def test_the_mask_matches_the_stored_fill_cells(self):
+        """`masked=True` marks exactly the cells that hold the sentinel before unpacking."""
+        nc = _read("cf__20v__1d3-3d17__y-desc.nc")
+        stored = np.asarray(nc.read_array(variable="tcw", unpack=False))
+        sentinel = nc.get_variable("tcw").no_data_value[0]
+        assert np.array_equal(from_pyramids(nc, "tcw").gaps, stored == sentinel)
 
     def test_a_disagreement_about_the_gaps_fails(self):
         """One extra masked cell on one side must be caught, not averaged away."""
