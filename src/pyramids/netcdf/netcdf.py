@@ -1575,6 +1575,33 @@ def _variable_dtype(variable: NetCDF | LabeledArray) -> str:
 
     Returns:
         str: The numpy dtype name, `"unknown"` for a subset reporting no bands.
+
+    Examples:
+        - A raster variable reports one name, not the per-band list it carries:
+
+          ```python
+          >>> from pyramids.netcdf import NetCDF
+          >>> from pyramids.netcdf.netcdf import _variable_dtype
+          >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+          >>> len(nc["temperature"].dtype)
+          12
+          >>> _variable_dtype(nc["temperature"])
+          'float64'
+
+          ```
+        - A `LabeledArray` is read from the array it holds:
+
+          ```python
+          >>> from pyramids.netcdf import NetCDF
+          >>> from pyramids.netcdf.netcdf import _variable_dtype
+          >>> nc = NetCDF.read_file("tests/data/netcdf/ugrid__6v__1d5-2d1.nc")
+          >>> _variable_dtype(nc["n_nodes_per_face"])
+          'int64'
+
+          ```
+
+    See Also:
+        _variable_nbytes: Sizes a variable using this.
     """
     if isinstance(variable, LabeledArray):
         name = str(np.asarray(variable.values).dtype)
@@ -1597,6 +1624,36 @@ def _variable_nbytes(variable: NetCDF | LabeledArray) -> int:
 
     Returns:
         int: The byte count.
+
+    Examples:
+        - A 12-band 5x6 float64 cube is 2880 bytes, and nothing is read to say so:
+
+          ```python
+          >>> from pyramids.netcdf import NetCDF
+          >>> from pyramids.netcdf.netcdf import _variable_nbytes
+          >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+          >>> variable = nc["temperature"]
+          >>> variable.band_count, variable.rows, variable.columns
+          (12, 5, 6)
+          >>> _variable_nbytes(variable)
+          2880
+
+          ```
+        - A `LabeledArray` is sized from the array it already holds:
+
+          ```python
+          >>> from pyramids.netcdf import NetCDF
+          >>> from pyramids.netcdf.netcdf import _variable_nbytes
+          >>> nc = NetCDF.read_file("tests/data/netcdf/ugrid__6v__1d5-2d1.nc")
+          >>> nc["node_lon"].values.shape
+          (16,)
+          >>> _variable_nbytes(nc["node_lon"])
+          64
+
+          ```
+
+    See Also:
+        _variable_dtype: Where the item size comes from.
     """
     if isinstance(variable, LabeledArray):
         size = int(np.asarray(variable.values).nbytes)
@@ -2930,18 +2987,28 @@ class NetCDF(Dataset):
             list[str]: The data-variable names, in store order.
 
         Examples:
-            - The alias and its canonical member are the same list:
+            - Read the names off a multi-variable store:
 
               ```python
               >>> from pyramids.netcdf import NetCDF
-              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
-              >>> nc.data_vars == nc.variable_names
-              True
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+              >>> nc.data_vars
+              ['area', 'msk_rgn', 'pr', 'tas', 'ua']
+
+              ```
+            - Use them to reach the variables, as the xarray spelling suggests:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+              >>> [nc[name].band_count for name in nc.data_vars]
+              [1, 1, 1, 1, 17]
 
               ```
 
         See Also:
             NetCDF.variable_names: The canonical member.
+            NetCDF.dtypes: The same names, mapped to their types.
         """
         return self.variable_names
 
@@ -2999,18 +3066,28 @@ class NetCDF(Dataset):
             dict[str, int]: Dimension name to its length.
 
         Examples:
-            - `sizes` and `dims` are the same mapping, as they are in xarray:
+            - Look up one axis's length:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+              >>> nc.sizes["plev"], nc.sizes["lat"]
+              (17, 128)
+
+              ```
+            - Size the grid a variable is defined on:
 
               ```python
               >>> from pyramids.netcdf import NetCDF
               >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
-              >>> nc.sizes == nc.dims == nc.dimension_sizes
-              True
+              >>> nc.sizes["lat"] * nc.sizes["lon"]
+              30
 
               ```
 
         See Also:
             NetCDF.dimension_sizes: The canonical member.
+            NetCDF.dims: The same mapping, under xarray's other name for it.
         """
         return self.dimension_sizes
 
@@ -3022,12 +3099,23 @@ class NetCDF(Dataset):
             dict[str, Any]: The root group's attributes.
 
         Examples:
-            - The alias reads the same attributes:
+            - Read the root group's attributes:
 
               ```python
               >>> from pyramids.netcdf import NetCDF
               >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
-              >>> nc.attrs == nc.global_attributes
+              >>> nc.attrs
+              {'Conventions': 'CF-1.6'}
+
+              ```
+            - Ask a busier store which convention it follows:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+              >>> nc.attrs["Conventions"]
+              'CF-1.0'
+              >>> len(nc.attrs) > 10
               True
 
               ```
@@ -3059,16 +3147,33 @@ class NetCDF(Dataset):
             dict[str, numpy.ndarray]: Dimension name to its stored coordinate.
 
         Examples:
-            - Each entry is what `get_dimension_values` returns:
+            - Read the axes the store actually indexes:
 
               ```python
-              >>> import numpy as np
               >>> from pyramids.netcdf import NetCDF
               >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
-              >>> bool(np.array_equal(nc.coords["lat"], nc.get_dimension_values("lat")))
-              True
-              >>> nc.coords["time"].tolist()
-              [0.0, 6.0, 12.0, 18.0]
+              >>> sorted(nc.coords)
+              ['lat', 'lon', 'pressure_level', 'time']
+              >>> nc.coords["lat"].tolist()
+              [40.0, 41.0, 42.0, 43.0, 44.0]
+
+              ```
+            - Find which index a label sits at, which is what the mapping is for:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> nc.coords["pressure_level"].tolist().index(850.0)
+              1
+
+              ```
+            - A dimension with no indexing variable is absent, not `None`:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+              >>> "bnds" in nc.dims, "bnds" in nc.coords
+              (True, False)
 
               ```
 
@@ -3099,14 +3204,24 @@ class NetCDF(Dataset):
 
               ```python
               >>> from pyramids.netcdf import NetCDF
-              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
-              >>> nc.dtypes
-              {'temperature': 'float64'}
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+              >>> nc.dtypes["ua"], nc.dtypes["msk_rgn"]
+              ('float32', 'int32')
+
+              ```
+            - Pick out the variables that are not floating point:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+              >>> [name for name, kind in nc.dtypes.items() if "int" in kind]
+              ['msk_rgn']
 
               ```
 
         See Also:
             NetCDF.nbytes: Sized from these dtypes and the dimension lengths.
+            NetCDF.data_vars: The names these are keyed by.
         """
         return {name: _variable_dtype(self[name]) for name in self.variable_names}
 
@@ -3126,18 +3241,28 @@ class NetCDF(Dataset):
             int: The total, `0` for a container with no data variables.
 
         Examples:
-            - A 12-band 5x6 float64 cube:
+            - A 12-band 5x6 float64 cube is 2880 bytes:
 
               ```python
               >>> from pyramids.netcdf import NetCDF
               >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
-              >>> nc.nbytes == 12 * 5 * 6 * 8
-              True
+              >>> nc.nbytes
+              2880
+
+              ```
+            - Decide whether a store is worth reading, without reading it:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+              >>> round(nc.nbytes / 1024**2, 2)
+              2.62
 
               ```
 
         See Also:
             NetCDF.dtypes: The types this sizes from.
+            NetCDF.dims: The lengths it sizes over.
         """
         return sum(_variable_nbytes(self[name]) for name in self.variable_names)
 
@@ -3148,7 +3273,8 @@ class NetCDF(Dataset):
             buf: Where to write. Defaults to `sys.stdout`, matching xarray's `info`.
 
         Examples:
-            - The summary names every dimension and every variable:
+            - The whole summary of a small store. The real output indents with tabs, as
+              `ncdump -h` does; they are expanded here so the example reads:
 
               ```python
               >>> import io
@@ -3156,16 +3282,37 @@ class NetCDF(Dataset):
               >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
               >>> report = io.StringIO()
               >>> nc.info(report)
-              >>> text = report.getvalue()
-              >>> all(name in text for name in nc.dimension_names)
-              True
-              >>> "temperature" in text
-              True
+              >>> print(report.getvalue().expandtabs(4), end="")
+              pyramids.NetCDF {
+              dimensions:
+                  time = 4 ;
+                  pressure_level = 3 ;
+                  lat = 5 ;
+                  lon = 6 ;
+              variables:
+                  float64 temperature(time, pressure_level, lat, lon) ;
+              <BLANKLINE>
+              // global attributes:
+                  :Conventions = 'CF-1.6' ;
+              }
+
+              ```
+            - Capture it instead of printing, to search or log it:
+
+              ```python
+              >>> import io
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+              >>> report = io.StringIO()
+              >>> nc.info(report)
+              >>> [line.strip() for line in report.getvalue().splitlines() if "ua(" in line]
+              ['float32 ua(time, plev, lat, lon) ;']
 
               ```
 
         See Also:
             NetCDF.dtypes: The per-variable types this prints.
+            NetCDF.dims: The dimension lengths it prints.
         """
         stream = sys.stdout if buf is None else buf
         rg = self._working_group()
@@ -3205,6 +3352,27 @@ class NetCDF(Dataset):
               'absent'
 
               ```
+            - A hit returns the variable, so it can be used straight away:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> nc.get("temperature").band_count
+              12
+
+              ```
+            - With no default, a miss is `None` — enough to branch on:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> nc.get("nope") is None
+              True
+
+              ```
+
+        See Also:
+            NetCDF.__getitem__: The same lookup, raising `KeyError` on a miss.
         """
         return self.variables.get(name, default)
 
@@ -3265,7 +3433,8 @@ class NetCDF(Dataset):
             bool: `True` when :attr:`variable_names` lists it.
 
         Examples:
-            - Membership follows `variable_names`, not the store's whole array list:
+            - Membership follows `variable_names`, not the store's whole array list —
+              `lat` is a dimension coordinate, so it is readable but not a member:
 
               ```python
               >>> from pyramids.netcdf import NetCDF
@@ -3274,6 +3443,19 @@ class NetCDF(Dataset):
               (True, False, False)
 
               ```
+            - Guard a lookup with it, which is what the protocol is for:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+              >>> [name for name in ("tas", "rsds", "pr") if name in nc]
+              ['tas', 'pr']
+
+              ```
+
+        See Also:
+            NetCDF.variable_names: What membership is decided against.
+            NetCDF.get_variable: Reads the arrays this reports as absent.
         """
         return name in self.variables
 
@@ -3290,15 +3472,30 @@ class NetCDF(Dataset):
             str: Each data-variable name.
 
         Examples:
-            - Iteration and `variable_names` are the same list:
+            - Iterating yields the names, in store order:
 
               ```python
               >>> from pyramids.netcdf import NetCDF
               >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
-              >>> list(nc) == nc.variable_names
-              True
+              >>> list(nc)
+              ['area', 'msk_rgn', 'pr', 'tas', 'ua']
 
               ```
+            - A dimension coordinate is not among them, which is the whole choice:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> list(nc)
+              ['temperature']
+              >>> sorted(nc.dims)
+              ['lat', 'lon', 'pressure_level', 'time']
+
+              ```
+
+        See Also:
+            NetCDF.variable_names: The list this yields from.
+            NetCDF.dims: The dimensions, which iteration deliberately skips.
         """
         return iter(self.variables)
 
@@ -3309,15 +3506,27 @@ class NetCDF(Dataset):
             int: `len(variable_names)`. Reads no data.
 
         Examples:
-            - The count matches the names:
+            - Count what the store offers:
 
               ```python
               >>> from pyramids.netcdf import NetCDF
               >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
-              >>> len(nc) == len(nc.variable_names)
-              True
+              >>> len(nc)
+              5
 
               ```
+            - A store with one variable counts one, though it declares four dimensions:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> len(nc), len(nc.dims)
+              (1, 4)
+
+              ```
+
+        See Also:
+            NetCDF.variable_names: What is counted.
         """
         return len(self.variables)
 
@@ -3337,6 +3546,21 @@ class NetCDF(Dataset):
               ['temperature']
 
               ```
+            - Being a list, it can be reordered without disturbing the container:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+              >>> sorted(nc.keys(), reverse=True)
+              ['ua', 'tas', 'pr', 'msk_rgn', 'area']
+              >>> nc.variable_names
+              ['area', 'msk_rgn', 'pr', 'tas', 'ua']
+
+              ```
+
+        See Also:
+            NetCDF.variable_names: The canonical list.
+            NetCDF.items: The same names, paired with their variables.
         """
         return self.variables.keys()
 
@@ -3347,15 +3571,28 @@ class NetCDF(Dataset):
             list: A `NetCDF` per raster variable, a `LabeledArray` for the rest.
 
         Examples:
-            - One entry per name:
+            - Each entry is the variable itself, so its properties are to hand:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+              >>> [variable.band_count for variable in nc.values()]
+              [1, 1, 1, 1, 17]
+
+              ```
+            - Reduce over them, which is what having the objects is for:
 
               ```python
               >>> from pyramids.netcdf import NetCDF
               >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
-              >>> len(nc.values()) == len(nc)
-              True
+              >>> max(variable.rows for variable in nc.values())
+              5
 
               ```
+
+        See Also:
+            NetCDF.items: The same variables, paired with their names.
+            NetCDF.keys: The names alone, which reads nothing.
         """
         return self.variables.values()
 
@@ -3370,11 +3607,24 @@ class NetCDF(Dataset):
 
               ```python
               >>> from pyramids.netcdf import NetCDF
-              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
-              >>> [name for name, _ in nc.items()]
-              ['temperature']
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+              >>> [(name, variable.band_count) for name, variable in nc.items()]
+              [('area', 1), ('msk_rgn', 1), ('pr', 1), ('tas', 1), ('ua', 17)]
 
               ```
+            - Filter on a property of the variable rather than on its name:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+              >>> [name for name, variable in nc.items() if variable.band_count > 1]
+              ['ua']
+
+              ```
+
+        See Also:
+            NetCDF.keys: The names alone, which reads nothing.
+            NetCDF.values: The variables alone.
         """
         return self.variables.items()
 
