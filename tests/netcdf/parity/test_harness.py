@@ -28,21 +28,22 @@ from tests.netcdf.parity._harness import (
     to_xr,
     y_dimension,
 )
+from tests.netcdf.parity.conftest import (
+    NAN_SENTINEL,
+    PARITY_FIXTURES,
+    WITHOUT_Y,
+    open_fixture,
+)
 
 pytestmark = pytest.mark.interop
 
-# Every fixture the harness is expected to handle, with the variable to compare and the two
-# properties that decide which normalisations fire.
+# Flattened from the shared catalogue rather than restated: `conftest` records which stores the
+# parity suite uses and why, and every later task parametrizes over the same table.
 FIXTURES = [
-    ("cf__5v__1d4-4d1__y-asc.nc", "temperature", True, False),
-    ("coards__5v__1d4-4d1__y-desc.nc", "rhum", False, True),
-    ("cf__5v__1d4-4d1__geog__y-desc.nc", "t", False, False),
-    ("coards__4v__1d2-2d2__scaleoffset__y-asc.nc", "z", True, True),
-    ("cf__20v__1d3-3d17__y-desc.nc", "tcw", False, True),
+    (case.path, case.variable, case.y_ascends, case.packed) for case in PARITY_FIXTURES
 ]
-FIXTURE_IDS = [
-    name.split("__")[0] + "-" + variable for name, variable, _, _ in FIXTURES
-]
+FIXTURE_IDS = [case.id for case in PARITY_FIXTURES]
+WITHOUT_Y_IDS = ["time-series", "curvilinear"]
 
 
 def _read(name: str) -> NetCDF:
@@ -54,13 +55,7 @@ def _read(name: str) -> NetCDF:
     Returns:
         NetCDF: The opened container.
     """
-    return NetCDF.read_file(f"tests/data/netcdf/{name}")
-
-
-# Containers that declare no y dimension at all: a one-dimensional time series with no spatial
-# axis, and a curvilinear file whose horizontal axes are spelled `eta_rho` / `xi_rho`.
-WITHOUT_Y = ["none__11v__1d11.nc", "cf__8v__1d3-2d3-3d1-4d1__curv-stag.nc"]
-WITHOUT_Y_IDS = ["time-series", "curvilinear"]
+    return open_fixture(name)
 
 
 class OnlyDimensions:
@@ -390,7 +385,7 @@ class TestTheGapRule:
             branch. It holds no `NaN` cell, so both sides must report no gaps at all and still
             agree on every value.
         """
-        nc = _read("cf__5v__1d4-3d1__geog__y-desc.nc")
+        nc = NAN_SENTINEL.open()
         assert np.isnan(nc.get_variable("t2m").no_data_value[0]), (
             "the fixture is here because its declared fill is NaN"
         )
