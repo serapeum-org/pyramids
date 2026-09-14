@@ -1790,7 +1790,7 @@ class NetCDF(Dataset):
             self._is_md_array = False
             self._is_subset = False
         # Caches (invalidated by _replace_raster, add_variable, remove_variable)
-        self._cached_variables: dict[str, NetCDF | LabeledArray] | None = None
+        self._cached_variables: _LazyVariableDict | None = None
         self._cached_meta_data: NetCDFMetadata | None = None
         # Memoised `geotransform`; see that property. Cleared wherever
         # `_geotransform` is reassigned, so the two cannot disagree.
@@ -3629,7 +3629,7 @@ class NetCDF(Dataset):
         return self.variables.items()
 
     @property
-    def variables(self) -> dict[str, NetCDF | LabeledArray]:
+    def variables(self) -> _LazyVariableDict:
         """All data variables as a lazy dict of `{name: subset}`.
 
         Variables are loaded on first access per key, not all at once.
