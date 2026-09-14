@@ -117,9 +117,19 @@ class TestRootContainer:
             coards_nc._read_variable("time"),
             err_msg="the accessor should hand back the stored coordinate variable",
         )
-        assert coards_nc.get_time_variable("time") is None, (
-            "this fixture's units do not parse — the raw offsets are all there is"
-        )
+
+    def test_the_same_axis_also_decodes_to_labels(self, coards_nc):
+        """`get_dimension_values` stays stored while `get_time_variable` decodes (#1140).
+
+        Test scenario:
+            This asserted `get_time_variable("time") is None` — "this fixture's units do not
+            parse". They do: `hours since 1-1-1 00:00:0.0` only looked unparseable because the
+            seconds field was left a single digit. The two accessors answering differently is
+            the point of having both, so that is what is pinned now.
+        """
+        stamps = coards_nc.get_time_variable("time")
+        assert stamps is not None, "the axis decodes since #1140"
+        assert len(stamps) == len(coards_nc.get_dimension_values("time"))
 
 
 class TestVariableSubset:

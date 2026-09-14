@@ -1461,9 +1461,13 @@ def _undecodable_label_hint(
     """Explain a failed label match on an axis whose CF values would not decode.
 
     Without this the caller sees the stored offsets and no reason why their label found
-    nothing — the axis *does* declare ``units``, so "it is not a time axis" would be the
-    wrong conclusion to draw. One coordinate is probed, not the whole axis, and only on
-    the failure path.
+    nothing — the axis *does* declare `units`, so "it is not a time axis" would be the
+    wrong conclusion to draw.
+
+    Two probes, both only on the failure path. The first coordinate answers "is this a time
+    axis at all", so an axis with no CF `units` gets no hint; the whole axis answers "was
+    the caller shown stored numbers", because an axis that decodes end to end was shown
+    dates and this sentence would contradict the list above it.
 
     Args:
         nc: The variable subset being selected.
@@ -1472,24 +1476,149 @@ def _undecodable_label_hint(
         selector: The selector that matched nothing.
 
     Returns:
-        str: A trailing sentence for the error, or ``""`` when the axis simply has no
-            CF ``units`` (in which case the stored values are the whole story).
+        str: A trailing sentence for the error, or `""` when the axis simply has no
+            CF `units` (in which case the stored values are the whole story), and when the
+            axis decodes end to end (in which case the caller was shown dates, not stored
+            values, and the sentence would contradict them).
+
+    Examples:
+        - An axis that decodes end to end gets no hint, because the values the caller was
+          shown are already dates:
+            ```python
+            >>> from pyramids.netcdf.netcdf import NetCDF
+            >>> from pyramids.netcdf.engines.selection import _undecodable_label_hint
+            >>> nc = NetCDF.read_file(
+            ...     "tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc"
+            ... )
+            >>> coords = [0.0, 6.0, 12.0, 18.0]
+            >>> _undecodable_label_hint(nc, "time", coords, "1800-01-01")
+            ''
+
+            ```
+
+        - A value the converter cannot handle leaves the axis undecodable, and the caller
+          is told why their label matched nothing:
+            ```python
+            >>> from pyramids.netcdf.netcdf import NetCDF
+            >>> from pyramids.netcdf.engines.selection import _undecodable_label_hint
+            >>> nc = NetCDF.read_file(
+            ...     "tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc"
+            ... )
+            >>> hint = _undecodable_label_hint(
+            ...     nc, "time", [float("nan")], "1800-01-01"
+            ... )
+            >>> hint[:52]
+            " The 'time' axis declares CF units, but a coordinate"
+
+            ```
+
+        - A non-temporal axis gets no hint either, since its stored values are the whole
+          story:
+            ```python
+            >>> from pyramids.netcdf.netcdf import NetCDF
+            >>> from pyramids.netcdf.engines.selection import _undecodable_label_hint
+            >>> nc = NetCDF.read_file(
+            ...     "tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc"
+            ... )
+            >>> _undecodable_label_hint(
+            ...     nc, "pressure_level", [1000.0, 850.0, 500.0], "1800-01-01"
+            ... )
+            ''
+
+            ```
+
+    See Also:
+        _decodes: Answers each of the two probes.
     """
     hint = ""
     if has_label(selector) and coords:
-        try:
-            decodes = (
-                nc._decode_time_labels(dim_name, coords[:1], FULL_FORMAT) is not None
-            )
-        except Exception:
-            decodes = True
-        if decodes:
+        # Two questions, not one. The first value answers "is this a time axis at all" — an
+        # axis with no CF units decodes nothing and gets no hint. The whole axis answers
+        # "was the caller shown stored numbers": if every value decodes, the vocabulary in
+        # the message is dates and the hint would contradict it. Probing only the first
+        # value conflated the two, so once an axis started decoding (#1140) the message read
+        # "could not be decoded ... these are its stored values" above a list of dates.
+        looks_temporal = _decodes(nc, dim_name, coords[:1], on_error=True)
+        shown_as_stored = not _decodes(nc, dim_name, coords, on_error=False)
+        if looks_temporal and shown_as_stored:
             hint = (
                 f" The {dim_name!r} axis declares CF units, but a coordinate value could"
                 " not be decoded, so it has no labels to match — these are its stored"
                 " values."
             )
     return hint
+
+
+def _decodes(nc: NetCDF, dim_name: str, coords: Any, *, on_error: bool) -> bool:
+    """Whether `coords` decode to time labels on `dim_name`.
+
+    Never raises: a decode that blows up is reported as `on_error`, so a probe on the error
+    path cannot itself become the error the caller sees.
+
+    Args:
+        nc: The cube the dimension belongs to.
+        dim_name: The band dimension's name.
+        coords: The stored values to try.
+        on_error: The answer when the decode *raises*, which the two probes in
+            `_undecodable_label_hint` read differently. The probe asking whether the axis is
+            temporal passes `True`, so a raise counts as "a time axis that failed"; the one
+            asking whether the caller was shown stored numbers passes `False`, so the same
+            raise counts as "not fully decoded" and the hint is kept.
+
+    Returns:
+        `True` when every value decodes, `False` when the axis has no parseable CF `units`,
+        and `on_error` when the decode raised.
+
+    Examples:
+        - A CF time axis decodes, so both answers agree and `on_error` never comes up:
+            ```python
+            >>> from pyramids.netcdf.netcdf import NetCDF
+            >>> from pyramids.netcdf.engines.selection import _decodes
+            >>> nc = NetCDF.read_file(
+            ...     "tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc"
+            ... )
+            >>> _decodes(nc, "time", [0.0, 6.0], on_error=True)
+            True
+            >>> _decodes(nc, "time", [0.0, 6.0], on_error=False)
+            True
+
+            ```
+
+        - A non-temporal axis has no CF `units` to decode with, which is a `False` of its
+          own rather than an error:
+            ```python
+            >>> from pyramids.netcdf.netcdf import NetCDF
+            >>> from pyramids.netcdf.engines.selection import _decodes
+            >>> nc = NetCDF.read_file(
+            ...     "tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc"
+            ... )
+            >>> _decodes(nc, "pressure_level", [1000.0], on_error=True)
+            False
+
+            ```
+
+        - A value the converter chokes on is where the two answers part company:
+            ```python
+            >>> from pyramids.netcdf.netcdf import NetCDF
+            >>> from pyramids.netcdf.engines.selection import _decodes
+            >>> nc = NetCDF.read_file(
+            ...     "tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc"
+            ... )
+            >>> _decodes(nc, "time", [float("nan")], on_error=True)
+            True
+            >>> _decodes(nc, "time", [float("nan")], on_error=False)
+            False
+
+            ```
+
+    See Also:
+        _undecodable_label_hint: The caller, which probes twice with opposite `on_error`.
+    """
+    try:
+        decoded = nc._decode_time_labels(dim_name, coords, FULL_FORMAT) is not None
+    except Exception:
+        decoded = on_error
+    return decoded
 
 
 def _probe_label_format(

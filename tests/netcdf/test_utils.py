@@ -11,9 +11,11 @@ from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock, PropertyMock
 
+import cftime
 import numpy as np
 import pytest
 
+from pyramids.netcdf.netcdf import NetCDF
 from pyramids.netcdf.utils import (
     _dtype_to_str,
     _export_srs,
@@ -27,6 +29,7 @@ from pyramids.netcdf.utils import (
     _get_root_group,
     _normalize_attr_value,
     _normalize_origin_string,
+    _origin_precedes_reform,
     _parse_units_origin,
     _read_attribute_value,
     _read_attributes,
@@ -589,11 +592,40 @@ class TestNormalizeOriginString:
         )
 
     def test_fractional_seconds(self):
-        """Fractional seconds are preserved."""
+        """Fractional seconds are preserved, and the whole part is still padded.
+
+        Test scenario:
+            This asserted `00:00:0.5` until #1140. `zfill(2)` is a no-op on a three-character
+            field like `"0.5"`, so the seconds stayed one digit and neither
+            `datetime.fromisoformat` nor the `%S` fallback would parse the result — which is
+            what made `get_time_variable` answer `None` for an axis `to_xarray` decodes.
+        """
         result = _normalize_origin_string("2000-1-1 0:0:0.5")
-        assert result == "2000-01-01 00:00:0.5", (
-            "Fractional seconds should be preserved"
+        assert result == "2000-01-01 00:00:00.5", (
+            "Fractional seconds should be preserved with the whole part padded"
         )
+
+    def test_a_whole_second_fraction_is_padded(self):
+        """`00:00:0.0` is how NCEP and the ERA family write a whole-second origin.
+
+        Test scenario:
+            Two of the repo's own fixtures carry exactly this and decoded to `None` before
+            #1140.
+        """
+        result = _normalize_origin_string("1900-01-01 00:00:0.0")
+        assert result == "1900-01-01 00:00:00.0", f"got {result}"
+
+    def test_the_padded_result_parses(self):
+        """The point of the padding: both parsers accept what comes out.
+
+        Test scenario:
+            The normaliser's contract is to produce something `_parse_units_origin` can read,
+            so asserting the string alone would not have caught the defect.
+        """
+        parsed = datetime.fromisoformat(
+            _normalize_origin_string("1900-01-01 00:00:0.0")
+        )
+        assert (parsed.year, parsed.month, parsed.second) == (1900, 1, 0)
 
     def test_whitespace_stripped(self):
         """Leading/trailing whitespace is stripped."""
@@ -1073,4 +1105,155 @@ class TestReadAttributes:
         )
         assert result["explosive_attr"] is None, (
             "Value should be normalized None from the except branch"
+        )
+
+
+class TestTheTwoTimeDecodersAgree:
+    """`get_time_variable` and `to_xarray` must answer the same question the same way (#1140)."""
+
+    @pytest.mark.parametrize(
+        ("fixture", "dimension", "first"),
+        [
+            ("cf__20v__1d3-3d17__y-desc.nc", "time", "2002-07-01 12:00:00"),
+            ("none__4v__1d3-3d1__geog__y-asc.nc", "t", "1979-01-01 00:00:00"),
+        ],
+        ids=["single-digit-seconds", "padded-seconds"],
+    )
+    def test_an_origin_with_fractional_seconds_decodes(self, fixture, dimension, first):
+        """An origin written `00:00:0.0` decodes, as the padded spelling always did.
+
+        Args:
+            fixture: The store to read.
+            dimension: Its time dimension's name.
+            first: The first timestamp the axis must decode to.
+
+        Test scenario:
+            `zfill(2)` left a three-character `"0.0"` untouched, so the origin stayed
+            `1900-01-01 00:00:0.0` — which neither `fromisoformat` nor `%S` accepts. The
+            parse raised, and `get_time_variable`'s `except Exception` turned that into a
+            `None` meaning "not a time dimension".
+        """
+        nc = NetCDF.read_file(f"tests/data/netcdf/{fixture}")
+        stamps = nc.get_time_variable(dimension, "%Y-%m-%d %H:%M:%S")
+        assert stamps is not None, (
+            "the axis should decode, not report as a non-time axis"
+        )
+        assert stamps[0] == first, f"got {stamps[0]}"
+
+    def test_it_agrees_with_the_interop_decoder(self):
+        """The two paths return the same instants for the axis that used to split them."""
+        nc = NetCDF.read_file("tests/data/netcdf/cf__20v__1d3-3d17__y-desc.nc")
+        stamps = nc.get_time_variable("time", "%Y-%m-%d %H:%M:%S")
+        exported = nc.to_xarray().coords["time"].values
+
+        assert np.array_equal(
+            np.asarray(stamps, dtype="datetime64[s]").astype("datetime64[ns]"),
+            np.asarray(exported).astype("datetime64[ns]"),
+        ), "the two decoders should agree on every instant"
+
+    def test_a_non_time_axis_still_reports_none(self):
+        """The `None` contract for a genuinely non-temporal dimension is unchanged.
+
+        Test scenario:
+            The fix must not turn `degrees_north` into a date; `None` still means "not a time
+            dimension", it just no longer also means "I could not parse the origin".
+        """
+        nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+        assert nc.get_time_variable("lat", "%Y-%m-%d %H:%M:%S") is None
+
+
+class TestThePreReformCalendar:
+    """A `standard` axis before 1582 is Julian, not proleptic Gregorian (#1140)."""
+
+    @pytest.mark.parametrize(
+        ("calendar", "expected"),
+        [
+            ("standard", "2003-01-01 00:00:00"),
+            ("gregorian", "2003-01-01 00:00:00"),
+            ("proleptic_gregorian", "2003-01-03 00:00:00"),
+        ],
+    )
+    def test_the_calendar_decides_the_date(self, calendar, expected):
+        """The same offset and origin give different dates per calendar, and we must match.
+
+        Args:
+            calendar: The CF calendar to decode under.
+            expected: The date `cftime` gives for it.
+
+        Test scenario:
+            Python's `datetime` is proleptic Gregorian, so using it for a `standard` axis
+            with a year-1 origin lands two days late — the Julian/Gregorian divergence. CF's
+            default when no `calendar` attribute is present is `standard`, so that is the
+            common case, not an exotic one.
+        """
+        convert = create_time_conversion_func(
+            "hours since 1-1-1 00:00:0.0", "%Y-%m-%d %H:%M:%S", calendar=calendar
+        )
+        assert convert(17549208) == expected, f"got {convert(17549208)}"
+
+    def test_it_agrees_with_cftime(self):
+        """The reference implementation, asserted directly rather than by a hardcoded date."""
+        units = "hours since 1-1-1 00:00:0.0"
+        convert = create_time_conversion_func(
+            units, "%Y-%m-%d %H:%M:%S", calendar="standard"
+        )
+        for offset in (17549208, 17549232, 17549256):
+            assert convert(offset) == cftime.num2date(
+                offset, units, "standard"
+            ).strftime("%Y-%m-%d %H:%M:%S")
+
+    def test_a_modern_origin_keeps_the_fast_path(self):
+        """A post-reform origin is unaffected, and still decodes correctly.
+
+        Test scenario:
+            The `datetime` path is kept for every realistic store; only a pre-1582 origin
+            pays for `cftime`.
+        """
+        units = "hours since 1900-01-01 00:00:0.0"
+        assert not _origin_precedes_reform(units)
+        convert = create_time_conversion_func(
+            units, "%Y-%m-%d %H:%M:%S", calendar="standard"
+        )
+        assert convert(898476) == cftime.num2date(898476, units, "standard").strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+
+    def test_the_reform_boundary_is_where_it_should_be(self):
+        """1582-10-15 is the cutover: before it Julian, from it Gregorian."""
+        assert _origin_precedes_reform("days since 1582-10-14")
+        assert not _origin_precedes_reform("days since 1582-10-15")
+
+
+class TestTheCoardsAxisDecodesCorrectly:
+    """The store where the two decoders take different routes (#1140, round-2 M1)."""
+
+    def test_pyramids_decodes_it_and_matches_cftime(self):
+        """`get_time_variable` decodes the pre-1582 origin, and gets the mixed calendar right.
+
+        Test scenario:
+            This is the axis the padding fix made reachable and the calendar fix made correct.
+            Asserting against `cftime` rather than a literal keeps it honest.
+        """
+        nc = NetCDF.read_file("tests/data/netcdf/coards__5v__1d4-4d1__y-desc.nc")
+        stamps = nc.get_time_variable("time", "%Y-%m-%d %H:%M:%S")
+        units = "hours since 1-1-1 00:00:0.0"
+        stored = nc.get_dimension_values("time")
+
+        assert stamps is not None
+        assert stamps[0] == cftime.num2date(stored[0], units, "standard").strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+
+    def test_the_bridge_declines_the_same_axis_deliberately(self):
+        """`to_xarray` leaves it as offsets because it could not write the result back.
+
+        Test scenario:
+            The two decoders disagreeing about *whether* to decode is by design — a pre-1582
+            origin decodes to `cftime` objects GDAL has no band type for — and is not the same
+            thing as disagreeing about the dates, which is what #1140 was.
+        """
+        nc = NetCDF.read_file("tests/data/netcdf/coards__5v__1d4-4d1__y-desc.nc")
+        exported = nc.to_xarray().coords["time"]
+        assert not np.issubdtype(exported.dtype, np.datetime64), (
+            "the bridge should hand back the stored offsets for this axis"
         )
