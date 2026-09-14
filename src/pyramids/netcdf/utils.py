@@ -371,6 +371,12 @@ def _normalize_origin_string(origin: str) -> str:
     `"0001-01-01 00:00:00"` that `datetime.fromisoformat`
     can parse.
 
+    Only the *integer* part of the seconds field is padded, and any fraction
+    is carried through untouched. An origin written `"00:00:0.0"` — how the
+    NCEP and ERA families spell a whole-second origin — therefore normalizes
+    to `"00:00:00.0"` instead of keeping a one-digit seconds field, which
+    neither `datetime.fromisoformat` nor a `"%S"` parse accepts.
+
     Args:
         origin: A date or datetime string from a CF `units`
             attribute. May use `T` or space as the
@@ -404,6 +410,19 @@ def _normalize_origin_string(origin: str) -> str:
             ```python
             >>> _normalize_origin_string("2000-6-15")
             '2000-06-15 00:00:00'
+
+            ```
+
+        - Pad the seconds of a fractional origin, keeping the fraction, so
+          the result parses:
+            ```python
+            >>> from datetime import datetime
+            >>> _normalize_origin_string("1900-01-01 00:00:0.0")
+            '1900-01-01 00:00:00.0'
+            >>> datetime.fromisoformat(
+            ...     _normalize_origin_string("1900-01-01 00:00:0.0")
+            ... )
+            datetime.datetime(1900, 1, 1, 0, 0)
 
             ```
     """
@@ -560,21 +579,24 @@ def _ns_per_cf_unit(unit: str) -> int | None:
     )
 
 
-#: The Gregorian reform. Before this instant a `standard` CF calendar is Julian, which
-#: Python's proleptic `datetime` cannot represent.
+#: The first day of the Gregorian calendar. CF's `standard` / `gregorian` calendar is Julian
+#: before it, while Python's `datetime` is proleptic Gregorian throughout, so below this instant
+#: the two put the same offset on different dates — ten days apart at the cutover, and further
+#: apart the earlier the origin sits.
 _GREGORIAN_REFORM = datetime(1582, 10, 15)
 
 
 def _origin_precedes_reform(units: str) -> bool:
-    """Whether a CF ``units`` origin falls before the 1582 Gregorian reform.
+    """Whether a CF `units` origin falls before the 1582 Gregorian reform.
 
     Args:
         units: The CF time units, e.g. `"hours since 1-1-1 00:00:0.0"`.
 
     Returns:
-        `True` when the origin is earlier than 1582-10-15, so `standard` calendar arithmetic
-        has to go through `cftime` rather than `datetime`. `False` when the origin cannot be
-        parsed, leaving the existing error to surface from the caller.
+        `True` when the origin is earlier than 1582-10-15, so the offsets have to be resolved
+        by `cftime` rather than by `datetime` arithmetic. `False` when the origin cannot be
+        parsed, so the unit string is not diverted here and the existing error surfaces from
+        the caller's own parse instead.
 
     Examples:
         - A year-1 origin is before it:
@@ -593,6 +615,18 @@ def _origin_precedes_reform(units: str) -> bool:
           False
 
           ```
+        - A string with no parseable origin answers `False`, leaving the error to the caller:
+
+          ```python
+          >>> from pyramids.netcdf.utils import _origin_precedes_reform
+          >>> _origin_precedes_reform("not a units string")
+          False
+
+          ```
+
+    See Also:
+        create_time_conversion_func: Routes a pre-reform origin through `cftime` on this answer.
+        _parse_units_origin: Parses the origin this compares.
     """
     try:
         _, origin = _parse_units_origin(units)
@@ -614,10 +648,16 @@ def create_time_conversion_func(
     `"days since 1979-01-01"`) and returns a callable that
     converts numeric offsets to formatted date strings.
 
-    For standard/proleptic_gregorian calendars, uses Python's
-    `datetime` + `timedelta`. For non-standard calendars
-    (`360_day`, `noleap`, `all_leap`, `julian`), uses
-    `cftime.num2date()` (optional dependency).
+    The fast `datetime` + `timedelta` path is taken only for the Gregorian
+    family (`standard`, `gregorian`, `proleptic_gregorian`) on an origin at or
+    after the 1582-10-15 reform. Everything else is resolved by
+    `cftime.num2date()`: every other calendar (`julian`, `noleap`, `365_day`,
+    `all_leap`, `366_day`, `360_day`), and — whatever the calendar is called,
+    `proleptic_gregorian` included — any origin that predates the reform, since
+    `timedelta` counts proleptic Gregorian days from it while a `standard` axis
+    counts Julian ones. On `"hours since 1-1-1 00:00:0.0"` the offset 17549208
+    is `2003-01-01` under `standard` and `2003-01-03` under
+    `proleptic_gregorian`; the two agree only from 1582-10-15 on.
 
     Args:
         units: CF time unit string in the format
@@ -629,9 +669,10 @@ def create_time_conversion_func(
             only in a `%f` (microsecond) `out_format`.
         out_format: strftime format for the output strings.
             Defaults to `"%Y-%m-%d %H:%M:%S"`.
-        calendar: CF calendar type. Defaults to `"standard"`.
-            Non-standard calendars are decoded with `cftime` (a core
-            dependency).
+        calendar: CF calendar type. Defaults to `"standard"`. Anything
+            outside the Gregorian family is decoded with `cftime` (a core
+            dependency), as is any calendar at all when the origin in `units`
+            predates the 1582 reform.
 
     Returns:
         Callable: A function that takes a numeric value and
@@ -670,16 +711,52 @@ def create_time_conversion_func(
 
             ```
 
+        - A pre-1582 origin is resolved by calendar, not by `timedelta`, so
+          the mixed `standard` calendar and the proleptic one answer two days
+          apart:
+            ```python
+            >>> mixed = create_time_conversion_func(
+            ...     "hours since 1-1-1 00:00:0.0"
+            ... )
+            >>> mixed(17549208)
+            '2003-01-01 00:00:00'
+            >>> proleptic = create_time_conversion_func(
+            ...     "hours since 1-1-1 00:00:0.0",
+            ...     calendar="proleptic_gregorian",
+            ... )
+            >>> proleptic(17549208)
+            '2003-01-03 00:00:00'
+
+            ```
+
+        - A 360-day calendar counts twelve 30-day months, so day 360 is a
+          year on:
+            ```python
+            >>> convert = create_time_conversion_func(
+            ...     "days since 2000-01-01",
+            ...     calendar="360_day",
+            ... )
+            >>> convert(360)
+            '2001-01-01 00:00:00'
+            >>> convert(30)
+            '2000-02-01 00:00:00'
+
+            ```
+
     See Also:
         _parse_units_origin: Parses the unit string.
+        _origin_precedes_reform: Decides whether the origin needs `cftime`.
     """
     converter = None
 
     # A `standard` / `gregorian` axis is the *mixed* Julian-Gregorian calendar, and Python's
     # `datetime` is proleptic Gregorian — the two diverge before the 1582 reform, by ten days
     # at the cutover and more further back. So an origin that predates it has to go through
-    # `cftime` as well, or `hours since 1-1-1` decodes two days late (#1140). Modern origins
-    # keep the fast `timedelta` path, which is every real store bar the year-zero ones.
+    # `cftime` as well, or `hours since 1-1-1` decodes two days late (#1140). The origin test
+    # is calendar-blind on purpose: it diverts `proleptic_gregorian` too, which `cftime` then
+    # answers proleptically — the same date `timedelta` would have given, by the one route
+    # that is right for every calendar name. Origins from 1582-10-15 on, which is every real
+    # store bar the year-one ones, keep the fast `timedelta` path.
     if not _is_standard_calendar(calendar) or _origin_precedes_reform(units):
 
         def convert_cftime(value):

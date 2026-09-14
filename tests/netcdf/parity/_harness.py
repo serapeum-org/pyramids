@@ -22,7 +22,7 @@ place, visibly, instead of being re-derived (and re-got-wrong) per test:
    separate defect and not the reason.
 
    Where the coordinate cannot carry it either — it is absent, a synthesised row index, or not
-   monotonic — the harness raises rather than defaults. See :func:`flip_needed`; the stores
+   monotonic — the harness raises rather than defaults. See `flip_needed`; the stores
    that trip each case are catalogued in `_catalogue.UNSUPPORTED`.
 2. **No-data vs NaN.** pyramids declares a sentinel; xarray has only NaN. Both sides are masked
    to NaN at the sentinel and the two gap masks are asserted equal, so a disagreement about
@@ -35,7 +35,7 @@ place, visibly, instead of being re-derived (and re-got-wrong) per test:
    `add_offset` so both sides are in physical units.
 5. **Band order.** GDAL flattens every non-spatial dimension row-major into one bands axis —
    and squeezes it away entirely when it is length 1 — while xarray keeps them separate. The
-   pyramids array is reshaped back through :func:`_with_band_axes` before comparing.
+   pyramids array is reshaped back through `_with_band_axes` before comparing.
 
 The gaps come from `read_array(masked=True)` on the pyramids side and from the stored values
 on the xarray side. Neither side compares an unpacked value against the declared sentinel:
@@ -89,8 +89,11 @@ class ParityView:
             when the view carries an operation's output, and the stored dtype otherwise. A
             reduction promotes to float64 whatever the file holds, and that promotion is the
             contract worth asserting.
-        source_dtype: The dtype the file stores, kept alongside so both are available.
-            This is what a dtype contract is asserted against, not `values.dtype`.
+        source_dtype: The dtype the file stores, kept alongside `dtype` so an operation's
+            result and the dtype it came from are both available. `None` on a view that was
+            never given one, which is every `to_xr` view: there `dtype` already is the stored
+            dtype. The `dtype=` contract is asserted against `dtype`, never against this or
+            against the float64 `values.dtype`.
 
     Examples:
         - A packed int16 file keeps its stored dtype on the view while the values are float64:
@@ -160,11 +163,46 @@ class ParityUnsupported(RuntimeError):
     Raised rather than answered with a guess. Every alternative to raising here is a silent
     wrong answer that a downstream parity test would report as agreement — the failure mode
     this whole module exists to prevent.
+
+    Examples:
+        - A store whose y axis has no coordinate variable is refused, and the message names
+          the axis and the reason:
+
+          ```python
+          >>> from pyramids.netcdf.netcdf import NetCDF
+          >>> from tests.netcdf.parity._harness import ParityUnsupported, from_pyramids
+          >>> nc = NetCDF.read_file("tests/data/netcdf/none__4v__1d1-2d2-3d1__curv.nc")
+          >>> try:
+          ...     from_pyramids(nc, "Tair")
+          ... except ParityUnsupported as error:
+          ...     print(str(error)[:39])
+          the 'y' axis has no coordinate variable
+
+          ```
+        - The same refusal covers a result the harness cannot describe, not only a store it
+          cannot orient:
+
+          ```python
+          >>> import numpy as np
+          >>> from pyramids.netcdf.netcdf import NetCDF
+          >>> from tests.netcdf.parity._harness import ParityUnsupported, from_pyramids
+          >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+          >>> try:
+          ...     from_pyramids(nc, "temperature", values=np.zeros((2, 3, 5, 6)))
+          ... except ParityUnsupported as error:
+          ...     print(str(error)[:44])
+          the result for 'temperature' is (2, 3, 5, 6)
+
+          ```
+
+    See Also:
+        flip_needed: Raises this for a y axis that cannot decide the orientation.
+        from_pyramids: Raises it for a result the harness cannot label or describe.
     """
 
 
 def _variable_dims(nc: NetCDF, handle: Any) -> tuple[str, ...]:
-    """The dimension names of ``handle``'s array, spatial axes last.
+    """The dimension names of `handle`'s array, spatial axes last.
 
     Taken from the **variable**, not the container. A container declares every dimension any of
     its variables uses, so deriving the spatial axes as "whatever the container declares that is
@@ -183,6 +221,48 @@ def _variable_dims(nc: NetCDF, handle: Any) -> tuple[str, ...]:
 
     Raises:
         ParityUnsupported: The variable reports no dimension names to work from.
+
+    Examples:
+        - A four-dimensional variable reports its own axes, band dimensions first:
+
+          ```python
+          >>> from pyramids.netcdf.netcdf import NetCDF
+          >>> from tests.netcdf.parity._harness import _variable_dims
+          >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+          >>> _variable_dims(nc, nc.get_variable("temperature"))
+          ('time', 'pressure_level', 'lat', 'lon')
+
+          ```
+        - A 2-D variable reports two names even though its container declares five, which is
+          what deriving the axes from the container would have got wrong:
+
+          ```python
+          >>> from pyramids.netcdf.netcdf import NetCDF
+          >>> from tests.netcdf.parity._harness import _variable_dims
+          >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+          >>> sorted(nc.dimension_sizes)
+          ['bnds', 'lat', 'lon', 'plev', 'time']
+          >>> _variable_dims(nc, nc.get_variable("area"))
+          ('lat', 'lon')
+
+          ```
+        - The renamed y axis of a variable subset is resolved back to the container's
+          spelling:
+
+          ```python
+          >>> from pyramids.netcdf.netcdf import NetCDF
+          >>> from tests.netcdf.parity._harness import _variable_dims
+          >>> path = "tests/data/netcdf/coards__4v__1d2-2d2__scaleoffset__y-asc.nc"
+          >>> nc = NetCDF.read_file(path)
+          >>> nc.get_variable("z").dimension_names
+          ['subset_y_20_-1_21', 'x']
+          >>> _variable_dims(nc, nc.get_variable("z"))
+          ('y', 'x')
+
+          ```
+
+    See Also:
+        _unrenamed: Resolves one renamed name.
     """
     declared = handle.dimension_names
     if not declared:
@@ -197,8 +277,9 @@ def _unrenamed(name: str, known: set[str]) -> str:
     """The container's spelling of a dimension a variable subset renamed.
 
     `get_variable` reports its y axis as `subset_<name>_<start>_<step>_<count>` —
-    `subset_y_20_-1_21` on the scale/offset store, `subset_lines_479_-1_480` on the
-    curvilinear one — because the subset carries the window it was cut with. Both sides have
+    `subset_y_20_-1_21` on the scale/offset store, `subset_lines_479_-1_480` on
+    `none__5v__1d2-2d2-3d1__curv.nc` — because the subset carries the window it was cut
+    with. Both sides have
     to agree on one spelling, and the container's is the one
     `to_xarray` uses. Resolved by pattern rather than by looking only at the y slot, so a store
     whose y is spelled something the harness does not recognise is still labelled correctly.
@@ -297,7 +378,7 @@ def stored_y_ascends(nc: NetCDF) -> bool:
     last values are compared, so a coordinate that is monotonic (as a dimension coordinate is)
     settles it in one read.
 
-    Kept for the container-level question the tests ask; :func:`flip_needed` is what the
+    Kept for the container-level question the tests ask; `flip_needed` is what the
     normalisation uses, because it decides from the variable's own y axis and refuses the cases
     this one cannot answer.
 
@@ -657,6 +738,42 @@ def _decoded_time(nc: NetCDF, name: str) -> np.ndarray | None:
 
     Returns:
         The instants as `datetime64[ns]`, or `None` when the axis is not a decodable time axis.
+
+    Examples:
+        - A CF time axis comes back as instants:
+
+          ```python
+          >>> from pyramids.netcdf.netcdf import NetCDF
+          >>> from tests.netcdf.parity._harness import _decoded_time
+          >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+          >>> [str(when) for when in _decoded_time(nc, "time")[:2]]
+          ['2024-01-01T00:00:00.000000000', '2024-01-01T06:00:00.000000000']
+
+          ```
+        - A pre-1582 origin decodes here even though `to_xarray` exports it as offsets, which
+          is why the two sides are compared only where both produced instants:
+
+          ```python
+          >>> from pyramids.netcdf.netcdf import NetCDF
+          >>> from tests.netcdf.parity._harness import _decoded_time
+          >>> nc = NetCDF.read_file("tests/data/netcdf/coards__5v__1d4-4d1__y-desc.nc")
+          >>> str(_decoded_time(nc, "time")[0])
+          '2003-01-01T00:00:00.000000000'
+
+          ```
+        - A non-temporal axis answers `None`, which is the discriminator:
+
+          ```python
+          >>> from pyramids.netcdf.netcdf import NetCDF
+          >>> from tests.netcdf.parity._harness import _decoded_time
+          >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+          >>> print(_decoded_time(nc, "lat"))
+          None
+
+          ```
+
+    See Also:
+        to_xr: Compares these instants against `to_xarray()`'s own decoding.
     """
     decoded: np.ndarray | None = None
     try:
@@ -688,6 +805,9 @@ def to_xr(nc: NetCDF, variable: str) -> ParityView:
 
     Raises:
         KeyError: `variable` is not in the exported cube.
+        ParityUnsupported: The variable reports no dimension names, or its y axis cannot say
+            which way the file stores its rows. Decided unconditionally, so a store `to_xr`
+            answers for is one `from_pyramids` answers for too.
 
     Examples:
         - The view is north-up and physical, whatever the file stores:
@@ -856,6 +976,56 @@ def _result_view(
     Raises:
         ParityUnsupported: The result's shape does not match the source's and no `gaps=` was
             given, or the supplied mask does not match the result.
+
+    Examples:
+        - A same-shape result reuses the source mask, and its gaps become `NaN`:
+
+          ```python
+          >>> import numpy as np
+          >>> from tests.netcdf.parity._harness import _result_view
+          >>> source_gaps = np.array([[False, True], [False, False]])
+          >>> values, mask, dtype = _result_view(
+          ...     np.array([[1.0, 5.0], [3.0, 4.0]]), None, source_gaps, "v"
+          ... )
+          >>> values
+          array([[ 1., nan],
+                 [ 3.,  4.]])
+          >>> int(mask.sum()), dtype
+          (1, dtype('float64'))
+
+          ```
+        - A shape-changing result with no `gaps=` is refused, because the source's mask no
+          longer describes it:
+
+          ```python
+          >>> import numpy as np
+          >>> from tests.netcdf.parity._harness import ParityUnsupported, _result_view
+          >>> source_gaps = np.zeros((2, 2), dtype=bool)
+          >>> try:
+          ...     _result_view(np.zeros((3, 2)), None, source_gaps, "v")
+          ... except ParityUnsupported as error:
+          ...     print(str(error)[:52])
+          the result for 'v' is (3, 2) where the source is (2,
+
+          ```
+        - A `gaps=` mask that does not describe the result is refused too:
+
+          ```python
+          >>> import numpy as np
+          >>> from tests.netcdf.parity._harness import ParityUnsupported, _result_view
+          >>> source_gaps = np.zeros((2, 2), dtype=bool)
+          >>> try:
+          ...     _result_view(
+          ...         np.zeros((2, 2)), np.zeros((3, 2), dtype=bool), source_gaps, "v"
+          ...     )
+          ... except ParityUnsupported as error:
+          ...     print(str(error)[:49])
+          the `gaps=` mask for 'v' is (3, 2) but the result
+
+          ```
+
+    See Also:
+        from_pyramids: The only caller, which passes the source mask it read.
     """
     array = np.asarray(values)
     flat = (int(np.prod(source_gaps.shape[:-2])), *source_gaps.shape[-2:])
@@ -927,12 +1097,11 @@ def from_pyramids(
 
     Raises:
         ValueError: `variable` is not a variable of this container.
-
-    Raises:
         ParityUnsupported: The result cannot be labelled or described — its shape does not
             match the source's and no `gaps=` was given, the supplied mask does not describe
             it, the dimension names do not match its rank, or a coordinate's length does not
-            match its axis.
+            match its axis. Also when the y axis cannot say which way the file stores its
+            rows.
 
     Examples:
         - Reading a two-band-dimension variable rebuilds both axes:
@@ -1096,13 +1265,13 @@ def assert_parity(
             the gaps are compared as positions by the mask check and skipped here.
         atol: Absolute tolerance, for a result whose values pass through zero — a relative
             tolerance alone can never be met there.
-        coords: Whether to compare the coordinates. `False` for an operation that deliberately
-            changes them, which must then assert them itself.
         dtype: The dtype the pyramids side must hold, when the operation contracts for one.
             Checked against `ParityView.dtype`, which is the **result's** dtype when the view
             carries one and the stored dtype otherwise — never against the float64 `values`.
             `None` skips the check, which is right for a plain read: the stored dtype is the
             file's business, not the operation's.
+        coords: Whether to compare the coordinates. `False` for an operation that deliberately
+            changes them, which must then assert them itself.
 
     Raises:
         AssertionError: Any of the six checks fails.

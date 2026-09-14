@@ -21,6 +21,9 @@ from pathlib import Path
 
 from pyramids.netcdf.netcdf import NetCDF
 
+#: The repo's NetCDF fixture directory, resolved from this file rather than from the working
+#: directory so the catalogue opens the same stores under pytest, a doctest run, and an import
+#: from anywhere else.
 DATA = Path(__file__).resolve().parents[2] / "data" / "netcdf"
 
 
@@ -34,6 +37,42 @@ class ParityFixture:
         y_ascends: Whether the file stores its y axis south-to-north, so the harness flips it.
         packed: Whether the variable declares `scale_factor` / `add_offset`.
         covers: What this store is in the catalogue for.
+
+    Examples:
+        - The entries carry the properties a test parametrizes over, and `covers` says why
+          the store is here:
+
+          ```python
+          >>> from tests.netcdf.parity._catalogue import PARITY_FIXTURES
+          >>> packed = [f.variable for f in PARITY_FIXTURES if f.packed]
+          >>> packed
+          ['rhum', 'z', 'tcw']
+          >>> [f.variable for f in PARITY_FIXTURES if f.y_ascends]
+          ['temperature', 'z', 'pr']
+
+          ```
+        - A fixture opens its own store, and the declared properties match what the file
+          holds:
+
+          ```python
+          >>> from tests.netcdf.parity._catalogue import ParityFixture
+          >>> from tests.netcdf.parity._harness import stored_y_ascends
+          >>> fixture = ParityFixture(
+          ...     "cf__5v__1d4-4d1__y-asc.nc",
+          ...     "temperature",
+          ...     y_ascends=True,
+          ...     packed=False,
+          ...     covers="The flip, and nothing else.",
+          ... )
+          >>> fixture.id
+          'cf-temperature'
+          >>> stored_y_ascends(fixture.open()) == fixture.y_ascends
+          True
+
+          ```
+
+    See Also:
+        open_fixture: The loader `open` delegates to.
     """
 
     path: str
@@ -44,7 +83,35 @@ class ParityFixture:
 
     @property
     def id(self) -> str:
-        """A short pytest id: the convention prefix and the variable."""
+        """A short pytest id: the convention prefix and the variable.
+
+        The prefix is the part of the file name before the first `__`, which the fixture
+        naming convention uses for the metadata convention the store follows (`cf`, `coards`,
+        `none`).
+
+        Returns:
+            str: The `<convention>-<variable>` id, e.g. `"coards-rhum"`.
+
+        Examples:
+            - The id pairs the convention prefix with the variable:
+
+              ```python
+              >>> from tests.netcdf.parity._catalogue import PARITY_FIXTURES
+              >>> [fixture.id for fixture in PARITY_FIXTURES[:3]]
+              ['cf-temperature', 'coards-rhum', 'cf-t']
+
+              ```
+            - Two stores of the same convention stay distinct, because the variable is part
+              of the id:
+
+              ```python
+              >>> from tests.netcdf.parity._catalogue import PARITY_FIXTURES
+              >>> ids = [fixture.id for fixture in PARITY_FIXTURES]
+              >>> len(set(ids)) == len(ids)
+              True
+
+              ```
+        """
         return f"{self.path.split('__')[0]}-{self.variable}"
 
     def open(self) -> NetCDF:
@@ -52,10 +119,40 @@ class ParityFixture:
 
         Returns:
             NetCDF: The opened container.
+
+        Examples:
+            - The opened container carries the variable the fixture names:
+
+              ```python
+              >>> from tests.netcdf.parity._catalogue import PARITY_FIXTURES
+              >>> fixture = PARITY_FIXTURES[0]
+              >>> nc = fixture.open()
+              >>> fixture.variable in nc.variables
+              True
+              >>> nc.dimension_sizes
+              {'time': 4, 'pressure_level': 3, 'lat': 5, 'lon': 6}
+
+              ```
+            - Each call opens the store again, so one test cannot leave another a mutated
+              container:
+
+              ```python
+              >>> from tests.netcdf.parity._catalogue import PARITY_FIXTURES
+              >>> fixture = PARITY_FIXTURES[0]
+              >>> fixture.open() is fixture.open()
+              False
+
+              ```
+
+        See Also:
+            open_fixture: The loader this delegates to.
         """
         return open_fixture(self.path)
 
 
+#: The stores every parity test runs over, one per normalisation the harness applies. Between
+#: them they run the y axis in both directions, pack and do not pack, and carry two, one and no
+#: band dimensions; `y_ascends` and `packed` are the properties tests parametrize over.
 PARITY_FIXTURES: tuple[ParityFixture, ...] = (
     ParityFixture(
         "cf__5v__1d4-4d1__y-asc.nc",
@@ -158,7 +255,7 @@ UNSUPPORTED = (
     ("cf__9v__1d7-2d2__geos__y-desc.nc", "CMI", "synthesised row index"),
 )
 
-#: pytest ids for :data:`UNSUPPORTED`, derived so the two cannot drift apart.
+#: pytest ids for `UNSUPPORTED`, derived from it so the two cannot drift apart.
 UNSUPPORTED_IDS = tuple(
     f"{path.split('__')[0]}-{variable}" for path, variable, _ in UNSUPPORTED
 )
@@ -167,10 +264,41 @@ UNSUPPORTED_IDS = tuple(
 def open_fixture(path: str) -> NetCDF:
     """Open a store from the parity data directory by file name.
 
+    The name is resolved against `DATA`, so a caller passes the bare file name and never a
+    path relative to its own working directory.
+
     Args:
         path: The `.nc` file name under `tests/data/netcdf`.
 
     Returns:
         NetCDF: The opened container.
+
+    Examples:
+        - Open one of the catalogued stores and read what it declares:
+
+          ```python
+          >>> from tests.netcdf.parity._catalogue import open_fixture
+          >>> nc = open_fixture("cf__20v__1d3-3d17__y-desc.nc")
+          >>> nc.dimension_sizes
+          {'longitude': 144, 'latitude': 73, 'time': 12}
+          >>> nc.get_variable("tcw").no_data_value[0]
+          -32767.0
+
+          ```
+        - A store outside the catalogue opens the same way, since the loader only joins the
+          name onto the fixture directory:
+
+          ```python
+          >>> from tests.netcdf.parity._catalogue import open_fixture
+          >>> nc = open_fixture("cf__5v__1d4-4d1__y-asc.nc")
+          >>> sorted(nc.variables)
+          ['temperature']
+          >>> nc.dimension_sizes["lat"]
+          5
+
+          ```
+
+    See Also:
+        ParityFixture.open: The catalogue entry's own accessor, which calls this.
     """
     return NetCDF.read_file(str(DATA / path))
