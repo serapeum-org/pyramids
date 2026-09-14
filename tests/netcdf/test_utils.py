@@ -14,6 +14,7 @@ from unittest.mock import MagicMock, PropertyMock
 import numpy as np
 import pytest
 
+from pyramids.netcdf.netcdf import NetCDF
 from pyramids.netcdf.utils import (
     _dtype_to_str,
     _export_srs,
@@ -589,11 +590,40 @@ class TestNormalizeOriginString:
         )
 
     def test_fractional_seconds(self):
-        """Fractional seconds are preserved."""
+        """Fractional seconds are preserved, and the whole part is still padded.
+
+        Test scenario:
+            This asserted `00:00:0.5` until #1140. `zfill(2)` is a no-op on a three-character
+            field like `"0.5"`, so the seconds stayed one digit and neither
+            `datetime.fromisoformat` nor the `%S` fallback would parse the result — which is
+            what made `get_time_variable` answer `None` for an axis `to_xarray` decodes.
+        """
         result = _normalize_origin_string("2000-1-1 0:0:0.5")
-        assert result == "2000-01-01 00:00:0.5", (
-            "Fractional seconds should be preserved"
+        assert result == "2000-01-01 00:00:00.5", (
+            "Fractional seconds should be preserved with the whole part padded"
         )
+
+    def test_a_whole_second_fraction_is_padded(self):
+        """`00:00:0.0` is how NCEP and the ERA family write a whole-second origin.
+
+        Test scenario:
+            Two of the repo's own fixtures carry exactly this and decoded to `None` before
+            #1140.
+        """
+        result = _normalize_origin_string("1900-01-01 00:00:0.0")
+        assert result == "1900-01-01 00:00:00.0", f"got {result}"
+
+    def test_the_padded_result_parses(self):
+        """The point of the padding: both parsers accept what comes out.
+
+        Test scenario:
+            The normaliser's contract is to produce something `_parse_units_origin` can read,
+            so asserting the string alone would not have caught the defect.
+        """
+        parsed = datetime.fromisoformat(
+            _normalize_origin_string("1900-01-01 00:00:0.0")
+        )
+        assert (parsed.year, parsed.month, parsed.second) == (1900, 1, 0)
 
     def test_whitespace_stripped(self):
         """Leading/trailing whitespace is stripped."""
@@ -1074,3 +1104,57 @@ class TestReadAttributes:
         assert result["explosive_attr"] is None, (
             "Value should be normalized None from the except branch"
         )
+
+
+class TestTheTwoTimeDecodersAgree:
+    """`get_time_variable` and `to_xarray` must answer the same question the same way (#1140)."""
+
+    @pytest.mark.parametrize(
+        ("fixture", "dimension", "first"),
+        [
+            ("cf__20v__1d3-3d17__y-desc.nc", "time", "2002-07-01 12:00:00"),
+            ("none__4v__1d3-3d1__geog__y-asc.nc", "t", "1979-01-01 00:00:00"),
+        ],
+        ids=["single-digit-seconds", "padded-seconds"],
+    )
+    def test_an_origin_with_fractional_seconds_decodes(self, fixture, dimension, first):
+        """An origin written `00:00:0.0` decodes, as the padded spelling always did.
+
+        Args:
+            fixture: The store to read.
+            dimension: Its time dimension's name.
+            first: The first timestamp the axis must decode to.
+
+        Test scenario:
+            `zfill(2)` left a three-character `"0.0"` untouched, so the origin stayed
+            `1900-01-01 00:00:0.0` — which neither `fromisoformat` nor `%S` accepts. The
+            parse raised, and `get_time_variable`'s `except Exception` turned that into a
+            `None` meaning "not a time dimension".
+        """
+        nc = NetCDF.read_file(f"tests/data/netcdf/{fixture}")
+        stamps = nc.get_time_variable(dimension, "%Y-%m-%d %H:%M:%S")
+        assert stamps is not None, (
+            "the axis should decode, not report as a non-time axis"
+        )
+        assert stamps[0] == first, f"got {stamps[0]}"
+
+    def test_it_agrees_with_the_interop_decoder(self):
+        """The two paths return the same instants for the axis that used to split them."""
+        nc = NetCDF.read_file("tests/data/netcdf/cf__20v__1d3-3d17__y-desc.nc")
+        stamps = nc.get_time_variable("time", "%Y-%m-%d %H:%M:%S")
+        exported = nc.to_xarray().coords["time"].values
+
+        assert np.array_equal(
+            np.asarray(stamps, dtype="datetime64[s]").astype("datetime64[ns]"),
+            np.asarray(exported).astype("datetime64[ns]"),
+        ), "the two decoders should agree on every instant"
+
+    def test_a_non_time_axis_still_reports_none(self):
+        """The `None` contract for a genuinely non-temporal dimension is unchanged.
+
+        Test scenario:
+            The fix must not turn `degrees_north` into a date; `None` still means "not a time
+            dimension", it just no longer also means "I could not parse the origin".
+        """
+        nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+        assert nc.get_time_variable("lat", "%Y-%m-%d %H:%M:%S") is None

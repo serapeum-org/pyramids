@@ -1477,19 +1477,44 @@ def _undecodable_label_hint(
     """
     hint = ""
     if has_label(selector) and coords:
-        try:
-            decodes = (
-                nc._decode_time_labels(dim_name, coords[:1], FULL_FORMAT) is not None
-            )
-        except Exception:
-            decodes = True
-        if decodes:
+        # Two questions, not one. The first value answers "is this a time axis at all" — an
+        # axis with no CF units decodes nothing and gets no hint. The whole axis answers
+        # "was the caller shown stored numbers": if every value decodes, the vocabulary in
+        # the message is dates and the hint would contradict it. Probing only the first
+        # value conflated the two, so once an axis started decoding (#1140) the message read
+        # "could not be decoded ... these are its stored values" above a list of dates.
+        looks_temporal = _decodes(nc, dim_name, coords[:1], on_error=True)
+        shown_as_stored = not _decodes(nc, dim_name, coords, on_error=False)
+        if looks_temporal and shown_as_stored:
             hint = (
                 f" The {dim_name!r} axis declares CF units, but a coordinate value could"
                 " not be decoded, so it has no labels to match — these are its stored"
                 " values."
             )
     return hint
+
+
+def _decodes(nc: NetCDF, dim_name: str, coords: Any, *, on_error: bool) -> bool:
+    """Whether ``coords`` decode to time labels on ``dim_name``.
+
+    Args:
+        nc: The cube the dimension belongs to.
+        dim_name: The band dimension's name.
+        coords: The stored values to try.
+        on_error: The answer when the decode *raises*, which the two callers read
+            differently: a raise means "this is a time axis that failed" to the probe asking
+            whether the axis is temporal, and "not fully decoded" to the one asking whether
+            the caller was shown stored numbers.
+
+    Returns:
+        `True` when every value decodes, `False` when any does not, and `on_error` when the
+        attempt raised.
+    """
+    try:
+        decoded = nc._decode_time_labels(dim_name, coords, FULL_FORMAT) is not None
+    except Exception:
+        decoded = on_error
+    return decoded
 
 
 def _probe_label_format(

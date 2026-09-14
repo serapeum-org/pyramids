@@ -190,14 +190,27 @@ class TestSelByDateLabel:
         ):
             cf_var.sel(time="2025-06-01")
 
-    def test_axis_without_parseable_units_falls_back_to_stored_values(self, coards_var):
-        """An axis whose CF units do not parse has no labels, so the raw vocabulary answers.
+    def test_a_fractional_second_origin_now_selects_by_label(self, coards_var):
+        """The COARDS axis decodes, so a label selector matches it (#1140).
 
         Test scenario:
-            The COARDS fixture's ``units`` defeat the time parser, so a label selector
-            finds nothing and the error quotes the stored offsets.
+            Its `units` are `hours since 1-1-1 00:00:0.0`. The single-digit seconds field
+            used to defeat the origin parser, so the axis had no labels and this selector
+            was answered with the stored offsets. It decodes now, so a label that is on the
+            axis selects instead.
         """
-        with pytest.raises(ValueError, match="Available values: \\[17549208.0"):
+        selected = coards_var.sel(time="2003-01-05")
+        # One band per level at that timestep: the axis is `(time=12, level=4)`.
+        assert selected.band_count == 4, f"got {selected.band_count} bands"
+
+    def test_a_label_off_the_decoded_axis_is_told_the_dates(self, coards_var):
+        """A miss now quotes the axis' dates, not its raw offsets.
+
+        Test scenario:
+            The vocabulary in the message is what the caller has to choose from, so it has to
+            be the representation the axis actually matches on.
+        """
+        with pytest.raises(ValueError, match=r"Available values: \['2003-01-03"):
             coards_var.sel(time="2024-01-01")
 
     def test_unsupported_label_precision_is_rejected(self, cf_var):

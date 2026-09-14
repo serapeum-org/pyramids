@@ -424,9 +424,18 @@ def _normalize_origin_string(origin: str) -> str:
     hms = time_part.strip().split(":")
     while len(hms) < 3:
         hms.append("0")
-    H, M, S = (hms[0].zfill(2), hms[1].zfill(2), hms[2].zfill(2))
+    H, M = hms[0].zfill(2), hms[1].zfill(2)
 
-    # Keep fractional seconds as-is; datetime.fromisoformat can handle them.
+    # Only the *integer* part of the seconds is padded. `zfill(2)` on the whole field is a
+    # no-op for `"0.0"` (already three characters), which leaves the origin as
+    # `1900-01-01 00:00:0.0` -- rejected by `fromisoformat` and by the `%S` fallback alike,
+    # so `get_time_variable` answered `None` for an axis `to_xarray` decodes (#1140).
+    # `00:00:0.0` is how NCEP and the ERA family write a whole-second origin.
+    whole, dot, fraction = hms[2].partition(".")
+    S = whole.zfill(2) + dot + fraction
+
+    # Fractional seconds are kept; `datetime.fromisoformat` handles them once the seconds
+    # field itself is two digits.
     return f"{y}-{m}-{d} {H}:{M}:{S}"
 
 
