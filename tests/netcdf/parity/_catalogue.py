@@ -53,7 +53,7 @@ class ParityFixture:
         Returns:
             NetCDF: The opened container.
         """
-        return NetCDF.read_file(str(DATA / self.path))
+        return open_fixture(self.path)
 
 
 PARITY_FIXTURES: tuple[ParityFixture, ...] = (
@@ -156,6 +156,11 @@ UNSUPPORTED = (
     ("cf__8v__1d3-2d3-3d1-4d1__curv-stag.nc", "salt", "no coordinate variable"),
     ("none__4v__1d1-2d2-3d1__curv.nc", "Tair", "no coordinate variable"),
     ("cf__9v__1d7-2d2__geos__y-desc.nc", "CMI", "synthesised row index"),
+)
+
+#: pytest ids for :data:`UNSUPPORTED`, derived so the two cannot drift apart.
+UNSUPPORTED_IDS = tuple(
+    f"{path.split('__')[0]}-{variable}" for path, variable, _ in UNSUPPORTED
 )
 
 

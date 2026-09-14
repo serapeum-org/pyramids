@@ -11,8 +11,10 @@ Style: Google-style docstrings, <=120 char lines, no inline imports, descriptive
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import doctest
+import io
 import warnings
 from types import SimpleNamespace
 
@@ -26,6 +28,7 @@ from tests.netcdf.parity._catalogue import (
     NAN_SENTINEL,
     PARITY_FIXTURES,
     UNSUPPORTED,
+    UNSUPPORTED_IDS,
     open_fixture,
 )
 from tests.netcdf.parity._harness import (
@@ -48,7 +51,6 @@ FIXTURES = [
     (case.path, case.variable, case.y_ascends, case.packed) for case in PARITY_FIXTURES
 ]
 FIXTURE_IDS = [case.id for case in PARITY_FIXTURES]
-UNSUPPORTED_IDS = ["roms-eta-rho", "curvilinear-y", "goes-index-y"]
 
 
 #: The catalogue's loader, under the short name this module reads better with.
@@ -759,7 +761,7 @@ class TestTheDocumentedExamples:
     """The harness's doctests are its primary documentation, so something must run them."""
 
     def test_every_example_in_the_harness_passes(self):
-        """Run `_harness`'s own `>>>` examples as part of this suite.
+        """Run `_harness`'s own `>>>` examples as part of this suite, and report what broke.
 
         Test scenario:
             Both of the repo's doctest gates run `--doctest-modules src`, and this module is
@@ -768,19 +770,19 @@ class TestTheDocumentedExamples:
             refusal messages — and without a gate those can rot into confident fiction while
             reading as verified fact.
         """
-        results = doctest.testmod(
-            harness_module,
-            optionflags=doctest.ELLIPSIS | doctest.IGNORE_EXCEPTION_DETAIL,
-            verbose=False,
-        )
+        report = io.StringIO()
+        with contextlib.redirect_stdout(report):
+            results = doctest.testmod(
+                harness_module,
+                optionflags=doctest.ELLIPSIS | doctest.IGNORE_EXCEPTION_DETAIL,
+                verbose=False,
+            )
+        # One run, and its output is kept: `testmod` prints the expected-versus-got detail to
+        # stdout, so discarding it left a failure saying only how many examples broke.
         assert results.failed == 0, (
-            f"{results.failed} of {results.attempted} harness doctests failed; run "
-            "`pytest --doctest-modules tests/netcdf/parity/_harness.py` to see them"
+            f"{results.failed} of {results.attempted} harness doctests failed: "
+            f"{report.getvalue()}"
         )
-
-    def test_the_examples_are_actually_collected(self):
-        """A gate that runs zero examples would pass silently, so pin that there are some."""
-        results = doctest.testmod(harness_module, verbose=False)
         assert results.attempted > 20, (
             f"only {results.attempted} doctest examples ran; the gate is not reaching them"
         )
@@ -981,3 +983,73 @@ class TestTheResultIsDescribedNotGuessed:
         assert list(view.coords["lat"]) == list(source.coords["lat"]), (
             "an axis the operation did not touch keeps the container's coordinate"
         )
+
+
+class TestCoordinatesTheRuleCannotRead:
+    """Refusals stay refusals, and sub-second instants compare (round-2 M5/M6)."""
+
+    def test_a_string_coordinate_is_refused_not_left_to_numpy(self):
+        """A `<U19` y coordinate raises `ParityUnsupported`, not `UFuncTypeError`.
+
+        Test scenario:
+            `values[0] < values[-1]` succeeds lexicographically, so the rule reached the
+            monotonic check and `np.diff` blew up there — an opaque numpy error that is
+            neither a refusal a caller can catch nor an answer. Two variables in the repo
+            reach it.
+        """
+        nc = _read("none__17v__1d1-2d5-3d6-4d5__stag-str.nc")
+        with pytest.raises(ParityUnsupported, match="U19 coordinate"):
+            from_pyramids(nc, "ITIMESTEP")
+
+    def test_a_sub_second_axis_reaches_parity(self):
+        """An axis with fractional seconds is not failed by the harness's own rounding.
+
+        Test scenario:
+            The instants were decoded to whole seconds and then compared with
+            `array_equal`, so a store whose stamps carry microseconds failed while its
+            stored offsets agreed exactly. None of the catalogued stores has sub-second time,
+            so the suite was green and the false failure was waiting for the next fixture.
+        """
+        nc = _read("cf__40v__1d28-2d9-3d3__nc4.nc")
+        variable = "APrioriCovarianceMatrix"
+        assert_parity(from_pyramids(nc, variable), to_xr(nc, variable))
+
+    def test_the_instants_keep_their_microseconds(self):
+        """The decoded form is not truncated, so the cross-check compares real instants."""
+        nc = _read("cf__40v__1d28-2d9-3d3__nc4.nc")
+        decoded = from_pyramids(nc, "APrioriCovarianceMatrix").decoded_coords
+        stamps = next(iter(decoded.values()), None)
+        assert stamps is not None, "this store's time axis should decode"
+        assert (stamps.astype("datetime64[us]").astype("int64") % 1_000_000).any(), (
+            "at least one stamp should carry a sub-second part"
+        )
+
+
+class TestTheCatalogueDescribesItsStores:
+    """Each entry's recorded properties are checked against the file (round-2 N2)."""
+
+    @pytest.mark.parametrize("case", PARITY_FIXTURES, ids=FIXTURE_IDS)
+    def test_the_packed_flag_matches_the_variable(self, case):
+        """`packed` is what the store actually declares, not a note nothing verifies.
+
+        Args:
+            case: The catalogue entry under test.
+
+        Test scenario:
+            The flag decides which normalisation a downstream test expects to fire, so a
+            wrong one would send the next author looking in the wrong place.
+        """
+        nc = case.open()
+        handle = nc.get_variable(case.variable)
+        declares = handle.scale[0] not in (None, 1.0) or handle.offset[0] not in (
+            None,
+            0.0,
+        )
+        assert declares is case.packed, (
+            f"{case.path} declares scale={handle.scale[0]} offset={handle.offset[0]}"
+        )
+
+    @pytest.mark.parametrize("case", PARITY_FIXTURES, ids=FIXTURE_IDS)
+    def test_the_y_direction_flag_matches_the_file(self, case):
+        """`y_ascends` is what the stored coordinate says."""
+        assert stored_y_ascends(case.open()) is case.y_ascends

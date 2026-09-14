@@ -23,7 +23,7 @@ place, visibly, instead of being re-derived (and re-got-wrong) per test:
 
    Where the coordinate cannot carry it either — it is absent, a synthesised row index, or not
    monotonic — the harness raises rather than defaults. See :func:`flip_needed`; the stores
-   that trip each case are catalogued in `conftest.UNSUPPORTED`.
+   that trip each case are catalogued in `_catalogue.UNSUPPORTED`.
 2. **No-data vs NaN.** pyramids declares a sentinel; xarray has only NaN. Both sides are masked
    to NaN at the sentinel and the two gap masks are asserted equal, so a disagreement about
    *where* the gaps are cannot hide behind a value comparison that skips them.
@@ -33,9 +33,9 @@ place, visibly, instead of being re-derived (and re-got-wrong) per test:
 4. **CF packing.** `read_array()` unpacks by default; `to_xarray()` hands over the *stored*
    values. The xarray side is unpacked here with the variable's own `scale_factor` /
    `add_offset` so both sides are in physical units.
-5. **Band order.** GDAL flattens every non-spatial dimension row-major into one bands axis;
-   xarray keeps them separate. The pyramids array is reshaped back through
-   `unflatten_band_axes()` before comparing.
+5. **Band order.** GDAL flattens every non-spatial dimension row-major into one bands axis —
+   and squeezes it away entirely when it is length 1 — while xarray keeps them separate. The
+   pyramids array is reshaped back through :func:`_with_band_axes` before comparing.
 
 The gaps come from `read_array(masked=True)` on the pyramids side and from the stored values
 on the xarray side. Neither side compares an unpacked value against the declared sentinel:
@@ -55,7 +55,6 @@ from typing import Any
 
 import numpy as np
 
-from pyramids.netcdf._mdim import unflatten_band_axes
 from pyramids.netcdf.netcdf import NetCDF
 
 #: `get_variable` renames the axis it subsets to `subset_<name>_<start>_<step>_<count>`.
@@ -456,6 +455,14 @@ def flip_needed(nc: NetCDF, y_name: str | None) -> bool:
             )
         values = np.asarray(raw)
         if values.size > 1:
+            if not np.issubdtype(values.dtype, np.number):
+                # `np.diff` has no loop for a string dtype, so the monotonic check below
+                # raised `UFuncTypeError` — neither a refusal a caller can catch nor an
+                # answer. Two variables in the repo reach this with a `<U19` coordinate.
+                raise ParityUnsupported(
+                    f"the {y_name!r} axis has a {values.dtype} coordinate, which cannot say "
+                    "which way the rows are stored"
+                )
             if _is_index_axis(values):
                 raise ParityUnsupported(
                     f"the {y_name!r} axis is a synthesised row index, not a position, so it "
@@ -596,11 +603,45 @@ def _gap_mask(stored: np.ndarray, sentinel: Any) -> np.ndarray:
     """
     if sentinel is None:
         mask = np.zeros(stored.shape, dtype=bool)
-    elif isinstance(sentinel, float) and np.isnan(sentinel):
+    elif _is_nan(sentinel):
+        # `isinstance(sentinel, float)` misses a `np.float32` NaN, which `== nan` then reports
+        # as "no gaps anywhere" — a silently unmasked raster rather than an error.
         mask = np.isnan(stored)
     else:
         mask = stored == sentinel
     return mask
+
+
+def _is_nan(sentinel: Any) -> bool:
+    """Whether a declared sentinel is NaN, for any float type numpy or Python can hold.
+
+    Args:
+        sentinel: The declared no-data value.
+
+    Returns:
+        `True` when it is a floating NaN, `False` for every other value and dtype.
+
+    Examples:
+        - A numpy float32 NaN counts, where an `isinstance(..., float)` test would miss it:
+
+          ```python
+          >>> import numpy as np
+          >>> from tests.netcdf.parity._harness import _is_nan
+          >>> _is_nan(np.float32("nan")), _is_nan(float("nan"))
+          (True, True)
+
+          ```
+        - An ordinary sentinel does not:
+
+          ```python
+          >>> from tests.netcdf.parity._harness import _is_nan
+          >>> _is_nan(-9999.0), _is_nan(-32767)
+          (False, False)
+
+          ```
+    """
+    as_array = np.asarray(sentinel)
+    return bool(np.issubdtype(as_array.dtype, np.floating) and np.isnan(as_array))
 
 
 def _decoded_time(nc: NetCDF, name: str) -> np.ndarray | None:
@@ -619,11 +660,14 @@ def _decoded_time(nc: NetCDF, name: str) -> np.ndarray | None:
     """
     decoded: np.ndarray | None = None
     try:
-        stamps = nc.get_time_variable(name, "%Y-%m-%d %H:%M:%S")
+        # Microseconds, not whole seconds: truncating here and then demanding exact equality
+        # made any sub-second axis fail spuriously — the stored offsets agree, only the
+        # harness's own rounding differed.
+        stamps = nc.get_time_variable(name, "%Y-%m-%d %H:%M:%S.%f")
     except (ValueError, TypeError, KeyError):
         stamps = None
     if stamps:
-        decoded = np.asarray(stamps, dtype="datetime64[s]").astype("datetime64[ns]")
+        decoded = np.asarray(stamps, dtype="datetime64[us]").astype("datetime64[ns]")
     return decoded
 
 
@@ -696,13 +740,15 @@ def to_xr(nc: NetCDF, variable: str) -> ParityView:
         )
     array = exported[variable]
     handle = nc.get_variable(variable)
+    # Both exports are needed and neither is avoidable: the decoded one carries the values
+    # and the instants, the undecoded one the stored coordinates the two sides compare on.
     scale, offset = _packing(handle)
 
     stored = np.asarray(array.values)
     gaps = _gap_mask(stored, handle.no_data_value[0])
     values = np.where(gaps, np.nan, stored.astype("float64") * scale + offset)
 
-    dims = _variable_dims(nc, nc.get_variable(variable))
+    dims = _variable_dims(nc, handle)
     name = dims[-2] if len(dims) >= 2 else None
     # The stored coordinates come from a second export with the decoding turned off, so the
     # two sides can always be compared like with like: `get_dimension_values` reports stored
@@ -723,7 +769,12 @@ def to_xr(nc: NetCDF, variable: str) -> ParityView:
         if key in exported.coords
         and np.issubdtype(np.asarray(exported.coords[key].values).dtype, np.datetime64)
     }
-    if name in array.dims and flip_needed(nc, name):
+    # `flip_needed` is called unconditionally, not only when the name is among the export's
+    # dims: it is what refuses an undecidable store, and skipping it here let `to_xr` return a
+    # view for a store `from_pyramids` refuses — two sides disagreeing about whether the
+    # comparison is even possible.
+    flip = flip_needed(nc, name)
+    if name in array.dims and flip:
         axis = list(array.dims).index(name)
         values = np.flip(values, axis)
         gaps = np.flip(gaps, axis)
@@ -847,9 +898,11 @@ def from_pyramids(
     band dimensions, and the sentinel cells become `NaN` — taken from the *stored* values,
     because unpacking scales the fill value along with the data.
 
-    No y flip happens here: `read_array()` is already north-up. The gaps always come from a
-    `read_array(masked=True)` of the file, `values` or no `values`, so a passed-in result is
-    masked by where the *source* has gaps rather than by anything the caller computed.
+    No y flip happens here: `read_array()` is already north-up. With no `values`, the gaps
+    come from a `read_array(masked=True)` of the file. With one,
+    they come from `gaps=` when given and from the source only when the source's mask still
+    describes the result — an operation that changes which cells are gaps (`fillna`, `where`,
+    `interpolate_na`) supplies its own, and one that changes the shape must.
 
     Args:
         nc: The container to read.
@@ -970,8 +1023,8 @@ def from_pyramids(
     if len(dims) != physical.ndim:
         raise ParityUnsupported(
             f"{variable!r} resolves to {len(dims)} dimension name(s) {dims} for a "
-            f"{physical.ndim}-D array; the harness cannot label its axes. Pass `dims=` when "
-            "the operation changes the axes."
+            f"{physical.ndim}-D array; the harness cannot label its axes. Pass "
+            "`dims_override=` when the operation changes the axes."
         )
 
     # The y axis is the variable's own, found by name in whatever `dims` ends up being.
@@ -1044,12 +1097,13 @@ def assert_parity(
         coords: Whether to compare the coordinates. `False` for an operation that deliberately
             changes them, which must then assert them itself.
         dtype: The dtype the pyramids side must hold, when the operation contracts for one.
-            Checked against `ParityView.dtype` — the dtype the file stores — not against the
-            float64 `values`. `None` skips the check: a reduction promotes to float64 whatever
-            went in, and the promotion is the contract rather than a violation of it.
+            Checked against `ParityView.dtype`, which is the **result's** dtype when the view
+            carries one and the stored dtype otherwise — never against the float64 `values`.
+            `None` skips the check, which is right for a plain read: the stored dtype is the
+            file's business, not the operation's.
 
     Raises:
-        AssertionError: Any of the four checks fails.
+        AssertionError: Any of the six checks fails.
 
     Examples:
         - A no-op read matches its own export on every fixture:
