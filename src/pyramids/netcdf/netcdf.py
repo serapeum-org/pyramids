@@ -2955,8 +2955,13 @@ class NetCDF(Dataset):
         The list keeps its own name; this returns what the xarray spelling promises, which
         makes it the same object as :attr:`dimension_sizes`.
 
+        Inherits :attr:`dimension_sizes`' contract on a **variable subset**, where it is `{}`:
+        a subset has no root group to enumerate dimensions from. :attr:`dimension_names` falls
+        back to the names cached when the subset was built and so still reports them, which is
+        the one place the two disagree about more than their shape.
+
         Returns:
-            dict[str, int]: Dimension name to its length.
+            dict[str, int]: Dimension name to its length. `{}` on a variable subset.
 
         Examples:
             - Keys are the names, values the lengths:
@@ -2968,9 +2973,20 @@ class NetCDF(Dataset):
               (4, True)
 
               ```
+            - A variable subset reports none, while its names survive:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> nc["temperature"].dims
+              {}
+              >>> nc["temperature"].dimension_names[:2]
+              ['time', 'pressure_level']
+
+              ```
 
         See Also:
-            NetCDF.dimension_sizes: The canonical member.
+            NetCDF.dimension_sizes: The canonical member, and where the subset rule comes from.
             NetCDF.dimension_names: The names alone, as a list.
         """
         return self.dimension_sizes
@@ -3031,6 +3047,11 @@ class NetCDF(Dataset):
         south-to-north file is the reverse of the raster's north-up rows. A dimension with
         no indexing variable is omitted rather than mapped to `None`.
 
+        The keys come from :attr:`dimension_names`, **not** from :attr:`dims` — on a variable
+        subset `dims` is `{}` while the names survive, so reading `dims` here would drop the
+        axes a subset can still report. `set(nc.coords) <= set(nc.dimension_names)` is
+        therefore the invariant, and it is the one to rely on.
+
         Values are read when this is called, one array per dimension; the arrays are small
         (one per axis, not per cell) but this is not free.
 
@@ -3066,7 +3087,8 @@ class NetCDF(Dataset):
     def dtypes(self) -> dict[str, str]:
         """Each data variable's dtype, as `{name: dtype}`.
 
-        Reads no pixels: the type comes from the band description.
+        Reads no pixels: the type comes from the band description. One entry per name in
+        :attr:`variable_names`, so a variable subset — which enumerates none — reports `{}`.
 
         Returns:
             dict[str, str]: Variable name to the dtype of its first band, or to the
@@ -3095,6 +3117,10 @@ class NetCDF(Dataset):
         From each variable's shape and dtype, so a cube far larger than memory can be
         sized without touching a pixel. **Data variables only** — xarray's `nbytes` counts
         its coordinates too, so the two differ by the size of the coordinate arrays.
+
+        It sizes what :attr:`variable_names` enumerates, which on a **variable subset** is
+        nothing: `nc["t2m"].nbytes` is `0`, not that variable's own size. Size a single
+        variable from its shape and :attr:`dtype` instead.
 
         Returns:
             int: The total, `0` for a container with no data variables.
@@ -3152,7 +3178,7 @@ class NetCDF(Dataset):
             # `get_variable` hands back: a subset renames its y dimension to the window it was
             # cut with (`subset_lat_4_-1_5`), which is not a name this file has.
             axes = ", ".join(self._variable_dim_names(rg, name))
-            lines.append(f"\t{types.get(name, 'unknown')} {name}({axes}) ;")
+            lines.append(f"\t{types[name]} {name}({axes}) ;")
         lines.append("")
         lines.append("// global attributes:")
         lines += [f"\t:{key} = {value!r} ;" for key, value in self.attrs.items()]

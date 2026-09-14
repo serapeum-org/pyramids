@@ -32,6 +32,7 @@ import pytest
 
 from pyramids.netcdf import NetCDF
 from pyramids.netcdf.labeled import LabeledArray
+from pyramids.netcdf.netcdf import _variable_dtype, _variable_nbytes
 
 pytestmark = pytest.mark.core
 
@@ -209,6 +210,10 @@ class TestTheContainerIsAMapping:
         assert container.keys() == container.variable_names
         assert len(container.values()) == len(container)
         assert [name for name, _ in container.items()] == container.keys()
+        for (name, from_items), from_values in zip(
+            container.items(), container.values(), strict=True
+        ):
+            assert type(from_items) is type(from_values) is type(container[name])
 
     def test_get_returns_the_default_rather_than_raising(self, container: NetCDF):
         """A miss through `get` is not an error.
@@ -330,7 +335,7 @@ class TestTheXarraySpellings:
             quietly reorient a south-to-north axis that `get_dimension_values` leaves
             alone.
         """
-        assert set(container.coords) <= set(container.dimension_sizes)
+        assert set(container.coords) <= set(container.dimension_names)
         for name, values in container.coords.items():
             assert np.array_equal(values, container.get_dimension_values(name))
 
@@ -498,3 +503,200 @@ class TestCheapIntrospection:
         nc.info()
 
         assert "temperature" in capsys.readouterr().out
+
+
+class TestTheMappingsAreSafeToHoldOnTo:
+    """A returned mapping is the caller's; editing it must not reach the container."""
+
+    @pytest.mark.parametrize("member", ["dims", "sizes", "attrs", "coords", "dtypes"])
+    def test_mutating_a_returned_mapping_does_not_reach_the_container(
+        self, member: str
+    ):
+        """Each property hands back a fresh mapping, not internal state.
+
+        Args:
+            member: The property to read twice.
+
+        Test scenario:
+            The mapping is read, corrupted, and read again. `dimension_sizes` and
+            `global_attributes` both build a fresh dict per call today, so this holds -- but
+            an alias is exactly where a future "cache it" change would land, and a cached
+            mapping handed straight out would let `nc.dims["lat"] = 0` silently break every
+            later reader.
+        """
+        nc = open_store(PLAIN)
+
+        first = getattr(nc, member)
+        first["injected"] = "corrupted"
+
+        assert "injected" not in getattr(nc, member)
+
+    def test_mutating_a_returned_list_does_not_reach_the_container(self):
+        """`data_vars` and `keys()` hand back lists that are safe to sort in place.
+
+        Test scenario:
+            `variable_names` order is a documented contract, so a caller sorting the list
+            the alias returned must not reorder what the next reader sees.
+        """
+        nc = open_store(MIXED_RANKS)
+        original = list(nc.variable_names)
+
+        nc.data_vars.reverse()
+        nc.keys().reverse()
+
+        assert nc.variable_names == original
+
+
+class TestAVariableSubsetReportsTheContainerContract:
+    """What the new members answer on what `get_variable` hands back.
+
+    A subset is a `NetCDF` too, so every member here is reachable on it. They all follow
+    from the members they delegate to being *container* concepts, and the answers are
+    surprising enough -- `nbytes` is `0` for a variable that plainly holds 2880 bytes --
+    that they are pinned rather than left to be discovered.
+    """
+
+    def test_a_subset_enumerates_no_data_variables(self):
+        """`variable_names` is empty on a subset, so the whole mapping follows.
+
+        Test scenario:
+            `len`, `list` and `dict` all agree with `variable_names`, which is `[]`. This
+            is what makes every assertion below come out the way it does.
+        """
+        variable = open_store(PLAIN)["temperature"]
+
+        assert variable.variable_names == []
+        assert len(variable) == 0
+        assert list(variable) == []
+        assert dict(variable) == {}
+
+    def test_a_subset_reports_no_dimension_sizes_but_keeps_its_names(self):
+        """`dims` is `{}` while `dimension_names` has four entries.
+
+        Test scenario:
+            The one place the two members genuinely disagree. `dimension_sizes` needs a root
+            group and a subset has none; `dimension_names` falls back to the names cached
+            when the subset was built. Pinned so the `dims` docstring's warning stays true.
+        """
+        variable = open_store(PLAIN)["temperature"]
+
+        assert variable.dims == {}
+        assert variable.sizes == {}
+        assert len(variable.dimension_names) == 4
+
+    def test_a_subsets_coords_follow_its_names_rather_than_its_sizes(self):
+        """`coords` is not empty even though `dims` is.
+
+        Test scenario:
+            This is why `coords` iterates `dimension_names` rather than `dims`: the subset
+            can still read its non-spatial axes, and keying off `dims` would have thrown
+            them away. It also means `set(coords) <= set(dims)` is *not* the invariant --
+            `set(coords) <= set(dimension_names)` is.
+        """
+        variable = open_store(PLAIN)["temperature"]
+
+        assert set(variable.coords) <= set(variable.dimension_names)
+        assert not set(variable.coords) <= set(variable.dims)
+        assert variable.coords["time"].tolist() == [0.0, 6.0, 12.0, 18.0]
+
+    def test_a_subset_sizes_itself_as_zero(self):
+        """`nbytes` counts data variables, and a subset enumerates none.
+
+        Test scenario:
+            `nc["temperature"].nbytes` is `0` while `nc.nbytes` is 2880 for the same data.
+            Documented on the property, because the natural reading of `variable.nbytes` is
+            "this variable's size" and that is not what it answers.
+        """
+        nc = open_store(PLAIN)
+
+        assert nc.nbytes == 2880
+        assert nc["temperature"].nbytes == 0
+        assert nc["temperature"].dtypes == {}
+
+    def test_a_subsets_info_prints_an_empty_shell(self):
+        """The summary is well-formed but lists nothing.
+
+        Test scenario:
+            It must not raise -- `info` is reachable on a subset and a `KeyError` from the
+            dtype lookup would be a poor way to find that out.
+        """
+        report = io.StringIO()
+        open_store(PLAIN)["temperature"].info(report)
+        text = report.getvalue()
+
+        assert text.startswith("pyramids.NetCDF {")
+        assert text.rstrip().endswith("}")
+
+
+class TestTheSizingHelpers:
+    """`_variable_dtype` and `_variable_nbytes`, on inputs no fixture produces."""
+
+    def test_a_variable_reporting_no_bands_has_an_unknown_dtype(self):
+        """The defensive arm of `_variable_dtype`.
+
+        Test scenario:
+            A raster subset reports `dtype` as one entry per band. No fixture in the repo
+            has a zero-band variable, so the `"unknown"` answer is unreachable from a real
+            store and is exercised through a stub instead -- it is the documented return,
+            and a silent `IndexError` would be the alternative.
+        """
+
+        class NoBands:
+            dtype: list[str] = []
+
+        assert _variable_dtype(NoBands()) == "unknown"
+
+    def test_a_labelled_array_is_sized_from_the_array_it_holds(self):
+        """The `LabeledArray` arm of both helpers.
+
+        Test scenario:
+            A UGRID store holds only `LabeledArray`s, which have no `dtype` of their own and
+            no raster plane, so both helpers have to read the array. Its size is already in
+            memory, so nothing is loaded that was not there.
+        """
+        nc = open_store(LABELLED_ONLY)
+        variable = nc["node_lon"]
+
+        assert isinstance(variable, LabeledArray)
+        assert _variable_dtype(variable) == str(np.asarray(variable.values).dtype)
+        assert _variable_nbytes(variable) == np.asarray(variable.values).nbytes
+
+
+class TestTheInfoSummaryIsWellFormed:
+    """The shape of what `info` prints, beyond the names it contains."""
+
+    def test_the_summary_has_every_section_in_order(self):
+        """Opens, lists dimensions, lists variables, lists attributes, closes.
+
+        Test scenario:
+            The section order is the shape `ncdump -h` and xarray's `info` both use, which
+            is the only reason to print this rather than a dict. Asserted by index so a
+            reordering is caught, not just a missing line.
+        """
+        nc = open_store(PLAIN)
+
+        report = io.StringIO()
+        nc.info(report)
+        lines = report.getvalue().splitlines()
+
+        assert lines[0] == "pyramids.NetCDF {"
+        assert lines.index("dimensions:") < lines.index("variables:")
+        assert lines.index("variables:") < lines.index("// global attributes:")
+        assert lines[-1] == "}"
+
+    def test_a_container_with_no_global_attributes_still_closes(self):
+        """The attributes section may be empty.
+
+        Test scenario:
+            The header is printed unconditionally, so a store with nothing to list produces
+            a section with no entries rather than a missing brace.
+        """
+        nc = open_store(LABELLED_ONLY)
+        nc.global_attributes.clear()
+
+        report = io.StringIO()
+        nc.info(report)
+        lines = report.getvalue().splitlines()
+
+        assert "// global attributes:" in lines
+        assert lines[-1] == "}"
