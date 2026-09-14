@@ -341,6 +341,121 @@ def stored_y_ascends(nc: NetCDF) -> bool:
     return ascends
 
 
+def _is_index_axis(values: np.ndarray) -> bool:
+    """Whether a coordinate is the bare index GDAL synthesises for an axis that has none.
+
+    `cf__9v__1d7-2d2__geos__y-desc.nc` declares a `y` of `int16` `[0, 1, ... 499]`: not a
+    position on the earth, just the row number. It ascends, so a rule that reads "ascending
+    means the storage order is reversed" flips a raster that is already north-up — verified,
+    the two sides agree only when the flip is undone.
+
+    Args:
+        values: The stored coordinate.
+
+    Returns:
+        `True` when the values are exactly `0, 1, 2, …` in an integer dtype.
+
+    Examples:
+        - A synthesised index is recognised:
+
+          ```python
+          >>> import numpy as np
+          >>> from tests.netcdf.parity._harness import _is_index_axis
+          >>> _is_index_axis(np.arange(5, dtype="int16"))
+          True
+
+          ```
+        - Real latitudes are not, even when they happen to be whole numbers:
+
+          ```python
+          >>> import numpy as np
+          >>> from tests.netcdf.parity._harness import _is_index_axis
+          >>> _is_index_axis(np.array([40.0, 41.0, 42.0]))
+          False
+
+          ```
+    """
+    return bool(
+        np.issubdtype(values.dtype, np.integer)
+        and values.size
+        and np.array_equal(values, np.arange(values.size))
+    )
+
+
+def flip_needed(nc: NetCDF, y_name: str | None) -> bool:
+    """Whether the xarray side has to be flipped to reach pyramids' north-up raster order.
+
+    Decided from the y coordinate, and only when that coordinate can carry the decision.
+    Everything else raises: a silent `False` here is a wrong reference array that every
+    downstream parity test would report as agreement.
+
+    Args:
+        nc: The container to read the coordinate from.
+        y_name: The variable's y dimension, already resolved to the container's spelling, or
+            `None` for a variable with no raster plane.
+
+    Returns:
+        `True` when the file stores its rows south-to-north, so storage order reverses the
+        raster. `False` when it is already north-up, or when there is no y axis to flip.
+
+    Raises:
+        ParityUnsupported: The y axis exists but cannot decide — it has no coordinate
+            variable, its coordinate is a synthesised index, or it is not monotonic.
+
+    Examples:
+        - A real ascending axis is flipped:
+
+          ```python
+          >>> from pyramids.netcdf.netcdf import NetCDF
+          >>> from tests.netcdf.parity._harness import flip_needed
+          >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+          >>> flip_needed(nc, "lat")
+          True
+
+          ```
+        - A store whose y is a bare row index is refused rather than guessed at:
+
+          ```python
+          >>> from pyramids.netcdf.netcdf import NetCDF
+          >>> from tests.netcdf.parity._harness import ParityUnsupported, flip_needed
+          >>> nc = NetCDF.read_file("tests/data/netcdf/cf__9v__1d7-2d2__geos__y-desc.nc")
+          >>> try:
+          ...     flip_needed(nc, "y")
+          ... except ParityUnsupported as error:
+          ...     print(str(error)[:44])
+          the 'y' axis is a synthesised row index
+          ```
+    """
+    needed = False
+    if y_name is not None:
+        raw = nc.get_dimension_values(y_name)
+        if raw is None:
+            raise ParityUnsupported(
+                f"the {y_name!r} axis has no coordinate variable, so which way the file "
+                "stores its rows cannot be read; this store is out of scope for parity"
+            )
+        values = np.asarray(raw)
+        if values.size > 1:
+            if _is_index_axis(values):
+                raise ParityUnsupported(
+                    f"the {y_name!r} axis is a synthesised row index, not a position, so it "
+                    "cannot say which way the rows are stored"
+                )
+            ascending = bool(values[0] < values[-1])
+            ordered = (
+                np.all(np.diff(values) > 0)
+                if ascending
+                else np.all(np.diff(values) < 0)
+            )
+            if not ordered:
+                raise ParityUnsupported(
+                    f"the {y_name!r} coordinate is not monotonic, so the storage order is not "
+                    "a simple reversal of the raster order"
+                )
+            needed = ascending
+    return needed
+
+
 def _packing(variable: Any) -> tuple[float, float]:
     """The variable's CF `scale_factor` / `add_offset`, defaulted to the identity.
 
@@ -567,7 +682,8 @@ def to_xr(nc: NetCDF, variable: str) -> ParityView:
     gaps = _gap_mask(stored, handle.no_data_value[0])
     values = np.where(gaps, np.nan, stored.astype("float64") * scale + offset)
 
-    name = y_dimension(nc)
+    dims = _variable_dims(nc, nc.get_variable(variable))
+    name = dims[-2] if len(dims) >= 2 else None
     # The stored coordinates come from a second export with the decoding turned off, so the
     # two sides can always be compared like with like: `get_dimension_values` reports stored
     # offsets, and `to_xarray()` decodes a CF time axis to `datetime64[ns]`. The decoded form
@@ -587,7 +703,7 @@ def to_xr(nc: NetCDF, variable: str) -> ParityView:
         if key in exported.coords
         and np.issubdtype(np.asarray(exported.coords[key].values).dtype, np.datetime64)
     }
-    if name in array.dims and stored_y_ascends(nc):
+    if name in array.dims and flip_needed(nc, name):
         axis = list(array.dims).index(name)
         values = np.flip(values, axis)
         gaps = np.flip(gaps, axis)
@@ -715,13 +831,14 @@ def from_pyramids(nc: NetCDF, variable: str, values: Any = None) -> ParityView:
             f"{physical.ndim}-D array; the harness cannot label its axes"
         )
 
-    y_name = y_dimension(nc)
+    y_name = dims[-2] if len(dims) >= 2 else None
+    flip = flip_needed(nc, y_name)
     coords: dict[str, np.ndarray] = {}
     decoded_coords: dict[str, np.ndarray] = {}
     for name in dims:
         stored_coord = np.asarray(nc.get_dimension_values(name))
         instants = _decoded_time(nc, name)
-        if name == y_name and stored_y_ascends(nc):
+        if name == y_name and flip:
             stored_coord = stored_coord[::-1]
             instants = None if instants is None else instants[::-1]
         coords[name] = stored_coord

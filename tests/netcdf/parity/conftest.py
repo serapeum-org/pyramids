@@ -134,9 +134,16 @@ NAN_SENTINEL = ParityFixture(
     covers="A declared NaN fill value, which needs `isnan` rather than `==` to find.",
 )
 
-#: Stores with no y dimension at all: a 1-D time series, and a curvilinear grid whose axes are
-#: `eta_rho` / `xi_rho`. Both must leave the orientation rule with nothing to decide.
-WITHOUT_Y = ("none__11v__1d11.nc", "cf__8v__1d3-2d3-3d1-4d1__curv-stag.nc")
+#: Stores the harness refuses, with the phrase the refusal carries. Each is a case where the
+#: orientation rule cannot be decided from the y coordinate, and answering anyway would hand
+#: every downstream parity test a silently wrong reference: the ROMS and curvilinear stores
+#: have a y axis with no coordinate variable (both in fact need the flip), and the GOES store's
+#: `y` is the synthesised row index `0, 1, … 499`, which ascends but must not be flipped.
+UNSUPPORTED = (
+    ("cf__8v__1d3-2d3-3d1-4d1__curv-stag.nc", "salt", "no coordinate variable"),
+    ("none__4v__1d1-2d2-3d1__curv.nc", "Tair", "no coordinate variable"),
+    ("cf__9v__1d7-2d2__geos__y-desc.nc", "CMI", "synthesised row index"),
+)
 
 
 def open_fixture(path: str) -> NetCDF:

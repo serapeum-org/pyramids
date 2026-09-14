@@ -19,6 +19,7 @@ import pytest
 
 from pyramids.netcdf.netcdf import NetCDF
 from tests.netcdf.parity._harness import (
+    ParityUnsupported,
     ParityView,
     _gap_mask,
     _packing,
@@ -31,7 +32,7 @@ from tests.netcdf.parity._harness import (
 from tests.netcdf.parity.conftest import (
     NAN_SENTINEL,
     PARITY_FIXTURES,
-    WITHOUT_Y,
+    UNSUPPORTED,
     open_fixture,
 )
 
@@ -43,7 +44,7 @@ FIXTURES = [
     (case.path, case.variable, case.y_ascends, case.packed) for case in PARITY_FIXTURES
 ]
 FIXTURE_IDS = [case.id for case in PARITY_FIXTURES]
-WITHOUT_Y_IDS = ["time-series", "curvilinear"]
+UNSUPPORTED_IDS = ["roms-eta-rho", "curvilinear-y", "goes-index-y"]
 
 
 def _read(name: str) -> NetCDF:
@@ -223,39 +224,43 @@ class TestTheOrientationRule:
         assert y_dimension(_read("cf__5v__1d4-4d1__geog__y-desc.nc")) == "latitude"
         assert y_dimension(_read("coards__4v__1d2-2d2__scaleoffset__y-asc.nc")) == "y"
 
-    @pytest.mark.parametrize("name", WITHOUT_Y, ids=WITHOUT_Y_IDS)
-    def test_a_container_without_a_y_dimension_reports_none(self, name):
-        """A container declaring none of the four spellings has no y dimension to report.
+    @pytest.mark.parametrize(
+        ("name", "variable", "reason"), UNSUPPORTED, ids=UNSUPPORTED_IDS
+    )
+    def test_an_undecidable_store_is_refused(self, name, variable, reason):
+        """A store whose y axis cannot decide the flip must raise, not answer `False`.
 
         Args:
             name: The fixture file name.
+            variable: The variable to attempt.
+            reason: The phrase the refusal has to carry.
 
         Test scenario:
-            Two real shapes reach this: a one-dimensional time series with no spatial axis at
-            all, and a curvilinear file whose horizontal axes are `eta_rho` / `xi_rho` and so
-            are not the raster y axis pyramids presents. Both must answer `None` rather than
-            pick whichever dimension happens to sit in the right position.
+            These three are the reason the rule refuses rather than defaults. Measured on this
+            branch before the guard existed: the ROMS store needs the flip on `eta_rho` (the
+            xor of the two gap masks drops from 394392 to 0 once flipped), the curvilinear
+            store needs it on `y` (134052 to 0), and the GOES store must *not* be flipped even
+            though its `y` ascends, because that `y` is the row index `0, 1, … 499`. Answering
+            `False` for the first two and `True` for the third is what the suite used to pin.
         """
         nc = _read(name)
-        assert y_dimension(nc) is None, (
-            f"{name} declares {sorted(nc.dimension_sizes)}, none of which is a y dimension"
-        )
+        with pytest.raises(ParityUnsupported, match=reason):
+            from_pyramids(nc, variable)
 
-    @pytest.mark.parametrize("name", WITHOUT_Y, ids=WITHOUT_Y_IDS)
-    def test_a_container_without_a_y_dimension_is_never_flipped(self, name):
-        """With no y axis there is nothing to reverse, so the rule must answer `False`.
+    @pytest.mark.parametrize(
+        ("name", "variable", "reason"), UNSUPPORTED, ids=UNSUPPORTED_IDS
+    )
+    def test_the_export_side_refuses_the_same_stores(self, name, variable, reason):
+        """`to_xr` must refuse whatever `from_pyramids` refuses, or one side is silently wrong.
 
         Args:
             name: The fixture file name.
-
-        Test scenario:
-            The rule has to answer without looking up a coordinate that does not exist. `True`
-            here would ask `to_xr` to flip an axis the container does not have, and reaching
-            for the coordinate to decide it would raise rather than return.
+            variable: The variable to attempt.
+            reason: The phrase the refusal has to carry.
         """
-        assert stored_y_ascends(_read(name)) is False, (
-            f"{name} has no y dimension, so nothing about it can be said to ascend"
-        )
+        nc = _read(name)
+        with pytest.raises(ParityUnsupported, match=reason):
+            to_xr(nc, variable)
 
     def test_a_one_cell_y_axis_is_never_flipped(self):
         """A single row carries no direction, so the rule must not read one out of it.
