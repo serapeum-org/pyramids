@@ -41,6 +41,7 @@ is a single read and cannot drift from whatever the mask rules become.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -48,6 +49,9 @@ import numpy as np
 
 from pyramids.netcdf._mdim import unflatten_band_axes
 from pyramids.netcdf.netcdf import NetCDF
+
+#: `get_variable` renames the axis it subsets to `subset_<name>_<start>_<step>_<count>`.
+_SUBSET_RENAME = re.compile(r"^subset_(.+)_-?\d+_-?\d+_-?\d+$")
 
 #: Dimension names pyramids' raster view treats as the y axis, in the order they are looked for.
 Y_DIMENSION_NAMES = ("lat", "latitude", "y", "yc")
@@ -130,6 +134,86 @@ class ParityView:
     dims: tuple[str, ...]
     coords: dict[str, np.ndarray]
     dtype: np.dtype
+
+
+class ParityUnsupported(RuntimeError):
+    """The harness cannot state a parity relationship for this store.
+
+    Raised rather than answered with a guess. Every alternative to raising here is a silent
+    wrong answer that a downstream parity test would report as agreement — the failure mode
+    this whole module exists to prevent.
+    """
+
+
+def _variable_dims(nc: NetCDF, handle: Any) -> tuple[str, ...]:
+    """The dimension names of ``handle``'s array, spatial axes last.
+
+    Taken from the **variable**, not the container. A container declares every dimension any of
+    its variables uses, so deriving the spatial axes as "whatever the container declares that is
+    not a band dimension" yields names the array does not have the moment its variables differ:
+    `cf__12v__1d4-2d5-3d2-4d1__y-asc.nc::area` is 2-D and would collect five names.
+
+    A variable subset renames its y dimension (`lat` becomes `subset_lat_4_-1_5`), so that one
+    slot is resolved back through the container's own name.
+
+    Args:
+        nc: The container the variable came from.
+        handle: The variable subset.
+
+    Returns:
+        The dimension names, `(*band_dims, y, x)` for a variable with a raster plane.
+
+    Raises:
+        ParityUnsupported: The variable reports no dimension names to work from.
+    """
+    declared = handle.dimension_names
+    if not declared:
+        raise ParityUnsupported(
+            "the variable reports no dimension names, so its axes cannot be labelled"
+        )
+    known = set(nc.dimension_sizes)
+    return tuple(_unrenamed(name, known) for name in declared)
+
+
+def _unrenamed(name: str, known: set[str]) -> str:
+    """The container's spelling of a dimension a variable subset renamed.
+
+    `get_variable` reports its y axis as `subset_<name>_<start>_<step>_<count>` —
+    `subset_lat_4_-1_5`, `subset_lines_479_-1_480` — because the subset carries the window it
+    was cut with. Both sides have to agree on one spelling, and the container's is the one
+    `to_xarray` uses. Resolved by pattern rather than by looking only at the y slot, so a store
+    whose y is spelled something the harness does not recognise is still labelled correctly.
+
+    Args:
+        name: The dimension name as the variable reports it.
+        known: The dimension names the container declares.
+
+    Returns:
+        The container's name when `name` is a recognisable rename of one, else `name` itself.
+
+    Examples:
+        - A renamed axis resolves back:
+
+          ```python
+          >>> from tests.netcdf.parity._harness import _unrenamed
+          >>> _unrenamed("subset_lat_4_-1_5", {"lat", "lon"})
+          'lat'
+
+          ```
+        - A name the container does not declare is left alone:
+
+          ```python
+          >>> from tests.netcdf.parity._harness import _unrenamed
+          >>> _unrenamed("subset_zz_1_2_3", {"lat", "lon"})
+          'subset_zz_1_2_3'
+
+          ```
+    """
+    resolved = name
+    match = _SUBSET_RENAME.match(name)
+    if match and match.group(1) in known:
+        resolved = match.group(1)
+    return resolved
 
 
 def y_dimension(nc: NetCDF) -> str | None:
@@ -569,22 +653,21 @@ def from_pyramids(nc: NetCDF, variable: str, values: Any = None) -> ParityView:
     )
 
     # `_band_dim_names` is the variable's own non-spatial axes in storage order, which is what
-    # GDAL flattened; the variable's `dimension_names` is not usable here because a subset
-    # renames its y dimension (`lat` -> `subset_lat_4_-1_5`).
+    # GDAL flattened.
     band_dims = tuple(handle._band_dim_names)
     sizes = tuple(handle._band_dim_sizes)
     if len(band_dims) > 1:
         physical = unflatten_band_axes(physical, band_dims, sizes)
         gaps = unflatten_band_axes(gaps, band_dims, sizes)
 
-    y_name = y_dimension(nc)
-    spatial = [
-        name
-        for name in (nc.dimension_names or [])
-        if name not in band_dims and name != y_name
-    ]
-    dims = (*band_dims, *(n for n in (y_name,) if n), *spatial)
+    dims = _variable_dims(nc, handle)
+    if len(dims) != physical.ndim:
+        raise ParityUnsupported(
+            f"{variable!r} resolves to {len(dims)} dimension name(s) {dims} for a "
+            f"{physical.ndim}-D array; the harness cannot label its axes"
+        )
 
+    y_name = y_dimension(nc)
     coords: dict[str, np.ndarray] = {}
     for name in dims:
         stored_coord = np.asarray(nc.get_dimension_values(name))
