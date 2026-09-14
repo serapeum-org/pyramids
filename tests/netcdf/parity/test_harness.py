@@ -12,6 +12,7 @@ Style: Google-style docstrings, <=120 char lines, no inline imports, descriptive
 from __future__ import annotations
 
 import dataclasses
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -19,6 +20,8 @@ import pytest
 from pyramids.netcdf.netcdf import NetCDF
 from tests.netcdf.parity._harness import (
     ParityView,
+    _gap_mask,
+    _packing,
     assert_parity,
     from_pyramids,
     stored_y_ascends,
@@ -52,6 +55,44 @@ def _read(name: str) -> NetCDF:
         NetCDF: The opened container.
     """
     return NetCDF.read_file(f"tests/data/netcdf/{name}")
+
+
+# Containers that declare no y dimension at all: a one-dimensional time series with no spatial
+# axis, and a curvilinear file whose horizontal axes are spelled `eta_rho` / `xi_rho`.
+WITHOUT_Y = ["none__11v__1d11.nc", "cf__8v__1d3-2d3-3d1-4d1__curv-stag.nc"]
+WITHOUT_Y_IDS = ["time-series", "curvilinear"]
+
+
+class OnlyDimensions:
+    """A stand-in for `NetCDF` exposing only the two members the y rules read.
+
+    The smallest y axis among the repo's fixtures is five rows, so a one-cell axis cannot be
+    reached through a file. `y_dimension` reads `dimension_sizes` and `stored_y_ascends` reads
+    `get_dimension_values`; nothing else is needed to drive either of them.
+    """
+
+    def __init__(
+        self, sizes: dict[str, int], coordinates: dict[str, list[float]]
+    ) -> None:
+        """Record the dimensions and their coordinate values.
+
+        Args:
+            sizes: The dimension sizes, as `NetCDF.dimension_sizes` reports them.
+            coordinates: The stored values of each dimension.
+        """
+        self.dimension_sizes = sizes
+        self._coordinates = coordinates
+
+    def get_dimension_values(self, name: str) -> list[float]:
+        """The stored coordinate values of one dimension.
+
+        Args:
+            name: The dimension to look up.
+
+        Returns:
+            The values recorded for it.
+        """
+        return self._coordinates[name]
 
 
 class TestTheNoOpParity:
@@ -187,6 +228,54 @@ class TestTheOrientationRule:
         assert y_dimension(_read("cf__5v__1d4-4d1__geog__y-desc.nc")) == "latitude"
         assert y_dimension(_read("coards__4v__1d2-2d2__scaleoffset__y-asc.nc")) == "y"
 
+    @pytest.mark.parametrize("name", WITHOUT_Y, ids=WITHOUT_Y_IDS)
+    def test_a_container_without_a_y_dimension_reports_none(self, name):
+        """A container declaring none of the four spellings has no y dimension to report.
+
+        Args:
+            name: The fixture file name.
+
+        Test scenario:
+            Two real shapes reach this: a one-dimensional time series with no spatial axis at
+            all, and a curvilinear file whose horizontal axes are `eta_rho` / `xi_rho` and so
+            are not the raster y axis pyramids presents. Both must answer `None` rather than
+            pick whichever dimension happens to sit in the right position.
+        """
+        nc = _read(name)
+        assert y_dimension(nc) is None, (
+            f"{name} declares {sorted(nc.dimension_sizes)}, none of which is a y dimension"
+        )
+
+    @pytest.mark.parametrize("name", WITHOUT_Y, ids=WITHOUT_Y_IDS)
+    def test_a_container_without_a_y_dimension_is_never_flipped(self, name):
+        """With no y axis there is nothing to reverse, so the rule must answer `False`.
+
+        Args:
+            name: The fixture file name.
+
+        Test scenario:
+            The rule has to answer without looking up a coordinate that does not exist. `True`
+            here would ask `to_xr` to flip an axis the container does not have, and reaching
+            for the coordinate to decide it would raise rather than return.
+        """
+        assert stored_y_ascends(_read(name)) is False, (
+            f"{name} has no y dimension, so nothing about it can be said to ascend"
+        )
+
+    def test_a_one_cell_y_axis_is_never_flipped(self):
+        """A single row carries no direction, so the rule must not read one out of it.
+
+        Test scenario:
+            The smallest y axis among the repo's fixtures is five rows, so the degenerate case
+            is driven from a stand-in container. `values[0] < values[-1]` would compare the one
+            cell with itself; the size guard answers before that, and `False` is also the
+            answer that leaves the array alone.
+        """
+        container = OnlyDimensions({"lat": 1, "lon": 3}, {"lat": [42.0]})
+        assert stored_y_ascends(container) is False, (
+            "a single-cell y axis has no stored direction, so nothing may be flipped"
+        )
+
 
 class TestTheGapRule:
     """Normalisation 2 — the masks must agree, and be taken before unpacking."""
@@ -246,6 +335,71 @@ class TestTheGapRule:
         with pytest.raises(AssertionError, match="gap masks differ"):
             assert_parity(dataclasses.replace(pyr, gaps=moved), to_xr(nc, "tcw"))
 
+    def test_a_nan_sentinel_is_found_by_nan_and_not_by_equality(self):
+        """A `NaN` fill value needs its own branch, because `nan == nan` is `False`.
+
+        Test scenario:
+            The equality path reports no gaps at all on a variable whose declared fill is
+            `NaN`, which would silently compare fill against fill. The dedicated branch must
+            find them, and the equality it replaces must be shown to find nothing — otherwise
+            the branch could be deleted and no test would notice.
+        """
+        stored = np.asarray([[1.0, np.nan], [np.nan, 4.0]])
+        mask = _gap_mask(stored, float("nan"))
+        assert mask.tolist() == [[False, True], [True, False]], (
+            f"the NaN cells should be the gaps, got {mask.tolist()}"
+        )
+        assert int((stored == float("nan")).sum()) == 0, (
+            "equality against NaN finds nothing, which is the reason the branch exists"
+        )
+
+    def test_a_numeric_sentinel_is_found_by_equality(self):
+        """A declared number marks exactly the cells holding it, and no others.
+
+        Test scenario:
+            The ordinary case, asserted on the mask itself rather than through a file so the
+            fill cells and the data cells stay distinguishable by eye.
+        """
+        stored = np.asarray([[1, -999], [3, -999]])
+        mask = _gap_mask(stored, -999)
+        assert mask.tolist() == [[False, True], [False, True]], (
+            f"only the -999 cells should be marked as gaps, got {mask.tolist()}"
+        )
+
+    def test_an_undeclared_sentinel_marks_nothing(self):
+        """A variable with no fill value has no gaps, and the mask still matches its shape.
+
+        Test scenario:
+            `None` must produce an all-`False` mask shaped like the data, not an empty array:
+            `assert_parity` compares the two masks elementwise, and a shape mismatch here would
+            fail a comparison that has nothing to do with the values.
+        """
+        stored = np.zeros((2, 3, 4))
+        mask = _gap_mask(stored, None)
+        assert mask.shape == stored.shape, (
+            f"expected a mask shaped {stored.shape}, got {mask.shape}"
+        )
+        assert not mask.any(), "nothing is declared as fill, so no cell can be a gap"
+
+    def test_a_variable_whose_declared_fill_is_nan_reaches_parity(self):
+        """The `NaN` sentinel is exercised end to end, not only as a unit.
+
+        Test scenario:
+            `t2m` on `cf__5v__1d4-3d1__geog__y-desc.nc` is the only variable in the repo that
+            declares `NaN` as its fill, so it is the only file that drives `to_xr` down that
+            branch. It holds no `NaN` cell, so both sides must report no gaps at all and still
+            agree on every value.
+        """
+        nc = _read("cf__5v__1d4-3d1__geog__y-desc.nc")
+        assert np.isnan(nc.get_variable("t2m").no_data_value[0]), (
+            "the fixture is here because its declared fill is NaN"
+        )
+        pyr = from_pyramids(nc, "t2m")
+        assert not pyr.gaps.any(), (
+            f"no cell of t2m holds the fill value, but {int(pyr.gaps.sum())} are masked"
+        )
+        assert_parity(pyr, to_xr(nc, "t2m"))
+
 
 class TestThePackingRule:
     """Normalisation 4 — both sides end in physical units."""
@@ -277,6 +431,20 @@ class TestThePackingRule:
         assert handle.scale[0] in (None, 1.0)
         assert handle.offset[0] in (None, 0.0)
         assert_parity(from_pyramids(nc, "temperature"), to_xr(nc, "temperature"))
+
+    def test_absent_factors_default_to_the_identity(self):
+        """A variable declaring neither `scale_factor` nor `add_offset` is left untouched.
+
+        Test scenario:
+            Every fixture in the repo reports both factors explicitly — `1.0` and `0.0` when
+            unpacked — so the `None` defaults are driven from a stand-in handle. They have to
+            be the identity: any other default would rescale an unpacked variable inside the
+            normalisation meant to leave it alone.
+        """
+        factors = _packing(SimpleNamespace(scale=[None], offset=[None]))
+        assert factors == (1.0, 0.0), (
+            f"an undeclared packing must be the identity, got {factors}"
+        )
 
 
 class TestTheHarnessFailsWhenItShould:
