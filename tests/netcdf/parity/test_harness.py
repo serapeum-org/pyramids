@@ -17,6 +17,7 @@ import doctest
 import io
 import warnings
 from types import SimpleNamespace
+from typing import Any
 
 import numpy as np
 import pytest
@@ -34,9 +35,12 @@ from tests.netcdf.parity._catalogue import (
 from tests.netcdf.parity._harness import (
     ParityUnsupported,
     ParityView,
+    _decoded_time,
     _gap_mask,
     _packing,
+    _variable_dims,
     assert_parity,
+    flip_needed,
     from_pyramids,
     stored_y_ascends,
     to_xr,
@@ -87,6 +91,85 @@ class OnlyDimensions:
             The values recorded for it.
         """
         return self._coordinates[name]
+
+
+class UndecodableTimeAxis:
+    """A stand-in whose time decoder raises instead of answering.
+
+    `_decoded_time` reads a raising decoder as "this axis has no instants", which is what lets
+    a store with an unreadable `units` still reach a values-only comparison. Every fixture in
+    the repo that cannot decode answers `None` instead of raising, so the error is supplied
+    rather than found.
+    """
+
+    def __init__(self, error: Exception) -> None:
+        """Record the error the decoder raises.
+
+        Args:
+            error: The exception every `get_time_variable` call raises.
+        """
+        self._error = error
+
+    def get_time_variable(self, name: str, out_format: str) -> list[str]:
+        """Raise instead of decoding.
+
+        Args:
+            name: The dimension asked for; unused.
+            out_format: The format asked for; unused.
+
+        Returns:
+            Nothing; the call never completes.
+
+        Raises:
+            Exception: Always, the error this stand-in was built with.
+        """
+        raise self._error
+
+
+class WithoutStoredYCoordinate:
+    """A container whose *undecoded* export has lost its y coordinate, and nothing else.
+
+    `to_xr` takes the stored coordinates from a second export with the decoding turned off, and
+    reverses the y one alongside the values. No fixture separates the two questions -- pyramids
+    reports the axis, so that export carries it -- so a real container is wrapped and only the
+    one export altered, leaving every other input to `to_xr` genuine.
+    """
+
+    def __init__(self, nc: NetCDF, y_name: str) -> None:
+        """Wrap a container and name the coordinate to drop.
+
+        Args:
+            nc: The real container every other call is forwarded to.
+            y_name: The coordinate to drop from the undecoded export.
+        """
+        self._nc = nc
+        self._y_name = y_name
+
+    def __getattr__(self, name: str) -> Any:
+        """Forward every other member `to_xr` reads to the wrapped container.
+
+        Args:
+            name: The attribute to forward.
+
+        Returns:
+            The wrapped container's attribute.
+        """
+        return getattr(self._nc, name)
+
+    def to_xarray(self, **kwargs: Any) -> Any:
+        """Export as the container would, minus the y coordinate when times are not decoded.
+
+        Args:
+            **kwargs: Forwarded unchanged; `decode_times=False` marks the export `to_xr` reads
+                its stored coordinates from.
+
+        Returns:
+            The exported cube, without the y coordinate on the undecoded export.
+        """
+        exported = self._nc.to_xarray(**kwargs)
+        if not kwargs.get("decode_times", True):
+            exported = exported.drop_vars(self._y_name)
+        return exported
 
 
 class TestTheNoOpParity:
@@ -263,6 +346,44 @@ class TestTheOrientationRule:
         assert stored_y_ascends(container) is False, (
             "a single-cell y axis has no stored direction, so nothing may be flipped"
         )
+
+    def test_a_variable_with_no_y_axis_is_never_flipped(self):
+        """`flip_needed(nc, None)` answers `False` without reading the container.
+
+        Test scenario:
+            `to_xr` calls the rule unconditionally, including for a variable of fewer than two
+            dimensions, whose y name resolves to `None`. There is no axis to reverse, and the
+            stand-in declares no dimensions at all, so the answer cannot have come from a read.
+        """
+        assert flip_needed(OnlyDimensions({}, {}), None) is False, (
+            "a variable with no y axis has nothing to flip"
+        )
+
+    def test_the_rule_applies_the_one_cell_guard_too(self):
+        """`flip_needed` repeats the size guard rather than delegating to `stored_y_ascends`.
+
+        Test scenario:
+            It is `flip_needed` that `to_xr` and `from_pyramids` actually call, so the guard has
+            to hold there as well: one cell carries no direction, and comparing it with itself
+            would answer `False` only by accident.
+        """
+        container = OnlyDimensions({"lat": 1, "lon": 3}, {"lat": [42.0]})
+        assert flip_needed(container, "lat") is False, (
+            "a single-cell y axis has no stored direction, so nothing may be flipped"
+        )
+
+    def test_a_non_monotonic_y_axis_is_refused(self):
+        """A coordinate that turns back on itself is not undone by reversing the rows.
+
+        Test scenario:
+            `[0.0, 5.0, 3.0]` reads as ascending from its endpoints, which is all the direction
+            test looks at, so without the monotonic check the rule would answer `True` and flip
+            a raster whose storage order is not the reverse of the raster order at all. No
+            fixture stores such an axis, so it is driven from a stand-in.
+        """
+        container = OnlyDimensions({"lat": 3, "lon": 3}, {"lat": [0.0, 5.0, 3.0]})
+        with pytest.raises(ParityUnsupported, match="is not monotonic"):
+            flip_needed(container, "lat")
 
 
 class TestTheGapRule:
@@ -541,6 +662,25 @@ class TestTheParityView:
             from_pyramids(nc, "temperature", values=read), to_xr(nc, "temperature")
         )
 
+    def test_a_flipped_axis_the_stored_export_omits_is_still_flipped(self):
+        """The flip reverses a coordinate only where there is one, and the values regardless.
+
+        Test scenario:
+            The stored coordinates come from the undecoded export, which need not carry every
+            dimension the array has. Skipping the flip because a coordinate is absent would
+            hand back a reference array in the file's storage order -- agreement with nothing.
+        """
+        nc = _read("cf__5v__1d4-4d1__y-asc.nc")
+        expected = to_xr(nc, "temperature")
+        view = to_xr(WithoutStoredYCoordinate(nc, "lat"), "temperature")
+
+        assert "lat" not in view.coords, (
+            f"the dropped coordinate should stay dropped, got {sorted(view.coords)}"
+        )
+        assert np.array_equal(view.values, expected.values, equal_nan=True), (
+            "the values must be flipped whether or not the axis carries a coordinate"
+        )
+
 
 class TestAViewIsItsOwnParity:
     """`assert_parity(x, x)` — the degenerate case the plan asks for explicitly."""
@@ -653,6 +793,31 @@ class TestTheLabelChecks:
                 dataclasses.replace(pyr, decoded_coords=wrong),
                 to_xr(nc, "temperature"),
             )
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            ValueError("unreadable units"),
+            TypeError("unreadable units"),
+            KeyError("time"),
+        ],
+        ids=["value-error", "type-error", "key-error"],
+    )
+    def test_an_axis_whose_decoder_raises_carries_no_instants(self, error):
+        """A decode that raises means "no instants", not a failed comparison.
+
+        Args:
+            error: The exception `get_time_variable` raises.
+
+        Test scenario:
+            The instants are a cross-check made where both sides produce one, so a container
+            whose decoder raises has to drop out of that check and leave the stored coordinates
+            to compare. Letting the error escape would abort a parity comparison that the
+            stored offsets can still make.
+        """
+        assert _decoded_time(UndecodableTimeAxis(error), "time") is None, (
+            f"a decoder raising {type(error).__name__} should report no instants"
+        )
 
 
 class TestAnOperationsResult:
@@ -984,6 +1149,31 @@ class TestTheResultIsDescribedNotGuessed:
         assert list(view.coords["lat"]) == list(source.coords["lat"]), (
             "an axis the operation did not touch keeps the container's coordinate"
         )
+
+    def test_a_dims_override_that_miscounts_the_axes_is_refused(self):
+        """`dims_override=` has to name every axis of the result, and no more.
+
+        Test scenario:
+            Miscounting is the easy mistake when an operation changes the axes, and the view is
+            built before `assert_parity` ever sees it -- so without this guard the mislabelled
+            view reaches the comparison and fails there as a dimension-name difference that
+            names neither the rank nor the array. `temperature` is 4-D; three names are given.
+        """
+        nc = _read("cf__5v__1d4-4d1__y-asc.nc")
+        with pytest.raises(ParityUnsupported, match="3 dimension name"):
+            from_pyramids(nc, "temperature", dims_override=("time", "lat", "lon"))
+
+    def test_a_variable_that_reports_no_axes_is_refused(self):
+        """Names come from the variable, so a variable without any cannot be labelled.
+
+        Test scenario:
+            Falling back to the container's dimensions is exactly the guess the harness refuses
+            to make: a container declares every dimension any of its variables uses, so the
+            fallback would label the array with axes it does not have.
+        """
+        handle = SimpleNamespace(dimension_names=())
+        with pytest.raises(ParityUnsupported, match="no dimension names"):
+            _variable_dims(OnlyDimensions({"lat": 5, "lon": 6}, {}), handle)
 
 
 class TestCoordinatesTheRuleCannotRead:
