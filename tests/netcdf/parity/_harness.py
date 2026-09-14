@@ -805,13 +805,14 @@ def _result_view(
             given, or the supplied mask does not match the result.
     """
     array = np.asarray(values)
-    if (
-        array.shape != source_gaps.shape
-        and array.shape[-2:] == source_gaps.shape[-2:]
-        and array.size == source_gaps.size
-    ):
+    flat = (int(np.prod(source_gaps.shape[:-2])), *source_gaps.shape[-2:])
+    if array.shape == flat and array.shape != source_gaps.shape:
         # A caller holding a plain `read_array` result has the flat `(bands, rows, cols)`
-        # shape GDAL returns, not the rebuilt band axes. Both are the same array.
+        # shape GDAL returns, not the rebuilt band axes. *Only* that shape is reinterpreted:
+        # matching on "same size, same trailing two axes" also accepted a result whose band
+        # axes were transposed — `(3, 4, …)` where the source is `(4, 3, …)` — and silently
+        # reshaped it into agreement, routing around the dimension-name check that exists to
+        # catch exactly that.
         array = array.reshape(source_gaps.shape)
     if gaps is not None:
         mask = np.asarray(gaps, dtype=bool)
@@ -838,6 +839,7 @@ def from_pyramids(
     *,
     gaps: Any = None,
     dims_override: Sequence[str] | None = None,
+    coords_override: dict[str, Any] | None = None,
 ) -> ParityView:
     """The pyramids view of `variable`, reshaped onto the dimensions xarray keeps.
 
@@ -853,7 +855,16 @@ def from_pyramids(
         nc: The container to read.
         variable: The variable to read.
         values: An already-computed result to normalise instead of reading, in raster order
-            and physical units. Defaults to `read_array(variable=variable)`.
+            and physical units. Defaults to `read_array(variable=variable)`. Either the flat
+            `(bands, rows, cols)` shape `read_array` returns or the rebuilt band axes.
+        gaps: The result's no-data mask. Defaults to the source's, which is reused only when
+            it still describes the result — an operation that changes which cells are gaps
+            (`fillna`, `where`, `interpolate_na`) has to supply its own.
+        dims_override: The result's dimension names, for an operation that changes the axes.
+            Defaults to the variable's own.
+        coords_override: The result's coordinates, keyed by dimension name, for an operation
+            that subsets or replaces them. Any axis not named here takes the container's,
+            which is refused when its length no longer matches the result.
 
     Returns:
         ParityView: The pyramids side, ready to compare. `values` is `float64` with the gaps as
@@ -861,6 +872,12 @@ def from_pyramids(
 
     Raises:
         ValueError: `variable` is not a variable of this container.
+
+    Raises:
+        ParityUnsupported: The result cannot be labelled or described — its shape does not
+            match the source's and no `gaps=` was given, the supplied mask does not describe
+            it, the dimension names do not match its rank, or a coordinate's length does not
+            match its axis.
 
     Examples:
         - Reading a two-band-dimension variable rebuilds both axes:
@@ -957,11 +974,21 @@ def from_pyramids(
             "the operation changes the axes."
         )
 
-    y_name = dims[-2] if len(dims) >= 2 else None
+    # The y axis is the variable's own, found by name in whatever `dims` ends up being.
+    # Taking `dims[-2]` positionally was right for a plain read and wrong for every
+    # shape-changing one: a zonal mean over `lon` leaves `(time, pressure_level, lat)`, whose
+    # `dims[-2]` is `pressure_level`, so the flip was decided from the pressure axis and the
+    # real latitudes were left in storage order.
+    source_dims = _variable_dims(nc, handle)
+    y_name = source_dims[-2] if len(source_dims) >= 2 else None
     flip = flip_needed(nc, y_name)
+    supplied = dict(coords_override or {})
     coords: dict[str, np.ndarray] = {}
     decoded_coords: dict[str, np.ndarray] = {}
-    for name in dims:
+    for axis, name in enumerate(dims):
+        if name in supplied:
+            coords[name] = np.asarray(supplied[name])
+            continue
         raw_coord = nc.get_dimension_values(name)
         if raw_coord is None:
             # An axis the operation introduced, or one the store declares without a
@@ -973,6 +1000,12 @@ def from_pyramids(
         if name == y_name and flip:
             stored_coord = stored_coord[::-1]
             instants = None if instants is None else instants[::-1]
+        if stored_coord.shape[:1] != physical.shape[axis : axis + 1]:
+            raise ParityUnsupported(
+                f"the {name!r} coordinate has {stored_coord.shape[0]} value(s) but the "
+                f"result's matching axis is {physical.shape[axis]} long; a subsetting "
+                "operation has to pass `coords_override=` with the coordinates it kept"
+            )
         coords[name] = stored_coord
         if instants is not None:
             decoded_coords[name] = instants

@@ -888,3 +888,96 @@ class TestTheWarningsTheCatalogueMentions:
         with warnings.catch_warnings():
             warnings.simplefilter("error", TimeDecodingWarning)
             to_xr(nc, "temperature")
+
+
+class TestTheResultIsDescribedNotGuessed:
+    """A result the caller mis-describes is refused, not reinterpreted (round-2 M2/M3/M4)."""
+
+    def test_a_transposed_band_result_is_refused(self):
+        """Swapped band axes must not be reshaped into agreement.
+
+        Test scenario:
+            `(3, 4, 5, 6)` where the source is `(4, 3, 5, 6)` has the same size and the same
+            trailing axes, so the old "same size, same tail" rule reshaped it and the
+            comparison then failed on values — routing straight around the dimension-name
+            check that exists to catch a transposed result.
+        """
+        nc = _read("cf__5v__1d4-4d1__y-asc.nc")
+        source = from_pyramids(nc, "temperature")
+        swapped = np.moveaxis(source.values, 0, 1).copy()
+        assert swapped.shape == (3, 4, 5, 6)
+
+        with pytest.raises(ParityUnsupported, match="shape-changing operation"):
+            from_pyramids(nc, "temperature", values=swapped)
+
+    def test_the_flat_read_shape_is_still_reinterpreted(self):
+        """The one shape that really is the same array is still accepted."""
+        nc = _read("cf__5v__1d4-4d1__y-asc.nc")
+        flat = np.asarray(nc.read_array(variable="temperature"))
+        assert from_pyramids(nc, "temperature", values=flat).values.shape == (
+            4,
+            3,
+            5,
+            6,
+        )
+
+    def test_a_zonal_mean_flips_the_latitudes(self):
+        """The y axis is found by name, so an override that moves it still flips it.
+
+        Test scenario:
+            A mean over `lon` leaves `(time, pressure_level, lat)`, whose `dims[-2]` is
+            `pressure_level`. Resolving y positionally asked `flip_needed` about the pressure
+            axis and left the real latitudes in storage order while the values were north-up.
+        """
+        nc = _read("cf__5v__1d4-4d1__y-asc.nc")
+        source = from_pyramids(nc, "temperature")
+        zonal = np.nanmean(source.values, axis=-1)
+
+        view = from_pyramids(
+            nc,
+            "temperature",
+            values=zonal,
+            gaps=np.zeros(zonal.shape, dtype=bool),
+            dims_override=("time", "pressure_level", "lat"),
+        )
+        assert list(view.coords["lat"]) == [44.0, 43.0, 42.0, 41.0, 40.0], (
+            f"the latitudes should be north-up, got {list(view.coords['lat'])}"
+        )
+
+    def test_a_subsetted_axis_needs_its_coordinates(self):
+        """An `isel`-shaped result is refused by name until it says what it kept.
+
+        Test scenario:
+            The container's `time` is four long; a two-step result used to keep all four,
+            which then failed inside `assert_allclose` on a shape mismatch whose message named
+            neither side.
+        """
+        nc = _read("cf__5v__1d4-4d1__y-asc.nc")
+        source = from_pyramids(nc, "temperature")
+        sliced = source.values[:2]
+
+        with pytest.raises(ParityUnsupported, match="coords_override"):
+            from_pyramids(
+                nc,
+                "temperature",
+                values=sliced,
+                gaps=np.zeros(sliced.shape, dtype=bool),
+            )
+
+    def test_a_subsetted_axis_is_accepted_with_them(self):
+        """`coords_override=` expresses what `isel` and `sel` keep."""
+        nc = _read("cf__5v__1d4-4d1__y-asc.nc")
+        source = from_pyramids(nc, "temperature")
+        sliced = source.values[:2]
+
+        view = from_pyramids(
+            nc,
+            "temperature",
+            values=sliced,
+            gaps=np.zeros(sliced.shape, dtype=bool),
+            coords_override={"time": source.coords["time"][:2]},
+        )
+        assert len(view.coords["time"]) == 2
+        assert list(view.coords["lat"]) == list(source.coords["lat"]), (
+            "an axis the operation did not touch keeps the container's coordinate"
+        )
