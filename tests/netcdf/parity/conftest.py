@@ -89,11 +89,11 @@ PARITY_FIXTURES: tuple[ParityFixture, ...] = (
         y_ascends=False,
         packed=False,
         covers=(
-            "That the flip is read from the coordinate, not the geotransform. This container "
-            "reports the placeholder `(0.0, 1.0, 0, 0.0, 0, -1.0)` while its latitudes run "
-            "65.0 down to 63.25 at a 0.25 degree step. `t` is float64 over "
-            "`(valid_time, pressure_level, latitude, longitude)` = `(4, 1, 8, 10)`, and its y "
-            "dimension is spelled `latitude`."
+            "A y axis spelled `latitude`, on a container whose geotransform is the "
+            "placeholder `(0.0, 1.0, 0, 0.0, 0, -1.0)` while its latitudes run 65.0 down to "
+            "63.25 at a 0.25 degree step — so the coordinate and the geotransform disagree "
+            "about the *values*, though not about the direction. `t` is float64 over "
+            "`(valid_time, pressure_level, latitude, longitude)` = `(4, 1, 8, 10)`."
         ),
     ),
     ParityFixture(

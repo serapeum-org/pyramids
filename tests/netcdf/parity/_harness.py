@@ -13,10 +13,15 @@ place, visibly, instead of being re-derived (and re-got-wrong) per test:
 
 1. **Y orientation.** pyramids presents every raster north-up; `to_xarray()` reports the
    coordinate in *storage* order. On a y-ascending file the two run opposite ways. The flip is
-   decided by the stored latitude coordinate itself — ascending means storage order is the
-   reverse of raster order — and never by the container's geotransform, which one repo fixture
-   (`cf__5v__1d4-4d1__geog__y-desc.nc`) reports as the placeholder `(0.0, 1.0, 0, 0.0, 0, -1.0)`
-   while its latitudes actually run 65.0 down to 63.25.
+   decided by the stored y coordinate — ascending means storage order is the reverse of raster
+   order — and never by the geotransform. Not because the geotransform is unreliable, but
+   because it describes the view rather than the file: pyramids *always* presents north-up, so
+   its y step is always negative and it cannot distinguish a file stored south-to-north from
+   one stored north-to-south. The stored coordinate is the only thing that carries that.
+
+   Where the coordinate cannot carry it either — it is absent, a synthesised row index, or not
+   monotonic — the harness raises rather than defaults. See :func:`flip_needed`; the stores
+   that trip each case are catalogued in `conftest.UNSUPPORTED`.
 2. **No-data vs NaN.** pyramids declares a sentinel; xarray has only NaN. Both sides are masked
    to NaN at the sentinel and the two gap masks are asserted equal, so a disagreement about
    *where* the gaps are cannot hide behind a value comparison that skips them.
@@ -285,9 +290,14 @@ def y_dimension(nc: NetCDF) -> str | None:
 def stored_y_ascends(nc: NetCDF) -> bool:
     """Whether the y coordinate is stored south-to-north, so storage order reverses the raster.
 
-    The answer comes from the stored coordinate values, not from the geotransform: only the
-    first and last values are compared, so a coordinate that is monotonic (as a dimension
-    coordinate is) settles it in one read.
+    The answer comes from the stored coordinate values, not from the geotransform, which
+    describes pyramids' north-up view rather than the file's storage order. Only the first and
+    last values are compared, so a coordinate that is monotonic (as a dimension coordinate is)
+    settles it in one read.
+
+    Kept for the container-level question the tests ask; :func:`flip_needed` is what the
+    normalisation uses, because it decides from the variable's own y axis and refuses the cases
+    this one cannot answer.
 
     Args:
         nc: The container to inspect.
