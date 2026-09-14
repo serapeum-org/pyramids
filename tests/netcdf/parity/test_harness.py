@@ -204,7 +204,10 @@ class TestTheOrientationRule:
             values=np.flip(view.values, axis),
             gaps=np.flip(view.gaps, axis),
         )
-        with pytest.raises(AssertionError):
+        # `match=` on purpose: a bare `AssertionError` would also be satisfied by the shape or
+        # gap-mask assertion, so the test would still pass if the flip stopped being what the
+        # values disagree about.
+        with pytest.raises(AssertionError, match="values differ after orientation"):
             assert_parity(from_pyramids(nc, variable), wrong)
 
     def test_the_y_dimension_is_found_under_each_spelling(self):
@@ -790,3 +793,70 @@ class TestTheDocumentedExamples:
         assert results.attempted > 20, (
             f"only {results.attempted} doctest examples ran; the gate is not reaching them"
         )
+
+
+class TestTheFlipAndTheGapMask:
+    """The flip has to move the gaps with the values (M5)."""
+
+    def test_the_gapped_fixture_cannot_show_this_on_its_own(self):
+        """`tcw`'s fill region is symmetric about the y axis, so flipping it changes nothing.
+
+        Test scenario:
+            The one catalogued store with real gaps therefore exercises the flip only through
+            its values. Recorded here so the next reader does not assume the gap half of the
+            orientation test is doing work it is not.
+        """
+        nc = _read("cf__20v__1d3-3d17__y-desc.nc")
+        gaps = from_pyramids(nc, "tcw").gaps
+        assert np.array_equal(gaps, np.flip(gaps, 1)), (
+            "if this fixture's fill ever becomes asymmetric, the caveat above is stale"
+        )
+
+    def test_an_asymmetric_mask_is_caught_when_flipped(self):
+        """With a mask that is not y-symmetric, flipping it is caught by the gap comparison.
+
+        Test scenario:
+            Proves the gap half of the orientation rule works, which the catalogued gapped
+            store cannot show because its own fill happens to be symmetric.
+        """
+        nc = _read("cf__5v__1d4-4d1__y-asc.nc")
+        pyr = from_pyramids(nc, "temperature")
+        asymmetric = np.zeros(pyr.values.shape, dtype=bool)
+        asymmetric[..., 0, :] = True
+
+        marked = dataclasses.replace(pyr, gaps=asymmetric)
+        flipped = dataclasses.replace(pyr, gaps=np.flip(asymmetric, -2))
+        with pytest.raises(AssertionError, match="gap masks differ"):
+            assert_parity(marked, flipped)
+
+
+class TestTheExportIsStored:
+    """The harness unpacks the xarray side itself, so pin that it has to (M7)."""
+
+    def test_to_xarray_hands_over_stored_values(self):
+        """`to_xarray()` does not apply CF packing, which is why `to_xr` does.
+
+        Test scenario:
+            The plan's normalisation 4 says to pin this rather than assume it. `to_xarray()`
+            has already changed its decoding once this cycle — the time axis — so an
+            assumption about its packing deserves its own assertion instead of riding on a
+            dtype check elsewhere.
+        """
+        nc = _read("coards__5v__1d4-4d1__y-desc.nc")
+        exported = np.asarray(nc.to_xarray()["rhum"].values)
+        stored = np.asarray(nc.read_array(variable="rhum", unpack=False))
+
+        assert exported.dtype == stored.dtype == np.dtype("int16")
+        assert np.array_equal(exported, stored.reshape(exported.shape)), (
+            "to_xarray() should hand over the stored counts; if it starts unpacking, `to_xr` "
+            "must stop doing it a second time"
+        )
+
+    def test_the_two_sides_would_disagree_without_the_unpack(self):
+        """Skipping the unpack is not harmless — it is a factor-100 error on this store."""
+        nc = _read("coards__5v__1d4-4d1__y-desc.nc")
+        stored = np.asarray(
+            nc.read_array(variable="rhum", unpack=False), dtype="float64"
+        )
+        physical = from_pyramids(nc, "rhum").values
+        assert not np.allclose(stored.reshape(physical.shape), physical)
