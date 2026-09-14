@@ -422,8 +422,9 @@ def flip_needed(nc: NetCDF, y_name: str | None) -> bool:
           >>> try:
           ...     flip_needed(nc, "y")
           ... except ParityUnsupported as error:
-          ...     print(str(error)[:44])
+          ...     print(str(error)[:39])
           the 'y' axis is a synthesised row index
+
           ```
     """
     needed = False
