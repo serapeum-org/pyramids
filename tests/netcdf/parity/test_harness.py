@@ -22,6 +22,12 @@ import pytest
 from pyramids.base._errors import TimeDecodingWarning
 from pyramids.netcdf.netcdf import NetCDF
 from tests.netcdf.parity import _harness as harness_module
+from tests.netcdf.parity._catalogue import (
+    NAN_SENTINEL,
+    PARITY_FIXTURES,
+    UNSUPPORTED,
+    open_fixture,
+)
 from tests.netcdf.parity._harness import (
     ParityUnsupported,
     ParityView,
@@ -32,12 +38,6 @@ from tests.netcdf.parity._harness import (
     stored_y_ascends,
     to_xr,
     y_dimension,
-)
-from tests.netcdf.parity.conftest import (
-    NAN_SENTINEL,
-    PARITY_FIXTURES,
-    UNSUPPORTED,
-    open_fixture,
 )
 
 pytestmark = pytest.mark.interop
@@ -205,7 +205,7 @@ class TestTheOrientationRule:
             assert_parity(from_pyramids(nc, variable), wrong)
 
     def test_the_y_dimension_is_found_under_each_spelling(self):
-        """`lat`, `latitude` and `y` all resolve; the fixtures use all three."""
+        """Every spelling the allowlist carries resolves, and the fixtures use all of them."""
         assert y_dimension(_read("cf__5v__1d4-4d1__y-asc.nc")) == "lat"
         assert y_dimension(_read("cf__5v__1d4-4d1__geog__y-desc.nc")) == "latitude"
         assert y_dimension(_read("coards__4v__1d2-2d2__scaleoffset__y-asc.nc")) == "y"

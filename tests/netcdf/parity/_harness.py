@@ -62,7 +62,7 @@ from pyramids.netcdf.netcdf import NetCDF
 _SUBSET_RENAME = re.compile(r"^subset_(.+)_-?\d+_-?\d+_-?\d+$")
 
 #: Dimension names pyramids' raster view treats as the y axis, in the order they are looked for.
-Y_DIMENSION_NAMES = ("lat", "latitude", "y", "yc")
+Y_DIMENSION_NAMES = ("lat", "latitude", "y")
 
 
 @dataclass(frozen=True)

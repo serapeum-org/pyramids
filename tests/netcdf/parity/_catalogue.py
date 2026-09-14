@@ -6,19 +6,18 @@ pack, and carry two, one and no band dimensions. The last, the gapped store, is 
 in the repo that combines packing with cells that really hold the fill value — the case where
 taking the gaps after unpacking would silently compare fill against fill.
 
-The catalogue is here rather than in the test module because it is shared knowledge: every
-later task in `planning/xarray/missing-functionality-plan.md` writes its parity tests against
-the same set, and the properties that decide which normalisations fire (`y_ascends`, `packed`)
-are what those tests parametrize over. Keeping the table and the loader in one place is what
-stops a second copy drifting from this one.
+It is a module of its own rather than `conftest` content because it is ordinary shared data
+that several modules import: every later task in `planning/xarray/missing-functionality-plan.md`
+writes its parity tests against the same set, and the properties that decide which
+normalisations fire (`y_ascends`, `packed`) are what those tests parametrize over. Keeping the
+table and the loader in one place is what stops a second copy drifting from this one; keeping
+it out of `conftest` means importing it does not depend on pytest's collection semantics.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-
-import pytest
 
 from pyramids.netcdf.netcdf import NetCDF
 
