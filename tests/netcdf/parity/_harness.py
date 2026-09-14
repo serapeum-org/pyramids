@@ -42,6 +42,7 @@ is a single read and cannot drift from whatever the mask rules become.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -78,7 +79,11 @@ class ParityView:
             units. `to_xarray()` decodes a time axis and `get_dimension_values` does not, so
             the two sides present it differently; this is what makes them comparable, and the
             two decodings are independent, which makes the comparison a real cross-check.
-        dtype: The dtype the *source* held, before the float64 promotion this view applies.
+        dtype: The dtype a `dtype=` contract is checked against: the **result's** own dtype
+            when the view carries an operation's output, and the stored dtype otherwise. A
+            reduction promotes to float64 whatever the file holds, and that promotion is the
+            contract worth asserting.
+        source_dtype: The dtype the file stores, kept alongside so both are available.
             This is what a dtype contract is asserted against, not `values.dtype`.
 
     Examples:
@@ -140,6 +145,7 @@ class ParityView:
     coords: dict[str, np.ndarray]
     dtype: np.dtype
     decoded_coords: dict[str, np.ndarray] = field(default_factory=dict)
+    source_dtype: np.dtype | None = None
 
 
 class ParityUnsupported(RuntimeError):
@@ -717,7 +723,65 @@ def to_xr(nc: NetCDF, variable: str) -> ParityView:
     )
 
 
-def from_pyramids(nc: NetCDF, variable: str, values: Any = None) -> ParityView:
+def _result_view(
+    values: Any, gaps: Any, source_gaps: np.ndarray, variable: str
+) -> tuple[np.ndarray, np.ndarray, np.dtype]:
+    """Normalise an operation's result into the `(values, gaps, dtype)` a view carries.
+
+    The extension point every task after T0 goes through. A result may keep the source's
+    shape and mask (`ds * 2`), change the mask (`fillna`, `where`, `interpolate_na`), or
+    change the shape outright (`reduce`, `isel`, `coarsen`) — so the source mask is reused
+    only when it still fits, and otherwise the caller has to say what the gaps are.
+
+    Args:
+        values: The operation's result, in raster order and physical units. Either the flat
+            `(bands, rows, cols)` shape `read_array` returns or the rebuilt band axes.
+        gaps: The result's no-data mask, or `None` to reuse the source's when it fits.
+        source_gaps: The mask the stored array carries.
+        variable: The variable's name, for the error message.
+
+    Returns:
+        The values as float64 with the gaps as `NaN`, the mask, and the result's own dtype.
+
+    Raises:
+        ParityUnsupported: The result's shape does not match the source's and no `gaps=` was
+            given, or the supplied mask does not match the result.
+    """
+    array = np.asarray(values)
+    if (
+        array.shape != source_gaps.shape
+        and array.shape[-2:] == source_gaps.shape[-2:]
+        and array.size == source_gaps.size
+    ):
+        # A caller holding a plain `read_array` result has the flat `(bands, rows, cols)`
+        # shape GDAL returns, not the rebuilt band axes. Both are the same array.
+        array = array.reshape(source_gaps.shape)
+    if gaps is not None:
+        mask = np.asarray(gaps, dtype=bool)
+        if mask.shape != array.shape:
+            raise ParityUnsupported(
+                f"the `gaps=` mask for {variable!r} is {mask.shape} but the result is "
+                f"{array.shape}; they have to describe the same array"
+            )
+    elif array.shape == source_gaps.shape:
+        mask = source_gaps
+    else:
+        raise ParityUnsupported(
+            f"the result for {variable!r} is {array.shape} where the source is "
+            f"{source_gaps.shape}, so the source's no-data mask does not describe it; pass "
+            "`gaps=` (and `dims_override=` for the new axes) for a shape-changing operation"
+        )
+    return np.where(mask, np.nan, array.astype("float64")), mask, array.dtype
+
+
+def from_pyramids(
+    nc: NetCDF,
+    variable: str,
+    values: Any = None,
+    *,
+    gaps: Any = None,
+    dims_override: Sequence[str] | None = None,
+) -> ParityView:
     """The pyramids view of `variable`, reshaped onto the dimensions xarray keeps.
 
     Applies normalisations 2 and 5: the flat GDAL bands axis is rebuilt into the variable's own
@@ -809,27 +873,32 @@ def from_pyramids(nc: NetCDF, variable: str, values: Any = None) -> ParityView:
     # identifiable: it unpacks and masks in one read, so the mask cannot drift from the
     # packing the way a hand-rolled comparison against `no_data_value` would.
     masked = nc.read_array(variable=variable, masked=True)
-    gaps = np.ma.getmaskarray(np.ma.asarray(masked))
-
-    physical = (
-        np.ma.filled(np.ma.asarray(masked).astype("float64"), np.nan)
-        if values is None
-        else np.where(gaps, np.nan, np.asarray(values, dtype="float64"))
-    )
+    source_gaps = np.ma.getmaskarray(np.ma.asarray(masked))
+    source_values = np.ma.filled(np.ma.asarray(masked).astype("float64"), np.nan)
 
     # `_band_dim_names` is the variable's own non-spatial axes in storage order, which is what
     # GDAL flattened.
     band_dims = tuple(handle._band_dim_names)
     sizes = tuple(handle._band_dim_sizes)
     if len(band_dims) > 1:
-        physical = unflatten_band_axes(physical, band_dims, sizes)
-        gaps = unflatten_band_axes(gaps, band_dims, sizes)
+        source_values = unflatten_band_axes(source_values, band_dims, sizes)
+        source_gaps = unflatten_band_axes(source_gaps, band_dims, sizes)
 
-    dims = _variable_dims(nc, handle)
+    source_dtype = np.dtype(handle.dtype[0])
+    if values is None:
+        physical, result_gaps = source_values, source_gaps
+        result_dtype = source_dtype
+    else:
+        physical, result_gaps, result_dtype = _result_view(
+            values, gaps, source_gaps, variable
+        )
+
+    dims = tuple(dims_override) if dims_override else _variable_dims(nc, handle)
     if len(dims) != physical.ndim:
         raise ParityUnsupported(
             f"{variable!r} resolves to {len(dims)} dimension name(s) {dims} for a "
-            f"{physical.ndim}-D array; the harness cannot label its axes"
+            f"{physical.ndim}-D array; the harness cannot label its axes. Pass `dims=` when "
+            "the operation changes the axes."
         )
 
     y_name = dims[-2] if len(dims) >= 2 else None
@@ -837,7 +906,13 @@ def from_pyramids(nc: NetCDF, variable: str, values: Any = None) -> ParityView:
     coords: dict[str, np.ndarray] = {}
     decoded_coords: dict[str, np.ndarray] = {}
     for name in dims:
-        stored_coord = np.asarray(nc.get_dimension_values(name))
+        raw_coord = nc.get_dimension_values(name)
+        if raw_coord is None:
+            # An axis the operation introduced, or one the store declares without a
+            # coordinate variable. There is nothing to compare, so it is left out rather
+            # than recorded as `array(None)`.
+            continue
+        stored_coord = np.asarray(raw_coord)
         instants = _decoded_time(nc, name)
         if name == y_name and flip:
             stored_coord = stored_coord[::-1]
@@ -846,7 +921,7 @@ def from_pyramids(nc: NetCDF, variable: str, values: Any = None) -> ParityView:
         if instants is not None:
             decoded_coords[name] = instants
     return ParityView(
-        physical, gaps, dims, coords, np.dtype(handle.dtype[0]), decoded_coords
+        physical, result_gaps, dims, coords, result_dtype, decoded_coords, source_dtype
     )
 
 

@@ -667,3 +667,106 @@ class TestTheLabelChecks:
                 dataclasses.replace(pyr, decoded_coords=wrong),
                 to_xr(nc, "temperature"),
             )
+
+
+class TestAnOperationsResult:
+    """The extension point every task after T0 goes through (H4/H5)."""
+
+    def test_a_reduction_can_be_expressed(self):
+        """A result that drops an axis is normalised, given its gaps and its dims.
+
+        Test scenario:
+            T5 extends `reduce`, and a reduction is the first thing that changes the shape.
+            The source mask no longer describes the result, so the caller supplies both — and
+            the harness compares it against the same reduction on the xarray side.
+        """
+        nc = _read("cf__5v__1d4-4d1__y-asc.nc")
+        source = from_pyramids(nc, "temperature")
+        reduced = np.nanmean(source.values, axis=0)
+
+        view = from_pyramids(
+            nc,
+            "temperature",
+            values=reduced,
+            gaps=np.zeros(reduced.shape, dtype=bool),
+            dims_override=("pressure_level", "lat", "lon"),
+        )
+        assert view.dims == ("pressure_level", "lat", "lon")
+        assert view.values.shape == reduced.shape
+        np.testing.assert_allclose(view.values, reduced)
+
+    def test_a_shape_change_without_gaps_is_refused_by_name(self):
+        """The refusal says both shapes and what to pass, rather than a numpy broadcast error.
+
+        Test scenario:
+            Before this, a reduction hit
+            `ValueError: operands could not be broadcast together with shapes (12,5,6) () (3,5,6)`
+            — a message naming neither the harness nor the fix.
+        """
+        nc = _read("cf__5v__1d4-4d1__y-asc.nc")
+        reduced = np.zeros((3, 5, 6))
+        with pytest.raises(ParityUnsupported, match="shape-changing operation"):
+            from_pyramids(nc, "temperature", values=reduced)
+
+    def test_a_mismatched_mask_is_refused(self):
+        """A `gaps=` that does not describe the result is caught, not broadcast."""
+        nc = _read("cf__5v__1d4-4d1__y-asc.nc")
+        with pytest.raises(ParityUnsupported, match="describe the same array"):
+            from_pyramids(
+                nc,
+                "temperature",
+                values=np.zeros((3, 5, 6)),
+                gaps=np.zeros((4, 3, 5, 6), dtype=bool),
+            )
+
+    def test_a_mask_changing_operation_keeps_its_own_gaps(self):
+        """`fillna` fills gaps, so the source mask must not be re-imposed on its result.
+
+        Test scenario:
+            T11's whole point is changing which cells are gaps. Re-applying the source mask
+            would re-NaN exactly the cells the operation just filled, making the comparison
+            against xarray wrong by construction.
+        """
+        nc = _read("cf__20v__1d3-3d17__y-desc.nc")
+        source = from_pyramids(nc, "tcw")
+        assert int(source.gaps.sum()) == 63072
+
+        filled = np.nan_to_num(source.values, nan=0.0)
+        view = from_pyramids(
+            nc, "tcw", values=filled, gaps=np.zeros(filled.shape, dtype=bool)
+        )
+        assert int(view.gaps.sum()) == 0, "the filled cells must not be re-masked"
+        assert not np.isnan(view.values).any()
+
+    def test_the_result_dtype_is_what_a_contract_checks(self):
+        """A reduction's float64 output is assertable, which is the point of normalisation 3.
+
+        Test scenario:
+            `ParityView.dtype` used to record the file's stored dtype even for a supplied
+            result, so `assert_parity(dtype=...)` could only ever restate what the file holds.
+        """
+        nc = _read("coards__5v__1d4-4d1__y-desc.nc")
+        source = from_pyramids(nc, "rhum")
+        assert source.dtype == np.dtype("int16"), (
+            "a plain read reports the stored dtype"
+        )
+
+        promoted = from_pyramids(
+            nc,
+            "rhum",
+            values=source.values.astype("float64"),
+            gaps=source.gaps,
+        )
+        assert promoted.dtype == np.dtype("float64"), f"got {promoted.dtype}"
+        assert promoted.source_dtype == np.dtype("int16"), (
+            "the stored dtype is kept too"
+        )
+
+    def test_the_flat_read_shape_is_accepted(self):
+        """A caller holding a plain `read_array` result does not have to reshape it first."""
+        nc = _read("cf__5v__1d4-4d1__y-asc.nc")
+        flat = np.asarray(nc.read_array(variable="temperature"))
+        assert flat.shape == (12, 5, 6)
+        view = from_pyramids(nc, "temperature", values=flat)
+        assert view.values.shape == (4, 3, 5, 6)
+        assert_parity(view, to_xr(nc, "temperature"))
