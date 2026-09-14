@@ -753,10 +753,12 @@ def to_xr(nc: NetCDF, variable: str) -> ParityView:
     # The stored coordinates come from a second export with the decoding turned off, so the
     # two sides can always be compared like with like: `get_dimension_values` reports stored
     # offsets, and `to_xarray()` decodes a CF time axis to `datetime64[ns]`. The decoded form
-    # is kept alongside and compared only where *both* sides managed to decode -- pyramids'
-    # two decoders do not always agree (`get_time_variable` declines the axis
-    # `cf__20v__1d3-3d17__y-desc.nc` exports as 2002 dates), and that disagreement is a
-    # finding about pyramids rather than a reason to fail the value comparison.
+    # is kept alongside and compared only where *both* sides produced one -- they do not
+    # always, and the asymmetry is deliberate rather than a defect: `to_xarray` declines an
+    # axis it cannot write back (a pre-1582 origin decodes to `cftime` objects GDAL has no
+    # band type for) while `get_time_variable` decodes it happily, so
+    # `coards__5v__1d4-4d1__y-desc.nc` has instants on the pyramids side and none on the
+    # xarray side.
     as_stored = nc.to_xarray(decode_times=False)
     coords = {
         key: np.asarray(as_stored.coords[key].values)

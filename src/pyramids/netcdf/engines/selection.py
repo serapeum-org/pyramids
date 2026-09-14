@@ -1462,8 +1462,12 @@ def _undecodable_label_hint(
 
     Without this the caller sees the stored offsets and no reason why their label found
     nothing — the axis *does* declare ``units``, so "it is not a time axis" would be the
-    wrong conclusion to draw. One coordinate is probed, not the whole axis, and only on
-    the failure path.
+    wrong conclusion to draw.
+
+    Two probes, both only on the failure path. The first coordinate answers "is this a time
+    axis at all", so an axis with no CF ``units`` gets no hint; the whole axis answers "was
+    the caller shown stored numbers", because an axis that decodes end to end was shown
+    dates and this sentence would contradict the list above it.
 
     Args:
         nc: The variable subset being selected.

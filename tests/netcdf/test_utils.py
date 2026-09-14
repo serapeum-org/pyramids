@@ -1222,3 +1222,38 @@ class TestThePreReformCalendar:
         """1582-10-15 is the cutover: before it Julian, from it Gregorian."""
         assert _origin_precedes_reform("days since 1582-10-14")
         assert not _origin_precedes_reform("days since 1582-10-15")
+
+
+class TestTheCoardsAxisDecodesCorrectly:
+    """The store where the two decoders take different routes (#1140, round-2 M1)."""
+
+    def test_pyramids_decodes_it_and_matches_cftime(self):
+        """`get_time_variable` decodes the pre-1582 origin, and gets the mixed calendar right.
+
+        Test scenario:
+            This is the axis the padding fix made reachable and the calendar fix made correct.
+            Asserting against `cftime` rather than a literal keeps it honest.
+        """
+        nc = NetCDF.read_file("tests/data/netcdf/coards__5v__1d4-4d1__y-desc.nc")
+        stamps = nc.get_time_variable("time", "%Y-%m-%d %H:%M:%S")
+        units = "hours since 1-1-1 00:00:0.0"
+        stored = nc.get_dimension_values("time")
+
+        assert stamps is not None
+        assert stamps[0] == cftime.num2date(stored[0], units, "standard").strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+
+    def test_the_bridge_declines_the_same_axis_deliberately(self):
+        """`to_xarray` leaves it as offsets because it could not write the result back.
+
+        Test scenario:
+            The two decoders disagreeing about *whether* to decode is by design — a pre-1582
+            origin decodes to `cftime` objects GDAL has no band type for — and is not the same
+            thing as disagreeing about the dates, which is what #1140 was.
+        """
+        nc = NetCDF.read_file("tests/data/netcdf/coards__5v__1d4-4d1__y-desc.nc")
+        exported = nc.to_xarray().coords["time"]
+        assert not np.issubdtype(exported.dtype, np.datetime64), (
+            "the bridge should hand back the stored offsets for this axis"
+        )

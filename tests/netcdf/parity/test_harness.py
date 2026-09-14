@@ -636,9 +636,10 @@ class TestTheLabelChecks:
 
         Test scenario:
             `get_time_variable` and the interop decoder are different code paths, so their
-            agreeing is a real check rather than a tautology. They do not always both decode —
-            `cf__20v__1d3-3d17__y-desc.nc` is exported as 2002 dates while `get_time_variable`
-            declines it — which is why the stored offsets are what is always compared.
+            agreeing is a real check rather than a tautology. They do not always both produce
+            instants — `to_xarray` declines a pre-1582 origin it cannot write back, while
+            `get_time_variable` decodes it — which is why the stored offsets are what is
+            always compared and the instants only where both sides have them.
         """
         nc = _read("cf__5v__1d4-4d1__y-asc.nc")
         pyr = from_pyramids(nc, "temperature")
