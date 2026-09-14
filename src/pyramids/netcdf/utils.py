@@ -560,6 +560,49 @@ def _ns_per_cf_unit(unit: str) -> int | None:
     )
 
 
+#: The Gregorian reform. Before this instant a `standard` CF calendar is Julian, which
+#: Python's proleptic `datetime` cannot represent.
+_GREGORIAN_REFORM = datetime(1582, 10, 15)
+
+
+def _origin_precedes_reform(units: str) -> bool:
+    """Whether a CF ``units`` origin falls before the 1582 Gregorian reform.
+
+    Args:
+        units: The CF time units, e.g. `"hours since 1-1-1 00:00:0.0"`.
+
+    Returns:
+        `True` when the origin is earlier than 1582-10-15, so `standard` calendar arithmetic
+        has to go through `cftime` rather than `datetime`. `False` when the origin cannot be
+        parsed, leaving the existing error to surface from the caller.
+
+    Examples:
+        - A year-1 origin is before it:
+
+          ```python
+          >>> from pyramids.netcdf.utils import _origin_precedes_reform
+          >>> _origin_precedes_reform("hours since 1-1-1 00:00:0.0")
+          True
+
+          ```
+        - A modern one is not:
+
+          ```python
+          >>> from pyramids.netcdf.utils import _origin_precedes_reform
+          >>> _origin_precedes_reform("hours since 1900-01-01 00:00:0.0")
+          False
+
+          ```
+    """
+    try:
+        _, origin = _parse_units_origin(units)
+    except (ValueError, TypeError):
+        precedes = False
+    else:
+        precedes = origin < _GREGORIAN_REFORM
+    return precedes
+
+
 def create_time_conversion_func(
     units: str,
     out_format: str = "%Y-%m-%d %H:%M:%S",
@@ -632,7 +675,12 @@ def create_time_conversion_func(
     """
     converter = None
 
-    if not _is_standard_calendar(calendar):
+    # A `standard` / `gregorian` axis is the *mixed* Julian-Gregorian calendar, and Python's
+    # `datetime` is proleptic Gregorian — the two diverge before the 1582 reform, by ten days
+    # at the cutover and more further back. So an origin that predates it has to go through
+    # `cftime` as well, or `hours since 1-1-1` decodes two days late (#1140). Modern origins
+    # keep the fast `timedelta` path, which is every real store bar the year-zero ones.
+    if not _is_standard_calendar(calendar) or _origin_precedes_reform(units):
 
         def convert_cftime(value):
             dt = cftime.num2date(value, units, calendar)

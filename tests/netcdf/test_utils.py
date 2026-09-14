@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock, PropertyMock
 
+import cftime
 import numpy as np
 import pytest
 
@@ -28,6 +29,7 @@ from pyramids.netcdf.utils import (
     _get_root_group,
     _normalize_attr_value,
     _normalize_origin_string,
+    _origin_precedes_reform,
     _parse_units_origin,
     _read_attribute_value,
     _read_attributes,
@@ -1158,3 +1160,65 @@ class TestTheTwoTimeDecodersAgree:
         """
         nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
         assert nc.get_time_variable("lat", "%Y-%m-%d %H:%M:%S") is None
+
+
+class TestThePreReformCalendar:
+    """A `standard` axis before 1582 is Julian, not proleptic Gregorian (#1140)."""
+
+    @pytest.mark.parametrize(
+        ("calendar", "expected"),
+        [
+            ("standard", "2003-01-01 00:00:00"),
+            ("gregorian", "2003-01-01 00:00:00"),
+            ("proleptic_gregorian", "2003-01-03 00:00:00"),
+        ],
+    )
+    def test_the_calendar_decides_the_date(self, calendar, expected):
+        """The same offset and origin give different dates per calendar, and we must match.
+
+        Args:
+            calendar: The CF calendar to decode under.
+            expected: The date `cftime` gives for it.
+
+        Test scenario:
+            Python's `datetime` is proleptic Gregorian, so using it for a `standard` axis
+            with a year-1 origin lands two days late — the Julian/Gregorian divergence. CF's
+            default when no `calendar` attribute is present is `standard`, so that is the
+            common case, not an exotic one.
+        """
+        convert = create_time_conversion_func(
+            "hours since 1-1-1 00:00:0.0", "%Y-%m-%d %H:%M:%S", calendar=calendar
+        )
+        assert convert(17549208) == expected, f"got {convert(17549208)}"
+
+    def test_it_agrees_with_cftime(self):
+        """The reference implementation, asserted directly rather than by a hardcoded date."""
+        units = "hours since 1-1-1 00:00:0.0"
+        convert = create_time_conversion_func(
+            units, "%Y-%m-%d %H:%M:%S", calendar="standard"
+        )
+        for offset in (17549208, 17549232, 17549256):
+            assert convert(offset) == cftime.num2date(
+                offset, units, "standard"
+            ).strftime("%Y-%m-%d %H:%M:%S")
+
+    def test_a_modern_origin_keeps_the_fast_path(self):
+        """A post-reform origin is unaffected, and still decodes correctly.
+
+        Test scenario:
+            The `datetime` path is kept for every realistic store; only a pre-1582 origin
+            pays for `cftime`.
+        """
+        units = "hours since 1900-01-01 00:00:0.0"
+        assert not _origin_precedes_reform(units)
+        convert = create_time_conversion_func(
+            units, "%Y-%m-%d %H:%M:%S", calendar="standard"
+        )
+        assert convert(898476) == cftime.num2date(898476, units, "standard").strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+
+    def test_the_reform_boundary_is_where_it_should_be(self):
+        """1582-10-15 is the cutover: before it Julian, from it Gregorian."""
+        assert _origin_precedes_reform("days since 1582-10-14")
+        assert not _origin_precedes_reform("days since 1582-10-15")

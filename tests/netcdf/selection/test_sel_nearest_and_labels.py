@@ -196,10 +196,11 @@ class TestSelByDateLabel:
         Test scenario:
             Its `units` are `hours since 1-1-1 00:00:0.0`. The single-digit seconds field
             used to defeat the origin parser, so the axis had no labels and this selector
-            was answered with the stored offsets. It decodes now, so a label that is on the
-            axis selects instead.
+            was answered with the stored offsets. It decodes now — on the *mixed* calendar CF
+            defaults to, which for a pre-1582 origin is two days off proleptic Gregorian — so
+            a label that is on the axis selects instead.
         """
-        selected = coards_var.sel(time="2003-01-05")
+        selected = coards_var.sel(time="2003-01-01")
         # One band per level at that timestep: the axis is `(time=12, level=4)`.
         assert selected.band_count == 4, f"got {selected.band_count} bands"
 
@@ -210,7 +211,7 @@ class TestSelByDateLabel:
             The vocabulary in the message is what the caller has to choose from, so it has to
             be the representation the axis actually matches on.
         """
-        with pytest.raises(ValueError, match=r"Available values: \['2003-01-03"):
+        with pytest.raises(ValueError, match=r"Available values: \['2003-01-01"):
             coards_var.sel(time="2024-01-01")
 
     def test_unsupported_label_precision_is_rejected(self, cf_var):
