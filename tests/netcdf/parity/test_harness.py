@@ -286,8 +286,9 @@ class TestTheOrientationRule:
         # `match=` on purpose: a bare `AssertionError` would also be satisfied by the shape or
         # gap-mask assertion, so the test would still pass if the flip stopped being what the
         # values disagree about.
+        pyramids_side = from_pyramids(nc, variable)
         with pytest.raises(AssertionError, match="values differ after orientation"):
-            assert_parity(from_pyramids(nc, variable), wrong)
+            assert_parity(pyramids_side, wrong)
 
     def test_the_y_dimension_is_found_under_each_spelling(self):
         """Every spelling the allowlist carries resolves, and the fixtures use all of them."""
@@ -446,8 +447,10 @@ class TestTheGapRule:
         pyr = from_pyramids(nc, "tcw")
         moved = pyr.gaps.copy()
         moved[~moved] = True  # mark every remaining cell as a gap too
+        marked = dataclasses.replace(pyr, gaps=moved)
+        exported = to_xr(nc, "tcw")
         with pytest.raises(AssertionError, match="gap masks differ"):
-            assert_parity(dataclasses.replace(pyr, gaps=moved), to_xr(nc, "tcw"))
+            assert_parity(marked, exported)
 
     def test_a_nan_sentinel_is_found_by_nan_and_not_by_equality(self):
         """A `NaN` fill value needs its own branch, because `nan == nan` is `False`.
@@ -562,30 +565,27 @@ class TestTheHarnessFailsWhenItShould:
         pyr = from_pyramids(nc, "temperature")
         broken = pyr.values.copy()
         broken[0, 0, 0, 0] += 1.0
+        perturbed = dataclasses.replace(pyr, values=broken)
+        exported = to_xr(nc, "temperature")
         with pytest.raises(AssertionError):
-            assert_parity(
-                dataclasses.replace(pyr, values=broken), to_xr(nc, "temperature")
-            )
+            assert_parity(perturbed, exported)
 
     def test_a_shape_mismatch_fails_before_the_values_are_compared(self):
         """The shape check runs first, so the message names the shapes rather than the cells."""
         nc = _read("cf__5v__1d4-4d1__y-asc.nc")
         pyr = from_pyramids(nc, "temperature")
+        truncated = dataclasses.replace(pyr, values=pyr.values[:2], gaps=pyr.gaps[:2])
+        exported = to_xr(nc, "temperature")
         with pytest.raises(AssertionError, match="shape differs"):
-            assert_parity(
-                dataclasses.replace(pyr, values=pyr.values[:2], gaps=pyr.gaps[:2]),
-                to_xr(nc, "temperature"),
-            )
+            assert_parity(truncated, exported)
 
     def test_a_broken_dtype_contract_fails(self):
         """A stated dtype is checked; `float32` where `float64` was contracted is an error."""
         nc = _read("cf__5v__1d4-4d1__y-asc.nc")
+        pyramids_side = from_pyramids(nc, "temperature")
+        exported = to_xr(nc, "temperature")
         with pytest.raises(AssertionError, match="dtype contract broken"):
-            assert_parity(
-                from_pyramids(nc, "temperature"),
-                to_xr(nc, "temperature"),
-                dtype="float32",
-            )
+            assert_parity(pyramids_side, exported, dtype="float32")
 
     def test_the_dtype_check_is_skipped_by_default(self):
         """A reduction promotes to float64, so the default must not assert the input dtype.
@@ -713,11 +713,10 @@ class TestTheLabelChecks:
         """
         nc = _read("cf__5v__1d4-4d1__y-asc.nc")
         pyr = from_pyramids(nc, "temperature")
+        mislabelled = dataclasses.replace(pyr, dims=("WRONG", "NAMES", "HERE", "TOO"))
+        exported = to_xr(nc, "temperature")
         with pytest.raises(AssertionError, match="dimension names differ"):
-            assert_parity(
-                dataclasses.replace(pyr, dims=("WRONG", "NAMES", "HERE", "TOO")),
-                to_xr(nc, "temperature"),
-            )
+            assert_parity(mislabelled, exported)
 
     def test_a_transposed_result_fails(self):
         """A swapped axis order is caught on a grid the value check cannot see it on.
@@ -735,8 +734,9 @@ class TestTheLabelChecks:
             dims=pyr.dims[::-1],
             coords={name: pyr.coords[name] for name in pyr.dims[::-1]},
         )
+        exported = to_xr(nc, "z")
         with pytest.raises(AssertionError, match="dimension names differ"):
-            assert_parity(transposed, to_xr(nc, "z"))
+            assert_parity(transposed, exported)
 
     def test_a_shifted_coordinate_fails(self):
         """A result on the right grid but the wrong coordinates is not parity."""
@@ -744,10 +744,10 @@ class TestTheLabelChecks:
         pyr = from_pyramids(nc, "temperature")
         moved = dict(pyr.coords)
         moved["lat"] = moved["lat"] + 1.0
+        shifted = dataclasses.replace(pyr, coords=moved)
+        exported = to_xr(nc, "temperature")
         with pytest.raises(AssertionError, match="'lat' coordinate differs"):
-            assert_parity(
-                dataclasses.replace(pyr, coords=moved), to_xr(nc, "temperature")
-            )
+            assert_parity(shifted, exported)
 
     def test_the_coordinate_check_can_be_waived(self):
         """`coords=False` is for an operation that deliberately changes them."""
@@ -766,10 +766,10 @@ class TestTheLabelChecks:
         nc = _read("cf__5v__1d4-4d1__y-asc.nc")
         pyr = from_pyramids(nc, "temperature")
         fewer = {k: v for k, v in pyr.coords.items() if k != "lat"}
+        incomplete = dataclasses.replace(pyr, coords=fewer)
+        exported = to_xr(nc, "temperature")
         with pytest.raises(AssertionError, match="coordinate names differ"):
-            assert_parity(
-                dataclasses.replace(pyr, coords=fewer), to_xr(nc, "temperature")
-            )
+            assert_parity(incomplete, exported)
 
     def test_the_time_instants_are_cross_checked(self):
         """Where both sides decode the axis, the instants must agree.
@@ -788,11 +788,10 @@ class TestTheLabelChecks:
 
         wrong = dict(pyr.decoded_coords)
         wrong["time"] = wrong["time"] + np.timedelta64(1, "D")
+        shifted = dataclasses.replace(pyr, decoded_coords=wrong)
+        exported = to_xr(nc, "temperature")
         with pytest.raises(AssertionError, match="'time' instants differ"):
-            assert_parity(
-                dataclasses.replace(pyr, decoded_coords=wrong),
-                to_xr(nc, "temperature"),
-            )
+            assert_parity(shifted, exported)
 
     @pytest.mark.parametrize(
         "error",
@@ -862,13 +861,10 @@ class TestAnOperationsResult:
     def test_a_mismatched_mask_is_refused(self):
         """A `gaps=` that does not describe the result is caught, not broadcast."""
         nc = _read("cf__5v__1d4-4d1__y-asc.nc")
+        result = np.zeros((3, 5, 6))
+        mask = np.zeros((4, 3, 5, 6), dtype=bool)
         with pytest.raises(ParityUnsupported, match="describe the same array"):
-            from_pyramids(
-                nc,
-                "temperature",
-                values=np.zeros((3, 5, 6)),
-                gaps=np.zeros((4, 3, 5, 6), dtype=bool),
-            )
+            from_pyramids(nc, "temperature", values=result, gaps=mask)
 
     def test_a_mask_changing_operation_keeps_its_own_gaps(self):
         """`fillna` fills gaps, so the source mask must not be re-imposed on its result.
@@ -1124,13 +1120,9 @@ class TestTheResultIsDescribedNotGuessed:
         source = from_pyramids(nc, "temperature")
         sliced = source.values[:2]
 
+        mask = np.zeros(sliced.shape, dtype=bool)
         with pytest.raises(ParityUnsupported, match="coords_override"):
-            from_pyramids(
-                nc,
-                "temperature",
-                values=sliced,
-                gaps=np.zeros(sliced.shape, dtype=bool),
-            )
+            from_pyramids(nc, "temperature", values=sliced, gaps=mask)
 
     def test_a_subsetted_axis_is_accepted_with_them(self):
         """`coords_override=` expresses what `isel` and `sel` keep."""
@@ -1172,8 +1164,9 @@ class TestTheResultIsDescribedNotGuessed:
             fallback would label the array with axes it does not have.
         """
         handle = SimpleNamespace(dimension_names=())
+        container = OnlyDimensions({"lat": 5, "lon": 6}, {})
         with pytest.raises(ParityUnsupported, match="no dimension names"):
-            _variable_dims(OnlyDimensions({"lat": 5, "lon": 6}, {}), handle)
+            _variable_dims(container, handle)
 
 
 class TestCoordinatesTheRuleCannotRead:
