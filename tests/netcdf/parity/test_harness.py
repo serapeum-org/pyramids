@@ -12,12 +12,14 @@ Style: Google-style docstrings, <=120 char lines, no inline imports, descriptive
 from __future__ import annotations
 
 import dataclasses
+import doctest
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from pyramids.netcdf.netcdf import NetCDF
+from tests.netcdf.parity import _harness as harness_module
 from tests.netcdf.parity._harness import (
     ParityUnsupported,
     ParityView,
@@ -757,3 +759,34 @@ class TestAnOperationsResult:
         view = from_pyramids(nc, "temperature", values=flat)
         assert view.values.shape == (4, 3, 5, 6)
         assert_parity(view, to_xr(nc, "temperature"))
+
+
+class TestTheDocumentedExamples:
+    """The harness's doctests are its primary documentation, so something must run them."""
+
+    def test_every_example_in_the_harness_passes(self):
+        """Run `_harness`'s own `>>>` examples as part of this suite.
+
+        Test scenario:
+            Both of the repo's doctest gates run `--doctest-modules src`, and this module is
+            under `tests/`, so nothing else executes them. They carry the load-bearing numbers
+            — the 63072 gap cells, the `0.0864` unpacked fill, the flipped latitudes, the three
+            refusal messages — and without a gate those can rot into confident fiction while
+            reading as verified fact.
+        """
+        results = doctest.testmod(
+            harness_module,
+            optionflags=doctest.ELLIPSIS | doctest.IGNORE_EXCEPTION_DETAIL,
+            verbose=False,
+        )
+        assert results.failed == 0, (
+            f"{results.failed} of {results.attempted} harness doctests failed; run "
+            "`pytest --doctest-modules tests/netcdf/parity/_harness.py` to see them"
+        )
+
+    def test_the_examples_are_actually_collected(self):
+        """A gate that runs zero examples would pass silently, so pin that there are some."""
+        results = doctest.testmod(harness_module, verbose=False)
+        assert results.attempted > 20, (
+            f"only {results.attempted} doctest examples ran; the gate is not reaching them"
+        )
