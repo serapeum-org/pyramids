@@ -11,9 +11,11 @@ import itertools
 import logging
 import math
 import os
+import sys
 import threading
 import warnings
 import weakref
+from collections.abc import Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Unpack, cast
 
@@ -1561,6 +1563,49 @@ def _variable_summary(nc: NetCDF) -> str:
     return "\n".join(lines)
 
 
+def _variable_dtype(variable: NetCDF | LabeledArray) -> str:
+    """The dtype of one variable, whichever kind :meth:`NetCDF.get_variable` returned.
+
+    A raster subset reports `dtype` as one entry **per band**, all the same because a band is
+    a slice of one array; the first is taken. A `LabeledArray` has no `dtype` of its own and
+    is read from the array it holds.
+
+    Args:
+        variable: A raster subset or a `LabeledArray`.
+
+    Returns:
+        str: The numpy dtype name, `"unknown"` for a subset reporting no bands.
+    """
+    if isinstance(variable, LabeledArray):
+        name = str(np.asarray(variable.values).dtype)
+    else:
+        per_band = variable.dtype
+        name = str(per_band[0]) if per_band else "unknown"
+    return name
+
+
+def _variable_nbytes(variable: NetCDF | LabeledArray) -> int:
+    """One variable's size in bytes, from its shape and dtype rather than its data.
+
+    `rows * columns * band_count` is the whole cell count, not a plane's: GDAL flattens every
+    non-spatial dimension into the bands axis, so a `(time, level, lat, lon)` cube reports
+    `band_count` as `time * level`. Nothing is read — a `LabeledArray` is the one case whose
+    array is already in memory, and there `nbytes` is simply its own.
+
+    Args:
+        variable: A raster subset or a `LabeledArray`.
+
+    Returns:
+        int: The byte count.
+    """
+    if isinstance(variable, LabeledArray):
+        size = int(np.asarray(variable.values).nbytes)
+    else:
+        cells = int(variable.rows) * int(variable.columns) * int(variable.band_count)
+        size = cells * int(np.dtype(_variable_dtype(variable)).itemsize)
+    return size
+
+
 class NetCDF(Dataset):
     """NetCDF.
 
@@ -2876,6 +2921,436 @@ class NetCDF(Dataset):
             names; for classic mode from `GetSubDatasets()`.
         """
         return self._get_variable_names()
+
+    @property
+    def data_vars(self) -> list[str]:
+        """xarray's name for :attr:`variable_names`. Read-only alias.
+
+        Returns:
+            list[str]: The data-variable names, in store order.
+
+        Examples:
+            - The alias and its canonical member are the same list:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> nc.data_vars == nc.variable_names
+              True
+
+              ```
+
+        See Also:
+            NetCDF.variable_names: The canonical member.
+        """
+        return self.variable_names
+
+    @property
+    def dims(self) -> dict[str, int]:
+        """Dimension name to length — a **mapping**, as xarray's `Dataset.dims` is.
+
+        Deliberately not an alias of :attr:`dimension_names`, which is a *list*. Aliasing a
+        mapping name onto a list would be a second `variables`-shaped collision: a reader
+        coming from xarray writes `nc.dims["time"]` and would silently get a list index.
+        The list keeps its own name; this returns what the xarray spelling promises, which
+        makes it the same object as :attr:`dimension_sizes`.
+
+        Returns:
+            dict[str, int]: Dimension name to its length.
+
+        Examples:
+            - Keys are the names, values the lengths:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> nc.dims["time"], sorted(nc.dims) == sorted(nc.dimension_names)
+              (4, True)
+
+              ```
+
+        See Also:
+            NetCDF.dimension_sizes: The canonical member.
+            NetCDF.dimension_names: The names alone, as a list.
+        """
+        return self.dimension_sizes
+
+    @property
+    def sizes(self) -> dict[str, int]:
+        """xarray's other name for :attr:`dimension_sizes`. Read-only alias.
+
+        Returns:
+            dict[str, int]: Dimension name to its length.
+
+        Examples:
+            - `sizes` and `dims` are the same mapping, as they are in xarray:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> nc.sizes == nc.dims == nc.dimension_sizes
+              True
+
+              ```
+
+        See Also:
+            NetCDF.dimension_sizes: The canonical member.
+        """
+        return self.dimension_sizes
+
+    @property
+    def attrs(self) -> dict[str, Any]:
+        """xarray's name for :attr:`global_attributes`. Read-only alias.
+
+        Returns:
+            dict[str, Any]: The root group's attributes.
+
+        Examples:
+            - The alias reads the same attributes:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> nc.attrs == nc.global_attributes
+              True
+
+              ```
+
+        See Also:
+            NetCDF.global_attributes: The canonical member, and the setters
+                `set_global_attribute` / `delete_global_attribute`.
+        """
+        return self.global_attributes
+
+    @property
+    def coords(self) -> dict[str, Any]:
+        """Every dimension's stored coordinate, as `{name: ndarray}`.
+
+        Built from :meth:`get_dimension_values`, so the storage-order contract lives in one
+        place: a **spatial** axis comes back as the file stores it, which for a
+        south-to-north file is the reverse of the raster's north-up rows. A dimension with
+        no indexing variable is omitted rather than mapped to `None`.
+
+        Values are read when this is called, one array per dimension; the arrays are small
+        (one per axis, not per cell) but this is not free.
+
+        Returns:
+            dict[str, numpy.ndarray]: Dimension name to its stored coordinate.
+
+        Examples:
+            - Each entry is what `get_dimension_values` returns:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> bool(np.array_equal(nc.coords["lat"], nc.get_dimension_values("lat")))
+              True
+              >>> nc.coords["time"].tolist()
+              [0.0, 6.0, 12.0, 18.0]
+
+              ```
+
+        See Also:
+            NetCDF.get_dimension_values: The per-name accessor this reads.
+            NetCDF.to_xarray: Which *decodes* a CF time axis, where this does not.
+        """
+        values = {}
+        for name in self.dimension_names or []:
+            stored = self.get_dimension_values(name)
+            if stored is not None:
+                values[name] = stored
+        return values
+
+    @property
+    def dtypes(self) -> dict[str, str]:
+        """Each data variable's dtype, as `{name: dtype}`.
+
+        Reads no pixels: the type comes from the band description.
+
+        Returns:
+            dict[str, str]: Variable name to the dtype of its first band, or to the
+                `LabeledArray`'s own dtype for a variable with no raster plane.
+
+        Examples:
+            - One entry per data variable:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> nc.dtypes
+              {'temperature': 'float64'}
+
+              ```
+
+        See Also:
+            NetCDF.nbytes: Sized from these dtypes and the dimension lengths.
+        """
+        return {name: _variable_dtype(self[name]) for name in self.variable_names}
+
+    @property
+    def nbytes(self) -> int:
+        """The size of every data variable in bytes, computed rather than read.
+
+        From each variable's shape and dtype, so a cube far larger than memory can be
+        sized without touching a pixel. **Data variables only** — xarray's `nbytes` counts
+        its coordinates too, so the two differ by the size of the coordinate arrays.
+
+        Returns:
+            int: The total, `0` for a container with no data variables.
+
+        Examples:
+            - A 12-band 5x6 float64 cube:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> nc.nbytes == 12 * 5 * 6 * 8
+              True
+
+              ```
+
+        See Also:
+            NetCDF.dtypes: The types this sizes from.
+        """
+        return sum(_variable_nbytes(self[name]) for name in self.variable_names)
+
+    def info(self, buf: Any = None) -> None:
+        """Print a summary of the container: dimensions, variables and attributes.
+
+        Args:
+            buf: Where to write. Defaults to `sys.stdout`, matching xarray's `info`.
+
+        Examples:
+            - The summary names every dimension and every variable:
+
+              ```python
+              >>> import io
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> report = io.StringIO()
+              >>> nc.info(report)
+              >>> text = report.getvalue()
+              >>> all(name in text for name in nc.dimension_names)
+              True
+              >>> "temperature" in text
+              True
+
+              ```
+
+        See Also:
+            NetCDF.dtypes: The per-variable types this prints.
+        """
+        stream = sys.stdout if buf is None else buf
+        rg = self._working_group()
+        types = self.dtypes
+        lines = ["pyramids.NetCDF {", "dimensions:"]
+        lines += [f"\t{name} = {size} ;" for name, size in self.dimension_sizes.items()]
+        lines.append("variables:")
+        for name in self.variable_names:
+            # The variable's own axes, read from the store rather than from the subset
+            # `get_variable` hands back: a subset renames its y dimension to the window it was
+            # cut with (`subset_lat_4_-1_5`), which is not a name this file has.
+            axes = ", ".join(self._variable_dim_names(rg, name))
+            lines.append(f"\t{types.get(name, 'unknown')} {name}({axes}) ;")
+        lines.append("")
+        lines.append("// global attributes:")
+        lines += [f"\t:{key} = {value!r} ;" for key, value in self.attrs.items()]
+        lines.append("}")
+        print("\n".join(lines), file=stream)
+
+    def get(self, name: str, default: Any = None) -> NetCDF | LabeledArray | Any:
+        """The variable called `name`, or `default` when the container has no such variable.
+
+        Args:
+            name: A data-variable name.
+            default: What to return when `name` is absent. Defaults to `None`.
+
+        Returns:
+            The variable, or `default`.
+
+        Examples:
+            - A miss returns the default rather than raising:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> nc.get("nope", "absent")
+              'absent'
+
+              ```
+        """
+        return self.variables.get(name, default)
+
+    def __getitem__(self, name: str) -> NetCDF | LabeledArray:
+        """The variable called `name` — `nc["t2m"]`, the first thing an xarray user tries.
+
+        Delegates to :attr:`variables`, so it is the same lazy, cached object
+        :meth:`get_variable` returns and the refusal message is the one that mapping
+        already gives.
+
+        Args:
+            name: A data-variable name, as :attr:`variable_names` lists it.
+
+        Returns:
+            NetCDF | LabeledArray: A `NetCDF` subset for a raster variable, a
+            `LabeledArray` for one with no raster plane.
+
+        Raises:
+            KeyError: `name` is not a data variable. `get_variable` raises `ValueError` for
+                the same miss; the mapping protocol has to raise `KeyError` for `in`, `get`
+                and `dict(nc)` to behave, so the two spellings differ deliberately here.
+
+        Examples:
+            - Reach a variable by name:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> nc["temperature"].band_count
+              12
+
+              ```
+            - An unknown name is a `KeyError` naming what the store holds:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> nc["nope"]
+              Traceback (most recent call last):
+                  ...
+              KeyError: ...
+
+              ```
+
+        See Also:
+            NetCDF.get_variable: The same lookup, raising `ValueError` instead.
+            NetCDF.variables: The mapping this reads.
+        """
+        return self.variables[name]
+
+    def __contains__(self, name: object) -> bool:
+        """Whether `name` is one of this container's data variables.
+
+        Args:
+            name: The name to look for. A non-string is simply absent.
+
+        Returns:
+            bool: `True` when :attr:`variable_names` lists it.
+
+        Examples:
+            - Membership follows `variable_names`, not the store's whole array list:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> "temperature" in nc, "lat" in nc, "nope" in nc
+              (True, False, False)
+
+              ```
+        """
+        return name in self.variables
+
+    def __iter__(self) -> Iterator[str]:
+        """Iterate the **data-variable names**, in store order.
+
+        Data variables only, matching :attr:`variables` and :attr:`variable_names` — a
+        dimension coordinate such as `lat` is not yielded, so `list(nc)` and
+        `nc.variable_names` agree. That choice is the one place this class could have
+        collided with xarray twice over: `Dataset.__iter__` yields data variables too, but
+        `Dataset.variables` includes coordinates while this class's does not.
+
+        Yields:
+            str: Each data-variable name.
+
+        Examples:
+            - Iteration and `variable_names` are the same list:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+              >>> list(nc) == nc.variable_names
+              True
+
+              ```
+        """
+        return iter(self.variables)
+
+    def __len__(self) -> int:
+        """How many data variables the container holds.
+
+        Returns:
+            int: `len(variable_names)`. Reads no data.
+
+        Examples:
+            - The count matches the names:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+              >>> len(nc) == len(nc.variable_names)
+              True
+
+              ```
+        """
+        return len(self.variables)
+
+    def keys(self) -> list[str]:
+        """The data-variable names, in store order. Reads nothing.
+
+        Returns:
+            list[str]: The same list as :attr:`variable_names`.
+
+        Examples:
+            - A list, not a view, matching the mapping it delegates to:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> nc.keys()
+              ['temperature']
+
+              ```
+        """
+        return self.variables.keys()
+
+    def values(self) -> list[NetCDF | LabeledArray]:
+        """Every variable, loading each one.
+
+        Returns:
+            list: A `NetCDF` per raster variable, a `LabeledArray` for the rest.
+
+        Examples:
+            - One entry per name:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> len(nc.values()) == len(nc)
+              True
+
+              ```
+        """
+        return self.variables.values()
+
+    def items(self) -> list[tuple[str, NetCDF | LabeledArray]]:
+        """`(name, variable)` for every variable, loading each.
+
+        Returns:
+            list[tuple]: Pairs in store order.
+
+        Examples:
+            - Unpackable in a loop, as a mapping's items are:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> [name for name, _ in nc.items()]
+              ['temperature']
+
+              ```
+        """
+        return self.variables.items()
 
     @property
     def variables(self) -> dict[str, NetCDF | LabeledArray]:
