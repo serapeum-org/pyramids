@@ -110,6 +110,19 @@ PARITY_FIXTURES: tuple[ParityFixture, ...] = (
         ),
     ),
     ParityFixture(
+        "cf__12v__1d4-2d5-3d2-4d1__y-asc.nc",
+        "pr",
+        y_ascends=True,
+        packed=False,
+        covers=(
+            "A band dimension of size 1, which `read_array` squeezes away entirely: `pr` reads "
+            "back `(128, 256)` where `to_xarray` reports `('time', 'lat', 'lon')`. `isel` and "
+            "a single-label `sel` produce exactly this shape, so T3 and T4 would otherwise "
+            "have had nothing to compare. Its container also declares dimensions `pr` does not "
+            "use, which is what caught the axis labels being taken from the container."
+        ),
+    ),
+    ParityFixture(
         "cf__20v__1d3-3d17__y-desc.nc",
         "tcw",
         y_ascends=False,

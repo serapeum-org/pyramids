@@ -723,6 +723,50 @@ def to_xr(nc: NetCDF, variable: str) -> ParityView:
     )
 
 
+def _with_band_axes(array: np.ndarray, sizes: tuple[int, ...]) -> np.ndarray:
+    """Rebuild the variable's band axes on a `(bands, rows, cols)` read.
+
+    GDAL flattens every non-spatial dimension into one bands axis, and `read_array` **squeezes**
+    it away entirely when it is length 1 — so a variable with a single size-1 band dimension
+    (`cf__12v__1d4-2d5-3d2-4d1__y-asc.nc::pr`) reads back 2-D where `to_xarray` reports
+    `('time', 'lat', 'lon')`. That is not an exotic shape: `isel` and a single-label `sel`
+    produce exactly it, so T3 and T4 would have had nothing to compare.
+
+    Args:
+        array: The read array, flattened or squeezed.
+        sizes: The variable's non-spatial dimension sizes, in storage order.
+
+    Returns:
+        `array` shaped `(*sizes, rows, cols)`, or unchanged when it already is.
+
+    Examples:
+        - A squeezed single-band read regains its axis:
+
+          ```python
+          >>> import numpy as np
+          >>> from tests.netcdf.parity._harness import _with_band_axes
+          >>> _with_band_axes(np.zeros((4, 5)), (1,)).shape
+          (1, 4, 5)
+
+          ```
+        - A flattened two-band-dimension read regains both:
+
+          ```python
+          >>> import numpy as np
+          >>> from tests.netcdf.parity._harness import _with_band_axes
+          >>> _with_band_axes(np.zeros((12, 4, 5)), (4, 3)).shape
+          (4, 3, 4, 5)
+
+          ```
+    """
+    rebuilt = array
+    if sizes:
+        target = (*sizes, *array.shape[-2:])
+        if array.shape != target and array.size == int(np.prod(target)):
+            rebuilt = array.reshape(target)
+    return rebuilt
+
+
 def _result_view(
     values: Any, gaps: Any, source_gaps: np.ndarray, variable: str
 ) -> tuple[np.ndarray, np.ndarray, np.dtype]:
@@ -880,9 +924,8 @@ def from_pyramids(
     # GDAL flattened.
     band_dims = tuple(handle._band_dim_names)
     sizes = tuple(handle._band_dim_sizes)
-    if len(band_dims) > 1:
-        source_values = unflatten_band_axes(source_values, band_dims, sizes)
-        source_gaps = unflatten_band_axes(source_gaps, band_dims, sizes)
+    source_values = _with_band_axes(source_values, sizes)
+    source_gaps = _with_band_axes(source_gaps, sizes)
 
     source_dtype = np.dtype(handle.dtype[0])
     if values is None:

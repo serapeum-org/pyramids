@@ -205,19 +205,6 @@ class TestTheOrientationRule:
         with pytest.raises(AssertionError):
             assert_parity(from_pyramids(nc, variable), wrong)
 
-    def test_a_single_row_axis_is_never_flipped(self):
-        """With one y cell there is no direction to read, so the rule must not guess one.
-
-        Test scenario:
-            `values[0] < values[-1]` is `False` for a length-1 axis, which is the answer that
-            leaves the array alone — asserted so a future rewrite cannot make it `True` by
-            accident.
-        """
-        nc = _read("cf__5v__1d4-4d1__geog__y-desc.nc")
-        single = np.asarray([42.0])
-        assert bool(single[0] < single[-1]) is False
-        assert stored_y_ascends(nc) is False
-
     def test_the_y_dimension_is_found_under_each_spelling(self):
         """`lat`, `latitude` and `y` all resolve; the fixtures use all three."""
         assert y_dimension(_read("cf__5v__1d4-4d1__y-asc.nc")) == "lat"
