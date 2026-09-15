@@ -29,6 +29,7 @@ type.
 from __future__ import annotations
 
 import io
+import re
 import warnings
 from collections import abc
 from pathlib import Path
@@ -490,8 +491,15 @@ class TestCheapIntrospection:
             list stringified would pass a key comparison and be useless.
         """
         assert sorted(container.dtypes) == sorted(set(container.variable_names))
-        for name in container.variable_names:
-            assert np.dtype(container.dtypes[name]) is not None
+        for name, kind in container.dtypes.items():
+            if kind == "unknown":
+                continue
+            # Asserting the round trip, not `is not None`: `np.dtype()` returns a dtype or
+            # raises, so an `is not None` check can only ever pass and says nothing.
+            assert np.dtype(kind).name == kind, (
+                f"{name} reports {kind!r}, which numpy normalises to "
+                f"{np.dtype(kind).name!r} — the two should agree"
+            )
 
     def test_nbytes_is_the_sum_over_the_variables(self, container: NetCDF):
         """The total is each variable's cells times its item size.
@@ -1088,8 +1096,9 @@ class TestTheInfoSummaryIsWellFormed:
         )
         value = printed.split(" = ", 1)[1].removesuffix(" ;")
 
-        assert len(value) == 123
-        assert value.endswith("...")
+        # 120 characters, the ellipsis, and the closing quote the truncation restores.
+        assert len(value) == 124
+        assert value.endswith("...'")
 
 
 class TestAClassicContainer:
@@ -1408,12 +1417,24 @@ class TestThePublicApiPageMatchesTheClass:
                 counts["method"] += 1
 
         text = " ".join(self.PAGE.read_text(encoding="utf-8").split())
+        remedy = (
+            f"docs/reference/netcdf/public-api.md is out of date: NetCDF now defines "
+            f"{len(own)} public members ({counts['method']} methods, "
+            f"{counts['property']} properties, {counts['classmethod']} classmethods, "
+            f"{counts['staticmethod']} staticmethod). Update the page's opening sentence "
+            f"and add the new member to the table it belongs in."
+        )
 
-        assert f"{len(own)} in all" in text
-        assert f"{counts['method']} methods" in text
-        assert f"{counts['property']} properties" in text
-        assert f"{counts['classmethod']} classmethods" in text
-        assert f"{counts['staticmethod']} staticmethod" in text
+        # Matched on a word boundary: a bare `in` lets "1 staticmethod" pass against a page
+        # reading "1 staticmethods", and the plural is exactly what drifts.
+        for phrase in (
+            f"{len(own)} in all",
+            f"{counts['method']} methods",
+            f"{counts['property']} properties",
+            f"{counts['classmethod']} classmethods",
+            f"{counts['staticmethod']} staticmethod",
+        ):
+            assert re.search(rf"{re.escape(phrase)}" + r"\b", text), remedy
 
     @pytest.mark.parametrize(
         "member",
@@ -1425,7 +1446,10 @@ class TestThePublicApiPageMatchesTheClass:
         Args:
             member: The member the page must mention.
         """
-        assert f"`{member}`" in self.PAGE.read_text(encoding="utf-8")
+        assert f"`{member}`" in self.PAGE.read_text(encoding="utf-8"), (
+            f"{member} is missing from docs/reference/netcdf/public-api.md — add it to "
+            f"the table it belongs in, so a reader scanning the index can find it."
+        )
 
 
 class TestNbytesSaysWhenItCouldNotSizeSomething:

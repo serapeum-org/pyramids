@@ -135,7 +135,9 @@ class TestWhereTheNamesDisagree:
 
         assert "DQF" in exported
         assert "DQF" not in nc
-        assert nc.get_variable("DQF") is not None
+        # `get_variable` returns an object or raises, so `is not None` cannot fail.
+        # The real claim is that the array is reachable *and* holds data.
+        assert nc.get_variable("DQF").read_array().size > 0
         assert set(exported) - set(nc) == {"DQF"}
 
     def test_the_ugrid_store_exports_its_connectivity_array(self):
@@ -153,5 +155,7 @@ class TestWhereTheNamesDisagree:
 
         assert "face_node_connectivity" in exported
         assert "face_node_connectivity" not in nc
-        assert nc.get_variable("face_node_connectivity") is not None
+        # `get_variable` returns an object or raises, so `is not None` cannot fail.
+        # The real claim is that the array is reachable *and* holds data.
+        assert nc.get_variable("face_node_connectivity").read_array().size > 0
         assert set(exported) - set(nc) == {"face_node_connectivity"}

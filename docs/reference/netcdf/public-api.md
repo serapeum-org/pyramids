@@ -31,51 +31,51 @@ Two object shapes share this class, and several members behave differently acros
 
 ## Variables, dimensions and groups
 
-| Member                   | What it does                                                              |
-|--------------------------|---------------------------------------------------------------------------|
-| `variable_names`         | Names of the data variables, excluding dimension coordinate arrays.       |
-| `variables`              | Lazy `{name: subset}` mapping of every data variable.                     |
-| `get_variable()`         | Extracts one variable as a classic-raster `NetCDF` (a Variable).          |
-| `get_variable_names()`   | Deprecated alias for the `variable_names` property.                       |
+| Member                   | What it does                                                                    |
+|--------------------------|---------------------------------------------------------------------------------|
+| `variable_names`         | Names of the data variables, excluding dimension coordinate arrays.             |
+| `variables`              | Lazy `{name: subset}` mapping of every data variable.                           |
+| `get_variable()`         | Extracts one variable as a classic-raster `NetCDF` (a Variable).                |
+| `get_variable_names()`   | Deprecated alias for the `variable_names` property.                             |
 | `nc[name]`               | The variable called `name`; `KeyError` where `get_variable` gives `ValueError`. |
-| `name in nc`             | Whether `name` is one of the data variables.                              |
-| `iter(nc)` / `len(nc)`   | The data-variable names, and how many there are.                          |
-| `get()`                  | The variable, or a default when the container has no such name.           |
-| `keys()`                 | The data-variable names, as a fresh list.                                 |
-| `values()`               | Every variable, loading each.                                             |
-| `items()`                | `(name, variable)` for every variable, loading each.                      |
-| `dimension_names`        | Names of all dimensions, in storage order.                                |
-| `dimension_sizes`        | `{name: size}` for every dimension, read from the multidimensional group. |
-| `get_dimension_values()` | Stored coordinates of any dimension — `level`, `depth`, `member`, `time`. |
-| `group_names`            | Names of the sub-groups in the root group.                                |
-| `get_group()`            | Opens a netCDF-4 sub-group as its own Container, without copying data.    |
-| `is_subset`              | Whether this object is a single-variable subset rather than a Container.  |
-| `is_md_array`            | Whether the dataset was opened in multidimensional mode.                  |
-| `file_name`              | The file path, with any `NETCDF:"path":var` prefix stripped.              |
+| `name in nc`             | Whether `name` is one of the data variables.                                    |
+| `iter(nc)` / `len(nc)`   | The data-variable names, and how many there are.                                |
+| `get()`                  | The variable, or a default when the container has no such name.                 |
+| `keys()`                 | The data-variable names, as a fresh list.                                       |
+| `values()`               | Every variable, loading each.                                                   |
+| `items()`                | `(name, variable)` for every variable, loading each.                            |
+| `dimension_names`        | Names of all dimensions, in storage order.                                      |
+| `dimension_sizes`        | `{name: size}` for every dimension, read from the multidimensional group.       |
+| `get_dimension_values()` | Stored coordinates of any dimension — `level`, `depth`, `member`, `time`.       |
+| `group_names`            | Names of the sub-groups in the root group.                                      |
+| `get_group()`            | Opens a netCDF-4 sub-group as its own Container, without copying data.          |
+| `is_subset`              | Whether this object is a single-variable subset rather than a Container.        |
+| `is_md_array`            | Whether the dataset was opened in multidimensional mode.                        |
+| `file_name`              | The file path, with any `NETCDF:"path":var` prefix stripped.                    |
 
 ## xarray-compatible spellings
 
 Aliases so habits from xarray transfer without renaming anything. Each names its canonical member, and each
 docstring states where it diverges from the xarray member it echoes.
 
-| Member       | What it does                                                                        |
-|--------------|-------------------------------------------------------------------------------------|
-| `data_vars`  | `variables` under xarray's name — a mapping, so `nc.data_vars["t2m"]` works.         |
-| `dims`       | `{name: length}` — **not** `dimension_names`, a list. `sizes` is the durable spelling. |
-| `sizes`      | The same mapping as `dims`; xarray is turning its own `dims` into a set of names.    |
-| `attrs`      | `global_attributes` under xarray's name.                                             |
-| `coords`     | `{name: stored coordinate}` for every indexed dimension, from `get_dimension_values`. |
+| Member      | What it does                                                                           |
+|-------------|----------------------------------------------------------------------------------------|
+| `data_vars` | `variables` under xarray's name — a mapping, so `nc.data_vars["t2m"]` works.           |
+| `dims`      | `{name: length}` — **not** `dimension_names`, a list. `sizes` is the durable spelling. |
+| `sizes`     | The same mapping as `dims`; xarray is turning its own `dims` into a set of names.      |
+| `attrs`     | `global_attributes` under xarray's name.                                               |
+| `coords`    | `{name: stored coordinate}` for every indexed dimension, from `get_dimension_values`.  |
 
 ## Cheap introspection
 
 Metadata only: no data variable's array is read, though opening a variable does read its coordinate axes.
 A variable with no raster plane is the exception — see each member's docstring.
 
-| Member    | What it does                                                                     |
-|-----------|----------------------------------------------------------------------------------|
-| `dtypes`  | `{name: dtype}` for every data variable, from the band description.              |
-| `nbytes`  | Total size of the data variables, computed from shape and dtype rather than read. |
-| `info()`  | Prints an `ncdump -h`-shaped summary to a buffer, or to `sys.stdout`.            |
+| Member   | What it does                                                                      |
+|----------|-----------------------------------------------------------------------------------|
+| `dtypes` | `{name: dtype}` for every data variable, from the band description.               |
+| `nbytes` | Total size of the data variables, computed from shape and dtype rather than read. |
+| `info()` | Prints an `ncdump -h`-shaped summary to a buffer, or to `sys.stdout`.             |
 
 ## Coordinates and time
 

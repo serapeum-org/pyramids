@@ -1609,16 +1609,29 @@ def _variable_summary(nc: NetCDF) -> str:
 
 
 class _HasDtype(Protocol):
-    """The shape `_variable_dtype` and `_variable_nbytes` need from a raster variable.
+    """The one member `_variable_dtype` reads from a raster variable.
 
-    A structural type rather than `NetCDF`, because both helpers touch only these four
-    members — and saying so lets a test exercise the no-band arm with a four-line stub
-    instead of manufacturing a zero-band subset, which no fixture in the repo produces.
+    Structural rather than `NetCDF` so the annotation states the *whole* dependency: this
+    helper reads a band-type list and nothing else, and a reader should not have to open
+    the body to learn that a 200-member class is not required.
+
+    It buys nothing for the tests, which is what an earlier version of this docstring
+    claimed — `[tool.mypy] exclude` skips `tests/`, so a stub satisfies a nominal
+    annotation there just as happily. `_open_variable` is annotated nominally and is
+    stubbed by its tests in exactly the same way.
     """
 
     @property
     def dtype(self) -> list[str]:
         """One entry per band."""
+
+
+class _HasRasterShape(_HasDtype, Protocol):
+    """What `_variable_nbytes` needs on top of the dtype: a cell count.
+
+    `band_count` is every non-spatial dimension flattened together, so this product is the
+    whole cube rather than one plane.
+    """
 
     @property
     def rows(self) -> int:
@@ -1694,8 +1707,10 @@ def _summarised(value: Any, limit: int = 120) -> str:
           ```python
           >>> from pyramids.netcdf.netcdf import _summarised
           >>> rendered = _summarised("x" * 500, limit=20)
-          >>> len(rendered), rendered.endswith("...")
-          (23, True)
+          >>> rendered[-4:]
+          "...'"
+          >>> len(rendered)
+          24
 
           ```
 
@@ -1712,7 +1727,11 @@ def _summarised(value: Any, limit: int = 120) -> str:
     for control in ("\n", "\r", "\t"):
         rendered = rendered.replace(control, " ")
     if len(rendered) > limit:
-        rendered = rendered[:limit] + "..."
+        # `repr` opens and closes with the same character, and `info` prints these inside a
+        # `:key = <value> ;` line that imitates `ncdump -h`. Truncating bare left an opening
+        # quote with nothing to match it, so the line no longer parsed as a quoted value.
+        closing = rendered[-1] if rendered[:1] in {"'", '"'} else ""
+        rendered = rendered[:limit] + "..." + closing
     return rendered
 
 
@@ -1766,7 +1785,22 @@ def _open_variable(nc: NetCDF, name: str) -> NetCDF | LabeledArray | None:
     """
     try:
         variable = nc[name]
-    except (RuntimeError, KeyError, ValueError):
+    except (RuntimeError, KeyError, ValueError) as refusal:
+        # Narrow *and* loud. The classic-enumeration wart below is the case this exists
+        # for, but these three exceptions have other sources — a `/vsicurl/` store raises
+        # `RuntimeError` on a transient network failure, and `get_variable` raises
+        # `ValueError` for more reasons than a bad name. Silence would render a remote
+        # read that half-failed indistinguishable from a store with a known-bad name list,
+        # and both would come back as a quietly smaller `nbytes`.
+        warnings.warn(
+            f"{name!r} is enumerated by the store but could not be opened, so it is "
+            f"reported as an unknown type and sized as 0 bytes: "
+            f"{type(refusal).__name__}: {refusal}. On a classic container this is usually "
+            f"the subdataset list naming a variable by its standard_name — reopen with "
+            f"open_as_multi_dimensional=True. Otherwise the read itself failed.",
+            UserWarning,
+            stacklevel=3,
+        )
         variable = None
     return variable
 
@@ -1819,7 +1853,7 @@ def _variable_dtype(variable: _HasDtype | LabeledArray) -> str:
     return name
 
 
-def _variable_nbytes(variable: _HasDtype | LabeledArray) -> int:
+def _variable_nbytes(variable: _HasRasterShape | LabeledArray) -> int:
     """One variable's size in bytes, from its shape and dtype rather than its data.
 
     `rows * columns * band_count` is the whole cell count, not a plane's: GDAL flattens every
@@ -3595,6 +3629,10 @@ class NetCDF(Dataset):
         nothing: `nc["t2m"].nbytes` is `0`, not that variable's own size. Size a single
         variable from its shape and :attr:`dtype` instead.
 
+        Sized over **distinct** names, so this and :attr:`dtypes` agree on what "the data
+        variables" are: a classic container's enumeration can report the same name twice,
+        and summing the list would count that variable twice.
+
         A name the store enumerates but will not open — see :attr:`dtypes` — contributes
         `0` and a `UserWarning` naming it. The shortfall can be large rather than marginal:
         a **classic** container's subdataset list can name a variable by its `standard_name`
@@ -3631,7 +3669,11 @@ class NetCDF(Dataset):
         """
         total = 0
         unsized = []
-        for name in self.variable_names:
+        # `dict.fromkeys` rather than the list: a classic container's enumeration can
+        # report a name twice, and `dtypes` is keyed uniquely. Summing the list would size
+        # the repeat twice and make the two members disagree about what "the data
+        # variables" are. Order is preserved, which `set` would not do.
+        for name in dict.fromkeys(self.variable_names):
             variable = _open_variable(self, name)
             if variable is None:
                 unsized.append(name)
@@ -3659,6 +3701,12 @@ class NetCDF(Dataset):
 
         Calls :attr:`dtypes`, so it inherits that member's caveat: a variable with no
         raster plane is materialised to report its type.
+
+        On a **grouped** store the `dimensions:` section lists only the root group's, which
+        is what :attr:`dimension_sizes` reports, while the variable lines reference each
+        group's own axis of the same name — `none__35v__1d35__groups-nc4.nc` declares one
+        `recNum` and then names `recNum` on 29 variables whose lengths differ. Faithful to
+        the members it prints, but not something `ncdump -h` would emit.
 
         A **classic** container (`open_as_multi_dimensional=False`) has no multidim group
         behind it, and three parts of the report thin out as a result:
@@ -3745,10 +3793,16 @@ class NetCDF(Dataset):
         # `_variable_dim_names` would reach `None.OpenMDArray` and raise `AttributeError`.
         rg = self._working_group()
         types = self.dtypes
+        # One enumeration, not two. `dtypes` walks `variable_names` to build its keys, and
+        # walking it again here re-queries `GetMDArrayNames()` and re-runs CF
+        # classification — the expensive half of the summary on a large store — while any
+        # disagreement between the two walks would be a bare `KeyError` out of a read-only
+        # method. Distinct, for the reason `nbytes` gives.
+        names = list(dict.fromkeys(self.variable_names))
         lines = ["pyramids.NetCDF {", "dimensions:"]
         lines += [f"\t{name} = {size} ;" for name, size in self.dimension_sizes.items()]
         lines.append("variables:")
-        for name in self.variable_names:
+        for name in names:
             # The variable's own axes, read from the store rather than from the subset
             # `get_variable` hands back: a subset renames its y dimension to the window it was
             # cut with (`subset_lat_4_-1_5`), which is not a name this file has.
@@ -4271,8 +4325,10 @@ class NetCDF(Dataset):
         before reaching for a raster method.
 
         Returns:
-            dict[str, NetCDF | LabeledArray]: Mapping from variable name to its
-            subset.
+            _LazyVariableDict: Mapping from variable name to its subset. The concrete type
+            is internal and not exported — treat it as a read-through
+            `Mapping[str, NetCDF | LabeledArray]` whose `keys`, `values` and `items` return
+            lists rather than views, and which refuses writes.
 
         Examples:
             - A store with a grid and a profile axis yields one of each kind:
