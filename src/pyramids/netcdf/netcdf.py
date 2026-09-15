@@ -170,6 +170,14 @@ class _LazyVariableDict(dict):
     `LabeledArray.freeze`), because every later lookup hands out that same
     object; `get_variable` itself returns a fresh, writeable one each call.
 
+    **Read-through, never written to.** Every mutating entry point `dict` offers is refused
+    with a `TypeError` from :meth:`_refuse` — `__setitem__`, `__delitem__`, `update`,
+    `setdefault`, `pop`, `popitem`, `clear` and `|=`. Overriding the first two was not
+    enough: CPython implements the rest in C against the underlying storage, so each reaches
+    the load cache without passing through either override, and every door has to be closed
+    by name. `|` is left alone, because it builds a new plain `dict` rather than mutating
+    this one. The internal cache fill calls `dict.__setitem__` directly and so is unaffected.
+
     Note:
         This class is **not thread-safe**. Concurrent access from
         multiple threads may cause `get_variable()` to be called
@@ -357,8 +365,11 @@ class _LazyVariableDict(dict):
     def clear(self) -> None:
         """Refuse, for the reason :meth:`__delitem__` gives.
 
-        Emptying the cache is not harmless: every later lookup reloads, and `popitem` then
-        reports an empty dictionary for a container that plainly holds variables.
+        Nothing would go *missing*: `_names` is what `in`, `len` and iteration answer from,
+        so an emptied cache still reports every variable and reloads each on next access.
+        What breaks is identity — `variables["x"] is variables["x"]` stops holding — and that
+        is the guarantee a frozen `LabeledArray` entry exists to provide: a caller holding the
+        object it was handed would be comparing against one the mapping has since replaced.
 
         Raises:
             TypeError: Always.
@@ -371,8 +382,11 @@ class _LazyVariableDict(dict):
     def __ior__(self, other: Any) -> _LazyVariableDict:  # type: ignore[misc]
         """Refuse, for the reason :meth:`__setitem__` gives.
 
-        The return type matches `dict.__or__`'s so the two stay compatible for a type
-        checker; nothing is ever returned.
+        The annotation deliberately does **not** line up with the inherited `dict.__or__`,
+        which returns a plain `dict`. mypy reports `Signatures of "__ior__" and "__or__" are
+        incompatible  [misc]` for that, and the `type: ignore[misc]` on the signature is what
+        silences it — the mismatch is the point, since `|` is harmless and `|=` is not.
+        Nothing is ever returned either way, because this always raises.
 
         Args:
             other: Ignored.
@@ -1749,7 +1763,10 @@ def _summarised(value: Any, limit: int = 120) -> str:
     Returns:
         str: The `repr`, with any real control characters collapsed to spaces, truncated
         with an ellipsis when it exceeds `limit`. Escape sequences `repr` itself produced
-        are left as they are.
+        are left as they are. A truncation that cut a quoted `repr` gets its closing quote
+        back, so the `:key = <value> ;` line `info` prints still parses — which makes a
+        truncated result `limit + 4` characters for a quoted value and `limit + 3` for one
+        that does not end in a quote, such as a list's.
 
     Examples:
         - A short value is its ordinary `repr`:
@@ -1842,6 +1859,15 @@ def _open_variable(nc: NetCDF, name: str) -> NetCDF | LabeledArray | None:
     Returns:
         NetCDF | LabeledArray | None: The variable, or `None` when it cannot be opened.
 
+    Warns:
+        UserWarning: Once per name that will not open, carrying the name, the exception type
+            and its message. The refusal is never silent: the three exceptions caught here
+            have sources beyond the classic-enumeration wart — a `/vsicurl/` store raises
+            `RuntimeError` on a transient network failure, and `get_variable` raises
+            `ValueError` for more reasons than a bad name — so silence would make a remote
+            read that half-failed indistinguishable from a store with a known-bad name list,
+            both surfacing only as a quietly smaller `nbytes`.
+
     Examples:
         - The refusal this exists for, and a name from the same store that does open:
 
@@ -1883,8 +1909,8 @@ def _open_variable(nc: NetCDF, name: str) -> NetCDF | LabeledArray | None:
         # read that half-failed indistinguishable from a store with a known-bad name list,
         # and both would come back as a quietly smaller `nbytes`.
         warnings.warn(
-            f"{name!r} is enumerated by the store but could not be opened, so it is "
-            f"reported as an unknown type and sized as 0 bytes: "
+            f"{name!r} could not be opened, so it is reported as an unknown type and "
+            f"sized as 0 bytes: "
             f"{type(refusal).__name__}: {refusal}. On a classic container this is usually "
             f"the subdataset list naming a variable by its standard_name — reopen with "
             f"open_as_multi_dimensional=True. Otherwise the read itself failed.",
@@ -3552,8 +3578,14 @@ class NetCDF(Dataset):
         subset `dims` is `{}` while the names survive, so reading `dims` here would drop the
         axes a subset can still report. `set(nc.coords) <= set(nc.dimension_names)` is
         therefore the invariant, and it is the one to rely on. The subset inclusion is strict
-        in practice: a subset renames its y axis to the window it was cut with
-        (`subset_lat_4_-1_5`), a name the file has no coordinate for, so that axis drops out.
+        in practice, and by more than one axis: a subset tracks only its **band** dimensions,
+        so *every* spatial axis answers `None` from :meth:`get_dimension_values` and drops out
+        — the x axis as much as the y, and whether or not either was renamed. A subset of a
+        `(time, level, lat, lon)` cube therefore reports `time` and `level` only. The renaming
+        of the y axis to the window it was cut with (`subset_lat_4_-1_5`) is real but
+        incidental; a store whose subset keeps both axis names loses both coordinates just the
+        same. A spatial axis's cell centres come from the geotransform instead, via
+        :meth:`get_x_lon_dimension_array` / :meth:`get_y_lat_dimension_array`.
 
         A **classic** container (`open_as_multi_dimensional=False`) has no dimension names at
         all — :attr:`dimension_names` is `None` there, not a list, so the invariant above has
@@ -3603,6 +3635,21 @@ class NetCDF(Dataset):
               (True, False)
 
               ```
+            - A subset keeps only its band axes. Here neither spatial axis was renamed, and
+              both drop out all the same:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__20v__1d3-3d17__y-desc.nc")
+              >>> subset = nc["tcw"]
+              >>> subset.dimension_names
+              ['time', 'latitude', 'longitude']
+              >>> sorted(subset.coords)
+              ['time']
+              >>> subset.get_dimension_values("longitude") is None
+              True
+
+              ```
 
         See Also:
             NetCDF.get_dimension_values: The per-name accessor this reads.
@@ -3649,6 +3696,12 @@ class NetCDF(Dataset):
         Returns:
             dict[str, str]: Variable name to the dtype of its first band, or to the
                 `LabeledArray`'s own dtype for a variable with no raster plane.
+
+        Warns:
+            UserWarning: Once per name reported `"unknown"`, naming it and the refusal
+                behind it. Once per *distinct* name, not once per occurrence — the walk is
+                over `dict.fromkeys(variable_names)`, so a classic container that enumerates
+                the same name twice still warns about it once.
 
         Examples:
             - One entry per data variable:
@@ -3822,6 +3875,12 @@ class NetCDF(Dataset):
         Args:
             buf: An open text stream to write to. Defaults to `sys.stdout`, matching
                 xarray's `info`.
+
+        Warns:
+            UserWarning: Once per name typed `unknown`, raised through :attr:`dtypes`. A
+                summary that reports three `unknown` lines has warned three times, so a
+                caller filtering warnings rather than reading the report still learns the
+                store's enumeration is unreliable.
 
         Examples:
             - The whole summary of a small store. The real output indents with tabs, as
