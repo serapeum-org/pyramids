@@ -1107,3 +1107,54 @@ class TestWhereTheAliasesDivergeFromXarray:
         assert len(set(nc.variable_names)) == 9
         assert len(nc) == 12
         assert len(nc.dtypes) == 9
+
+
+class TestThePublicApiPageMatchesTheClass:
+    """`docs/reference/netcdf/public-api.md` claims exact counts; hold it to them."""
+
+    PAGE = Path(__file__).parents[3] / "docs" / "reference" / "netcdf" / "public-api.md"
+
+    def test_the_declared_counts_match_reflection(self):
+        """The page's opening sentence is checkable, so check it.
+
+        Test scenario:
+            The page states how many members `NetCDF` defines, broken down by kind. It
+            said 65 before this branch and nothing noticed, because nothing compared it to
+            the class. Counted here by reflection over the members `NetCDF` defines in its
+            own body -- inherited ones are a separate figure the page quotes separately.
+        """
+        own = {
+            name: value
+            for name, value in vars(NetCDF).items()
+            if not name.startswith("_")
+        }
+        counts = {"method": 0, "property": 0, "classmethod": 0, "staticmethod": 0}
+        for value in own.values():
+            if isinstance(value, property):
+                counts["property"] += 1
+            elif isinstance(value, classmethod):
+                counts["classmethod"] += 1
+            elif isinstance(value, staticmethod):
+                counts["staticmethod"] += 1
+            elif callable(value):
+                counts["method"] += 1
+
+        text = " ".join(self.PAGE.read_text(encoding="utf-8").split())
+
+        assert f"{len(own)} in all" in text
+        assert f"{counts['method']} methods" in text
+        assert f"{counts['property']} properties" in text
+        assert f"{counts['classmethod']} classmethods" in text
+        assert f"{counts['staticmethod']} staticmethod" in text
+
+    @pytest.mark.parametrize(
+        "member",
+        ["data_vars", "dims", "sizes", "attrs", "coords", "dtypes", "nbytes", "info()"],
+    )
+    def test_every_new_member_is_indexed(self, member: str):
+        """A member absent from the index is one nobody can find.
+
+        Args:
+            member: The member the page must mention.
+        """
+        assert f"`{member}`" in self.PAGE.read_text(encoding="utf-8")
