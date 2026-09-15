@@ -20,6 +20,8 @@ Style: Google-style docstrings, <=120 char lines, no inline imports, descriptive
 
 from __future__ import annotations
 
+import contextlib
+
 import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
@@ -895,3 +897,99 @@ class TestANegativeStepSliceReversesTheAxis:
                 expected,
                 err_msg=f"plane {position} is labelled {coordinate} and must hold it",
             )
+
+
+class TestEveryKeywordIsCheckedBeforeAnythingIsRead:
+    """A bad second keyword must not cost a read of the first cut."""
+
+    @staticmethod
+    @contextlib.contextmanager
+    def _recording_reads():
+        """Yield a list that collects the band count of every read performed inside."""
+        import pyramids.netcdf.engines.selection as engine
+
+        sizes: list[int] = []
+        original = engine._read_selected_bands
+
+        def spy(nc, band_indices):
+            sizes.append(len(band_indices))
+            return original(nc, band_indices)
+
+        engine._read_selected_bands = spy
+        try:
+            yield sizes
+        finally:
+            engine._read_selected_bands = original
+
+    def test_isel_reads_nothing_before_refusing_an_unknown_dimension(self, cube):
+        """`isel(time=1, nope=0)` must refuse without reading the `time` cut.
+
+        Args:
+            cube: The 4x3 band-dim fixture.
+
+        Test scenario:
+            Validation used to live inside the loop, so the first keyword was resolved,
+            cut and **read** -- 3 of the cube's 12 bands -- before the second was looked at
+            and rejected. The caller paid for a read whose result was discarded.
+
+            The recorder is a context manager rather than a function returning the list:
+            an `assert reads == []` where `reads` is assigned *inside* `pytest.raises`
+            never runs the assignment, so it passes whatever the code does. That is the
+            shape this test had on its first draft, and it passed before the fix existed.
+        """
+        with self._recording_reads() as reads:
+            with pytest.raises(ValueError, match="does not match any band dimension"):
+                cube.isel(time=1, nope=0)
+
+        assert reads == []
+
+    def test_isel_reads_nothing_before_refusing_a_bad_index(self, cube):
+        """The same holds for an out-of-range index in the second keyword.
+
+        Args:
+            cube: The 4x3 band-dim fixture.
+
+        Test scenario:
+            Position resolution is metadata-only, so it can be done for every keyword up
+            front. An index past the end of the *second* axis is now found before the
+            first axis is cut.
+        """
+        with self._recording_reads() as reads:
+            with pytest.raises(IndexError, match="out of range"):
+                cube.isel(time=1, pressure_level=9)
+
+        assert reads == []
+
+    def test_sel_reads_nothing_before_refusing_an_unknown_dimension(self, cube):
+        """`sel` gets the same guarantee for a name it cannot place.
+
+        Args:
+            cube: The 4x3 band-dim fixture.
+
+        Test scenario:
+            Only the *name* can be checked up front for `sel`: resolving a label needs the
+            dimension's coordinates, which a preceding cut may narrow, so the value is
+            still resolved in the loop. The name is the case a typo hits.
+        """
+        with self._recording_reads() as reads:
+            with pytest.raises(ValueError, match="does not match any band dimension"):
+                cube.sel(time=6, nope=0)
+
+        assert reads == []
+
+    def test_a_valid_multi_dimension_call_still_cuts_in_order(self, cube):
+        """Eager validation must not change what a good call returns.
+
+        Args:
+            cube: The 4x3 band-dim fixture.
+
+        Test scenario:
+            The reads themselves are unchanged -- still one per keyword, narrowing as it
+            goes. This test exists so the change is visibly scoped to *when* validation
+            happens, not to how the cut is performed.
+        """
+        with self._recording_reads() as reads:
+            result = cube.isel(time=1, pressure_level=2)
+
+        assert reads == [NL, 1]
+        assert result.band_count == 1

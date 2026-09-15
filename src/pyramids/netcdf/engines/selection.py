@@ -813,12 +813,21 @@ class Selection(_Engine["NetCDF"]):
                 "isel() requires at least one keyword argument, e.g. isel(time=0)."
             )
 
-        result = nc
+        # Resolve every keyword before cutting anything. Validating inside the loop meant a
+        # typo in the second keyword raised only after the first cut had been read from
+        # disk — 3 of 12 bands on the CF fixture — so the caller paid for a read whose
+        # result was thrown away. Resolution touches metadata only, never pixels.
+        resolved: list[tuple[str, list[int]]] = []
         for dim_name, selector in indexers.items():
-            _assert_band_dimension(result, dim_name, caller="isel")
-            axis = result._band_dim_names.index(dim_name)
-            size = result._band_dim_sizes[axis]
-            dim_indices = _resolve_positional_indices(selector, size, dim_name)
+            _assert_band_dimension(nc, dim_name, caller="isel")
+            axis = nc._band_dim_names.index(dim_name)
+            size = nc._band_dim_sizes[axis]
+            resolved.append(
+                (dim_name, _resolve_positional_indices(selector, size, dim_name))
+            )
+
+        result = nc
+        for dim_name, dim_indices in resolved:
             result = _subset_along_dim(result, dim_name, dim_indices)
         return result
 
@@ -1073,6 +1082,14 @@ class Selection(_Engine["NetCDF"]):
                 "a label either matches exactly or does not match at all, and there is no "
                 "distance for a tolerance to bound."
             )
+
+        # Every dimension is checked against the receiver before any of them is cut, so a
+        # name that is not a band dimension of this variable is refused without having read
+        # the earlier keywords' bands. Only the name is checked here: resolving a *label*
+        # needs that dimension's coordinates, which a preceding cut can narrow, so the
+        # value is still resolved inside the loop below.
+        for dim_name in kwargs:
+            _assert_band_dimension(nc, dim_name, caller="sel")
 
         result = nc
         # One dimension at a time, through the single-dim path that was here before, so
