@@ -7896,7 +7896,7 @@ opaque object and every <code>isinstance(x, Iterable)</code> test answered <code
 <tr>
 <td><code>np.array([nc], dtype=object).shape</code></td>
 <td><code>(1,)</code></td>
-<td><code>(1, 1)</code></td>
+<td><code>(1, n)</code>, for a store of <code>n</code> variables</td>
 </tr>
 <tr>
 <td><code>isinstance(nc, collections.abc.Iterable / Sized / Container)</code></td>
