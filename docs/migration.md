@@ -1051,7 +1051,7 @@ opaque object and every `isinstance(x, Iterable)` test answered `False` for it.
 | expression | before | now |
 |---|---|---|
 | `np.asarray(nc)` | 0-d object array wrapping the container | an array of the variable **names** |
-| `np.array([nc], dtype=object).shape` | `(1,)` | `(1, 1)` |
+| `np.array([nc], dtype=object).shape` | `(1,)` | `(1, n)`, for a store of `n` variables |
 | `isinstance(nc, collections.abc.Iterable / Sized / Container)` | `False` | `True` |
 
 - None of those was ever a supported way to reach the data, and none is now: read a variable with
