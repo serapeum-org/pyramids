@@ -799,3 +799,53 @@ class TestIselFacade:
             np.asarray([TIME_VALUES[0]]),
             err_msg="the narrowed axis must report only the coordinate it kept",
         )
+
+
+class TestIselRefusesEverySelectorThatKeepsNothing:
+    """An empty selection must be refused wherever it comes from, not just from a slice."""
+
+    @pytest.mark.parametrize(
+        "selector",
+        [slice(9, 9), slice(2, 1), slice(0, 0), [], ()],
+        ids=[
+            "empty-slice",
+            "reversed-bounds",
+            "zero-width",
+            "empty-list",
+            "empty-tuple",
+        ],
+    )
+    def test_a_selection_of_nothing_is_refused(self, cube, selector):
+        """Every form that resolves to zero positions raises, with the same message.
+
+        Args:
+            cube: The 4x3 band-dim fixture.
+            selector: A selector keeping no position.
+
+        Test scenario:
+            The slice forms were already refused; the list and tuple forms fell straight
+            through `sorted(set())` and built a variable with `_band_dim_sizes == (0, 3)`
+            and `band_count == 0`, whose `read_array()` then died inside GDAL with
+            `AttributeError: 'NoneType' object has no attribute 'GetScale'`. `sel(time=[])`
+            has always refused, so the two spellings of the same request disagreed.
+        """
+        with pytest.raises(ValueError, match="selects no index"):
+            cube.isel(time=selector)
+
+    def test_the_refusal_names_the_dimension_and_its_length(self, cube):
+        """The message has to say which axis and how long it is.
+
+        Args:
+            cube: The 4x3 band-dim fixture.
+
+        Test scenario:
+            A multi-dimension call can refuse on either axis, so "selects no index" alone
+            does not say which one the caller got wrong.
+        """
+        with pytest.raises(ValueError, match="pressure_level") as excinfo:
+            cube.isel(pressure_level=[])
+
+        # The selector is echoed as `isel(<dim>=<selector>)`, unquoted, matching how the
+        # call was written rather than the quoted `dimension 'x'` of the range message.
+        assert "isel(pressure_level=[])" in str(excinfo.value)
+        assert "length 3" in str(excinfo.value)

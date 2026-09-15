@@ -21,7 +21,7 @@ import math
 import warnings
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, NoReturn, cast
 
 import geopandas as gpd
 import numpy as np
@@ -2057,7 +2057,7 @@ def _resolve_positional_indices(selector: Any, size: int, dim_name: str) -> list
           ```
     """
     if isinstance(selector, slice):
-        return list(range(*selector.indices(size))) or _refuse_empty_slice(
+        return list(range(*selector.indices(size))) or _refuse_empty_selection(
             selector, dim_name, size
         )
     if isinstance(selector, bool) or not isinstance(selector, (int, list, tuple)):
@@ -2080,22 +2080,43 @@ def _resolve_positional_indices(selector: Any, size: int, dim_name: str) -> list
                 f"{size}. Valid indices are {-size} to {size - 1}."
             )
         resolved.add(value + size if value < 0 else value)
-    return sorted(resolved)
+    # The same refusal as the slice arm above. A `slice` was guarded and an empty list or
+    # tuple was not, so `isel(time=[])` fell through to a variable declaring
+    # `_band_dim_sizes == (0, 3)` whose first read died inside GDAL — while `sel(time=[])`
+    # had always refused. Both arms now route here, so the class is closed rather than the
+    # one instance a review happened to name.
+    return sorted(resolved) or _refuse_empty_selection(selector, dim_name, size)
 
 
-def _refuse_empty_slice(selector: slice, dim_name: str, size: int) -> list[int]:
-    """Refuse a slice that selects nothing.
+def _refuse_empty_selection(selector: Any, dim_name: str, size: int) -> NoReturn:
+    """Refuse a selector that keeps no position, whatever form it arrived in.
+
+    Reached from both arms of :func:`_resolve_positional_indices` — a `slice` whose bounds
+    cross or coincide, and an empty list or tuple. Guarding only the slice left
+    `isel(time=[])` building a variable that declares `_band_dim_sizes` with a zero on the
+    selected axis and `band_count == 0`, whose first `read_array()` fails inside GDAL with
+    an `AttributeError` about `GetScale` — a long way from the call that caused it. The
+    label twin `sel(time=[])` has always refused.
 
     Args:
-        selector: The slice that matched no position.
+        selector: The selector that matched no position, quoted back to the caller.
         dim_name: The dimension it was applied to.
         size: That dimension's length.
 
-    Returns:
-        list[int]: Never returns.
-
     Raises:
         ValueError: Always.
+
+    Examples:
+        - The message names the selector, the dimension and its length:
+
+          ```python
+          >>> from pyramids.netcdf.engines.selection import _refuse_empty_selection
+          >>> _refuse_empty_selection([], "time", 4)
+          Traceback (most recent call last):
+              ...
+          ValueError: isel(time=[]) selects no index of an axis of length 4...
+
+          ```
     """
     raise ValueError(
         f"isel({dim_name}={selector!r}) selects no index of an axis of length {size}. "
