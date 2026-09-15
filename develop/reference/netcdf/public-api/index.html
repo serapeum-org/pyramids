@@ -6547,11 +6547,11 @@ docstring states where it diverges from the xarray member it echoes.</p>
 </tr>
 <tr>
 <td><code>dims</code></td>
-<td><code>{name: length}</code>, as xarray's is — <strong>not</strong> <code>dimension_names</code>, which is a list.</td>
+<td><code>{name: length}</code> — <strong>not</strong> <code>dimension_names</code>, a list. <code>sizes</code> is the durable spelling.</td>
 </tr>
 <tr>
 <td><code>sizes</code></td>
-<td>The same mapping as <code>dims</code>, under xarray's other name for it.</td>
+<td>The same mapping as <code>dims</code>; xarray is turning its own <code>dims</code> into a set of names.</td>
 </tr>
 <tr>
 <td><code>attrs</code></td>

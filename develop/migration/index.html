@@ -7865,20 +7865,8 @@ stamp a default; set a CRS on the input first. <code>pyramids georeference</code
 replace the georeference wholesale.</p>
 <h2 id="netcdf"><a class="toclink" href="#netcdf">netcdf</a><a class="headerlink" href="#netcdf" title="Permanent link">#</a></h2>
 <h3 id="unreleased_4"><a class="toclink" href="#unreleased_4">unreleased</a><a class="headerlink" href="#unreleased_4" title="Permanent link">#</a></h3>
-<p><strong><code>NetCDF.data_vars</code> is the variables mapping, not a list of names.</strong> Hard change. It was added as an alias of
-<code>variable_names</code> and is now <code>variables</code>, matching <code>xarray.Dataset.data_vars</code>, which is a mapping.</p>
-<ul>
-<li>Iteration and length are unchanged: <code>list(nc.data_vars)</code> still gives the names, in store order, and
-  <code>len(nc.data_vars)</code> still counts them. Most code needs no edit.</li>
-<li><code>nc.data_vars["t2m"]</code> and <code>nc.data_vars.items()</code> now work, where they previously raised <code>TypeError</code> and
-  <code>AttributeError</code>.</li>
-<li>Code that compared it to a list (<code>nc.data_vars == ["t2m"]</code>), sliced it (<code>nc.data_vars[0]</code>, <code>nc.data_vars[:2]</code>)
-  or sorted it in place must use <code>nc.variable_names</code>, which is unchanged and is still a list.</li>
-<li>The values are <code>NetCDF</code> subsets and <code>LabeledArray</code>s, not xarray <code>DataArray</code>s.</li>
-</ul>
-<p><strong>A container now duck-types as a sequence, because it gained <code>__iter__</code> and <code>__len__</code>.</strong> Hard change, and a
-silent one — nothing raises and nothing warns. <code>NetCDF</code> had neither dunder before, so NumPy treated it as an
-opaque object and every <code>isinstance(x, Iterable)</code> test answered <code>False</code> for it.</p>
+<p><strong>A container now duck-types as a sequence, because it gained <code>__iter__</code> and <code>__len__</code>.</strong> <code>NetCDF</code> had
+neither dunder before, so every <code>isinstance(x, Iterable)</code> test answered <code>False</code> for one. That flipped:</p>
 <table>
 <thead>
 <tr>
@@ -7889,33 +7877,29 @@ opaque object and every <code>isinstance(x, Iterable)</code> test answered <code
 </thead>
 <tbody>
 <tr>
-<td><code>np.asarray(nc)</code></td>
-<td>0-d object array wrapping the container</td>
-<td>an array of the variable <strong>names</strong></td>
-</tr>
-<tr>
-<td><code>np.array([nc], dtype=object).shape</code></td>
-<td><code>(1,)</code></td>
-<td><code>(1, n)</code>, for a store of <code>n</code> variables</td>
-</tr>
-<tr>
 <td><code>isinstance(nc, collections.abc.Iterable / Sized / Container)</code></td>
 <td><code>False</code></td>
 <td><code>True</code></td>
 </tr>
+<tr>
+<td><code>isinstance(nc, collections.abc.Mapping / Sequence)</code></td>
+<td><code>False</code></td>
+<td><code>False</code>, unchanged</td>
+</tr>
 </tbody>
 </table>
 <ul>
-<li>None of those was ever a supported way to reach the data, and none is now: read a variable with
-  <code>nc["name"].read_array()</code>, or an axis with <code>nc.coords["lat"]</code>.</li>
 <li>The case to check is a helper of your own that accepts "anything iterable". It used to reject a container
   outright and now quietly receives a list of name strings, so a mistake fails later and less clearly than it
   used to. Gate on <code>isinstance(x, NetCDF)</code> first if that matters.</li>
-<li>An object array built from containers with <strong>different</strong> variable counts is now ragged, and NumPy raises
-  rather than building a 1-D object array.</li>
+<li><strong>Array coercion is unaffected, deliberately.</strong> NumPy would otherwise have converted a <code>NetCDF</code> by looping
+  it — which for a <em>variable</em> yields nothing, so <code>np.mean(nc["t2m"])</code> would have answered <code>nan</code> for a cube of
+  real values instead of raising. <code>NetCDF.__array__</code> refuses, so <code>np.asarray(nc)</code> and every reduction over one
+  raise <code>TypeError</code> exactly as they did before, pointing at <code>nc["name"].read_array()</code>.</li>
+<li><code>np.array([nc], dtype=object)</code> still boxes the dataset and is still <code>(1,)</code>: that request reads nothing and
+  fabricates nothing, so it is the one <code>__array__</code> honours.</li>
 <li><code>bool(nc)</code> is unaffected: <code>Dataset.__bool__</code> still refuses, and takes precedence over <code>__len__</code>. Ask
   <code>len(nc) == 0</code> whether a container is empty.</li>
-<li><code>isinstance(nc, Mapping)</code> and <code>isinstance(nc, Sequence)</code> are both still <code>False</code>.</li>
 </ul>
 <p><strong><code>to_xarray()</code> decodes the CF time axis, so the coordinate is <code>datetime64[ns]</code> rather than <code>float64</code>.</strong>
 Hard change, silent for the read side — nothing raises and nothing warns when the axis decodes. The bridge
