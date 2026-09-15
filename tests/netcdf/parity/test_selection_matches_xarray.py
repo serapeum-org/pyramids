@@ -390,10 +390,10 @@ class TestSelToleranceMatchesXarray:
             combination up front with a `ValueError` that says why. Recording the divergence
             here means it stays a decision rather than becoming a surprise.
         """
+        variable = container.get_variable(VARIABLE)
+
         with pytest.raises(ValueError, match="only meaningful with method='nearest'"):
-            container.get_variable(VARIABLE).sel(
-                pressure_level=NEAREST_REQUEST, tolerance=50
-            )
+            variable.sel(pressure_level=NEAREST_REQUEST, tolerance=50)
 
         exported = container.to_xarray()[VARIABLE]
 
