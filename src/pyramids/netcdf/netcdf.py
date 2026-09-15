@@ -4261,12 +4261,15 @@ class NetCDF(Dataset):
         | expression | before | now |
         |---|---|---|
         | `isinstance(nc, Iterable / Sized / Container)` | `False` | `True` |
-        | `np.asarray(nc)` | raises | raises — see :meth:`__array__` |
+        | `np.asarray(nc)` | a 0-d object box | raises — see :meth:`__array__` |
+        | `np.asarray(nc["t2m"])` | raises | raises |
 
-        NumPy would otherwise have converted a container by looping it, yielding an array of
-        the *names*; :meth:`__array__` refuses instead, so that coercion raises as it did
-        before. `isinstance(nc, Mapping)` and `isinstance(nc, Sequence)` are both still
-        `False`.
+        Left alone, NumPy would have converted a container by looping it — yielding an array
+        of the *names* — and a variable into an empty array, since a variable yields nothing.
+        :meth:`__array__` refuses both. A container's coercion therefore changes from a
+        useless value to an error, and a variable's stays an error, which is the one that
+        mattered: `np.mean` over that empty array answered `nan`. `isinstance(nc, Mapping)`
+        and `isinstance(nc, Sequence)` are both still `False`.
 
         The change that remains is the `isinstance` row, and it has one practical
         consequence: a helper that accepts "anything iterable" used to reject a container

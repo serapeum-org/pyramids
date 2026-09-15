@@ -1044,10 +1044,14 @@ neither dunder before, so every `isinstance(x, Iterable)` test answered `False` 
 - The case to check is a helper of your own that accepts "anything iterable". It used to reject a container
   outright and now quietly receives a list of name strings, so a mistake fails later and less clearly than it
   used to. Gate on `isinstance(x, NetCDF)` first if that matters.
-- **Array coercion is unaffected, deliberately.** NumPy would otherwise have converted a `NetCDF` by looping
-  it — which for a *variable* yields nothing, so `np.mean(nc["t2m"])` would have answered `nan` for a cube of
-  real values instead of raising. `NetCDF.__array__` refuses, so `np.asarray(nc)` and every reduction over one
-  raise `TypeError` exactly as they did before, pointing at `nc["name"].read_array()`.
+- **Array coercion now raises, where a container used to answer uselessly.** `np.asarray(nc)` returned a 0-d
+  object array wrapping the container; it now raises `TypeError` pointing at `nc["name"].read_array()`. That is
+  a hard change, but the old value was a box around the object rather than any of its data, so nothing could
+  have been computing with it.
+
+  The refusal exists for the *variable* case, where leaving the coercion alone would have been worse than
+  useless: iterating a variable yields nothing, so `np.mean(nc["t2m"])` would have answered `nan` for a cube of
+  real values. `origin/main` raised there, and so does this — only the exception type differs.
 - `np.array([nc], dtype=object)` still boxes the dataset and is still `(1,)`: that request reads nothing and
   fabricates nothing, so it is the one `__array__` honours.
 - `bool(nc)` is unaffected: `Dataset.__bool__` still refuses, and takes precedence over `__len__`. Ask
