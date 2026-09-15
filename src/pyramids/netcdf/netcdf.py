@@ -11,11 +11,13 @@ import itertools
 import logging
 import math
 import os
+import sys
 import threading
 import warnings
 import weakref
+from collections.abc import Iterator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Unpack, cast
+from typing import TYPE_CHECKING, Any, Protocol, TextIO, Unpack, cast
 
 import numpy as np
 import pandas as pd
@@ -168,6 +170,14 @@ class _LazyVariableDict(dict):
     `LabeledArray.freeze`), because every later lookup hands out that same
     object; `get_variable` itself returns a fresh, writeable one each call.
 
+    **Read-through, never written to.** Every mutating entry point `dict` offers is refused
+    with a `TypeError` from :meth:`_refuse` — `__setitem__`, `__delitem__`, `update`,
+    `setdefault`, `pop`, `popitem`, `clear` and `|=`. Overriding the first two was not
+    enough: CPython implements the rest in C against the underlying storage, so each reaches
+    the load cache without passing through either override, and every door has to be closed
+    by name. `|` is left alone, because it builds a new plain `dict` rather than mutating
+    this one. The internal cache fill calls `dict.__setitem__` directly and so is unaffected.
+
     Note:
         This class is **not thread-safe**. Concurrent access from
         multiple threads may cause `get_variable()` to be called
@@ -255,12 +265,151 @@ class _LazyVariableDict(dict):
     def __iter__(self):
         return iter(self._names)
 
+    def _refuse(self, verb: str) -> TypeError:
+        """The refusal every mutating method raises.
+
+        Args:
+            verb: What the caller was trying to do, for the message.
+
+        Returns:
+            TypeError: To be raised by the caller.
+        """
+        return TypeError(
+            f"{type(self).__name__} is a read-through view of the store's variables, not "
+            f"a writable mapping, so {verb} is refused: it would reach the load cache "
+            f"while `_names` — what `in`, `len` and iteration all answer from — knew "
+            f"nothing about it, leaving the container disagreeing with itself. Add or "
+            f"replace a variable with add_variable() / set_variable(), and drop one with "
+            f"remove_variable()."
+        )
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        """Refuse. The mapping reads the store; it does not write to it.
+
+        It subclasses `dict` to cache what it has loaded, which made a write land in that
+        cache while `_names` knew nothing about it: `nc["X"]` returned the injected value
+        while `"X" in nc` was `False` and `list(nc)` did not mention it.
+
+        The internal cache fill calls `dict.__setitem__` directly and so is unaffected.
+
+        Args:
+            key: Ignored.
+            value: Ignored.
+
+        Raises:
+            TypeError: Always.
+        """
+        raise self._refuse(f"assigning {key!r}")
+
+    def __delitem__(self, key: str) -> None:
+        """Refuse, for the reason :meth:`__setitem__` gives.
+
+        Args:
+            key: Ignored.
+
+        Raises:
+            TypeError: Always.
+        """
+        raise self._refuse(f"deleting {key!r}")
+
+    # Overriding `__setitem__` and `__delitem__` is not enough. CPython implements the rest
+    # of `dict`'s mutators in C against the underlying storage, so `update`, `setdefault`,
+    # `pop`, `popitem`, `clear` and `|=` all reach the cache without passing through either
+    # override — `nc.variables.update({"GHOST": ...})` made `nc["GHOST"]` resolve while
+    # `"GHOST" in nc` stayed `False`, which is the exact inconsistency the refusal exists
+    # to prevent. Every door has to be closed by name.
+    def update(self, *args: Any, **kwargs: Any) -> None:
+        """Refuse, for the reason :meth:`__setitem__` gives.
+
+        Args:
+            *args: Ignored.
+            **kwargs: Ignored.
+
+        Raises:
+            TypeError: Always.
+        """
+        raise self._refuse("update()")
+
+    def setdefault(self, *args: Any, **kwargs: Any) -> Any:
+        """Refuse, for the reason :meth:`__setitem__` gives.
+
+        Args:
+            *args: Ignored.
+            **kwargs: Ignored.
+
+        Raises:
+            TypeError: Always.
+        """
+        raise self._refuse("setdefault()")
+
+    def pop(self, *args: Any, **kwargs: Any) -> Any:
+        """Refuse, for the reason :meth:`__delitem__` gives.
+
+        Args:
+            *args: Ignored.
+            **kwargs: Ignored.
+
+        Raises:
+            TypeError: Always.
+        """
+        raise self._refuse("pop()")
+
+    def popitem(self) -> Any:
+        """Refuse, for the reason :meth:`__delitem__` gives.
+
+        Raises:
+            TypeError: Always.
+        """
+        raise self._refuse("popitem()")
+
+    def clear(self) -> None:
+        """Refuse, for the reason :meth:`__delitem__` gives.
+
+        Nothing would go *missing*: `_names` is what `in`, `len` and iteration answer from,
+        so an emptied cache still reports every variable and reloads each on next access.
+        What breaks is identity — `variables["x"] is variables["x"]` stops holding — and that
+        is the guarantee a frozen `LabeledArray` entry exists to provide: a caller holding the
+        object it was handed would be comparing against one the mapping has since replaced.
+
+        Raises:
+            TypeError: Always.
+        """
+        raise self._refuse("clear()")
+
+    # `dict.__or__` is inherited and returns a plain `dict`, which a checker reads as
+    # incompatible with refusing `|=` here. The mismatch is the point: `|` builds a new
+    # dict and is harmless, `|=` mutates this one and is not.
+    def __ior__(self, other: Any) -> _LazyVariableDict:  # type: ignore[misc]
+        """Refuse, for the reason :meth:`__setitem__` gives.
+
+        The annotation deliberately does **not** line up with the inherited `dict.__or__`,
+        which returns a plain `dict`. mypy reports `Signatures of "__ior__" and "__or__" are
+        incompatible  [misc]` for that, and the `type: ignore[misc]` on the signature is what
+        silences it — the mismatch is the point, since `|` is harmless and `|=` is not.
+        Nothing is ever returned either way, because this always raises.
+
+        Args:
+            other: Ignored.
+
+        Returns:
+            _LazyVariableDict: Never returns.
+
+        Raises:
+            TypeError: Always.
+        """
+        raise self._refuse("|=")
+
     # This lazy view returns materialized lists rather than live dict
     # views (callers iterate variable names/datasets, not a changing
     # mapping), so the return types deliberately diverge from dict/Mapping.
     def keys(self) -> list[str]:  # type: ignore[override]
-        """The data-variable names, in store order. Reads nothing."""
-        return self._names
+        """The data-variable names, in store order. Reads nothing.
+
+        A **copy**: `_names` is what `__iter__`, `__len__`, `__contains__`, `values`
+        and `items` are all driven from, so handing the list itself out would let
+        `nc.variables.keys().append(...)` corrupt every one of them at once.
+        """
+        return list(self._names)
 
     def values(self) -> list[NetCDF | LabeledArray]:  # type: ignore[override]
         """Every variable, loading each: a `NetCDF` per raster variable, a `LabeledArray` else."""
@@ -1561,6 +1710,321 @@ def _variable_summary(nc: NetCDF) -> str:
     return "\n".join(lines)
 
 
+class _HasDtype(Protocol):
+    """The one member `_variable_dtype` reads from a raster variable.
+
+    Structural rather than `NetCDF` so the annotation states the *whole* dependency: this
+    helper reads a band-type list and nothing else, and a reader should not have to open
+    the body to learn that a 200-member class is not required.
+
+    It buys nothing for the tests, which is what an earlier version of this docstring
+    claimed — `[tool.mypy] exclude` skips `tests/`, so a stub satisfies a nominal
+    annotation there just as happily. `_open_variable` is annotated nominally and is
+    stubbed by its tests in exactly the same way.
+    """
+
+    @property
+    def dtype(self) -> list[str]:
+        """One entry per band."""
+
+
+class _HasRasterShape(_HasDtype, Protocol):
+    """What `_variable_nbytes` needs on top of the dtype: a cell count.
+
+    `band_count` is every non-spatial dimension flattened together, so this product is the
+    whole cube rather than one plane.
+    """
+
+    @property
+    def rows(self) -> int:
+        """Raster height."""
+
+    @property
+    def columns(self) -> int:
+        """Raster width."""
+
+    @property
+    def band_count(self) -> int:
+        """Every non-spatial dimension, flattened."""
+
+
+def _summarised(value: Any, limit: int = 120) -> str:
+    """One attribute value, flattened to a single printable line.
+
+    An `info()` summary imitates `ncdump -h`, whose shape is one attribute per line. A
+    netCDF attribute is arbitrary text and need not cooperate: a ROMS store carries a
+    `CPP_options` value over a thousand characters, and an `NLM_LBC` containing raw
+    newlines that split one attribute across dozens of lines.
+
+    Args:
+        value: The attribute value, of any type.
+        limit: Longest rendering to keep before truncating. Defaults to 120.
+
+    Returns:
+        str: The `repr`, with any real control characters collapsed to spaces, truncated
+        with an ellipsis when it exceeds `limit`. Escape sequences `repr` itself produced
+        are left as they are. A truncation that cut a quoted `repr` gets its closing quote
+        back, so the `:key = <value> ;` line `info` prints still parses — which makes a
+        truncated result `limit + 4` characters for a quoted value and `limit + 3` for one
+        that does not end in a quote, such as a list's.
+
+    Examples:
+        - A short value is its ordinary `repr`:
+
+          ```python
+          >>> from pyramids.netcdf.netcdf import _summarised
+          >>> _summarised("CF-1.6")
+          "'CF-1.6'"
+          >>> _summarised(6371229.0)
+          '6371229.0'
+
+          ```
+        - A string's newline is already escaped by `repr`, so it arrives as one line
+          and is kept exactly as written:
+
+          ```python
+          >>> from pyramids.netcdf.netcdf import _summarised
+          >>> print(_summarised("first" + chr(10) + "second"))
+          'first\\nsecond'
+
+          ```
+        - A backslash survives. Stripping the escape sequence instead, which this used
+          to do, ate part of any Windows path it was given:
+
+          ```python
+          >>> from pyramids.netcdf.netcdf import _summarised
+          >>> print(_summarised("C:" + chr(92) + "new" + chr(92) + "data"))
+          'C:\\\\new\\\\data'
+
+          ```
+        - A value whose *repr* really does span lines is collapsed, since that is the
+          one that breaks the summary's shape:
+
+          ```python
+          >>> import numpy as np
+          >>> from pyramids.netcdf.netcdf import _summarised
+          >>> chr(10) in _summarised(np.arange(40).reshape(8, 5))
+          False
+
+          ```
+        - An over-long value is cut, and says so:
+
+          ```python
+          >>> from pyramids.netcdf.netcdf import _summarised
+          >>> rendered = _summarised("x" * 500, limit=20)
+          >>> rendered[-4:]
+          "...'"
+          >>> len(rendered)
+          24
+
+          ```
+
+    See Also:
+        NetCDF.info: The only caller, which renders one attribute per line with this.
+    """
+    # Only *real* control characters are collapsed. Replacing the two-character
+    # backslash-n escape instead -- which this did -- corrupts any value holding a
+    # backslash: a Windows path came back with part of a directory name eaten. It was
+    # never needed either, because `repr` already escapes a string's newlines, so a
+    # string attribute is one line before it arrives. What can still span lines is a
+    # non-string repr, such as an array's.
+    rendered = repr(value)
+    for control in ("\n", "\r", "\t"):
+        rendered = rendered.replace(control, " ")
+    if len(rendered) > limit:
+        # `repr` opens and closes with the same character, and `info` prints these inside a
+        # `:key = <value> ;` line that imitates `ncdump -h`. Truncating bare left an opening
+        # quote with nothing to match it, so the line no longer parsed as a quoted value.
+        # Tested on the *last* character, not the first: `repr(b"...")` opens with `b'`, so
+        # a leading-character test misses it and leaves the quote unmatched.
+        closing = rendered[-1] if rendered[-1:] in {"'", '"'} else ""
+        rendered = rendered[:limit] + "..." + closing
+    return rendered
+
+
+def _open_variable(nc: NetCDF, name: str) -> NetCDF | LabeledArray | None:
+    """One variable, or `None` when the store will not hand it over.
+
+    Introspection has to describe what it can rather than stop at the first name that
+    refuses. A **classic** container enumerates its variables from the subdataset list,
+    which can name an array GDAL then declines to open — `cf__12v__1d4-2d5-3d2-4d1__y-asc.nc`
+    reports `precipitation_flux` and raises `RuntimeError: ... does not exist in the file
+    system` on the way in. That is a defect in the classic enumeration, not in the caller,
+    and it must not take `info()` down with it.
+
+    Args:
+        nc: The container to read from.
+        name: A name `variable_names` reported.
+
+    Returns:
+        NetCDF | LabeledArray | None: The variable, or `None` when it cannot be opened.
+
+    Warns:
+        UserWarning: Once per name that will not open, carrying the name, the exception type
+            and its message. The refusal is never silent: the three exceptions caught here
+            have sources beyond the classic-enumeration wart — a `/vsicurl/` store raises
+            `RuntimeError` on a transient network failure, and `get_variable` raises
+            `ValueError` for more reasons than a bad name — so silence would make a remote
+            read that half-failed indistinguishable from a store with a known-bad name list,
+            both surfacing only as a quietly smaller `nbytes`.
+
+    Examples:
+        - The refusal this exists for, and a name from the same store that does open:
+
+          ```python
+          >>> from pyramids.netcdf import NetCDF
+          >>> from pyramids.netcdf.netcdf import _open_variable
+          >>> nc = NetCDF.read_file(
+          ...     "tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc",
+          ...     open_as_multi_dimensional=False,
+          ... )
+          >>> _open_variable(nc, "precipitation_flux") is None
+          True
+          >>> _open_variable(nc, "area").rows
+          128
+
+          ```
+        - A name the store never had is the same `None`, not a `KeyError`:
+
+          ```python
+          >>> from pyramids.netcdf import NetCDF
+          >>> from pyramids.netcdf.netcdf import _open_variable
+          >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+          >>> _open_variable(nc, "nope") is None
+          True
+
+          ```
+
+    See Also:
+        NetCDF.dtypes: Types the names this returns, and reports `"unknown"` for a `None`.
+        NetCDF.nbytes: Sizes them, and counts a `None` as `0`.
+    """
+    try:
+        variable = nc[name]
+    except (RuntimeError, KeyError, ValueError) as refusal:
+        # Narrow *and* loud. The classic-enumeration wart below is the case this exists
+        # for, but these three exceptions have other sources — a `/vsicurl/` store raises
+        # `RuntimeError` on a transient network failure, and `get_variable` raises
+        # `ValueError` for more reasons than a bad name. Silence would render a remote
+        # read that half-failed indistinguishable from a store with a known-bad name list,
+        # and both would come back as a quietly smaller `nbytes`.
+        warnings.warn(
+            f"{name!r} could not be opened, so it is reported as an unknown type and "
+            f"sized as 0 bytes: "
+            f"{type(refusal).__name__}: {refusal}. On a classic container this is usually "
+            f"the subdataset list naming a variable by its standard_name — reopen with "
+            f"open_as_multi_dimensional=True. Otherwise the read itself failed.",
+            UserWarning,
+            stacklevel=3,
+        )
+        variable = None
+    return variable
+
+
+def _variable_dtype(variable: _HasDtype | LabeledArray) -> str:
+    """The dtype of one variable, whichever kind :meth:`NetCDF.get_variable` returned.
+
+    A raster subset reports `dtype` as one entry **per band**, all the same because a band is
+    a slice of one array; the first is taken. A `LabeledArray` has no `dtype` of its own and
+    is read from the array it holds.
+
+    Args:
+        variable: A raster subset or a `LabeledArray`.
+
+    Returns:
+        str: The numpy dtype name, `"unknown"` for a subset reporting no bands.
+
+    Examples:
+        - A raster variable reports one name, not the per-band list it carries:
+
+          ```python
+          >>> from pyramids.netcdf import NetCDF
+          >>> from pyramids.netcdf.netcdf import _variable_dtype
+          >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+          >>> len(nc["temperature"].dtype)
+          12
+          >>> _variable_dtype(nc["temperature"])
+          'float64'
+
+          ```
+        - A `LabeledArray` is read from the array it holds:
+
+          ```python
+          >>> from pyramids.netcdf import NetCDF
+          >>> from pyramids.netcdf.netcdf import _variable_dtype
+          >>> nc = NetCDF.read_file("tests/data/netcdf/ugrid__6v__1d5-2d1.nc")
+          >>> _variable_dtype(nc["n_nodes_per_face"])
+          'int64'
+
+          ```
+
+    See Also:
+        _variable_nbytes: Sizes a variable using this.
+    """
+    if isinstance(variable, LabeledArray):
+        name = str(np.asarray(variable.values).dtype)
+    else:
+        per_band = variable.dtype
+        name = str(per_band[0]) if per_band else "unknown"
+    return name
+
+
+def _variable_nbytes(variable: _HasRasterShape | LabeledArray) -> int:
+    """One variable's size in bytes, from its shape and dtype rather than its data.
+
+    `rows * columns * band_count` is the whole cell count, not a plane's: GDAL flattens every
+    non-spatial dimension into the bands axis, so a `(time, level, lat, lon)` cube reports
+    `band_count` as `time * level`. Nothing is read — a `LabeledArray` is the one case whose
+    array is already in memory, and there `nbytes` is simply its own.
+
+    Args:
+        variable: A raster subset or a `LabeledArray`.
+
+    Returns:
+        int: The byte count, `0` for a variable whose dtype cannot be named.
+
+    Examples:
+        - A 12-band 5x6 float64 cube is 2880 bytes, and nothing is read to say so:
+
+          ```python
+          >>> from pyramids.netcdf import NetCDF
+          >>> from pyramids.netcdf.netcdf import _variable_nbytes
+          >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+          >>> variable = nc["temperature"]
+          >>> variable.band_count, variable.rows, variable.columns
+          (12, 5, 6)
+          >>> _variable_nbytes(variable)
+          2880
+
+          ```
+        - A `LabeledArray` is sized from the array it already holds:
+
+          ```python
+          >>> from pyramids.netcdf import NetCDF
+          >>> from pyramids.netcdf.netcdf import _variable_nbytes
+          >>> nc = NetCDF.read_file("tests/data/netcdf/ugrid__6v__1d5-2d1.nc")
+          >>> nc["node_lon"].values.shape
+          (16,)
+          >>> _variable_nbytes(nc["node_lon"])
+          64
+
+          ```
+
+    See Also:
+        _variable_dtype: Where the item size comes from.
+    """
+    if isinstance(variable, LabeledArray):
+        size = int(np.asarray(variable.values).nbytes)
+    else:
+        cells = int(variable.rows) * int(variable.columns) * int(variable.band_count)
+        kind = _variable_dtype(variable)
+        # `np.dtype("unknown")` is a TypeError, and `_variable_dtype` documents `"unknown"`
+        # as its answer for a subset reporting no bands — so the size of a variable whose
+        # type cannot be named has to be 0 here, not an exception out of `nc.nbytes`.
+        size = 0 if kind == "unknown" else cells * int(np.dtype(kind).itemsize)
+    return size
+
+
 class NetCDF(Dataset):
     """NetCDF.
 
@@ -1688,7 +2152,7 @@ class NetCDF(Dataset):
             self._is_md_array = False
             self._is_subset = False
         # Caches (invalidated by _replace_raster, add_variable, remove_variable)
-        self._cached_variables: dict[str, NetCDF | LabeledArray] | None = None
+        self._cached_variables: _LazyVariableDict | None = None
         self._cached_meta_data: NetCDFMetadata | None = None
         # Memoised `geotransform`; see that property. Cleared wherever
         # `_geotransform` is reassigned, so the two cannot disagree.
@@ -2878,7 +3342,1134 @@ class NetCDF(Dataset):
         return self._get_variable_names()
 
     @property
-    def variables(self) -> dict[str, NetCDF | LabeledArray]:
+    def data_vars(self) -> _LazyVariableDict:
+        """xarray's name for :attr:`variables` — a **mapping**, as xarray's is.
+
+        Deliberately not an alias of :attr:`variable_names`, which is a *list*, for the
+        reason :attr:`dims` gives at length: aliasing a mapping name onto a list is the
+        `variables`-shaped collision this class is trying to avoid, and `data_vars` is the
+        spelling a reader arriving from xarray reaches for first. `ds.data_vars["t2m"]` and
+        `ds.data_vars.items()` both work in xarray, and both work here.
+
+        Iterating it still yields the names, so `list(nc.data_vars)` and `len(nc.data_vars)`
+        read the same as they would against a list.
+
+        **Read-through, not writable.** `nc.data_vars["x"] = ...` raises `TypeError`: the
+        mapping caches what it has loaded, so a write would be visible to `nc["x"]` and
+        invisible to `in`, `len` and iteration. Use `add_variable` / `set_variable` /
+        `remove_variable`.
+
+        **Differs from xarray** in what the values are: each is a `NetCDF` subset or a
+        `LabeledArray`, where xarray's are `DataArray`s.
+
+        Returns:
+            _LazyVariableDict: Name to variable, loading each on first access.
+
+        Examples:
+            - Iterating yields the names, as it does in xarray:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+              >>> list(nc.data_vars)
+              ['area', 'msk_rgn', 'pr', 'tas', 'ua']
+              >>> len(nc.data_vars)
+              5
+
+              ```
+            - Indexing reaches the variable, which is what the list form could not do:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+              >>> nc.data_vars["ua"].band_count
+              17
+
+              ```
+            - So does `items()`, for a pass over names and variables together:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+              >>> [name for name, var in nc.data_vars.items() if var.band_count > 1]
+              ['ua']
+
+              ```
+
+        See Also:
+            NetCDF.variables: The canonical member.
+            NetCDF.variable_names: The names alone, as a list.
+            NetCDF.dtypes: The same names, mapped to their types.
+        """
+        return self.variables
+
+    @property
+    def dims(self) -> dict[str, int]:
+        """Dimension name to length — a **mapping**, as xarray's `Dataset.dims` is.
+
+        Deliberately not an alias of :attr:`dimension_names`, which is a *list*. Aliasing a
+        mapping name onto a list would be a second `variables`-shaped collision: a reader
+        coming from xarray writes `nc.dims["time"]` and would silently get a list index.
+        The list keeps its own name; this returns what the xarray spelling promises, which
+        makes it an alias of :attr:`dimension_sizes` — the same mapping under xarray's name
+        for it, built afresh on every call rather than handed out as one shared object.
+
+        **Differs from xarray** in two ways, and the second is a moving target:
+
+        - It is a plain `dict` where xarray hands back a frozen mapping, so a write —
+          `nc.dims["lat"] = 1` — succeeds against that throwaway and is silently discarded
+          rather than raising. Change an axis through the store, not through this.
+        - **xarray is deprecating `Dataset.dims` as a mapping.** As of 2026.7.0 it returns
+          a `FrozenMappingWarningOnValuesAccess` that warns when the *values* are read, on
+          its way to returning a set of dimension *names*. When that lands, the member this
+          one is named after will be closer to :attr:`dimension_names` than to this.
+          :attr:`sizes` is the spelling that stays a name-to-length mapping on both sides,
+          and is the one to reach for in code meant to last.
+
+        This member is not following it: `dims` as a mapping is what a reader arriving
+        today expects, and matching a set of names would bring straight back the collision
+        the name was chosen to avoid.
+
+        Inherits :attr:`dimension_sizes`' contract on a **variable subset**, where it is `{}`:
+        a subset has no root group to enumerate dimensions from. :attr:`dimension_names` falls
+        back to the names cached when the subset was built and so still reports them, which is
+        the one place the two disagree about more than their shape.
+
+        A **classic** container (`open_as_multi_dimensional=False`) has no root group either,
+        so it is `{}` there too however many variables the store holds — and there
+        :attr:`dimension_names` has no cache to fall back on and answers `None`.
+
+        Returns:
+            dict[str, int]: Dimension name to its length. `{}` on a variable subset and on a
+            classic container.
+
+        Examples:
+            - Keys are the names, values the lengths:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> nc.dims["time"], sorted(nc.dims) == sorted(nc.dimension_names)
+              (4, True)
+
+              ```
+            - A variable subset reports none, while its names survive:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> nc["temperature"].dims
+              {}
+              >>> nc["temperature"].dimension_names[:2]
+              ['time', 'pressure_level']
+
+              ```
+
+        See Also:
+            NetCDF.dimension_sizes: The canonical member, and where the subset rule comes from.
+            NetCDF.dimension_names: The names alone, as a list.
+        """
+        return self.dimension_sizes
+
+    @property
+    def sizes(self) -> dict[str, int]:
+        """xarray's other name for :attr:`dimension_sizes`. Read-only alias.
+
+        **Differs from xarray** in the same way :attr:`dims` does: a plain `dict`, not a
+        `Frozen`, so a write is silently discarded rather than refused. It is also `{}`
+        wherever `dims` is — on a variable subset and on a classic container, neither of
+        which has a root group to enumerate dimensions from.
+
+        Returns:
+            dict[str, int]: Dimension name to its length. `{}` on a variable subset and on a
+            classic container.
+
+        Examples:
+            - Look up one axis's length:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+              >>> nc.sizes["plev"], nc.sizes["lat"]
+              (17, 128)
+
+              ```
+            - Size the grid a variable is defined on:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> nc.sizes["lat"] * nc.sizes["lon"]
+              30
+
+              ```
+
+        See Also:
+            NetCDF.dimension_sizes: The canonical member.
+            NetCDF.dims: The same mapping, under xarray's other name for it.
+        """
+        return self.dimension_sizes
+
+    @property
+    def attrs(self) -> dict[str, Any]:
+        """xarray's name for :attr:`global_attributes`. Read-only alias.
+
+        On a **classic** container (`open_as_multi_dimensional=False`) there is no root group
+        to read, and :attr:`global_attributes` falls back to GDAL's `GetMetadata()`. What
+        comes back then is not the root group's attribute list: the global attributes are
+        prefixed (`NC_GLOBAL#Conventions`), every variable's own attributes are folded in
+        under their own prefix (`temperature#units`), and GDAL's synthetic `NETCDF_DIM_*`
+        entries are added. Key by the prefixed spelling there, or open the store in MDIM mode.
+
+        Returns:
+            dict[str, Any]: The root group's attributes, or GDAL's whole metadata dictionary
+            on a classic container.
+
+        Examples:
+            - Read the root group's attributes:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> nc.attrs
+              {'Conventions': 'CF-1.6'}
+
+              ```
+            - Ask a busier store which convention it follows:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+              >>> nc.attrs["Conventions"]
+              'CF-1.0'
+              >>> len(nc.attrs) > 10
+              True
+
+              ```
+            - The same store read classically answers under GDAL's prefixed keys instead:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file(
+              ...     "tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc",
+              ...     open_as_multi_dimensional=False,
+              ... )
+              >>> nc.attrs["NC_GLOBAL#Conventions"], nc.attrs["temperature#units"]
+              ('CF-1.6', 'K')
+
+              ```
+
+        See Also:
+            NetCDF.global_attributes: The canonical member, and the setters
+                `set_global_attribute` / `delete_global_attribute`.
+        """
+        return self.global_attributes
+
+    @property
+    def coords(self) -> dict[str, np.typing.NDArray]:
+        """Every dimension's stored coordinate, as `{name: ndarray}`.
+
+        Built from :meth:`get_dimension_values`, so the storage-order contract lives in one
+        place: a **spatial** axis comes back as the file stores it, which for a
+        south-to-north file is the reverse of the raster's north-up rows. A dimension with
+        no indexing variable is omitted rather than mapped to `None`.
+
+        The keys come from :attr:`dimension_names`, **not** from :attr:`dims` — on a variable
+        subset `dims` is `{}` while the names survive, so reading `dims` here would drop the
+        axes a subset can still report. `set(nc.coords) <= set(nc.dimension_names)` is
+        therefore the invariant, and it is the one to rely on. The subset inclusion is strict
+        in practice, and by more than one axis: a subset tracks only its **band** dimensions,
+        so *every* spatial axis answers `None` from :meth:`get_dimension_values` and drops out
+        — the x axis as much as the y, and whether or not either was renamed. A subset of a
+        `(time, level, lat, lon)` cube therefore reports `time` and `level` only. The renaming
+        of the y axis to the window it was cut with (`subset_lat_4_-1_5`) is real but
+        incidental; a store whose subset keeps both axis names loses both coordinates just the
+        same. A spatial axis's cell centres come from the geotransform instead, via
+        :meth:`get_x_lon_dimension_array` / :meth:`get_y_lat_dimension_array`.
+
+        A **classic** container (`open_as_multi_dimensional=False`) has no dimension names at
+        all — :attr:`dimension_names` is `None` there, not a list, so the invariant above has
+        nothing to hold over and this answers `{}` however many variables the store enumerates.
+
+        Values are read when this is called, one array per dimension; the arrays are small
+        (one per axis, not per cell) but this is not free.
+
+        **Differs from xarray**, whose `coords[name]` is a `DataArray` carrying its own
+        `dims` and `attrs`. These are bare arrays: `nc.coords["lat"].values` is an
+        `AttributeError`, because the array *is* the values. They are also **undecoded**: a
+        CF time axis stays the raw offsets its `units` count, not `datetime64`.
+
+        Returns:
+            dict[str, numpy.ndarray]: Dimension name to its stored coordinate. `{}` on a
+            classic container.
+
+        Examples:
+            - Read the axes the store actually indexes:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> sorted(nc.coords)
+              ['lat', 'lon', 'pressure_level', 'time']
+              >>> nc.coords["lat"].tolist()
+              [40.0, 41.0, 42.0, 43.0, 44.0]
+              >>> nc.coords["time"].tolist()
+              [0.0, 6.0, 12.0, 18.0]
+
+              ```
+            - Find which index a label sits at, which is what the mapping is for:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> nc.coords["pressure_level"].tolist().index(850.0)
+              1
+
+              ```
+            - A dimension with no indexing variable is absent, not `None`:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+              >>> "bnds" in nc.dims, "bnds" in nc.coords
+              (True, False)
+
+              ```
+            - A subset keeps only its band axes. Here neither spatial axis was renamed, and
+              both drop out all the same:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__20v__1d3-3d17__y-desc.nc")
+              >>> subset = nc["tcw"]
+              >>> subset.dimension_names
+              ['time', 'latitude', 'longitude']
+              >>> sorted(subset.coords)
+              ['time']
+              >>> subset.get_dimension_values("longitude") is None
+              True
+
+              ```
+
+        See Also:
+            NetCDF.get_dimension_values: The per-name accessor this reads.
+            NetCDF.to_xarray: Which *decodes* a CF time axis, where this does not.
+        """
+        values = {}
+        for name in self.dimension_names or []:
+            stored = self.get_dimension_values(name)
+            if stored is not None:
+                values[name] = stored
+        return values
+
+    @property
+    def dtypes(self) -> dict[str, str]:
+        """Each data variable's dtype, as `{name: dtype}`.
+
+        One entry per **distinct** name in :attr:`variable_names` — a list that a classic
+        container can repeat, as the "Differs from xarray" note below spells out — so a
+        variable subset, which enumerates none, reports `{}`.
+
+        **No data variable's array is read.** For a raster variable the type comes from the
+        band description. Opening one does read its *coordinate* axes — one small array per
+        dimension, never one per cell — which is what "reads no pixels" means here.
+
+        A variable with **no raster plane** is the exception: it comes back as a
+        `LabeledArray`, and building one materialises the variable's own array. So on a
+        store of 1-D or non-numeric variables this reads each of them, and the arrays stay
+        in the :attr:`variables` cache afterwards. The type reported is then the
+        materialised array's, which for a string variable is `'object'` rather than any
+        type the store uses.
+
+        A name the store enumerates but will not open reports `"unknown"` rather than
+        raising. That happens on a **classic** container, whose subdataset enumeration can
+        report an array GDAL then declines to open; introspection describes what it can
+        instead of stopping at the first such name.
+
+        **Differs from xarray** in two ways: the values are `str`, not `numpy.dtype`
+        objects, so `nc.dtypes["t2m"] == np.float64` is `False` where xarray's is `True` —
+        compare `np.dtype(nc.dtypes["t2m"])` instead. And being a mapping it is keyed by
+        **unique** name, while :attr:`variable_names` is a list that a classic container
+        can repeat: on `cf__40v__1d28-2d9-3d3__nc4.nc` opened classically that list has 12
+        entries and 9 distinct names, so `len(nc.dtypes)` is 9 while `len(nc)` is 12.
+
+        Returns:
+            dict[str, str]: Variable name to the dtype of its first band, or to the
+                `LabeledArray`'s own dtype for a variable with no raster plane.
+
+        Warns:
+            UserWarning: Once per name reported `"unknown"`, naming it and the refusal
+                behind it. Once per *distinct* name, not once per occurrence — the walk is
+                over `dict.fromkeys(variable_names)`, so a classic container that enumerates
+                the same name twice still warns about it once.
+
+        Examples:
+            - One entry per data variable:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+              >>> nc.dtypes["ua"], nc.dtypes["msk_rgn"]
+              ('float32', 'int32')
+
+              ```
+            - Pick out the variables that are not floating point:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+              >>> [name for name, kind in nc.dtypes.items() if "int" in kind]
+              ['msk_rgn']
+
+              ```
+            - Read classically, the same store types the names GDAL will not open `unknown`
+              and carries on with the rest:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file(
+              ...     "tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc",
+              ...     open_as_multi_dimensional=False,
+              ... )
+              >>> nc.dtypes["precipitation_flux"], nc.dtypes["area"]
+              ('unknown', 'float32')
+
+              ```
+
+        See Also:
+            NetCDF.nbytes: Sized from these dtypes and the dimension lengths.
+            NetCDF.variable_names: The names these are keyed by.
+        """
+        # A plain loop over distinct names, not a comprehension over the raw list. The list
+        # can repeat a name on a classic container, which made this re-open — and re-warn
+        # about — the same unopenable variable once per occurrence; and the generator frame
+        # a comprehension adds pushed `_open_variable`'s warning off the caller's line and
+        # onto this file's.
+        types: dict[str, str] = {}
+        for name in dict.fromkeys(self.variable_names):
+            variable = _open_variable(self, name)
+            types[name] = "unknown" if variable is None else _variable_dtype(variable)
+        return types
+
+    @property
+    def nbytes(self) -> int:
+        """The size of every data variable in bytes, computed rather than read.
+
+        From each variable's shape and dtype. **Data variables only** — xarray's `nbytes`
+        counts its coordinates too, so the two differ by the size of the coordinate arrays.
+
+        Three things to know before trusting the number:
+
+        - A **raster** variable is sized without reading a single cell, which is the point:
+          a cube far larger than memory can still be sized. Its coordinate axes are read —
+          one small array per dimension — because opening a variable resolves them.
+        - A variable with **no raster plane** is a `LabeledArray`, and building one
+          materialises its array — so those are read, not computed. A string variable is
+          then counted as 8 bytes per Python object pointer, which bears no relation to
+          the characters stored.
+        - A **packed** variable is sized by its *stored* band type, not by what
+          :meth:`read_array` returns. Reading an `int16` store that unpacks to `float64`
+          costs four times this figure, not one.
+
+        See :attr:`dtypes` for the same caveats on the types.
+
+        It sizes what :attr:`variable_names` enumerates, which on a **variable subset** is
+        nothing: `nc["t2m"].nbytes` is `0`, not that variable's own size. Size a single
+        variable from its shape and :attr:`dtype` instead.
+
+        Sized over **distinct** names, so this and :attr:`dtypes` agree on what "the data
+        variables" are: a classic container's enumeration can report the same name twice,
+        and summing the list would count that variable twice.
+
+        A name the store enumerates but will not open — see :attr:`dtypes` — contributes
+        `0` and a `UserWarning` naming it. The shortfall can be large rather than marginal:
+        a **classic** container's subdataset list can name a variable by its `standard_name`
+        (`precipitation_flux` for `pr`), which GDAL then declines to open, so the three
+        largest cubes of `cf__12v__1d4-2d5-3d2-4d1__y-asc.nc` contribute nothing and the
+        total is 9.7% of the real size. Open the store multidimensionally to size it.
+
+        Returns:
+            int: The total, `0` for a container with no data variables.
+
+        Examples:
+            - A 12-band 5x6 float64 cube is 2880 bytes:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> nc.nbytes
+              2880
+
+              ```
+            - Decide whether a store is worth reading, without reading it:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+              >>> round(nc.nbytes / 1024**2, 2)
+              2.62
+
+              ```
+
+        See Also:
+            NetCDF.dtypes: The types this sizes from.
+            NetCDF.dims: The lengths it sizes over.
+        """
+        total = 0
+        unsized = []
+        # `dict.fromkeys` rather than the list: a classic container's enumeration can
+        # report a name twice, and `dtypes` is keyed uniquely. Summing the list would size
+        # the repeat twice and make the two members disagree about what "the data
+        # variables" are. Order is preserved, which `set` would not do.
+        for name in dict.fromkeys(self.variable_names):
+            variable = _open_variable(self, name)
+            if variable is None:
+                unsized.append(name)
+            else:
+                total += _variable_nbytes(variable)
+        if unsized:
+            # Silence here would be the worst of the three options. The shortfall is not
+            # marginal: on `cf__12v__1d4-2d5-3d2-4d1__y-asc.nc` opened classically the
+            # enumeration names the three real cubes by `standard_name`
+            # (`precipitation_flux` for `pr`), none of which GDAL will open, so the total
+            # comes to 9.7% of the true figure while looking like an ordinary answer.
+            warnings.warn(
+                f"nbytes excludes {len(unsized)} variable(s) the store enumerates but "
+                f"will not open, so the total is lower than the real size: "
+                f"{sorted(unsized)}. This happens on a classic container, whose "
+                f"subdataset list can name an array by its standard_name; open the store "
+                f"with open_as_multi_dimensional=True to size it properly.",
+                UserWarning,
+                stacklevel=2,
+            )
+        return total
+
+    def info(self, buf: TextIO | None = None) -> None:
+        """Print a summary of the container: dimensions, variables and attributes.
+
+        Calls :attr:`dtypes`, so it inherits that member's caveat: a variable with no
+        raster plane is materialised to report its type.
+
+        On a **grouped** store the `dimensions:` section lists only the root group's, which
+        is what :attr:`dimension_sizes` reports, while the variable lines reference each
+        group's own axis of the same name — `none__35v__1d35__groups-nc4.nc` declares one
+        `recNum` and then names `recNum` on 29 variables whose lengths differ. Faithful to
+        the members it prints, but not something `ncdump -h` would emit.
+
+        A **classic** container (`open_as_multi_dimensional=False`) has no multidim group
+        behind it, and three parts of the report thin out as a result:
+
+        - Every variable is printed with an **empty axis list**, because the per-variable
+          dimension names are read from that group.
+        - The `dimensions:` section is **empty** — :attr:`dimension_sizes` is enumerated from
+          the same group — so `variables:` follows it immediately, however many variables the
+          store holds.
+        - A name the classic subdataset list reports but GDAL declines to open is typed
+          `unknown`, from :attr:`dtypes`, rather than taking the whole summary down.
+
+        The attribute block grows rather than thins: :attr:`attrs` falls back to GDAL's
+        `GetMetadata()` there, so a global attribute is spelled `:NC_GLOBAL#Conventions = …`
+        and every variable's own attributes (`:temperature#units = …`) and GDAL's synthetic
+        `NETCDF_DIM_*` entries are listed alongside them.
+
+        Args:
+            buf: An open text stream to write to. Defaults to `sys.stdout`, matching
+                xarray's `info`.
+
+        Warns:
+            UserWarning: Once per name typed `unknown`, raised through :attr:`dtypes`. A
+                summary that reports three `unknown` lines has warned three times, so a
+                caller filtering warnings rather than reading the report still learns the
+                store's enumeration is unreliable.
+
+        Examples:
+            - The whole summary of a small store. The real output indents with tabs, as
+              `ncdump -h` does; they are expanded here so the example reads:
+
+              ```python
+              >>> import io
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> report = io.StringIO()
+              >>> nc.info(report)
+              >>> print(report.getvalue().expandtabs(4), end="")
+              pyramids.NetCDF {
+              dimensions:
+                  time = 4 ;
+                  pressure_level = 3 ;
+                  lat = 5 ;
+                  lon = 6 ;
+              variables:
+                  float64 temperature(time, pressure_level, lat, lon) ;
+              <BLANKLINE>
+              // global attributes:
+                  :Conventions = 'CF-1.6' ;
+              }
+
+              ```
+            - Capture it instead of printing, to search or log it:
+
+              ```python
+              >>> import io
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+              >>> report = io.StringIO()
+              >>> nc.info(report)
+              >>> [line.strip() for line in report.getvalue().splitlines() if "ua(" in line]
+              ['float32 ua(time, plev, lat, lon) ;']
+
+              ```
+            - The same store read classically: no dimension lines, and no axes on a variable:
+
+              ```python
+              >>> import io
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file(
+              ...     "tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc",
+              ...     open_as_multi_dimensional=False,
+              ... )
+              >>> report = io.StringIO()
+              >>> nc.info(report)
+              >>> lines = report.getvalue().splitlines()
+              >>> [line.expandtabs(4) for line in lines[:4]]
+              ['pyramids.NetCDF {', 'dimensions:', 'variables:', '    float32 area() ;']
+              >>> [line.strip() for line in lines if "precipitation_flux" in line]
+              ['unknown precipitation_flux() ;']
+
+              ```
+
+        See Also:
+            NetCDF.dtypes: The per-variable types this prints.
+            NetCDF.dims: The dimension lengths it prints.
+        """
+        stream = sys.stdout if buf is None else buf
+        # `None` on a classic container, which has no multidim group to read axes from;
+        # `_variable_dim_names` would reach `None.OpenMDArray` and raise `AttributeError`.
+        rg = self._working_group()
+        types = self.dtypes
+        # The names come from `types`, which `dtypes` has just built from its own walk.
+        # Reading `variable_names` again would re-query `GetMDArrayNames()` and re-run CF
+        # classification — the expensive half of the summary on a large store — and any
+        # disagreement between the two walks would surface as a bare `KeyError` from the
+        # `types[name]` below, out of a read-only method. `dtypes` is already keyed by
+        # distinct name, so this is distinct too.
+        names = list(types)
+        lines = ["pyramids.NetCDF {", "dimensions:"]
+        lines += [f"\t{name} = {size} ;" for name, size in self.dimension_sizes.items()]
+        lines.append("variables:")
+        for name in names:
+            # The variable's own axes, read from the store rather than from the subset
+            # `get_variable` hands back: a subset renames its y dimension to the window it was
+            # cut with (`subset_lat_4_-1_5`), which is not a name this file has.
+            axes = "" if rg is None else ", ".join(self._variable_dim_names(rg, name))
+            lines.append(f"\t{types[name]} {name}({axes}) ;")
+        lines.append("")
+        lines.append("// global attributes:")
+        # An attribute value is arbitrary text: a ROMS store carries a `CPP_options` over
+        # 1,000 characters and an `NLM_LBC` full of newlines, either of which destroys the
+        # `ncdump -h` shape this is imitating. Collapsed to one line and truncated.
+        lines += [
+            f"\t:{key} = {_summarised(value)} ;" for key, value in self.attrs.items()
+        ]
+        lines.append("}")
+        print("\n".join(lines), file=stream)
+
+    def get(self, name: str, default: Any = None) -> Any:
+        """The variable called `name`, or `default` when the container has no such variable.
+
+        Args:
+            name: A data-variable name.
+            default: What to return when `name` is absent. Defaults to `None`.
+
+        Returns:
+            NetCDF | LabeledArray | Any: The variable — a `NetCDF` subset or a
+            `LabeledArray` — or `default` when there is no such name. Annotated `Any`
+            because `default` is unconstrained; a checker cannot narrow it further.
+
+        Raises:
+            RuntimeError: `name` **is** one of the data variables but GDAL refuses to open
+                it. Only a **classic** container reaches this — its subdataset enumeration
+                can report an array that will not open — and `default` does not cover it, so
+                a name being present is not on its own a guarantee of a value. :attr:`dtypes`
+                and :attr:`nbytes` do swallow the refusal; this does not.
+
+        Examples:
+            - A miss returns the default rather than raising:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> nc.get("nope", "absent")
+              'absent'
+
+              ```
+            - A hit returns the variable, so it can be used straight away:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> nc.get("temperature").band_count
+              12
+
+              ```
+            - With no default, a miss is `None` — enough to branch on:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> nc.get("nope") is None
+              True
+
+              ```
+
+        See Also:
+            NetCDF.__getitem__: The same lookup, raising `KeyError` on a miss.
+        """
+        return self.variables.get(name, default)
+
+    def __getitem__(self, name: str) -> NetCDF | LabeledArray:
+        """The variable called `name` — `nc["t2m"]`, the first thing an xarray user tries.
+
+        Delegates to :attr:`variables`, so it is the same lazy, cached object
+        :meth:`get_variable` returns and the refusal message is the one that mapping
+        already gives.
+
+        Args:
+            name: A data-variable name, as :attr:`variable_names` lists it.
+
+        Returns:
+            NetCDF | LabeledArray: A `NetCDF` subset for a raster variable, a
+            `LabeledArray` for one with no raster plane.
+
+        Raises:
+            KeyError: `name` is not a data variable. `get_variable` raises `ValueError` for
+                the same miss; the mapping protocol has to raise `KeyError` for `in`, `get`
+                and `dict(nc)` to behave, so the two spellings differ deliberately here.
+            RuntimeError: `name` is enumerated but GDAL refuses to open it. Reachable on a
+                **classic** container, whose subdataset list can report an array that is not
+                there. :attr:`dtypes` and :attr:`nbytes` swallow that refusal so introspection
+                survives it; indexing lets it through.
+
+        Examples:
+            - Reach a variable by name:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> nc["temperature"].band_count
+              12
+
+              ```
+            - A name the store does not hold at all is a bare `KeyError`:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> nc["nope"]
+              Traceback (most recent call last):
+                  ...
+              KeyError: 'nope'
+
+              ```
+            - A name the store *does* hold, but not as a data variable, is told apart: the
+              message names the accessor that will read it, and that accessor does:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+              >>> try:
+              ...     nc["lat_bnds"]
+              ... except KeyError as miss:
+              ...     print(miss.args[0].split(";")[0])
+              'lat_bnds' is not a data variable, so it is not a key of `variables`
+              >>> nc.get_variable("lat_bnds").shape
+              (1, 128, 2)
+
+              ```
+
+        Read-only: `nc["t2m"] = other` raises `TypeError`, because a store is written
+        through named methods rather than by item assignment.
+
+        See Also:
+            NetCDF.get_variable: The same lookup, raising `ValueError` instead.
+            NetCDF.variables: The mapping this reads.
+            NetCDF.add_variable: Writes a new variable; `set_variable` replaces one and
+                `remove_variable` drops one.
+        """
+        return self.variables[name]
+
+    def __array__(self, dtype: Any = None, copy: Any = None) -> np.ndarray:
+        """Refuse to become an array. Read one with :meth:`read_array` instead.
+
+        :meth:`__iter__` and :meth:`__len__` make every `NetCDF` look like a sequence to
+        NumPy, which would otherwise convert one by looping it. That answer is wrong in two
+        different ways, and the second is dangerous:
+
+        - a **container** yields its variable *names*, so `np.asarray(nc)` would build an
+          array of strings — visibly not data;
+        - a **variable** yields nothing at all, because a variable holds no data variables
+          of its own. NumPy would see an empty sequence, and `np.mean(nc["ua"])` would
+          answer `nan` for a cube of 557,056 real values rather than raise.
+
+        The second is why this refuses rather than documents. `nan` is what a reader gets
+        from averaging nothing, it looks like a legitimate result, and it can travel a long
+        way before anyone questions it. Before the mapping protocol existed NumPy could not
+        interpret a `NetCDF` at all and raised, which was the right answer; this restores it.
+
+        The same judgement :meth:`Dataset.__bool__` already makes for `if nc:` — there is no
+        honest single answer, so decline to invent one.
+
+        `dtype=object` is the one request that is honoured: boxing a dataset in an object
+        array reads nothing and invents nothing — the object is stored as itself — and it
+        worked before the mapping protocol existed, so `np.array([nc], dtype=object)` still
+        gives `(1,)` rather than starting to raise.
+
+        Args:
+            dtype: Requested dtype. `object` boxes the dataset; anything else is refused.
+            copy: NumPy 2's copy-semantics flag. Accepted so the call signature matches;
+                unused, since nothing is ever copied.
+
+        Returns:
+            numpy.ndarray: A 0-d object array holding this dataset, for `dtype=object`.
+
+        Raises:
+            TypeError: For any other dtype, including the default.
+
+        Examples:
+            - The refusal names the way to get the data:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> np.asarray(nc["temperature"])
+              Traceback (most recent call last):
+                  ...
+              TypeError: a NetCDF cannot be converted to an array directly...
+
+              ```
+            - Reading the variable works, and is what the message points at:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> nc["temperature"].read_array().shape
+              (12, 5, 6)
+
+              ```
+            - Iterating and indexing are untouched — only the value coercion is refused:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> list(nc), len(nc)
+              (['temperature'], 1)
+
+              ```
+            - Boxing in an object array still works, and holds the dataset itself:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> boxed = np.array([nc], dtype=object)
+              >>> boxed.shape
+              (1,)
+              >>> boxed[0] is nc
+              True
+
+              ```
+
+        See Also:
+            NetCDF.read_array: Reads a variable's values as an array.
+            NetCDF.coords: The coordinate axes, which are ordinary arrays.
+            NetCDF.__iter__: What iterating a container yields, and why it is not data.
+        """
+        if dtype is not None and np.dtype(dtype) == object:
+            # Boxing a dataset in an object array is not a coercion — nothing is read and
+            # nothing is invented, the object is stored as itself. It worked before the
+            # mapping protocol existed and there is no reason for this to take it away.
+            box = np.empty((), dtype=object)
+            box[()] = self
+            return box
+        raise TypeError(
+            "a NetCDF cannot be converted to an array directly — a container holds many "
+            "variables and a variable holds none of its own, so iterating either gives "
+            "names or nothing rather than values. Read the data with "
+            'nc["name"].read_array(), or take an axis from nc.coords["lat"].'
+        )
+
+    def __contains__(self, name: object) -> bool:
+        """Whether `name` is one of this container's data variables.
+
+        Args:
+            name: The name to look for. A non-string is simply absent.
+
+        Returns:
+            bool: `True` when :attr:`variable_names` lists it.
+
+        Examples:
+            - Membership follows `variable_names`, not the store's whole array list — `lat`
+              is a dimension coordinate, so it has values but is not a member, and those
+              values come from :attr:`coords` rather than from an item lookup:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> "temperature" in nc, "lat" in nc, "nope" in nc
+              (True, False, False)
+              >>> nc.coords["lat"].tolist()
+              [40.0, 41.0, 42.0, 43.0, 44.0]
+
+              ```
+            - Guard a lookup with it, which is what the protocol is for:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+              >>> [name for name in ("tas", "rsds", "pr") if name in nc]
+              ['tas', 'pr']
+
+              ```
+
+        See Also:
+            NetCDF.variable_names: What membership is decided against.
+            NetCDF.coords: Where a dimension coordinate such as `lat` is read from —
+                `get_variable` will **not** take it, and raises `ValueError` if asked.
+            NetCDF.get_variable: Reads the *other* kind of non-member — a bounds or
+                curvilinear-coordinate array such as `lat_bnds`, which the store declares
+                and this enumeration still leaves out.
+        """
+        return name in self.variables
+
+    def __iter__(self) -> Iterator[str]:
+        """Iterate the **data-variable names**, in store order.
+
+        Data variables only, matching :attr:`variables` and :attr:`variable_names` — a
+        dimension coordinate such as `lat` is not yielded, so `list(nc)` and
+        `nc.variable_names` agree. That choice is the one place this class could have
+        collided with xarray twice over: `xarray.Dataset.__iter__` yields data variables
+        too, but `xarray.Dataset.variables` includes coordinates while this class's does
+        not. (Spelled out because `Dataset` is also the name of this class's own base,
+        which has neither member.)
+
+        **This made a container look like a sequence to everything that duck-types.**
+        Before these dunders existed, a `NetCDF` had neither `__iter__` nor `__len__`, so
+        NumPy treated it as an opaque object and `isinstance(nc, Iterable)` was `False`.
+        Both changed:
+
+        | expression | before | now |
+        |---|---|---|
+        | `isinstance(nc, Iterable / Sized / Container)` | `False` | `True` |
+        | `np.asarray(nc)` | a 0-d object box | raises — see :meth:`__array__` |
+        | `np.asarray(nc["t2m"])` | raises | raises |
+
+        Left alone, NumPy would have converted a container by looping it — yielding an array
+        of the *names* — and a variable into an empty array, since a variable yields nothing.
+        :meth:`__array__` refuses both. A container's coercion therefore changes from a
+        useless value to an error, and a variable's stays an error, which is the one that
+        mattered: `np.mean` over that empty array answered `nan`. `isinstance(nc, Mapping)`
+        and `isinstance(nc, Sequence)` are both still `False`.
+
+        The change that remains is the `isinstance` row, and it has one practical
+        consequence: a helper that accepts "anything iterable" used to reject a container
+        outright and now accepts it, receiving a list of name strings. Gate on
+        `isinstance(x, NetCDF)` first where that matters.
+
+        `bool(nc)` is unaffected — :meth:`Dataset.__bool__` still refuses to collapse a
+        raster to one truth value, and wins over `__len__`; use `len(nc) == 0` to ask
+        whether a container is empty.
+
+        Yields:
+            str: Each data-variable name.
+
+        Examples:
+            - Iterating yields the names, in store order:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+              >>> list(nc)
+              ['area', 'msk_rgn', 'pr', 'tas', 'ua']
+
+              ```
+            - A dimension coordinate is not among them, which is the whole choice:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> list(nc)
+              ['temperature']
+              >>> sorted(nc.dims)
+              ['lat', 'lon', 'pressure_level', 'time']
+
+              ```
+
+        See Also:
+            NetCDF.variable_names: The list this yields from.
+            NetCDF.dims: The dimensions, which iteration deliberately skips.
+        """
+        return iter(self.variables)
+
+    def __len__(self) -> int:
+        """How many data variables the container holds.
+
+        `bool(nc)` does **not** follow from this: :meth:`Dataset.__bool__` takes precedence
+        over `__len__` and raises, because a raster's truth value is ambiguous. Ask
+        `len(nc) == 0` for "does this container hold any variables". See :meth:`__iter__`
+        for the rest of what adding these dunders changed about protocol dispatch.
+
+        Returns:
+            int: `len(variable_names)`. Reads no data.
+
+        Examples:
+            - Count what the store offers:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+              >>> len(nc)
+              5
+
+              ```
+            - A store with one variable counts one, though it declares four dimensions:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> len(nc), len(nc.dims)
+              (1, 4)
+
+              ```
+
+        See Also:
+            NetCDF.variable_names: What is counted.
+        """
+        return len(self.variables)
+
+    def keys(self) -> list[str]:
+        """The data-variable names, in store order. Reads nothing.
+
+        **Differs from xarray**, whose `keys()` is a live `KeysView` that tracks the
+        dataset. This is a snapshot: a copy, taken when you call it, which is why it is safe
+        to sort or reverse in place.
+
+        Returns:
+            list[str]: The same names as :attr:`variable_names`, as a fresh list.
+
+        Examples:
+            - A list, not a view, matching the mapping it delegates to:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> nc.keys()
+              ['temperature']
+
+              ```
+            - A fresh copy each call, so reordering it in place disturbs nothing:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+              >>> names = nc.keys()
+              >>> names.reverse()
+              >>> names
+              ['ua', 'tas', 'pr', 'msk_rgn', 'area']
+              >>> list(nc)
+              ['area', 'msk_rgn', 'pr', 'tas', 'ua']
+
+              ```
+
+        See Also:
+            NetCDF.variable_names: The canonical list.
+            NetCDF.items: The same names, paired with their variables.
+        """
+        return self.variables.keys()
+
+    def values(self) -> list[NetCDF | LabeledArray]:
+        """Every variable, loading each one.
+
+        Loading is eager and all-or-nothing: the list is built by indexing every name, so
+        one variable that will not open takes the whole call down. Iterate
+        :attr:`variable_names` and index yourself when you need to survive that.
+
+        Returns:
+            list[NetCDF | LabeledArray]: A `NetCDF` per raster variable, a `LabeledArray`
+            for the rest, in store order.
+
+        Raises:
+            RuntimeError: GDAL refuses one of the enumerated variables. Reachable on a
+                **classic** container, whose subdataset list can name an array that will not
+                open — see :meth:`__getitem__`, which raises it one variable at a time.
+
+        Examples:
+            - Each entry is the variable itself, so its properties are to hand:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+              >>> [variable.band_count for variable in nc.values()]
+              [1, 1, 1, 1, 17]
+
+              ```
+            - Reduce over them, which is what having the objects is for:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> max(variable.rows for variable in nc.values())
+              5
+
+              ```
+
+        See Also:
+            NetCDF.items: The same variables, paired with their names.
+            NetCDF.keys: The names alone, which reads nothing.
+        """
+        return self.variables.values()
+
+    def items(self) -> list[tuple[str, NetCDF | LabeledArray]]:
+        """`(name, variable)` for every variable, loading each.
+
+        Eager in the same all-or-nothing way :meth:`values` is: every name is indexed before
+        any pair is returned.
+
+        Returns:
+            list[tuple[str, NetCDF | LabeledArray]]: Pairs in store order.
+
+        Raises:
+            RuntimeError: GDAL refuses one of the enumerated variables — the `values`
+                failure mode, since this loads the same objects.
+
+        Examples:
+            - Unpackable in a loop, as a mapping's items are:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+              >>> [(name, variable.band_count) for name, variable in nc.items()]
+              [('area', 1), ('msk_rgn', 1), ('pr', 1), ('tas', 1), ('ua', 17)]
+
+              ```
+            - Filter on a property of the variable rather than on its name:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+              >>> [name for name, variable in nc.items() if variable.band_count > 1]
+              ['ua']
+
+              ```
+
+        See Also:
+            NetCDF.keys: The names alone, which reads nothing.
+            NetCDF.values: The variables alone.
+        """
+        return self.variables.items()
+
+    @property
+    def variables(self) -> _LazyVariableDict:
         """All data variables as a lazy dict of `{name: subset}`.
 
         Variables are loaded on first access per key, not all at once.
@@ -2892,8 +4483,10 @@ class NetCDF(Dataset):
         before reaching for a raster method.
 
         Returns:
-            dict[str, NetCDF | LabeledArray]: Mapping from variable name to its
-            subset.
+            _LazyVariableDict: Mapping from variable name to its subset. The concrete type
+            is internal and not exported — treat it as a read-through
+            `Mapping[str, NetCDF | LabeledArray]` whose `keys`, `values` and `items` return
+            lists rather than views, and which refuses writes.
 
         Examples:
             - A store with a grid and a profile axis yields one of each kind:
