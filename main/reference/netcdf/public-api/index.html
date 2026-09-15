@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -4401,6 +4401,28 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#xarray-compatible-spellings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        xarray-compatible spellings
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cheap-introspection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cheap introspection
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#coordinates-and-time" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -6239,6 +6261,28 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#xarray-compatible-spellings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        xarray-compatible spellings
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cheap-introspection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cheap introspection
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#coordinates-and-time" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -6349,8 +6393,9 @@
 
 
 <h1 id="netcdf-public-api"><a class="toclink" href="#netcdf-public-api"><code>NetCDF</code> — public API</a><a class="headerlink" href="#netcdf-public-api" title="Permanent link">#</a></h1>
-<p>A one-line map of every public member the <code>NetCDF</code> class itself defines — 65 in all: 38 methods, 20 properties,
-6 classmethods and 1 staticmethod. For the full signatures, arguments and examples, see the rendered
+<p>A one-line map of every public member the <code>NetCDF</code> class itself defines — 77 in all: 43 methods, 27 properties,
+6 classmethods and 1 staticmethod, plus the four mapping dunders (<code>__getitem__</code>, <code>__contains__</code>, <code>__iter__</code>,
+<code>__len__</code>). For the full signatures, arguments and examples, see the rendered
 <a href="../">NetCDF Class</a> reference; this page is the index you scan to find the member you want.</p>
 <p><code>NetCDF</code> extends <code>Dataset</code>, so it also inherits a further 134 public members it does not redefine — band
 handling, the COG surface, and the rest of the raster API. 119 of those are declared in <code>Dataset</code>'s own body
@@ -6424,6 +6469,34 @@ and the remaining 15 come from <code>RasterBase</code> above it. They live in th
 <td>Deprecated alias for the <code>variable_names</code> property.</td>
 </tr>
 <tr>
+<td><code>nc[name]</code></td>
+<td>The variable called <code>name</code>; <code>KeyError</code> where <code>get_variable</code> gives <code>ValueError</code>.</td>
+</tr>
+<tr>
+<td><code>name in nc</code></td>
+<td>Whether <code>name</code> is one of the data variables.</td>
+</tr>
+<tr>
+<td><code>iter(nc)</code> / <code>len(nc)</code></td>
+<td>The data-variable names, and how many there are.</td>
+</tr>
+<tr>
+<td><code>get()</code></td>
+<td>The variable, or a default when the container has no such name.</td>
+</tr>
+<tr>
+<td><code>keys()</code></td>
+<td>The data-variable names, as a fresh list.</td>
+</tr>
+<tr>
+<td><code>values()</code></td>
+<td>Every variable, loading each.</td>
+</tr>
+<tr>
+<td><code>items()</code></td>
+<td><code>(name, variable)</code> for every variable, loading each.</td>
+</tr>
+<tr>
 <td><code>dimension_names</code></td>
 <td>Names of all dimensions, in storage order.</td>
 </tr>
@@ -6454,6 +6527,64 @@ and the remaining 15 come from <code>RasterBase</code> above it. They live in th
 <tr>
 <td><code>file_name</code></td>
 <td>The file path, with any <code>NETCDF:"path":var</code> prefix stripped.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="xarray-compatible-spellings"><a class="toclink" href="#xarray-compatible-spellings">xarray-compatible spellings</a><a class="headerlink" href="#xarray-compatible-spellings" title="Permanent link">#</a></h2>
+<p>Aliases so habits from xarray transfer without renaming anything. Each names its canonical member, and each
+docstring states where it diverges from the xarray member it echoes.</p>
+<table>
+<thead>
+<tr>
+<th>Member</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>data_vars</code></td>
+<td><code>variables</code> under xarray's name — a mapping, so <code>nc.data_vars["t2m"]</code> works.</td>
+</tr>
+<tr>
+<td><code>dims</code></td>
+<td><code>{name: length}</code> — <strong>not</strong> <code>dimension_names</code>, a list. <code>sizes</code> is the durable spelling.</td>
+</tr>
+<tr>
+<td><code>sizes</code></td>
+<td>The same mapping as <code>dims</code>; xarray is turning its own <code>dims</code> into a set of names.</td>
+</tr>
+<tr>
+<td><code>attrs</code></td>
+<td><code>global_attributes</code> under xarray's name.</td>
+</tr>
+<tr>
+<td><code>coords</code></td>
+<td><code>{name: stored coordinate}</code> for every indexed dimension, from <code>get_dimension_values</code>.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="cheap-introspection"><a class="toclink" href="#cheap-introspection">Cheap introspection</a><a class="headerlink" href="#cheap-introspection" title="Permanent link">#</a></h2>
+<p>Metadata only: no data variable's array is read, though opening a variable does read its coordinate axes.
+A variable with no raster plane is the exception — see each member's docstring.</p>
+<table>
+<thead>
+<tr>
+<th>Member</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dtypes</code></td>
+<td><code>{name: dtype}</code> for every data variable, from the band description.</td>
+</tr>
+<tr>
+<td><code>nbytes</code></td>
+<td>Total size of the data variables, computed from shape and dtype rather than read.</td>
+</tr>
+<tr>
+<td><code>info()</code></td>
+<td>Prints an <code>ncdump -h</code>-shaped summary to a buffer, or to <code>sys.stdout</code>.</td>
 </tr>
 </tbody>
 </table>
