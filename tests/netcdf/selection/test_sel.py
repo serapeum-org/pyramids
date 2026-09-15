@@ -346,15 +346,20 @@ class TestSelErrors:
         with pytest.raises(ValueError, match="no band dimension"):
             var.sel(time=0)
 
-    def test_multiple_kwargs_raises(self):
-        """sel() with more than one keyword should raise.
+    def test_a_second_kwarg_naming_no_dimension_is_refused_as_unknown(self):
+        """sel() takes several dimensions now, so this call fails on the *name*.
 
         Test scenario:
-            sel(time=0, level=1) → ValueError.
+            This previously asserted `sel(time=0, level=1)` raises "exactly one keyword" —
+            the cap T4 removes. The call still raises on this fixture, but for the honest
+            reason: it tracks one band dim, `time`, and there is no `level` to narrow. The
+            genuine multi-dimension assertion needs a cube with more than one band dim and
+            lives in `test_sel_4d.py`.
         """
         nc = _make_nc()
         var = nc.get_variable("temp")
-        with pytest.raises(ValueError, match="exactly one"):
+
+        with pytest.raises(ValueError, match="does not match any band dimension"):
             var.sel(time=0, level=1)
 
 
@@ -456,11 +461,13 @@ class TestSelBoundary:
         """sel() with zero arguments should raise.
 
         Test scenario:
-            var.sel() → ValueError.
+            `var.sel()` names no dimension, so there is nothing to select. Still a
+            `ValueError` after T4 lifted the one-keyword cap; only the wording changed,
+            from "exactly one" to "at least one".
         """
         nc = _make_nc()
         var = nc.get_variable("temp")
-        with pytest.raises(ValueError, match="exactly one"):
+        with pytest.raises(ValueError, match="at least one keyword"):
             var.sel()
 
     def test_slice_no_match_raises(self):

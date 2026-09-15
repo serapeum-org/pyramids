@@ -778,7 +778,13 @@ class Selection(_Engine["NetCDF"]):
             result = _subset_along_dim(result, dim_name, dim_indices)
         return result
 
-    def sel(self, *, method: str | None = None, **kwargs: Any) -> NetCDF:
+    def sel(
+        self,
+        *,
+        method: str | None = None,
+        tolerance: float | None = None,
+        **kwargs: Any,
+    ) -> NetCDF:
         """Select a subset of bands by coordinate values along a band dim.
 
         Extracts bands whose coordinate values match the given criteria.
@@ -786,8 +792,11 @@ class Selection(_Engine["NetCDF"]):
         dimension tracked in `_band_dim_names` (set by
         `get_variable()`). For 4-D+ files with multiple non-spatial
         dims (e.g. `(valid_time, pressure_level, lat, lon)` from CDS-Beta
-        ERA5), `sel()` may name any of those dims; chaining `sel()`
-        pins multiple band dims one at a time.
+        ERA5), `sel()` may name any of those dims, and several in one
+        call: `sel(time=6, pressure_level=850)` is the same cut as
+        `sel(time=6).sel(pressure_level=850)`. Each dimension narrows a
+        different axis of the same band grid, so the order the keywords
+        are written in does not affect the result.
 
         The result is always a `NetCDF` instance with the same variable
         metadata preserved, so `sel()` can be chained and NetCDF-only
@@ -815,8 +824,15 @@ class Selection(_Engine["NetCDF"]):
                 exactly; a partial one already names a period). The
                 coordinate it chose is on the result, readable with
                 `get_dimension_values(dim)`.
-            **kwargs: Exactly one keyword argument. The key must name a
-                tracked band dim (one of `self._band_dim_names`); the
+            tolerance: The furthest a `method="nearest"` snap may
+                travel. `None` (the default) accepts any distance. A
+                request whose closest coordinate lies further away
+                raises `KeyError`, as it does in xarray, with the
+                distance and the bound in the message. Rejected
+                without `method="nearest"`, where an exact match has no
+                distance for it to bound.
+            **kwargs: One or more keyword arguments. Each key must name
+                a tracked band dim (one of `self._band_dim_names`); the
                 value is one of:
 
                 - A single number: select one band by exact value.
@@ -854,13 +870,17 @@ class Selection(_Engine["NetCDF"]):
                 in the map.
 
         Raises:
-            ValueError: If exactly one kwarg isn't passed, `method` is
-                neither `None` nor `"nearest"`, the variable has no
+            ValueError: If no kwarg is passed, `method` is neither
+                `None` nor `"nearest"`, `tolerance` is given without
+                `method="nearest"` or is negative, the variable has no
                 tracked band dims, the named dim isn't one of
                 `_band_dim_names`, the dim has no coord values
-                (`_band_dim_values_map[dim] is None`), `"nearest"` is
-                asked of a slice / a date label / a non-numeric axis,
-                or no bands match the selector.
+                (`_band_dim_values_map[dim] is None` — select by
+                position with `isel()` instead), `"nearest"` is asked
+                of a slice / a date label / a non-numeric axis, or no
+                bands match the selector.
+            KeyError: A `method="nearest"` request found no coordinate
+                within `tolerance`.
 
         Examples:
             - Pin a pressure level on a 4-D file:
@@ -932,10 +952,11 @@ class Selection(_Engine["NetCDF"]):
             stored-value one: `slice(a, b, 2)` selects the same bands
             as `slice(a, b)`. Pass a list to pick specific values.
 
-            `method` is a keyword of this method, so a band dim
-            actually named `method` cannot be selected through it;
-            such a call reports "requires exactly one keyword
-            argument" because the selector was taken as the option.
+            `method` and `tolerance` are keywords of this method, so a
+            band dim actually named either cannot be selected through
+            it — the selector would be taken as the option. Use
+            `isel()` for such a dimension, which has no reserved
+            keywords beyond the dimension names themselves.
 
             All six examples above are tagged `# doctest: +SKIP`
             because they need a real on-disk NetCDF fixture. The
@@ -960,34 +981,28 @@ class Selection(_Engine["NetCDF"]):
                 band-dim metadata that `sel()` consumes.
         """
         nc = self._ds
-        if len(kwargs) != 1:
-            raise ValueError("sel() requires exactly one keyword argument.")
+        if not kwargs:
+            raise ValueError(
+                "sel() requires at least one keyword argument, e.g. sel(time=6)."
+            )
         if method not in (None, "nearest"):
             raise ValueError(
                 f"sel() method must be None (exact) or 'nearest', got {method!r}."
             )
-
-        dim_name, selector = next(iter(kwargs.items()))
-        _assert_band_dimension(nc, dim_name, caller="sel")
-
-        coords = nc._band_dim_values_map.get(dim_name)
-        if coords is None:
+        if tolerance is not None and method != "nearest":
             raise ValueError(
-                f"No coordinate values available for dimension {dim_name!r}. "
-                f"Select by position instead: isel({dim_name}=<index>)."
+                "sel() tolerance= is only meaningful with method='nearest' — without it "
+                "a label either matches exactly or does not match at all, and there is no "
+                "distance for a tolerance to bound."
             )
 
-        dim_indices, available = _resolve_selector_indices(
-            nc, dim_name, coords, selector, method
-        )
-        if not dim_indices:
-            hint = _undecodable_label_hint(nc, dim_name, coords, selector)
-            raise ValueError(
-                f"No bands match {dim_name}={selector}. "
-                f"Available values: {summarise_values(available)}{hint}"
-            )
-
-        return _subset_along_dim(nc, dim_name, dim_indices)
+        result = nc
+        # One dimension at a time, through the single-dim path that was here before, so
+        # each cut behaves exactly as it did when only one was allowed. They compose in any
+        # order because each narrows a different axis of the same band grid.
+        for dim_name, selector in kwargs.items():
+            result = _select_one_dim(result, dim_name, selector, method, tolerance)
+        return result
 
     def subset(
         self,
@@ -1703,7 +1718,13 @@ def _probe_label_format(
 
 
 def _nearest_or_raise(
-    dim_name: str, coords: list, selector: Any, probe: str | None, *, is_label: bool
+    dim_name: str,
+    coords: list,
+    selector: Any,
+    probe: str | None,
+    *,
+    is_label: bool,
+    tolerance: float | None = None,
 ) -> list[int]:
     """Snap a numeric selector, or explain why this one cannot be snapped.
 
@@ -1717,6 +1738,7 @@ def _nearest_or_raise(
         selector: The selector handed to ``sel``.
         probe: The label format resolved for the selector, or ``None``.
         is_label: Whether the selector carries a string at all.
+        tolerance: The furthest a snap may travel; ``None`` accepts any distance.
 
     Returns:
         list[int]: Indices of the snapped coordinates.
@@ -1738,7 +1760,7 @@ def _nearest_or_raise(
             f"method='nearest' needs a numeric selector; {dim_name}={selector!r} is "
             "not a number. Snapping compares distances, so it has nothing to measure."
         )
-    return nearest_indices(coords, selector)
+    return nearest_indices(coords, selector, tolerance)
 
 
 def _resolve_selector_indices(
@@ -1747,6 +1769,7 @@ def _resolve_selector_indices(
     coords: list,
     selector: Any,
     method: str | None = None,
+    tolerance: float | None = None,
 ) -> tuple[list[int], list]:
     """Resolve one ``sel`` selector to band-dim indices, and the values it matched against.
 
@@ -1803,7 +1826,7 @@ def _resolve_selector_indices(
     probe = _probe_label_format(dim_name, selector, decode) if is_label else None
     if method == "nearest":
         indices = _nearest_or_raise(
-            dim_name, coords, selector, probe, is_label=is_label
+            dim_name, coords, selector, probe, is_label=is_label, tolerance=tolerance
         )
         available = coords
     elif probe is not None and decode(probe):
@@ -1824,6 +1847,54 @@ def _resolve_selector_indices(
             indices = []
         available = coords
     return indices, available
+
+
+def _select_one_dim(
+    nc: NetCDF,
+    dim_name: str,
+    selector: Any,
+    method: str | None,
+    tolerance: float | None,
+) -> NetCDF:
+    """Narrow one dimension by coordinate value — the whole of what `sel` used to be.
+
+    Kept as its own function so that `sel` accepting several dimensions is a loop over
+    unchanged behaviour rather than a rewrite: whatever one keyword argument did before, it
+    does here.
+
+    Args:
+        nc: The variable subset to cut.
+        dim_name: The dimension to narrow.
+        selector: A coordinate value, a list of them, or a slice.
+        method: `None` for an exact match, `"nearest"` to snap.
+        tolerance: The furthest a `"nearest"` snap may travel.
+
+    Returns:
+        NetCDF: The narrowed variable.
+
+    Raises:
+        ValueError: The dimension is unknown, has no coordinates, or nothing matched.
+    """
+    _assert_band_dimension(nc, dim_name, caller="sel")
+
+    coords = nc._band_dim_values_map.get(dim_name)
+    if coords is None:
+        raise ValueError(
+            f"No coordinate values available for dimension {dim_name!r}. "
+            f"Select by position instead: isel({dim_name}=<index>)."
+        )
+
+    dim_indices, available = _resolve_selector_indices(
+        nc, dim_name, coords, selector, method, tolerance
+    )
+    if not dim_indices:
+        hint = _undecodable_label_hint(nc, dim_name, coords, selector)
+        raise ValueError(
+            f"No bands match {dim_name}={selector}. "
+            f"Available values: {summarise_values(available)}{hint}"
+        )
+
+    return _subset_along_dim(nc, dim_name, dim_indices)
 
 
 def _resolve_positional_indices(selector: Any, size: int, dim_name: str) -> list[int]:

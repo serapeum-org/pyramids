@@ -205,10 +205,21 @@ class TestSelErrorMessages:
         with pytest.raises(ValueError, match="No bands match"):
             synth_var.sel(pressure_level=999)
 
-    def test_too_many_kwargs(self, synth_var):
-        """``sel()`` rejects calls with more than one keyword argument."""
-        with pytest.raises(ValueError, match="exactly one keyword"):
-            synth_var.sel(time=12, pressure_level=500)
+    def test_several_kwargs_narrow_each_named_dimension(self, synth_var):
+        """``sel()`` takes several dimensions in one call, on a 4-D cube.
+
+        Test scenario:
+            The 4-D case is where multi-dimension `sel` earns its keep: pinning two of
+            four band dims used to need two calls. Asserted against the chained form, and
+            against the reversed keyword order, since the loop must not make the result
+            depend on which dimension is narrowed first.
+        """
+        together = synth_var.sel(time=12, pressure_level=500)
+        chained = synth_var.sel(time=12).sel(pressure_level=500)
+        reversed_order = synth_var.sel(pressure_level=500, time=12)
+
+        assert np.array_equal(together.read_array(), chained.read_array())
+        assert np.array_equal(together.read_array(), reversed_order.read_array())
 
 
 class TestEra5RealFixture:

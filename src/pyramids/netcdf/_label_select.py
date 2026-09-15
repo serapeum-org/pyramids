@@ -523,7 +523,9 @@ def _is_number(value: Any) -> bool:
     return isinstance(value, numbers.Real) and not isinstance(value, bool)
 
 
-def nearest_indices(coords: list, selector: Any) -> list[int]:
+def nearest_indices(
+    coords: list, selector: Any, tolerance: float | None = None
+) -> list[int]:
     """Snap a numeric selector to the closest coordinate(s) on an axis.
 
     A request exactly between two coordinates resolves to the **smaller** one, whichever
@@ -533,6 +535,9 @@ def nearest_indices(coords: list, selector: Any) -> list[int]:
     Args:
         coords: The axis' stored coordinate values.
         selector: A number, or a list of numbers (each snapped independently).
+        tolerance: The furthest a snap may travel. `None` accepts any distance, which is
+            the behaviour when the argument is not given. A request whose closest
+            coordinate lies further than this raises instead of snapping.
 
     Returns:
         list[int]: Indices of the snapped coordinates, in **axis** order rather than
@@ -541,8 +546,12 @@ def nearest_indices(coords: list, selector: Any) -> list[int]:
 
     Raises:
         ValueError: The selector is a :class:`slice` (a range has no nearest value), the
-            selector is not a finite number, the axis is not numeric, or the axis holds
-            no finite coordinate to snap to.
+            selector is not a finite number, the axis is not numeric, the axis holds no
+            finite coordinate to snap to, or `tolerance` is negative.
+        KeyError: A request's closest coordinate is further away than `tolerance`. This
+            matches xarray, which raises `KeyError` for the same case; the message carries
+            both the distance and the bound, because "no match" alone does not say whether
+            the bound was slightly or wildly too tight.
 
     Examples:
         - A value between two levels snaps to the closer one:
@@ -557,6 +566,17 @@ def nearest_indices(coords: list, selector: Any) -> list[int]:
             >>> from pyramids.netcdf._label_select import nearest_indices
             >>> nearest_indices([1000.0, 925.0, 850.0, 700.0], [990.0, 710.0])
             [0, 3]
+
+            ```
+        - A tolerance bounds how far a snap may travel:
+            ```python
+            >>> from pyramids.netcdf._label_select import nearest_indices
+            >>> nearest_indices([1000.0, 925.0, 850.0], 990.0, tolerance=20.0)
+            [0]
+            >>> nearest_indices([1000.0, 925.0, 850.0], 960.0, tolerance=20.0)
+            Traceback (most recent call last):
+                ...
+            KeyError: 'no coordinate within tolerance=20.0 of 960.0: the closest is 925.0,...'
 
             ```
         - A range has no nearest value, so a slice is refused:
@@ -605,14 +625,24 @@ def nearest_indices(coords: list, selector: Any) -> list[int]:
             "method='nearest' found no finite coordinate to snap to on this axis: "
             f"{summarise_values(coords)}."
         )
+    if tolerance is not None and (not _is_number(tolerance) or tolerance < 0):
+        raise ValueError(f"tolerance must be a non-negative number, got {tolerance!r}.")
     found: set[int] = set()
     for value in wanted:
         # Rank by (distance, coordinate) rather than by position, so a request that falls
         # exactly between two coordinates resolves to the same one whether the file
         # stores the axis ascending or descending — the direction-agnostic rule `sel`'s
         # slice path already advertises. The smaller coordinate wins a tie.
-        _, _, position = min(
+        distance, coord, position = min(
             (abs(coord - value), coord, index) for index, coord in candidates
         )
+        # The distance is already in hand from choosing the winner, so bounding it costs
+        # one comparison — there is no second pass over the axis.
+        if tolerance is not None and distance > tolerance:
+            raise KeyError(
+                f"no coordinate within tolerance={tolerance} of {value}: the closest is "
+                f"{coord}, {distance} away. Widen the tolerance, drop it to accept any "
+                f"distance, or select the coordinate exactly."
+            )
         found.add(position)
     return sorted(found)
