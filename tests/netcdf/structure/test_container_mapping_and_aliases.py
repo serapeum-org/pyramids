@@ -646,6 +646,56 @@ class TestCheapIntrospection:
 class TestTheMappingsAreSafeToHoldOnTo:
     """A returned mapping is the caller's; editing it must not reach the container."""
 
+    @pytest.mark.parametrize("mapping", ["data_vars", "variables"])
+    def test_the_variables_mapping_refuses_a_write(self, mapping: str):
+        """It caches, so a write would be seen by `nc[name]` and by nothing else.
+
+        Args:
+            mapping: The spelling to write through.
+
+        Test scenario:
+            `_LazyVariableDict` subclasses `dict` to hold what it has loaded, and `_names`
+            -- what `__iter__`, `__len__` and `__contains__` all answer from -- is a
+            separate list. A write therefore landed in the cache alone, leaving the
+            container disagreeing with itself: `nc["X"]` returned the injected value while
+            `"X" in nc` was `False` and `list(nc)` never mentioned it. `data_vars` is the
+            same object, so it had the same hole.
+        """
+        nc = open_store(PLAIN)
+
+        with pytest.raises(TypeError, match="read-through view"):
+            getattr(nc, mapping)["INJECTED"] = "not a variable"
+
+        assert "INJECTED" not in nc
+        assert list(nc) == ["temperature"]
+
+    def test_the_variables_mapping_refuses_a_delete(self):
+        """Deleting would only drop the cache entry, which reloads on the next lookup.
+
+        Test scenario:
+            The name would still be in `_names`, so `in`, `len` and iteration would be
+            unchanged and the next `nc[name]` would read it again — a no-op dressed as a
+            removal.
+        """
+        nc = open_store(PLAIN)
+
+        with pytest.raises(TypeError, match="remove_variable"):
+            del nc.variables["temperature"]
+
+        assert "temperature" in nc
+
+    def test_refusing_a_write_does_not_stop_the_mapping_caching(self):
+        """The internal fill bypasses `__setitem__`, so laziness is unaffected.
+
+        Test scenario:
+            The cache is populated through `dict.__setitem__` directly, so overriding the
+            bound method refuses callers without disabling the caching the mapping exists
+            for. Asserted by identity: a second lookup is the same object, not a reload.
+        """
+        nc = open_store(PLAIN)
+
+        assert nc["temperature"] is nc["temperature"]
+
     @pytest.mark.parametrize("member", ["dims", "sizes", "attrs", "coords", "dtypes"])
     def test_mutating_a_returned_mapping_does_not_reach_the_container(
         self, member: str

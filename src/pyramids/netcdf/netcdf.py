@@ -257,6 +257,46 @@ class _LazyVariableDict(dict):
     def __iter__(self):
         return iter(self._names)
 
+    def __setitem__(self, key: str, value: Any) -> None:
+        """Refuse. The mapping reads the store; it does not write to it.
+
+        It subclasses `dict` to cache what it has loaded, which made a write land in that
+        cache while `_names` -- what `__iter__`, `__len__` and `__contains__` all answer
+        from -- knew nothing about it. The container was then inconsistent with itself:
+        `nc["X"]` returned the injected value while `"X" in nc` was `False` and `list(nc)`
+        did not mention it.
+
+        The internal cache fill calls `dict.__setitem__` directly and so is unaffected.
+
+        Args:
+            key: Ignored.
+            value: Ignored.
+
+        Raises:
+            TypeError: Always.
+        """
+        raise TypeError(
+            f"{type(self).__name__} is a read-through view of the store's variables, not "
+            f"a writable mapping — assigning {key!r} here would be visible to `nc[{key!r}]` "
+            f"and invisible to `in`, `len` and iteration. Add or replace a variable with "
+            f"add_variable() / set_variable(), and drop one with remove_variable()."
+        )
+
+    def __delitem__(self, key: str) -> None:
+        """Refuse, for the reason :meth:`__setitem__` gives.
+
+        Args:
+            key: Ignored.
+
+        Raises:
+            TypeError: Always.
+        """
+        raise TypeError(
+            f"{type(self).__name__} is a read-through view of the store's variables, not "
+            f"a writable mapping — deleting {key!r} here would only drop it from the cache, "
+            f"and the next lookup would load it again. Use remove_variable()."
+        )
+
     # This lazy view returns materialized lists rather than live dict
     # views (callers iterate variable names/datasets, not a changing
     # mapping), so the return types deliberately diverge from dict/Mapping.
@@ -1606,8 +1646,9 @@ def _summarised(value: Any, limit: int = 120) -> str:
         limit: Longest rendering to keep before truncating. Defaults to 120.
 
     Returns:
-        str: The `repr`, with embedded newlines collapsed to spaces, truncated with an
-        ellipsis when it exceeds `limit`.
+        str: The `repr`, with any real control characters collapsed to spaces, truncated
+        with an ellipsis when it exceeds `limit`. Escape sequences `repr` itself produced
+        are left as they are.
 
     Examples:
         - A short value is its ordinary `repr`:
@@ -1620,12 +1661,32 @@ def _summarised(value: Any, limit: int = 120) -> str:
           '6371229.0'
 
           ```
-        - A newline becomes a space, so the value stays on one line:
+        - A string's newline is already escaped by `repr`, so it arrives as one line
+          and is kept exactly as written:
 
           ```python
           >>> from pyramids.netcdf.netcdf import _summarised
-          >>> _summarised("first" + chr(10) + "second")
-          "'first second'"
+          >>> print(_summarised("first" + chr(10) + "second"))
+          'first\\nsecond'
+
+          ```
+        - A backslash survives. Stripping the escape sequence instead, which this used
+          to do, ate part of any Windows path it was given:
+
+          ```python
+          >>> from pyramids.netcdf.netcdf import _summarised
+          >>> print(_summarised("C:" + chr(92) + "new" + chr(92) + "data"))
+          'C:\\\\new\\\\data'
+
+          ```
+        - A value whose *repr* really does span lines is collapsed, since that is the
+          one that breaks the summary's shape:
+
+          ```python
+          >>> import numpy as np
+          >>> from pyramids.netcdf.netcdf import _summarised
+          >>> chr(10) in _summarised(np.arange(40).reshape(8, 5))
+          False
 
           ```
         - An over-long value is cut, and says so:
@@ -1641,7 +1702,15 @@ def _summarised(value: Any, limit: int = 120) -> str:
     See Also:
         NetCDF.info: The only caller, which renders one attribute per line with this.
     """
-    rendered = repr(value).replace("\\n", " ").replace("\n", " ").replace("\r", " ")
+    # Only *real* control characters are collapsed. Replacing the two-character
+    # backslash-n escape instead -- which this did -- corrupts any value holding a
+    # backslash: a Windows path came back with part of a directory name eaten. It was
+    # never needed either, because `repr` already escapes a string's newlines, so a
+    # string attribute is one line before it arrives. What can still span lines is a
+    # non-string repr, such as an array's.
+    rendered = repr(value)
+    for control in ("\n", "\r", "\t"):
+        rendered = rendered.replace(control, " ")
     if len(rendered) > limit:
         rendered = rendered[:limit] + "..."
     return rendered
@@ -3134,6 +3203,11 @@ class NetCDF(Dataset):
 
         Iterating it still yields the names, so `list(nc.data_vars)` and `len(nc.data_vars)`
         read the same as they would against a list.
+
+        **Read-through, not writable.** `nc.data_vars["x"] = ...` raises `TypeError`: the
+        mapping caches what it has loaded, so a write would be visible to `nc["x"]` and
+        invisible to `in`, `len` and iteration. Use `add_variable` / `set_variable` /
+        `remove_variable`.
 
         **Differs from xarray** in what the values are: each is a `NetCDF` subset or a
         `LabeledArray`, where xarray's are `DataArray`s.
