@@ -38,7 +38,12 @@ from osgeo import gdal
 
 from pyramids.netcdf import NetCDF
 from pyramids.netcdf.labeled import LabeledArray
-from pyramids.netcdf.netcdf import _variable_dtype, _variable_nbytes
+from pyramids.netcdf.netcdf import (
+    _open_variable,
+    _summarised,
+    _variable_dtype,
+    _variable_nbytes,
+)
 
 pytestmark = pytest.mark.core
 
@@ -843,6 +848,94 @@ class TestTheSizingHelpers:
         assert _variable_nbytes(variable) == np.asarray(variable.values).nbytes
 
 
+class TestTheHelperThatOpensAVariable:
+    """`_open_variable`, which decides which refusals introspection survives."""
+
+    @pytest.mark.parametrize(
+        "refusal", [RuntimeError, KeyError, ValueError], ids=lambda kind: kind.__name__
+    )
+    def test_a_name_the_container_refuses_is_reported_as_absent(
+        self, refusal: type[Exception]
+    ):
+        """Every caught refusal comes back as `None`, whichever exception spells it.
+
+        Args:
+            refusal: The exception the container raises for the name.
+
+        Test scenario:
+            Only `RuntimeError` is reachable from a fixture -- the classic subdataset
+            enumeration on `cf__40v__1d28-2d9-3d3__nc4.nc` reports an array GDAL then
+            declines to open. The other two are the mapping's own spellings of a miss:
+            `nc[name]` raises `KeyError`, and `get_variable` behind it raises `ValueError`,
+            either of which reaches here whenever the enumeration and the mapping disagree
+            about a name. Both sat in the caught tuple unexercised, so dropping either left
+            this suite green while `dtypes`, `nbytes` and `info` began raising on a
+            container they are documented to describe rather than stop at.
+        """
+
+        class Refuses:
+            def __getitem__(self, name: str):
+                raise refusal(name)
+
+        assert _open_variable(Refuses(), "whatever") is None
+
+    def test_an_error_that_is_not_a_refusal_still_propagates(self):
+        """The catch is three named exceptions, not a blanket `except Exception`.
+
+        Test scenario:
+            The helper is here so a *defective enumeration* cannot take `info()` down, and
+            catching everything would swallow the failures it is not there to absorb --
+            a `TypeError` from a caller handing it something that is not a name, say.
+            Pinned from the other side so a later widening to `except Exception` is a test
+            failure rather than a silent loss of every error this file can raise.
+        """
+
+        class Breaks:
+            def __getitem__(self, name: str):
+                raise TypeError("not a name")
+
+        with pytest.raises(TypeError, match="not a name"):
+            _open_variable(Breaks(), "whatever")
+
+
+class TestTheAttributeSummariser:
+    """`_summarised`, on values whose `repr` is not already a single line."""
+
+    def test_a_value_whose_repr_spans_lines_is_collapsed(self):
+        """The replacement no string attribute reaches, and every fixture is a string.
+
+        Test scenario:
+            `repr` escapes a string's newline, so a value like `"first\\nsecond"` is one
+            line before the helper touches it -- the fixture attributes that do carry raw
+            newlines (the ROMS store's `NLM_LBC`) are strings, and all take the escaped
+            arm. A value that is not a string is the other case: numpy renders a 2-D array
+            one row per line, and those are real newlines *inside* the `repr`, which would
+            split one attribute across several lines of the `ncdump -h` shape `info`
+            imitates.
+        """
+        rendered = _summarised(np.arange(12).reshape(3, 4), limit=200)
+
+        assert "\n" not in rendered
+        assert rendered.startswith("array([[")
+        assert "11" in rendered
+
+    def test_a_value_whose_repr_carries_a_carriage_return_is_collapsed(self):
+        """Stated as the invariant the three replacements exist for: one line, always.
+
+        Test scenario:
+            Both characters that end a line are removed, not just the one a text file on
+            this platform uses -- an attribute written on another platform is as likely to
+            arrive with the other. A bare CR survives `repr` only for a value that renders
+            itself verbatim, which is why no store in the repo produces one.
+        """
+
+        class Verbatim:
+            def __repr__(self) -> str:
+                return "first\rsecond"
+
+        assert _summarised(Verbatim()) == "first second"
+
+
 class TestTheInfoSummaryIsWellFormed:
     """The shape of what `info` prints, beyond the names it contains."""
 
@@ -895,6 +988,57 @@ class TestTheInfoSummaryIsWellFormed:
 
         assert lines[-2] == "// global attributes:"
         assert lines[-1] == "}"
+
+    def test_an_attribute_whose_value_spans_lines_stays_on_one_line(self):
+        """One attribute is one printed line, however many lines its value holds.
+
+        Test scenario:
+            The ROMS store's `NLM_LBC` is a boundary-condition table -- raw newlines
+            inside a single attribute value -- and printing it verbatim puts a dozen
+            unlabelled lines in the middle of a section where every other line reads
+            `:name = value ;`. Asserted as a count, one printed line per attribute the
+            container reports, so any attribute that breaks the shape is caught rather
+            than only this one; the table's own line is then checked to hold two of the
+            rows the file stores separately, which is what "collapsed" means here.
+        """
+        nc = open_store(CURVILINEAR)
+        assert "\n" in nc.attrs["NLM_LBC"]
+
+        report = io.StringIO()
+        nc.info(report)
+        printed = [
+            line for line in report.getvalue().splitlines() if line.startswith("\t:")
+        ]
+
+        assert len(printed) == len(nc.attrs)
+        table = next(line for line in printed if line.startswith("\t:NLM_LBC"))
+        assert "EDGE:" in table
+        assert "zeta:" in table
+
+    def test_an_over_long_attribute_is_truncated_rather_than_printed_whole(self):
+        """A 1,800-character value is cut to the documented limit, and says that it was.
+
+        Test scenario:
+            The CMIP store's `history` is a full provenance log. Printed whole it is a
+            dozen terminal lines for one attribute, burying the twenty-odd others in a
+            summary meant to be read at a glance. The cut is asserted on the rendered
+            value rather than on the line, so the 120-character limit plus its ellipsis is
+            pinned exactly instead of through whatever the key happens to be called.
+        """
+        nc = open_store(MIXED_RANKS)
+        assert len(nc.attrs["history"]) > 1000
+
+        report = io.StringIO()
+        nc.info(report)
+        printed = next(
+            line
+            for line in report.getvalue().splitlines()
+            if line.startswith("\t:history")
+        )
+        value = printed.split(" = ", 1)[1].removesuffix(" ;")
+
+        assert len(value) == 123
+        assert value.endswith("...")
 
 
 class TestAClassicContainer:
@@ -968,6 +1112,37 @@ class TestAClassicContainer:
 
         assert "int16 tcw() ;" in text
         assert "subset_" not in text
+
+    def test_the_dimension_mappings_are_empty_without_a_group(self):
+        """`dims`, `sizes` and `coords` answer `{}` on a store full of variables.
+
+        Test scenario:
+            Classic mode has no multidim group to enumerate dimensions from, so
+            `dimension_names` is `None` here -- not `[]`, which is what every other store
+            in this suite produces. `coords` iterates that list, so its `or []` guard is
+            all that stands between a documented open mode and
+            `TypeError: 'NoneType' object is not iterable`, and no test reached it.
+
+            The container still enumerates its 17 variables, so the empty mappings say "no
+            group", not "no data" -- which is what makes the pairing worth asserting
+            together, and why `info` prints an empty dimensions section directly above a
+            full variables one.
+        """
+        nc = NetCDF.read_file(
+            str(DATA / "cf__20v__1d3-3d17__y-desc.nc"), open_as_multi_dimensional=False
+        )
+
+        assert nc.dimension_names is None
+        assert nc.dims == {}
+        assert nc.sizes == {}
+        assert nc.coords == {}
+        assert len(nc) == 17
+
+        report = io.StringIO()
+        nc.info(report)
+        lines = report.getvalue().splitlines()
+
+        assert lines.index("variables:") == lines.index("dimensions:") + 1
 
 
 class TestWhatTheDundersChangedAboutProtocolDispatch:
