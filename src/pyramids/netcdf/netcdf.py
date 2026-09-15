@@ -257,14 +257,30 @@ class _LazyVariableDict(dict):
     def __iter__(self):
         return iter(self._names)
 
+    def _refuse(self, verb: str) -> TypeError:
+        """The refusal every mutating method raises.
+
+        Args:
+            verb: What the caller was trying to do, for the message.
+
+        Returns:
+            TypeError: To be raised by the caller.
+        """
+        return TypeError(
+            f"{type(self).__name__} is a read-through view of the store's variables, not "
+            f"a writable mapping, so {verb} is refused: it would reach the load cache "
+            f"while `_names` — what `in`, `len` and iteration all answer from — knew "
+            f"nothing about it, leaving the container disagreeing with itself. Add or "
+            f"replace a variable with add_variable() / set_variable(), and drop one with "
+            f"remove_variable()."
+        )
+
     def __setitem__(self, key: str, value: Any) -> None:
         """Refuse. The mapping reads the store; it does not write to it.
 
         It subclasses `dict` to cache what it has loaded, which made a write land in that
-        cache while `_names` -- what `__iter__`, `__len__` and `__contains__` all answer
-        from -- knew nothing about it. The container was then inconsistent with itself:
-        `nc["X"]` returned the injected value while `"X" in nc` was `False` and `list(nc)`
-        did not mention it.
+        cache while `_names` knew nothing about it: `nc["X"]` returned the injected value
+        while `"X" in nc` was `False` and `list(nc)` did not mention it.
 
         The internal cache fill calls `dict.__setitem__` directly and so is unaffected.
 
@@ -275,12 +291,7 @@ class _LazyVariableDict(dict):
         Raises:
             TypeError: Always.
         """
-        raise TypeError(
-            f"{type(self).__name__} is a read-through view of the store's variables, not "
-            f"a writable mapping — assigning {key!r} here would be visible to `nc[{key!r}]` "
-            f"and invisible to `in`, `len` and iteration. Add or replace a variable with "
-            f"add_variable() / set_variable(), and drop one with remove_variable()."
-        )
+        raise self._refuse(f"assigning {key!r}")
 
     def __delitem__(self, key: str) -> None:
         """Refuse, for the reason :meth:`__setitem__` gives.
@@ -291,11 +302,88 @@ class _LazyVariableDict(dict):
         Raises:
             TypeError: Always.
         """
-        raise TypeError(
-            f"{type(self).__name__} is a read-through view of the store's variables, not "
-            f"a writable mapping — deleting {key!r} here would only drop it from the cache, "
-            f"and the next lookup would load it again. Use remove_variable()."
-        )
+        raise self._refuse(f"deleting {key!r}")
+
+    # Overriding `__setitem__` and `__delitem__` is not enough. CPython implements the rest
+    # of `dict`'s mutators in C against the underlying storage, so `update`, `setdefault`,
+    # `pop`, `popitem`, `clear` and `|=` all reach the cache without passing through either
+    # override — `nc.variables.update({"GHOST": ...})` made `nc["GHOST"]` resolve while
+    # `"GHOST" in nc` stayed `False`, which is the exact inconsistency the refusal exists
+    # to prevent. Every door has to be closed by name.
+    def update(self, *args: Any, **kwargs: Any) -> None:
+        """Refuse, for the reason :meth:`__setitem__` gives.
+
+        Args:
+            *args: Ignored.
+            **kwargs: Ignored.
+
+        Raises:
+            TypeError: Always.
+        """
+        raise self._refuse("update()")
+
+    def setdefault(self, *args: Any, **kwargs: Any) -> Any:
+        """Refuse, for the reason :meth:`__setitem__` gives.
+
+        Args:
+            *args: Ignored.
+            **kwargs: Ignored.
+
+        Raises:
+            TypeError: Always.
+        """
+        raise self._refuse("setdefault()")
+
+    def pop(self, *args: Any, **kwargs: Any) -> Any:
+        """Refuse, for the reason :meth:`__delitem__` gives.
+
+        Args:
+            *args: Ignored.
+            **kwargs: Ignored.
+
+        Raises:
+            TypeError: Always.
+        """
+        raise self._refuse("pop()")
+
+    def popitem(self) -> Any:
+        """Refuse, for the reason :meth:`__delitem__` gives.
+
+        Raises:
+            TypeError: Always.
+        """
+        raise self._refuse("popitem()")
+
+    def clear(self) -> None:
+        """Refuse, for the reason :meth:`__delitem__` gives.
+
+        Emptying the cache is not harmless: every later lookup reloads, and `popitem` then
+        reports an empty dictionary for a container that plainly holds variables.
+
+        Raises:
+            TypeError: Always.
+        """
+        raise self._refuse("clear()")
+
+    # `dict.__or__` is inherited and returns a plain `dict`, which a checker reads as
+    # incompatible with refusing `|=` here. The mismatch is the point: `|` builds a new
+    # dict and is harmless, `|=` mutates this one and is not.
+    def __ior__(self, other: Any) -> _LazyVariableDict:  # type: ignore[misc]
+        """Refuse, for the reason :meth:`__setitem__` gives.
+
+        The return type matches `dict.__or__`'s so the two stay compatible for a type
+        checker; nothing is ever returned.
+
+        Args:
+            other: Ignored.
+
+        Returns:
+            _LazyVariableDict: Never returns.
+
+        Raises:
+            TypeError: Always.
+        """
+        raise self._refuse("|=")
 
     # This lazy view returns materialized lists rather than live dict
     # views (callers iterate variable names/datasets, not a changing
@@ -1730,7 +1818,9 @@ def _summarised(value: Any, limit: int = 120) -> str:
         # `repr` opens and closes with the same character, and `info` prints these inside a
         # `:key = <value> ;` line that imitates `ncdump -h`. Truncating bare left an opening
         # quote with nothing to match it, so the line no longer parsed as a quoted value.
-        closing = rendered[-1] if rendered[:1] in {"'", '"'} else ""
+        # Tested on the *last* character, not the first: `repr(b"...")` opens with `b'`, so
+        # a leading-character test misses it and leaves the quote unmatched.
+        closing = rendered[-1] if rendered[-1:] in {"'", '"'} else ""
         rendered = rendered[:limit] + "..." + closing
     return rendered
 
@@ -3597,11 +3687,16 @@ class NetCDF(Dataset):
             NetCDF.nbytes: Sized from these dtypes and the dimension lengths.
             NetCDF.variable_names: The names these are keyed by.
         """
-        resolved = ((name, _open_variable(self, name)) for name in self.variable_names)
-        return {
-            name: "unknown" if variable is None else _variable_dtype(variable)
-            for name, variable in resolved
-        }
+        # A plain loop over distinct names, not a comprehension over the raw list. The list
+        # can repeat a name on a classic container, which made this re-open — and re-warn
+        # about — the same unopenable variable once per occurrence; and the generator frame
+        # a comprehension adds pushed `_open_variable`'s warning off the caller's line and
+        # onto this file's.
+        types: dict[str, str] = {}
+        for name in dict.fromkeys(self.variable_names):
+            variable = _open_variable(self, name)
+            types[name] = "unknown" if variable is None else _variable_dtype(variable)
+        return types
 
     @property
     def nbytes(self) -> int:
@@ -3793,12 +3888,13 @@ class NetCDF(Dataset):
         # `_variable_dim_names` would reach `None.OpenMDArray` and raise `AttributeError`.
         rg = self._working_group()
         types = self.dtypes
-        # One enumeration, not two. `dtypes` walks `variable_names` to build its keys, and
-        # walking it again here re-queries `GetMDArrayNames()` and re-runs CF
-        # classification — the expensive half of the summary on a large store — while any
-        # disagreement between the two walks would be a bare `KeyError` out of a read-only
-        # method. Distinct, for the reason `nbytes` gives.
-        names = list(dict.fromkeys(self.variable_names))
+        # The names come from `types`, which `dtypes` has just built from its own walk.
+        # Reading `variable_names` again would re-query `GetMDArrayNames()` and re-run CF
+        # classification — the expensive half of the summary on a large store — and any
+        # disagreement between the two walks would surface as a bare `KeyError` from the
+        # `types[name]` below, out of a read-only method. `dtypes` is already keyed by
+        # distinct name, so this is distinct too.
+        names = list(types)
         lines = ["pyramids.NetCDF {", "dimensions:"]
         lines += [f"\t{name} = {size} ;" for name, size in self.dimension_sizes.items()]
         lines.append("variables:")

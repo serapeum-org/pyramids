@@ -41,6 +41,8 @@ from osgeo import gdal
 from pyramids.netcdf import NetCDF
 from pyramids.netcdf.labeled import LabeledArray
 from pyramids.netcdf.netcdf import (
+    _HasDtype,
+    _HasRasterShape,
     _open_variable,
     _summarised,
     _variable_dtype,
@@ -120,6 +122,36 @@ def count_reads(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
     monkeypatch.setattr(gdal.MDArray, "ReadAsArray", record)
     return reads
+
+
+#: A value for every member the two Protocols declare, so a stub can be built from a
+#: protocol rather than written out beside it. A protocol that grows a member this does not
+#: know raises `KeyError` in `stub_of`, which is the signal to decide what the helpers
+#: should read from it.
+PROTOCOL_VALUES = {"dtype": ["int16"], "rows": 4, "columns": 5, "band_count": 3}
+
+
+def stub_of(protocol: type) -> object:
+    """An object carrying exactly the members `protocol` declares, and nothing else.
+
+    Built by reflection so the stub cannot drift from the Protocol it stands for: a member
+    added to the Protocol appears on the stub, and one the helper reads without declaring
+    raises `AttributeError` rather than being quietly satisfied by a hand-written extra.
+
+    Args:
+        protocol: `_HasDtype` or `_HasRasterShape`.
+
+    Returns:
+        object: An instance whose attributes are the Protocol's declared properties.
+    """
+    declared = {
+        name
+        for klass in protocol.__mro__
+        for name, value in vars(klass).items()
+        if isinstance(value, property)
+    }
+    members = {name: PROTOCOL_VALUES[name] for name in declared}
+    return type(f"Exactly{protocol.__name__}", (), members)()
 
 
 class TestTheContainerIsAMapping:
@@ -907,6 +939,86 @@ class TestTheSizingHelpers:
         assert _variable_nbytes(variable) == np.asarray(variable.values).nbytes
 
 
+class TestTheProtocolsStateWhatEachHelperReads:
+    """`_HasDtype` and `_HasRasterShape`, which were one Protocol until they were split.
+
+    The split is a documentation claim with nothing enforcing it: `[tool.mypy] exclude`
+    skips `tests/`, and neither Protocol is `runtime_checkable`, so an annotation that
+    over-declares costs nothing and fails nowhere. What the annotations promise is that
+    `_variable_dtype` reads `dtype` alone and only `_variable_nbytes` needs the shape, and
+    that is a claim about the code, so it is asserted against the code.
+    """
+
+    def test_the_narrow_protocol_is_all_the_type_helper_reads(self):
+        """A stub carrying `dtype` and nothing else is enough for `_variable_dtype`.
+
+        Test scenario:
+            The suite's other stub for this helper (`NoBands`) also carries `rows`,
+            `columns` and `band_count`, so it passes whether or not `_variable_dtype`
+            reaches for them -- which is what made the narrower annotation unfalsifiable.
+            This one has only what `_HasDtype` declares, so the helper growing a second
+            read is an `AttributeError` here rather than a docstring that quietly stops
+            being true.
+        """
+        assert _variable_dtype(stub_of(_HasDtype)) == "int16"
+
+    def test_the_split_is_real_rather_than_two_names_for_one_protocol(self):
+        """`_HasDtype` is genuinely narrower: the sizing helper cannot work from it.
+
+        Test scenario:
+            Two Protocols that happened to declare the same members would satisfy every
+            annotation in the module and mean nothing, and the narrow one is a strict base
+            of the wide one, so there is no type error to catch the collapse either. The
+            asymmetry is the content of the split: `_variable_nbytes` needs a cell count,
+            so the same stub that serves `_variable_dtype` has to fail here -- and fail on
+            a *missing member*, not on a wrong answer.
+        """
+        with pytest.raises(AttributeError, match="rows"):
+            _variable_nbytes(stub_of(_HasDtype))
+
+    def test_the_wide_protocol_is_all_the_sizing_helper_reads(self):
+        """A stub of `_HasRasterShape` sizes without a store behind it.
+
+        Test scenario:
+            `rows * columns * band_count * itemsize`, over the one input where every factor
+            is known by inspection: 4 x 5 x 3 cells of `int16` is 120 bytes. The point of
+            the assertion is the product, not the number -- it is what says `band_count` is
+            multiplied in rather than ignored, which on a real cube is the difference
+            between a plane and the whole thing, and no fixture can show that without also
+            proving GDAL's flattening.
+        """
+        assert _variable_nbytes(stub_of(_HasRasterShape)) == 4 * 5 * 3 * 2
+
+    def test_a_real_variable_carries_every_member_the_protocols_declare(self):
+        """The Protocols describe `NetCDF`, and nothing checks that at import time.
+
+        Test scenario:
+            Structural typing is erased at runtime, and `tests/` is outside the mypy run,
+            so a member renamed on `NetCDF` leaves both annotations stale and is only
+            discovered when `nc.nbytes` raises `AttributeError` on a real store.
+
+            The claim is the second assertion: everything the Protocols declare exists on a
+            real variable, read off the Protocols rather than listed here, so a member
+            added to either one has to exist on the class too. The written-out set above it
+            is the guard that makes that claim mean something -- reflection returning
+            nothing would satisfy `not missing` just as happily.
+        """
+        variable = open_store(PLAIN)["temperature"]
+        declared = {
+            name
+            for klass in _HasRasterShape.__mro__
+            for name, value in vars(klass).items()
+            if isinstance(value, property)
+        }
+        assert declared == {"dtype", "rows", "columns", "band_count"}
+
+        missing = [name for name in declared if not hasattr(variable, name)]
+        assert not missing, (
+            f"NetCDF no longer carries {missing}, which _HasDtype/_HasRasterShape still "
+            f"declare — update the Protocols and the helpers that read through them."
+        )
+
+
 class TestTheHelperThatOpensAVariable:
     """`_open_variable`, which decides which refusals introspection survives."""
 
@@ -936,7 +1048,71 @@ class TestTheHelperThatOpensAVariable:
             def __getitem__(self, name: str):
                 raise refusal(name)
 
-        assert _open_variable(Refuses(), "whatever") is None
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            assert _open_variable(Refuses(), "whatever") is None
+
+    @pytest.mark.parametrize(
+        "refusal", [RuntimeError, KeyError, ValueError], ids=lambda kind: kind.__name__
+    )
+    def test_the_swallowed_refusal_is_re_reported_as_a_warning(
+        self, refusal: type[Exception]
+    ):
+        """The exception is absorbed, so its type and its text have to survive in the warning.
+
+        Args:
+            refusal: The exception the container raises for the name.
+
+        Test scenario:
+            Returning `None` is what keeps `info()` alive, but it also erases the only
+            evidence of *why* a variable vanished. The three caught types have sources
+            other than the classic-enumeration wart -- a `/vsicurl/` store raises
+            `RuntimeError` on a transient network failure -- and silence made a half-failed
+            remote read indistinguishable from a store with a known-bad name list, both
+            arriving as a quietly smaller `nbytes`.
+
+            So the warning is asserted to carry all three things a reader needs to tell
+            those apart: the name that was dropped, the exception's class, and the message
+            it came with. Nothing else in this suite looks at the text, so deleting any of
+            the three from the f-string leaves every other test green.
+        """
+
+        class Refuses:
+            def __getitem__(self, name: str):
+                raise refusal("the store said no")
+
+        with pytest.warns(UserWarning) as caught:
+            _open_variable(Refuses(), "surface_temperature")
+
+        message = str(caught[0].message)
+        assert "'surface_temperature'" in message
+        assert refusal.__name__ in message
+        assert "the store said no" in message
+
+    def test_each_refused_name_is_warned_about_separately(self):
+        """One warning per name, so a census of what was dropped is possible.
+
+        Test scenario:
+            `nbytes` reports how many variables it could not size and lists them, and it
+            builds that list from one `_open_variable` call per name. A helper that warned
+            once for a whole sweep -- or that let the warnings registry collapse the second
+            name into the first -- would leave the reader knowing something was missing and
+            not which thing. Two different names go in; two warnings, naming one each, come
+            out.
+        """
+
+        class Refuses:
+            def __getitem__(self, name: str):
+                raise RuntimeError("no")
+
+        with pytest.warns(UserWarning) as caught:
+            _open_variable(Refuses(), "alpha")
+            _open_variable(Refuses(), "beta")
+
+        named = [str(w.message) for w in caught]
+        assert len(named) == 2
+        assert sum("'alpha'" in text for text in named) == 1
+        assert sum("'beta'" in text for text in named) == 1
 
     def test_an_error_that_is_not_a_refusal_still_propagates(self):
         """The catch is three named exceptions, not a blanket `except Exception`.
@@ -993,6 +1169,65 @@ class TestTheAttributeSummariser:
                 return "first\rsecond"
 
         assert _summarised(Verbatim()) == "first second"
+
+    def test_a_rendering_exactly_at_the_limit_is_left_whole(self):
+        """The cut is `> limit`, and the off-by-one makes the output longer than the limit.
+
+        Test scenario:
+            Truncating adds four characters -- the ellipsis and the closing quote it
+            restores -- so a `>=` here would take a rendering that already fits in 120 and
+            hand back 124. The boundary is asserted from both sides on the same shape of
+            value: a repr of exactly `limit` characters comes back untouched, and one
+            character longer comes back cut. The suite's only other truncation test uses a
+            1,800-character attribute, which passes whichever comparison is written.
+        """
+        exact = "x" * 118
+        assert len(repr(exact)) == 120
+
+        assert _summarised(exact) == repr(exact)
+        assert len(_summarised(exact + "x")) == 124
+
+    def test_a_double_quoted_rendering_gets_its_own_quote_back(self):
+        """Both quote characters restore, not just the one every fixture happens to use.
+
+        Test scenario:
+            `repr` switches to double quotes for a string holding an apostrophe, which is
+            ordinary prose -- a `history` or `comment` attribute reading "didn't" is
+            enough. The restoring arm reads the quote off the rendering rather than
+            assuming one, and the set it tests against has two members of which only the
+            single quote is reachable from the repo's stores. Dropping `'"'` from that set
+            leaves this suite green while any attribute containing an apostrophe prints
+            with an opening quote and no closing one.
+        """
+        apostrophed = "didn't " + "z" * 200
+        assert repr(apostrophed).startswith('"')
+
+        rendered = _summarised(apostrophed)
+
+        assert rendered.startswith('"')
+        assert rendered.endswith('..."')
+        assert len(rendered) == 124
+
+    def test_an_unquoted_rendering_gains_no_quote_it_never_had(self):
+        """The `else ""` arm: nothing is fabricated for a repr that opens with a letter.
+
+        Test scenario:
+            The restoring arm exists because `info` prints these inside a
+            `:key = <value> ;` line that imitates `ncdump -h`, where an unmatched quote
+            stops the line parsing as a quoted value. A non-string repr has no quotes to
+            match -- an array's opens with `array([`, a bytes value with `b'` -- so taking
+            the last character unconditionally would staple a stray `)` or `'` onto the
+            ellipsis and invent the very mismatch the arm is there to avoid.
+        """
+
+        class Verbatim:
+            def __repr__(self) -> str:
+                return "A" * 200
+
+        rendered = _summarised(Verbatim())
+
+        assert rendered.endswith("...")
+        assert len(rendered) == 123
 
 
 class TestTheInfoSummaryIsWellFormed:
@@ -1157,6 +1392,40 @@ class TestAClassicContainer:
         nc.info(report)
         assert "unknown O3.COLUMN.PARTIAL_AVK" in report.getvalue()
 
+    def test_a_name_the_enumeration_repeats_is_printed_once(self):
+        """The summary lists variables, not enumeration entries.
+
+        Test scenario:
+            `cf__40v__1d28-2d9-3d3__nc4.nc` reports
+            `mole_content_of_ozone_in_atmosphere_layer` four times in its subdataset list.
+            Walking that list would print the identical line four times in a summary whose
+            whole purpose is to be read at a glance, and would make `info` disagree with
+            `dtypes` -- which is printed alongside it, keyed by name, and has 9 entries to
+            the list's 12.
+
+            Asserted as a count of printed variable lines against the distinct names rather
+            than against the repeat alone, so any other name the enumeration doubles is
+            caught by the same assertion. The suite's other `info` tests all check for the
+            presence of a line, which four copies satisfy as happily as one.
+        """
+        nc = NetCDF.read_file(
+            str(DATA / "cf__40v__1d28-2d9-3d3__nc4.nc"), open_as_multi_dimensional=False
+        )
+        repeated = "mole_content_of_ozone_in_atmosphere_layer"
+        assert nc.variable_names.count(repeated) == 4
+
+        report = io.StringIO()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            nc.info(report)
+        printed = [
+            line for line in report.getvalue().splitlines() if line.endswith(") ;")
+        ]
+
+        assert len(printed) == len(set(nc.variable_names))
+        assert len(printed) < len(nc.variable_names)
+        assert sum(f" {repeated}(" in line for line in printed) == 1
+
     def test_variables_are_printed_without_axes_when_there_is_no_group(self):
         """Classic mode has no per-variable dimension names to print.
 
@@ -1273,6 +1542,71 @@ class TestWhatTheDundersChangedAboutProtocolDispatch:
 
         assert boxed.shape == (1,)
         assert boxed[0] is nc
+
+    def test_boxing_a_bare_dataset_gives_a_nought_dimensional_array(self):
+        """The documented return, asserted on the request that shows it: no wrapping list.
+
+        Test scenario:
+            `np.array([nc], dtype=object)` is a shape the *list* supplies, so it holds for
+            any 0-d-or-scalar answer and says nothing about the rank this returns. Asking
+            without the list is what pins it: a 0-d box, which is the only rank that makes
+            the list form come back as `(1,)` rather than `(1, 1)`. It is also the rank
+            that reads nothing -- a `(1,)` answer would have had to decide what the one
+            element was.
+        """
+        nc = open_store(PLAIN)
+
+        boxed = np.asarray(nc, dtype=object)
+
+        assert boxed.shape == ()
+        assert boxed[()] is nc
+
+    def test_the_object_arm_accepts_the_copy_flag_numpy_passes(self):
+        """NumPy 2 hands `__array__` a `copy=` argument, and a signature without it fails.
+
+        Test scenario:
+            `copy` is accepted and unused -- nothing is ever copied -- which makes it look
+            like dead weight a later tidy-up would delete. It is not, and NumPy fails two
+            different ways without it: `copy=False` becomes
+            `ValueError: Unable to avoid copy while creating an array as requested`, and
+            every other spelling -- including the plain `np.asarray(nc, dtype=object)` the
+            rest of this class uses -- starts emitting NumPy's `DeprecationWarning` about
+            an `__array__` that does not accept the keyword. The warning is the one that
+            matters over time: it is how this becomes an error in a later NumPy.
+
+            Both are asserted, because only the first is loud today and only the second
+            catches the spellings that still work.
+        """
+        nc = open_store(PLAIN)
+
+        boxed = np.array(nc, dtype=object, copy=False)
+
+        assert boxed.shape == ()
+        assert boxed[()] is nc
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            assert np.asarray(nc, dtype=object)[()] is nc
+
+    def test_an_explicit_dtype_that_is_not_object_is_refused_as_well(self):
+        """The guard is two conditions, and only the first is reachable through `np.asarray`.
+
+        Test scenario:
+            `np.asarray(nc)` arrives with `dtype=None` and is stopped by the first half of
+            `dtype is not None and np.dtype(dtype) == object`. Naming a dtype gets past
+            that half, and only the second stops it -- so a guard weakened to
+            `if dtype is not None:` passes every other test in this class while
+            `np.mean(nc["ua"], dtype=float)` starts answering with a boxed dataset instead
+            of raising. Branch coverage cannot see the difference: both spellings take the
+            same two exits out of the same `if`.
+        """
+        nc = open_store(PLAIN)
+
+        with pytest.raises(TypeError, match="cannot be converted to an array"):
+            np.asarray(nc, dtype=float)
+
+        with pytest.raises(TypeError, match="cannot be converted to an array"):
+            np.asarray(nc["temperature"], dtype=np.int32)
 
     @pytest.mark.parametrize("protocol", ["Iterable", "Sized", "Container"])
     def test_the_abc_checks_now_answer_true(self, protocol: str):
@@ -1505,6 +1839,39 @@ class TestNbytesSaysWhenItCouldNotSizeSomething:
         assert full == 2752512
         assert full > 10 * 268304
 
+    def test_a_name_the_enumeration_repeats_is_counted_once(self):
+        """`dict.fromkeys`, asserted through the one figure the repeat is visible in.
+
+        Test scenario:
+            The classic subdataset list of `cf__40v__1d28-2d9-3d3__nc4.nc` reports
+            `mole_content_of_ozone_in_atmosphere_layer` four times, so the store has 12
+            names and 9 distinct ones. Summing the list rather than the distinct names
+            would size that variable four times and make `nbytes` disagree with `dtypes`,
+            which is keyed by name.
+
+            The double-sizing itself is invisible here, because the repeated name is one
+            GDAL declines to open and so contributes `0` however often it is counted --
+            which is exactly why it needs pinning rather than leaving to the total. What
+            *is* visible is the census the warning prints: 5 distinct names against 8
+            occurrences, with the repeat listed once. Dropping `dict.fromkeys` turns that
+            into "excludes 8" with the same name printed four times, and the day a
+            repeated name does open, the total silently quadruples it.
+        """
+        nc = NetCDF.read_file(
+            str(DATA / "cf__40v__1d28-2d9-3d3__nc4.nc"), open_as_multi_dimensional=False
+        )
+        repeated = "mole_content_of_ozone_in_atmosphere_layer"
+        assert nc.variable_names.count(repeated) == 4
+
+        with pytest.warns(UserWarning, match="nbytes excludes") as caught:
+            nc.nbytes
+
+        message = next(
+            str(w.message) for w in caught if "nbytes excludes" in str(w.message)
+        )
+        assert "excludes 5 variable(s)" in message
+        assert message.count(repeated) == 1
+
     def test_a_store_that_opens_cleanly_does_not_warn(self):
         """The warning is about a real shortfall, not noise on every classic open.
 
@@ -1520,3 +1887,136 @@ class TestNbytesSaysWhenItCouldNotSizeSomething:
         with warnings.catch_warnings():
             warnings.simplefilter("error", UserWarning)
             assert nc.nbytes > 0
+
+
+class TestEveryMutationDoorIntoTheMappingIsClosed:
+    """`__setitem__` and `__delitem__` are two of eight ways into a `dict` subclass."""
+
+    WRITES = {
+        "update": lambda mapping: mapping.update({"GHOST": "not a variable"}),
+        "setdefault": lambda mapping: mapping.setdefault("GHOST", "not a variable"),
+        "ior": lambda mapping: mapping.__ior__({"GHOST": "not a variable"}),
+        "setitem": lambda mapping: mapping.__setitem__("GHOST", "not a variable"),
+    }
+    REMOVALS = {
+        "pop": lambda mapping: mapping.pop("temperature"),
+        "popitem": lambda mapping: mapping.popitem(),
+        "clear": lambda mapping: mapping.clear(),
+        "delitem": lambda mapping: mapping.__delitem__("temperature"),
+    }
+
+    @pytest.mark.parametrize("operation", sorted(WRITES))
+    def test_no_write_reaches_the_cache(self, operation: str):
+        """Each spelling of a write is refused, and the container stays consistent.
+
+        Args:
+            operation: The mutating call to attempt.
+
+        Test scenario:
+            CPython implements `dict`'s mutators in C against the underlying storage, so
+            they do **not** route through a subclass's `__setitem__`. Overriding that one
+            method closed a single door: `nc.variables.update({"GHOST": ...})` still made
+            `nc["GHOST"]` resolve while `"GHOST" in nc` was `False` and `list(nc)` never
+            mentioned it -- the exact inconsistency the refusal exists to prevent.
+        """
+        nc = open_store(PLAIN)
+
+        with pytest.raises(TypeError, match="read-through view"):
+            self.WRITES[operation](nc.variables)
+
+        assert "GHOST" not in nc
+        assert list(nc) == ["temperature"]
+        assert len(nc) == 1
+
+    @pytest.mark.parametrize("operation", sorted(REMOVALS))
+    def test_no_removal_reaches_the_cache(self, operation: str):
+        """Each spelling of a removal is refused, including the two that empty it.
+
+        Args:
+            operation: The mutating call to attempt.
+
+        Test scenario:
+            A removal is not merely a no-op dressed up: `clear()` emptied the load cache,
+            after which `popitem()` reported an empty dictionary for a container that
+            plainly holds a variable.
+        """
+        nc = open_store(PLAIN)
+        assert nc["temperature"] is not None
+
+        with pytest.raises(TypeError, match="read-through view"):
+            self.REMOVALS[operation](nc.variables)
+
+        assert "temperature" in nc
+        assert nc["temperature"].band_count == 12
+
+    def test_the_refusal_does_not_disable_the_cache(self):
+        """The internal fill bypasses every override, so laziness is intact.
+
+        Test scenario:
+            The cache is populated through `dict.__setitem__` called on the class, which is
+            what lets all eight overrides refuse callers without turning the mapping eager.
+            Asserted by identity on a repeated lookup.
+        """
+        nc = open_store(PLAIN)
+
+        assert nc["temperature"] is nc["temperature"]
+
+
+class TestTheIntrospectionTrioAgreeOnTheWork:
+    """`dtypes`, `nbytes` and `info` walk the same names, once each."""
+
+    REPEATS = "cf__40v__1d28-2d9-3d3__nc4.nc"
+
+    def test_dtypes_opens_a_repeated_name_only_once(self):
+        """The warning count is the observable proxy for the work done.
+
+        Test scenario:
+            This store's classic enumeration reports 12 names and 9 distinct ones, and 5 of
+            them will not open. Walking the raw list re-opened -- and re-warned about --
+            the repeated name once per occurrence, so 5 unopenable variables produced 8
+            warnings. `nbytes` and `info` were made distinct earlier; `dtypes` was left on
+            the list, so the three agreed about their keys while disagreeing about the work.
+        """
+        nc = NetCDF.read_file(str(DATA / self.REPEATS), open_as_multi_dimensional=False)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            types = nc.dtypes
+
+        refusals = [w for w in caught if "could not be opened" in str(w.message)]
+        assert len(refusals) == 5
+        assert len(types) == 9
+        assert len(nc.variable_names) == 12
+
+    def test_info_does_not_enumerate_the_store_a_second_time(self):
+        """Its names come from the mapping `dtypes` already built.
+
+        Test scenario:
+            `info` called `self.dtypes` -- which walks `variable_names` -- and then read
+            `variable_names` again for its own loop. Each read re-queries the store and
+            re-runs CF classification, and any disagreement between the two walks would
+            have surfaced as a bare `KeyError` from the `types[name]` lookup, out of a
+            read-only summary method. Counted by patching the property.
+        """
+        original = type(open_store(PLAIN)).variable_names.fget
+
+        def count(action) -> int:
+            reads = []
+
+            def counted(self):
+                reads.append(1)
+                return original(self)
+
+            nc = open_store(MIXED_RANKS)
+            with pytest.MonkeyPatch.context() as patch:
+                patch.setattr(type(nc), "variable_names", property(counted))
+                action(nc)
+            return len(reads)
+
+        report = io.StringIO()
+
+        # Most reads come from `get_variable` resolving each name, which both members do
+        # equally. The claim is the delta: `info` must add no walk of its own on top of the
+        # one `dtypes` already performs.
+        assert count(lambda nc: nc.info(report)) == count(lambda nc: nc.dtypes)
+        assert "float32 ua(" in report.getvalue()
