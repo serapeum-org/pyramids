@@ -537,7 +537,8 @@ def nearest_indices(
         selector: A number, or a list of numbers (each snapped independently).
         tolerance: The furthest a snap may travel. `None` accepts any distance, which is
             the behaviour when the argument is not given. A request whose closest
-            coordinate lies further than this raises instead of snapping.
+            coordinate lies further than this raises instead of snapping; a request
+            exactly `tolerance` away still snaps, the bound being inclusive.
 
     Returns:
         list[int]: Indices of the snapped coordinates, in **axis** order rather than
@@ -547,7 +548,8 @@ def nearest_indices(
     Raises:
         ValueError: The selector is a :class:`slice` (a range has no nearest value), the
             selector is not a finite number, the axis is not numeric, the axis holds no
-            finite coordinate to snap to, or `tolerance` is negative.
+            finite coordinate to snap to, or `tolerance` is negative or not a number
+            (`bool` included).
         KeyError: A request's closest coordinate is further away than `tolerance`. This
             matches xarray, which raises `KeyError` for the same case; the message carries
             both the distance and the bound, because "no match" alone does not say whether
