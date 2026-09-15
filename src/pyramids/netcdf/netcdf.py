@@ -1628,7 +1628,7 @@ def _variable_nbytes(variable: NetCDF | LabeledArray) -> int:
         variable: A raster subset or a `LabeledArray`.
 
     Returns:
-        int: The byte count.
+        int: The byte count, `0` for a variable whose dtype cannot be named.
 
     Examples:
         - A 12-band 5x6 float64 cube is 2880 bytes, and nothing is read to say so:
@@ -1664,7 +1664,11 @@ def _variable_nbytes(variable: NetCDF | LabeledArray) -> int:
         size = int(np.asarray(variable.values).nbytes)
     else:
         cells = int(variable.rows) * int(variable.columns) * int(variable.band_count)
-        size = cells * int(np.dtype(_variable_dtype(variable)).itemsize)
+        kind = _variable_dtype(variable)
+        # `np.dtype("unknown")` is a TypeError, and `_variable_dtype` documents `"unknown"`
+        # as its answer for a subset reporting no bands — so the size of a variable whose
+        # type cannot be named has to be 0 here, not an exception out of `nc.nbytes`.
+        size = 0 if kind == "unknown" else cells * int(np.dtype(kind).itemsize)
     return size
 
 

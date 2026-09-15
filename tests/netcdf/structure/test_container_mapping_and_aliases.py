@@ -694,8 +694,30 @@ class TestTheSizingHelpers:
 
         class NoBands:
             dtype: list[str] = []
+            rows = 0
+            columns = 0
+            band_count = 0
 
         assert _variable_dtype(NoBands()) == "unknown"
+
+    def test_a_variable_reporting_no_bands_sizes_as_zero(self):
+        """The paired helper must survive the dtype the first one hands it.
+
+        Test scenario:
+            `_variable_nbytes` fed `"unknown"` to `np.dtype`, which raises
+            `TypeError: data type 'unknown' not understood` — and numpy evaluates that
+            operand whether or not the cell count is 0. So the one input `_variable_dtype`
+            documents aborted `nc.nbytes` and `nc.info()` rather than contributing nothing.
+            Covering only the dtype half left it invisible.
+        """
+
+        class NoBands:
+            dtype: list[str] = []
+            rows = 0
+            columns = 0
+            band_count = 0
+
+        assert _variable_nbytes(NoBands()) == 0
 
     def test_a_labelled_array_is_sized_from_the_array_it_holds(self):
         """The `LabeledArray` arm of both helpers.
