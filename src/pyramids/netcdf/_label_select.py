@@ -550,10 +550,16 @@ def nearest_indices(
             selector is not a finite number, the axis is not numeric, the axis holds no
             finite coordinate to snap to, or `tolerance` is negative or not a number
             (`bool` included).
-        KeyError: A request's closest coordinate is further away than `tolerance`. This
-            matches xarray, which raises `KeyError` for the same case; the message carries
-            both the distance and the bound, because "no match" alone does not say whether
-            the bound was slightly or wildly too tight.
+        KeyError: A request's closest coordinate is further away than `tolerance`. The
+            message carries both the distance and the bound, because "no match" alone does
+            not say whether the bound was slightly or wildly too tight.
+
+            xarray raises `KeyError` here too — but it also raises `KeyError` for a plain
+            missed label, where `sel` raises `ValueError`. So this is not the parity it
+            looks like: matching xarray on one of the two misses leaves pyramids raising
+            two different types for "your selector matched nothing". See
+            :meth:`Selection.sel`'s Raises, which states the split rather than implying a
+            consistency that does not exist.
 
     Examples:
         - A value between two levels snaps to the closer one:

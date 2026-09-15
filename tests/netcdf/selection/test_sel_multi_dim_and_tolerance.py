@@ -312,8 +312,9 @@ class TestSelTolerance:
         Test scenario:
             "no match" alone would not say whether the bound was slightly or wildly too tight,
             so the refusal has to quote the closest coordinate, how far away it is, and the
-            bound that rejected it. `KeyError` is asserted by type because that is what xarray
-            raises for the same case.
+            bound that rejected it. The type is asserted because it differs from the
+            `ValueError` a plain missed label raises — see
+            `TestTheTwoRefusalTypesAreBothDocumented`, which pins both.
         """
         with pytest.raises(KeyError) as error:
             cube.sel(
@@ -599,3 +600,53 @@ class TestNearestIndicesTolerance:
         """
         with pytest.raises(ValueError, match=match):
             nearest_indices(coords, selector, 10.0)
+
+
+class TestTheTwoRefusalTypesAreBothDocumented:
+    """`sel` raises `ValueError` for one kind of miss and `KeyError` for another."""
+
+    def test_a_plain_miss_and_a_bounded_miss_raise_different_types(self, cube):
+        """The split a caller has to write their `except` clause around.
+
+        Args:
+            cube: The 4x3 band-dim fixture.
+
+        Test scenario:
+            Both calls mean "your selector matched nothing", and they raise different
+            exceptions: `ValueError` for a label that is simply absent, `KeyError` when a
+            nearest snap is refused by the bound. Neither `except ValueError` nor
+            `except KeyError` alone catches both.
+
+            Pinned because it is a wart, not a design: `ValueError` is what `sel` has
+            always raised and `tolerance` arrived matching xarray's `KeyError` — but
+            xarray raises `KeyError` for *both*, so this is not the parity it was
+            justified as. Unifying it would change a released exception type on the
+            commonly hit path, so it is documented instead. This test fails if either
+            type changes, which is the point: the change should be deliberate.
+        """
+        with pytest.raises(ValueError, match="No bands match"):
+            cube.sel(pressure_level=999)
+
+        with pytest.raises(KeyError, match="no coordinate within tolerance"):
+            cube.sel(pressure_level=925, method="nearest", tolerance=1)
+
+    def test_catching_one_type_misses_the_other(self, cube):
+        """Spelled out as the caller experiences it, not as a type comparison.
+
+        Args:
+            cube: The 4x3 band-dim fixture.
+
+        Test scenario:
+            The consequence of the split, asserted directly: a `try/except ValueError`
+            written for `sel` lets the bounded miss escape. If the two types are ever
+            unified this test fails and says why.
+        """
+        escaped = None
+        try:
+            cube.sel(pressure_level=925, method="nearest", tolerance=1)
+        except ValueError:  # pragma: no cover - the point is that this does not fire
+            escaped = "caught by except ValueError"
+        except KeyError:
+            escaped = "escaped ValueError, caught by except KeyError"
+
+        assert escaped == "escaped ValueError, caught by except KeyError"

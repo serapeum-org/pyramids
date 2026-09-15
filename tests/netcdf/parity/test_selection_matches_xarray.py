@@ -2,8 +2,12 @@
 
 Both members are new, and both make a claim about *xarray's* semantics rather than only about
 pyramids': `isel` is documented as the positional selection xarray spells the same way, and
-`tolerance` as raising the `KeyError` xarray raises. Neither claim can be checked inside
-pyramids alone, so it is checked here, through the shared harness.
+`tolerance` as raising the `KeyError` xarray raises for the same case. Neither claim can be
+checked inside pyramids alone, so both are checked here, through the shared harness.
+
+The second claim holds only for the bounded miss: xarray raises `KeyError` for a plain missed
+label as well, where `sel` raises `ValueError`. That divergence is stated in `sel`'s Raises and
+pinned in `test_sel_multi_dim_and_tolerance.py`.
 
 The harness is not optional decoration. pyramids reads north-up while `cf__5v__1d4-4d1__y-asc`
 stores its rows south-up, so comparing the two libraries' raw arrays fails on all twelve
@@ -326,10 +330,14 @@ class TestSelToleranceMatchesXarray:
             tolerance: A bound below the snap's distance of 50.
 
         Test scenario:
-            The docstring's claim is not merely "it raises" but "it raises `KeyError`, as it
-            does in xarray". Asserting only pyramids would leave that half unchecked, so both
-            calls are made and both are required to raise the same class — a caller's
-            `except KeyError` has to work against either library.
+            Both libraries are called and both are required to raise the same class, so
+            the agreement is checked rather than asserted of pyramids alone.
+
+            The agreement is real but narrower than it looks, which is why the source no
+            longer describes it as xarray parity: xarray raises `KeyError` for a plain
+            missed label too, where `sel` raises `ValueError`. The two libraries match on
+            the bounded miss and diverge on the unbounded one. `sel`'s Raises states the
+            split; `test_sel_multi_dim_and_tolerance.py` pins both types.
         """
         with pytest.raises(KeyError):
             container.get_variable(VARIABLE).sel(

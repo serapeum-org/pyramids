@@ -935,6 +935,22 @@ class Selection(_Engine["NetCDF"]):
             KeyError: A `method="nearest"` request found no coordinate
                 within `tolerance`.
 
+                **Two types for one kind of failure.** A selector that
+                matches nothing raises `ValueError` ("No bands match
+                ..."), while a `tolerance` breach raises `KeyError`.
+                Both mean "your selector matched nothing", so
+                `except ValueError` around a `sel` call does not catch
+                the bounded miss and `except KeyError` does not catch
+                the plain one — catch both, or `except Exception`.
+
+                The split is historical rather than designed:
+                `ValueError` is what `sel` has always raised, and
+                `tolerance` arrived matching xarray, which uses
+                `KeyError`. xarray uses `KeyError` for *both*, so this
+                is not xarray parity. Unifying it would change a
+                released exception type on the commonly hit path, so it
+                is recorded here rather than quietly fixed.
+
         Examples:
             - Pin a pressure level on a 4-D `(time, pressure_level)` cube:
                 ```python
