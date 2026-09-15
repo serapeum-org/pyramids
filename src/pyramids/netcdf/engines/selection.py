@@ -787,10 +787,14 @@ class Selection(_Engine["NetCDF"]):
         Notes:
             Where this parts company with xarray's `isel`, which indexes fancily:
 
-            - A list is sorted and deduplicated before it is applied, so it can neither
-              reorder nor repeat an axis. `isel(time=[2, 0])` leaves `time` as
+            - A **list** is sorted and deduplicated before it is applied, so a list can
+              neither reorder nor repeat an axis. `isel(time=[2, 0])` leaves `time` as
               `[0.0, 12.0]` where xarray gives `[12.0, 0.0]`, and `isel(time=[2, 2])`
               keeps one band where xarray keeps two.
+            - A **slice does** reorder, and agrees with xarray when it does:
+              `isel(time=slice(None, None, -1))` reverses the axis to
+              `[18.0, 12.0, 6.0, 0.0]`, and the planes are reversed with it — each stays
+              attached to its own coordinate. Only the list form is normalised.
             - A slice that selects nothing raises `ValueError` instead of producing a
               zero-length axis. The empty variable would build, then fail much later and
               further away on the first read.
@@ -1999,7 +2003,9 @@ def _resolve_positional_indices(selector: Any, size: int, dim_name: str) -> list
         dim_name: The dimension's name, for the error messages.
 
     Returns:
-        list[int]: Positions in axis order, deduplicated.
+        list[int]: The positions to keep. A list or an int resolves to ascending,
+            deduplicated order; a **slice keeps the order its step implies**, so a
+            negative step yields descending positions and reverses the axis.
 
     Raises:
         IndexError: An index is outside `[-size, size)`. The message names the dimension
@@ -2166,7 +2172,9 @@ def _subset_along_dim(nc: NetCDF, dim_name: str, dim_indices: list[int]) -> NetC
     Args:
         nc: The variable subset to cut.
         dim_name: A dimension of `nc`, already validated.
-        dim_indices: Positions along that dimension, ascending and deduplicated.
+        dim_indices: Positions along that dimension, in the order the result should
+            carry them. Ascending from a list or an int; descending from a
+            negative-step slice, which reverses the axis.
 
     Returns:
         NetCDF: A variable with `len(dim_indices)` planes along `dim_name`.
@@ -2228,7 +2236,11 @@ def _map_dim_to_band_indices(
         dim_axis: Position of the pinned dimension in ``sizes``.
         sizes: The variable's band-dim sizes, outermost first, as tracked in
             ``_band_dim_sizes``.
-        dim_indices: The positions kept along ``dim_axis``, ascending and deduplicated.
+        dim_indices: The positions kept along ``dim_axis``, in result order —
+            ascending from a list, descending from a negative-step slice. The
+            emitted bands follow that order, so it is **not** safe to assume the
+            input is sorted. (`_plot._flat_band_index`, the only other caller,
+            wraps the result in a `set`, so ordering is immaterial to it.)
 
     Returns:
         list[int]: ``len(dim_indices) * prod(sizes) // sizes[dim_axis]`` flat 0-based

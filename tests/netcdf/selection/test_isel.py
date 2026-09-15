@@ -849,3 +849,49 @@ class TestIselRefusesEverySelectorThatKeepsNothing:
         # call was written rather than the quoted `dimension 'x'` of the range message.
         assert "isel(pressure_level=[])" in str(excinfo.value)
         assert "length 3" in str(excinfo.value)
+
+
+class TestANegativeStepSliceReversesTheAxis:
+    """A slice keeps the order its step implies, and the planes follow it."""
+
+    def test_the_coordinates_come_back_descending(self, cube):
+        """`isel(time=slice(None, None, -1))` reverses the axis.
+
+        Args:
+            cube: The 4x3 band-dim fixture.
+
+        Test scenario:
+            Four docstrings described every selector as resolving to ascending positions,
+            which a negative-step slice does not. The behaviour is the useful one and
+            agrees with xarray, so the claims were corrected rather than the code — this
+            pins the behaviour so a later "fix" to match the old wording has to fail here.
+        """
+        reversed_axis = cube.isel(time=slice(None, None, -1))
+
+        assert reversed_axis._band_dim_values_map["time"] == [18.0, 12.0, 6.0, 0.0]
+        assert reversed_axis._band_dim_sizes == (NT, NL)
+
+    def test_each_plane_stays_attached_to_its_own_coordinate(self, cube):
+        """Reversing the labels without reversing the data would be silent corruption.
+
+        Args:
+            cube: The 4x3 band-dim fixture.
+
+        Test scenario:
+            The ordering only matters if the planes move with the labels. Each of the four
+            reversed planes is compared against the single-index read for the time step its
+            label names, so a reversal applied to one and not the other fails here.
+        """
+        reversed_axis = cube.isel(time=slice(None, None, -1))
+        planes = np.asarray(reversed_axis.read_array()).reshape(NT, NL, NY, NX)
+
+        for position, coordinate in enumerate([18.0, 12.0, 6.0, 0.0]):
+            source = [0.0, 6.0, 12.0, 18.0].index(coordinate)
+            expected = np.asarray(cube.isel(time=source).read_array()).reshape(
+                NL, NY, NX
+            )
+            assert_array_equal(
+                planes[position],
+                expected,
+                err_msg=f"plane {position} is labelled {coordinate} and must hold it",
+            )
