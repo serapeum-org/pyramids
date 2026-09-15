@@ -17,7 +17,7 @@ import warnings
 import weakref
 from collections.abc import Iterator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, Unpack, cast
+from typing import TYPE_CHECKING, Any, Protocol, TextIO, Unpack, cast
 
 import numpy as np
 import pandas as pd
@@ -1591,6 +1591,57 @@ class _HasDtype(Protocol):
     @property
     def band_count(self) -> int:
         """Every non-spatial dimension, flattened."""
+
+
+def _summarised(value: Any, limit: int = 120) -> str:
+    """One attribute value, flattened to a single printable line.
+
+    An `info()` summary imitates `ncdump -h`, whose shape is one attribute per line. A
+    netCDF attribute is arbitrary text and need not cooperate: a ROMS store carries a
+    `CPP_options` value over a thousand characters, and an `NLM_LBC` containing raw
+    newlines that split one attribute across dozens of lines.
+
+    Args:
+        value: The attribute value, of any type.
+        limit: Longest rendering to keep before truncating. Defaults to 120.
+
+    Returns:
+        str: The `repr`, with embedded newlines collapsed to spaces, truncated with an
+        ellipsis when it exceeds `limit`.
+
+    Examples:
+        - A short value is its ordinary `repr`:
+
+          ```python
+          >>> from pyramids.netcdf.netcdf import _summarised
+          >>> _summarised("CF-1.6")
+          "'CF-1.6'"
+          >>> _summarised(6371229.0)
+          '6371229.0'
+
+          ```
+        - A newline becomes a space, so the value stays on one line:
+
+          ```python
+          >>> from pyramids.netcdf.netcdf import _summarised
+          >>> _summarised("first" + chr(10) + "second")
+          "'first second'"
+
+          ```
+        - An over-long value is cut, and says so:
+
+          ```python
+          >>> from pyramids.netcdf.netcdf import _summarised
+          >>> rendered = _summarised("x" * 500, limit=20)
+          >>> len(rendered), rendered.endswith("...")
+          (23, True)
+
+          ```
+    """
+    rendered = repr(value).replace("\\n", " ").replace("\n", " ").replace("\r", " ")
+    if len(rendered) > limit:
+        rendered = rendered[:limit] + "..."
+    return rendered
 
 
 def _open_variable(nc: NetCDF, name: str) -> NetCDF | LabeledArray | None:
@@ -3217,7 +3268,7 @@ class NetCDF(Dataset):
         return self.global_attributes
 
     @property
-    def coords(self) -> dict[str, Any]:
+    def coords(self) -> dict[str, np.typing.NDArray]:
         """Every dimension's stored coordinate, as `{name: ndarray}`.
 
         Built from :meth:`get_dimension_values`, so the storage-order contract lives in one
@@ -3409,7 +3460,7 @@ class NetCDF(Dataset):
                 total += _variable_nbytes(variable)
         return total
 
-    def info(self, buf: Any = None) -> None:
+    def info(self, buf: TextIO | None = None) -> None:
         """Print a summary of the container: dimensions, variables and attributes.
 
         Calls :attr:`dtypes`, so it inherits that member's caveat: a variable with no
@@ -3420,7 +3471,8 @@ class NetCDF(Dataset):
         empty axis list. Everything else — dimensions, dtypes, attributes — is unaffected.
 
         Args:
-            buf: Where to write. Defaults to `sys.stdout`, matching xarray's `info`.
+            buf: An open text stream to write to. Defaults to `sys.stdout`, matching
+                xarray's `info`.
 
         Examples:
             - The whole summary of a small store. The real output indents with tabs, as
@@ -3480,11 +3532,16 @@ class NetCDF(Dataset):
             lines.append(f"\t{types[name]} {name}({axes}) ;")
         lines.append("")
         lines.append("// global attributes:")
-        lines += [f"\t:{key} = {value!r} ;" for key, value in self.attrs.items()]
+        # An attribute value is arbitrary text: a ROMS store carries a `CPP_options` over
+        # 1,000 characters and an `NLM_LBC` full of newlines, either of which destroys the
+        # `ncdump -h` shape this is imitating. Collapsed to one line and truncated.
+        lines += [
+            f"\t:{key} = {_summarised(value)} ;" for key, value in self.attrs.items()
+        ]
         lines.append("}")
         print("\n".join(lines), file=stream)
 
-    def get(self, name: str, default: Any = None) -> NetCDF | LabeledArray | Any:
+    def get(self, name: str, default: Any = None) -> Any:
         """The variable called `name`, or `default` when the container has no such variable.
 
         Args:
@@ -3492,7 +3549,9 @@ class NetCDF(Dataset):
             default: What to return when `name` is absent. Defaults to `None`.
 
         Returns:
-            The variable, or `default`.
+            NetCDF | LabeledArray | Any: The variable — a `NetCDF` subset or a
+            `LabeledArray` — or `default` when there is no such name. Annotated `Any`
+            because `default` is unconstrained; a checker cannot narrow it further.
 
         Examples:
             - A miss returns the default rather than raising:
@@ -3569,9 +3628,14 @@ class NetCDF(Dataset):
 
               ```
 
+        Read-only: `nc["t2m"] = other` raises `TypeError`, because a store is written
+        through named methods rather than by item assignment.
+
         See Also:
             NetCDF.get_variable: The same lookup, raising `ValueError` instead.
             NetCDF.variables: The mapping this reads.
+            NetCDF.add_variable: Writes a new variable; `set_variable` replaces one and
+                `remove_variable` drops one.
         """
         return self.variables[name]
 
@@ -3617,8 +3681,10 @@ class NetCDF(Dataset):
         Data variables only, matching :attr:`variables` and :attr:`variable_names` — a
         dimension coordinate such as `lat` is not yielded, so `list(nc)` and
         `nc.variable_names` agree. That choice is the one place this class could have
-        collided with xarray twice over: `Dataset.__iter__` yields data variables too, but
-        `Dataset.variables` includes coordinates while this class's does not.
+        collided with xarray twice over: `xarray.Dataset.__iter__` yields data variables
+        too, but `xarray.Dataset.variables` includes coordinates while this class's does
+        not. (Spelled out because `Dataset` is also the name of this class's own base,
+        which has neither member.)
 
         **This made a container look like a sequence to everything that duck-types.**
         Before these dunders existed, a `NetCDF` had neither `__iter__` nor `__len__`, so

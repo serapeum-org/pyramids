@@ -35,6 +35,12 @@ DIVERGENT = {
     "ugrid__6v__1d5-2d1.nc",
 }
 
+#: Everything else in the fixture directory, globbed at **import** time. This is deliberate
+#: and has a consequence worth knowing before you add a fixture: any `.nc` file dropped into
+#: `tests/data/netcdf` for an unrelated feature joins this sweep automatically, and must
+#: then either agree with `to_xarray` or be added to `DIVERGENT` with a test of its own. That
+#: is the point -- a new store silently escaping the parity claim is the failure mode this
+#: guards against -- but it does mean an unrelated fixture can turn this suite red.
 AGREEING = tuple(
     sorted(path.name for path in DATA.glob("*.nc") if path.name not in DIVERGENT)
 )
@@ -64,15 +70,18 @@ class TestTheNamesAgree:
 
         Test scenario:
             A store added to `DIVERGENT` without a test of its own would shrink the sweep
-            with nothing to show for it. The counts are tied together here so that adding
-            a fixture to the repo extends the sweep, and excluding one has to be
-            deliberate.
+            with nothing to show for it. The partition is asserted so that adding a fixture
+            to the repo extends the sweep, and excluding one has to be deliberate.
+
+            The partition is the whole assertion: a literal count of the excluded stores
+            would be a second place to edit for the same change, and says nothing the
+            set comparison does not already say.
         """
         every_store = {path.name for path in DATA.glob("*.nc")}
 
         assert DIVERGENT < every_store
         assert set(AGREEING) == every_store - DIVERGENT
-        assert len(DIVERGENT) == 3
+        assert set(AGREEING).isdisjoint(DIVERGENT)
 
 
 class TestWhereTheNamesDisagree:
