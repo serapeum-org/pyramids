@@ -7842,6 +7842,10 @@ class NetCDF(Dataset):
             result = self._preserve_netcdf_metadata(result)._persist_to(path)
         return cast("NetCDF", result)
 
+    def isel(self, *args, **kwargs) -> NetCDF:
+        """Facade — :meth:`Selection.isel <pyramids.netcdf.engines.selection.Selection.isel>`."""
+        return self.selection.isel(*args, **kwargs)
+
     def sel(self, *args, **kwargs) -> NetCDF:
         """Facade — :meth:`Selection.sel <pyramids.netcdf.engines.selection.Selection.sel>`."""
         return self.selection.sel(*args, **kwargs)

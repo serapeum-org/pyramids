@@ -696,6 +696,88 @@ class Selection(_Engine["NetCDF"]):
         result._curvilinear_coords = (lon_win, lat_win)
         return result
 
+    def isel(self, **indexers: Any) -> NetCDF:
+        """Select bands by **position** along one or more band dimensions.
+
+        The positional twin of :meth:`sel`. Where `sel` asks "which band has this
+        coordinate value", this asks "which band is at this index" — so it works on an axis
+        the store gives no coordinates for, which is the case `sel` cannot serve at all. A
+        WRF store's `bottom_top` is the usual example: 27 model levels with no coordinate
+        variable, where `sel(bottom_top=...)` can only refuse.
+
+        Several dimensions may be given in one call. They are applied in sequence, and
+        because each cut is independent of the others the order does not affect the result.
+
+        Args:
+            **indexers: One or more `dimension=selector` pairs. Each selector is an `int`,
+                a `list[int]`, or a `slice` of indices. A negative index counts from the
+                end.
+
+        Returns:
+            NetCDF: A variable holding the selected bands, with `_band_dim_sizes` and the
+            coordinate map narrowed to match. A dimension with no coordinates keeps none.
+
+        Raises:
+            ValueError: No indexers were given, the variable tracks no band dimensions, a
+                named dimension is not one of them, or a slice selects nothing.
+            IndexError: An index is outside the dimension's range.
+            TypeError: A selector is not an `int`, a list of `int`, or a `slice`.
+
+        Examples:
+            - Take the first time step of a `(time, pressure_level)` cube, leaving the
+              levels untouched:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> cube = nc["temperature"]
+              >>> cube.band_count
+              12
+              >>> first = cube.isel(time=0)
+              >>> first.band_count
+              3
+
+              ```
+            - Several dimensions in one call, down to a single plane:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> plane = nc["temperature"].isel(time=1, pressure_level=2)
+              >>> plane.band_count
+              1
+              >>> plane._band_dim_values_map["time"]
+              [6.0]
+
+              ```
+            - A negative index counts from the end, as it does in xarray:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> nc["temperature"].isel(time=-1)._band_dim_values_map["time"]
+              [18.0]
+
+              ```
+
+        See Also:
+            NetCDF.sel: The same cut, addressed by coordinate value.
+        """
+        nc = self._ds
+        if not indexers:
+            raise ValueError(
+                "isel() requires at least one keyword argument, e.g. isel(time=0)."
+            )
+
+        result = nc
+        for dim_name, selector in indexers.items():
+            _assert_band_dimension(result, dim_name, caller="isel")
+            axis = result._band_dim_names.index(dim_name)
+            size = result._band_dim_sizes[axis]
+            dim_indices = _resolve_positional_indices(selector, size, dim_name)
+            result = _subset_along_dim(result, dim_name, dim_indices)
+        return result
+
     def sel(self, *, method: str | None = None, **kwargs: Any) -> NetCDF:
         """Select a subset of bands by coordinate values along a band dim.
 
@@ -886,22 +968,13 @@ class Selection(_Engine["NetCDF"]):
             )
 
         dim_name, selector = next(iter(kwargs.items()))
-
-        if not nc._band_dim_names:
-            raise ValueError(
-                "sel() requires a variable with at least one non-spatial "
-                "dimension. This variable has no band dimensions tracked."
-            )
-        if dim_name not in nc._band_dim_names:
-            raise ValueError(
-                f"Dimension {dim_name!r} does not match any band dimension "
-                f"of this variable {list(nc._band_dim_names)!r}."
-            )
+        _assert_band_dimension(nc, dim_name, caller="sel")
 
         coords = nc._band_dim_values_map.get(dim_name)
         if coords is None:
             raise ValueError(
-                f"No coordinate values available for dimension {dim_name!r}."
+                f"No coordinate values available for dimension {dim_name!r}. "
+                f"Select by position instead: isel({dim_name}=<index>)."
             )
 
         dim_indices, available = _resolve_selector_indices(
@@ -914,39 +987,7 @@ class Selection(_Engine["NetCDF"]):
                 f"Available values: {summarise_values(available)}{hint}"
             )
 
-        dim_axis = nc._band_dim_names.index(dim_name)
-        sizes = nc._band_dim_sizes
-        band_indices = _map_dim_to_band_indices(dim_axis, sizes, dim_indices)
-        selected_coords = [coords[i] for i in dim_indices]
-        selected = _read_selected_bands(nc, band_indices)
-
-        ndv = nc.no_data_value
-        # no_data_value is a TUPLE; the old `isinstance(ndv, list)` test never fired (ARC-29). Route
-        # through the shared helper (handles list AND tuple) like the reduce path below.
-        ndv_scalar = scalar_no_data(ndv)
-        ds_result = Dataset.from_array(
-            selected,
-            no_data_value=ndv_scalar,
-            geo_ref=GeoReference(geo=nc.geotransform, epsg=crs_spec(nc.epsg, nc.crs)),
-        )
-        result = nc._preserve_netcdf_metadata(ds_result)
-        new_sizes = tuple(
-            len(dim_indices) if i == dim_axis else s for i, s in enumerate(sizes)
-        )
-        result._band_dim_sizes = new_sizes
-        result._band_dim_values_map = dict(nc._band_dim_values_map)
-        result._band_dim_values_map[dim_name] = selected_coords
-        # Re-derive the legacy primary-dim view from the (now updated) canonical
-        # fields so it tracks the pinned selection — single source of truth in
-        # `_derive_primary_band_view`.
-        result._band_dim_name, result._band_dim_values = nc._derive_primary_band_view(
-            result._band_dim_names,
-            result._band_dim_values_map,
-            result._band_dim_sizes,
-            result._band_count,
-        )
-
-        return result
+        return _subset_along_dim(nc, dim_name, dim_indices)
 
     def subset(
         self,
@@ -1783,6 +1824,189 @@ def _resolve_selector_indices(
             indices = []
         available = coords
     return indices, available
+
+
+def _resolve_positional_indices(selector: Any, size: int, dim_name: str) -> list[int]:
+    """Turn one `isel` selector into ascending, deduplicated positions along an axis.
+
+    Accepts what xarray's `isel` accepts for a single dimension: an `int`, a list of
+    `int`, or a `slice` of indices. A negative index counts from the end, as everywhere
+    else in Python.
+
+    Args:
+        selector: An `int`, a `list[int]`, or a `slice`.
+        size: The length of the axis, used to normalise negatives and to bound-check.
+        dim_name: The dimension's name, for the error messages.
+
+    Returns:
+        list[int]: Positions in axis order, deduplicated.
+
+    Raises:
+        IndexError: An index is outside `[-size, size)`. The message names the dimension
+            and its length, because "index 7 is out of bounds" alone does not say which of
+            several dimensions was overrun.
+        TypeError: The selector is not an `int`, a list of `int`, or a `slice`.
+        ValueError: A slice selects nothing, which would otherwise build a zero-band
+            variable that fails much later and further away.
+
+    Examples:
+        - A negative index counts from the end:
+
+          ```python
+          >>> from pyramids.netcdf.engines.selection import _resolve_positional_indices
+          >>> _resolve_positional_indices(-1, 4, "time")
+          [3]
+
+          ```
+        - A slice keeps axis order, and a list is sorted and deduplicated:
+
+          ```python
+          >>> from pyramids.netcdf.engines.selection import _resolve_positional_indices
+          >>> _resolve_positional_indices(slice(1, 3), 4, "time")
+          [1, 2]
+          >>> _resolve_positional_indices([2, 0, 2], 4, "time")
+          [0, 2]
+
+          ```
+        - An out-of-range index names the dimension and its size:
+
+          ```python
+          >>> from pyramids.netcdf.engines.selection import _resolve_positional_indices
+          >>> _resolve_positional_indices(9, 4, "time")
+          Traceback (most recent call last):
+              ...
+          IndexError: index 9 is out of range for dimension 'time' of length 4...
+
+          ```
+    """
+    if isinstance(selector, slice):
+        return list(range(*selector.indices(size))) or _refuse_empty_slice(
+            selector, dim_name, size
+        )
+    if isinstance(selector, bool) or not isinstance(selector, (int, list, tuple)):
+        # `bool` is an `int` subclass, and `isel(time=True)` almost certainly means the
+        # caller confused this with a mask rather than asking for index 1.
+        raise TypeError(
+            f"isel() needs an int, a list of ints, or a slice for {dim_name!r}, got "
+            f"{selector!r}. Select by coordinate value with sel({dim_name}=...) instead."
+        )
+    wanted = list(selector) if isinstance(selector, (list, tuple)) else [selector]
+    if any(isinstance(v, bool) or not isinstance(v, int) for v in wanted):
+        raise TypeError(
+            f"isel() needs whole-number indices for {dim_name!r}, got {selector!r}."
+        )
+    resolved = set()
+    for value in wanted:
+        if not -size <= value < size:
+            raise IndexError(
+                f"index {value} is out of range for dimension {dim_name!r} of length "
+                f"{size}. Valid indices are {-size} to {size - 1}."
+            )
+        resolved.add(value + size if value < 0 else value)
+    return sorted(resolved)
+
+
+def _refuse_empty_slice(selector: slice, dim_name: str, size: int) -> list[int]:
+    """Refuse a slice that selects nothing.
+
+    Args:
+        selector: The slice that matched no position.
+        dim_name: The dimension it was applied to.
+        size: That dimension's length.
+
+    Returns:
+        list[int]: Never returns.
+
+    Raises:
+        ValueError: Always.
+    """
+    raise ValueError(
+        f"isel({dim_name}={selector!r}) selects no index of an axis of length {size}. "
+        f"A variable with no bands cannot be built."
+    )
+
+
+def _assert_band_dimension(nc: NetCDF, dim_name: str, *, caller: str) -> None:
+    """Refuse a name that is not one of this variable's band dimensions.
+
+    Shared by `sel` and `isel` so the two report an unknown dimension identically — the
+    plan for `isel` asks for exactly the `ValueError` `sel` already raises, and the only
+    way to keep that true is to raise it in one place.
+
+    Args:
+        nc: The variable subset being selected from.
+        dim_name: The dimension the caller named.
+        caller: `"sel"` or `"isel"`, for the message.
+
+    Raises:
+        ValueError: The variable tracks no band dimensions, or `dim_name` is not one.
+    """
+    if not nc._band_dim_names:
+        raise ValueError(
+            f"{caller}() requires a variable with at least one non-spatial "
+            f"dimension. This variable has no band dimensions tracked."
+        )
+    if dim_name not in nc._band_dim_names:
+        raise ValueError(
+            f"Dimension {dim_name!r} does not match any band dimension "
+            f"of this variable {list(nc._band_dim_names)!r}."
+        )
+
+
+def _subset_along_dim(nc: NetCDF, dim_name: str, dim_indices: list[int]) -> NetCDF:
+    """Build the variable holding only `dim_indices` along `dim_name`.
+
+    Everything after "which positions do we want" — the band arithmetic, the read, and
+    rebuilding the band-dim metadata on the result. `sel` reaches it by resolving a label
+    to positions and `isel` by being handed them, so the two produce identical results for
+    the same positions by construction rather than by agreement.
+
+    A dimension with no coordinate values keeps `None` on the result rather than gaining a
+    fabricated axis: that is the case `isel` exists to serve, and inventing coordinates for
+    it would make the result claim to know something the store never said.
+
+    Args:
+        nc: The variable subset to cut.
+        dim_name: A dimension of `nc`, already validated.
+        dim_indices: Positions along that dimension, ascending and deduplicated.
+
+    Returns:
+        NetCDF: A variable with `len(dim_indices)` planes along `dim_name`.
+    """
+    dim_axis = nc._band_dim_names.index(dim_name)
+    sizes = nc._band_dim_sizes
+    band_indices = _map_dim_to_band_indices(dim_axis, sizes, dim_indices)
+    coords = nc._band_dim_values_map.get(dim_name)
+    selected_coords = None if coords is None else [coords[i] for i in dim_indices]
+    selected = _read_selected_bands(nc, band_indices)
+
+    ndv = nc.no_data_value
+    # no_data_value is a TUPLE; the old `isinstance(ndv, list)` test never fired (ARC-29). Route
+    # through the shared helper (handles list AND tuple) like the reduce path below.
+    ndv_scalar = scalar_no_data(ndv)
+    ds_result = Dataset.from_array(
+        selected,
+        no_data_value=ndv_scalar,
+        geo_ref=GeoReference(geo=nc.geotransform, epsg=crs_spec(nc.epsg, nc.crs)),
+    )
+    result = nc._preserve_netcdf_metadata(ds_result)
+    new_sizes = tuple(
+        len(dim_indices) if i == dim_axis else s for i, s in enumerate(sizes)
+    )
+    result._band_dim_sizes = new_sizes
+    result._band_dim_values_map = dict(nc._band_dim_values_map)
+    result._band_dim_values_map[dim_name] = selected_coords
+    # Re-derive the legacy primary-dim view from the (now updated) canonical
+    # fields so it tracks the pinned selection — single source of truth in
+    # `_derive_primary_band_view`.
+    result._band_dim_name, result._band_dim_values = nc._derive_primary_band_view(
+        result._band_dim_names,
+        result._band_dim_values_map,
+        result._band_dim_sizes,
+        result._band_count,
+    )
+
+    return result
 
 
 def _map_dim_to_band_indices(
