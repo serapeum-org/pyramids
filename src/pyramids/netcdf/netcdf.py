@@ -3104,6 +3104,11 @@ class NetCDF(Dataset):
         The list keeps its own name; this returns what the xarray spelling promises, which
         makes it the same object as :attr:`dimension_sizes`.
 
+        **Differs from xarray** in being a plain `dict` where xarray hands back a `Frozen`
+        mapping. A write here — `nc.dims["lat"] = 1` — succeeds against a throwaway and is
+        silently discarded, where xarray raises. Change an axis through the store, not
+        through this.
+
         Inherits :attr:`dimension_sizes`' contract on a **variable subset**, where it is `{}`:
         a subset has no root group to enumerate dimensions from. :attr:`dimension_names` falls
         back to the names cached when the subset was built and so still reports them, which is
@@ -3143,6 +3148,9 @@ class NetCDF(Dataset):
     @property
     def sizes(self) -> dict[str, int]:
         """xarray's other name for :attr:`dimension_sizes`. Read-only alias.
+
+        **Differs from xarray** in the same way :attr:`dims` does: a plain `dict`, not a
+        `Frozen`, so a write is silently discarded rather than refused.
 
         Returns:
             dict[str, int]: Dimension name to its length.
@@ -3225,6 +3233,10 @@ class NetCDF(Dataset):
         Values are read when this is called, one array per dimension; the arrays are small
         (one per axis, not per cell) but this is not free.
 
+        **Differs from xarray**, whose `coords[name]` is a `DataArray` carrying its own
+        `dims` and `attrs`. These are bare arrays: `nc.coords["lat"].values` is an
+        `AttributeError`, because the array *is* the values.
+
         Returns:
             dict[str, numpy.ndarray]: Dimension name to its stored coordinate.
 
@@ -3292,6 +3304,13 @@ class NetCDF(Dataset):
         raising. That happens on a **classic** container, whose subdataset enumeration can
         report an array GDAL then declines to open; introspection describes what it can
         instead of stopping at the first such name.
+
+        **Differs from xarray** in two ways: the values are `str`, not `numpy.dtype`
+        objects, so `nc.dtypes["t2m"] == np.float64` is `False` where xarray's is `True` —
+        compare `np.dtype(nc.dtypes["t2m"])` instead. And being a mapping it is keyed by
+        **unique** name, while :attr:`variable_names` is a list that a classic container
+        can repeat: on `cf__40v__1d28-2d9-3d3__nc4.nc` opened classically that list has 12
+        entries and 9 distinct names, so `len(nc.dtypes)` is 9 while `len(nc)` is 12.
 
         Returns:
             dict[str, str]: Variable name to the dtype of its first band, or to the
@@ -3689,8 +3708,12 @@ class NetCDF(Dataset):
     def keys(self) -> list[str]:
         """The data-variable names, in store order. Reads nothing.
 
+        **Differs from xarray**, whose `keys()` is a live `KeysView` that tracks the
+        dataset. This is a snapshot: a copy, taken when you call it, which is why it is safe
+        to sort or reverse in place.
+
         Returns:
-            list[str]: The same list as :attr:`variable_names`.
+            list[str]: The same names as :attr:`variable_names`, as a fresh list.
 
         Examples:
             - A list, not a view, matching the mapping it delegates to:

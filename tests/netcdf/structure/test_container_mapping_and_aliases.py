@@ -483,7 +483,7 @@ class TestCheapIntrospection:
             to: a raster subset reports `dtype` as one entry *per band*, and returning that
             list stringified would pass a key comparison and be useless.
         """
-        assert sorted(container.dtypes) == sorted(container.variable_names)
+        assert sorted(container.dtypes) == sorted(set(container.variable_names))
         for name in container.variable_names:
             assert np.dtype(container.dtypes[name]) is not None
 
@@ -1042,3 +1042,68 @@ class TestWhatTheDundersChangedAboutProtocolDispatch:
             bool(nc)
 
         assert len(nc) == 1
+
+
+class TestWhereTheAliasesDivergeFromXarray:
+    """The gaps a reader who came for the xarray spelling should know about."""
+
+    def test_a_dtype_is_a_string_not_a_numpy_dtype(self):
+        """`nc.dtypes["t2m"] == np.float64` is `False` here and `True` in xarray.
+
+        Test scenario:
+            The values are the dtype's *name*. The comparison a reader would write from
+            xarray habit therefore fails silently -- it is `False`, not an error -- so the
+            working spelling is pinned beside it.
+        """
+        nc = open_store(PLAIN)
+
+        assert nc.dtypes["temperature"] == "float64"
+        assert nc.dtypes["temperature"] != np.float64
+        assert np.dtype(nc.dtypes["temperature"]) == np.float64
+
+    def test_a_coordinate_is_a_bare_array_not_a_data_array(self):
+        """`nc.coords["lat"].values` is an `AttributeError`, where xarray has `.values`.
+
+        Test scenario:
+            xarray's `coords[name]` is a `DataArray` carrying its own `dims` and `attrs`.
+            These are the values themselves, so the attribute access a reader would reach
+            for has nothing behind it.
+        """
+        nc = open_store(PLAIN)
+
+        assert isinstance(nc.coords["lat"], np.ndarray)
+        with pytest.raises(AttributeError):
+            nc.coords["lat"].values
+
+    def test_writing_to_a_returned_mapping_is_discarded_rather_than_refused(self):
+        """xarray's `dims` is `Frozen` and raises; this is a plain dict and forgets.
+
+        Test scenario:
+            The write succeeds against a throwaway, so nothing signals that it had no
+            effect. Pinned as a known divergence rather than as a feature -- it is the one
+            place where the xarray spelling is safer than this one.
+        """
+        nc = open_store(PLAIN)
+
+        nc.dims["lat"] = 999
+
+        assert nc.dims["lat"] == 5
+
+    def test_a_classic_container_can_repeat_a_name_the_mappings_cannot(self):
+        """`variable_names` is a list and may repeat; the mappings are keyed by name.
+
+        Test scenario:
+            The classic subdataset enumeration reports
+            `mole_content_of_ozone_in_atmosphere_layer` more than once, so the store has 12
+            names and 9 distinct ones. `len(nc)` counts the list and `len(nc.dtypes)` counts
+            the keys, and they disagree -- which is why the sweep's invariant is stated
+            against `set(variable_names)` rather than the list.
+        """
+        nc = NetCDF.read_file(
+            str(DATA / "cf__40v__1d28-2d9-3d3__nc4.nc"), open_as_multi_dimensional=False
+        )
+
+        assert len(nc.variable_names) == 12
+        assert len(set(nc.variable_names)) == 9
+        assert len(nc) == 12
+        assert len(nc.dtypes) == 9
