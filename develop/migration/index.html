@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -7892,15 +7892,18 @@ neither dunder before, so every <code>isinstance(x, Iterable)</code> test answer
 <li>The case to check is a helper of your own that accepts "anything iterable". It used to reject a container
   outright and now quietly receives a list of name strings, so a mistake fails later and less clearly than it
   used to. Gate on <code>isinstance(x, NetCDF)</code> first if that matters.</li>
-<li><strong>Array coercion is unaffected, deliberately.</strong> NumPy would otherwise have converted a <code>NetCDF</code> by looping
-  it — which for a <em>variable</em> yields nothing, so <code>np.mean(nc["t2m"])</code> would have answered <code>nan</code> for a cube of
-  real values instead of raising. <code>NetCDF.__array__</code> refuses, so <code>np.asarray(nc)</code> and every reduction over one
-  raise <code>TypeError</code> exactly as they did before, pointing at <code>nc["name"].read_array()</code>.</li>
-<li><code>np.array([nc], dtype=object)</code> still boxes the dataset and is still <code>(1,)</code>: that request reads nothing and
-  fabricates nothing, so it is the one <code>__array__</code> honours.</li>
-<li><code>bool(nc)</code> is unaffected: <code>Dataset.__bool__</code> still refuses, and takes precedence over <code>__len__</code>. Ask
-  <code>len(nc) == 0</code> whether a container is empty.</li>
+<li><strong>Array coercion now raises, where a container used to answer uselessly.</strong> <code>np.asarray(nc)</code> returned a 0-d
+  object array wrapping the container; it now raises <code>TypeError</code> pointing at <code>nc["name"].read_array()</code>. That is
+  a hard change, but the old value was a box around the object rather than any of its data, so nothing could
+  have been computing with it.</li>
 </ul>
+<p>The refusal exists for the <em>variable</em> case, where leaving the coercion alone would have been worse than
+  useless: iterating a variable yields nothing, so <code>np.mean(nc["t2m"])</code> would have answered <code>nan</code> for a cube of
+  real values. <code>origin/main</code> raised there, and so does this — only the exception type differs.
+- <code>np.array([nc], dtype=object)</code> still boxes the dataset and is still <code>(1,)</code>: that request reads nothing and
+  fabricates nothing, so it is the one <code>__array__</code> honours.
+- <code>bool(nc)</code> is unaffected: <code>Dataset.__bool__</code> still refuses, and takes precedence over <code>__len__</code>. Ask
+  <code>len(nc) == 0</code> whether a container is empty.</p>
 <p><strong><code>to_xarray()</code> decodes the CF time axis, so the coordinate is <code>datetime64[ns]</code> rather than <code>float64</code>.</strong>
 Hard change, silent for the read side — nothing raises and nothing warns when the axis decodes. The bridge
 exists to hand you to xarray, and <code>resample</code>, <code>.dt</code> and <code>groupby("time.&lt;component&gt;")</code> all raised on the numeric
