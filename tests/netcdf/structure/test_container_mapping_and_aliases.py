@@ -29,6 +29,7 @@ type.
 from __future__ import annotations
 
 import io
+import warnings
 from collections import abc
 from pathlib import Path
 
@@ -1069,7 +1070,10 @@ class TestAClassicContainer:
         assert nc._working_group() is None
 
         assert sorted(nc.dtypes) == sorted(set(nc.variable_names))
-        assert nc.nbytes >= 0
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            assert nc.nbytes >= 0
 
         report = io.StringIO()
         nc.info(report)
@@ -1148,29 +1152,68 @@ class TestAClassicContainer:
 class TestWhatTheDundersChangedAboutProtocolDispatch:
     """Adding `__iter__` / `__len__` made a container duck-type as a sequence.
 
-    Pinned, not fixed. The container previously had neither dunder, so NumPy treated it
-    as an opaque object and every `isinstance(x, Iterable)` site in the tree answered
-    `False` for it. Both changed as a side effect of the mapping protocol, and the
-    decision was to document the new behaviour rather than add an `__array__` that
-    refuses it. These tests exist so the choice is visible and cannot drift again
-    unnoticed.
+    The container previously had neither dunder, so NumPy treated it as an opaque object
+    and every `isinstance(x, Iterable)` site in the tree answered `False` for it. Both
+    changed as a side effect of the mapping protocol.
+
+    The array coercion is **refused** by `__array__` rather than documented, because on a
+    variable it would have answered `nan` instead of raising. The `isinstance` flips are
+    kept and pinned, since they follow from the protocol the task asked for.
     """
 
-    def test_a_container_now_coerces_to_an_array_of_its_names(self):
-        """`np.asarray(nc)` builds names, where it used to box the container.
+    @pytest.mark.parametrize("shape", ["container", "variable"])
+    def test_coercing_to_an_array_is_refused(self, shape: str):
+        """`np.asarray` raises rather than inventing an answer from the iteration.
+
+        Args:
+            shape: Whether to coerce the container or one of its variables.
 
         Test scenario:
-            NumPy sees `__len__` + `__iter__` and iterates rather than wrapping. Iterating
-            a container yields names, so the result is a string array -- not data, and not
-            a useful way to reach any. The assertion names the dtype kind so the intent is
-            unmistakable: this is a list of labels.
+            Without `__array__`, NumPy would see `__len__` + `__iter__` and convert by
+            looping. Both answers would be wrong and one is dangerous: a container yields
+            its *names*, so the result is a visibly-useless string array; a variable yields
+            nothing at all, so NumPy would build an empty array. The refusal restores what
+            NumPy did before the mapping protocol existed, which was to raise.
+        """
+        nc = open_store(PLAIN)
+        target = nc if shape == "container" else nc["temperature"]
+
+        with pytest.raises(TypeError, match="cannot be converted to an array"):
+            np.asarray(target)
+
+    def test_a_reduction_over_a_variable_raises_instead_of_answering_nan(self):
+        """The reason the coercion is refused rather than documented.
+
+        Test scenario:
+            `np.mean` reaches for `np.asarray` first. Iterating a variable yields nothing,
+            so without the refusal NumPy averaged an empty array and returned `nan` -- for
+            a cube of 557,056 real values, in a shape that looks like a legitimate result
+            and can travel a long way before anyone questions it. `origin/main` raised
+            here, and so does this.
+        """
+        variable = open_store(MIXED_RANKS)["ua"]
+        assert variable.band_count * variable.rows * variable.columns == 557056
+
+        with pytest.raises(TypeError, match="cannot be converted to an array"):
+            np.mean(variable)
+
+        assert variable.read_array().shape == (17, 128, 256)
+
+    def test_boxing_in_an_object_array_still_works(self):
+        """The one coercion that is honoured, because it invents nothing.
+
+        Test scenario:
+            `dtype=object` stores the dataset as itself -- nothing is read and no value is
+            fabricated -- and it worked before this branch. Refusing it too would have
+            been a regression against `origin/main`, where `np.array([nc], dtype=object)`
+            is `(1,)`, so `__array__` answers that request and refuses every other.
         """
         nc = open_store(PLAIN)
 
-        coerced = np.asarray(nc)
+        boxed = np.array([nc], dtype=object)
 
-        assert coerced.dtype.kind == "U"
-        assert coerced.tolist() == ["temperature"]
+        assert boxed.shape == (1,)
+        assert boxed[0] is nc
 
     @pytest.mark.parametrize("protocol", ["Iterable", "Sized", "Container"])
     def test_the_abc_checks_now_answer_true(self, protocol: str):
@@ -1333,3 +1376,73 @@ class TestThePublicApiPageMatchesTheClass:
             member: The member the page must mention.
         """
         assert f"`{member}`" in self.PAGE.read_text(encoding="utf-8")
+
+
+class TestNbytesSaysWhenItCouldNotSizeSomething:
+    """A 90% shortfall must not look like an ordinary answer."""
+
+    CLASSIC_SHORTFALL = "cf__12v__1d4-2d5-3d2-4d1__y-asc.nc"
+
+    def test_a_classic_store_warns_and_names_what_it_skipped(self):
+        """The three biggest cubes contribute nothing, and the warning says which.
+
+        Test scenario:
+            A classic container's subdataset list names a variable by its `standard_name`
+            -- `precipitation_flux` for `pr`, `air_temperature` for `tas`,
+            `eastward_wind` for `ua` -- and GDAL declines to open any of them. All three
+            contribute 0 while the bounds arrays the multidimensional view excludes are
+            counted instead, so the total is a plausible-looking number that is wrong by
+            an order of magnitude. `assert nc.nbytes >= 0`, which is what this class
+            asserted before, cannot catch that.
+        """
+        nc = NetCDF.read_file(
+            str(DATA / self.CLASSIC_SHORTFALL), open_as_multi_dimensional=False
+        )
+
+        with pytest.warns(UserWarning, match="nbytes excludes 3 variable") as caught:
+            classic = nc.nbytes
+
+        # GDAL emits its own warnings while opening this store, so the one under test is
+        # selected by content rather than by position.
+        message = next(
+            str(w.message) for w in caught if "nbytes excludes" in str(w.message)
+        )
+        assert "precipitation_flux" in message
+        assert "air_temperature" in message
+        assert "eastward_wind" in message
+        assert "open_as_multi_dimensional=True" in message
+        assert classic == 268304
+
+    def test_the_multidimensional_view_sizes_the_same_file_properly(self):
+        """The same store, opened the documented way, is ten times larger.
+
+        Test scenario:
+            Pinned beside the shortfall so the scale of it is in the suite rather than in
+            a comment: 268,304 bytes against 2,752,512 for the same file. The
+            multidimensional open resolves `pr`, `tas` and `ua` by their real names and
+            warns about nothing.
+        """
+        nc = NetCDF.read_file(str(DATA / self.CLASSIC_SHORTFALL))
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            full = nc.nbytes
+
+        assert full == 2752512
+        assert full > 10 * 268304
+
+    def test_a_store_that_opens_cleanly_does_not_warn(self):
+        """The warning is about a real shortfall, not noise on every classic open.
+
+        Test scenario:
+            `cf__20v__1d3-3d17__y-desc.nc` opened classically enumerates 17 names and opens
+            all of them, so its total is complete and nothing is raised. A warning here
+            would train readers to ignore the one that matters.
+        """
+        nc = NetCDF.read_file(
+            str(DATA / "cf__20v__1d3-3d17__y-desc.nc"), open_as_multi_dimensional=False
+        )
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            assert nc.nbytes > 0

@@ -3511,7 +3511,11 @@ class NetCDF(Dataset):
         variable from its shape and :attr:`dtype` instead.
 
         A name the store enumerates but will not open — see :attr:`dtypes` — contributes
-        `0`, so on a classic container this can under-report rather than raise.
+        `0` and a `UserWarning` naming it. The shortfall can be large rather than marginal:
+        a **classic** container's subdataset list can name a variable by its `standard_name`
+        (`precipitation_flux` for `pr`), which GDAL then declines to open, so the three
+        largest cubes of `cf__12v__1d4-2d5-3d2-4d1__y-asc.nc` contribute nothing and the
+        total is 9.7% of the real size. Open the store multidimensionally to size it.
 
         Returns:
             int: The total, `0` for a container with no data variables.
@@ -3541,10 +3545,28 @@ class NetCDF(Dataset):
             NetCDF.dims: The lengths it sizes over.
         """
         total = 0
+        unsized = []
         for name in self.variable_names:
             variable = _open_variable(self, name)
-            if variable is not None:
+            if variable is None:
+                unsized.append(name)
+            else:
                 total += _variable_nbytes(variable)
+        if unsized:
+            # Silence here would be the worst of the three options. The shortfall is not
+            # marginal: on `cf__12v__1d4-2d5-3d2-4d1__y-asc.nc` opened classically the
+            # enumeration names the three real cubes by `standard_name`
+            # (`precipitation_flux` for `pr`), none of which GDAL will open, so the total
+            # comes to 9.7% of the true figure while looking like an ordinary answer.
+            warnings.warn(
+                f"nbytes excludes {len(unsized)} variable(s) the store enumerates but "
+                f"will not open, so the total is lower than the real size: "
+                f"{sorted(unsized)}. This happens on a classic container, whose "
+                f"subdataset list can name an array by its standard_name; open the store "
+                f"with open_as_multi_dimensional=True to size it properly.",
+                UserWarning,
+                stacklevel=2,
+            )
         return total
 
     def info(self, buf: TextIO | None = None) -> None:
@@ -3782,6 +3804,107 @@ class NetCDF(Dataset):
         """
         return self.variables[name]
 
+    def __array__(self, dtype: Any = None, copy: Any = None) -> np.ndarray:
+        """Refuse to become an array. Read one with :meth:`read_array` instead.
+
+        :meth:`__iter__` and :meth:`__len__` make every `NetCDF` look like a sequence to
+        NumPy, which would otherwise convert one by looping it. That answer is wrong in two
+        different ways, and the second is dangerous:
+
+        - a **container** yields its variable *names*, so `np.asarray(nc)` would build an
+          array of strings — visibly not data;
+        - a **variable** yields nothing at all, because a variable holds no data variables
+          of its own. NumPy would see an empty sequence, and `np.mean(nc["ua"])` would
+          answer `nan` for a cube of 557,056 real values rather than raise.
+
+        The second is why this refuses rather than documents. `nan` is what a reader gets
+        from averaging nothing, it looks like a legitimate result, and it can travel a long
+        way before anyone questions it. Before the mapping protocol existed NumPy could not
+        interpret a `NetCDF` at all and raised, which was the right answer; this restores it.
+
+        The same judgement :meth:`Dataset.__bool__` already makes for `if nc:` — there is no
+        honest single answer, so decline to invent one.
+
+        `dtype=object` is the one request that is honoured: boxing a dataset in an object
+        array reads nothing and invents nothing — the object is stored as itself — and it
+        worked before the mapping protocol existed, so `np.array([nc], dtype=object)` still
+        gives `(1,)` rather than starting to raise.
+
+        Args:
+            dtype: Requested dtype. `object` boxes the dataset; anything else is refused.
+            copy: NumPy 2's copy-semantics flag. Accepted so the call signature matches;
+                unused, since nothing is ever copied.
+
+        Returns:
+            numpy.ndarray: A 0-d object array holding this dataset, for `dtype=object`.
+
+        Raises:
+            TypeError: For any other dtype, including the default.
+
+        Examples:
+            - The refusal names the way to get the data:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> np.asarray(nc["temperature"])
+              Traceback (most recent call last):
+                  ...
+              TypeError: a NetCDF cannot be converted to an array directly...
+
+              ```
+            - Reading the variable works, and is what the message points at:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> nc["temperature"].read_array().shape
+              (12, 5, 6)
+
+              ```
+            - Iterating and indexing are untouched — only the value coercion is refused:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> list(nc), len(nc)
+              (['temperature'], 1)
+
+              ```
+            - Boxing in an object array still works, and holds the dataset itself:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> boxed = np.array([nc], dtype=object)
+              >>> boxed.shape
+              (1,)
+              >>> boxed[0] is nc
+              True
+
+              ```
+
+        See Also:
+            NetCDF.read_array: Reads a variable's values as an array.
+            NetCDF.coords: The coordinate axes, which are ordinary arrays.
+            NetCDF.__iter__: What iterating a container yields, and why it is not data.
+        """
+        if dtype is not None and np.dtype(dtype) == object:
+            # Boxing a dataset in an object array is not a coercion — nothing is read and
+            # nothing is invented, the object is stored as itself. It worked before the
+            # mapping protocol existed and there is no reason for this to take it away.
+            box = np.empty((), dtype=object)
+            box[()] = self
+            return box
+        raise TypeError(
+            "a NetCDF cannot be converted to an array directly — a container holds many "
+            "variables and a variable holds none of its own, so iterating either gives "
+            "names or nothing rather than values. Read the data with "
+            'nc["name"].read_array(), or take an axis from nc.coords["lat"].'
+        )
+
     def __contains__(self, name: object) -> bool:
         """Whether `name` is one of this container's data variables.
 
@@ -3843,16 +3966,22 @@ class NetCDF(Dataset):
 
         | expression | before | now |
         |---|---|---|
-        | `np.asarray(nc)` | 0-d object array wrapping the container | an array of the **names** |
-        | `np.array([nc], dtype=object).shape` | `(1,)` | `(1, n)`, for a store of `n` variables |
         | `isinstance(nc, Iterable / Sized / Container)` | `False` | `True` |
+        | `np.asarray(nc)` | raises | raises — see :meth:`__array__` |
 
-        None of those is a useful way to get at the data — read a variable with
-        `nc["name"].read_array()`, or an axis with `nc.coords["lat"]`. The one to watch is
-        a helper that accepts "anything iterable": it used to reject a container outright
-        and now quietly receives a list of name strings. `bool(nc)` is unaffected —
-        :meth:`Dataset.__bool__` still refuses to collapse a raster to one truth value, and
-        wins over `__len__`; use `len(nc) == 0` to ask whether a container is empty.
+        NumPy would otherwise have converted a container by looping it, yielding an array of
+        the *names*; :meth:`__array__` refuses instead, so that coercion raises as it did
+        before. `isinstance(nc, Mapping)` and `isinstance(nc, Sequence)` are both still
+        `False`.
+
+        The change that remains is the `isinstance` row, and it has one practical
+        consequence: a helper that accepts "anything iterable" used to reject a container
+        outright and now accepts it, receiving a list of name strings. Gate on
+        `isinstance(x, NetCDF)` first where that matters.
+
+        `bool(nc)` is unaffected — :meth:`Dataset.__bool__` still refuses to collapse a
+        raster to one truth value, and wins over `__len__`; use `len(nc) == 0` to ask
+        whether a container is empty.
 
         Yields:
             str: Each data-variable name.
