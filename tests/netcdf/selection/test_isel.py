@@ -729,26 +729,28 @@ class TestIselErrors:
 
     @pytest.mark.parametrize(
         "selector",
-        [1.0, True, False, "0", None, {0}],
-        ids=["float", "true", "false", "string", "none", "set"],
+        [1.0, "0", None, {0}],
+        ids=["float", "string", "none", "set"],
     )
     def test_a_selector_that_is_not_a_position_is_refused(self, cube, selector):
         """A non-integer selector raises ``TypeError`` and points at ``sel``.
 
         Args:
             cube: The synthetic 4-D variable.
-            selector: Something that is not an ``int``, a list of ``int``, or a ``slice``.
+            selector: Something ``operator.index()`` refuses.
 
         Test scenario:
-            ``True`` is the interesting one: ``bool`` is an ``int`` subclass, so without an
-            explicit guard ``isel(time=True)`` would quietly select position 1 for a caller who
-            meant a mask.
+            The gate is ``operator.index()``, Python's own definition of a usable index, so
+            a float, a string, ``None`` and a set are all refused while a numpy integer is
+            not — see ``TestIselAcceptsAnyIntegerPython``. Booleans are refused too but
+            carry their own message, since ``bool`` satisfies ``index()`` and needs an
+            explicit guard; they are covered there.
         """
         with pytest.raises(TypeError) as error:
             cube.isel(time=selector)
 
         message = str(error.value)
-        assert "needs an int, a list of ints, or a slice" in message, (
+        assert "needs an int, a list of ints, a tuple of ints, or a slice" in message, (
             f"unexpected message: {message}"
         )
         assert "sel(time=...)" in message, (
@@ -771,7 +773,9 @@ class TestIselErrors:
             The list is validated before any entry is resolved, so a partly-valid list refuses
             as a whole instead of selecting the entries it could read.
         """
-        with pytest.raises(TypeError, match=r"needs whole-number indices for 'time'"):
+        # One gate for scalars and list entries now, so the message is the same for both;
+        # a boolean entry gets the dedicated boolean message.
+        with pytest.raises(TypeError, match=r"needs an int|does not take booleans"):
             cube.isel(time=selector)
 
 
@@ -993,3 +997,84 @@ class TestEveryKeywordIsCheckedBeforeAnythingIsRead:
 
         assert reads == [NL, 1]
         assert result.band_count == 1
+
+
+class TestIselAcceptsAnyIntegerPython:
+    """The index gate is `operator.index()`, matching what Python calls an index."""
+
+    @pytest.mark.parametrize(
+        "make",
+        [lambda: 1, lambda: np.int64(1), lambda: np.int32(1), lambda: np.uint8(1)],
+        ids=["int", "int64", "int32", "uint8"],
+    )
+    def test_a_numpy_integer_selects_the_same_band_as_a_python_int(self, cube, make):
+        """A numpy integer is an index everywhere else in Python; it is one here too.
+
+        Args:
+            cube: The 4x3 band-dim fixture.
+            make: Builds the index to pass.
+
+        Test scenario:
+            `isinstance(x, int)` is `False` for every numpy integer, so `isel` refused
+            values that fall straight out of `np.argmin`, `np.where(...)[0][0]` or
+            iterating an array — while `sel` accepted numpy scalars through
+            `numbers.Real`. The two halves of the same API disagreed about what a number
+            is. `operator.index()` is Python's own definition and admits exactly the
+            integer types.
+        """
+        assert cube.isel(time=make())._band_dim_values_map["time"] == [6.0]
+
+    @pytest.mark.parametrize(
+        "make",
+        [lambda: True, lambda: False, lambda: np.bool_(True)],
+        ids=["True", "False", "np.bool_"],
+    )
+    def test_a_boolean_is_still_refused(self, cube, make):
+        """`operator.index()` accepts `bool`, so the explicit guard has to stay.
+
+        Args:
+            cube: The 4x3 band-dim fixture.
+            make: Builds the boolean to pass.
+
+        Test scenario:
+            `bool` is an `int` subclass and satisfies `operator.index()`, so widening the
+            gate would silently turn `isel(time=True)` into index 1. A caller writing that
+            almost certainly means a mask, which is not supported — so it stays a
+            `TypeError`.
+        """
+        with pytest.raises(TypeError, match="does not take booleans"):
+            cube.isel(time=make())
+
+    @pytest.mark.parametrize(
+        "make",
+        [lambda: 1.0, lambda: np.float64(1.0), lambda: "1"],
+        ids=["float", "np.float64", "str"],
+    )
+    def test_a_non_integer_is_still_refused(self, cube, make):
+        """Widening to `operator.index()` must not let a float or a string through.
+
+        Args:
+            cube: The 4x3 band-dim fixture.
+            make: Builds the value to pass.
+
+        Test scenario:
+            `operator.index()` refuses all three, which is why it is the right gate rather
+            than a looser numeric test — `isel(time=1.5)` has no meaning as a position.
+        """
+        with pytest.raises(TypeError):
+            cube.isel(time=make())
+
+    def test_a_numpy_integer_works_inside_a_list_too(self, cube):
+        """The element check is the same gate as the scalar one.
+
+        Args:
+            cube: The 4x3 band-dim fixture.
+
+        Test scenario:
+            A list of numpy integers is what `np.where(...)[0]` produces when iterated, so
+            widening the scalar path and not the element path would leave the common case
+            still refused.
+        """
+        assert cube.isel(time=[np.int64(2), np.int64(0)])._band_dim_values_map[
+            "time"
+        ] == [0.0, 12.0]

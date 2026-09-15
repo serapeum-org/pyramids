@@ -18,6 +18,7 @@ methods still use them.
 from __future__ import annotations
 
 import math
+import operator
 import warnings
 from collections.abc import Callable
 from pathlib import Path
@@ -798,10 +799,13 @@ class Selection(_Engine["NetCDF"]):
             - A slice that selects nothing raises `ValueError` instead of producing a
               zero-length axis. The empty variable would build, then fail much later and
               further away on the first read.
-            - A numpy integer is refused: `isel(time=np.int64(1))` raises `TypeError`,
-              although `sel` does accept numpy scalars. Wrap an index that fell out of
-              `np.argmin`, `np.where(...)[0][0]`, or iterating an array in `int(...)`. A
-              numpy array and a boolean mask are refused too; xarray takes all three.
+            - A numpy **array** and a boolean **mask** are refused, where xarray takes
+              both. A numpy *integer* is accepted — anything `operator.index()` admits is
+              an index here, so a value out of `np.argmin`, `np.where(...)[0][0]` or
+              iterating an array needs no `int(...)` wrapper.
+            - A `bool` is refused although `operator.index()` admits it, because
+              `isel(time=True)` would quietly mean position 1 and a caller writing it
+              almost certainly means a mask.
             - A `tuple` of indices is accepted here and rejected by xarray.
 
         See Also:
@@ -2044,11 +2048,12 @@ def _resolve_positional_indices(selector: Any, size: int, dim_name: str) -> list
         IndexError: An index is outside `[-size, size)`. The message names the dimension
             and its length, because "index 7 is out of bounds" alone does not say which of
             several dimensions was overrun.
-        TypeError: The selector is not an `int`, a `list`/`tuple` of `int`, or a
-            `slice`. A `bool` is refused rather than read as the `int` it subclasses, and
-            so is a numpy integer such as `np.int64` — pass `int(value)` instead. Note
-            that `sel`'s numeric path *does* take numpy scalars, so an index and a
-            coordinate are not interchangeable here.
+        TypeError: The selector is not something `operator.index()` admits, nor a
+            `list`/`tuple` of such, nor a `slice`. A `bool` is refused rather than read as
+            the `int` it subclasses, even though `index()` admits it, because
+            `isel(dim=True)` would quietly mean position 1. Every integer type
+            `index()` accepts — `np.int64`, `np.int32`, `np.uint8` — is taken, which
+            matches `sel`'s numeric path accepting numpy scalars.
         ValueError: A slice selects nothing, which would otherwise build a zero-band
             variable that fails much later and further away.
 
@@ -2081,17 +2086,25 @@ def _resolve_positional_indices(selector: Any, size: int, dim_name: str) -> list
           IndexError: index 9 is out of range for dimension 'time' of length 4...
 
           ```
-        - A numpy integer is not an `int`, so it is refused — convert it first:
+        - A numpy integer is an index, so it needs no conversion:
 
           ```python
           >>> import numpy as np
           >>> from pyramids.netcdf.engines.selection import _resolve_positional_indices
           >>> _resolve_positional_indices(np.int64(1), 4, "time")
+          [1]
+          >>> _resolve_positional_indices([np.int64(2), np.int32(0)], 4, "time")
+          [0, 2]
+
+          ```
+        - A boolean is not, even though Python would let it act as one:
+
+          ```python
+          >>> from pyramids.netcdf.engines.selection import _resolve_positional_indices
+          >>> _resolve_positional_indices(True, 4, "time")
           Traceback (most recent call last):
               ...
-          TypeError: isel() needs an int, a list of ints, or a slice for 'time'...
-          >>> _resolve_positional_indices(int(np.int64(1)), 4, "time")
-          [1]
+          TypeError: isel() does not take booleans for 'time'...
 
           ```
     """
@@ -2099,18 +2112,34 @@ def _resolve_positional_indices(selector: Any, size: int, dim_name: str) -> list
         return list(range(*selector.indices(size))) or _refuse_empty_selection(
             selector, dim_name, size
         )
-    if isinstance(selector, bool) or not isinstance(selector, (int, list, tuple)):
-        # `bool` is an `int` subclass, and `isel(time=True)` almost certainly means the
-        # caller confused this with a mask rather than asking for index 1.
-        raise TypeError(
-            f"isel() needs an int, a list of ints, or a slice for {dim_name!r}, got "
-            f"{selector!r}. Select by coordinate value with sel({dim_name}=...) instead."
-        )
-    wanted = list(selector) if isinstance(selector, (list, tuple)) else [selector]
-    if any(isinstance(v, bool) or not isinstance(v, int) for v in wanted):
-        raise TypeError(
-            f"isel() needs whole-number indices for {dim_name!r}, got {selector!r}."
-        )
+    if isinstance(selector, (list, tuple)):
+        wanted = list(selector)
+    else:
+        wanted = [selector]
+    # `operator.index()` is Python's own definition of "usable as an index", so a numpy
+    # integer — what falls out of `np.argmin`, `np.where(...)[0][0]` or iterating an array
+    # — is accepted, as it is everywhere else in Python. `isinstance(v, int)` rejected all
+    # of them while the sibling `sel` accepted numpy scalars through `numbers.Real`, so the
+    # two halves of one API disagreed about what a number is.
+    #
+    # `bool` stays refused even though it satisfies `index()`: `isel(time=True)` would
+    # quietly become index 1, and a caller writing it almost certainly means a mask.
+    indices: list[int] = []
+    for value in wanted:
+        if isinstance(value, bool) or isinstance(value, np.bool_):
+            raise TypeError(
+                f"isel() does not take booleans for {dim_name!r}, got {selector!r}. A "
+                f"boolean mask is not supported; pass the integer positions instead."
+            )
+        try:
+            indices.append(operator.index(value))
+        except TypeError:
+            raise TypeError(
+                f"isel() needs an int, a list of ints, a tuple of ints, or a slice for "
+                f"{dim_name!r}, got {selector!r}. Select by coordinate value with "
+                f"sel({dim_name}=...) instead."
+            ) from None
+    wanted = indices
     resolved = set()
     for value in wanted:
         if not -size <= value < size:
