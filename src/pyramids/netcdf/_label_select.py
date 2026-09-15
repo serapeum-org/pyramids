@@ -548,8 +548,8 @@ def nearest_indices(
     Raises:
         ValueError: The selector is a :class:`slice` (a range has no nearest value), the
             selector is not a finite number, the axis is not numeric, the axis holds no
-            finite coordinate to snap to, or `tolerance` is negative or not a number
-            (`bool` included).
+            finite coordinate to snap to, or `tolerance` is negative, NaN, or not a
+            number (`bool` included). `inf` is accepted and means the same as `None`.
         KeyError: A request's closest coordinate is further away than `tolerance`. The
             message carries both the distance and the bound, because "no match" alone does
             not say whether the bound was slightly or wildly too tight.
@@ -608,7 +608,14 @@ def nearest_indices(
     # Not first in the call as a whole. Reached through `sel`, `_nearest_or_raise` refuses
     # a date-label selector before this runs, so `sel(time="2024-01-01",
     # method="nearest", tolerance=-1)` reports the label, not the bound.
-    if tolerance is not None and (not _is_number(tolerance) or tolerance < 0):
+    if tolerance is not None and (
+        not _is_number(tolerance) or math.isnan(tolerance) or tolerance < 0
+    ):
+        # NaN needs naming explicitly: it is not negative, so `< 0` let it through, and
+        # `distance > nan` is `False` for every distance — so the bound accepted nothing
+        # and refused nothing, silently turning a bounded request back into an unbounded
+        # snap. `inf` is left legal: that comparison is meaningful and simply never true,
+        # which is exactly what `None` already means.
         raise ValueError(f"tolerance must be a non-negative number, got {tolerance!r}.")
     if isinstance(selector, slice):
         raise ValueError(

@@ -2066,34 +2066,6 @@ def _resolve_one_dim(
     return dim_indices
 
 
-def _select_one_dim(
-    nc: NetCDF,
-    dim_name: str,
-    selector: Any,
-    method: str | None,
-    tolerance: float | None,
-) -> NetCDF:
-    """Narrow one dimension by coordinate value — resolve, then cut.
-
-    Args:
-        nc: The variable subset to cut.
-        dim_name: The dimension to narrow.
-        selector: A coordinate value, a list of them, or a slice.
-        method: `None` for an exact match, `"nearest"` to snap.
-        tolerance: The furthest a `"nearest"` snap may travel.
-
-    Returns:
-        NetCDF: The narrowed variable.
-
-    Raises:
-        ValueError: The dimension is unknown, has no coordinates, or nothing matched.
-        KeyError: A `"nearest"` request found nothing within `tolerance`.
-    """
-    return _subset_along_dim(
-        nc, dim_name, _resolve_one_dim(nc, dim_name, selector, method, tolerance)
-    )
-
-
 def _resolve_positional_indices(selector: Any, size: int, dim_name: str) -> list[int]:
     """Turn one `isel` selector into ascending, deduplicated positions along an axis.
 

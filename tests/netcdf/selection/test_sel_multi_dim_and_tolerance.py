@@ -609,10 +609,14 @@ class TestNearestIndicesTolerance:
             match: A fragment the refusal has to carry.
 
         Test scenario:
-            These guards run ahead of the bound, so a caller who also passed `tolerance=` gets
-            told about the selector rather than about the bound. A range has no nearest value, a
-            non-number and a `NaN`/`inf` have no distance, and a text axis has nothing to
-            subtract.
+            A range has no nearest value, a non-number and a `NaN`/`inf` have no distance,
+            and a text axis has nothing to subtract.
+
+            These guards run ahead of the bound *comparison* but behind the bound's own
+            argument check, which was hoisted to the top of the function. So a caller who
+            passed a **valid** `tolerance=` — as this test does — is told about the
+            selector, while an invalid one is reported first;
+            `TestTheBoundIsReadBeforeAnythingElse` pins that direction.
         """
         with pytest.raises(ValueError, match=match):
             nearest_indices(coords, selector, 10.0)
@@ -666,3 +670,112 @@ class TestTheTwoRefusalTypesAreBothDocumented:
             escaped = "escaped ValueError, caught by except KeyError"
 
         assert escaped == "escaped ValueError, caught by except KeyError"
+
+
+class TestTheBoundIsReadBeforeAnythingElse:
+    """A bad bound is an argument error, so it is reported ahead of every data-shaped one."""
+
+    @pytest.mark.parametrize(
+        ("coords", "selector"),
+        [
+            ([1000.0, 850.0], slice(850, 1000)),
+            ([1000.0, 850.0], None),
+            ([1000.0, 850.0], float("nan")),
+            (["a", "b"], 1.0),
+            ([float("nan"), float("nan")], 900.0),
+        ],
+        ids=["slice", "non-numeric", "nan-selector", "text-axis", "all-holes-axis"],
+    )
+    def test_the_bound_is_reported_ahead_of_the_selector_and_the_axis(
+        self, coords, selector
+    ):
+        """With a negative bound, every other refusal is postponed rather than reported first.
+
+        Args:
+            coords: The axis to snap against — sound in most cases, all holes in one.
+            selector: The request, which is itself refusable in most cases.
+
+        Test scenario:
+            The bound guard was hoisted above the selector and axis validation so a caller who
+            got two things wrong is told about the argument first. Only the all-holes axis was
+            pinned when the guard moved; the other four selectors reach their own refusals a
+            few lines further down and would each have won the race before the hoist. Asserting
+            the losing message is *absent* is what makes the ordering the subject of the test
+            rather than the mere presence of a `ValueError`.
+        """
+        with pytest.raises(ValueError) as error:
+            nearest_indices(coords, selector, -1)
+
+        message = str(error.value)
+        assert "tolerance must be a non-negative number" in message, (
+            f"the bound must be reported first, got: {message}"
+        )
+        assert "method='nearest'" not in message, (
+            f"no selector or axis refusal may win the race, got: {message}"
+        )
+
+    def test_sel_reports_the_bound_before_refusing_a_slice_selector(self, cube):
+        """The reordering is visible through the public call, not only in the primitive.
+
+        Args:
+            cube: The 4x3 band-dim fixture.
+
+        Test scenario:
+            `sel` checks that `tolerance=` came with `method="nearest"` and nothing else, so
+            the bound's own validity is decided inside `nearest_indices` — which is the code
+            that moved. Before the hoist this call reported the slice; a caller then dropped
+            `method="nearest"` and hit the bound error on the next attempt.
+        """
+        with pytest.raises(ValueError) as error:
+            cube.sel(pressure_level=slice(500, 1000), method="nearest", tolerance=-1)
+
+        message = str(error.value)
+        assert "tolerance must be a non-negative number" in message, (
+            f"the bound must be reported first, got: {message}"
+        )
+        assert "does not accept a slice selector" not in message, (
+            f"the slice refusal must not win the race, got: {message}"
+        )
+
+
+class TestANotANumberBoundIsRefused:
+    """`tolerance=nan` would disable the bound rather than tighten it."""
+
+    def test_a_nan_bound_is_refused_outright(self):
+        """NaN is not a bound; every comparison against it is `False`.
+
+        Test scenario:
+            `distance > nan` is `False` for every distance, so a NaN bound accepted no
+            distance *and refused none* — it silently turned the request back into an
+            unbounded snap. It passed the `tolerance < 0` guard for the same reason.
+
+            The asymmetry was inside one function: `nearest_indices` refuses a non-finite
+            *selector* two guards below, having accepted a non-finite bound above.
+        """
+        with pytest.raises(ValueError, match="tolerance must be a non-negative number"):
+            nearest_indices([1000.0, 850.0, 500.0], 900.0, float("nan"))
+
+    def test_an_infinite_bound_is_allowed_and_means_unbounded(self):
+        """`inf` is a real bound, just an unreachable one.
+
+        Test scenario:
+            Unlike NaN, `distance > inf` is a meaningful comparison that is simply never
+            true, so `inf` behaves exactly as `None` does and there is no reason to refuse
+            it. Pinned so the NaN fix is not widened into one that rejects both.
+        """
+        assert nearest_indices([1000.0, 850.0, 500.0], 900.0, float("inf")) == [1]
+        assert nearest_indices([1000.0, 850.0, 500.0], 900.0, None) == [1]
+
+    def test_the_public_call_refuses_it_too(self, cube):
+        """The bug was reachable from `sel`, so the fix is asserted there as well.
+
+        Args:
+            cube: The 4x3 band-dim fixture.
+
+        Test scenario:
+            `sel(pressure_level=900, method="nearest", tolerance=nan)` returned the 850
+            level — the caller asked for a bounded snap, passed a bound that cannot bound
+            anything, and got an unbounded answer with no signal.
+        """
+        with pytest.raises(ValueError, match="tolerance must be a non-negative number"):
+            cube.sel(pressure_level=900, method="nearest", tolerance=float("nan"))

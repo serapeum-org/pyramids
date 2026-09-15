@@ -21,6 +21,7 @@ Style: Google-style docstrings, <=120 char lines, no inline imports, descriptive
 from __future__ import annotations
 
 import contextlib
+import enum
 
 import numpy as np
 import pytest
@@ -1145,3 +1146,157 @@ class TestArrayDimensionalityDecidesAcceptance:
         """
         with pytest.raises(TypeError, match="needs an int"):
             cube.isel(time=make())
+
+
+class _Ordinal(enum.IntEnum):
+    """A caller's own enumeration of band positions — an `int` subclass with a name."""
+
+    THIRD = 2
+
+
+class _Indexable:
+    """An index by `__index__` alone, with no `int` anywhere in its ancestry."""
+
+    def __index__(self) -> int:
+        """Return the position this object stands for."""
+        return 2
+
+
+class TestTheIndexGateAdmitsWhatOperatorIndexAdmits:
+    """`operator.index()` is the gate, so its whole vocabulary has to reach a band."""
+
+    @pytest.mark.parametrize(
+        ("make", "expected"),
+        [
+            (lambda: _Ordinal.THIRD, 12.0),
+            (lambda: _Indexable(), 12.0),
+            (lambda: np.uint64(2), 12.0),
+        ],
+        ids=["int-enum", "dunder-index", "uint64"],
+    )
+    def test_each_one_reaches_the_position_it_names(self, cube, make, expected):
+        """Every type ``operator.index()` admits selects the coordinate stored at its value.
+
+        Args:
+            cube: The 4x3 band-dim fixture.
+            make: Builds the selector to pass.
+            expected: The ``time`` coordinate stored at position 2, written out from
+                ``TIME_VALUES`` rather than read back off the result.
+
+        Test scenario:
+            The gate was widened from `isinstance(selector, int)` to `operator.index()`, which
+            is a much larger set than "numpy integer": an `IntEnum`, anything implementing
+            `__index__`, and every numpy integer width. Pinning them says what the widened
+            gate actually admits, so a later narrowing of it cannot pass silently. The 0-d
+            array `index()` also admits has its own class above.
+        """
+        assert cube.isel(time=make())._band_dim_values_map["time"] == [expected]
+
+    def test_a_negative_numpy_index_still_counts_from_the_end(self, cube):
+        """``isel(time=np.int8(-1))`` is the last step, planes and coordinate together.
+
+        Args:
+            cube: The 4x3 band-dim fixture.
+
+        Test scenario:
+            The widened gate converts through `operator.index()` *before* the bound check and
+            the `value + size` normalisation, so the negative arm runs on a Python `int`. Left
+            unconverted, an unsigned numpy scalar would wrap and a signed one would normalise
+            in its own width. The planes are asserted as well as the label, because a
+            normalisation that lands on the wrong band would keep the label right.
+        """
+        result = cube.isel(time=np.int8(-1))
+
+        assert result._band_dim_values_map["time"] == [18.0]
+        assert_array_equal(
+            result.read_array(),
+            _cube(NT - 1),
+            err_msg="a negative numpy index must read the last time step's planes",
+        )
+
+    @pytest.mark.parametrize(
+        "make",
+        [lambda: np.uint8(255), lambda: 10**20, lambda: -(10**20)],
+        ids=["uint8-max", "huge-positive", "huge-negative"],
+    )
+    def test_a_value_past_the_end_is_an_index_error_whatever_its_width(
+        self, cube, make
+    ):
+        """An out-of-range index is refused by the bound check, not by the type gate.
+
+        Args:
+            cube: The 4x3 band-dim fixture.
+            make: Builds an index far outside ``[-4, 4)``.
+
+        Test scenario:
+            `np.uint8(255)` and an integer wider than 64 bits are both legal indices as far as
+            `operator.index()` is concerned, so they have to survive the gate and be caught by
+            the range check with the message that names the axis. An implementation that
+            narrowed the value to a fixed width would wrap `255` onto a valid position or
+            overflow on `10**20`; both would be silent.
+        """
+        with pytest.raises(IndexError) as error:
+            cube.isel(time=make())
+
+        message = str(error.value)
+        assert "out of range for dimension 'time' of length 4" in message, (
+            f"unexpected message: {message}"
+        )
+        assert str(make()) in message, (
+            f"the message must quote the index, got: {message}"
+        )
+
+    @pytest.mark.parametrize(
+        ("make", "expected"),
+        [
+            (lambda: np.array(True), "does not take booleans"),
+            (lambda: np.array([True]), "needs an int, a list of ints"),
+        ],
+        ids=["zero-d-bool-array", "one-d-bool-array"],
+    )
+    def test_an_array_that_is_not_an_index_is_refused_rather_than_coerced(
+        self, cube, make, expected
+    ):
+        """A boolean array and a multi-element array raise instead of becoming a position.
+
+        Args:
+            cube: The 4x3 band-dim fixture.
+            make: Builds the array to pass.
+            expected: The fragment the refusal has to carry.
+
+        Test scenario:
+            The dangerous one is ``np.array(True)``: it is not an instance of `np.bool_`, so
+            an `isinstance` guard alone does not see it, while a gate written as `int(value)`
+            rather than `operator.index(value)` would quietly read it as position 1 — the
+            silent mask-as-index the boolean guard exists to prevent. It has to be refused,
+            and refused *as a boolean*, since "needs an int" sends a caller reaching for a
+            mask off to write `np.array(1)` instead. A 1-d boolean array is the mask itself
+            and has no such reading, so it takes the generic message.
+        """
+        with pytest.raises(TypeError) as error:
+            cube.isel(time=make())
+
+        message = str(error.value)
+        assert expected in message, f"unexpected message: {message}"
+
+    def test_a_numpy_boolean_inside_a_list_carries_the_boolean_message(self, cube):
+        """``isel(time=[0, np.bool_(True)])`` is refused as a boolean, not as an unknown type.
+
+        Args:
+            cube: The 4x3 band-dim fixture.
+
+        Test scenario:
+            `np.bool_` needs its own `isinstance` check because it is not a `bool` subclass,
+            and the guard sits inside the per-entry loop so it has to fire for a list entry as
+            well as for a scalar. Dropping the `np.bool_` half of the guard leaves
+            `operator.index()` to refuse it with the generic "needs an int" message, which
+            tells the caller to write an integer rather than that a mask is unsupported.
+        """
+        with pytest.raises(TypeError) as error:
+            cube.isel(time=[0, np.bool_(True)])
+
+        message = str(error.value)
+        assert "does not take booleans" in message, f"unexpected message: {message}"
+        assert "A boolean mask is not supported" in message, (
+            f"the message must say a mask is unsupported, got: {message}"
+        )
