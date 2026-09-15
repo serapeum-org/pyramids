@@ -2985,37 +2985,61 @@ class NetCDF(Dataset):
         return self._get_variable_names()
 
     @property
-    def data_vars(self) -> list[str]:
-        """xarray's name for :attr:`variable_names`. Read-only alias.
+    def data_vars(self) -> _LazyVariableDict:
+        """xarray's name for :attr:`variables` — a **mapping**, as xarray's is.
+
+        Deliberately not an alias of :attr:`variable_names`, which is a *list*, for the
+        reason :attr:`dims` gives at length: aliasing a mapping name onto a list is the
+        `variables`-shaped collision this class is trying to avoid, and `data_vars` is the
+        spelling a reader arriving from xarray reaches for first. `ds.data_vars["t2m"]` and
+        `ds.data_vars.items()` both work in xarray, and both work here.
+
+        Iterating it still yields the names, so `list(nc.data_vars)` and `len(nc.data_vars)`
+        read the same as they would against a list.
+
+        **Differs from xarray** in what the values are: each is a `NetCDF` subset or a
+        `LabeledArray`, where xarray's are `DataArray`s.
 
         Returns:
-            list[str]: The data-variable names, in store order.
+            _LazyVariableDict: Name to variable, loading each on first access.
 
         Examples:
-            - Read the names off a multi-variable store:
+            - Iterating yields the names, as it does in xarray:
 
               ```python
               >>> from pyramids.netcdf import NetCDF
               >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
-              >>> nc.data_vars
+              >>> list(nc.data_vars)
               ['area', 'msk_rgn', 'pr', 'tas', 'ua']
+              >>> len(nc.data_vars)
+              5
 
               ```
-            - Use them to reach the variables, as the xarray spelling suggests:
+            - Indexing reaches the variable, which is what the list form could not do:
 
               ```python
               >>> from pyramids.netcdf import NetCDF
               >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
-              >>> [nc[name].band_count for name in nc.data_vars]
-              [1, 1, 1, 1, 17]
+              >>> nc.data_vars["ua"].band_count
+              17
+
+              ```
+            - So does `items()`, for a pass over names and variables together:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+              >>> [name for name, var in nc.data_vars.items() if var.band_count > 1]
+              ['ua']
 
               ```
 
         See Also:
-            NetCDF.variable_names: The canonical member.
+            NetCDF.variables: The canonical member.
+            NetCDF.variable_names: The names alone, as a list.
             NetCDF.dtypes: The same names, mapped to their types.
         """
-        return self.variable_names
+        return self.variables
 
     @property
     def dims(self) -> dict[str, int]:
@@ -3226,7 +3250,7 @@ class NetCDF(Dataset):
 
         See Also:
             NetCDF.nbytes: Sized from these dtypes and the dimension lengths.
-            NetCDF.data_vars: The names these are keyed by.
+            NetCDF.variable_names: The names these are keyed by.
         """
         return {name: _variable_dtype(self[name]) for name in self.variable_names}
 

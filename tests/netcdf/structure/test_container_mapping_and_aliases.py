@@ -269,13 +269,37 @@ class TestTheContainerIsAMapping:
 class TestTheXarraySpellings:
     """`data_vars`, `dims`, `sizes`, `attrs` and `coords`."""
 
-    def test_data_vars_is_the_variable_names(self, container: NetCDF):
-        """The alias returns the canonical member's list.
+    def test_data_vars_is_a_mapping_that_iterates_as_the_names(self, container: NetCDF):
+        """The xarray spelling indexes by name, and still iterates as a list of names.
 
         Args:
             container: One of the swept stores.
+
+        Test scenario:
+            The three things xarray callers do with `data_vars`: iterate it for names,
+            take its length, and index it for a variable. The last is what a list could
+            not do, and is the reason this alias is the mapping rather than
+            `variable_names`.
         """
-        assert container.data_vars == container.variable_names
+        assert list(container.data_vars) == container.variable_names
+        assert len(container.data_vars) == len(container)
+        for name in container.variable_names:
+            assert container.data_vars[name] is container[name]
+
+    def test_data_vars_is_not_the_variable_names_list(self):
+        """The collision this alias was reshaped to avoid.
+
+        Test scenario:
+            `nc.data_vars["temperature"]` is a variable. Were `data_vars` the
+            `variable_names` list, the same expression would be a `TypeError` — the exact
+            failure `dims`' docstring argues against, applied to the alias a reader from
+            xarray reaches for first.
+        """
+        nc = open_store(PLAIN)
+
+        assert nc.data_vars["temperature"].band_count == 12
+        assert nc.variable_names == ["temperature"]
+        assert nc.data_vars != nc.variable_names
 
     def test_dims_maps_each_name_to_its_length(self, container: NetCDF):
         """`dims` is a mapping, as xarray's is.
