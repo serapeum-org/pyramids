@@ -25,6 +25,7 @@ asserted by making `read_array` raise.
 from __future__ import annotations
 
 import io
+from collections import abc
 from pathlib import Path
 
 import numpy as np
@@ -846,3 +847,77 @@ class TestAClassicContainer:
 
         assert "int16 tcw() ;" in text
         assert "subset_" not in text
+
+
+class TestWhatTheDundersChangedAboutProtocolDispatch:
+    """Adding `__iter__` / `__len__` made a container duck-type as a sequence.
+
+    Pinned, not fixed. The container previously had neither dunder, so NumPy treated it
+    as an opaque object and every `isinstance(x, Iterable)` site in the tree answered
+    `False` for it. Both changed as a side effect of the mapping protocol, and the
+    decision was to document the new behaviour rather than add an `__array__` that
+    refuses it. These tests exist so the choice is visible and cannot drift again
+    unnoticed.
+    """
+
+    def test_a_container_now_coerces_to_an_array_of_its_names(self):
+        """`np.asarray(nc)` builds names, where it used to box the container.
+
+        Test scenario:
+            NumPy sees `__len__` + `__iter__` and iterates rather than wrapping. Iterating
+            a container yields names, so the result is a string array -- not data, and not
+            a useful way to reach any. The assertion names the dtype kind so the intent is
+            unmistakable: this is a list of labels.
+        """
+        nc = open_store(PLAIN)
+
+        coerced = np.asarray(nc)
+
+        assert coerced.dtype.kind == "U"
+        assert coerced.tolist() == ["temperature"]
+
+    @pytest.mark.parametrize("protocol", ["Iterable", "Sized", "Container"])
+    def test_the_abc_checks_now_answer_true(self, protocol: str):
+        """Three `collections.abc` checks flipped from `False`.
+
+        Args:
+            protocol: The `collections.abc` name to test against.
+
+        Test scenario:
+            A helper that gates on `isinstance(x, Iterable)` used to reject a container
+            outright and now accepts it, receiving a list of name strings. That is the one
+            practical consequence of the change worth knowing about.
+        """
+        nc = open_store(PLAIN)
+
+        assert isinstance(nc, getattr(abc, protocol))
+
+    def test_a_container_is_still_not_a_mapping_or_a_sequence(self):
+        """The flips stop short of the two protocols that would imply more.
+
+        Test scenario:
+            `Mapping` needs `__getitem__`, `__len__`, `__iter__` *and* registration or the
+            ABC's mixins; `Sequence` needs integer indexing. The container offers neither,
+            so code branching on those still takes the same path it did before.
+        """
+        nc = open_store(PLAIN)
+
+        assert not isinstance(nc, abc.Mapping)
+        assert not isinstance(nc, abc.Sequence)
+
+    def test_truthiness_still_refuses_despite_len(self):
+        """`__bool__` wins over `__len__`, and still raises.
+
+        Test scenario:
+            `len(nc)` now works, which invites `if nc:` -- but `Dataset.__bool__` refuses
+            class-wide because a raster's truth value is ambiguous, and it takes precedence
+            over `__len__`. So the idiom the new dunder suggests raises, with a message
+            about cells rather than about variables. `len(nc) == 0` is the spelling that
+            answers.
+        """
+        nc = open_store(PLAIN)
+
+        with pytest.raises(ValueError, match="truth value of a Dataset is ambiguous"):
+            bool(nc)
+
+        assert len(nc) == 1

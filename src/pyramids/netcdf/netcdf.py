@@ -3573,6 +3573,24 @@ class NetCDF(Dataset):
         collided with xarray twice over: `Dataset.__iter__` yields data variables too, but
         `Dataset.variables` includes coordinates while this class's does not.
 
+        **This made a container look like a sequence to everything that duck-types.**
+        Before these dunders existed, a `NetCDF` had neither `__iter__` nor `__len__`, so
+        NumPy treated it as an opaque object and `isinstance(nc, Iterable)` was `False`.
+        Both changed:
+
+        | expression | before | now |
+        |---|---|---|
+        | `np.asarray(nc)` | 0-d object array wrapping the container | an array of the **names** |
+        | `np.array([nc], dtype=object).shape` | `(1,)` | `(1, 1)` |
+        | `isinstance(nc, Iterable / Sized / Container)` | `False` | `True` |
+
+        None of those is a useful way to get at the data — read a variable with
+        `nc["name"].read_array()`, or an axis with `nc.coords["lat"]`. The one to watch is
+        a helper that accepts "anything iterable": it used to reject a container outright
+        and now quietly receives a list of name strings. `bool(nc)` is unaffected —
+        :meth:`Dataset.__bool__` still refuses to collapse a raster to one truth value, and
+        wins over `__len__`; use `len(nc) == 0` to ask whether a container is empty.
+
         Yields:
             str: Each data-variable name.
 
@@ -3606,6 +3624,11 @@ class NetCDF(Dataset):
 
     def __len__(self) -> int:
         """How many data variables the container holds.
+
+        `bool(nc)` does **not** follow from this: :meth:`Dataset.__bool__` takes precedence
+        over `__len__` and raises, because a raster's truth value is ambiguous. Ask
+        `len(nc) == 0` for "does this container hold any variables". See :meth:`__iter__`
+        for the rest of what adding these dunders changed about protocol dispatch.
 
         Returns:
             int: `len(variable_names)`. Reads no data.

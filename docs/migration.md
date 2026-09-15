@@ -1033,6 +1033,38 @@ replace the georeference wholesale.
 
 ### unreleased
 
+**`NetCDF.data_vars` is the variables mapping, not a list of names.** Hard change. It was added as an alias of
+`variable_names` and is now `variables`, matching `xarray.Dataset.data_vars`, which is a mapping.
+
+- Iteration and length are unchanged: `list(nc.data_vars)` still gives the names, in store order, and
+  `len(nc.data_vars)` still counts them. Most code needs no edit.
+- `nc.data_vars["t2m"]` and `nc.data_vars.items()` now work, where they previously raised `TypeError` and
+  `AttributeError`.
+- Code that compared it to a list (`nc.data_vars == ["t2m"]`), sliced it (`nc.data_vars[0]`, `nc.data_vars[:2]`)
+  or sorted it in place must use `nc.variable_names`, which is unchanged and is still a list.
+- The values are `NetCDF` subsets and `LabeledArray`s, not xarray `DataArray`s.
+
+**A container now duck-types as a sequence, because it gained `__iter__` and `__len__`.** Hard change, and a
+silent one — nothing raises and nothing warns. `NetCDF` had neither dunder before, so NumPy treated it as an
+opaque object and every `isinstance(x, Iterable)` test answered `False` for it.
+
+| expression | before | now |
+|---|---|---|
+| `np.asarray(nc)` | 0-d object array wrapping the container | an array of the variable **names** |
+| `np.array([nc], dtype=object).shape` | `(1,)` | `(1, 1)` |
+| `isinstance(nc, collections.abc.Iterable / Sized / Container)` | `False` | `True` |
+
+- None of those was ever a supported way to reach the data, and none is now: read a variable with
+  `nc["name"].read_array()`, or an axis with `nc.coords["lat"]`.
+- The case to check is a helper of your own that accepts "anything iterable". It used to reject a container
+  outright and now quietly receives a list of name strings, so a mistake fails later and less clearly than it
+  used to. Gate on `isinstance(x, NetCDF)` first if that matters.
+- An object array built from containers with **different** variable counts is now ragged, and NumPy raises
+  rather than building a 1-D object array.
+- `bool(nc)` is unaffected: `Dataset.__bool__` still refuses, and takes precedence over `__len__`. Ask
+  `len(nc) == 0` whether a container is empty.
+- `isinstance(nc, Mapping)` and `isinstance(nc, Sequence)` are both still `False`.
+
 **`to_xarray()` decodes the CF time axis, so the coordinate is `datetime64[ns]` rather than `float64`.**
 Hard change, silent for the read side — nothing raises and nothing warns when the axis decodes. The bridge
 exists to hand you to xarray, and `resample`, `.dt` and `groupby("time.<component>")` all raised on the numeric
