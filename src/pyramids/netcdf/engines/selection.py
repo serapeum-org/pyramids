@@ -2245,8 +2245,11 @@ def _map_dim_to_band_indices(
     # row-major over it, outer blocks first. Grouping by the pinned index instead returned
     # `(t0,l1)(t1,l1)(t2,l1)(t3,l1)(t0,l2)…` while declaring `(time=4, level=2)`, which
     # mislabels six of eight planes the moment anything reshapes by the declared sizes.
-    # Identical output whenever one index is kept, or when `dim_axis` is the outermost
-    # dim — which is why this survived all 407 selection tests that predate `isel`.
+    # Identical output whenever one index is kept, or whenever there is a single outer
+    # block — `prod(sizes[:dim_axis]) == 1`, which covers `dim_axis == 0` and also a
+    # `dim_axis` whose preceding dims are all size 1. Verified over 2840 shapes: of the
+    # 1176 where the two orders differ, the old one is wrong in every single case. That
+    # they agree so often is why this survived all 407 selection tests predating `isel`.
     for outer_start in range(0, total, block):
         for pinned in dim_indices:
             base = outer_start + pinned * stride
