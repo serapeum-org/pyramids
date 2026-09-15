@@ -711,11 +711,12 @@ class Selection(_Engine["NetCDF"]):
         because each cut is independent of the others the order does not affect the result.
 
         Args:
-            **indexers: One or more `dimension=selector` pairs. Each selector is an `int`,
-                a `list` or `tuple` of `int`, or a `slice` of indices. A negative index
-                counts from the end, and a slice's `step` is honoured — unlike `sel`'s,
-                where a range of coordinate values has no meaningful stride. A numpy
-                integer does not count as an `int` here; see the Notes.
+            **indexers: One or more `dimension=selector` pairs. Each selector is an index,
+                a `list` or `tuple` of indices, or a `slice` of them. "Index" means
+                anything `operator.index()` accepts, so a numpy integer counts and needs no
+                `int(...)` wrapper. A negative index counts from the end, and a slice's
+                `step` is honoured — unlike `sel`'s, where a range of coordinate values has
+                no meaningful stride.
 
         Returns:
             NetCDF: A variable holding the selected bands, with `_band_dim_sizes` and the
@@ -723,11 +724,13 @@ class Selection(_Engine["NetCDF"]):
 
         Raises:
             ValueError: No indexers were given, the variable tracks no band dimensions, a
-                named dimension is not one of them, or a slice selects nothing.
+                named dimension is not one of them, or a selector keeps no position — an
+                empty `list` or `tuple` as much as a `slice` whose bounds cross.
             IndexError: An index is outside the dimension's range.
-            TypeError: A selector is not an `int`, a `list`/`tuple` of `int`, or a
-                `slice`. That includes a `bool`, a `float`, a numpy integer, a numpy
-                array, and a `range`.
+            TypeError: A selector is not an index, a `list`/`tuple` of indices, or a
+                `slice`. That includes a `float`, a `str`, a `range`, a `set`, and an
+                array of one or more dimensions. A `bool` is refused separately, with its
+                own message, because `operator.index()` would otherwise admit it.
 
         Examples:
             - Take the first time step of a `(time, pressure_level)` cube, leaving the
@@ -799,10 +802,13 @@ class Selection(_Engine["NetCDF"]):
             - A slice that selects nothing raises `ValueError` instead of producing a
               zero-length axis. The empty variable would build, then fail much later and
               further away on the first read.
-            - A numpy **array** and a boolean **mask** are refused, where xarray takes
-              both. A numpy *integer* is accepted — anything `operator.index()` admits is
-              an index here, so a value out of `np.argmin`, `np.where(...)[0][0]` or
-              iterating an array needs no `int(...)` wrapper.
+            - A numpy *integer* is accepted — anything `operator.index()` admits is an
+              index here, so a value out of `np.argmin`, `np.where(...)[0][0]` or
+              iterating an array needs no `int(...)` wrapper. A **0-d** array is accepted
+              for the same reason: `operator.index()` takes it, and `np.array(2)` is a
+              scalar in all but type.
+            - An array of **one or more** dimensions is refused, and so is a boolean
+              **mask**; xarray takes both. Pass `list(values)` for the first.
             - A `bool` is refused although `operator.index()` admits it, because
               `isel(time=True)` would quietly mean position 1 and a caller writing it
               almost certainly means a mask.
@@ -1120,20 +1126,28 @@ class Selection(_Engine["NetCDF"]):
                 "distance for a tolerance to bound."
             )
 
-        # Every dimension is checked against the receiver before any of them is cut, so a
-        # name that is not a band dimension of this variable is refused without having read
-        # the earlier keywords' bands. Only the name is checked here: resolving a *label*
-        # needs that dimension's coordinates, which a preceding cut can narrow, so the
-        # value is still resolved inside the loop below.
-        for dim_name in kwargs:
-            _assert_band_dimension(nc, dim_name, caller="sel")
+        # Resolve every keyword against the receiver before cutting anything, so a bad
+        # name *or* a value that matches nothing is refused without having read the earlier
+        # keywords' bands.
+        #
+        # Resolving against the original receiver rather than the progressively narrowed
+        # one is equivalent: `_subset_along_dim` copies `_band_dim_values_map` and replaces
+        # only its own dimension's entry, so cutting `time` leaves `pressure_level`'s
+        # coordinates exactly as they were, and a selector resolves to the same positions
+        # either way. An earlier version of this hoisted only the name check, on the stated
+        # grounds that a preceding cut could narrow the coordinates a label needs — which
+        # is not something any cut does.
+        resolved: list[tuple[str, list[int]]] = []
+        for dim_name, selector in kwargs.items():
+            resolved.append(
+                (dim_name, _resolve_one_dim(nc, dim_name, selector, method, tolerance))
+            )
 
         result = nc
-        # One dimension at a time, through the single-dim path that was here before, so
-        # each cut behaves exactly as it did when only one was allowed. They compose in any
-        # order because each narrows a different axis of the same band grid.
-        for dim_name, selector in kwargs.items():
-            result = _select_one_dim(result, dim_name, selector, method, tolerance)
+        # One cut per dimension, in the order the keywords were written. They compose in
+        # any order because each narrows a different axis of the same band grid.
+        for dim_name, dim_indices in resolved:
+            result = _subset_along_dim(result, dim_name, dim_indices)
         return result
 
     def subset(
@@ -1993,32 +2007,32 @@ def _resolve_selector_indices(
     return indices, available
 
 
-def _select_one_dim(
+def _resolve_one_dim(
     nc: NetCDF,
     dim_name: str,
     selector: Any,
     method: str | None,
     tolerance: float | None,
-) -> NetCDF:
-    """Narrow one dimension by coordinate value — the whole of what `sel` used to be.
+) -> list[int]:
+    """Resolve one `sel` keyword to positions, without cutting anything.
 
-    Kept as its own function so that `sel` accepting several dimensions is a loop over
-    unchanged behaviour rather than a rewrite: whatever one keyword argument did before, it
-    does here.
+    Everything `sel` used to do for a single keyword except the cut itself, so the whole
+    call can be validated before the first band is read. Splitting it out is what lets
+    `sel` refuse a wrong *value* in a later keyword as cheaply as a wrong name.
 
     Args:
-        nc: The variable subset to cut.
+        nc: The variable the keyword is resolved against.
         dim_name: The dimension to narrow.
         selector: A coordinate value, a list of them, or a slice.
         method: `None` for an exact match, `"nearest"` to snap.
         tolerance: The furthest a `"nearest"` snap may travel.
 
     Returns:
-        NetCDF: The narrowed variable.
+        list[int]: Positions along `dim_name` to keep.
 
     Raises:
         ValueError: The dimension is unknown, has no coordinates, or nothing matched.
-        KeyError: A `method="nearest"` request found no coordinate within `tolerance`.
+        KeyError: A `"nearest"` request found nothing within `tolerance`.
     """
     _assert_band_dimension(nc, dim_name, caller="sel")
 
@@ -2039,7 +2053,35 @@ def _select_one_dim(
             f"Available values: {summarise_values(available)}{hint}"
         )
 
-    return _subset_along_dim(nc, dim_name, dim_indices)
+    return dim_indices
+
+
+def _select_one_dim(
+    nc: NetCDF,
+    dim_name: str,
+    selector: Any,
+    method: str | None,
+    tolerance: float | None,
+) -> NetCDF:
+    """Narrow one dimension by coordinate value — resolve, then cut.
+
+    Args:
+        nc: The variable subset to cut.
+        dim_name: The dimension to narrow.
+        selector: A coordinate value, a list of them, or a slice.
+        method: `None` for an exact match, `"nearest"` to snap.
+        tolerance: The furthest a `"nearest"` snap may travel.
+
+    Returns:
+        NetCDF: The narrowed variable.
+
+    Raises:
+        ValueError: The dimension is unknown, has no coordinates, or nothing matched.
+        KeyError: A `"nearest"` request found nothing within `tolerance`.
+    """
+    return _subset_along_dim(
+        nc, dim_name, _resolve_one_dim(nc, dim_name, selector, method, tolerance)
+    )
 
 
 def _resolve_positional_indices(selector: Any, size: int, dim_name: str) -> list[int]:
@@ -2074,8 +2116,9 @@ def _resolve_positional_indices(selector: Any, size: int, dim_name: str) -> list
             `isel(dim=True)` would quietly mean position 1. Every integer type
             `index()` accepts — `np.int64`, `np.int32`, `np.uint8` — is taken, which
             matches `sel`'s numeric path accepting numpy scalars.
-        ValueError: A slice selects nothing, which would otherwise build a zero-band
-            variable that fails much later and further away.
+        ValueError: The selector keeps no position — an empty `list` or `tuple` as much as
+            a `slice` whose bounds cross — which would otherwise build a zero-band variable
+            that fails much later and further away, inside GDAL.
 
     Examples:
         - A negative index counts from the end:

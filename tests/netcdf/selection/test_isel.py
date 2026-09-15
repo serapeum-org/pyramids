@@ -976,15 +976,34 @@ class TestEveryKeywordIsCheckedBeforeAnythingIsRead:
 
         Args:
             cube: The 4x3 band-dim fixture.
-
-        Test scenario:
-            Only the *name* can be checked up front for `sel`: resolving a label needs the
-            dimension's coordinates, which a preceding cut may narrow, so the value is
-            still resolved in the loop. The name is the case a typo hits.
         """
         with self._recording_reads() as reads:
             with pytest.raises(ValueError, match="does not match any band dimension"):
                 cube.sel(time=6, nope=0)
+
+        assert reads == []
+
+    def test_sel_reads_nothing_before_refusing_an_unmatched_value(self, cube):
+        """A wrong *value* in the second keyword must not cost a read either.
+
+        Args:
+            cube: The 4x3 band-dim fixture.
+
+        Test scenario:
+            The first version of this fix hoisted only the dimension-name check for `sel`,
+            on the stated grounds that "a preceding cut can narrow that dimension's
+            coordinates" so the value had to stay in the loop. That is false: a cut copies
+            the coordinate map and replaces only its own dimension's entry, so every other
+            dimension's coordinates are exactly what they were. Selectors resolve to the
+            same positions either way.
+
+            The consequence was that the commit claiming to "check every keyword before
+            cutting anything" did so for a typo'd name and not for a wrong value -- by far
+            the more common mistake -- which still read 3 of the cube's 12 bands first.
+        """
+        with self._recording_reads() as reads:
+            with pytest.raises(ValueError, match="No bands match"):
+                cube.sel(time=6.0, pressure_level=99999)
 
         assert reads == []
 
@@ -1085,3 +1104,44 @@ class TestIselAcceptsAnyIntegerPython:
         assert cube.isel(time=[np.int64(2), np.int64(0)])._band_dim_values_map[
             "time"
         ] == [0.0, 12.0]
+
+
+class TestArrayDimensionalityDecidesAcceptance:
+    """`operator.index()` takes a 0-d array; anything higher is not an index."""
+
+    def test_a_zero_dimensional_array_is_accepted(self, cube):
+        """`np.array(2)` is a scalar in all but type, and `index()` takes it.
+
+        Args:
+            cube: The 4x3 band-dim fixture.
+
+        Test scenario:
+            The commit that widened the gate wrote "a numpy array is refused" in the same
+            breath, which is true only from one dimension up. A 0-d array satisfies
+            `operator.index()` and selects correctly, so the claim was corrected rather
+            than the behaviour -- refusing it would mean special-casing a shape that
+            behaves exactly like the scalar it holds.
+        """
+        assert cube.isel(time=np.array(2))._band_dim_values_map["time"] == [12.0]
+        assert cube.isel(time=[np.array(2), np.array(0)])._band_dim_values_map[
+            "time"
+        ] == [0.0, 12.0]
+
+    @pytest.mark.parametrize(
+        "make",
+        [lambda: np.array([2]), lambda: np.array([[2]]), lambda: np.arange(2)],
+        ids=["1-d", "2-d", "arange"],
+    )
+    def test_an_array_with_dimensions_is_refused(self, cube, make):
+        """One dimension up, it is a sequence rather than an index.
+
+        Args:
+            cube: The 4x3 band-dim fixture.
+            make: Builds the array to pass.
+
+        Test scenario:
+            xarray accepts these as fancy indexing; this does not, and the Notes say so.
+            Pinned from this side too, so widening the gate further has to be deliberate.
+        """
+        with pytest.raises(TypeError, match="needs an int"):
+            cube.isel(time=make())
