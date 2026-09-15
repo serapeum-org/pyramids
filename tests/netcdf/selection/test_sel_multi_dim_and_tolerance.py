@@ -176,24 +176,16 @@ class TestSelSeveralDimensions:
             err_msg="the last time step must be read at both levels inside the slice",
         )
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "_map_dim_to_band_indices groups the selected bands by the pinned index first, so "
-            "keeping >1 coordinate on an INNER band dim returns them laid out as "
-            "(pressure_level, time) while the result declares _band_dim_sizes == (time, "
-            "pressure_level). Pre-existing on main; isel() inherits it through the shared "
-            "_subset_along_dim."
-        ),
-    )
     def test_several_values_on_the_inner_axis_keep_the_declared_layout(self, cube):
         """``sel(pressure_level=[850, 500])`` must lay its 8 bands out as ``_band_dim_sizes`` says.
 
         Test scenario:
             `_band_dim_sizes` is the only statement of how a multi-band result's flat band list
-            maps back onto its dimensions. It holds when the outer axis is narrowed and breaks
-            when the inner one is — the bands come back grouped by level, so band 1 is
-            (t=6, l=850) where the declared layout puts (t=0, l=500).
+            maps back onto its dimensions. It held when the outer axis was narrowed and broke
+            when the inner one was — the bands came back grouped by level, so band 1 was
+            (t=6, l=850) where the declared layout puts (t=0, l=500). Fixed by emitting outer
+            blocks before pinned indices; this is the regression test, and it covers `sel`
+            because the defect was in `sel` on main before `isel` existed to inherit it.
         """
         result = cube.sel(pressure_level=[850, 500])
         assert result._band_dim_sizes == (NT, 2), (

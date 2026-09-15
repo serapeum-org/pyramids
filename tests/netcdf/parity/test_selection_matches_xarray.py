@@ -226,25 +226,16 @@ class TestIselMatchesXarray:
 
         assert_parity(pyramids_side, xarray_side)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "_map_dim_to_band_indices orders the selected bands by the pinned index and then "
-            "by the outer axis, so keeping >1 position on an INNER band dim lays the result "
-            "out as (pressure_level, time) while _band_dim_sizes declares (time, "
-            "pressure_level). Pre-existing in sel() on main; isel() inherits it. The loop "
-            "nesting in _map_dim_to_band_indices is the wrong way round."
-        ),
-    )
     def test_a_slice_selector_matches_the_export(self, container, source, exported):
         """``isel(pressure_level=slice(1, 3))`` keeps the trailing two levels.
 
         Test scenario:
             The level axis is the *inner* of the two flattened band dims, so narrowing it
             strides through the flat band list rather than taking a contiguous run. That is the
-            arithmetic a slice on the outer axis would never exercise — and it is where the
-            band order and the declared `_band_dim_sizes` currently disagree, which is why this
-            is an expected failure rather than a passing comparison.
+            arithmetic a slice on the outer axis would never exercise, and it is where the band
+            order and the declared `_band_dim_sizes` used to disagree — the case that sent six
+            of eight planes to the wrong (time, level). Comparing against xarray is what says
+            the fix agrees with another implementation and not merely with itself.
         """
         kept = [1, 2]
         selected = np.asarray(

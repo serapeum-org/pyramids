@@ -2090,14 +2090,27 @@ def _map_dim_to_band_indices(
     ``stride = prod(S[k+1:])`` and ``block = stride * S[k]``; each pinned index
     ``p`` emits ``[outer + p*stride .. outer + (p+1)*stride)`` for every
     ``outer`` in ``range(0, total, block)``. Reduces to the identity when there
-    is a single band dim. Helper of :meth:`Selection.sel`.
+    is a single band dim. Helper of :meth:`Selection.sel` and
+    :meth:`Selection.isel`.
+
+    **The emitted order is row-major over the narrowed sizes**, outer blocks before
+    pinned indices, because the caller labels the result with those sizes and nothing
+    else records how the flat list maps back onto dimensions.
     """
     stride = math.prod(sizes[dim_axis + 1 :])
     block = stride * sizes[dim_axis]
     total = math.prod(sizes)
     band_indices: list[int] = []
-    for pinned in dim_indices:
-        for outer_start in range(0, total, block):
+    # `outer_start` outside `pinned`, not the reverse. The result declares
+    # `_band_dim_sizes` with `dim_axis` narrowed, and that tuple is the only thing saying
+    # how the flat band list maps back onto dimensions — so the bands have to come out
+    # row-major over it, outer blocks first. Grouping by the pinned index instead returned
+    # `(t0,l1)(t1,l1)(t2,l1)(t3,l1)(t0,l2)…` while declaring `(time=4, level=2)`, which
+    # mislabels six of eight planes the moment anything reshapes by the declared sizes.
+    # Identical output whenever one index is kept, or when `dim_axis` is the outermost
+    # dim — which is why this survived 419 selection tests.
+    for outer_start in range(0, total, block):
+        for pinned in dim_indices:
             base = outer_start + pinned * stride
             band_indices.extend(range(base, base + stride))
     return band_indices

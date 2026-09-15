@@ -397,25 +397,17 @@ class TestIselSelectorForms:
             err_msg=f"{selector!r} read the wrong bands",
         )
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "_map_dim_to_band_indices groups the selected bands by the pinned index first, so "
-            "keeping >1 position on an INNER band dim returns them laid out as "
-            "(pressure_level, time) while the result declares _band_dim_sizes == (time, "
-            "pressure_level). Pre-existing in sel() on main; isel() inherits it through the "
-            "shared _subset_along_dim."
-        ),
-    )
     def test_several_positions_on_the_inner_axis_keep_the_declared_layout(self, cube):
         """``isel(pressure_level=[1, 2])`` must lay its 8 bands out as ``_band_dim_sizes`` says.
 
         Test scenario:
             `_band_dim_sizes` is the only thing that says how a multi-band result's flat band
             list maps back onto its dimensions, so reshaping the read by it is the contract.
-            It holds when the outer axis is narrowed and breaks when the inner one is: the
-            bands come back grouped by level, so band 1 is (t=1, l=850) where the declared
-            layout puts (t=0, l=500).
+            It held when the outer axis was narrowed and broke when the inner one was:
+            `_map_dim_to_band_indices` grouped the bands by the pinned index first, so band 1
+            was (t=1, l=850) where the declared layout puts (t=0, l=500) — six of eight planes
+            carrying real data attached to the wrong (time, level). Fixed by emitting outer
+            blocks before pinned indices; this is the regression test.
         """
         result = cube.isel(pressure_level=[1, 2])
         assert result._band_dim_sizes == (NT, 2), (
