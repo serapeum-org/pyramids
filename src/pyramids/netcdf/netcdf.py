@@ -261,8 +261,13 @@ class _LazyVariableDict(dict):
     # views (callers iterate variable names/datasets, not a changing
     # mapping), so the return types deliberately diverge from dict/Mapping.
     def keys(self) -> list[str]:  # type: ignore[override]
-        """The data-variable names, in store order. Reads nothing."""
-        return self._names
+        """The data-variable names, in store order. Reads nothing.
+
+        A **copy**: `_names` is what `__iter__`, `__len__`, `__contains__`, `values`
+        and `items` are all driven from, so handing the list itself out would let
+        `nc.variables.keys().append(...)` corrupt every one of them at once.
+        """
+        return list(self._names)
 
     def values(self) -> list[NetCDF | LabeledArray]:  # type: ignore[override]
         """Every variable, loading each: a `NetCDF` per raster variable, a `LabeledArray` else."""
@@ -3546,14 +3551,16 @@ class NetCDF(Dataset):
               ['temperature']
 
               ```
-            - Being a list, it can be reordered without disturbing the container:
+            - A fresh copy each call, so reordering it in place disturbs nothing:
 
               ```python
               >>> from pyramids.netcdf import NetCDF
               >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
-              >>> sorted(nc.keys(), reverse=True)
+              >>> names = nc.keys()
+              >>> names.reverse()
+              >>> names
               ['ua', 'tas', 'pr', 'msk_rgn', 'area']
-              >>> nc.variable_names
+              >>> list(nc)
               ['area', 'msk_rgn', 'pr', 'tas', 'ua']
 
               ```

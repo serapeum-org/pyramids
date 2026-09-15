@@ -531,20 +531,47 @@ class TestTheMappingsAreSafeToHoldOnTo:
 
         assert "injected" not in getattr(nc, member)
 
-    def test_mutating_a_returned_list_does_not_reach_the_container(self):
-        """`data_vars` and `keys()` hand back lists that are safe to sort in place.
+    def test_mutating_the_list_keys_returns_does_not_reach_the_container(self):
+        """`keys()` hands back a copy, not the list the container runs on.
 
         Test scenario:
-            `variable_names` order is a documented contract, so a caller sorting the list
-            the alias returned must not reorder what the next reader sees.
+            The regression this pins: `_LazyVariableDict.keys()` used to return `_names`
+            itself -- the very list `__iter__`, `__len__`, `__contains__`, `values` and
+            `items` are all driven from -- so `nc.keys().append("X")` made `list(nc)` and
+            `len(nc)` wrong and `dict(nc)` raise.
+
+            Asserted against `list(nc)`, `len(nc)` and `items()`, **not** against
+            `variable_names`: that property re-reads the store on every call, so it reports
+            the right answer even while the container is corrupted, and a test written
+            against it passes with the bug present.
         """
         nc = open_store(MIXED_RANKS)
-        original = list(nc.variable_names)
+        original = list(nc)
 
-        nc.data_vars.reverse()
-        nc.keys().reverse()
+        names = nc.keys()
+        names.reverse()
+        names.append("INJECTED")
 
-        assert nc.variable_names == original
+        assert list(nc) == original
+        assert len(nc) == len(original)
+        assert "INJECTED" not in nc
+        assert [name for name, _ in nc.items()] == original
+
+    def test_the_lazy_mapping_hands_out_a_copy_too(self):
+        """The fix is at the source, so `nc.variables.keys()` is safe as well.
+
+        Test scenario:
+            The container delegates to the mapping, so fixing only `NetCDF.keys` would
+            leave `nc.variables.keys()` handing out the live list to anyone who reached
+            one level down.
+        """
+        nc = open_store(PLAIN)
+
+        first = nc.variables.keys()
+        first.append("INJECTED")
+
+        assert nc.variables.keys() == ["temperature"]
+        assert list(nc) == ["temperature"]
 
 
 class TestAVariableSubsetReportsTheContainerContract:
