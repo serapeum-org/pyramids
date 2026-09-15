@@ -600,10 +600,14 @@ def nearest_indices(
     See Also:
         label_indices: the date-label counterpart, which this deliberately refuses.
     """
-    # Checked first, before the selector and before the axis. It is an argument error —
-    # nothing about the data can make a negative bound meaningful — and validating it last
-    # meant an all-NaN axis reported the axis problem while the caller's bound was also
-    # wrong, so they fixed one and hit the other.
+    # First *in this function*, ahead of the selector and axis checks below: a negative
+    # bound is an argument error and nothing about the data can make it meaningful, so
+    # validating it last meant an all-NaN axis reported the axis problem while the caller's
+    # bound was also wrong, and they fixed one only to hit the other.
+    #
+    # Not first in the call as a whole. Reached through `sel`, `_nearest_or_raise` refuses
+    # a date-label selector before this runs, so `sel(time="2024-01-01",
+    # method="nearest", tolerance=-1)` reports the label, not the bound.
     if tolerance is not None and (not _is_number(tolerance) or tolerance < 0):
         raise ValueError(f"tolerance must be a non-negative number, got {tolerance!r}.")
     if isinstance(selector, slice):
