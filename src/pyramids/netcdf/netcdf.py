@@ -3274,8 +3274,19 @@ class NetCDF(Dataset):
     def dtypes(self) -> dict[str, str]:
         """Each data variable's dtype, as `{name: dtype}`.
 
-        Reads no pixels: the type comes from the band description. One entry per name in
-        :attr:`variable_names`, so a variable subset — which enumerates none — reports `{}`.
+        One entry per name in :attr:`variable_names`, so a variable subset — which
+        enumerates none — reports `{}`.
+
+        **No data variable's array is read.** For a raster variable the type comes from the
+        band description. Opening one does read its *coordinate* axes — one small array per
+        dimension, never one per cell — which is what "reads no pixels" means here.
+
+        A variable with **no raster plane** is the exception: it comes back as a
+        `LabeledArray`, and building one materialises the variable's own array. So on a
+        store of 1-D or non-numeric variables this reads each of them, and the arrays stay
+        in the :attr:`variables` cache afterwards. The type reported is then the
+        materialised array's, which for a string variable is `'object'` rather than any
+        type the store uses.
 
         A name the store enumerates but will not open reports `"unknown"` rather than
         raising. That happens on a **classic** container, whose subdataset enumeration can
@@ -3320,9 +3331,23 @@ class NetCDF(Dataset):
     def nbytes(self) -> int:
         """The size of every data variable in bytes, computed rather than read.
 
-        From each variable's shape and dtype, so a cube far larger than memory can be
-        sized without touching a pixel. **Data variables only** — xarray's `nbytes` counts
-        its coordinates too, so the two differ by the size of the coordinate arrays.
+        From each variable's shape and dtype. **Data variables only** — xarray's `nbytes`
+        counts its coordinates too, so the two differ by the size of the coordinate arrays.
+
+        Three things to know before trusting the number:
+
+        - A **raster** variable is sized without reading a single cell, which is the point:
+          a cube far larger than memory can still be sized. Its coordinate axes are read —
+          one small array per dimension — because opening a variable resolves them.
+        - A variable with **no raster plane** is a `LabeledArray`, and building one
+          materialises its array — so those are read, not computed. A string variable is
+          then counted as 8 bytes per Python object pointer, which bears no relation to
+          the characters stored.
+        - A **packed** variable is sized by its *stored* band type, not by what
+          :meth:`read_array` returns. Reading an `int16` store that unpacks to `float64`
+          costs four times this figure, not one.
+
+        See :attr:`dtypes` for the same caveats on the types.
 
         It sizes what :attr:`variable_names` enumerates, which on a **variable subset** is
         nothing: `nc["t2m"].nbytes` is `0`, not that variable's own size. Size a single
@@ -3367,6 +3392,9 @@ class NetCDF(Dataset):
 
     def info(self, buf: Any = None) -> None:
         """Print a summary of the container: dimensions, variables and attributes.
+
+        Calls :attr:`dtypes`, so it inherits that member's caveat: a variable with no
+        raster plane is materialised to report its type.
 
         On a **classic** container (`open_as_multi_dimensional=False`) there is no
         multidim group to read per-variable axes from, so each variable is printed with an

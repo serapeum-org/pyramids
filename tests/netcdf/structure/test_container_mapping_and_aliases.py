@@ -17,9 +17,13 @@ assumed:
   `dimension_names`, which is a list. That is the one alias in the set that does not alias
   the similarly-named member, so it is pinned from both directions.
 
-The introspection trio is the other half: `dtypes`, `nbytes` and `info` all have to answer
+The introspection trio is the other half: `dtypes`, `nbytes` and `info` have to answer
 without reading a pixel, or they are useless on the cubes that most need sizing. That is
-asserted by making `read_array` raise.
+asserted by counting `MDArray.ReadAsArray` -- the call that actually moves bytes -- and not
+`NetCDF.read_array`, which none of the three calls and which therefore cannot detect
+anything. Counting rather than forbidding also lets the one case where they *do* read be
+pinned instead of denied: a variable with no raster plane is materialised to report its
+type.
 """
 
 from __future__ import annotations
@@ -30,6 +34,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from osgeo import gdal
 
 from pyramids.netcdf import NetCDF
 from pyramids.netcdf.labeled import LabeledArray
@@ -85,17 +90,29 @@ def container(request: pytest.FixtureRequest) -> NetCDF:
     return open_store(request.param)
 
 
-def forbid_reads(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Make any raster read fail, so a test can assert nothing reads one.
+def count_reads(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Record every array GDAL actually reads, and return the growing log.
+
+    Patching `NetCDF.read_array` proves nothing here: `dtypes`, `nbytes` and `info` never
+    call it. Their reads, where they happen, go through `get_variable` ->
+    `_read_variable` -> `MDArray.ReadAsArray`, so that is what has to be watched -- the one
+    call that actually moves bytes.
 
     Args:
-        monkeypatch: The patcher to install the exploding `read_array` through.
+        monkeypatch: The patcher to install the counting wrapper through.
+
+    Returns:
+        list[str]: One entry per read, appended as it happens.
     """
+    reads: list[str] = []
+    original = gdal.MDArray.ReadAsArray
 
-    def explode(self: NetCDF, *args: object, **kwargs: object) -> None:
-        raise AssertionError("read_array was called; this member must not read pixels")
+    def record(self: gdal.MDArray, *args: object, **kwargs: object):
+        reads.append(str(self.GetName()))
+        return original(self, *args, **kwargs)
 
-    monkeypatch.setattr(NetCDF, "read_array", explode)
+    monkeypatch.setattr(gdal.MDArray, "ReadAsArray", record)
+    return reads
 
 
 class TestTheContainerIsAMapping:
@@ -448,39 +465,71 @@ class TestCheapIntrospection:
         assert nc.nbytes == 4 * 3 * 5 * 6 * 8
 
     @pytest.mark.parametrize("member", ["dtypes", "nbytes"])
-    def test_the_sizing_members_read_no_pixels(
+    def test_the_sizing_members_read_no_data_variable(
         self, member: str, monkeypatch: pytest.MonkeyPatch
     ):
-        """Sizing a cube must not load it.
+        """Sizing a cube of raster variables must not load one.
 
         Args:
             member: The property to evaluate.
-            monkeypatch: Used to make every raster read raise.
+            monkeypatch: Used to count the reads GDAL performs.
 
         Test scenario:
-            `read_array` is replaced with one that raises, then the property is read. This
-            is the whole reason `nbytes` is computed from shape and dtype: a cube far
-            larger than memory has to be sizeable, and a `sum(v.read_array().nbytes)`
-            implementation would pass every other test in this class.
+            `MDArray.ReadAsArray` is counted -- the call that actually moves bytes -- not
+            `NetCDF.read_array`, which none of these members calls and which therefore
+            cannot detect anything. This is the whole reason `nbytes` is computed from
+            shape and dtype: a cube far larger than memory has to be sizeable, and a
+            `sum(v.read_array().nbytes)` implementation would pass every other test here.
+
+            What is asserted is precise, because "reads nothing" is not true and asserting
+            it would only invite a weaker guard later: opening a variable resolves its
+            **coordinate** axes, so `lat`, `lon`, `time` and `plev` are read. No *data*
+            variable is, and every name read is a dimension -- which is what the docstrings
+            mean by "reads no pixels", one small array per axis rather than one per cell.
         """
         nc = open_store(MIXED_RANKS)
-        forbid_reads(monkeypatch)
+        reads = count_reads(monkeypatch)
 
         assert getattr(nc, member)
+        assert set(reads).isdisjoint(nc.variable_names)
+        assert set(reads) <= set(nc.dimension_sizes)
 
-    def test_info_reads_no_pixels(self, monkeypatch: pytest.MonkeyPatch):
-        """The summary is metadata only.
+    def test_info_reads_no_data_variable(self, monkeypatch: pytest.MonkeyPatch):
+        """The summary is metadata plus coordinates, never a data plane.
 
         Args:
-            monkeypatch: Used to make every raster read raise.
+            monkeypatch: Used to count the reads GDAL performs.
         """
         nc = open_store(MIXED_RANKS)
-        forbid_reads(monkeypatch)
+        reads = count_reads(monkeypatch)
 
         report = io.StringIO()
         nc.info(report)
 
         assert "pyramids.NetCDF {" in report.getvalue()
+        assert set(reads).isdisjoint(nc.variable_names)
+
+    def test_sizing_a_store_of_labelled_arrays_does_read(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """The caveat, asserted rather than assumed.
+
+        Args:
+            monkeypatch: Used to count the reads GDAL performs.
+
+        Test scenario:
+            A variable with no raster plane comes back as a `LabeledArray`, and building
+            one materialises its array. So on the UGRID store `nbytes` reads every
+            variable -- one `ReadAsArray` each -- which is exactly what the docstring used
+            to deny. Pinned here so the claim and the behaviour cannot drift apart again:
+            if the sizing is ever changed to work from the declared shape, this test is
+            what says so.
+        """
+        nc = open_store(LABELLED_ONLY)
+        reads = count_reads(monkeypatch)
+
+        assert nc.nbytes == 192
+        assert len(reads) == len(nc)
 
     def test_info_names_every_dimension_and_every_variable(self, container: NetCDF):
         """Nothing the container declares is missing from the summary.
