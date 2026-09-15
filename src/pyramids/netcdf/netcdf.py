@@ -3264,10 +3264,21 @@ class NetCDF(Dataset):
         makes it an alias of :attr:`dimension_sizes` — the same mapping under xarray's name
         for it, built afresh on every call rather than handed out as one shared object.
 
-        **Differs from xarray** in being a plain `dict` where xarray hands back a `Frozen`
-        mapping. A write here — `nc.dims["lat"] = 1` — succeeds against that throwaway and is
-        silently discarded, where xarray raises. Change an axis through the store, not
-        through this.
+        **Differs from xarray** in two ways, and the second is a moving target:
+
+        - It is a plain `dict` where xarray hands back a frozen mapping, so a write —
+          `nc.dims["lat"] = 1` — succeeds against that throwaway and is silently discarded
+          rather than raising. Change an axis through the store, not through this.
+        - **xarray is deprecating `Dataset.dims` as a mapping.** As of 2026.7.0 it returns
+          a `FrozenMappingWarningOnValuesAccess` that warns when the *values* are read, on
+          its way to returning a set of dimension *names*. When that lands, the member this
+          one is named after will be closer to :attr:`dimension_names` than to this.
+          :attr:`sizes` is the spelling that stays a name-to-length mapping on both sides,
+          and is the one to reach for in code meant to last.
+
+        This member is not following it: `dims` as a mapping is what a reader arriving
+        today expects, and matching a set of names would bring straight back the collision
+        the name was chosen to avoid.
 
         Inherits :attr:`dimension_sizes`' contract on a **variable subset**, where it is `{}`:
         a subset has no root group to enumerate dimensions from. :attr:`dimension_names` falls

@@ -61,8 +61,8 @@ docstring states where it diverges from the xarray member it echoes.
 | Member       | What it does                                                                        |
 |--------------|-------------------------------------------------------------------------------------|
 | `data_vars`  | `variables` under xarray's name — a mapping, so `nc.data_vars["t2m"]` works.         |
-| `dims`       | `{name: length}`, as xarray's is — **not** `dimension_names`, which is a list.       |
-| `sizes`      | The same mapping as `dims`, under xarray's other name for it.                        |
+| `dims`       | `{name: length}` — **not** `dimension_names`, a list. `sizes` is the durable spelling. |
+| `sizes`      | The same mapping as `dims`; xarray is turning its own `dims` into a set of names.    |
 | `attrs`      | `global_attributes` under xarray's name.                                             |
 | `coords`     | `{name: stored coordinate}` for every indexed dimension, from `get_dimension_values`. |
 
