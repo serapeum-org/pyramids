@@ -2157,56 +2157,106 @@ def _resolve_positional_indices(selector: Any, size: int, dim_name: str) -> list
         return list(range(*selector.indices(size))) or _refuse_empty_selection(
             selector, dim_name, size
         )
-    if isinstance(selector, (list, tuple)):
-        wanted = list(selector)
-    else:
-        wanted = [selector]
-    # `operator.index()` is Python's own definition of "usable as an index", so a numpy
-    # integer — what falls out of `np.argmin`, `np.where(...)[0][0]` or iterating an array
-    # — is accepted, as it is everywhere else in Python. `isinstance(v, int)` rejected all
-    # of them while the sibling `sel` accepted numpy scalars through `numbers.Real`, so the
-    # two halves of one API disagreed about what a number is.
-    #
-    # `bool` stays refused even though it satisfies `index()`: `isel(time=True)` would
-    # quietly become index 1, and a caller writing it almost certainly means a mask.
-    indices: list[int] = []
-    for value in wanted:
-        # `np.asarray(...).dtype == bool` also catches a 0-d boolean array, which
-        # `operator.index()` refuses anyway — but with the generic "needs an int" message,
-        # which does not tell a caller reaching for a mask what is actually wrong.
-        is_boolean = isinstance(value, (bool, np.bool_)) or (
-            isinstance(value, np.ndarray)
-            and value.ndim == 0
-            and value.dtype == np.bool_
+    wanted = list(selector) if isinstance(selector, (list, tuple)) else [selector]
+    positions = {
+        _normalise_index(_as_index(value, selector, dim_name), size, dim_name)
+        for value in wanted
+    }
+    return sorted(positions) or _refuse_empty_selection(selector, dim_name, size)
+
+
+def _is_boolean(value: Any) -> bool:
+    """Whether a selector entry is a boolean, in any spelling numpy offers.
+
+    `operator.index()` admits a Python `bool`, so it has to be excluded by name or
+    `isel(time=True)` quietly means position 1. A 0-d boolean array is caught here too:
+    `index()` refuses it anyway, but with the generic "needs an int" message, which does
+    not tell a caller reaching for a mask what is actually wrong.
+
+    Args:
+        value: One entry of an `isel` selector.
+
+    Returns:
+        bool: `True` for `bool`, `numpy.bool_`, and a 0-d boolean array.
+
+    Examples:
+        - Every spelling counts:
+
+          ```python
+          >>> import numpy as np
+          >>> from pyramids.netcdf.engines.selection import _is_boolean
+          >>> _is_boolean(True), _is_boolean(np.bool_(False)), _is_boolean(np.array(True))
+          (True, True, True)
+
+          ```
+        - An integer does not, whatever its width:
+
+          ```python
+          >>> import numpy as np
+          >>> from pyramids.netcdf.engines.selection import _is_boolean
+          >>> _is_boolean(1), _is_boolean(np.int64(0)), _is_boolean(np.array(1))
+          (False, False, False)
+
+          ```
+    """
+    if isinstance(value, (bool, np.bool_)):
+        return True
+    return isinstance(value, np.ndarray) and value.ndim == 0 and value.dtype == np.bool_
+
+
+def _as_index(value: Any, selector: Any, dim_name: str) -> int:
+    """One selector entry as a Python `int`, or the refusal explaining why it is not.
+
+    Args:
+        value: The entry to convert.
+        selector: The whole selector, quoted back so a bad list entry names its list.
+        dim_name: The dimension being selected, for the message.
+
+    Returns:
+        int: The entry as a plain `int`. `operator.index()` normalises the width, so a
+        numpy integer arrives here as a Python one and the later arithmetic can neither
+        overflow nor wrap.
+
+    Raises:
+        TypeError: The entry is a boolean, or is not something `operator.index()` admits.
+    """
+    if _is_boolean(value):
+        raise TypeError(
+            f"isel() does not take booleans for {dim_name!r}, got {selector!r}. A "
+            f"boolean mask is not supported; pass the integer positions instead."
         )
-        if is_boolean:
-            raise TypeError(
-                f"isel() does not take booleans for {dim_name!r}, got {selector!r}. A "
-                f"boolean mask is not supported; pass the integer positions instead."
-            )
-        try:
-            indices.append(operator.index(value))
-        except TypeError:
-            raise TypeError(
-                f"isel() needs an int, a list of ints, a tuple of ints, or a slice for "
-                f"{dim_name!r}, got {selector!r}. Select by coordinate value with "
-                f"sel({dim_name}=...) instead."
-            ) from None
-    wanted = indices
-    resolved = set()
-    for value in wanted:
-        if not -size <= value < size:
-            raise IndexError(
-                f"index {value} is out of range for dimension {dim_name!r} of length "
-                f"{size}. Valid indices are {-size} to {size - 1}."
-            )
-        resolved.add(value + size if value < 0 else value)
-    # The same refusal as the slice arm above. A `slice` was guarded and an empty list or
-    # tuple was not, so `isel(time=[])` fell through to a variable declaring
-    # `_band_dim_sizes == (0, 3)` whose first read died inside GDAL — while `sel(time=[])`
-    # had always refused. Both arms now route here, so the class is closed rather than the
-    # one instance a review happened to name.
-    return sorted(resolved) or _refuse_empty_selection(selector, dim_name, size)
+    try:
+        return operator.index(value)
+    except TypeError:
+        raise TypeError(
+            f"isel() needs an int, a list of ints, a tuple of ints, or a slice for "
+            f"{dim_name!r}, got {selector!r}. Select by coordinate value with "
+            f"sel({dim_name}=...) instead."
+        ) from None
+
+
+def _normalise_index(value: int, size: int, dim_name: str) -> int:
+    """An index counted from the end turned into one counted from the start.
+
+    Args:
+        value: An index, possibly negative.
+        size: The axis' length.
+        dim_name: The dimension being selected, for the message.
+
+    Returns:
+        int: The equivalent non-negative position.
+
+    Raises:
+        IndexError: `value` is outside `[-size, size)`. The message names the dimension and
+            its length, because "index 7 is out of bounds" alone does not say which of
+            several dimensions was overrun.
+    """
+    if not -size <= value < size:
+        raise IndexError(
+            f"index {value} is out of range for dimension {dim_name!r} of length "
+            f"{size}. Valid indices are {-size} to {size - 1}."
+        )
+    return value + size if value < 0 else value
 
 
 def _refuse_empty_selection(selector: Any, dim_name: str, size: int) -> NoReturn:

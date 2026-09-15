@@ -264,8 +264,13 @@ class TestSelSeveralDimensions:
         assert "No bands match pressure_level=999" in message, (
             f"unexpected message: {message}"
         )
-        assert "1000.0" in message and "500.0" in message, (
-            f"the refusal must list the axis' own values, got: {message}"
+        # One claim per assertion: `a in m and b in m` reports only that the pair failed,
+        # not which half, which is the whole diagnostic value of listing the axis.
+        assert "1000.0" in message, (
+            f"the refusal must list the axis' first value, got: {message}"
+        )
+        assert "500.0" in message, (
+            f"the refusal must list the axis' last value, got: {message}"
         )
 
 

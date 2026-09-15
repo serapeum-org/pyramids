@@ -339,13 +339,17 @@ class TestSelToleranceMatchesXarray:
             the bounded miss and diverge on the unbounded one. `sel`'s Raises states the
             split; `test_sel_multi_dim_and_tolerance.py` pins both types.
         """
+        variable = container.get_variable(VARIABLE)
+
         with pytest.raises(KeyError):
-            container.get_variable(VARIABLE).sel(
+            variable.sel(
                 pressure_level=NEAREST_REQUEST, method="nearest", tolerance=tolerance
             )
 
+        exported = container.to_xarray()[VARIABLE]
+
         with pytest.raises(KeyError):
-            container.to_xarray()[VARIABLE].sel(
+            exported.sel(
                 pressure_level=NEAREST_REQUEST, method="nearest", tolerance=tolerance
             )
 
@@ -391,7 +395,7 @@ class TestSelToleranceMatchesXarray:
                 pressure_level=NEAREST_REQUEST, tolerance=50
             )
 
+        exported = container.to_xarray()[VARIABLE]
+
         with pytest.raises(KeyError):
-            container.to_xarray()[VARIABLE].sel(
-                pressure_level=NEAREST_REQUEST, tolerance=50
-            )
+            exported.sel(pressure_level=NEAREST_REQUEST, tolerance=50)

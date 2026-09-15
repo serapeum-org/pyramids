@@ -1069,8 +1069,10 @@ class TestIselAcceptsAnyIntegerPython:
             almost certainly means a mask, which is not supported — so it stays a
             `TypeError`.
         """
+        selector = make()
+
         with pytest.raises(TypeError, match="does not take booleans"):
-            cube.isel(time=make())
+            cube.isel(time=selector)
 
     @pytest.mark.parametrize(
         "make",
@@ -1088,8 +1090,10 @@ class TestIselAcceptsAnyIntegerPython:
             `operator.index()` refuses all three, which is why it is the right gate rather
             than a looser numeric test — `isel(time=1.5)` has no meaning as a position.
         """
+        selector = make()
+
         with pytest.raises(TypeError):
-            cube.isel(time=make())
+            cube.isel(time=selector)
 
     def test_a_numpy_integer_works_inside_a_list_too(self, cube):
         """The element check is the same gate as the scalar one.
@@ -1144,8 +1148,10 @@ class TestArrayDimensionalityDecidesAcceptance:
             xarray accepts these as fancy indexing; this does not, and the Notes say so.
             Pinned from this side too, so widening the gate further has to be deliberate.
         """
+        selector = make()
+
         with pytest.raises(TypeError, match="needs an int"):
-            cube.isel(time=make())
+            cube.isel(time=selector)
 
 
 class _Ordinal(enum.IntEnum):
@@ -1235,8 +1241,10 @@ class TestTheIndexGateAdmitsWhatOperatorIndexAdmits:
             narrowed the value to a fixed width would wrap `255` onto a valid position or
             overflow on `10**20`; both would be silent.
         """
+        selector = make()
+
         with pytest.raises(IndexError) as error:
-            cube.isel(time=make())
+            cube.isel(time=selector)
 
         message = str(error.value)
         assert "out of range for dimension 'time' of length 4" in message, (
@@ -1273,8 +1281,10 @@ class TestTheIndexGateAdmitsWhatOperatorIndexAdmits:
             mask off to write `np.array(1)` instead. A 1-d boolean array is the mask itself
             and has no such reading, so it takes the generic message.
         """
+        selector = make()
+
         with pytest.raises(TypeError) as error:
-            cube.isel(time=make())
+            cube.isel(time=selector)
 
         message = str(error.value)
         assert expected in message, f"unexpected message: {message}"
