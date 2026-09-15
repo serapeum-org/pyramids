@@ -17,7 +17,7 @@ import warnings
 import weakref
 from collections.abc import Iterator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Unpack, cast
+from typing import TYPE_CHECKING, Any, Protocol, Unpack, cast
 
 import numpy as np
 import pandas as pd
@@ -1568,7 +1568,56 @@ def _variable_summary(nc: NetCDF) -> str:
     return "\n".join(lines)
 
 
-def _variable_dtype(variable: NetCDF | LabeledArray) -> str:
+class _HasDtype(Protocol):
+    """The shape `_variable_dtype` and `_variable_nbytes` need from a raster variable.
+
+    A structural type rather than `NetCDF`, because both helpers touch only these four
+    members — and saying so lets a test exercise the no-band arm with a four-line stub
+    instead of manufacturing a zero-band subset, which no fixture in the repo produces.
+    """
+
+    @property
+    def dtype(self) -> list[str]:
+        """One entry per band."""
+
+    @property
+    def rows(self) -> int:
+        """Raster height."""
+
+    @property
+    def columns(self) -> int:
+        """Raster width."""
+
+    @property
+    def band_count(self) -> int:
+        """Every non-spatial dimension, flattened."""
+
+
+def _open_variable(nc: NetCDF, name: str) -> NetCDF | LabeledArray | None:
+    """One variable, or `None` when the store will not hand it over.
+
+    Introspection has to describe what it can rather than stop at the first name that
+    refuses. A **classic** container enumerates its variables from the subdataset list,
+    which can name an array GDAL then declines to open — `cf__12v__1d4-2d5-3d2-4d1__y-asc.nc`
+    reports `precipitation_flux` and raises `RuntimeError: ... does not exist in the file
+    system` on the way in. That is a defect in the classic enumeration, not in the caller,
+    and it must not take `info()` down with it.
+
+    Args:
+        nc: The container to read from.
+        name: A name `variable_names` reported.
+
+    Returns:
+        NetCDF | LabeledArray | None: The variable, or `None` when it cannot be opened.
+    """
+    try:
+        variable = nc[name]
+    except (RuntimeError, KeyError, ValueError):
+        variable = None
+    return variable
+
+
+def _variable_dtype(variable: _HasDtype | LabeledArray) -> str:
     """The dtype of one variable, whichever kind :meth:`NetCDF.get_variable` returned.
 
     A raster subset reports `dtype` as one entry **per band**, all the same because a band is
@@ -1616,7 +1665,7 @@ def _variable_dtype(variable: NetCDF | LabeledArray) -> str:
     return name
 
 
-def _variable_nbytes(variable: NetCDF | LabeledArray) -> int:
+def _variable_nbytes(variable: _HasDtype | LabeledArray) -> int:
     """One variable's size in bytes, from its shape and dtype rather than its data.
 
     `rows * columns * band_count` is the whole cell count, not a plane's: GDAL flattens every
@@ -3228,6 +3277,11 @@ class NetCDF(Dataset):
         Reads no pixels: the type comes from the band description. One entry per name in
         :attr:`variable_names`, so a variable subset — which enumerates none — reports `{}`.
 
+        A name the store enumerates but will not open reports `"unknown"` rather than
+        raising. That happens on a **classic** container, whose subdataset enumeration can
+        report an array GDAL then declines to open; introspection describes what it can
+        instead of stopping at the first such name.
+
         Returns:
             dict[str, str]: Variable name to the dtype of its first band, or to the
                 `LabeledArray`'s own dtype for a variable with no raster plane.
@@ -3256,7 +3310,11 @@ class NetCDF(Dataset):
             NetCDF.nbytes: Sized from these dtypes and the dimension lengths.
             NetCDF.variable_names: The names these are keyed by.
         """
-        return {name: _variable_dtype(self[name]) for name in self.variable_names}
+        resolved = ((name, _open_variable(self, name)) for name in self.variable_names)
+        return {
+            name: "unknown" if variable is None else _variable_dtype(variable)
+            for name, variable in resolved
+        }
 
     @property
     def nbytes(self) -> int:
@@ -3269,6 +3327,9 @@ class NetCDF(Dataset):
         It sizes what :attr:`variable_names` enumerates, which on a **variable subset** is
         nothing: `nc["t2m"].nbytes` is `0`, not that variable's own size. Size a single
         variable from its shape and :attr:`dtype` instead.
+
+        A name the store enumerates but will not open — see :attr:`dtypes` — contributes
+        `0`, so on a classic container this can under-report rather than raise.
 
         Returns:
             int: The total, `0` for a container with no data variables.
@@ -3297,10 +3358,19 @@ class NetCDF(Dataset):
             NetCDF.dtypes: The types this sizes from.
             NetCDF.dims: The lengths it sizes over.
         """
-        return sum(_variable_nbytes(self[name]) for name in self.variable_names)
+        total = 0
+        for name in self.variable_names:
+            variable = _open_variable(self, name)
+            if variable is not None:
+                total += _variable_nbytes(variable)
+        return total
 
     def info(self, buf: Any = None) -> None:
         """Print a summary of the container: dimensions, variables and attributes.
+
+        On a **classic** container (`open_as_multi_dimensional=False`) there is no
+        multidim group to read per-variable axes from, so each variable is printed with an
+        empty axis list. Everything else — dimensions, dtypes, attributes — is unaffected.
 
         Args:
             buf: Where to write. Defaults to `sys.stdout`, matching xarray's `info`.
@@ -3348,6 +3418,8 @@ class NetCDF(Dataset):
             NetCDF.dims: The dimension lengths it prints.
         """
         stream = sys.stdout if buf is None else buf
+        # `None` on a classic container, which has no multidim group to read axes from;
+        # `_variable_dim_names` would reach `None.OpenMDArray` and raise `AttributeError`.
         rg = self._working_group()
         types = self.dtypes
         lines = ["pyramids.NetCDF {", "dimensions:"]
@@ -3357,7 +3429,7 @@ class NetCDF(Dataset):
             # The variable's own axes, read from the store rather than from the subset
             # `get_variable` hands back: a subset renames its y dimension to the window it was
             # cut with (`subset_lat_4_-1_5`), which is not a name this file has.
-            axes = ", ".join(self._variable_dim_names(rg, name))
+            axes = "" if rg is None else ", ".join(self._variable_dim_names(rg, name))
             lines.append(f"\t{types[name]} {name}({axes}) ;")
         lines.append("")
         lines.append("// global attributes:")

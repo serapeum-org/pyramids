@@ -773,3 +773,76 @@ class TestTheInfoSummaryIsWellFormed:
 
         assert "// global attributes:" in lines
         assert lines[-1] == "}"
+
+
+class TestAClassicContainer:
+    """`open_as_multi_dimensional=False` — a documented mode with no multidim group."""
+
+    CLASSIC = (
+        "cf__20v__1d3-3d17__y-desc.nc",
+        "cf__12v__1d4-2d5-3d2-4d1__y-asc.nc",
+        "cf__40v__1d28-2d9-3d3__nc4.nc",
+    )
+
+    @pytest.mark.parametrize("name", CLASSIC, ids=lambda name: name.split("__")[1])
+    def test_the_introspection_trio_answers_rather_than_raising(self, name: str):
+        """`dtypes`, `nbytes` and `info` all work without a root group.
+
+        Args:
+            name: A store to open in classic mode.
+
+        Test scenario:
+            Two separate failures used to live here. `info` called
+            `_variable_dim_names(None, ...)`, which reaches `None.OpenMDArray` and raises
+            `AttributeError` -- a bug, not a contract. And on two of these stores the
+            classic subdataset enumeration reports a name GDAL then declines to open, so
+            all three members propagated a raw GDAL `RuntimeError` from a legitimately
+            opened container.
+        """
+        nc = NetCDF.read_file(str(DATA / name), open_as_multi_dimensional=False)
+        assert nc._working_group() is None
+
+        assert sorted(nc.dtypes) == sorted(set(nc.variable_names))
+        assert nc.nbytes >= 0
+
+        report = io.StringIO()
+        nc.info(report)
+        assert report.getvalue().rstrip().endswith("}")
+
+    def test_a_name_that_will_not_open_reports_unknown_rather_than_raising(self):
+        """An unopenable name is described, not fatal.
+
+        Test scenario:
+            `O3.COLUMN.PARTIAL_AVK` is enumerated by the classic subdataset list and
+            refused by GDAL on the way in. It reports `"unknown"`, which is visible in
+            `dtypes` and in the `info` summary -- deliberately not silent, because the
+            enumeration reporting a name it cannot open is itself a defect worth seeing.
+        """
+        nc = NetCDF.read_file(
+            str(DATA / "cf__40v__1d28-2d9-3d3__nc4.nc"), open_as_multi_dimensional=False
+        )
+
+        assert nc.dtypes["O3.COLUMN.PARTIAL_AVK"] == "unknown"
+
+        report = io.StringIO()
+        nc.info(report)
+        assert "unknown O3.COLUMN.PARTIAL_AVK" in report.getvalue()
+
+    def test_variables_are_printed_without_axes_when_there_is_no_group(self):
+        """Classic mode has no per-variable dimension names to print.
+
+        Test scenario:
+            The axes come from the multidim group, which classic mode does not have. Each
+            variable is printed with an empty axis list rather than a fabricated one, and
+            the dimensions section is unaffected.
+        """
+        nc = NetCDF.read_file(
+            str(DATA / "cf__20v__1d3-3d17__y-desc.nc"), open_as_multi_dimensional=False
+        )
+
+        report = io.StringIO()
+        nc.info(report)
+        text = report.getvalue()
+
+        assert "int16 tcw() ;" in text
+        assert "subset_" not in text
