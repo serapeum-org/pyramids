@@ -106,11 +106,17 @@ class TestWhereTheNamesDisagree:
         """
         nc = open_fixture("none__35v__1d35__groups-nc4.nc")
 
-        with pytest.warns(UserWarning, match="renamed 8 variable") as renamed:
-            with pytest.warns(UserWarning, match="skipped 20 variable"):
-                exported = sorted(nc.to_xarray().data_vars)
+        with pytest.warns(UserWarning) as caught:
+            cube = nc.to_xarray()
 
-        assert "get_variable" in str(renamed[0].message)
+        exported = sorted(cube.data_vars)
+        messages = [str(warning.message) for warning in caught]
+        renamed = [text for text in messages if "renamed 8 variable" in text]
+        skipped = [text for text in messages if "skipped 20 variable" in text]
+
+        assert len(renamed) == 1
+        assert len(skipped) == 1
+        assert "get_variable" in renamed[0]
 
         grouped = [name for name in nc if "/" in name]
         assert len(grouped) == 28

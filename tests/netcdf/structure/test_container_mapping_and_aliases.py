@@ -973,8 +973,10 @@ class TestTheProtocolsStateWhatEachHelperReads:
             so the same stub that serves `_variable_dtype` has to fail here -- and fail on
             a *missing member*, not on a wrong answer.
         """
+        narrow = stub_of(_HasDtype)
+
         with pytest.raises(AttributeError, match="rows"):
-            _variable_nbytes(stub_of(_HasDtype))
+            _variable_nbytes(narrow)
 
     def test_the_wide_protocol_is_all_the_sizing_helper_reads(self):
         """A stub of `_HasRasterShape` sizes without a store behind it.
@@ -1081,8 +1083,10 @@ class TestTheHelperThatOpensAVariable:
             def __getitem__(self, name: str):
                 raise refusal("the store said no")
 
+        refusing = Refuses()
+
         with pytest.warns(UserWarning) as caught:
-            _open_variable(Refuses(), "surface_temperature")
+            _open_variable(refusing, "surface_temperature")
 
         message = str(caught[0].message)
         assert "'surface_temperature'" in message
@@ -1105,9 +1109,11 @@ class TestTheHelperThatOpensAVariable:
             def __getitem__(self, name: str):
                 raise RuntimeError("no")
 
+        refusing = Refuses()
+
         with pytest.warns(UserWarning) as caught:
-            _open_variable(Refuses(), "alpha")
-            _open_variable(Refuses(), "beta")
+            for name in ("alpha", "beta"):
+                _open_variable(refusing, name)
 
         named = [str(w.message) for w in caught]
         assert len(named) == 2
@@ -1129,8 +1135,10 @@ class TestTheHelperThatOpensAVariable:
             def __getitem__(self, name: str):
                 raise TypeError("not a name")
 
+        breaking = Breaks()
+
         with pytest.raises(TypeError, match="not a name"):
-            _open_variable(Breaks(), "whatever")
+            _open_variable(breaking, "whatever")
 
 
 class TestTheAttributeSummariser:
