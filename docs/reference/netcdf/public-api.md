@@ -1,6 +1,6 @@
 # `NetCDF` — public API
 
-A one-line map of every public member the `NetCDF` class itself defines — 77 in all: 43 methods, 27 properties,
+A one-line map of every public member the `NetCDF` class itself defines — 78 in all: 44 methods, 27 properties,
 6 classmethods and 1 staticmethod, plus the four mapping dunders (`__getitem__`, `__contains__`, `__iter__`,
 `__len__`). For the full signatures, arguments and examples, see the rendered
 [NetCDF Class](index.md) reference; this page is the index you scan to find the member you want.
@@ -98,6 +98,7 @@ A variable with no raster plane is the exception — see each member's docstring
 | `read_array()`     | Reads eagerly, or lazily into dask with `chunks=`. Needs `variable=` on a Container. |
 | `subset()`         | Reads a windowed `(variable, time, bbox)` slice without materialising the cube.      |
 | `sel()`            | Selects bands by coordinate value, date label, or `method="nearest"`.                |
+| `isel()`           | Selects bands by position along one or more band dims; works without coordinates.    |
 | `open_mfdataset()` | Stacks one variable across many files into a single lazy dask array.                 |
 | `reduce()`         | Reduces every variable along `dim` — `how`, `groupby`, `skipna`.                     |
 
