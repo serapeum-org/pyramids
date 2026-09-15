@@ -562,16 +562,32 @@ class TestNearestIndicesTolerance:
         with pytest.raises(KeyError, match="the closest is 850.0"):
             nearest_indices(axis, 1000.0, 10.0)
 
-    def test_an_axis_of_only_holes_is_refused_before_the_bound_is_read(self):
+    def test_an_axis_of_only_holes_is_refused_even_with_a_valid_bound(self):
         """An axis with no finite coordinate raises ``ValueError``, bound or no bound.
 
         Test scenario:
             There is nothing to measure a distance from, so this is not a "nothing within
             tolerance" `KeyError` — it is a broken axis, and the two have to stay
             distinguishable by type.
+
+            The bound here is deliberately *valid*: the argument check now runs first, so
+            an invalid one would mask this case. That ordering is asserted separately by
+            `test_an_invalid_bound_is_refused`.
         """
         with pytest.raises(ValueError, match="no finite coordinate to snap to"):
             nearest_indices([float("nan"), float("nan")], 900.0, 10.0)
+
+    def test_an_invalid_bound_is_reported_even_on_a_broken_axis(self):
+        """The argument error wins, so a caller is not sent round twice.
+
+        Test scenario:
+            Both the bound and the axis are wrong. Validating the bound last meant the
+            caller was told about the axis, fixed nothing, and hit the bound error next —
+            two round trips for one call. The bound is an argument error and nothing about
+            the data can make `-1` meaningful, so it is checked first.
+        """
+        with pytest.raises(ValueError, match="tolerance must be a non-negative number"):
+            nearest_indices([float("nan"), float("nan")], 900.0, -1)
 
     @pytest.mark.parametrize(
         ("coords", "selector", "match"),

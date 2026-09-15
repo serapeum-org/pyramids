@@ -859,6 +859,14 @@ class Selection(_Engine["NetCDF"]):
         metadata preserved, so `sel()` can be chained and NetCDF-only
         methods like `read_array(unpack=True)` remain available.
 
+        Each keyword is applied as its own cut, so a call naming two
+        dimensions reads twice — the first cut is materialised, then
+        narrowed again. Naming the dimension that discards most bands
+        first is therefore cheaper: on a `(time=4, level=3)` cube
+        `sel(time=…, pressure_level=…)` reads 3 bands then 1, while the
+        reverse order reads 4 then 1. Correctness does not depend on the
+        order; only the intermediate read does.
+
         Internals: GDAL flattens an MDIM array `(d_0, ..., d_{n-1},
         lat, lon)` row-major over the non-spatial dims, with the last
         non-spatial dim varying fastest. For a band dim at axis `k`
@@ -884,10 +892,17 @@ class Selection(_Engine["NetCDF"]):
             tolerance: The furthest a `method="nearest"` snap may
                 travel. `None` (the default) accepts any distance. A
                 request whose closest coordinate lies further away
-                raises `KeyError`, as it does in xarray, with the
-                distance and the bound in the message. Rejected
-                without `method="nearest"`, where an exact match has no
-                distance for it to bound.
+                raises `KeyError`, with the distance and the bound in
+                the message. Rejected without `method="nearest"`, where
+                an exact match has no distance for it to bound.
+
+                **One bound governs every dimension in the call**, and
+                it is compared against each axis in that axis' own
+                units. `sel(time=5, pressure_level=990,
+                method="nearest", tolerance=20)` allows a 20-hour snap
+                on `time` and a 20-hPa snap on `pressure_level`, which
+                is rarely what a caller means. Bound one dimension per
+                call when the units differ.
             **kwargs: One or more keyword arguments. Each key must name
                 a tracked band dim (one of `self._band_dim_names`); the
                 value is one of:
@@ -1063,8 +1078,10 @@ class Selection(_Engine["NetCDF"]):
             `method` and `tolerance` are keywords of this method, so a
             band dim actually named either cannot be selected through
             it — the selector would be taken as the option. Use
-            `isel()` for such a dimension, which has no reserved
-            keywords beyond the dimension names themselves.
+            `isel()` for such a dimension: it reserves neither. Both
+            still reserve `self`, which is Python's method binding
+            rather than a keyword of either, and no netCDF dimension is
+            plausibly named that.
 
             The examples above run against this repository's own
             fixtures. Wider scenarios live in:
@@ -1909,9 +1926,12 @@ def _resolve_selector_indices(
         selector: The value, list, or :class:`slice` handed to ``sel``.
         method: ``None`` for exact matching, ``"nearest"`` to snap. Defaults to ``None``.
         tolerance: The furthest a ``method="nearest"`` snap may travel; ``None`` (the
-            default) accepts any distance. Ignored on the label and stored-value paths,
-            which have no distance to bound -- ``Selection.sel`` refuses it there before
-            this is reached.
+            default) accepts any distance, and it is forwarded only on the ``"nearest"``
+            path. ``Selection.sel`` refuses a bound whenever ``method`` is not
+            ``"nearest"``, so the label and stored-value paths below never see one. With
+            ``method="nearest"`` *and* a date label the bound does arrive here, and
+            :func:`_nearest_or_raise` then refuses the **selector** rather than the
+            bound.
 
     Returns:
         tuple[list[int], list]: The matching indices along ``dim_name``, and the values
@@ -2342,9 +2362,9 @@ def _map_dim_to_band_indices(
     # mislabels six of eight planes the moment anything reshapes by the declared sizes.
     # Identical output whenever one index is kept, or whenever there is a single outer
     # block — `prod(sizes[:dim_axis]) == 1`, which covers `dim_axis == 0` and also a
-    # `dim_axis` whose preceding dims are all size 1. Verified over 2840 shapes: of the
-    # 1176 where the two orders differ, the old one is wrong in every single case. That
-    # they agree so often is why this survived all 407 selection tests predating `isel`.
+    # `dim_axis` whose preceding dims are all size 1. The two orders therefore agree on
+    # most shapes, which is why the defect went unnoticed for so long; where they differ,
+    # the old one is always wrong.
     for outer_start in range(0, total, block):
         for pinned in dim_indices:
             base = outer_start + pinned * stride

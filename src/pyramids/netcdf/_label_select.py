@@ -600,6 +600,12 @@ def nearest_indices(
     See Also:
         label_indices: the date-label counterpart, which this deliberately refuses.
     """
+    # Checked first, before the selector and before the axis. It is an argument error —
+    # nothing about the data can make a negative bound meaningful — and validating it last
+    # meant an all-NaN axis reported the axis problem while the caller's bound was also
+    # wrong, so they fixed one and hit the other.
+    if tolerance is not None and (not _is_number(tolerance) or tolerance < 0):
+        raise ValueError(f"tolerance must be a non-negative number, got {tolerance!r}.")
     if isinstance(selector, slice):
         raise ValueError(
             "method='nearest' does not accept a slice selector — a range has no nearest "
@@ -633,8 +639,6 @@ def nearest_indices(
             "method='nearest' found no finite coordinate to snap to on this axis: "
             f"{summarise_values(coords)}."
         )
-    if tolerance is not None and (not _is_number(tolerance) or tolerance < 0):
-        raise ValueError(f"tolerance must be a non-negative number, got {tolerance!r}.")
     found: set[int] = set()
     for value in wanted:
         # Rank by (distance, coordinate) rather than by position, so a request that falls

@@ -662,9 +662,16 @@ class TestIselErrors:
         with pytest.raises(ValueError) as by_value:
             cube.sel(depth=0)
 
-        assert str(by_index.value) == str(by_value.value), (
-            f"isel says {by_index.value!r}, sel says {by_value.value!r}"
+        # Both spellings route through `_assert_band_dimension`, so comparing them to each
+        # other alone cannot fail — it would still pass if that helper returned nonsense.
+        # The literal is what makes this a test: it pins the message a caller actually
+        # reads, naming the dimension they asked for and the ones the variable has.
+        expected = (
+            "Dimension 'depth' does not match any band dimension of this variable "
+            "['time', 'pressure_level']."
         )
+        assert str(by_index.value) == expected
+        assert str(by_value.value) == expected
         assert "does not match any band dimension" in str(by_index.value), (
             f"unexpected message: {by_index.value}"
         )
