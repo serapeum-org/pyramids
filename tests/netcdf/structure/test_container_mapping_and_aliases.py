@@ -356,6 +356,19 @@ class TestTheXarraySpellings:
         """
         assert container.sizes == container.dims == container.dimension_sizes
 
+    def test_the_three_spellings_report_the_lengths_the_file_declares(self):
+        """One hand-checked answer, so a wrong one is caught and not just a wrong wiring.
+
+        Test scenario:
+            The comparison above cannot fail while all three members `return
+            dimension_sizes` -- it would only catch a future re-implementation. This pins
+            what the store actually declares, read from the file with `ncdump -h`:
+            `(time, pressure_level, lat, lon) = (4, 3, 5, 6)`.
+        """
+        nc = open_store(PLAIN)
+
+        assert nc.sizes == {"time": 4, "pressure_level": 3, "lat": 5, "lon": 6}
+
     def test_attrs_is_the_global_attributes(self, container: NetCDF):
         """The alias reads the root group's attributes.
 
@@ -363,6 +376,32 @@ class TestTheXarraySpellings:
             container: One of the swept stores.
         """
         assert container.attrs == container.global_attributes
+
+    def test_attrs_reports_what_the_file_declares(self):
+        """A hand-checked answer behind the alias comparison.
+
+        Test scenario:
+            The plain CF store declares exactly one global attribute. Pinned so the alias
+            is shown to carry a real value, not merely to be wired to the same member.
+        """
+        nc = open_store(PLAIN)
+
+        assert nc.attrs == {"Conventions": "CF-1.6"}
+
+    def test_coords_reports_the_values_the_file_stores(self):
+        """A hand-checked axis, read from the file rather than from the accessor.
+
+        Test scenario:
+            Comparing `coords[name]` to `get_dimension_values(name)` -- which is what
+            `coords` is built from -- cannot catch a wrong answer, only a wrong wiring.
+            These are the latitudes and levels the store declares, ascending and
+            descending respectively, so an orientation applied here would show up.
+        """
+        nc = open_store(PLAIN)
+
+        assert nc.coords["lat"].tolist() == [40.0, 41.0, 42.0, 43.0, 44.0]
+        assert nc.coords["pressure_level"].tolist() == [1000.0, 850.0, 500.0]
+        assert nc.coords["time"].tolist() == [0.0, 6.0, 12.0, 18.0]
 
     def test_coords_carries_each_dimensions_stored_values(self, container: NetCDF):
         """Every entry is what `get_dimension_values` returns for that name.
@@ -412,6 +451,25 @@ class TestTheXarraySpellings:
 
 class TestCheapIntrospection:
     """`dtypes`, `nbytes` and `info` -- all of which must answer without reading."""
+
+    def test_dtypes_reports_the_types_the_file_declares(self):
+        """Hand-checked types, including the one variable that is not floating point.
+
+        Test scenario:
+            `np.dtype(...)` succeeding proves only that the string names *a* type -- it
+            passes for the meaningless `'object'` a string variable reports. The CMIP
+            store mixes `float32` fields with an `int32` mask, so pinning it catches a
+            member that reported the wrong type rather than no type.
+        """
+        nc = open_store(MIXED_RANKS)
+
+        assert nc.dtypes == {
+            "area": "float32",
+            "msk_rgn": "int32",
+            "pr": "float32",
+            "tas": "float32",
+            "ua": "float32",
+        }
 
     def test_dtypes_has_one_entry_per_variable(self, container: NetCDF):
         """Each name maps to a dtype the store actually uses.
@@ -807,21 +865,35 @@ class TestTheInfoSummaryIsWellFormed:
         assert lines.index("variables:") < lines.index("// global attributes:")
         assert lines[-1] == "}"
 
-    def test_a_container_with_no_global_attributes_still_closes(self):
+    def test_a_container_with_no_global_attributes_still_closes(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
         """The attributes section may be empty.
+
+        Args:
+            monkeypatch: Used to give the container no global attributes.
 
         Test scenario:
             The header is printed unconditionally, so a store with nothing to list produces
-            a section with no entries rather than a missing brace.
+            a section with no entries rather than a missing brace -- asserted by checking
+            that the header line is followed *directly* by the closing brace.
+
+            `global_attributes` is monkeypatched rather than cleared. It reads the GDAL
+            root group afresh on every call, so `nc.global_attributes.clear()` mutates a
+            throwaway dict and the container still reports all 55 of the ugrid store's
+            attributes -- the version of this test that did that never reached the case it
+            names.
         """
         nc = open_store(LABELLED_ONLY)
-        nc.global_attributes.clear()
+        assert len(nc.global_attributes) > 0
+
+        monkeypatch.setattr(type(nc), "global_attributes", property(lambda self: {}))
 
         report = io.StringIO()
         nc.info(report)
         lines = report.getvalue().splitlines()
 
-        assert "// global attributes:" in lines
+        assert lines[-2] == "// global attributes:"
         assert lines[-1] == "}"
 
 
