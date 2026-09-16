@@ -955,6 +955,42 @@ def _same_value(left: Any, right: Any) -> bool:
         return _both_nan(left, right)
 
 
+def _same_coordinates(left: Any, right: Any) -> bool:
+    """Whether two band dimensions' coordinate values are the same, position by position.
+
+    Compared with `_same_value`, so two `nan` stamps at the same position agree — a
+    variable with a missing stamp must still line up with itself — and text stamps compare
+    by value. `np.array_equal` gets the first wrong without `equal_nan=True` and raises on
+    text with it.
+
+    Args:
+        left: One operand's coordinate values.
+        right: The other operand's.
+
+    Returns:
+        bool: `True` when both have the same length and every position holds the same value.
+
+    Examples:
+        - A `nan` stamp matches itself, and a different stamp does not:
+            ```python
+            >>> _same_coordinates([0.0, float("nan"), 12.0], [0.0, float("nan"), 12.0])
+            True
+            >>> _same_coordinates([0.0, 6.0], [0.0, 12.0])
+            False
+
+            ```
+        - Text stamps and mixed integer/float stamps compare by value:
+            ```python
+            >>> _same_coordinates(["00:00", "06:00"], ["00:00", "06:00"])
+            True
+            >>> _same_coordinates([0, 6], [0.0, 6.0])
+            True
+
+            ```
+    """
+    return len(left) == len(right) and all(map(_same_value, left, right))
+
+
 def _both_nan(left: Any, right: Any) -> bool:
     """Whether both values are float `nan` -- the one case `==` gets wrong.
 
@@ -10745,9 +10781,7 @@ class NetCDF(Dataset):
                 if (
                     left_values is not None
                     and right_values is not None
-                    and not np.array_equal(
-                        np.asarray(left_values), np.asarray(right_values)
-                    )
+                    and not _same_coordinates(left_values, right_values)
                 ):
                     difference = (
                         f"the coordinates of {name!r} are {list(left_values)} against "

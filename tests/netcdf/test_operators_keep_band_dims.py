@@ -503,14 +503,6 @@ class TestHowTheLayoutsAreCompared:
             result._band_dim_values_map
         )
 
-    @pytest.mark.xfail(
-        strict=True,
-        raises=ValueError,
-        reason=(
-            "_band_layout_difference compares coordinates with np.array_equal without "
-            "equal_nan=True, so a NaN stamp makes a variable disagree with itself"
-        ),
-    )
     def test_a_nan_coordinate_agrees_with_itself(self):
         """`var + var` combines when one of `var`'s time stamps is NaN.
 
@@ -524,6 +516,33 @@ class TestHowTheLayoutsAreCompared:
         )
         result = variable + variable
         assert_array_equal(result.read_array(), np.asarray(variable.read_array()) * 2)
+
+    def test_a_nan_coordinate_still_disagrees_with_a_real_stamp(self):
+        """A `nan` stamp against a real one at the same position is still a mismatch."""
+        left = _variable(
+            [("time", [0.0, np.nan, 12.0, 18.0]), ("pressure_level", LEVELS)]
+        )
+        right = _variable([("time", TIMES), ("pressure_level", LEVELS)])
+        with pytest.raises(ValueError, match="'time'"):
+            _ = left + right
+
+    def test_text_coordinates_compare_by_value(self):
+        """Equal text stamps agree and different ones are reported, without numpy raising.
+
+        Test scenario:
+            `from_array` cannot store text stamps, so the coordinate maps are set directly;
+            the comparison is what is under test, not how the stamps got there.
+        """
+        left = _variable([("time", TIMES), ("pressure_level", LEVELS)])
+        same = _variable([("time", TIMES), ("pressure_level", LEVELS)])
+        other = _variable([("time", TIMES), ("pressure_level", LEVELS)])
+        stamps = ["00:00", "06:00", "12:00", "18:00"]
+        left._band_dim_values_map["time"] = list(stamps)
+        same._band_dim_values_map["time"] = list(stamps)
+        other._band_dim_values_map["time"] = ["00:00", "06:00", "12:00", "19:00"]
+        assert NetCDF._band_layout_difference(left, same) is None
+        difference = NetCDF._band_layout_difference(left, other)
+        assert difference is not None and "19:00" in difference, difference
 
 
 class TestLabelResultBands:
