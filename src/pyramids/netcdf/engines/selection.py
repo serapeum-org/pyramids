@@ -1424,7 +1424,10 @@ class Selection(_Engine["NetCDF"]):
                 slice with no valid cell. When `False`, the raw stored values are reduced,
                 sentinel included, and a statistic keeps the dtype numpy gives it — the
                 `min` of an `int16` band stays `int16`. `count` counts valid cells either
-                way.
+                way. Three answers on gaps differ from xarray's: a slice with no valid cell
+                makes `sum` and `prod` no-data where xarray answers `0.0` and `1.0`, and
+                `all` / `any` `255` where xarray answers `True`; and `any` skips NaN, so
+                `[0, NaN, 0]` answers `0` where xarray, reading NaN as true, answers `True`.
             q: The quantile for `how="quantile"`, one number in `[0, 1]`, using numpy's
                 default linear interpolation. Required for `"quantile"` and refused for
                 every other `how`.
