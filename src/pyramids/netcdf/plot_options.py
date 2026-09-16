@@ -65,6 +65,16 @@ class Selectors:
             converted to the corresponding coord value via the
             variable's band-dim coord map; dims without coord values
             receive the int unchanged. Defaults to None.
+
+            **Not the same thing as** :meth:`NetCDF.isel`, despite the
+            name. This one converts an index to a label and then selects
+            by label, so it takes a scalar `int` per dimension and
+            nothing else — a list raises `TypeError: list indices must
+            be integers`, where `NetCDF.isel` accepts lists, tuples,
+            slices and negative indices. It also has no `tolerance`.
+            Reconciling the two is deliberately left alone here: this
+            selector is plot-only and changing it would change which
+            frame a chart draws. Use `NetCDF.isel` for data selection.
         method: How the selectors above are matched — ``None`` (the
             default) exactly, or ``"nearest"`` to snap to the closest
             coordinate on the axis. It applies only to the dims whose

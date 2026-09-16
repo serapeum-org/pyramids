@@ -205,10 +205,36 @@ class TestSelErrorMessages:
         with pytest.raises(ValueError, match="No bands match"):
             synth_var.sel(pressure_level=999)
 
-    def test_too_many_kwargs(self, synth_var):
-        """``sel()`` rejects calls with more than one keyword argument."""
-        with pytest.raises(ValueError, match="exactly one keyword"):
-            synth_var.sel(time=12, pressure_level=500)
+    def test_several_kwargs_narrow_each_named_dimension(self, synth_var):
+        """``sel()`` takes several dimensions in one call, on a 4-D cube.
+
+        Test scenario:
+            The 4-D case is where multi-dimension `sel` earns its keep: pinning two of
+            four band dims used to need two calls. Asserted against the chained form and
+            against the reversed keyword order, since the loop must not make the result
+            depend on which dimension is narrowed first.
+
+            It is also asserted against the cut itself — band count, the coordinate map,
+            the shape, and the hand-computed corner pixel `_expect(2, 2)`. Without those,
+            three results of the same code path are only compared to each other, and the
+            whole test passes with `sel` replaced by `return self`.
+        """
+        together = synth_var.sel(time=12, pressure_level=500)
+        chained = synth_var.sel(time=12).sel(pressure_level=500)
+        reversed_order = synth_var.sel(pressure_level=500, time=12)
+
+        # Pinned to what the cut IS, not only to what the three spellings agree on:
+        # comparing three results of one code path passes even if `sel` returned `self`.
+        assert together.band_count == 1
+        assert together._band_dim_values_map == {
+            "time": [12.0],
+            "pressure_level": [500.0],
+        }
+        assert np.asarray(together.read_array()).shape == (NY, NX)
+        assert np.asarray(together.read_array())[0, 0] == _expect(2, 2)
+
+        assert np.array_equal(together.read_array(), chained.read_array())
+        assert np.array_equal(together.read_array(), reversed_order.read_array())
 
 
 class TestEra5RealFixture:

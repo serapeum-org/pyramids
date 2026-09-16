@@ -523,7 +523,9 @@ def _is_number(value: Any) -> bool:
     return isinstance(value, numbers.Real) and not isinstance(value, bool)
 
 
-def nearest_indices(coords: list, selector: Any) -> list[int]:
+def nearest_indices(
+    coords: list, selector: Any, tolerance: float | None = None
+) -> list[int]:
     """Snap a numeric selector to the closest coordinate(s) on an axis.
 
     A request exactly between two coordinates resolves to the **smaller** one, whichever
@@ -533,6 +535,10 @@ def nearest_indices(coords: list, selector: Any) -> list[int]:
     Args:
         coords: The axis' stored coordinate values.
         selector: A number, or a list of numbers (each snapped independently).
+        tolerance: The furthest a snap may travel. `None` accepts any distance, which is
+            the behaviour when the argument is not given. A request whose closest
+            coordinate lies further than this raises instead of snapping; a request
+            exactly `tolerance` away still snaps, the bound being inclusive.
 
     Returns:
         list[int]: Indices of the snapped coordinates, in **axis** order rather than
@@ -541,8 +547,19 @@ def nearest_indices(coords: list, selector: Any) -> list[int]:
 
     Raises:
         ValueError: The selector is a :class:`slice` (a range has no nearest value), the
-            selector is not a finite number, the axis is not numeric, or the axis holds
-            no finite coordinate to snap to.
+            selector is not a finite number, the axis is not numeric, the axis holds no
+            finite coordinate to snap to, or `tolerance` is negative, NaN, or not a
+            number (`bool` included). `inf` is accepted and means the same as `None`.
+        KeyError: A request's closest coordinate is further away than `tolerance`. The
+            message carries both the distance and the bound, because "no match" alone does
+            not say whether the bound was slightly or wildly too tight.
+
+            xarray raises `KeyError` here too — but it also raises `KeyError` for a plain
+            missed label, where `sel` raises `ValueError`. So this is not the parity it
+            looks like: matching xarray on one of the two misses leaves pyramids raising
+            two different types for "your selector matched nothing". See
+            :meth:`Selection.sel`'s Raises, which states the split rather than implying a
+            consistency that does not exist.
 
     Examples:
         - A value between two levels snaps to the closer one:
@@ -559,6 +576,17 @@ def nearest_indices(coords: list, selector: Any) -> list[int]:
             [0, 3]
 
             ```
+        - A tolerance bounds how far a snap may travel:
+            ```python
+            >>> from pyramids.netcdf._label_select import nearest_indices
+            >>> nearest_indices([1000.0, 925.0, 850.0], 990.0, tolerance=20.0)
+            [0]
+            >>> nearest_indices([1000.0, 925.0, 850.0], 960.0, tolerance=20.0)
+            Traceback (most recent call last):
+                ...
+            KeyError: 'no coordinate within tolerance=20.0 of 960.0: the closest is 925.0,...'
+
+            ```
         - A range has no nearest value, so a slice is refused:
             ```python
             >>> from pyramids.netcdf._label_select import nearest_indices
@@ -572,6 +600,23 @@ def nearest_indices(coords: list, selector: Any) -> list[int]:
     See Also:
         label_indices: the date-label counterpart, which this deliberately refuses.
     """
+    # First *in this function*, ahead of the selector and axis checks below: a negative
+    # bound is an argument error and nothing about the data can make it meaningful, so
+    # validating it last meant an all-NaN axis reported the axis problem while the caller's
+    # bound was also wrong, and they fixed one only to hit the other.
+    #
+    # Not first in the call as a whole. Reached through `sel`, `_nearest_or_raise` refuses
+    # a date-label selector before this runs, so `sel(time="2024-01-01",
+    # method="nearest", tolerance=-1)` reports the label, not the bound.
+    if tolerance is not None and (
+        not _is_number(tolerance) or math.isnan(tolerance) or tolerance < 0
+    ):
+        # NaN needs naming explicitly: it is not negative, so `< 0` let it through, and
+        # `distance > nan` is `False` for every distance — so the bound accepted nothing
+        # and refused nothing, silently turning a bounded request back into an unbounded
+        # snap. `inf` is left legal: that comparison is meaningful and simply never true,
+        # which is exactly what `None` already means.
+        raise ValueError(f"tolerance must be a non-negative number, got {tolerance!r}.")
     if isinstance(selector, slice):
         raise ValueError(
             "method='nearest' does not accept a slice selector — a range has no nearest "
@@ -611,8 +656,16 @@ def nearest_indices(coords: list, selector: Any) -> list[int]:
         # exactly between two coordinates resolves to the same one whether the file
         # stores the axis ascending or descending — the direction-agnostic rule `sel`'s
         # slice path already advertises. The smaller coordinate wins a tie.
-        _, _, position = min(
+        distance, coord, position = min(
             (abs(coord - value), coord, index) for index, coord in candidates
         )
+        # The distance is already in hand from choosing the winner, so bounding it costs
+        # one comparison — there is no second pass over the axis.
+        if tolerance is not None and distance > tolerance:
+            raise KeyError(
+                f"no coordinate within tolerance={tolerance} of {value}: the closest is "
+                f"{coord}, {distance} away. Widen the tolerance, drop it to accept any "
+                f"distance, or select the coordinate exactly."
+            )
         found.add(position)
     return sorted(found)

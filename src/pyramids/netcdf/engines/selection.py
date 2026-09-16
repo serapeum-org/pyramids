@@ -18,10 +18,11 @@ methods still use them.
 from __future__ import annotations
 
 import math
+import operator
 import warnings
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, NoReturn, cast
 
 import geopandas as gpd
 import numpy as np
@@ -72,10 +73,11 @@ class Selection(_Engine["NetCDF"]):
 
     Owns the bodies of :meth:`crop` (with the curvilinear and rectilinear
     helpers folded in), :meth:`sel` (band selection by coordinate value),
-    :meth:`subset` (windowed ``(variable, time, bbox)`` read), and
-    :meth:`reduce` (collapse / coarsen a non-spatial dimension). ``NetCDF``
-    wires one instance per container as ``nc.selection`` and exposes thin
-    façades, so ``nc.crop(...)`` and ``nc.selection.crop(...)`` are equivalent.
+    :meth:`isel` (the same cut by position), :meth:`subset` (windowed
+    ``(variable, time, bbox)`` read), and :meth:`reduce` (collapse / coarsen
+    a non-spatial dimension). ``NetCDF`` wires one instance per container as
+    ``nc.selection`` and exposes thin façades, so ``nc.crop(...)`` and
+    ``nc.selection.crop(...)`` are equivalent.
 
     Each method reaches the container through the weakref-proxied
     back-reference :attr:`_ds` inherited from
@@ -696,256 +698,466 @@ class Selection(_Engine["NetCDF"]):
         result._curvilinear_coords = (lon_win, lat_win)
         return result
 
-    def sel(self, *, method: str | None = None, **kwargs: Any) -> NetCDF:
-        """Select a subset of bands by coordinate values along a band dim.
+    def isel(self, **indexers: Any) -> NetCDF:
+        """Select bands by **position** along one or more band dimensions.
 
-        Extracts bands whose coordinate values match the given criteria.
-        Works on any variable subset that has at least one non-spatial
-        dimension tracked in `_band_dim_names` (set by
-        `get_variable()`). For 4-D+ files with multiple non-spatial
-        dims (e.g. `(valid_time, pressure_level, lat, lon)` from CDS-Beta
-        ERA5), `sel()` may name any of those dims; chaining `sel()`
-        pins multiple band dims one at a time.
+        The positional twin of :meth:`sel`. Where `sel` asks "which band has this
+        coordinate value", this asks "which band is at this index" — so it works on an axis
+        the store gives no coordinates for, which is the case `sel` cannot serve at all. A
+        WRF store's `bottom_top` is the usual example: 27 model levels with no coordinate
+        variable, where `sel(bottom_top=...)` can only refuse.
 
-        The result is always a `NetCDF` instance with the same variable
-        metadata preserved, so `sel()` can be chained and NetCDF-only
-        methods like `read_array(unpack=True)` remain available.
-
-        Internals: GDAL flattens an MDIM array `(d_0, ..., d_{n-1},
-        lat, lon)` row-major over the non-spatial dims, with the last
-        non-spatial dim varying fastest. For a band dim at axis `k`
-        with sizes `S`, the implementation uses
-        `stride = prod(S[k+1:])`, `block = stride * S[k]`, and
-        `total = prod(S)` to map each pinned index `p` to the band
-        ranges `[outer + p*stride .. outer + (p+1)*stride)` for every
-        `outer in range(0, total, block)`. For a single-band-dim
-        variable this reduces to the identity
-        `band_indices == dim_indices`.
+        Several dimensions may be given in one call. They are applied in sequence, and
+        because each cut is independent of the others the order does not affect the result.
 
         Args:
-            method: How a selector is matched against the axis.
-                `None` (the default) matches exactly; `"nearest"`
-                snaps each requested value to the closest coordinate,
-                so a caller can ask for "the level nearest 100 m"
-                without knowing the axis values. `"nearest"` needs a
-                numeric selector — it rejects a `slice` (a range has
-                no nearest value) and a date label (select a label
-                exactly; a partial one already names a period). The
-                coordinate it chose is on the result, readable with
-                `get_dimension_values(dim)`.
-            **kwargs: Exactly one keyword argument. The key must name a
-                tracked band dim (one of `self._band_dim_names`); the
-                value is one of:
-
-                - A single number: select one band by exact value.
-                - A list of numbers: select multiple bands.
-                - A `slice(start, stop)`: select bands whose coord
-                  falls between `start` and `stop` inclusive. Bounds
-                  are normalised before matching, so the slice is
-                  direction-agnostic — works on both ascending and
-                  descending coord axes (e.g. `latitude` stored
-                  north-to-south).
-                - A date label, a list of them, or a slice of them, on
-                  a CF time axis: `"2024-01-01"`. The axis is stored as
-                  raw offsets (`[0.0, 6.0, 12.0, 18.0]`), so a label is
-                  matched by decoding the axis with the dimension's
-                  `units` / `calendar` at the label's own precision —
-                  meaning a partial label matches every step inside the
-                  period it names (`"2024-01"` takes the whole month,
-                  `"2024-01-01 06:00:00"` takes one step). This is the
-                  vocabulary `get_time_variable` hands back — note its
-                  **default** `time_format` is `"%Y-%m-%d"`, so feeding
-                  one of its labels back selects that whole day; ask for
-                  `get_time_variable(dim, "%Y-%m-%d %H:%M:%S")` to get
-                  the labels that pin a single step. An axis whose
-                  `units` cannot be parsed, or whose values the CF
-                  converter cannot decode, has no labels to match, and a
-                  label selector on it finds nothing.
+            **indexers: One or more `dimension=selector` pairs. Each selector is an index,
+                a `list` or `tuple` of indices, or a `slice` of them. "Index" means
+                anything `operator.index()` accepts, so a numpy integer counts and needs no
+                `int(...)` wrapper. A negative index counts from the end, and a slice's
+                `step` is honoured — unlike `sel`'s, where a range of coordinate values has
+                no meaningful stride.
 
         Returns:
-            NetCDF: A new variable subset with only the selected bands
-                and full metadata preserved. `_band_dim_sizes` reflects
-                the pinned axis (e.g. `(4, 1)` after pinning a level on
-                a `(4, 3)` cube), and `_band_dim_values_map[dim_name]`
-                shrinks to the chosen values. Legacy `_band_dim_values`
-                is refreshed from the (possibly updated) primary entry
-                in the map.
+            NetCDF: A variable holding the selected bands, with `_band_dim_sizes` and the
+            coordinate map narrowed to match. A dimension with no coordinates keeps none.
 
         Raises:
-            ValueError: If exactly one kwarg isn't passed, `method` is
-                neither `None` nor `"nearest"`, the variable has no
-                tracked band dims, the named dim isn't one of
-                `_band_dim_names`, the dim has no coord values
-                (`_band_dim_values_map[dim] is None`), `"nearest"` is
-                asked of a slice / a date label / a non-numeric axis,
-                or no bands match the selector.
+            ValueError: No indexers were given, the variable tracks no band dimensions, a
+                named dimension is not one of them, or a selector keeps no position — an
+                empty `list` or `tuple` as much as a `slice` whose bounds cross.
+            IndexError: An index is outside the dimension's range.
+            TypeError: A selector is not an index, a `list`/`tuple` of indices, or a
+                `slice`. That includes a `float`, a `str`, a `range`, a `set`, and an
+                array of one or more dimensions. A `bool` is refused separately, with its
+                own message, because `operator.index()` would otherwise admit it.
 
         Examples:
-            - Pin a pressure level on a 4-D file:
-                ```python
-                >>> nc = NetCDF.read_file(  # doctest: +SKIP
-                ...     "tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc"
-                ... )
-                >>> var = nc.get_variable("temperature")  # doctest: +SKIP
-                >>> sub = var.sel(pressure_level=500)  # doctest: +SKIP
-                >>> sub._band_dim_sizes  # doctest: +SKIP
-                (4, 1)
+            - Take the first time step of a `(time, pressure_level)` cube, leaving the
+              levels untouched:
 
-                ```
-            - Chain `sel()` to pin both time and level (collapses to 2-D):
-                ```python
-                >>> sub = var.sel(time=12).sel(pressure_level=500)  # doctest: +SKIP
-                >>> sub.read_array().shape  # doctest: +SKIP
-                (5, 6)
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> cube = nc["temperature"]
+              >>> cube.band_count
+              12
+              >>> first = cube.isel(time=0)
+              >>> first.band_count
+              3
 
-                ```
-            - Use a list selector to keep only two of the levels:
-                ```python
-                >>> sub = var.sel(pressure_level=[1000, 500])  # doctest: +SKIP
-                >>> sub._band_dim_values_map["pressure_level"]  # doctest: +SKIP
-                [1000.0, 500.0]
+              ```
+            - Several dimensions in one call, down to a single plane:
 
-                ```
-            - Use a slice selector — direction-agnostic, so the same
-              call works on ascending coords (e.g. `[500, 850, 1000]`)
-              and on descending coords (e.g. `[1000, 850, 500]`):
-                ```python
-                >>> sub = var.sel(pressure_level=slice(500, 1000))  # doctest: +SKIP
-                >>> sub._band_dim_values_map["pressure_level"]  # doctest: +SKIP
-                [1000.0, 850.0, 500.0]
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> plane = nc["temperature"].isel(time=1, pressure_level=2)
+              >>> plane.band_count
+              1
+              >>> plane._band_dim_values_map["time"]
+              [6.0]
 
-                ```
-            - Snap to the nearest level, then read back which one was
-              chosen:
-                ```python
-                >>> sub = var.sel(pressure_level=900, method="nearest")  # doctest: +SKIP
-                >>> sub.get_dimension_values("pressure_level")  # doctest: +SKIP
-                array([850.])
+              ```
+            - A negative index counts from the end, as it does in xarray:
 
-                ```
-            - Select a time step by its date label rather than by the
-              raw CF offset. A full-precision label pins one step:
-                ```python
-                >>> sub = var.sel(time="2024-01-01 12:00:00")  # doctest: +SKIP
-                >>> sub._band_dim_values_map["time"]  # doctest: +SKIP
-                [12.0]
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> nc["temperature"].isel(time=-1)._band_dim_values_map["time"]
+              [18.0]
 
-                ```
-            - A label from `get_time_variable()` at its default
-              `"%Y-%m-%d"` names a **day**, so it keeps every step in
-              that day — ask for the finer format to pin one:
-                ```python
-                >>> nc.get_time_variable("time")[1]  # doctest: +SKIP
-                '2024-01-01'
-                >>> var.sel(time="2024-01-01")._band_dim_values_map["time"]  # doctest: +SKIP
-                [0.0, 6.0, 12.0, 18.0]
-                >>> fine = nc.get_time_variable("time", "%Y-%m-%d %H:%M:%S")  # doctest: +SKIP
-                >>> var.sel(time=fine[1])._band_dim_values_map["time"]  # doctest: +SKIP
-                [6.0]
+              ```
+            - The case `sel` cannot serve — a WRF `bottom_top` axis the store gives no
+              coordinates for. The result keeps `None` there rather than inventing an
+              axis:
 
-                ```
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file(
+              ...     "tests/data/netcdf/none__17v__1d1-2d5-3d6-4d5__stag-str.nc"
+              ... )
+              >>> levels = nc["T"]
+              >>> levels._band_dim_sizes
+              (3, 27)
+              >>> level = levels.isel(bottom_top=2)
+              >>> level._band_dim_sizes
+              (3, 1)
+              >>> level._band_dim_values_map["bottom_top"] is None
+              True
+
+              ```
 
         Notes:
-            A slice's `step` is ignored, on the label path as on the
-            stored-value one: `slice(a, b, 2)` selects the same bands
-            as `slice(a, b)`. Pass a list to pick specific values.
+            Where this parts company with xarray's `isel`, which indexes fancily:
 
-            `method` is a keyword of this method, so a band dim
-            actually named `method` cannot be selected through it;
-            such a call reports "requires exactly one keyword
-            argument" because the selector was taken as the option.
-
-            All six examples above are tagged `# doctest: +SKIP`
-            because they need a real on-disk NetCDF fixture. The
-            runnable equivalents live in:
-
-            - `tests/netcdf/selection/test_sel_nearest_and_labels.py`
-              (`TestSelNearest` / `TestSelByDateLabel` — snapping and
-              date-label selection, including the vocabulary a failed
-              match reports and the axis whose units do not parse).
-            - `tests/netcdf/selection/test_sel.py::TestSelSingleValue` /
-              `TestSelList` / `TestSelSlice` (3-D scenarios — single
-              value, list selector, slice selector including the
-              direction-agnostic path).
-            - `tests/netcdf/selection/test_sel_4d.py::TestSelByPressureLevel` /
-              `TestSelByTime` / `TestSelChained` (4-D scenarios —
-              pin secondary / primary dim, chained `sel().sel()`).
-            - `tests/netcdf/selection/test_sel_4d.py::TestSelErrorMessages` (the
-              error contract).
+            - A **list** is sorted and deduplicated before it is applied, so a list can
+              neither reorder nor repeat an axis. `isel(time=[2, 0])` leaves `time` as
+              `[0.0, 12.0]` where xarray gives `[12.0, 0.0]`, and `isel(time=[2, 2])`
+              keeps one band where xarray keeps two.
+            - A **slice does** reorder, and agrees with xarray when it does:
+              `isel(time=slice(None, None, -1))` reverses the axis to
+              `[18.0, 12.0, 6.0, 0.0]`, and the planes are reversed with it — each stays
+              attached to its own coordinate. Only the list form is normalised.
+            - A slice that selects nothing raises `ValueError` instead of producing a
+              zero-length axis. The empty variable would build, then fail much later and
+              further away on the first read.
+            - A numpy *integer* is accepted — anything `operator.index()` admits is an
+              index here, so a value out of `np.argmin`, `np.where(...)[0][0]` or
+              iterating an array needs no `int(...)` wrapper. A **0-d** array is accepted
+              for the same reason: `operator.index()` takes it, and `np.array(2)` is a
+              scalar in all but type.
+            - An array of **one or more** dimensions is refused, and so is a boolean
+              **mask**; xarray takes both. Pass `list(values)` for the first.
+            - A `bool` is refused although `operator.index()` admits it, because
+              `isel(time=True)` would quietly mean position 1 and a caller writing it
+              almost certainly means a mask.
+            - A `tuple` of indices is accepted here and rejected by xarray.
 
         See Also:
-            `get_variable`: builds a variable subset and populates the
-                band-dim metadata that `sel()` consumes.
+            NetCDF.sel: The same cut, addressed by coordinate value.
         """
         nc = self._ds
-        if len(kwargs) != 1:
-            raise ValueError("sel() requires exactly one keyword argument.")
+        if not indexers:
+            raise ValueError(
+                "isel() requires at least one keyword argument, e.g. isel(time=0)."
+            )
+
+        # Resolve every keyword before cutting anything. Validating inside the loop meant a
+        # typo in the second keyword raised only after the first cut had been read from
+        # disk — 3 of 12 bands on the CF fixture — so the caller paid for a read whose
+        # result was thrown away. Resolution touches metadata only, never pixels.
+        resolved: list[tuple[str, list[int]]] = []
+        for dim_name, selector in indexers.items():
+            _assert_band_dimension(nc, dim_name, caller="isel")
+            axis = nc._band_dim_names.index(dim_name)
+            size = nc._band_dim_sizes[axis]
+            resolved.append(
+                (dim_name, _resolve_positional_indices(selector, size, dim_name))
+            )
+
+        result = nc
+        for dim_name, dim_indices in resolved:
+            result = _subset_along_dim(result, dim_name, dim_indices)
+        return result
+
+    def sel(
+        self,
+        *,
+        method: str | None = None,
+        tolerance: float | None = None,
+        **kwargs: Any,
+    ) -> NetCDF:
+        """Select a subset of bands by coordinate values along a band dim.
+
+                Extracts bands whose coordinate values match the given criteria.
+                Works on any variable subset that has at least one non-spatial
+                dimension tracked in `_band_dim_names` (set by
+                `get_variable()`). For 4-D+ files with multiple non-spatial
+                dims (e.g. `(valid_time, pressure_level, lat, lon)` from CDS-Beta
+                ERA5), `sel()` may name any of those dims, and several in one
+                call: `sel(time=6, pressure_level=850)` is the same cut as
+                `sel(time=6).sel(pressure_level=850)`. Each dimension narrows a
+                different axis of the same band grid, so the order the keywords
+                are written in does not affect the result.
+
+                The result is always a `NetCDF` instance with the same variable
+                metadata preserved, so `sel()` can be chained and NetCDF-only
+                methods like `read_array(unpack=True)` remain available.
+
+        Every keyword is *resolved* before anything is read, so a bad
+                name or an unmatched value costs nothing. The cuts themselves
+                are still applied one per keyword, so a call naming two
+                dimensions reads twice — the first cut is materialised, then
+                narrowed again. Naming the dimension that discards most bands
+                first is therefore cheaper today: on a `(time=4, level=3)` cube
+                `sel(time=…, pressure_level=…)` reads 3 bands then 1, while the
+                reverse reads 4 then 1.
+
+                That second read is removable rather than inherent — the
+                positions for every dimension are known before the first cut, so
+                one pass could emit the final band list directly. It is left
+                alone deliberately: doing it means rewriting
+                `_map_dim_to_band_indices`, which this branch has already
+                corrected once, and the gain is reads rather than correctness.
+                Order never affects the result.
+
+                Internals: GDAL flattens an MDIM array `(d_0, ..., d_{n-1},
+                lat, lon)` row-major over the non-spatial dims, with the last
+                non-spatial dim varying fastest. For a band dim at axis `k`
+                with sizes `S`, the implementation uses
+                `stride = prod(S[k+1:])`, `block = stride * S[k]`, and
+                `total = prod(S)` to map each pinned index `p` to the band
+                ranges `[outer + p*stride .. outer + (p+1)*stride)` for every
+                `outer in range(0, total, block)`. For a single-band-dim
+                variable this reduces to the identity
+                `band_indices == dim_indices`.
+
+                Args:
+                    method: How a selector is matched against the axis.
+                        `None` (the default) matches exactly; `"nearest"`
+                        snaps each requested value to the closest coordinate,
+                        so a caller can ask for "the level nearest 100 m"
+                        without knowing the axis values. `"nearest"` needs a
+                        numeric selector — it rejects a `slice` (a range has
+                        no nearest value) and a date label (select a label
+                        exactly; a partial one already names a period). The
+                        coordinate it chose is on the result, readable with
+                        `get_dimension_values(dim)`.
+                    tolerance: The furthest a `method="nearest"` snap may
+                        travel. `None` (the default) accepts any distance. A
+                        request whose closest coordinate lies further away
+                        raises `KeyError`, with the distance and the bound in
+                        the message. Rejected without `method="nearest"`, where
+                        an exact match has no distance for it to bound.
+
+                        **One bound governs every dimension in the call**, and
+                        it is compared against each axis in that axis' own
+                        units. `sel(time=5, pressure_level=990,
+                        method="nearest", tolerance=20)` allows a 20-hour snap
+                        on `time` and a 20-hPa snap on `pressure_level`, which
+                        is rarely what a caller means. Bound one dimension per
+                        call when the units differ.
+                    **kwargs: One or more keyword arguments. Each key must name
+                        a tracked band dim (one of `self._band_dim_names`); the
+                        value is one of:
+
+                        - A single number: select one band by exact value.
+                        - A list of numbers: select multiple bands.
+                        - A `slice(start, stop)`: select bands whose coord
+                          falls between `start` and `stop` inclusive. Bounds
+                          are normalised before matching, so the slice is
+                          direction-agnostic — works on both ascending and
+                          descending coord axes (e.g. `latitude` stored
+                          north-to-south).
+                        - A date label, a list of them, or a slice of them, on
+                          a CF time axis: `"2024-01-01"`. The axis is stored as
+                          raw offsets (`[0.0, 6.0, 12.0, 18.0]`), so a label is
+                          matched by decoding the axis with the dimension's
+                          `units` / `calendar` at the label's own precision —
+                          meaning a partial label matches every step inside the
+                          period it names (`"2024-01"` takes the whole month,
+                          `"2024-01-01 06:00:00"` takes one step). This is the
+                          vocabulary `get_time_variable` hands back — note its
+                          **default** `time_format` is `"%Y-%m-%d"`, so feeding
+                          one of its labels back selects that whole day; ask for
+                          `get_time_variable(dim, "%Y-%m-%d %H:%M:%S")` to get
+                          the labels that pin a single step. An axis whose
+                          `units` cannot be parsed, or whose values the CF
+                          converter cannot decode, has no labels to match, and a
+                          label selector on it finds nothing.
+
+                Returns:
+                    NetCDF: A new variable subset with only the selected bands
+                        and full metadata preserved. `_band_dim_sizes` reflects
+                        the pinned axis (e.g. `(4, 1)` after pinning a level on
+                        a `(4, 3)` cube), and `_band_dim_values_map[dim_name]`
+                        shrinks to the chosen values. Legacy `_band_dim_values`
+                        is refreshed from the (possibly updated) primary entry
+                        in the map.
+
+                Raises:
+                    ValueError: If no kwarg is passed, `method` is neither
+                        `None` nor `"nearest"`, `tolerance` is given without
+                        `method="nearest"` or is negative, the variable has no
+                        tracked band dims, the named dim isn't one of
+                        `_band_dim_names`, the dim has no coord values
+                        (`_band_dim_values_map[dim] is None` — select by
+                        position with `isel()` instead), `"nearest"` is asked
+                        of a slice / a date label / a non-numeric axis, or no
+                        bands match the selector.
+                    KeyError: A `method="nearest"` request found no coordinate
+                        within `tolerance`.
+
+                Note:
+                    **Two types for one kind of failure.** A selector that
+                        matches nothing raises `ValueError` ("No bands match
+                        ..."), while a `tolerance` breach raises `KeyError`.
+                        Both mean "your selector matched nothing", so
+                        `except ValueError` around a `sel` call does not catch
+                        the bounded miss and `except KeyError` does not catch
+                        the plain one — catch both, or `except Exception`.
+
+                        The split is historical rather than designed:
+                        `ValueError` is what `sel` has always raised, and
+                        `tolerance` arrived matching xarray, which uses
+                        `KeyError`. xarray uses `KeyError` for *both*, so this
+                        is not xarray parity. Unifying it would change a
+                        released exception type on the commonly hit path, so it
+                        is recorded here rather than quietly fixed.
+
+                Examples:
+                    - Pin a pressure level on a 4-D `(time, pressure_level)` cube:
+                        ```python
+                        >>> from pyramids.netcdf import NetCDF
+                        >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+                        >>> sub = nc.get_variable("temperature").sel(pressure_level=500)
+                        >>> sub._band_dim_sizes
+                        (4, 1)
+                        >>> sub._band_dim_values_map["pressure_level"]
+                        [500.0]
+
+                        ```
+                    - Name both dims in one call, or chain two calls — the same cut either way,
+                      and in either keyword order (collapses to a single 2-D plane):
+                        ```python
+                        >>> from pyramids.netcdf import NetCDF
+                        >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+                        >>> var = nc.get_variable("temperature")
+                        >>> var.sel(time=12, pressure_level=500)._band_dim_values_map
+                        {'time': [12.0], 'pressure_level': [500.0]}
+                        >>> var.sel(pressure_level=500, time=12)._band_dim_values_map
+                        {'time': [12.0], 'pressure_level': [500.0]}
+                        >>> var.sel(time=12).sel(pressure_level=500).read_array().shape
+                        (5, 6)
+
+                        ```
+                    - Use a list selector to keep only two of the levels:
+                        ```python
+                        >>> from pyramids.netcdf import NetCDF
+                        >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+                        >>> sub = nc.get_variable("temperature").sel(pressure_level=[1000, 500])
+                        >>> sub._band_dim_values_map["pressure_level"]
+                        [1000.0, 500.0]
+
+                        ```
+                    - Use a slice selector — direction-agnostic, so the same
+                      call works on ascending coords (e.g. `[500, 850, 1000]`)
+                      and on descending ones like this fixture's
+                      (`[1000, 850, 500]`):
+                        ```python
+                        >>> from pyramids.netcdf import NetCDF
+                        >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+                        >>> var = nc.get_variable("temperature")
+                        >>> var.sel(pressure_level=slice(500, 1000))._band_dim_values_map["pressure_level"]
+                        [1000.0, 850.0, 500.0]
+
+                        ```
+                    - Snap to the nearest level, then read back which one was
+                      chosen:
+                        ```python
+                        >>> from pyramids.netcdf import NetCDF
+                        >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+                        >>> sub = nc.get_variable("temperature").sel(pressure_level=900, method="nearest")
+                        >>> sub.get_dimension_values("pressure_level")
+                        array([850.])
+
+                        ```
+                    - Bound the snap with `tolerance`; a request whose closest
+                      coordinate lies further away raises instead of snapping:
+                        ```python
+                        >>> from pyramids.netcdf import NetCDF
+                        >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+                        >>> var = nc.get_variable("temperature")
+                        >>> var.sel(pressure_level=900, method="nearest", tolerance=100)._band_dim_values_map[
+                        ...     "pressure_level"
+                        ... ]
+                        [850.0]
+                        >>> var.sel(pressure_level=900, method="nearest", tolerance=10)
+                        Traceback (most recent call last):
+                            ...
+                        KeyError: 'no coordinate within tolerance=10 of 900: the closest is 850.0...'
+
+                        ```
+                    - Select a time step by its date label rather than by the
+                      raw CF offset. A full-precision label pins one step:
+                        ```python
+                        >>> from pyramids.netcdf import NetCDF
+                        >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+                        >>> sub = nc.get_variable("temperature").sel(time="2024-01-01 12:00:00")
+                        >>> sub._band_dim_values_map["time"]
+                        [12.0]
+
+                        ```
+                    - A label from `get_time_variable()` at its default
+                      `"%Y-%m-%d"` names a **day**, so it keeps every step in
+                      that day — ask for the finer format to pin one:
+                        ```python
+                        >>> from pyramids.netcdf import NetCDF
+                        >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+                        >>> var = nc.get_variable("temperature")
+                        >>> nc.get_time_variable("time")[1]
+                        '2024-01-01'
+                        >>> var.sel(time="2024-01-01")._band_dim_values_map["time"]
+                        [0.0, 6.0, 12.0, 18.0]
+                        >>> fine = nc.get_time_variable("time", "%Y-%m-%d %H:%M:%S")
+                        >>> var.sel(time=fine[1])._band_dim_values_map["time"]
+                        [6.0]
+
+                        ```
+
+                Notes:
+                    A slice's `step` is ignored, on the label path as on the
+                    stored-value one: `slice(a, b, 2)` selects the same bands
+                    as `slice(a, b)`. Pass a list to pick specific values.
+
+                    `method` and `tolerance` are keywords of this method, so a
+                    band dim actually named either cannot be selected through
+                    it — the selector would be taken as the option. Use
+                    `isel()` for such a dimension: it reserves neither. Both
+                    still reserve `self`, which is Python's method binding
+                    rather than a keyword of either, and no netCDF dimension is
+                    plausibly named that.
+
+                    The examples above run against this repository's own
+                    fixtures. Wider scenarios live in:
+
+                    - `tests/netcdf/selection/test_sel_nearest_and_labels.py`
+                      (`TestSelNearest` / `TestSelByDateLabel` — snapping and
+                      date-label selection, including the vocabulary a failed
+                      match reports and the axis whose units do not parse).
+                    - `tests/netcdf/selection/test_sel.py::TestSelSingleValue` /
+                      `TestSelList` / `TestSelSlice` (3-D scenarios — single
+                      value, list selector, slice selector including the
+                      direction-agnostic path).
+                    - `tests/netcdf/selection/test_sel_4d.py::TestSelByPressureLevel` /
+                      `TestSelByTime` / `TestSelChained` (4-D scenarios —
+                      pin secondary / primary dim, chained `sel().sel()`).
+                    - `tests/netcdf/selection/test_sel_4d.py::TestSelErrorMessages` (the
+                      error contract).
+
+                See Also:
+                    `get_variable`: builds a variable subset and populates the
+                        band-dim metadata that `sel()` consumes.
+        """
+        nc = self._ds
+        if not kwargs:
+            raise ValueError(
+                "sel() requires at least one keyword argument, e.g. sel(time=6)."
+            )
         if method not in (None, "nearest"):
             raise ValueError(
                 f"sel() method must be None (exact) or 'nearest', got {method!r}."
             )
-
-        dim_name, selector = next(iter(kwargs.items()))
-
-        if not nc._band_dim_names:
+        if tolerance is not None and method != "nearest":
             raise ValueError(
-                "sel() requires a variable with at least one non-spatial "
-                "dimension. This variable has no band dimensions tracked."
-            )
-        if dim_name not in nc._band_dim_names:
-            raise ValueError(
-                f"Dimension {dim_name!r} does not match any band dimension "
-                f"of this variable {list(nc._band_dim_names)!r}."
+                "sel() tolerance= is only meaningful with method='nearest' — without it "
+                "a label either matches exactly or does not match at all, and there is no "
+                "distance for a tolerance to bound."
             )
 
-        coords = nc._band_dim_values_map.get(dim_name)
-        if coords is None:
-            raise ValueError(
-                f"No coordinate values available for dimension {dim_name!r}."
+        # Resolve every keyword against the receiver before cutting anything, so a bad
+        # name *or* a value that matches nothing is refused without having read the earlier
+        # keywords' bands.
+        #
+        # Resolving against the original receiver rather than the progressively narrowed
+        # one is equivalent: `_subset_along_dim` copies `_band_dim_values_map` and replaces
+        # only its own dimension's entry, so cutting `time` leaves `pressure_level`'s
+        # coordinates exactly as they were, and a selector resolves to the same positions
+        # either way. An earlier version of this hoisted only the name check, on the stated
+        # grounds that a preceding cut could narrow the coordinates a label needs — which
+        # is not something any cut does.
+        resolved: list[tuple[str, list[int]]] = []
+        for dim_name, selector in kwargs.items():
+            resolved.append(
+                (dim_name, _resolve_one_dim(nc, dim_name, selector, method, tolerance))
             )
 
-        dim_indices, available = _resolve_selector_indices(
-            nc, dim_name, coords, selector, method
-        )
-        if not dim_indices:
-            hint = _undecodable_label_hint(nc, dim_name, coords, selector)
-            raise ValueError(
-                f"No bands match {dim_name}={selector}. "
-                f"Available values: {summarise_values(available)}{hint}"
-            )
-
-        dim_axis = nc._band_dim_names.index(dim_name)
-        sizes = nc._band_dim_sizes
-        band_indices = _map_dim_to_band_indices(dim_axis, sizes, dim_indices)
-        selected_coords = [coords[i] for i in dim_indices]
-        selected = _read_selected_bands(nc, band_indices)
-
-        ndv = nc.no_data_value
-        # no_data_value is a TUPLE; the old `isinstance(ndv, list)` test never fired (ARC-29). Route
-        # through the shared helper (handles list AND tuple) like the reduce path below.
-        ndv_scalar = scalar_no_data(ndv)
-        ds_result = Dataset.from_array(
-            selected,
-            no_data_value=ndv_scalar,
-            geo_ref=GeoReference(geo=nc.geotransform, epsg=crs_spec(nc.epsg, nc.crs)),
-        )
-        result = nc._preserve_netcdf_metadata(ds_result)
-        new_sizes = tuple(
-            len(dim_indices) if i == dim_axis else s for i, s in enumerate(sizes)
-        )
-        result._band_dim_sizes = new_sizes
-        result._band_dim_values_map = dict(nc._band_dim_values_map)
-        result._band_dim_values_map[dim_name] = selected_coords
-        # Re-derive the legacy primary-dim view from the (now updated) canonical
-        # fields so it tracks the pinned selection — single source of truth in
-        # `_derive_primary_band_view`.
-        result._band_dim_name, result._band_dim_values = nc._derive_primary_band_view(
-            result._band_dim_names,
-            result._band_dim_values_map,
-            result._band_dim_sizes,
-            result._band_count,
-        )
-
+        result = nc
+        # One cut per dimension, in the order the keywords were written. They compose in
+        # any order because each narrows a different axis of the same band grid.
+        for dim_name, dim_indices in resolved:
+            result = _subset_along_dim(result, dim_name, dim_indices)
         return result
 
     def subset(
@@ -1662,7 +1874,13 @@ def _probe_label_format(
 
 
 def _nearest_or_raise(
-    dim_name: str, coords: list, selector: Any, probe: str | None, *, is_label: bool
+    dim_name: str,
+    coords: list,
+    selector: Any,
+    probe: str | None,
+    *,
+    is_label: bool,
+    tolerance: float | None = None,
 ) -> list[int]:
     """Snap a numeric selector, or explain why this one cannot be snapped.
 
@@ -1676,12 +1894,17 @@ def _nearest_or_raise(
         selector: The selector handed to ``sel``.
         probe: The label format resolved for the selector, or ``None``.
         is_label: Whether the selector carries a string at all.
+        tolerance: The furthest a snap may travel; ``None`` accepts any distance.
 
     Returns:
         list[int]: Indices of the snapped coordinates.
 
     Raises:
-        ValueError: The selector is a date label, or is otherwise not a number.
+        ValueError: The selector is a date label, or is otherwise not a number. Also
+            raised by :func:`nearest_indices` for a non-numeric axis, a non-finite
+            selector, and a negative ``tolerance``.
+        KeyError: Raised through :func:`nearest_indices` when a request's closest
+            coordinate lies further away than ``tolerance``.
     """
     if is_label and probe is not None:
         raise ValueError(
@@ -1697,7 +1920,7 @@ def _nearest_or_raise(
             f"method='nearest' needs a numeric selector; {dim_name}={selector!r} is "
             "not a number. Snapping compares distances, so it has nothing to measure."
         )
-    return nearest_indices(coords, selector)
+    return nearest_indices(coords, selector, tolerance)
 
 
 def _resolve_selector_indices(
@@ -1706,6 +1929,7 @@ def _resolve_selector_indices(
     coords: list,
     selector: Any,
     method: str | None = None,
+    tolerance: float | None = None,
 ) -> tuple[list[int], list]:
     """Resolve one ``sel`` selector to band-dim indices, and the values it matched against.
 
@@ -1725,6 +1949,13 @@ def _resolve_selector_indices(
         coords: That dimension's stored coordinate values.
         selector: The value, list, or :class:`slice` handed to ``sel``.
         method: ``None`` for exact matching, ``"nearest"`` to snap. Defaults to ``None``.
+        tolerance: The furthest a ``method="nearest"`` snap may travel; ``None`` (the
+            default) accepts any distance, and it is forwarded only on the ``"nearest"``
+            path. ``Selection.sel`` refuses a bound whenever ``method`` is not
+            ``"nearest"``, so the label and stored-value paths below never see one. With
+            ``method="nearest"`` *and* a date label the bound does arrive here, and
+            :func:`_nearest_or_raise` then refuses the **selector** rather than the
+            bound.
 
     Returns:
         tuple[list[int], list]: The matching indices along ``dim_name``, and the values
@@ -1735,6 +1966,7 @@ def _resolve_selector_indices(
     Raises:
         ValueError: The selector mixes labels with stored values, names an unsupported
             date precision, or asks ``"nearest"`` of something that is not a number.
+        KeyError: A ``method="nearest"`` request found no coordinate within ``tolerance``.
     """
     decoded: dict[str, list[str]] = {}
 
@@ -1762,7 +1994,7 @@ def _resolve_selector_indices(
     probe = _probe_label_format(dim_name, selector, decode) if is_label else None
     if method == "nearest":
         indices = _nearest_or_raise(
-            dim_name, coords, selector, probe, is_label=is_label
+            dim_name, coords, selector, probe, is_label=is_label, tolerance=tolerance
         )
         available = coords
     elif probe is not None and decode(probe):
@@ -1785,6 +2017,369 @@ def _resolve_selector_indices(
     return indices, available
 
 
+def _resolve_one_dim(
+    nc: NetCDF,
+    dim_name: str,
+    selector: Any,
+    method: str | None,
+    tolerance: float | None,
+) -> list[int]:
+    """Resolve one `sel` keyword to positions, without cutting anything.
+
+    Everything `sel` used to do for a single keyword except the cut itself, so the whole
+    call can be validated before the first band is read. Splitting it out is what lets
+    `sel` refuse a wrong *value* in a later keyword as cheaply as a wrong name.
+
+    Args:
+        nc: The variable the keyword is resolved against.
+        dim_name: The dimension to narrow.
+        selector: A coordinate value, a list of them, or a slice.
+        method: `None` for an exact match, `"nearest"` to snap.
+        tolerance: The furthest a `"nearest"` snap may travel.
+
+    Returns:
+        list[int]: Positions along `dim_name` to keep.
+
+    Raises:
+        ValueError: The dimension is unknown, has no coordinates, or nothing matched.
+        KeyError: A `"nearest"` request found nothing within `tolerance`.
+    """
+    _assert_band_dimension(nc, dim_name, caller="sel")
+
+    coords = nc._band_dim_values_map.get(dim_name)
+    if coords is None:
+        raise ValueError(
+            f"No coordinate values available for dimension {dim_name!r}. "
+            f"Select by position instead: isel({dim_name}=<index>)."
+        )
+
+    dim_indices, available = _resolve_selector_indices(
+        nc, dim_name, coords, selector, method, tolerance
+    )
+    if not dim_indices:
+        hint = _undecodable_label_hint(nc, dim_name, coords, selector)
+        raise ValueError(
+            f"No bands match {dim_name}={selector}. "
+            f"Available values: {summarise_values(available)}{hint}"
+        )
+
+    return dim_indices
+
+
+def _resolve_positional_indices(selector: Any, size: int, dim_name: str) -> list[int]:
+    """Turn one `isel` selector into ascending, deduplicated positions along an axis.
+
+    Accepts Python's own index types and nothing else: an `int`, a `list` or `tuple` of
+    `int`, or a `slice` of indices. A negative index counts from the end, as everywhere
+    else in Python, and a slice's `step` is honoured.
+
+    Narrower than xarray's `isel` in two ways, and wider in one. xarray also takes a numpy
+    integer, a numpy array and a boolean mask, all of which are refused here, and it keeps
+    a list's order and its repeats where this sorts and deduplicates; a `tuple` goes the
+    other way, accepted here and rejected by xarray.
+
+    Args:
+        selector: An `int`, a `list`/`tuple` of `int`, or a `slice`.
+        size: The length of the axis, used to normalise negatives and to bound-check.
+        dim_name: The dimension's name, for the error messages.
+
+    Returns:
+        list[int]: The positions to keep. A list or an int resolves to ascending,
+            deduplicated order; a **slice keeps the order its step implies**, so a
+            negative step yields descending positions and reverses the axis.
+
+    Raises:
+        IndexError: An index is outside `[-size, size)`. The message names the dimension
+            and its length, because "index 7 is out of bounds" alone does not say which of
+            several dimensions was overrun.
+        TypeError: The selector is not something `operator.index()` admits, nor a
+            `list`/`tuple` of such, nor a `slice`. A `bool` is refused rather than read as
+            the `int` it subclasses, even though `index()` admits it, because
+            `isel(dim=True)` would quietly mean position 1. Every integer type
+            `index()` accepts — `np.int64`, `np.int32`, `np.uint8` — is taken, which
+            matches `sel`'s numeric path accepting numpy scalars.
+        ValueError: The selector keeps no position — an empty `list` or `tuple` as much as
+            a `slice` whose bounds cross — which would otherwise build a zero-band variable
+            that fails much later and further away, inside GDAL.
+
+    Examples:
+        - A negative index counts from the end:
+
+          ```python
+          >>> from pyramids.netcdf.engines.selection import _resolve_positional_indices
+          >>> _resolve_positional_indices(-1, 4, "time")
+          [3]
+
+          ```
+        - A slice keeps axis order, and a list is sorted and deduplicated:
+
+          ```python
+          >>> from pyramids.netcdf.engines.selection import _resolve_positional_indices
+          >>> _resolve_positional_indices(slice(1, 3), 4, "time")
+          [1, 2]
+          >>> _resolve_positional_indices([2, 0, 2], 4, "time")
+          [0, 2]
+
+          ```
+        - An out-of-range index names the dimension and its size:
+
+          ```python
+          >>> from pyramids.netcdf.engines.selection import _resolve_positional_indices
+          >>> _resolve_positional_indices(9, 4, "time")
+          Traceback (most recent call last):
+              ...
+          IndexError: index 9 is out of range for dimension 'time' of length 4...
+
+          ```
+        - A numpy integer is an index, so it needs no conversion:
+
+          ```python
+          >>> import numpy as np
+          >>> from pyramids.netcdf.engines.selection import _resolve_positional_indices
+          >>> _resolve_positional_indices(np.int64(1), 4, "time")
+          [1]
+          >>> _resolve_positional_indices([np.int64(2), np.int32(0)], 4, "time")
+          [0, 2]
+
+          ```
+        - A boolean is not, even though Python would let it act as one:
+
+          ```python
+          >>> from pyramids.netcdf.engines.selection import _resolve_positional_indices
+          >>> _resolve_positional_indices(True, 4, "time")
+          Traceback (most recent call last):
+              ...
+          TypeError: isel() does not take booleans for 'time'...
+
+          ```
+    """
+    if isinstance(selector, slice):
+        return list(range(*selector.indices(size))) or _refuse_empty_selection(
+            selector, dim_name, size
+        )
+    wanted = list(selector) if isinstance(selector, (list, tuple)) else [selector]
+    positions = {
+        _normalise_index(_as_index(value, selector, dim_name), size, dim_name)
+        for value in wanted
+    }
+    return sorted(positions) or _refuse_empty_selection(selector, dim_name, size)
+
+
+def _is_boolean(value: Any) -> bool:
+    """Whether a selector entry is a boolean, in any spelling numpy offers.
+
+    `operator.index()` admits a Python `bool`, so it has to be excluded by name or
+    `isel(time=True)` quietly means position 1. A 0-d boolean array is caught here too:
+    `index()` refuses it anyway, but with the generic "needs an int" message, which does
+    not tell a caller reaching for a mask what is actually wrong.
+
+    Args:
+        value: One entry of an `isel` selector.
+
+    Returns:
+        bool: `True` for `bool`, `numpy.bool_`, and a 0-d boolean array.
+
+    Examples:
+        - Every spelling counts:
+
+          ```python
+          >>> import numpy as np
+          >>> from pyramids.netcdf.engines.selection import _is_boolean
+          >>> _is_boolean(True), _is_boolean(np.bool_(False)), _is_boolean(np.array(True))
+          (True, True, True)
+
+          ```
+        - An integer does not, whatever its width:
+
+          ```python
+          >>> import numpy as np
+          >>> from pyramids.netcdf.engines.selection import _is_boolean
+          >>> _is_boolean(1), _is_boolean(np.int64(0)), _is_boolean(np.array(1))
+          (False, False, False)
+
+          ```
+    """
+    if isinstance(value, (bool, np.bool_)):
+        return True
+    return isinstance(value, np.ndarray) and value.ndim == 0 and value.dtype == np.bool_
+
+
+def _as_index(value: Any, selector: Any, dim_name: str) -> int:
+    """One selector entry as a Python `int`, or the refusal explaining why it is not.
+
+    Args:
+        value: The entry to convert.
+        selector: The whole selector, quoted back so a bad list entry names its list.
+        dim_name: The dimension being selected, for the message.
+
+    Returns:
+        int: The entry as a plain `int`. `operator.index()` normalises the width, so a
+        numpy integer arrives here as a Python one and the later arithmetic can neither
+        overflow nor wrap.
+
+    Raises:
+        TypeError: The entry is a boolean, or is not something `operator.index()` admits.
+    """
+    if _is_boolean(value):
+        raise TypeError(
+            f"isel() does not take booleans for {dim_name!r}, got {selector!r}. A "
+            f"boolean mask is not supported; pass the integer positions instead."
+        )
+    try:
+        return operator.index(value)
+    except TypeError:
+        raise TypeError(
+            f"isel() needs an int, a list of ints, a tuple of ints, or a slice for "
+            f"{dim_name!r}, got {selector!r}. Select by coordinate value with "
+            f"sel({dim_name}=...) instead."
+        ) from None
+
+
+def _normalise_index(value: int, size: int, dim_name: str) -> int:
+    """An index counted from the end turned into one counted from the start.
+
+    Args:
+        value: An index, possibly negative.
+        size: The axis' length.
+        dim_name: The dimension being selected, for the message.
+
+    Returns:
+        int: The equivalent non-negative position.
+
+    Raises:
+        IndexError: `value` is outside `[-size, size)`. The message names the dimension and
+            its length, because "index 7 is out of bounds" alone does not say which of
+            several dimensions was overrun.
+    """
+    if not -size <= value < size:
+        raise IndexError(
+            f"index {value} is out of range for dimension {dim_name!r} of length "
+            f"{size}. Valid indices are {-size} to {size - 1}."
+        )
+    return value + size if value < 0 else value
+
+
+def _refuse_empty_selection(selector: Any, dim_name: str, size: int) -> NoReturn:
+    """Refuse a selector that keeps no position, whatever form it arrived in.
+
+    Reached from both arms of :func:`_resolve_positional_indices` — a `slice` whose bounds
+    cross or coincide, and an empty list or tuple. Guarding only the slice left
+    `isel(time=[])` building a variable that declares `_band_dim_sizes` with a zero on the
+    selected axis and `band_count == 0`, whose first `read_array()` fails inside GDAL with
+    an `AttributeError` about `GetScale` — a long way from the call that caused it. The
+    label twin `sel(time=[])` has always refused.
+
+    Args:
+        selector: The selector that matched no position, quoted back to the caller.
+        dim_name: The dimension it was applied to.
+        size: That dimension's length.
+
+    Raises:
+        ValueError: Always.
+
+    Examples:
+        - The message names the selector, the dimension and its length:
+
+          ```python
+          >>> from pyramids.netcdf.engines.selection import _refuse_empty_selection
+          >>> _refuse_empty_selection([], "time", 4)
+          Traceback (most recent call last):
+              ...
+          ValueError: isel(time=[]) selects no index of an axis of length 4...
+
+          ```
+    """
+    raise ValueError(
+        f"isel({dim_name}={selector!r}) selects no index of an axis of length {size}. "
+        f"A variable with no bands cannot be built."
+    )
+
+
+def _assert_band_dimension(nc: NetCDF, dim_name: str, *, caller: str) -> None:
+    """Refuse a name that is not one of this variable's band dimensions.
+
+    Shared by `sel` and `isel` so the two report an unknown dimension identically — the
+    plan for `isel` asks for exactly the `ValueError` `sel` already raises, and the only
+    way to keep that true is to raise it in one place.
+
+    Args:
+        nc: The variable subset being selected from.
+        dim_name: The dimension the caller named.
+        caller: `"sel"` or `"isel"`, for the message.
+
+    Raises:
+        ValueError: The variable tracks no band dimensions, or `dim_name` is not one.
+    """
+    if not nc._band_dim_names:
+        raise ValueError(
+            f"{caller}() requires a variable with at least one non-spatial "
+            f"dimension. This variable has no band dimensions tracked."
+        )
+    if dim_name not in nc._band_dim_names:
+        raise ValueError(
+            f"Dimension {dim_name!r} does not match any band dimension "
+            f"of this variable {list(nc._band_dim_names)!r}."
+        )
+
+
+def _subset_along_dim(nc: NetCDF, dim_name: str, dim_indices: list[int]) -> NetCDF:
+    """Build the variable holding only `dim_indices` along `dim_name`.
+
+    Everything after "which positions do we want" — the band arithmetic, the read, and
+    rebuilding the band-dim metadata on the result. `sel` reaches it by resolving a label
+    to positions and `isel` by being handed them, so the two produce identical results for
+    the same positions by construction rather than by agreement.
+
+    A dimension with no coordinate values keeps `None` on the result rather than gaining a
+    fabricated axis: that is the case `isel` exists to serve, and inventing coordinates for
+    it would make the result claim to know something the store never said.
+
+    Args:
+        nc: The variable subset to cut.
+        dim_name: A dimension of `nc`, already validated.
+        dim_indices: Positions along that dimension, in the order the result should
+            carry them. Ascending from a list or an int; descending from a
+            negative-step slice, which reverses the axis.
+
+    Returns:
+        NetCDF: A variable with `len(dim_indices)` planes along `dim_name`.
+    """
+    dim_axis = nc._band_dim_names.index(dim_name)
+    sizes = nc._band_dim_sizes
+    band_indices = _map_dim_to_band_indices(dim_axis, sizes, dim_indices)
+    coords = nc._band_dim_values_map.get(dim_name)
+    selected_coords = None if coords is None else [coords[i] for i in dim_indices]
+    selected = _read_selected_bands(nc, band_indices)
+
+    ndv = nc.no_data_value
+    # no_data_value is a TUPLE; the old `isinstance(ndv, list)` test never fired (ARC-29). Route
+    # through the shared helper (handles list AND tuple) like the reduce path below.
+    ndv_scalar = scalar_no_data(ndv)
+    ds_result = Dataset.from_array(
+        selected,
+        no_data_value=ndv_scalar,
+        geo_ref=GeoReference(geo=nc.geotransform, epsg=crs_spec(nc.epsg, nc.crs)),
+    )
+    result = nc._preserve_netcdf_metadata(ds_result)
+    new_sizes = tuple(
+        len(dim_indices) if i == dim_axis else s for i, s in enumerate(sizes)
+    )
+    result._band_dim_sizes = new_sizes
+    result._band_dim_values_map = dict(nc._band_dim_values_map)
+    result._band_dim_values_map[dim_name] = selected_coords
+    # Re-derive the legacy primary-dim view from the (now updated) canonical
+    # fields so it tracks the pinned selection — single source of truth in
+    # `_derive_primary_band_view`.
+    result._band_dim_name, result._band_dim_values = nc._derive_primary_band_view(
+        result._band_dim_names,
+        result._band_dim_values_map,
+        result._band_dim_sizes,
+        result._band_count,
+    )
+
+    return result
+
+
 def _map_dim_to_band_indices(
     dim_axis: int, sizes: tuple[int, ...], dim_indices: list[int]
 ) -> list[int]:
@@ -1795,14 +2390,67 @@ def _map_dim_to_band_indices(
     ``stride = prod(S[k+1:])`` and ``block = stride * S[k]``; each pinned index
     ``p`` emits ``[outer + p*stride .. outer + (p+1)*stride)`` for every
     ``outer`` in ``range(0, total, block)``. Reduces to the identity when there
-    is a single band dim. Helper of :meth:`Selection.sel`.
+    is a single band dim. Helper of :meth:`Selection.sel` and
+    :meth:`Selection.isel`.
+
+    **The emitted order is row-major over the narrowed sizes**, outer blocks before
+    pinned indices, because the caller labels the result with those sizes and nothing
+    else records how the flat list maps back onto dimensions.
+
+    Args:
+        dim_axis: Position of the pinned dimension in ``sizes``.
+        sizes: The variable's band-dim sizes, outermost first, as tracked in
+            ``_band_dim_sizes``.
+        dim_indices: The positions kept along ``dim_axis``, in result order —
+            ascending from a list, descending from a negative-step slice. The
+            emitted bands follow that order, so it is **not** safe to assume the
+            input is sorted. (`_plot._flat_band_index`, the only other caller,
+            wraps the result in a `set`, so ordering is immaterial to it.)
+
+    Returns:
+        list[int]: ``len(dim_indices) * prod(sizes) // sizes[dim_axis]`` flat 0-based
+            band indices, row-major over the sizes the result will declare.
+
+    Examples:
+        - Pinning the *inner* dim of a ``(time=4, level=3)`` cube interleaves the kept
+          levels within each time step:
+
+          ```python
+          >>> from pyramids.netcdf.engines.selection import _map_dim_to_band_indices
+          >>> _map_dim_to_band_indices(1, (4, 3), [1, 2])
+          [1, 2, 4, 5, 7, 8, 10, 11]
+
+          ```
+        - Pinning the outermost dim takes contiguous blocks, and a single band dim is the
+          identity:
+
+          ```python
+          >>> from pyramids.netcdf.engines.selection import _map_dim_to_band_indices
+          >>> _map_dim_to_band_indices(0, (4, 3), [1, 2])
+          [3, 4, 5, 6, 7, 8]
+          >>> _map_dim_to_band_indices(0, (4,), [1, 2])
+          [1, 2]
+
+          ```
     """
     stride = math.prod(sizes[dim_axis + 1 :])
     block = stride * sizes[dim_axis]
     total = math.prod(sizes)
     band_indices: list[int] = []
-    for pinned in dim_indices:
-        for outer_start in range(0, total, block):
+    # `outer_start` outside `pinned`, not the reverse. The result declares
+    # `_band_dim_sizes` with `dim_axis` narrowed, and that tuple is the only thing saying
+    # how the flat band list maps back onto dimensions — so the bands have to come out
+    # row-major over it, outer blocks first. Grouping by the pinned index instead returned
+    # `(t0,l1)(t1,l1)(t2,l1)(t3,l1)(t0,l2)…` while declaring `(time=4, level=2)`, which
+    # mislabels six of eight planes the moment anything reshapes by the declared sizes.
+    # Identical output whenever one index is kept, or whenever there is a single outer
+    # block — `prod(sizes[:dim_axis]) == 1`, which covers `dim_axis == 0` and also a
+    # `dim_axis` whose preceding dims are all size 1. The two orders therefore agree on
+    # most shapes, which is why the defect went unnoticed for so long. Where they differ
+    # the old one contradicts the declared sizes by construction, since it groups by the
+    # pinned index while the sizes say the outer axis varies slowest.
+    for outer_start in range(0, total, block):
+        for pinned in dim_indices:
             base = outer_start + pinned * stride
             band_indices.extend(range(base, base + stride))
     return band_indices
