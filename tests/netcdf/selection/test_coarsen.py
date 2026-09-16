@@ -150,7 +150,8 @@ class TestBoundaries:
         container = _container()
         with pytest.raises(ValueError, match="boundary") as error:
             container.coarsen("time", 3)
-        assert "4" in str(error.value) and "3" in str(error.value), str(error.value)
+        assert "4" in str(error.value), str(error.value)
+        assert "3" in str(error.value), str(error.value)
 
     def test_trim_drops_the_steps_that_do_not_fill_a_window(self):
         """Window 3, trimmed: one mean over the first three steps, labelled 6."""
@@ -464,12 +465,12 @@ class TestArguments:
             The argument checks run before any band is read and before the dimension is
             looked up, so the cheap mistakes are reported first.
         """
-        arguments = {"dim": "time", **kwargs}
+        options = dict(kwargs)
+        dim = options.pop("dim", "time")
+        window = options.pop("window")
         container = _container()
         with pytest.raises(ValueError, match=match):
-            container.coarsen(
-                arguments.pop("dim"), arguments.pop("window"), **arguments
-            )
+            container.coarsen(dim, window, **options)
 
     def test_the_options_after_the_window_are_keyword_only(self):
         """`coarsen("time", 2, "sum")` is a `TypeError`: `how` must be named."""

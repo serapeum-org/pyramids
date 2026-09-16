@@ -1363,10 +1363,8 @@ class TestPackedVariables:
         result = variable.isel(time=[1, 3, 5]).reduce("time", how)
         values = np.asarray(result.read_array())
         expected = result.no_data_value[0] if gap is None else gap
-        assert values.size > 0 and np.all(values == expected), (
-            np.unique(values)[:5],
-            expected,
-        )
+        assert values.size > 0, values.shape
+        assert np.all(values == expected), (np.unique(values)[:5], expected)
 
     def test_a_carried_static_packed_variable_keeps_its_gaps(self, tmp_path):
         """A packed variable without `time` is carried over with its fill cells still gaps.
@@ -1383,7 +1381,8 @@ class TestPackedVariables:
         fill = stored == -32767
         carried = source.reduce("time", "mean").get_variable("still")
         values = np.asarray(carried.read_array(), dtype=np.float64)
-        assert fill.any() and (~fill).any(), fill
+        assert fill.any(), "the store should hold fill cells"
+        assert (~fill).any(), "the store should hold valid cells"
         assert np.all(values[fill] == carried.no_data_value[0]), (
             values,
             carried.no_data_value,
@@ -1827,8 +1826,9 @@ class TestReducesAsAVariable:
             tmp_path: pytest temp directory.
             call: `reduce` or `coarsen`.
         """
+        container = _classic_container(tmp_path)
         with pytest.raises(ValueError, match="empty container"):
-            call(_classic_container(tmp_path))
+            call(container)
 
 
 class TestReadNoData:

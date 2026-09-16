@@ -1681,4 +1681,5 @@ class TestCopyBandValuesMap:
         """A variable with no band dimensions copies to its own empty map."""
         original: dict = {}
         copied = copy_band_values_map(original)
-        assert copied == {} and copied is not original, copied
+        assert copied == {}, copied
+        assert copied is not original, "the copy should be a new map"
