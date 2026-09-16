@@ -325,6 +325,89 @@ class TestRenderArrayKwargRouting:
             f"`col` must move onto FacetLayout, not the loose facet kwargs; facet={facet}"
         )
 
+    def test_animate_lifts_data_getter_and_frame_label_onto_playback(self):
+        """``data_getter`` (mode) and ``frame_label`` (kwarg) ride on the playback object.
+
+        Test scenario:
+            cleopatra >= 0.38 takes the lazy frame source and the per-frame label on
+            an ``Animation`` passed as ``playback=``; both must land there and not
+            also pass as loose ``animate`` keywords.
+        """
+        fake_cls, _, _, animate, _, _ = self._capture_calls()
+
+        def getter(i):
+            return np.zeros((4, 4), dtype="float32")
+
+        frame_label = FrameLabel(color="white")
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
+            render_array(
+                arr=np.zeros((3, 4, 4), dtype="float32"),
+                extent=[0.0, 0.0, 1.0, 1.0],
+                mode="animate",
+                animation_axis_values=[0, 1, 2],
+                data_getter=getter,
+                frame_label=frame_label,
+            )
+        playback = animate["playback"]
+        assert playback is not None, "a playback Animation must be built when fields are set"
+        assert playback.data_getter is getter, (
+            f"data_getter must ride on playback; got {playback.data_getter!r}"
+        )
+        assert playback.frame_label is frame_label, (
+            f"frame_label must ride on playback; got {playback.frame_label!r}"
+        )
+        assert "data_getter" not in animate and "frame_label" not in animate, (
+            f"playback fields must not also pass loosely; animate kwargs={animate}"
+        )
+
+    def test_animate_without_playback_fields_omits_playback(self):
+        """No interval/frame_label/data_getter means ``playback=None``.
+
+        Test scenario:
+            When none of the ``Animation`` fields are set, the dispatch passes
+            ``playback=None`` so cleopatra applies its own per-frame defaults.
+        """
+        fake_cls, _, _, animate, _, _ = self._capture_calls()
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
+            render_array(
+                arr=np.zeros((3, 4, 4), dtype="float32"),
+                extent=[0.0, 0.0, 1.0, 1.0],
+                mode="animate",
+                animation_axis_values=[0, 1, 2],
+                cmap="viridis",
+            )
+        assert animate["playback"] is None, (
+            f"playback must be None when no Animation fields are set; got {animate['playback']!r}"
+        )
+
+    def test_facet_lifts_col_wrap_and_labels_onto_layout(self):
+        """``col_wrap`` and ``col_coords`` (→ ``PanelLabels``) ride on the ``FacetLayout``.
+
+        Test scenario:
+            The layout fields must reach cleopatra on the ``FacetLayout`` positional
+            argument, not as loose ``facet`` keywords.
+        """
+        fake_cls, _, _, _, facet, _ = self._capture_calls()
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
+            render_array(
+                arr=np.zeros((3, 4, 4), dtype="float32"),
+                extent=[0.0, 0.0, 1.0, 1.0],
+                mode="facet",
+                facet_kwargs={"col": "time", "col_wrap": 2, "col_coords": [0, 1, 2]},
+                kind="imshow",
+            )
+        layout = facet["layout"]
+        assert layout.col == "time" and layout.col_wrap == 2, (
+            f"col/col_wrap must reach FacetLayout; got col={layout.col!r}, col_wrap={layout.col_wrap!r}"
+        )
+        assert layout.labels is not None and list(layout.labels.col) == [0, 1, 2], (
+            f"col_coords must become FacetLayout.labels (PanelLabels); got {layout.labels!r}"
+        )
+        for key in ("col", "col_wrap", "labels"):
+            assert key not in facet, (
+                f"`{key}` is a layout field and must not pass as a loose facet kwarg; facet={facet}"
+            )
+
     def test_split_is_driven_by_option_keys(self):
         """The ctor/render split comes from ``ArrayGlyph.option_keys()``.
 
