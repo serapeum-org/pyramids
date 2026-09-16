@@ -36,6 +36,12 @@ ERA5_T2M = (
     / "netcdf"
     / "cf__5v__1d4-3d1__geog__y-desc.nc"
 )
+GEOS = (
+    Path(__file__).resolve().parents[2]
+    / "data"
+    / "netcdf"
+    / "cf__9v__1d7-2d2__geos__y-desc.nc"
+)
 FLOAT_REDUCERS = [
     pytest.param("median", np.nanmedian, np.median, id="median"),
     pytest.param("prod", np.nanprod, np.prod, id="prod"),
@@ -892,3 +898,106 @@ class TestReduceOnASelection:
         stamps = variable._band_dim_values_map["valid_time"][:3]
         result = variable.sel(valid_time=stamps).reduce("valid_time", "count")
         assert_array_equal(result.read_array(), np.sum(~np.isnan(steps[:3]), axis=0))
+
+
+def _eager_mean(variable: NetCDF, dim: str) -> np.ndarray:
+    """The NaN-aware mean along `dim` of an eager read of `variable`, as the expectation.
+
+    Args:
+        variable: The variable, however it was derived.
+        dim: The band dimension to average over.
+
+    Returns:
+        np.ndarray: The mean, shaped like the variable's remaining axes.
+    """
+    values = np.asarray(variable.read_array(), dtype=np.float64).reshape(
+        *variable._band_dim_sizes, variable.rows, variable.columns
+    )
+    return np.nanmean(values, axis=list(variable._band_dim_names).index(dim))
+
+
+class TestReduceOnADerivedVariable:
+    """A reprojected variable reduces the values it holds, on its own grid."""
+
+    def test_a_to_crs_variable_reduces_its_reprojected_values(self):
+        """`to_crs(3035)` then `reduce` averages the warped cells, on the warped grid.
+
+        Test scenario:
+            The warped variable keeps its parent file, so a streamed read would rebuild the
+            unprojected source and hand back its 5x5 mean labelled with the 3035 grid.
+        """
+        warped = NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m").to_crs(3035)
+        result = warped.reduce("valid_time", "mean")
+        expected = _eager_mean(warped, "valid_time")
+        values = np.asarray(result.read_array(), dtype=np.float64)
+        assert values.shape == expected.shape, (values.shape, expected.shape)
+        assert_allclose(values, expected)
+        assert result.geotransform == warped.geotransform, result.geotransform
+
+    def test_a_warped_view_coarsens_its_warped_values(self):
+        """`warped_view(3857, cell_size=50000)` then `coarsen` averages the view's cells."""
+        view = (
+            NetCDF.read_file(str(ERA5_T2M))
+            .get_variable("t2m")
+            .warped_view(3857, cell_size=50000.0)
+        )
+        result = view.coarsen("valid_time", 12)
+        values = np.asarray(result.read_array(), dtype=np.float64)
+        expected = _eager_mean(view, "valid_time")
+        assert values.shape == expected.shape, (values.shape, expected.shape)
+        assert_allclose(values, expected)
+
+
+@requires_dask
+class TestWhichVariablesStream:
+    """Only a variable still reading as its store is streamed; anything derived is read eagerly."""
+
+    def test_a_fresh_variable_streams(self):
+        """`get_variable` hands back the store's own view, which the chunked read reproduces."""
+        variable = NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m")
+        array = NetCDF._materialize_variable_array(variable, lazy=True)
+        assert type(array).__module__.startswith("dask"), type(array)
+
+    def test_a_geostationary_variable_streams(self):
+        """A geostationary variable is copied into memory while it is built, and still streams.
+
+        Test scenario:
+            The copy is made inside `get_variable` and holds the store's values unchanged, so
+            the chunked read still describes it; `main` streamed it too.
+        """
+        variable = NetCDF.read_file(str(GEOS)).get_variable("CMI")
+        array = NetCDF._materialize_variable_array(variable, lazy=True)
+        assert type(array).__module__.startswith("dask"), type(array)
+
+    def test_a_view_materialized_as_a_side_effect_still_streams(self):
+        """`resample` copies its source's view into memory unchanged; the source still streams."""
+        variable = NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m")
+        _ = variable.resample(abs(variable.geotransform[1]) * 2)
+        array = NetCDF._materialize_variable_array(variable, lazy=True)
+        assert type(array).__module__.startswith("dask"), type(array)
+
+    def test_a_variable_changed_in_place_is_read_eagerly(self):
+        """An in-place `fill` replaces the raster's values, so the store no longer describes it."""
+        variable = NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m")
+        variable.fill(1.0, inplace=True)
+        array = NetCDF._materialize_variable_array(variable, lazy=True)
+        assert isinstance(array, np.ndarray), type(array)
+        assert float(np.nanmax(array)) == 1.0
+
+    @pytest.mark.parametrize(
+        "derive",
+        [
+            pytest.param(lambda v: v.isel(valid_time=slice(4, 12)), id="isel"),
+            pytest.param(lambda v: v.to_crs(3035), id="to_crs"),
+            pytest.param(lambda v: v * 2.0, id="operator"),
+        ],
+    )
+    def test_a_derived_variable_is_read_eagerly(self, derive):
+        """A cut, a reprojection and an operator result are not the store's variable.
+
+        Args:
+            derive: How the variable is derived from the store's.
+        """
+        variable = derive(NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m"))
+        array = NetCDF._materialize_variable_array(variable, lazy=True)
+        assert isinstance(array, np.ndarray), type(array)

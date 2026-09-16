@@ -7225,15 +7225,12 @@ class NetCDF(Dataset):
         single pass, a file-backed `mean`/`sum`/`std`/`var` can differ from the same in-memory reduce
         in the last ULPs (floating-point non-associativity) — equal to `np.allclose`, not bit-for-bit.
 
-        A `sel` / `isel` result is never streamed, even with `lazy=True`: its bands are an in-memory
-        copy of the cut, while the chunked read rebuilds the whole source variable from the parent
-        file and would reduce steps the cut does not hold (see `_holds_bands_in_memory`).
+        Only a variable that still reads as its store is streamed (`_reads_as_its_store`): the
+        chunked read rebuilds the store's variable from the parent file, so anything derived from it
+        — a `sel` / `isel` cut, `to_crs`, `warped_view`, an in-place change, an operator result — is
+        read eagerly from its own raster instead.
         """
-        if (
-            lazy
-            and NetCDF._is_file_backed(var)
-            and not NetCDF._holds_bands_in_memory(var)
-        ):
+        if lazy and NetCDF._is_file_backed(var) and NetCDF._reads_as_its_store(var):
             # Only stream a genuinely file-backed variable: an in-memory container has no file for the
             # chunk graph to reopen and is already fully in RAM, so streaming saves nothing. Checking
             # file-backing up front (rather than a broad except) lets a real file-backed read error
@@ -7250,26 +7247,34 @@ class NetCDF(Dataset):
         return cast("np.typing.NDArray", arr)
 
     @staticmethod
-    def _holds_bands_in_memory(var: NetCDF) -> bool:
-        """Whether `var`'s own raster is an in-memory copy rather than a view of its store.
+    def _reads_as_its_store(var: NetCDF) -> bool:
+        """Whether `var` still holds the raster `get_variable` built for it from its store.
 
-        `get_variable` hands back a view of the store, and a chunked read of it reads exactly
-        that variable. A `sel` / `isel` result instead copies the selected bands into a `MEM`
-        dataset while keeping its parent, so `_is_file_backed` still answers `True` for it —
-        but a chunked read rebuilds the source variable from that parent and ignores the cut.
-        On ERA5 `t2m`, `isel(valid_time=slice(0, 8))` read that way came back with all 12 steps,
-        and a reversed cut came back in the source's order at the right length. Such a variable
-        must be read from its own raster, which is already in memory, so streaming it would
-        save nothing anyway.
+        The chunked read that streams a reduction rebuilds a variable from its parent file and its
+        name, so it describes `var` only while `var` is that store variable, unchanged.
+        `get_variable` records the raster it built (`_store_raster`), and a variable streams only
+        while it still holds that very object:
+
+        - every derivation returns a new object with no record — a `sel` / `isel` cut, `to_crs`,
+          `warped_view`, `resample`, a crop, an operator result;
+        - an in-place change swaps the raster through `_update_inplace` or `_replace_raster`,
+          which do not carry the record;
+        - `_materialize_md_view` does carry it, because it copies the view's values unchanged.
+          That keeps a geostationary variable (copied while it is built) and a variable whose
+          view a `resample` or `to_crs` copied as a side effect streaming.
+
+        The GDAL driver alone cannot tell these apart: a warped variable is a `VRT` over the
+        store and a materialized whole variable is `MEM`, which are the wrong answers in both
+        directions.
 
         Args:
             var: The variable about to be read.
 
         Returns:
-            bool: `True` when the variable's raster is a `MEM` dataset.
+            bool: `True` when `var`'s raster is the one `get_variable` recorded.
         """
-        driver = var._raster.GetDriver() if var._raster is not None else None
-        return driver is not None and driver.ShortName == "MEM"
+        store_raster = getattr(var, "_store_raster", None)
+        return store_raster is not None and var._raster is store_raster
 
     def _resolve_group_positions(
         self, dim: str, groupby: list | tuple | str | None
@@ -7669,6 +7674,10 @@ class NetCDF(Dataset):
         resolved_crs = self._get_crs()
         if resolved_crs and mem.GetSpatialRef() is None:
             mem.SetProjection(resolved_crs)
+        # The copy holds the view's values unchanged, so a variable that read as its store before
+        # still does; carry the record `_reads_as_its_store` checks across the swap.
+        if self._raster is getattr(self, "_store_raster", None):
+            self._store_raster = mem
         self._raster = mem
         # The MEM copy owns its data; drop the SWIG views that backed the AsClassicDataset.
         self._gdal_md_arr_ref = None
@@ -9973,6 +9982,9 @@ class NetCDF(Dataset):
             cube, md_arr_ref if rg is not None else None, spatial_dim_indices
         )
         cube = self._georeference_index_subset(cube)
+        # Record the raster built from the store, after every step above that may replace it, so a
+        # streamed read is used only while this variable still reads as its store.
+        cube._store_raster = cube._raster
         return cube
 
     @staticmethod
