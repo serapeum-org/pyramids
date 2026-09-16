@@ -9,6 +9,11 @@ an all-NaN column, and `count`, `all` and `any` cannot use the float/NaN rule at
 
 from __future__ import annotations
 
+import warnings
+from decimal import Decimal
+from fractions import Fraction
+from pathlib import Path
+
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
@@ -25,6 +30,12 @@ TIMES = [0.0, 6.0, 12.0, 18.0]
 NT, NY, NX = 4, 3, 4
 ALL_MASKED = (0, 0)
 ONCE_MASKED = (1, 2)
+ERA5_T2M = (
+    Path(__file__).resolve().parents[2]
+    / "data"
+    / "netcdf"
+    / "cf__5v__1d4-3d1__geog__y-desc.nc"
+)
 FLOAT_REDUCERS = [
     pytest.param("median", np.nanmedian, np.median, id="median"),
     pytest.param("prod", np.nanprod, np.prod, id="prod"),
@@ -71,6 +82,52 @@ def _container(values: np.ndarray | None = None) -> Container:
         geo_ref=GEO,
         variable_name="v",
         no_data_value=NDV,
+        dims=ExtraDimensions(name="time", values=TIMES),
+    )
+
+
+def _integer_container(dtype: str, ndv: int | None) -> tuple[Container, np.ndarray]:
+    """An integer-typed `(time, y, x)` container, with the usual two gaps when `ndv` is set.
+
+    Values are `0`, `1` or `2` from a fixed seed, so zeros occur for `all` / `any` and
+    neither sentinel used here (`-1`, `255`) can collide with a real value.
+
+    Args:
+        dtype: The band's storage type, e.g. `"int16"`.
+        ndv: The declared no-data value, or `None` to declare none (and add no gaps).
+
+    Returns:
+        tuple: The container, and the stored `(NT, NY, NX)` array it holds.
+    """
+    rng = np.random.default_rng(20260916)
+    values = rng.integers(0, 3, size=(NT, NY, NX)).astype(dtype)
+    if ndv is not None:
+        values[:, ALL_MASKED[0], ALL_MASKED[1]] = ndv
+        values[1, ONCE_MASKED[0], ONCE_MASKED[1]] = ndv
+    container = NetCDF.from_array(
+        values,
+        geo_ref=GEO,
+        variable_name="v",
+        no_data_value=ndv,
+        dims=ExtraDimensions(name="time", values=TIMES),
+    )
+    return container, values
+
+
+def _float_container_without_sentinel(values: np.ndarray) -> Container:
+    """An in-memory float container that declares no no-data value at all.
+
+    Args:
+        values: The `(NT, NY, NX)` stack, NaN wherever a cell is missing.
+
+    Returns:
+        Container: The container, with `no_data_value=None` on its variable `v`.
+    """
+    return NetCDF.from_array(
+        values,
+        geo_ref=GEO,
+        variable_name="v",
+        no_data_value=None,
         dims=ExtraDimensions(name="time", values=TIMES),
     )
 
@@ -143,6 +200,82 @@ class TestFloatReducersMatchNumpy:
         assert_allclose(result.read_array(), expected)
         assert result._band_dim_values_map["time"] == [0.0, 12.0]
 
+    def test_a_quantile_without_skipna_passes_q_through(self):
+        """`skipna=False` answers `np.quantile` of the raw values at the requested `q`.
+
+        Test scenario:
+            The plain branch has to forward `q` on its own; `q=0.25` is chosen so that
+            dropping it cannot fall back on a default that happens to agree.
+        """
+        expected = np.quantile(_values(), 0.25, axis=0)
+        result = (
+            _container()
+            .reduce("time", "quantile", q=0.25, skipna=False)
+            .get_variable("v")
+        )
+        assert_allclose(result.read_array(), expected)
+
+    @pytest.mark.parametrize(
+        ("how", "kwargs", "nan_func"),
+        [
+            pytest.param("sum", {}, np.nansum, id="sum"),
+            pytest.param("prod", {}, np.nanprod, id="prod"),
+            pytest.param("median", {}, np.nanmedian, id="median"),
+            pytest.param(
+                "quantile",
+                {"q": 0.75},
+                lambda a, axis: np.nanquantile(a, 0.75, axis=axis),
+                id="quantile",
+            ),
+        ],
+    )
+    def test_without_a_declared_sentinel_an_empty_column_is_nan(
+        self, how, kwargs, nan_func
+    ):
+        """With no no-data value declared, NaN is the gap and an all-NaN column stays NaN.
+
+        Args:
+            how: The reduction name.
+            kwargs: Extra arguments for `reduce`.
+            nan_func: numpy's NaN-aware counterpart.
+
+        Test scenario:
+            There is no sentinel to restore, so the empty column must come back as NaN —
+            not the 0 `nansum` or the 1 `nanprod` answers — and the band declares none.
+        """
+        masked = _masked()
+        with np.errstate(all="ignore"), warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            expected = _with_gaps(nan_func(masked, axis=0), np.nan)
+        result = (
+            _float_container_without_sentinel(masked)
+            .reduce("time", how, **kwargs)
+            .get_variable("v")
+        )
+        assert result.no_data_value[0] is None, result.no_data_value
+        assert_allclose(result.read_array(), expected, equal_nan=True)
+
+    @pytest.mark.parametrize("dtype", ["int16", "int32", "uint8"])
+    @pytest.mark.parametrize("how", ["mean", "median", "prod"])
+    def test_an_integer_band_is_reduced_as_float64(self, dtype, how):
+        """An integer band reduces through the float rule, its sentinel restored in the gaps.
+
+        Args:
+            dtype: The band's storage type.
+            how: The reduction name.
+        """
+        ndv = 255 if dtype == "uint8" else -1
+        container, values = _integer_container(dtype, ndv)
+        masked = np.where(values == ndv, np.nan, values.astype(np.float64))
+        nan_func = {"mean": np.nanmean, "median": np.nanmedian, "prod": np.nanprod}[how]
+        with np.errstate(all="ignore"), warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            expected = _with_gaps(nan_func(masked, axis=0), ndv)
+        result = container.reduce("time", how).get_variable("v")
+        assert result.dtype[0] == "float64", f"expected float64, got {result.dtype[0]}"
+        assert result.no_data_value[0] == ndv, result.no_data_value
+        assert_allclose(result.read_array(), expected)
+
 
 class TestQuantile:
     """`how="quantile"` takes one `q` in `[0, 1]` and nothing else takes a `q`."""
@@ -169,7 +302,22 @@ class TestQuantile:
 
     @pytest.mark.parametrize(
         "q",
-        [-0.1, 1.5, float("nan"), float("inf"), True, "0.5", [0.25, 0.75], None],
+        [
+            -0.1,
+            1.5,
+            float("nan"),
+            float("inf"),
+            True,
+            "0.5",
+            [0.25, 0.75],
+            None,
+            np.True_,
+            np.float64("nan"),
+            -np.inf,
+            Decimal("0.5"),
+            complex(0.5, 0.0),
+            np.array([0.5]),
+        ],
         ids=[
             "negative",
             "above-one",
@@ -179,6 +327,12 @@ class TestQuantile:
             "string",
             "list",
             "missing",
+            "numpy-bool",
+            "numpy-nan",
+            "negative-inf",
+            "decimal",
+            "complex",
+            "array",
         ],
     )
     def test_an_unusable_q_is_refused(self, q):
@@ -205,6 +359,54 @@ class TestQuantile:
         container = _container()
         with pytest.raises(ValueError, match="quantile"):
             container.reduce("time", how, q=0.5)
+
+    @pytest.mark.parametrize(
+        ("q", "as_float"),
+        [(0, 0.0), (1, 1.0), (-0.0, 0.0), (np.int64(1), 1.0), (np.float16(0.5), 0.5)],
+        ids=["int-zero", "int-one", "negative-zero", "numpy-int", "float16"],
+    )
+    def test_integer_bounds_and_negative_zero_are_accepted(self, q, as_float):
+        """`q=0`, `q=1`, `-0.0` and numpy numbers answer what the equal float answers.
+
+        Args:
+            q: The accepted quantile, in a type other than a positive `float`.
+            as_float: The same quantile as a Python float.
+
+        Test scenario:
+            The range test is inclusive at both ends and `-0.0 >= 0` holds, so none of
+            these may be refused.
+        """
+        expected = _container().reduce("time", "quantile", q=as_float).get_variable("v")
+        result = _container().reduce("time", "quantile", q=q).get_variable("v")
+        assert_array_equal(result.read_array(), expected.read_array())
+
+    def test_an_unknown_how_is_reported_before_q(self):
+        """`how="mode"` with a `q` names the unknown reducer, not the stray `q`."""
+        container = _container()
+        with pytest.raises(ValueError, match="how must be one of"):
+            container.reduce("time", "mode", q=0.5)
+
+    @pytest.mark.xfail(
+        strict=True,
+        raises=TypeError,
+        reason=(
+            "_check_quantile accepts any numbers.Real, but a fractions.Fraction then reaches "
+            "np.nanquantile as an object and fails with numpy's 'ufunc isnan not supported'"
+        ),
+    )
+    def test_a_fraction_q_answers_what_the_equal_float_answers(self):
+        """`q=Fraction(1, 2)` passes the check, so it must compute like `q=0.5`.
+
+        Test scenario:
+            A `Fraction` is a `numbers.Real` in `[0, 1]`, which is exactly what the check
+            admits; the operators already narrow such a scalar to `float` for the same
+            reason. It must either compute or be refused up front, not fail inside numpy.
+        """
+        expected = _container().reduce("time", "quantile", q=0.5).get_variable("v")
+        result = (
+            _container().reduce("time", "quantile", q=Fraction(1, 2)).get_variable("v")
+        )
+        assert_array_equal(result.read_array(), expected.read_array())
 
 
 class TestCount:
@@ -235,6 +437,54 @@ class TestCount:
         values[2, 2, 2] = np.nan
         result = _container(values).reduce("time", "count").get_variable("v")
         assert result.read_array()[2, 2] == NT - 1
+
+    @pytest.mark.parametrize(
+        ("dtype", "ndv"),
+        [
+            ("int16", -1),
+            ("int32", -1),
+            ("uint8", 255),
+            ("int16", None),
+            ("uint8", None),
+        ],
+        ids=["int16", "int32", "uint8", "int16-no-sentinel", "uint8-no-sentinel"],
+    )
+    def test_an_integer_band_counts_every_non_sentinel_cell(self, dtype, ndv):
+        """An integer band has no NaN, so only a declared sentinel is a gap.
+
+        Args:
+            dtype: The band's storage type.
+            ndv: The declared no-data value, or `None`.
+
+        Test scenario:
+            Without a sentinel every cell counts, zeros included: `NT` everywhere.
+        """
+        container, values = _integer_container(dtype, ndv)
+        valid = np.ones_like(values, dtype=bool) if ndv is None else values != ndv
+        expected = valid.sum(axis=0).astype(np.int64)
+        result = container.reduce("time", "count").get_variable("v")
+        assert_array_equal(result.read_array(), expected)
+        assert result.dtype[0] == "int64", f"expected int64, got {result.dtype[0]}"
+        assert result.no_data_value[0] is None, result.no_data_value
+
+    def test_a_nan_sentinel_is_not_mistaken_for_a_value(self):
+        """A float band declaring `NaN` as its sentinel still counts its NaN cells as gaps.
+
+        Test scenario:
+            `x != nan` is true for every `x`, NaN included, so the sentinel test alone would
+            count every cell; the NaN test is what excludes them.
+        """
+        masked = _masked()
+        container = NetCDF.from_array(
+            masked,
+            geo_ref=GEO,
+            variable_name="v",
+            no_data_value=np.nan,
+            dims=ExtraDimensions(name="time", values=TIMES),
+        )
+        expected = np.sum(~np.isnan(masked), axis=0).astype(np.int64)
+        result = container.reduce("time", "count").get_variable("v")
+        assert_array_equal(result.read_array(), expected)
 
 
 class TestAllAndAny:
@@ -279,6 +529,76 @@ class TestAllAndAny:
         result = _container(values).reduce("time", "all").get_variable("v")
         assert result.read_array()[ONCE_MASKED] == 1
 
+    def test_any_does_not_count_a_gap_as_true(self):
+        """An all-zero cell with one gap is not `any`; without `skipna` its sentinel is.
+
+        Test scenario:
+            The mirror of the `all` case above: the gap must be neutral for `any` too, and
+            neutral means false there. `-9999.0` is non-zero, so the raw test flips it.
+        """
+        values = np.zeros((NT, NY, NX))
+        values[1, ONCE_MASKED[0], ONCE_MASKED[1]] = NDV
+        skipped = _container(values).reduce("time", "any").get_variable("v")
+        raw = _container(values).reduce("time", "any", skipna=False).get_variable("v")
+        assert skipped.read_array()[ONCE_MASKED] == 0, skipped.read_array()
+        assert raw.read_array()[ONCE_MASKED] == 1, raw.read_array()
+
+    @pytest.mark.parametrize(
+        ("dtype", "ndv"),
+        [("int16", -1), ("int32", -1), ("uint8", 255)],
+        ids=["int16", "int32", "uint8"],
+    )
+    @pytest.mark.parametrize(
+        ("how", "func", "gap"),
+        [("all", np.all, True), ("any", np.any, False)],
+        ids=["all", "any"],
+    )
+    def test_an_integer_band_skips_its_sentinel(self, dtype, ndv, how, func, gap):
+        """`all` / `any` over an integer band: the sentinel is a gap, zeros are false.
+
+        Args:
+            dtype: The band's storage type.
+            ndv: The declared no-data value.
+            how: `"all"` or `"any"`.
+            func: The matching numpy function.
+            gap: What a gap counts as for `func`.
+        """
+        container, values = _integer_container(dtype, ndv)
+        valid = values != ndv
+        expected = func(np.where(valid, values != 0, gap), axis=0).astype(np.uint8)
+        result = container.reduce("time", how).get_variable("v")
+        assert_array_equal(result.read_array(), _with_gaps(expected, 255))
+        assert result.dtype[0] == "uint8", f"expected uint8, got {result.dtype[0]}"
+
+    def test_a_band_without_a_sentinel_has_no_empty_column(self):
+        """With nothing declared every cell is valid, so no column answers `255`."""
+        container, values = _integer_container("int16", None)
+        result = container.reduce("time", "all").get_variable("v")
+        expected = np.all(values != 0, axis=0).astype(np.uint8)
+        assert_array_equal(result.read_array(), expected)
+        assert result.no_data_value[0] == 255, result.no_data_value
+
+    def test_nan_is_a_gap_with_skipna_and_true_without(self):
+        """In a float band with no sentinel, NaN is skipped by `skipna` and truthy otherwise.
+
+        Test scenario:
+            Column `ALL_MASKED` is NaN at every step and cell `ONCE_MASKED` at one step,
+            over zeros. Skipping, the first has no valid cell (`255`) and the second is
+            false; not skipping, numpy's `nan != 0` makes both true.
+        """
+        values = np.zeros((NT, NY, NX))
+        values[:, ALL_MASKED[0], ALL_MASKED[1]] = np.nan
+        values[1, ONCE_MASKED[0], ONCE_MASKED[1]] = np.nan
+        container = _float_container_without_sentinel(values)
+        skipped = np.asarray(
+            container.reduce("time", "any").get_variable("v").read_array()
+        )
+        raw = np.asarray(
+            container.reduce("time", "any", skipna=False).get_variable("v").read_array()
+        )
+        assert (skipped[ALL_MASKED], skipped[ONCE_MASKED]) == (255, 0), skipped
+        assert (raw[ALL_MASKED], raw[ONCE_MASKED]) == (1, 1), raw
+
 
 class TestReduceOnAVariable:
     """A variable subset reduces to a variable subset, as a container reduces to one."""
@@ -322,6 +642,102 @@ class TestReduceOnAVariable:
         with pytest.raises(ValueError, match="time"):
             variable.reduce("level", "mean")
 
+    @pytest.mark.parametrize(
+        "receiver",
+        [
+            pytest.param(lambda c: c.get_variable("v"), id="get_variable"),
+            pytest.param(lambda c: c.get_variable("v").sel(time=[0.0, 6.0]), id="sel"),
+            pytest.param(lambda c: c.get_variable("v").isel(time=[1, 2, 3]), id="isel"),
+        ],
+    )
+    def test_the_result_keeps_the_variables_name(self, receiver):
+        """A variable, and a selection cut from it, reduce to a `Variable` named `v`.
+
+        Args:
+            receiver: Builds the variable to reduce from the container.
+        """
+        result = receiver(_container()).reduce("time", "count")
+        assert isinstance(result, Variable), type(result).__name__
+        assert result._source_var_name == "v", result._source_var_name
+
+    @pytest.mark.parametrize(
+        "apply",
+        [
+            pytest.param(lambda v: v * 2, id="mul"),
+            pytest.param(lambda v: 1 - v, id="rsub"),
+            pytest.param(lambda v: v > 0, id="gt"),
+            pytest.param(lambda v: v + v, id="add-variable"),
+        ],
+    )
+    def test_an_operator_result_comes_back_named_variable(self, apply):
+        """An operator result has no name of its own, so its reduction is named `variable`.
+
+        Args:
+            apply: The operator producing the unnamed variable.
+        """
+        unnamed = apply(_container(np.ones((NT, NY, NX))).get_variable("v"))
+        assert unnamed._source_var_name is None, unnamed._source_var_name
+        result = unnamed.reduce("time", "count")
+        assert isinstance(result, Variable), type(result).__name__
+        assert result._source_var_name == "variable", result._source_var_name
+        assert_array_equal(result.read_array(), np.full((NY, NX), NT))
+
+    def test_a_variable_without_band_dimensions_is_refused(self):
+        """A single-band `(y, x)` variable has nothing to reduce, and `reduce()` says so."""
+        flat = NetCDF.from_array(
+            np.ones((NY, NX)), geo_ref=GEO, variable_name="flat"
+        ).get_variable("flat")
+        with pytest.raises(ValueError, match=r"reduce\(\) requires a variable"):
+            flat.reduce("time", "mean")
+
+    def test_a_bad_dimension_is_reported_before_the_grouping(self):
+        """An unknown dimension with a frequency `groupby` names the dimension.
+
+        Test scenario:
+            The grouping is only worked out once the dimension is known to exist, so the
+            caller hears about `level` rather than about a time coordinate `level` lacks.
+        """
+        variable = _container().get_variable("v")
+        with pytest.raises(ValueError, match="does not match any band dimension"):
+            variable.reduce("level", "mean", groupby="1D")
+
+    def test_label_groups_on_a_variable_match_the_container(self):
+        """`groupby=[0, 0, 1, 1]` on a variable holds the container's cells and labels."""
+        container = _container()
+        expected = container.reduce("time", "sum", groupby=[0, 0, 1, 1]).get_variable(
+            "v"
+        )
+        result = container.get_variable("v").reduce("time", "sum", groupby=[0, 0, 1, 1])
+        assert_array_equal(result.read_array(), expected.read_array())
+        assert result._band_dim_values_map == expected._band_dim_values_map, (
+            result._band_dim_values_map
+        )
+
+    @pytest.mark.xfail(
+        strict=True,
+        raises=ValueError,
+        reason=(
+            "Selection.reduce resolves a frequency groupby with get_time_variable on the "
+            "variable subset, which has lost the root group's time units, so it reports "
+            "'no decodable time coordinate' where the container reduces"
+        ),
+    )
+    def test_a_frequency_groupby_on_a_variable_matches_the_container(self):
+        """`get_variable("t2m").reduce(..., groupby="1D")` equals the container's daily means.
+
+        Test scenario:
+            The ERA5 fixture's `valid_time` is a decodable CF time axis — the container
+            groups it into three days — and the documented contract is that a variable
+            reduces to the same cells its container's reduction holds.
+        """
+        container = NetCDF.read_file(str(ERA5_T2M))
+        with pytest.warns(UserWarning, match="span the reduced dimension"):
+            expected = container.reduce("valid_time", "mean", groupby="1D")
+        result = container.get_variable("t2m").reduce(
+            "valid_time", "mean", groupby="1D"
+        )
+        assert_allclose(result.read_array(), expected.get_variable("t2m").read_array())
+
 
 @requires_dask
 class TestTheChunkedPathAgrees:
@@ -352,3 +768,79 @@ class TestTheChunkedPathAgrees:
         on_disk = NetCDF.read_file(path).reduce("time", how, **kwargs).get_variable("v")
         in_memory = _container().reduce("time", how, **kwargs).get_variable("v")
         assert_allclose(on_disk.read_array(), in_memory.read_array())
+
+    @pytest.mark.parametrize("skipna", [True, False])
+    @pytest.mark.parametrize(
+        ("how", "kwargs"),
+        [
+            ("count", {}),
+            ("all", {}),
+            ("any", {}),
+            ("median", {}),
+            ("quantile", {"q": 0.5}),
+        ],
+        ids=["count", "all", "any", "median", "quantile"],
+    )
+    @pytest.mark.parametrize(
+        ("dtype", "ndv"), [("int16", -1), ("uint8", 255)], ids=["int16", "uint8"]
+    )
+    def test_an_integer_band_on_disk_equals_in_memory(
+        self, tmp_path, dtype, ndv, how, kwargs, skipna
+    ):
+        """An integer stack streams through dask and answers the in-memory cells and dtype.
+
+        Args:
+            tmp_path: pytest temp directory.
+            dtype: The band's storage type.
+            ndv: Its declared no-data value.
+            how: The reduction name.
+            kwargs: Extra arguments for `reduce`.
+            skipna: Whether gaps are skipped.
+
+        Test scenario:
+            The on-disk read is asserted to be a dask array first, so the comparison is
+            between the chunked path and the eager one rather than eager against eager.
+        """
+        container, _ = _integer_container(dtype, ndv)
+        path = str(tmp_path / "stack.nc")
+        container.to_file(path)
+        store = NetCDF.read_file(path)
+        lazy = NetCDF._materialize_variable_array(store.get_variable("v"), lazy=True)
+        assert hasattr(lazy, "dask"), (
+            f"expected a dask array, got {type(lazy).__name__}"
+        )
+        on_disk = store.reduce("time", how, skipna=skipna, **kwargs).get_variable("v")
+        in_memory = container.reduce("time", how, skipna=skipna, **kwargs).get_variable(
+            "v"
+        )
+        assert on_disk.dtype == in_memory.dtype, (on_disk.dtype, in_memory.dtype)
+        assert_allclose(on_disk.read_array(), in_memory.read_array())
+
+    def test_a_file_backed_variable_reduces_to_a_named_variable(self, tmp_path):
+        """`read_file(...).get_variable("v").reduce(...)` streams and keeps the name `v`.
+
+        Args:
+            tmp_path: pytest temp directory.
+        """
+        path = str(tmp_path / "stack.nc")
+        _container().to_file(path)
+        variable = NetCDF.read_file(path).get_variable("v")
+        result = variable.reduce("time", "quantile", q=0.25)
+        in_memory = _container().get_variable("v").reduce("time", "quantile", q=0.25)
+        assert isinstance(result, Variable), type(result).__name__
+        assert result._source_var_name == "v", result._source_var_name
+        assert_allclose(result.read_array(), in_memory.read_array())
+
+    def test_a_file_without_a_sentinel_keeps_nan_for_an_empty_column(self, tmp_path):
+        """A float stack declaring no no-data value reduces its all-NaN column to NaN.
+
+        Args:
+            tmp_path: pytest temp directory.
+        """
+        path = str(tmp_path / "stack.nc")
+        _float_container_without_sentinel(_masked()).to_file(path)
+        result = NetCDF.read_file(path).reduce("time", "sum").get_variable("v")
+        values = np.asarray(result.read_array())
+        assert result.no_data_value[0] is None, result.no_data_value
+        assert np.isnan(values[ALL_MASKED]), values[ALL_MASKED]
+        assert not np.isnan(values[ONCE_MASKED]), values[ONCE_MASKED]
