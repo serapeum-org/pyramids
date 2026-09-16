@@ -1437,15 +1437,6 @@ class TestTimeUnitsSurviveDerivation:
             result = call(container)
         assert result._band_dim_time_attrs == carried, result._band_dim_time_attrs
 
-    @pytest.mark.xfail(
-        strict=True,
-        raises=ValueError,
-        reason=(
-            "_resolve_group_positions decodes a container's stamps through get_time_variable, "
-            "which reads the rebuilt store's unit-less coordinate and never the "
-            "_band_dim_time_attrs the container carries"
-        ),
-    )
     def test_a_coarsened_container_groups_by_frequency_like_its_variable(self):
         """`coarsen(...).reduce(..., groupby="1D")` on the container holds its variable's daily means.
 
@@ -1465,6 +1456,15 @@ class TestTimeUnitsSurviveDerivation:
         variable = result.get_variable("t2m")
         assert variable.band_count == expected.band_count == 3, variable.band_count
         assert_allclose(variable.read_array(), expected.read_array())
+
+    def test_a_twice_grouped_container_groups_again(self):
+        """`reduce(groupby="12h")` then `reduce(groupby="1D")` on the container gives three days."""
+        container = NetCDF.read_file(str(ERA5_T2M))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            half_days = container.reduce("valid_time", "mean", groupby="12h")
+            days = half_days.reduce("valid_time", "mean", groupby="1D")
+        assert days.get_variable("t2m").band_count == 3
 
 
 class TestTimeAttrCandidates:

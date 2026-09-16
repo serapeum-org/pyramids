@@ -7307,8 +7307,10 @@ class NetCDF(Dataset):
         A frequency groups the steps of `dim` by calendar window, skipping empty windows. The
         stamps are decoded through `get_time_variable` when this object holds no coordinates of
         its own for `dim`, and through `_decode_time_labels` when it does, which finds the units
-        its store declares or those a derived result carries. A sequence of labels groups equal
-        labels, in first-appearance order.
+        its store declares or those a derived result carries. A container whose stored axis has
+        no units of its own — one rebuilt by `reduce` or `coarsen` — falls back to decoding its
+        dimension's values with the units it carries. A sequence of labels groups equal labels,
+        in first-appearance order.
 
         Args:
             dim: The band dimension being grouped.
@@ -7366,6 +7368,16 @@ class NetCDF(Dataset):
                 times = self.get_time_variable(
                     var_name=dim, time_format="%Y-%m-%d %H:%M:%S"
                 )
+                if times is None and not self._band_dim_names:
+                    # A container rebuilt by reduce/coarsen stores its axis without units
+                    # and carries them in `_band_dim_time_attrs` instead; decode the stored
+                    # stamps with those. Only a container: a variable's own stamps are the
+                    # ones that describe it, and it has none here.
+                    stored = self.get_dimension_values(dim)
+                    if stored is not None:
+                        times = self._decode_time_labels(
+                            dim, list(stored), "%Y-%m-%d %H:%M:%S", strict=False
+                        )
             else:
                 # A variable keeps its own (possibly selected) raw stamps but not the
                 # root group's units, so get_time_variable finds nothing on it; decode
