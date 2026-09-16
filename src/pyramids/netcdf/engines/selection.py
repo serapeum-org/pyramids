@@ -2104,11 +2104,29 @@ def _reduce_variable_subset(
         values_map,
     )
     variable = cast("NetCDF", container.get_variable(name))
-    # The rebuilt container has no store to read time units from, so carry the operand's.
+    # `from_array` numbers a dimension it is given no coordinates for, so a dimension this
+    # variable held unlabelled (an operator result's dropped stamps) would come back stamped
+    # 0..n-1 and `sel` would match positions as if they were stamps. Put the gap back.
+    unlabelled = [
+        dim_name for dim_name in band_names if values_map.get(dim_name) is None
+    ]
+    for dim_name in unlabelled:
+        variable._band_dim_values_map[dim_name] = None
+    if unlabelled:
+        variable._band_dim_name, variable._band_dim_values = (
+            variable._derive_primary_band_view(
+                variable._band_dim_names,
+                variable._band_dim_values_map,
+                variable._band_dim_sizes,
+                variable._band_count,
+            )
+        )
+    # The rebuilt container has no store to read time units from, so carry the operand's for
+    # the dimensions that kept their stamps.
     variable._band_dim_time_attrs = {
         dim_name: attrs
         for dim_name, attrs in nc._resolved_band_dim_time_attrs().items()
-        if dim_name in variable._band_dim_names
+        if dim_name in variable._band_dim_names and dim_name not in unlabelled
     }
     return variable
 

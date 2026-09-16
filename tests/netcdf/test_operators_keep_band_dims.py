@@ -913,14 +913,6 @@ class TestStepArithmeticOnOneVariable:
         with pytest.raises(ValueError, match="time"):
             result.sel(time=6.0)
 
-    @pytest.mark.xfail(
-        strict=True,
-        raises=AssertionError,
-        reason=(
-            "the reduce/coarsen rebuild hands a coordinate-less dimension to from_array, which "
-            "numbers it 0..n-1, so the unlabelled time axis comes back stamped [0, 1]"
-        ),
-    )
     @pytest.mark.parametrize(
         "collapse",
         [
