@@ -705,15 +705,6 @@ class TestReduceOnAVariable:
             result._band_dim_values_map
         )
 
-    @pytest.mark.xfail(
-        strict=True,
-        raises=ValueError,
-        reason=(
-            "Selection.reduce resolves a frequency groupby with get_time_variable on the "
-            "variable subset, which has lost the root group's time units, so it reports "
-            "'no decodable time coordinate' where the container reduces"
-        ),
-    )
     def test_a_frequency_groupby_on_a_variable_matches_the_container(self):
         """`get_variable("t2m").reduce(..., groupby="1D")` equals the container's daily means.
 
@@ -729,6 +720,36 @@ class TestReduceOnAVariable:
             "valid_time", "mean", groupby="1D"
         )
         assert_allclose(result.read_array(), expected.get_variable("t2m").read_array())
+
+    def test_a_frequency_groupby_on_a_selection_groups_its_own_stamps(self):
+        """A variable cut to its first eight steps groups those, not the store's full axis.
+
+        Test scenario:
+            ERA5's `valid_time` is twelve six-hourly steps over three days. The first eight
+            are two whole days, so the cut reduces to two daily bands whose means equal the
+            numpy means of steps 0-3 and 4-7; the parent's axis would give three.
+        """
+        variable = NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m")
+        steps = np.asarray(variable.read_array(), dtype=np.float64)
+        result = variable.isel(valid_time=slice(0, 8)).reduce(
+            "valid_time", "mean", groupby="1D"
+        )
+        assert result.band_count == 2, result.band_count
+        assert_allclose(
+            result.read_array(),
+            np.stack([steps[0:4].mean(axis=0), steps[4:8].mean(axis=0)]),
+        )
+
+    def test_a_frequency_groupby_on_an_operator_result_is_refused(self):
+        """An operator result has no store to read time units from, so it cannot be grouped.
+
+        Test scenario:
+            `var * 1.0` computes in memory and keeps the band labels but not the parent the
+            units live on; the refusal is the same one a container without a time axis gives.
+        """
+        variable = NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m") * 2.0
+        with pytest.raises(ValueError, match="no decodable time coordinate"):
+            variable.reduce("valid_time", "mean", groupby="1D")
 
 
 @requires_dask

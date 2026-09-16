@@ -7283,9 +7283,18 @@ class NetCDF(Dataset):
             # Full-resolution timestamps: the default "%Y-%m-%d" truncates to
             # whole days, which would collapse every sub-daily frequency
             # ("1H"/"3H"/"6H") into a single per-day bucket.
-            times = self.get_time_variable(
-                var_name=dim, time_format="%Y-%m-%d %H:%M:%S"
-            )
+            own_values = self._band_dim_values_map.get(dim)
+            if own_values is None:
+                times = self.get_time_variable(
+                    var_name=dim, time_format="%Y-%m-%d %H:%M:%S"
+                )
+            else:
+                # A variable keeps its own (possibly selected) raw stamps but not the
+                # root group's units, so get_time_variable finds nothing on it; decode
+                # the stamps it holds with the units its store declares instead.
+                times = self._decode_time_labels(
+                    dim, list(own_values), "%Y-%m-%d %H:%M:%S", strict=False
+                )
             if times is None:
                 raise ValueError(
                     f"Cannot group dimension {dim!r} by frequency {groupby!r}: "
