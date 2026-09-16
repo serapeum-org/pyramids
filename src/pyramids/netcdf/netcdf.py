@@ -103,6 +103,7 @@ from pyramids.netcdf.plot_options import CoordinateSpec, FacetSpec, Selectors
 from pyramids.netcdf.utils import (
     _read_attributes,
     create_time_conversion_func,
+    is_cf_time_units,
     read_cf_attributes,
 )
 
@@ -8657,8 +8658,9 @@ class NetCDF(Dataset):
         come the attributes carried alongside the band labels (`_band_dim_time_attrs`), on this
         object and then its parent: a result computed in memory — an operator result, a
         reduction, a coarsening — has no store of its own, and carries its operand's units that
-        way so its stamps still decode. Any `units` is yielded, time or not (`millibar` on a
-        pressure level); a caller finds out by decoding it.
+        way so its stamps still decode. Only CF time units (`<period> since <origin>`, as
+        `is_cf_time_units` decides) are yielded: a pressure level in `millibar` has units, but
+        they neither decode a stamp nor say whether two operands' levels are the same axis.
 
         Args:
             var_name: The dimension.
@@ -8671,7 +8673,7 @@ class NetCDF(Dataset):
             time_dim = (
                 None if owner is None else owner.meta_data.get_dimension(var_name)
             )
-            if time_dim is not None and time_dim.attrs.get("units") is not None:
+            if time_dim is not None and is_cf_time_units(time_dim.attrs.get("units")):
                 yield (
                     time_dim.attrs["units"],
                     time_dim.attrs.get("calendar", "standard"),
@@ -8682,7 +8684,7 @@ class NetCDF(Dataset):
                 if owner is None
                 else getattr(owner, "_band_dim_time_attrs", {}).get(var_name)
             )
-            if carried is not None:
+            if carried is not None and is_cf_time_units(carried[0]):
                 yield carried
 
     def _resolved_band_dim_time_attrs(self) -> dict[str, tuple[str, str]]:

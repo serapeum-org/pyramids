@@ -1076,21 +1076,30 @@ class TestTimeUnitsDecideAgreement:
     @pytest.mark.parametrize(
         ("left_units", "right_units"),
         [
-            pytest.param("gregorian", "days", id="neither-decodes"),
-            pytest.param("hours since 2000-01-01", "gregorian", id="right-fails"),
-            pytest.param("gregorian", "hours since 2000-01-01", id="left-fails"),
+            pytest.param(
+                "hours since not-a-date",
+                "furlongs since 2000-01-01",
+                id="neither-decodes",
+            ),
+            pytest.param(
+                "hours since 2000-01-01", "hours since not-a-date", id="right-fails"
+            ),
+            pytest.param(
+                "hours since not-a-date", "hours since 2000-01-01", id="left-fails"
+            ),
         ],
     )
     def test_units_that_do_not_decode_disagree(self, left_units, right_units):
-        """Differing units that one or both sides cannot parse drop `time`, though the raw stamps match.
+        """Differing time units that one or both sides cannot decode drop `time`, raw stamps equal.
 
         Args:
-            left_units: The left operand's `time` units.
+            left_units: The left operand's `time` units, shaped `<period> since <origin>`.
             right_units: The right operand's.
 
         Test scenario:
-            The units differ, so the instants decide. A side that cannot be decoded names no
-            instant, and two sides that both name none must not count as agreeing.
+            Both are CF time units by shape, and they differ, so the instants decide. A side
+            that cannot be decoded names no instant, and two sides that both name none must
+            not count as agreeing.
         """
         left = self._with_units(
             [("time", TIMES), ("pressure_level", LEVELS)], left_units
@@ -1100,6 +1109,15 @@ class TestTimeUnitsDecideAgreement:
         )
         disagreeing = NetCDF._disagreeing_coordinates(left, right)
         assert disagreeing == ["time"], disagreeing
+
+    def test_units_that_are_not_time_units_compare_the_raw_stamps(self):
+        """`gregorian` against `days` are not `<period> since <origin>`, so the numbers decide."""
+        left = self._with_units(
+            [("time", TIMES), ("pressure_level", LEVELS)], "gregorian"
+        )
+        right = self._with_units([("time", TIMES), ("pressure_level", LEVELS)], "days")
+        disagreeing = NetCDF._disagreeing_coordinates(left, right)
+        assert disagreeing == [], disagreeing
 
     def test_a_stamp_that_does_not_decode_disagrees(self):
         """A NaN stamp at one position, in hours on one side and days on the other, drops `time`.
