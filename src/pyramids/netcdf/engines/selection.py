@@ -1545,8 +1545,10 @@ class Selection(_Engine["NetCDF"]):
         along `dim` are each reduced to one step, so a 24-step hourly axis coarsened by 6
         becomes 4 steps. Each output step is labelled with the **mean** of the coordinate
         values its window holds, as xarray's `coarsen(...).<how>()` labels it — where
-        `reduce(groupby=...)` labels a window with its first member. A dimension without
-        coordinate values comes back indexed `0, 1, ...`. One whose values are not all
+        `reduce(groupby=...)` labels a window with its first member. On a variable, a
+        dimension without coordinate values stays without them. A container's store numbers
+        such a dimension `0, 1, ...`, so its windows are labelled with the mean of those
+        positions (`0.5, 2.5` for a window of 2). A dimension whose values are not all
         numbers labels each window with its first member instead, but a text label (a time
         stamp string, say) cannot be stored, so coarsening such a dimension raises
         `ValueError`.
