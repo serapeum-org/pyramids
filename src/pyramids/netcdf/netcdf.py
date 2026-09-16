@@ -59,7 +59,6 @@ from pyramids.dataset.engines.io import _caller_stacklevel
 from pyramids.dataset.transform import GeoTransform
 from pyramids.netcdf._axis import detect_axis_indices
 from pyramids.netcdf._kerchunk_facade import combine_kerchunk, to_kerchunk
-from pyramids.netcdf._label_select import summarise_values
 from pyramids.netcdf._lazy import apply_unpack, build_lazy_array
 from pyramids.netcdf._mdim import (
     GEOSTATIONARY_PROJECTION,
@@ -10694,12 +10693,18 @@ class NetCDF(Dataset):
         too; `==` and `!=` stay Python's identity comparison and never get here.
 
         The labels come from this variable when it has them, and from `other` when only it
-        does. When both do, they must describe the same planes: two variables whose names,
-        sizes or coordinate values differ are refused rather than having the right
-        operand's planes silently relabelled with the left operand's stamps. A
-        coordinate-less dimension on either side is not compared, since there is nothing
-        to disagree with. The check runs before `Dataset.combine` is called, and only when
-        `band` is `None` and the two band counts agree.
+        does. When both do, their dimension names and sizes must match, or the planes do not
+        pair up and the call is refused. Their coordinate values may differ: two cuts of one
+        variable at different steps (`sel(time=6.0) - sel(time=0.0)`, a tendency
+        `isel(time=slice(1, None)) - isel(time=slice(None, -1))`) combine, and a dimension
+        whose coordinates disagree keeps its name and length but comes back without
+        coordinates, since neither operand's stamps describe the result. `isel` still reaches
+        it; `sel` by value on that dimension has nothing to match. Where both operands carry CF
+        time units and the units differ, stamps agree when they name the same instants — hours
+        `[0, 6]` and days `[0, 0.25]` since the same origin are one axis — and otherwise the
+        raw values are compared. A coordinate-less dimension on either side is not compared.
+        The check runs before `Dataset.combine` is called, and only when `band` is `None` and
+        the two grids and band counts agree.
 
         Args:
             other: The second operand, on this variable's grid.
@@ -10718,10 +10723,9 @@ class NetCDF(Dataset):
 
         Raises:
             ValueError: `band` is `None`, both operands carry band dimensions, their grids
-                and band counts agree, and they disagree in their names, their sizes, or
-                the coordinate values of a dimension both label. Operands whose band counts
-                differ skip the check and are refused by `Dataset.combine` with its own
-                message.
+                and band counts agree, and their dimension names or sizes differ. Differing
+                coordinate values are not refused. Operands whose band counts differ skip the
+                check and are refused by `Dataset.combine` with its own message.
             AlignmentError: The operands do not share a grid, raised by `Dataset.combine`.
                 A grid mismatch is reported as this whether or not the band layouts also
                 disagree, since the layouts are only compared on a shared grid.
@@ -10746,21 +10750,39 @@ class NetCDF(Dataset):
               3
 
               ```
-            - Operands labelled with different time stamps are refused:
+            - Two steps of one variable subtract, and `time` comes back without coordinates:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.arange(4.0).reshape(2, 2, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(dims=[("time", [0.0, 6.0]), ("level", [1, 2])]),
+              ... ).get_variable("t")
+              >>> change = var.sel(time=6.0) - var.sel(time=0.0)
+              >>> change._band_dim_values_map
+              {'time': None, 'level': [1, 2]}
+              >>> change.read_array().ravel().tolist()
+              [2.0, 2.0]
+
+              ```
+            - Operands whose dimension names differ are refused:
 
               ```python
               >>> import numpy as np
               >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
               >>> geo = GeoReference(geo=(0.0, 1.0, 0.0, 4.0, 0.0, -1.0), epsg=4326)
-              >>> early = NetCDF.from_array(
+              >>> by_time = NetCDF.from_array(
               ...     np.ones((2, 4, 5)), geo_ref=geo, variable_name="t",
               ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
               ... ).get_variable("t")
-              >>> late = NetCDF.from_array(
+              >>> by_step = NetCDF.from_array(
               ...     np.ones((2, 4, 5)), geo_ref=geo, variable_name="t",
-              ...     dims=ExtraDimensions(name="time", values=[12.0, 18.0]),
+              ...     dims=ExtraDimensions(name="step", values=[0.0, 6.0]),
               ... ).get_variable("t")
-              >>> early.combine(late, np.add)  # doctest: +IGNORE_EXCEPTION_DETAIL
+              >>> by_time.combine(by_step, np.add)  # doctest: +IGNORE_EXCEPTION_DETAIL
               Traceback (most recent call last):
                 ...
               ValueError: the operands' band dimensions do not line up
@@ -10769,8 +10791,10 @@ class NetCDF(Dataset):
         """
         return super().combine(other, func, band=band, no_data_value=no_data_value)
 
-    def _combine_layout_source(self, other: Any, band: int | None) -> NetCDF | None:
-        """Check the operands' band layouts for `Analysis._combine` and name the one to copy.
+    def _combine_layout_source(
+        self, other: Any, band: int | None
+    ) -> tuple[NetCDF | None, list[str]]:
+        """Check the operands' band layouts for `Analysis._combine` and name what to copy.
 
         Every route to a combined raster ends in `Analysis._combine` — the `combine` facade,
         `analysis.combine` called directly, and every operator through `combine` or `_fold` — so
@@ -10781,42 +10805,68 @@ class NetCDF(Dataset):
             band: The single band being combined, or `None` for all of them.
 
         Returns:
-            NetCDF | None: The operand whose layout describes the result, or `None` when a single
-            band is combined, since one band cannot carry a multi-band layout.
+            tuple[NetCDF | None, list[str]]: The operand whose layout describes the result and
+            the dimensions whose coordinates the operands disagree on; `(None, [])` when a
+            single band is combined, since one band cannot carry a multi-band layout.
 
         Raises:
             ValueError: As `_band_layout_source` raises.
         """
-        return None if band is not None else self._band_layout_source(other)
+        return (None, []) if band is not None else self._band_layout_source(other)
 
     def _label_combined(self, result: Any, source: Any) -> None:
-        """Copy `source`'s band layout onto the raster `Analysis._combine` built.
+        """Copy the band layout onto the raster `Analysis._combine` built.
+
+        Dimensions the operands disagree on keep their name and length and lose their
+        coordinates (and any CF time units), since neither operand's stamps describe the result.
 
         Args:
             result: The combined raster.
-            source: What `_combine_layout_source` returned.
+            source: What `_combine_layout_source` returned: the source operand and the
+                disagreeing dimensions.
         """
-        NetCDF._label_result_bands(result, source)
+        layout_source, disagreeing = source
+        NetCDF._label_result_bands(result, layout_source)
+        labelled = (
+            disagreeing
+            and isinstance(result, NetCDF)
+            and tuple(result._band_dim_names) == tuple(layout_source._band_dim_names)
+        )
+        if labelled:
+            for name in disagreeing:
+                result._band_dim_values_map[name] = None
+                result._band_dim_time_attrs.pop(name, None)
+            result._band_dim_name, result._band_dim_values = (
+                NetCDF._derive_primary_band_view(
+                    result._band_dim_names,
+                    result._band_dim_values_map,
+                    result._band_dim_sizes,
+                    result._band_count,
+                )
+            )
 
-    def _band_layout_source(self, other: Any) -> NetCDF | None:
-        """The operand whose band dimensions describe a combined result, once they agree.
+    def _band_layout_source(self, other: Any) -> tuple[NetCDF | None, list[str]]:
+        """The operand whose band dimensions describe a combined result, and where they disagree.
 
         Args:
             other: The second operand of `combine`, any raster; only a `NetCDF` carries
                 band dimensions.
 
         Returns:
-            NetCDF | None: This variable when it carries band dimensions, else `other`
-            when it is a `NetCDF` that does, else `None`.
+            tuple[NetCDF | None, list[str]]: This variable when it carries band dimensions, else
+            `other` when it is a `NetCDF` that does, else `None`; and the dimensions whose
+            coordinate values the two operands disagree on (empty unless both carry band
+            dimensions on a shared grid with the same band count).
 
         Raises:
             ValueError: Both operands carry band dimensions, share a grid and a band count,
-                and their layouts do not agree. With differing grids or band counts the
-                check is skipped, so `Dataset.combine` reports that more basic mismatch
+                and their dimension names or sizes differ. With differing grids or band counts
+                the check is skipped, so `Dataset.combine` reports that more basic mismatch
                 with its own error.
         """
         theirs = other if isinstance(other, NetCDF) and other._band_dim_names else None
         mine = self if self._band_dim_names else None
+        disagreeing: list[str] = []
         if (
             mine is not None
             and theirs is not None
@@ -10830,20 +10880,23 @@ class NetCDF(Dataset):
                     f"Select or rearrange one operand so both describe the same planes "
                     f"before combining them."
                 )
-        return mine if mine is not None else theirs
+            disagreeing = NetCDF._disagreeing_coordinates(self, other)
+        return (mine if mine is not None else theirs), disagreeing
 
     @staticmethod
     def _band_layout_difference(left: NetCDF, right: NetCDF) -> str | None:
-        """Describe the first way two operands' band layouts disagree.
+        """Describe how two operands' band dimension names or sizes disagree.
+
+        Coordinate values are not compared here: operands that differ only in them still pair
+        plane for plane, and `_disagreeing_coordinates` decides which dimensions lose them.
 
         Args:
             left: The left operand.
             right: The right operand.
 
         Returns:
-            str | None: A phrase naming the first mismatch, checked in this order — the
-            names, the sizes, then each dimension's coordinate values — or `None` when the
-            layouts agree. A dimension without coordinates on either side is not compared.
+            str | None: A phrase naming the mismatch — the names first, then the sizes — or
+            `None` when both agree.
         """
         left_names, right_names = (
             tuple(left._band_dim_names),
@@ -10861,30 +10914,48 @@ class NetCDF(Dataset):
                 f"sizes {dict(zip(left_names, left_sizes))} against "
                 f"{dict(zip(right_names, right_sizes))}"
             )
-        else:
-            for name in left_names:
-                left_values = left._band_dim_values_map.get(name)
-                right_values = right._band_dim_values_map.get(name)
-                if (
-                    left_values is not None
-                    and right_values is not None
-                    and not _same_coordinates(left_values, right_values)
-                ):
-                    position = next(
-                        index
-                        for index, (left_value, right_value) in enumerate(
-                            zip(left_values, right_values)
-                        )
-                        if not _same_value(left_value, right_value)
-                    )
-                    difference = (
-                        f"the coordinates of {name!r} first differ at position "
-                        f"{position}: {left_values[position]!r} against "
-                        f"{right_values[position]!r} ({summarise_values(list(left_values))} "
-                        f"against {summarise_values(list(right_values))})"
-                    )
-                    break
         return difference
+
+    @staticmethod
+    def _disagreeing_coordinates(left: NetCDF, right: NetCDF) -> list[str]:
+        """The band dimensions whose coordinate values name different steps on the two operands.
+
+        Expects the two layouts to agree in names and sizes. A dimension without coordinates on
+        either side is skipped. When both operands carry CF time units for a dimension and the
+        units differ, its stamps are compared as decoded instants — hours `[0, 6]` and days
+        `[0, 0.25]` since one origin agree, the same raw hours since two origins do not; a stamp
+        that will not decode counts as a disagreement. Otherwise the raw values are compared
+        with `_same_coordinates`.
+
+        Args:
+            left: The left operand.
+            right: The right operand.
+
+        Returns:
+            list[str]: The disagreeing dimensions, in the operands' order.
+        """
+        disagreeing: list[str] = []
+        for name in left._band_dim_names:
+            left_values = left._band_dim_values_map.get(name)
+            right_values = right._band_dim_values_map.get(name)
+            if left_values is None or right_values is None:
+                continue
+            left_units = next(iter(left._time_attr_candidates(name)), None)
+            right_units = next(iter(right._time_attr_candidates(name)), None)
+            if left_units is None or right_units is None or left_units == right_units:
+                agree = _same_coordinates(left_values, right_values)
+            else:
+                instant = "%Y-%m-%d %H:%M:%S"
+                left_labels = left._decode_time_labels(
+                    name, list(left_values), instant, strict=False
+                )
+                right_labels = right._decode_time_labels(
+                    name, list(right_values), instant, strict=False
+                )
+                agree = left_labels is not None and left_labels == right_labels
+            if not agree:
+                disagreeing.append(name)
+        return disagreeing
 
     @staticmethod
     def _label_result_bands(result: Any, source: NetCDF | None) -> None:

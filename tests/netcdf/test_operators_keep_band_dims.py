@@ -316,32 +316,32 @@ class TestTwoVariablesMustAgreeOnTheirDimensions:
             apply(left, right)
 
     @pytest.mark.parametrize("apply", BINARY_OPERATORS)
-    def test_different_coordinates_refuse(self, apply):
-        """The same names and sizes over different time stamps raises.
+    def test_different_coordinates_drop_that_dimension_s_coordinates(self, apply):
+        """The same names and sizes over different time stamps combine, with `time` unlabelled.
 
         Args:
             apply: The binary operator under test.
 
         Test scenario:
-            Keeping the left operand's stamps would label hour-24 data as hour 0.
+            Keeping either operand's stamps would label one operand's hour-24 planes as hour 0
+            or the reverse, so the result keeps the `time` dimension and its length and drops
+            its coordinates. `pressure_level` agrees and keeps its own.
         """
         left = _variable([("time", TIMES), ("pressure_level", LEVELS)])
         right = _variable(
             [("time", [24.0, 30.0, 36.0, 42.0]), ("pressure_level", LEVELS)]
         )
-        with pytest.raises(ValueError, match="'time'") as error:
-            apply(left, right)
-        assert "24.0" in str(error.value), str(error.value)
+        result = apply(left, right)
+        assert tuple(result._band_dim_names) == ("time", "pressure_level")
+        assert tuple(result._band_dim_sizes) == (NT, NL)
+        assert result._band_dim_values_map == {
+            "time": None,
+            "pressure_level": LEVELS,
+        }, result._band_dim_values_map
 
-    def test_a_long_mismatch_is_summarised_at_its_first_difference(self):
-        """Two 2000-step axes differing only at the end give a short message naming position 1999.
-
-        Test scenario:
-            Printing both coordinate lists in full made a 30,000-character exception out of a
-            one-stamp difference; the message names where they first differ instead.
-        """
+    def test_a_long_disagreement_combines_without_building_a_message(self):
+        """Two 2000-step axes differing only at the end combine, with `time` unlabelled."""
         stamps = [float(step) for step in range(2000)]
-        shifted = stamps[:-1] + [5000.0]
         left = NetCDF.from_array(
             np.ones((2000, 1, 1)),
             geo_ref=GeoReference(geo=GEO, epsg=4326),
@@ -352,13 +352,11 @@ class TestTwoVariablesMustAgreeOnTheirDimensions:
             np.ones((2000, 1, 1)),
             geo_ref=GeoReference(geo=GEO, epsg=4326),
             variable_name="t",
-            dims=ExtraDimensions(name="time", values=shifted),
+            dims=ExtraDimensions(name="time", values=stamps[:-1] + [5000.0]),
         ).get_variable("t")
-        with pytest.raises(ValueError, match="band dimensions") as error:
-            _ = left + right
-        message = str(error.value)
-        assert len(message) < 600, len(message)
-        assert "1999" in message and "5000.0" in message, message
+        result = left + right
+        assert result._band_dim_values_map["time"] is None, result._band_dim_values_map
+        assert result.band_count == 2000
 
     def test_identical_layouts_combine(self):
         """Two variables with the same names, sizes and coordinates add cell by cell."""
@@ -524,17 +522,16 @@ class TestHowTheLayoutsAreCompared:
             f"got {result._band_dim_values_map['time']}"
         )
 
-    def test_the_first_disagreeing_dimension_is_the_one_reported(self):
-        """Both dimensions differ; the message names `time` and not `pressure_level`."""
+    def test_every_disagreeing_dimension_loses_its_coordinates(self):
+        """When `time` and `pressure_level` both disagree, both come back without coordinates."""
         left = _variable([("time", TIMES), ("pressure_level", LEVELS)])
         right = _variable(
             [("time", [24.0, 30.0, 36.0, 42.0]), ("pressure_level", [1.0, 2.0, 3.0])]
         )
-        with pytest.raises(ValueError, match="band dimensions") as error:
-            _ = left + right
-        message = str(error.value)
-        assert "'time'" in message, message
-        assert "pressure_level" not in message, message
+        result = left + right
+        assert result._band_dim_values_map == {"time": None, "pressure_level": None}, (
+            result._band_dim_values_map
+        )
 
     def test_the_sizes_message_names_both_layouts(self):
         """A size mismatch spells out each operand's `{name: size}` map."""
@@ -616,13 +613,13 @@ class TestHowTheLayoutsAreCompared:
             apply(left, shifted)
 
     def test_a_nan_coordinate_still_disagrees_with_a_real_stamp(self):
-        """A `nan` stamp against a real one at the same position is still a mismatch."""
+        """A `nan` stamp against a real one at the same position drops `time`'s coordinates."""
         left = _variable(
             [("time", [0.0, np.nan, 12.0, 18.0]), ("pressure_level", LEVELS)]
         )
         right = _variable([("time", TIMES), ("pressure_level", LEVELS)])
-        with pytest.raises(ValueError, match="'time'"):
-            _ = left + right
+        result = left + right
+        assert result._band_dim_values_map["time"] is None, result._band_dim_values_map
 
     def test_text_coordinates_compare_by_value(self):
         """Equal text stamps agree and different ones are reported, without numpy raising.
@@ -638,9 +635,8 @@ class TestHowTheLayoutsAreCompared:
         left._band_dim_values_map["time"] = list(stamps)
         same._band_dim_values_map["time"] = list(stamps)
         other._band_dim_values_map["time"] = ["00:00", "06:00", "12:00", "19:00"]
-        assert NetCDF._band_layout_difference(left, same) is None
-        difference = NetCDF._band_layout_difference(left, other)
-        assert difference is not None and "19:00" in difference, difference
+        assert NetCDF._disagreeing_coordinates(left, same) == []
+        assert NetCDF._disagreeing_coordinates(left, other) == ["time"]
 
 
 class TestLabelResultBands:
@@ -835,3 +831,105 @@ class TestEveryRouteToCombineSharesTheLayout:
         right = _variable([("step", [0, 1, 2, 3]), ("pressure_level", LEVELS)])
         with pytest.raises(ValueError, match="band dimensions"):
             left.analysis.combine(right, np.add)
+
+
+class TestStepArithmeticOnOneVariable:
+    """Two cuts of one variable at different steps combine, with the cut dimension unlabelled."""
+
+    def test_the_change_between_two_steps(self, cube):
+        """`sel(time=6.0) - sel(time=0.0)` is the plane difference, `time` of length 1 unlabelled.
+
+        Test scenario:
+            The two cuts are stamped 6 and 0, so neither stamp describes their difference; `main`
+            computed it with no labels at all, and the result now keeps `pressure_level`.
+        """
+        planes = np.asarray(cube.read_array(), dtype=np.float64).reshape(NT, NL, NY, NX)
+        result = cube.sel(time=6.0) - cube.sel(time=0.0)
+        assert tuple(result._band_dim_sizes) == (1, NL)
+        assert result._band_dim_values_map == {"time": None, "pressure_level": LEVELS}
+        assert_array_equal(result.read_array(), planes[1] - planes[0])
+
+    def test_a_tendency_between_consecutive_steps(self, cube):
+        """`isel(time=slice(1, None)) - isel(time=slice(None, -1))` is each step's change."""
+        planes = np.asarray(cube.read_array(), dtype=np.float64).reshape(NT, NL, NY, NX)
+        result = cube.isel(time=slice(1, None)) - cube.isel(time=slice(None, -1))
+        assert tuple(result._band_dim_sizes) == (NT - 1, NL)
+        assert result._band_dim_values_map["time"] is None
+        expected = (planes[1:] - planes[:-1]).reshape((NT - 1) * NL, NY, NX)
+        assert_array_equal(result.read_array(), expected)
+
+    def test_a_comparison_between_two_steps(self, cube):
+        """`sel(time=6.0) > sel(time=0.0)` is a 0/1 band per level, `time` unlabelled."""
+        planes = np.asarray(cube.read_array(), dtype=np.float64).reshape(NT, NL, NY, NX)
+        result = cube.sel(time=6.0) > cube.sel(time=0.0)
+        assert result._band_dim_values_map["time"] is None
+        assert_array_equal(
+            result.read_array(), (planes[1] > planes[0]).astype(np.uint8)
+        )
+
+    def test_the_unlabelled_dimension_still_selects_by_position(self, cube):
+        """`isel` reaches the result's planes; `sel` by value has no coordinates to match."""
+        result = cube.sel(time=6.0) - cube.sel(time=0.0)
+        assert result.isel(pressure_level=[0, 2]).band_count == 2
+        with pytest.raises(ValueError, match="time"):
+            result.sel(time=6.0)
+
+
+class TestTimeUnitsDecideAgreement:
+    """With CF units on both sides, stamps agree when they name the same instants."""
+
+    @staticmethod
+    def _with_units(dims: list[tuple[str, list]], units: str) -> NetCDF:
+        """A variable whose `time` stamps are read in `units`.
+
+        Args:
+            dims: The band dimensions, as `_variable` takes them.
+            units: The CF units string for `time`.
+
+        Returns:
+            NetCDF: The variable, carrying `units` for its `time` dimension.
+        """
+        variable = _variable(dims)
+        variable._band_dim_time_attrs = {"time": (units, "standard")}
+        return variable
+
+    def test_equal_raw_stamps_in_different_units_disagree(self):
+        """`[0, 6, 12, 18]` hours since 2000 and since 2001 are different instants."""
+        left = self._with_units(
+            [("time", TIMES), ("pressure_level", LEVELS)], "hours since 2000-01-01"
+        )
+        right = self._with_units(
+            [("time", TIMES), ("pressure_level", LEVELS)], "hours since 2001-01-01"
+        )
+        result = left + right
+        assert result._band_dim_values_map["time"] is None, result._band_dim_values_map
+
+    def test_the_same_instants_in_different_units_agree(self):
+        """Hours `[0, 6, 12, 18]` and days `[0, 0.25, 0.5, 0.75]` since 2000 are one axis.
+
+        Test scenario:
+            The raw numbers differ but the instants do not, so the result keeps the left
+            operand's stamps and units.
+        """
+        left = self._with_units(
+            [("time", TIMES), ("pressure_level", LEVELS)], "hours since 2000-01-01"
+        )
+        right = self._with_units(
+            [("time", [0.0, 0.25, 0.5, 0.75]), ("pressure_level", LEVELS)],
+            "days since 2000-01-01",
+        )
+        result = left + right
+        assert result._band_dim_values_map["time"] == TIMES, result._band_dim_values_map
+        assert result._band_dim_time_attrs["time"] == (
+            "hours since 2000-01-01",
+            "standard",
+        )
+
+    def test_units_on_one_side_only_compare_the_raw_stamps(self):
+        """Without units on both sides the stamps cannot be decoded, so the numbers decide."""
+        left = self._with_units(
+            [("time", TIMES), ("pressure_level", LEVELS)], "hours since 2000-01-01"
+        )
+        right = _variable([("time", TIMES), ("pressure_level", LEVELS)])
+        result = left + right
+        assert result._band_dim_values_map["time"] == TIMES, result._band_dim_values_map
