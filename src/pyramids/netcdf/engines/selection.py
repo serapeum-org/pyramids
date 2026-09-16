@@ -1512,7 +1512,7 @@ class Selection(_Engine["NetCDF"]):
 
         nc = self._ds
         _check_how(how, {*_REDUCERS, *_COUNTING_REDUCERS})
-        _check_quantile(how, q)
+        q = _check_quantile(how, q)
         groups = lambda: nc._resolve_group_positions(dim, groupby)  # noqa: E731
         if isinstance(nc, Variable):
             result = _reduce_variable_subset(
@@ -1656,7 +1656,7 @@ class Selection(_Engine["NetCDF"]):
 
         nc = self._ds
         _check_how(how, {*_REDUCERS, *_COUNTING_REDUCERS})
-        _check_quantile(how, q)
+        q = _check_quantile(how, q)
         length = _check_window(window)
         if boundary not in _BOUNDARIES:
             raise ValueError(
@@ -1876,15 +1876,22 @@ def _window_coordinates(
     return labels
 
 
-def _check_quantile(how: str, q: Any) -> None:
+def _check_quantile(how: str, q: Any) -> float | None:
     """Refuse a `q` that is missing for `"quantile"` or given to any other reducer.
 
     NaN fails the range test by itself — every comparison with it is false — so it needs no
     case of its own; `bool` is refused by name because `True` is a `Real` equal to 1.
 
+    An accepted `q` is handed back as a plain `float`. Any `numbers.Real` passes the check,
+    and numpy types some of them — `fractions.Fraction(1, 2)` — as `object`, which its
+    quantile functions cannot take; the operators narrow such a scalar the same way.
+
     Args:
         how: The requested reduction.
         q: The quantile argument as passed.
+
+    Returns:
+        float | None: `q` as a `float` for `"quantile"`, `None` for every other `how`.
 
     Raises:
         ValueError: `how` is `"quantile"` and `q` is not one real number in `[0, 1]`, or
@@ -1900,10 +1907,14 @@ def _check_quantile(how: str, q: Any) -> None:
             raise ValueError(
                 f"how='quantile' needs q= set to one number in [0, 1], got {q!r}."
             )
+        checked = float(q)
     elif q is not None:
         raise ValueError(
             f"q= is only meaningful with how='quantile', got how={how!r} and q={q!r}."
         )
+    else:
+        checked = None
+    return checked
 
 
 def _reduced_array(

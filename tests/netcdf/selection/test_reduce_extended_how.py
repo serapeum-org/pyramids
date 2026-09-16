@@ -386,14 +386,6 @@ class TestQuantile:
         with pytest.raises(ValueError, match="how must be one of"):
             container.reduce("time", "mode", q=0.5)
 
-    @pytest.mark.xfail(
-        strict=True,
-        raises=TypeError,
-        reason=(
-            "_check_quantile accepts any numbers.Real, but a fractions.Fraction then reaches "
-            "np.nanquantile as an object and fails with numpy's 'ufunc isnan not supported'"
-        ),
-    )
     def test_a_fraction_q_answers_what_the_equal_float_answers(self):
         """`q=Fraction(1, 2)` passes the check, so it must compute like `q=0.5`.
 
