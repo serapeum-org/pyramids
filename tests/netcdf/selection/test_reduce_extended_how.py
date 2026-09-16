@@ -836,3 +836,38 @@ class TestTheChunkedPathAgrees:
         assert result.no_data_value[0] is None, result.no_data_value
         assert np.isnan(values[ALL_MASKED]), values[ALL_MASKED]
         assert not np.isnan(values[ONCE_MASKED]), values[ONCE_MASKED]
+
+
+class TestReduceOnASelection:
+    """A `sel`/`isel` cut of a file-backed variable reduces the steps it holds, not its source's."""
+
+    def test_a_tail_cut_reduces_only_its_steps(self):
+        """The mean of steps 4-11 of ERA5 `t2m`, not of all twelve.
+
+        Test scenario:
+            A cut holds its bands in memory, but its parent is a file, so the streamed read
+            would reopen the file and reduce the whole variable — silently, with the right
+            shape. The expectation is numpy on an eager read of the same steps.
+        """
+        variable = NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m")
+        steps = np.asarray(variable.read_array(), dtype=np.float64)
+        result = variable.isel(valid_time=slice(4, 12)).reduce("valid_time", "mean")
+        assert_allclose(result.read_array(), steps[4:12].mean(axis=0))
+
+    def test_a_reversed_cut_is_grouped_in_its_own_order(self):
+        """A reversed cut has the source's length, so only its order shows it is not the source."""
+        variable = NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m")
+        steps = np.asarray(variable.read_array(), dtype=np.float64)[::-1]
+        result = variable.isel(valid_time=slice(None, None, -1)).reduce(
+            "valid_time", "sum", groupby=[0] * 4 + [1] * 8
+        )
+        expected = np.stack([steps[0:4].sum(axis=0), steps[4:12].sum(axis=0)])
+        assert_allclose(result.read_array(), expected)
+
+    def test_a_sel_of_three_stamps_counts_three(self):
+        """`count` over a three-stamp `sel` answers three wherever the steps have data."""
+        variable = NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m")
+        steps = np.asarray(variable.read_array(), dtype=np.float64)
+        stamps = variable._band_dim_values_map["valid_time"][:3]
+        result = variable.sel(valid_time=stamps).reduce("valid_time", "count")
+        assert_array_equal(result.read_array(), np.sum(~np.isnan(steps[:3]), axis=0))

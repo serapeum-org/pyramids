@@ -860,3 +860,20 @@ class TestTheChunkedPathAgrees:
         assert result._band_dim_values_map["time"] == [6.0, 18.0], (
             result._band_dim_values_map
         )
+
+
+class TestCoarsenOnASelection:
+    """A cut of a file-backed variable coarsens the steps it holds, not its source's."""
+
+    def test_a_tail_cut_coarsens_its_own_steps(self):
+        """Windows of four over steps 4-11 average those steps, not steps 0-7.
+
+        Test scenario:
+            Trimming a whole-variable read back to the cut's length would keep the source's
+            first eight steps, which is right only for a cut that starts at step 0.
+        """
+        variable = NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m")
+        steps = np.asarray(variable.read_array(), dtype=np.float64)
+        result = variable.isel(valid_time=slice(4, 12)).coarsen("valid_time", 4)
+        expected = np.stack([steps[4:8].mean(axis=0), steps[8:12].mean(axis=0)])
+        assert_allclose(result.read_array(), expected)

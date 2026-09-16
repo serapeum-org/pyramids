@@ -7224,8 +7224,16 @@ class NetCDF(Dataset):
         Because the streamed reduce tree-reduces per chunk via dask while the eager path reduces in a
         single pass, a file-backed `mean`/`sum`/`std`/`var` can differ from the same in-memory reduce
         in the last ULPs (floating-point non-associativity) — equal to `np.allclose`, not bit-for-bit.
+
+        A `sel` / `isel` result is never streamed, even with `lazy=True`: its bands are an in-memory
+        copy of the cut, while the chunked read rebuilds the whole source variable from the parent
+        file and would reduce steps the cut does not hold (see `_holds_bands_in_memory`).
         """
-        if lazy and NetCDF._is_file_backed(var):
+        if (
+            lazy
+            and NetCDF._is_file_backed(var)
+            and not NetCDF._holds_bands_in_memory(var)
+        ):
             # Only stream a genuinely file-backed variable: an in-memory container has no file for the
             # chunk graph to reopen and is already fully in RAM, so streaming saves nothing. Checking
             # file-backing up front (rather than a broad except) lets a real file-backed read error
@@ -7240,6 +7248,28 @@ class NetCDF(Dataset):
                 arr = np.expand_dims(arr, axis=0)
             arr = unflatten_band_axes(arr, var._band_dim_names, var._band_dim_sizes)
         return cast("np.typing.NDArray", arr)
+
+    @staticmethod
+    def _holds_bands_in_memory(var: NetCDF) -> bool:
+        """Whether `var`'s own raster is an in-memory copy rather than a view of its store.
+
+        `get_variable` hands back a view of the store, and a chunked read of it reads exactly
+        that variable. A `sel` / `isel` result instead copies the selected bands into a `MEM`
+        dataset while keeping its parent, so `_is_file_backed` still answers `True` for it —
+        but a chunked read rebuilds the source variable from that parent and ignores the cut.
+        On ERA5 `t2m`, `isel(valid_time=slice(0, 8))` read that way came back with all 12 steps,
+        and a reversed cut came back in the source's order at the right length. Such a variable
+        must be read from its own raster, which is already in memory, so streaming it would
+        save nothing anyway.
+
+        Args:
+            var: The variable about to be read.
+
+        Returns:
+            bool: `True` when the variable's raster is a `MEM` dataset.
+        """
+        driver = var._raster.GetDriver() if var._raster is not None else None
+        return driver is not None and driver.ShortName == "MEM"
 
     def _resolve_group_positions(
         self, dim: str, groupby: list | tuple | str | None
