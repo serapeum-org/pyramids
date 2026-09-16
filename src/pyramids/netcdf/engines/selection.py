@@ -75,8 +75,9 @@ class Selection(_Engine["NetCDF"]):
     Owns the bodies of :meth:`crop` (with the curvilinear and rectilinear
     helpers folded in), :meth:`sel` (band selection by coordinate value),
     :meth:`isel` (the same cut by position), :meth:`subset` (windowed
-    ``(variable, time, bbox)`` read), and :meth:`reduce` (collapse / coarsen
-    a non-spatial dimension). ``NetCDF`` wires one instance per container as
+    ``(variable, time, bbox)`` read), :meth:`reduce` (collapse or group a
+    non-spatial dimension) and :meth:`coarsen` (fixed-size windows along one).
+    ``NetCDF`` wires one instance per container as
     ``nc.selection`` and exposes thin façades, so ``nc.crop(...)`` and
     ``nc.selection.crop(...)`` are equivalent.
 
@@ -1485,19 +1486,324 @@ class Selection(_Engine["NetCDF"]):
         from pyramids.netcdf.netcdf import _COUNTING_REDUCERS, _REDUCERS, Variable
 
         nc = self._ds
-        known = sorted({*_REDUCERS, *_COUNTING_REDUCERS})
-        if how not in known:
-            raise ValueError(f"how must be one of {known}; got {how!r}")
+        _check_how(how, {*_REDUCERS, *_COUNTING_REDUCERS})
         _check_quantile(how, q)
+        groups = lambda: nc._resolve_group_positions(dim, groupby)  # noqa: E731
         if isinstance(nc, Variable):
             result = _reduce_variable_subset(
-                nc, dim, how, groupby=groupby, skipna=skipna, q=q
+                nc, dim, how, groups=groups, skipna=skipna, q=q
+            )
+        else:
+            result = _reduce_container(nc, dim, how, groups=groups, skipna=skipna, q=q)
+        return result
+
+    def coarsen(
+        self,
+        dim: str,
+        window: int,
+        *,
+        how: str = "mean",
+        boundary: str = "exact",
+        skipna: bool = True,
+        q: float | None = None,
+    ) -> NetCDF:
+        """Block-aggregate a non-spatial dimension into windows of `window` steps.
+
+        The positional sibling of `reduce(groupby=...)`: consecutive runs of `window` steps
+        along `dim` are each reduced to one step, so a 24-step hourly axis coarsened by 6
+        becomes 4 steps. Each output step is labelled with the **mean** of the coordinate
+        values its window holds, as xarray's `coarsen(...).<how>()` labels it — where
+        `reduce(groupby=...)` labels a window with its first member. A dimension with no
+        coordinate values stays without them, and one whose values are not numbers (text
+        time stamps, say) is labelled with each window's first member instead.
+
+        Works on a container, reducing every variable that has `dim`, and on a single
+        variable, returning a variable — the same split `reduce` makes.
+
+        `boundary` decides what happens when `window` does not divide the length of `dim`,
+        with xarray's vocabulary:
+
+        - `"exact"` (default): refuse.
+        - `"trim"`: drop the trailing steps that do not fill a window.
+        - `"pad"`: reduce them as a shorter last window. The window is padded with gaps,
+          exactly as xarray pads with NaN, so under `skipna` the padding is skipped and
+          the window is reduced over its real steps; with `skipna=False` a float
+          statistic of that window is NaN, and `count` counts only its real cells.
+
+        Args:
+            dim: The non-spatial dimension to coarsen.
+            window: Steps per window, an integer of at least 1. Anything `operator.index()`
+                accepts works, except a boolean.
+            how: The reduction applied to each window — any `how` that `reduce` accepts.
+            boundary: `"exact"`, `"trim"` or `"pad"`.
+            skipna: Whether gaps are skipped, as `reduce` documents it.
+            q: The quantile, for `how="quantile"`.
+
+        Returns:
+            NetCDF: A container for a container, a variable for a variable, with `dim`
+            shortened to one step per window.
+
+        Raises:
+            TypeError: `window` is not an integer, or is a boolean.
+            ValueError: `window` is below 1; `boundary` is unknown; `how` or `q` is
+                refused as `reduce` refuses them; `dim` is not a non-spatial dimension of
+                any variable; `boundary="exact"` and `window` does not divide the length
+                of `dim`; or `boundary="trim"` and `window` is longer than `dim`, which
+                would leave no steps. (xarray returns an empty result there; a variable
+                with no bands cannot be built.)
+
+        Examples:
+            - Six-hourly steps averaged into twelve-hourly ones, labelled at the midpoint:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> nc = NetCDF.from_array(
+              ...     np.arange(4.0).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... )
+              >>> half_days = nc.coarsen("time", 2).get_variable("t")
+              >>> half_days.read_array().ravel().tolist()
+              [0.5, 2.5]
+              >>> half_days._band_dim_values_map["time"]
+              [3.0, 15.0]
+
+              ```
+            - A window that does not divide the axis needs a boundary:
+
+              ```python
+              >>> nc.coarsen("time", 3)  # doctest: +IGNORE_EXCEPTION_DETAIL
+              Traceback (most recent call last):
+                ...
+              ValueError: cannot coarsen 'time' of length 4 into windows of 3
+              >>> padded = nc.coarsen("time", 3, boundary="pad").get_variable("t")
+              >>> padded.read_array().ravel().tolist()
+              [1.0, 3.0]
+              >>> padded._band_dim_values_map["time"]
+              [6.0, 18.0]
+
+              ```
+        """
+        # Local import breaks the netcdf.py <-> engines.selection import cycle.
+        from pyramids.netcdf.netcdf import _COUNTING_REDUCERS, _REDUCERS, Variable
+
+        nc = self._ds
+        _check_how(how, {*_REDUCERS, *_COUNTING_REDUCERS})
+        _check_quantile(how, q)
+        length = _check_window(window)
+        if boundary not in _BOUNDARIES:
+            raise ValueError(
+                f"boundary must be one of {list(_BOUNDARIES)}, got {boundary!r}."
+            )
+        is_variable = isinstance(nc, Variable)
+        size = _band_dimension_size(nc, dim, is_variable=is_variable)
+        resized, positions = _coarsen_windows(dim, size, length, boundary)
+        groups = lambda: positions  # noqa: E731
+        if is_variable:
+            result = _reduce_variable_subset(
+                nc,
+                dim,
+                how,
+                groups=groups,
+                skipna=skipna,
+                q=q,
+                resize=resized,
+                window_mean_coords=True,
             )
         else:
             result = _reduce_container(
-                nc, dim, how, groupby=groupby, skipna=skipna, q=q
+                nc,
+                dim,
+                how,
+                groups=groups,
+                skipna=skipna,
+                q=q,
+                resize=resized,
+                window_mean_coords=True,
             )
         return result
+
+
+_BOUNDARIES = ("exact", "trim", "pad")
+"""The `boundary` modes of `coarsen`, in xarray's vocabulary."""
+
+
+def _check_how(how: str, known: set[str]) -> None:
+    """Refuse a reduction name `reduce` and `coarsen` do not know.
+
+    Args:
+        how: The requested reduction.
+        known: Every reduction name there is.
+
+    Raises:
+        ValueError: `how` is not in `known`; the message lists them sorted.
+    """
+    if how not in known:
+        raise ValueError(f"how must be one of {sorted(known)}; got {how!r}")
+
+
+def _check_window(window: Any) -> int:
+    """The `coarsen` window as a positive `int`, or the refusal saying why it is not one.
+
+    Args:
+        window: The window as passed.
+
+    Returns:
+        int: The window length.
+
+    Raises:
+        TypeError: `window` is a boolean or not something `operator.index()` accepts.
+        ValueError: `window` is below 1.
+    """
+    if isinstance(window, (bool, np.bool_)):
+        raise TypeError(f"coarsen() needs an integer window, got {window!r}.")
+    try:
+        length = operator.index(window)
+    except TypeError:
+        raise TypeError(f"coarsen() needs an integer window, got {window!r}.") from None
+    if length < 1:
+        raise ValueError(f"coarsen() needs a window of at least 1, got {length}.")
+    return length
+
+
+def _band_dimension_size(nc: NetCDF, dim: str, *, is_variable: bool) -> int:
+    """The length of band dimension `dim`, read from the variable or the first that has it.
+
+    Args:
+        nc: A variable or a container.
+        dim: The dimension.
+        is_variable: Whether `nc` is a single variable.
+
+    Returns:
+        int: The number of steps along `dim`.
+
+    Raises:
+        ValueError: The variable has no band dimension `dim`; the container has no data
+            variables; or none of its gridded variables has `dim`.
+    """
+    size = None
+    if is_variable:
+        _assert_band_dimension(nc, dim, caller="coarsen")
+        size = nc._band_dim_sizes[list(nc._band_dim_names).index(dim)]
+    else:
+        if not nc.variable_names:
+            raise ValueError("Cannot coarsen an empty container (no data variables).")
+        for name in nc._spatial_variable_names(nc._working_group()):
+            var = nc._require_raster_variable(name)
+            if dim in var._band_dim_names:
+                size = var._band_dim_sizes[list(var._band_dim_names).index(dim)]
+                break
+        if size is None:
+            raise ValueError(
+                f"Dimension {dim!r} is not a non-spatial dimension of any "
+                f"variable in this container."
+            )
+    return int(size)
+
+
+def _coarsen_windows(
+    dim: str, size: int, window: int, boundary: str
+) -> tuple[int, list[np.ndarray]]:
+    """The axis length `coarsen` reduces over, and the positions in each window.
+
+    Args:
+        dim: The dimension, for the messages.
+        size: Its length.
+        window: Steps per window.
+        boundary: `"exact"`, `"trim"` or `"pad"`.
+
+    Returns:
+        tuple: The resized length — `size` for `exact`, the largest multiple of `window`
+        not above it for `trim`, the smallest not below it for `pad` — and one array of
+        positions per window over that length.
+
+    Raises:
+        ValueError: `exact` and `window` does not divide `size`, or `trim` and `window`
+            is longer than `size`.
+    """
+    if boundary == "exact":
+        if size % window:
+            raise ValueError(
+                f"cannot coarsen {dim!r} of length {size} into windows of {window} with "
+                f"boundary='exact': {size % window} step(s) would be left over. Pass "
+                f"boundary='trim' to drop them, or boundary='pad' to reduce them as a "
+                f"shorter last window."
+            )
+        resized = size
+    elif boundary == "trim":
+        resized = size // window * window
+        if resized == 0:
+            raise ValueError(
+                f"boundary='trim' would leave nothing of {dim!r}: its length {size} is "
+                f"shorter than the window {window}. Pass boundary='pad' to reduce it as "
+                f"one window."
+            )
+    else:
+        resized = -(-size // window) * window
+    positions = [
+        np.arange(start, start + window) for start in range(0, resized, window)
+    ]
+    return resized, positions
+
+
+def _resize_axis(arr: Any, axis: int, size: int) -> Any:
+    """Cut `axis` down to `size` steps, or pad it out to `size` with NaN gaps.
+
+    Padding casts to float64 first, so an integer band can hold the NaN; every reducer
+    treats NaN as a gap. Both paths stay lazy on a dask array.
+
+    Args:
+        arr: The unflattened array, numpy or dask.
+        axis: The axis to resize.
+        size: The length it should have.
+
+    Returns:
+        The resized array.
+    """
+    current = arr.shape[axis]
+    if size < current:
+        index: list[slice] = [slice(None)] * arr.ndim
+        index[axis] = slice(0, size)
+        result = arr[tuple(index)]
+    else:
+        padding_shape = list(arr.shape)
+        padding_shape[axis] = size - current
+        result = np.concatenate(
+            [arr.astype("float64"), np.full(padding_shape, np.nan)], axis=axis
+        )
+    return result
+
+
+def _window_coordinates(
+    coords: list | None, positions: list[np.ndarray], size: int
+) -> list | None:
+    """Label each window with the mean of its real members' coordinates.
+
+    Args:
+        coords: The dimension's coordinate values, or `None`.
+        positions: The positions each window covers, padding included.
+        size: The dimension's real length; positions at or past it are padding.
+
+    Returns:
+        list | None: One float per window when every coordinate is a number, each
+        window's first coordinate when some are not, and `None` when there are none.
+    """
+    labels = None
+    if coords is not None:
+        numeric = all(
+            isinstance(value, Real) and not isinstance(value, (bool, np.bool_))
+            for value in coords
+        )
+        if numeric:
+            labels = [
+                float(np.mean([coords[int(i)] for i in members if i < size]))
+                for members in positions
+            ]
+        else:
+            labels = [coords[int(members[0])] for members in positions]
+    return labels
 
 
 def _check_quantile(how: str, q: Any) -> None:
@@ -1537,9 +1843,10 @@ def _reduced_array(
     how: str,
     *,
     group_positions: list | None,
-    groupby: Any,
     skipna: bool,
     q: float | None,
+    resize: int | None = None,
+    window_mean_coords: bool = False,
 ) -> tuple[np.ndarray, list[str], dict[str, Any], Any]:
     """Reduce one raster variable along `dim`, the step a container and a variable share.
 
@@ -1553,9 +1860,12 @@ def _reduced_array(
         dim: The dimension to reduce.
         how: The reduction.
         group_positions: The resolved groups, or `None` to collapse.
-        groupby: The grouping as the caller passed it.
         skipna: Whether gaps are skipped.
         q: The quantile, for `how="quantile"`.
+        resize: The length to cut or pad `dim` to before grouping, for `coarsen`;
+            `None` leaves it alone.
+        window_mean_coords: Label each group with the mean of its members' coordinates
+            (`coarsen`) instead of its first member's (`reduce`).
 
     Returns:
         tuple: The reduced array, its band dimension names, its coordinate map, and the
@@ -1567,20 +1877,27 @@ def _reduced_array(
     band_names = list(var._band_dim_names)
     values_map = dict(var._band_dim_values_map)
     ndv = scalar_no_data(var.no_data_value)
+    axis = band_names.index(dim)
+    coords = values_map.get(dim)
     arr = nc._materialize_variable_array(var, lazy=True)
+    size = arr.shape[axis]
+    if resize is not None and resize != size:
+        arr = _resize_axis(arr, axis, resize)
     arr, band_names, values_map = nc._reduce_variable_array(
         arr,
-        band_names.index(dim),
+        axis,
         dim,
         band_names,
         values_map,
         how,
         skipna,
         ndv,
-        groupby,
+        None,
         group_positions,
         q,
     )
+    if window_mean_coords and group_positions is not None:
+        values_map[dim] = _window_coordinates(coords, group_positions, size)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
         arr = np.asarray(arr)
@@ -1597,9 +1914,11 @@ def _reduce_variable_subset(
     dim: str,
     how: str,
     *,
-    groupby: Any,
+    groups: Callable[[], list | None],
     skipna: bool,
     q: float | None,
+    resize: int | None = None,
+    window_mean_coords: bool = False,
 ) -> NetCDF:
     """Reduce a single variable and hand back a variable.
 
@@ -1607,9 +1926,12 @@ def _reduce_variable_subset(
         nc: The variable.
         dim: The dimension to reduce.
         how: The reduction.
-        groupby: The grouping, as `reduce` documents it.
+        groups: Resolves the groups, or `None` to collapse — called after `dim` is
+            checked, so a bad dimension is reported before a grouping is worked out.
         skipna: Whether gaps are skipped.
         q: The quantile, for `how="quantile"`.
+        resize: The length to cut or pad `dim` to first, for `coarsen`.
+        window_mean_coords: Label windows with their mean coordinate, for `coarsen`.
 
     Returns:
         NetCDF: The reduced variable, named after `nc` or `"variable"` when `nc` has no
@@ -1619,16 +1941,16 @@ def _reduce_variable_subset(
         ValueError: `nc` has no band dimensions, or `dim` is not one of them.
     """
     _assert_band_dimension(nc, dim, caller="reduce")
-    group_positions = nc._resolve_group_positions(dim, groupby)
     arr, band_names, values_map, ndv = _reduced_array(
         nc,
         nc,
         dim,
         how,
-        group_positions=group_positions,
-        groupby=groupby,
+        group_positions=groups(),
         skipna=skipna,
         q=q,
+        resize=resize,
+        window_mean_coords=window_mean_coords,
     )
     name = nc._source_var_name or "variable"
     container = nc._stack_reduced_variable(
@@ -1649,9 +1971,11 @@ def _reduce_container(
     dim: str,
     how: str,
     *,
-    groupby: Any,
+    groups: Callable[[], list | None],
     skipna: bool,
     q: float | None,
+    resize: int | None = None,
+    window_mean_coords: bool = False,
 ) -> NetCDF:
     """Reduce every variable of a container that has `dim`.
 
@@ -1659,9 +1983,12 @@ def _reduce_container(
         nc: The container.
         dim: The dimension to reduce.
         how: The reduction.
-        groupby: The grouping, as `reduce` documents it.
+        groups: Resolves the groups, or `None` to collapse — called after the container
+            is checked for variables.
         skipna: Whether gaps are skipped.
         q: The quantile, for `how="quantile"`.
+        resize: The length to cut or pad `dim` to first, for `coarsen`.
+        window_mean_coords: Label windows with their mean coordinate, for `coarsen`.
 
     Returns:
         NetCDF: The reduced container.
@@ -1673,7 +2000,7 @@ def _reduce_container(
     if not names:
         raise ValueError("Cannot reduce an empty container (no data variables).")
 
-    group_positions = nc._resolve_group_positions(dim, groupby)
+    group_positions = groups()
 
     # Reduce only the gridded variables; non-spatial auxiliaries (no y/x axes)
     # can't go through the raster reduce path, so they are carried through
@@ -1699,9 +2026,10 @@ def _reduce_container(
                 dim,
                 how,
                 group_positions=group_positions,
-                groupby=groupby,
                 skipna=skipna,
                 q=q,
+                resize=resize,
+                window_mean_coords=window_mean_coords,
             )
         else:
             arr = nc._materialize_variable_array(var)

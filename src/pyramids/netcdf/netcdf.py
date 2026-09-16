@@ -7132,6 +7132,21 @@ class NetCDF(Dataset):
         """Facade — :meth:`Selection.reduce <pyramids.netcdf.engines.selection.Selection.reduce>`."""
         return self.selection.reduce(dim, how, groupby=groupby, skipna=skipna, q=q)
 
+    def coarsen(
+        self,
+        dim: str,
+        window: int,
+        *,
+        how: str = "mean",
+        boundary: str = "exact",
+        skipna: bool = True,
+        q: float | None = None,
+    ) -> NetCDF:
+        """Facade — :meth:`Selection.coarsen <pyramids.netcdf.engines.selection.Selection.coarsen>`."""
+        return self.selection.coarsen(
+            dim, window, how=how, boundary=boundary, skipna=skipna, q=q
+        )
+
     @staticmethod
     def _is_file_backed(var: NetCDF) -> bool:
         """True when the variable's data lives in a reopenable file, so a lazy chunk read is possible.

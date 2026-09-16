@@ -100,7 +100,8 @@ A variable with no raster plane is the exception — see each member's docstring
 | `sel()`            | Selects bands by coordinate value, date label, or `method="nearest"`.                |
 | `isel()`           | Selects bands by position along one or more band dims; works without coordinates.    |
 | `open_mfdataset()` | Stacks one variable across many files into a single lazy dask array.                 |
-| `reduce()`         | Reduces every variable along `dim` — `how`, `groupby`, `skipna`.                     |
+| `reduce()`         | Reduces a container or a variable along `dim` — `how`, `q`, `groupby`, `skipna`.     |
+| `coarsen()`        | Reduces fixed-size windows along `dim` — `window`, `boundary`, `how`.                |
 
 ## Spatial operations
 
