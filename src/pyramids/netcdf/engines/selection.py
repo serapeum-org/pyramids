@@ -1384,8 +1384,9 @@ class Selection(_Engine["NetCDF"]):
         Collapses or groups one non-spatial dimension (`time`, `pressure_level`, `depth`, an
         ensemble member, ...), leaving the other dimensions and their coordinates, the CRS
         and the grid untouched. The work is done with numpy, streamed through dask when dask is
-        installed and the variable is read straight from its file — not a cut, a reprojection or
-        an operator result, which are read whole; xarray is not needed.
+        installed and the variable is read straight from its file — not a cut, a reprojection, an
+        operator result or a variable changed in place (`fill(..., inplace=True)`), which are
+        read whole; xarray is not needed.
 
         On a **container**, every gridded variable that has `dim` is reduced, the gridded
         variables without it are carried over, and the result is a new container.
@@ -1657,6 +1658,34 @@ class Selection(_Engine["NetCDF"]):
               [2, 1]
               >>> counts._band_dim_values_map["time"], counts.no_data_value
               ([0.5, 2.5], (None, None))
+
+              ```
+            - A dimension without coordinates: a variable keeps it unlabelled, while a
+              container's store numbers it, so its windows are labelled with the mean position:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> nc = NetCDF.from_array(
+              ...     np.arange(4.0).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... )
+              >>> var = nc.get_variable("t")
+              >>> change = var.isel(time=slice(2, 4)) - var.isel(time=slice(0, 2))
+              >>> change.coarsen("time", 2)._band_dim_values_map
+              {'time': None}
+              >>> numbered = NetCDF.from_array(
+              ...     np.arange(4.0).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=None),
+              ... )
+              >>> numbered.get_dimension_values("time").tolist()
+              [0, 1, 2, 3]
+              >>> numbered.coarsen("time", 2).get_dimension_values("time").tolist()
+              [0.5, 2.5]
 
               ```
         """
@@ -2150,7 +2179,8 @@ def _reduce_container(
     Gridded variables without `dim` are carried over, as are auxiliary variables that do not
     span it; an auxiliary variable that spans `dim` is dropped with a warning. The result
     container carries the source variables' units for the band dimensions they keep
-    (`_band_dim_time_attrs`), which a variable taken from it finds through its parent.
+    (`_band_dim_time_attrs`), which `get_variable` finds through the result and copies onto the
+    variable it takes from it.
 
     Args:
         nc: The container.

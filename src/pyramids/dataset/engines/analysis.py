@@ -1459,10 +1459,13 @@ class Analysis(_Engine["Dataset"]):
         """Shared body of :meth:`combine` and :meth:`_fold`.
 
         After the refusal checks and before either operand is read, it asks the left operand's
-        `_combine_layout_source` hook about the band layouts, and hands the answer to that
-        operand's `_label_combined` once the result is built. A plain `Dataset` checks nothing
-        and labels nothing; a `NetCDF` refuses band dimensions that do not pair up and copies
-        its layout onto the result, so `combine`, the operators and `_fold` all keep it.
+        `_combine_layout_source` hook about the band layouts, and hands the answer, untouched, to
+        that operand's `_label_combined` once the result is built. A plain `Dataset` checks
+        nothing, answers `None` and labels nothing. A `NetCDF` refuses band dimensions that do not
+        pair up, answers with the operand whose layout describes the result (itself when it has
+        band dimensions, else `other` when that has them, else `None`), the dimensions whose
+        coordinates disagree and the partner to fill missing labels from, and labels the result
+        from those, so `combine`, the operators and `_fold` all keep the layout.
 
         Args:
             other: The second operand. Ignored as a *source* when `folded` is set — it
@@ -1480,7 +1483,7 @@ class Analysis(_Engine["Dataset"]):
         Returns:
             Dataset: The combined raster, built with the **left** operand's class and
             carrying this dataset's geotransform, CRS, metadata and band names, plus the band
-            dimensions `_label_combined` copies onto a `NetCDF` result.
+            dimensions `_label_combined` puts on a `NetCDF` result.
 
         Raises:
             TypeError: `other` is not a raster, or `func` is not callable.
