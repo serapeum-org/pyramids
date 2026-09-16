@@ -167,9 +167,12 @@ class TestRenderArrayKwargRouting:
                 animate_seen.update(kwargs)
                 return self
 
-            def facet(self, **kwargs):
+            def facet(self, layout=None, **kwargs):
                 facet_seen.clear()
                 facet_seen.update(kwargs)
+                # cleopatra >= 0.38 takes the layout as the first positional
+                # argument (a ``FacetLayout``); capture it under its param name.
+                facet_seen["layout"] = layout
                 return self
 
         return _FakeGlyph, ctor_seen, plot_seen, animate_seen, facet_seen, animate_args
@@ -240,14 +243,17 @@ class TestRenderArrayKwargRouting:
             )
 
     def test_animate_mode_merges_both_buckets_into_animate_call(self):
-        """``mode='animate'`` — every kwarg flows into ``cleo.animate(...)``.
+        """``mode='animate'`` — styling kwargs flow into ``cleo.animate(...)``.
 
         Test scenario:
             cleopatra's ``ArrayGlyph.animate`` re-validates every kwarg
             against ``DEFAULT_OPTIONS``, so the D-4 documentation calls
             out the animate path as the exception: both render-call-only
             and constructor buckets merge into a single ``animate_kwargs``
-            dict, and the constructor receives nothing.
+            dict, and the constructor receives nothing. The one carve-out is
+            the ``Animation`` playback fields (cleopatra >= 0.38) — ``interval``
+            here — which are lifted onto the ``playback=`` object rather than
+            passed loosely.
         """
         fake_cls, ctor, _, animate, _, anim_args = self._capture_calls()
         rng = np.random.default_rng(303)
@@ -262,7 +268,7 @@ class TestRenderArrayKwargRouting:
                 kind="imshow",
                 interval=50,
             )
-        for key in ("cmap", "kind", "interval"):
+        for key in ("cmap", "kind"):
             assert key in animate, (
                 f"In animate mode, `{key}` must reach cleo.animate; "
                 f"animate kwargs={animate}"
@@ -270,6 +276,16 @@ class TestRenderArrayKwargRouting:
             assert key not in ctor, (
                 f"In animate mode, `{key}` must NOT be on the constructor; ctor={ctor}"
             )
+        # ``interval`` is an ``Animation`` playback field, so it rides on the
+        # ``playback=`` object instead of the loose animate kwargs.
+        assert "interval" not in animate, (
+            f"`interval` must move onto the Animation playback object; "
+            f"animate kwargs={animate}"
+        )
+        assert animate["playback"].interval == 50, (
+            f"`interval` must land on playback=Animation(interval=...); "
+            f"got playback={animate.get('playback')!r}"
+        )
         assert anim_args == [[0, 1, 2]], (
             f"animation_axis_values must be positional; got {anim_args}"
         )
@@ -279,10 +295,11 @@ class TestRenderArrayKwargRouting:
 
         Test scenario:
             The facet branch in ``render_array`` calls
-            ``cleo.facet(**facet_kwargs, **render_kwargs)``. ``kind`` is
-            a render-call-only kwarg, so it must surface inside the
-            facet call's kwargs while ``cmap`` (constructor bucket)
-            lands on ``__init__``.
+            ``cleo.facet(FacetLayout(...), **render_kwargs)``. ``kind`` is
+            a render-call-only kwarg, so it must surface inside the facet
+            call's loose kwargs, the layout field ``col`` must ride on the
+            ``FacetLayout`` positional argument (cleopatra >= 0.38), and
+            ``cmap`` (constructor bucket) lands on ``__init__``.
         """
         fake_cls, ctor, _, _, facet, _ = self._capture_calls()
         rng = np.random.default_rng(404)
@@ -298,8 +315,14 @@ class TestRenderArrayKwargRouting:
             )
         assert "kind" in facet, f"`kind` should reach cleo.facet; facet kwargs={facet}"
         assert "cmap" in ctor, f"`cmap` should remain on the constructor; ctor={ctor}"
-        assert facet.get("col") == "time", (
-            f"facet_kwargs must reach cleo.facet via merge; got {facet}"
+        # ``col`` is a layout field: cleopatra >= 0.38 takes it on the
+        # ``FacetLayout`` passed as ``facet``'s first positional argument.
+        layout = facet["layout"]
+        assert layout is not None and layout.col == "time", (
+            f"facet layout must reach cleo.facet via FacetLayout(col=...); got {layout!r}"
+        )
+        assert "col" not in facet, (
+            f"`col` must move onto FacetLayout, not the loose facet kwargs; facet={facet}"
         )
 
     def test_split_is_driven_by_option_keys(self):

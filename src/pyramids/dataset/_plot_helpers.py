@@ -708,7 +708,8 @@ def _translate_facet_kwargs(
         panel_labels_cls: cleopatra's ``PanelLabels`` (injected).
 
     Returns:
-        A new dict suitable for ``ArrayGlyph.facet(**...)``.
+        A new dict of the facet parameters in cleopatra's current spelling; the
+        caller lifts the ``FacetLayout`` fields out of it before the render call.
     """
     facet_call = dict(facet_kwargs)
     col_coords = facet_call.pop("col_coords", None)
@@ -727,6 +728,8 @@ def _dispatch_render(
     animate_kwargs: dict[str, Any],
     basemap_plan: BasemapPlan,
     panel_labels_cls: Any,
+    facet_layout_cls: Any,
+    animation_cls: Any,
 ) -> Any:
     """Run the ``plot`` / ``animate`` / ``facet`` render call for a built glyph.
 
@@ -744,6 +747,9 @@ def _dispatch_render(
         animate_kwargs: The merged kwargs for the animate call.
         basemap_plan: The resolved basemap dispatch.
         panel_labels_cls: cleopatra's ``PanelLabels`` (injected for the facet path).
+        facet_layout_cls: cleopatra's ``FacetLayout`` (injected for the facet path).
+        animation_cls: cleopatra's ``Animation`` playback object (injected for the
+            animate path).
 
     Returns:
         cleopatra's return for that mode — an ``ArrayGlyph`` (plot / animate) or a
@@ -759,17 +765,26 @@ def _dispatch_render(
         if basemap_plan.tile:
             basemap_plan.apply_to(cleo.ax)
     elif mode.mode == "animate":
+        # cleopatra >= 0.38 groups the per-frame animation parameters
+        # (``interval`` / ``frame_label`` / ``cell_value_text_colors`` and the
+        # lazy ``data_getter`` frame source) onto an ``Animation`` playback
+        # object, instead of the loose ``animate(..., frame_label=, data_getter=)``
+        # keywords they used to be. Lift them out of the styling kwargs (and the
+        # mode) into that object; everything else carries through verbatim.
+        playback_fields = {
+            key: animate_kwargs.pop(key)
+            for key in ("interval", "frame_label", "cell_value_text_colors")
+            if key in animate_kwargs
+        }
         if mode.data_getter is not None:
-            cleo.animate(
-                mode.animation_axis_values,
-                data_getter=mode.data_getter,
-                **animate_kwargs,
-                **basemap_plan.cleo_kwarg,
-            )
-        else:
-            cleo.animate(
-                mode.animation_axis_values, **animate_kwargs, **basemap_plan.cleo_kwarg
-            )
+            playback_fields["data_getter"] = mode.data_getter
+        playback = animation_cls(**playback_fields) if playback_fields else None
+        cleo.animate(
+            mode.animation_axis_values,
+            playback=playback,
+            **animate_kwargs,
+            **basemap_plan.cleo_kwarg,
+        )
         result = cleo
         if basemap_plan.tile:
             # cleopatra's ``animate`` only updates the raster via ``im.set_data``
@@ -789,7 +804,26 @@ def _dispatch_render(
                 "for a relief/features basemap."
             )
         facet_call = _translate_facet_kwargs(mode.facet_kwargs, panel_labels_cls)
-        result = cleo.facet(**facet_call, **render_kwargs)
+        # cleopatra >= 0.38 groups the facet layout/target parameters
+        # (``col`` / ``row`` / ``col_wrap`` / ``labels`` / ``figure_size`` /
+        # ``axes`` / ``extents``) onto a ``FacetLayout`` object passed as the
+        # first argument; only the per-panel render options stay loose keywords.
+        layout_fields = {
+            key: facet_call.pop(key)
+            for key in (
+                "col",
+                "row",
+                "col_wrap",
+                "labels",
+                "figure_size",
+                "axes",
+                "extents",
+            )
+            if key in facet_call
+        }
+        result = cleo.facet(
+            facet_layout_cls(**layout_fields), **facet_call, **render_kwargs
+        )
         if basemap_plan.tile:
             # Every facet panel renders the same spatial domain, so each visible
             # panel gets the same tile layer underneath (one fetch per panel).
@@ -905,7 +939,9 @@ def render_array(request: RenderRequest, **kwargs: Any) -> ArrayGlyph:
     require_cleopatra()
     from cleopatra.basemap.geo import Basemap
     from cleopatra.glyphs.gridded.array_glyph import (
+        Animation,
         ArrayGlyph,
+        FacetLayout,
         PanelLabels,
         PointOverlay,
     )
@@ -1040,7 +1076,14 @@ def render_array(request: RenderRequest, **kwargs: Any) -> ArrayGlyph:
 
     # Run the plot / animate / facet render call and draw any tile basemap.
     return _dispatch_render(
-        cleo, request.mode, render_kwargs, animate_kwargs, basemap_plan, PanelLabels
+        cleo,
+        request.mode,
+        render_kwargs,
+        animate_kwargs,
+        basemap_plan,
+        PanelLabels,
+        FacetLayout,
+        Animation,
     )
 
 
