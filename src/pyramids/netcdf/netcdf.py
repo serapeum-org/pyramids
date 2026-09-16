@@ -10614,13 +10614,14 @@ class NetCDF(Dataset):
             operand supplied them.
 
         Raises:
-            ValueError: `band` is `None`, both operands carry band dimensions, their band
-                counts agree, and they disagree in their names, their sizes, or the
-                coordinate values of a dimension both label. Being checked first, this is
-                the error raised even when the grids differ as well. Operands whose band
-                counts differ skip the check and are refused by `Dataset.combine`, with its
-                own message.
+            ValueError: `band` is `None`, both operands carry band dimensions, their grids
+                and band counts agree, and they disagree in their names, their sizes, or
+                the coordinate values of a dimension both label. Operands whose band counts
+                differ skip the check and are refused by `Dataset.combine` with its own
+                message.
             AlignmentError: The operands do not share a grid, raised by `Dataset.combine`.
+                A grid mismatch is reported as this whether or not the band layouts also
+                disagree, since the layouts are only compared on a shared grid.
 
         Examples:
             - The combined variable can still be selected by coordinate:
@@ -10725,9 +10726,10 @@ class NetCDF(Dataset):
             when it is a `NetCDF` that does, else `None`.
 
         Raises:
-            ValueError: Both operands carry band dimensions, their band counts agree, and
-                their layouts do not. With differing band counts the check is skipped so
-                `Dataset.combine` reports the count, which is the more basic mismatch.
+            ValueError: Both operands carry band dimensions, share a grid and a band count,
+                and their layouts do not agree. With differing grids or band counts the
+                check is skipped, so `Dataset.combine` reports that more basic mismatch
+                with its own error.
         """
         theirs = other if isinstance(other, NetCDF) and other._band_dim_names else None
         mine = self if self._band_dim_names else None
@@ -10735,6 +10737,7 @@ class NetCDF(Dataset):
             mine is not None
             and theirs is not None
             and self.band_count == other.band_count
+            and self.spatial.same_grid(other)
         ):
             difference = NetCDF._band_layout_difference(self, other)
             if difference is not None:

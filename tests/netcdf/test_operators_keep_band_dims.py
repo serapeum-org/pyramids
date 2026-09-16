@@ -16,6 +16,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
 
+from pyramids.base._errors import AlignmentError
 from pyramids.dataset import Dataset
 from pyramids.netcdf import ExtraDimensions, GeoReference
 from pyramids.netcdf.netcdf import NetCDF
@@ -516,6 +517,30 @@ class TestHowTheLayoutsAreCompared:
         )
         result = variable + variable
         assert_array_equal(result.read_array(), np.asarray(variable.read_array()) * 2)
+
+    @pytest.mark.parametrize("apply", BINARY_OPERATORS)
+    def test_a_grid_mismatch_is_reported_before_a_layout_mismatch(self, apply):
+        """Different grids raise `AlignmentError`, even when the layouts differ as well.
+
+        Args:
+            apply: The binary operator under test.
+
+        Test scenario:
+            The grid is the more basic mismatch — the planes cannot be paired cell by cell
+            at all — and `Dataset.combine` already reports it. The layout comparison must
+            not pre-empt it with a message about dimension names.
+        """
+        left = _variable([("time", TIMES), ("pressure_level", LEVELS)])
+        shifted = NetCDF.from_array(
+            np.ones((NT, NL, NY, NX)),
+            geo_ref=GeoReference(geo=(100.0, 1.0, 0.0, 5.0, 0.0, -1.0), epsg=4326),
+            variable_name="temperature",
+            dims=ExtraDimensions(
+                dims=[("step", [0, 1, 2, 3]), ("pressure_level", LEVELS)]
+            ),
+        ).get_variable("temperature")
+        with pytest.raises(AlignmentError):
+            apply(left, shifted)
 
     def test_a_nan_coordinate_still_disagrees_with_a_real_stamp(self):
         """A `nan` stamp against a real one at the same position is still a mismatch."""
