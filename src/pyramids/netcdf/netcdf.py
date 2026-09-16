@@ -11030,7 +11030,8 @@ class NetCDF(Dataset):
         the check and the labelling live here and in `_label_combined`, not on any one door.
 
         Args:
-            other: The right operand.
+            other: The right operand, or `None` when a scalar operator folds this variable with
+                itself (`Analysis._fold`), which leaves no second layout to compare or fill from.
             band: The single band being combined, or `None` for all of them.
 
         Returns:
@@ -11038,9 +11039,7 @@ class NetCDF(Dataset):
             the result, the dimensions whose coordinates the operands disagree on, and the
             partner `_label_combined` fills missing labels from: `other`, when this variable
             describes the result and `other` is a different `NetCDF` object that carries band
-            dimensions too, else `None` (so `var + var` names none). A scalar operator's
-            `_fold` passes a proxy of this variable as `other`, which is a different object, so
-            it is named, and fills nothing this variable does not already have.
+            dimensions too, else `None` (so `var + var` and a fold name none).
             `(None, [], None)` when a single band is combined, since one band cannot carry a
             multi-band layout.
 
@@ -11260,8 +11259,8 @@ class NetCDF(Dataset):
         """
         disagreeing: list[str] = []
         # An operand agrees with itself: `var + var` and `var.combine(var, ...)` pass one object
-        # twice. A scalar operator's `_fold` passes a proxy of it as `right`, which is not `left`,
-        # so that route compares the values.
+        # twice. A scalar operator's fold never gets here: `Analysis._combine` hands the hook no
+        # other operand.
         for name in () if left is right else left._band_dim_names:
             left_values = left._band_dim_values_map.get(name)
             right_values = right._band_dim_values_map.get(name)

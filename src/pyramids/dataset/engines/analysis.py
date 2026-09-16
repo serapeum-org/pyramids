@@ -1465,7 +1465,9 @@ class Analysis(_Engine["Dataset"]):
         pair up, answers with the operand whose layout describes the result (itself when it has
         band dimensions, else `other` when that has them, else `None`), the dimensions whose
         coordinates disagree and the partner to fill missing labels from, and labels the result
-        from those, so `combine`, the operators and `_fold` all keep the layout.
+        from those, so `combine`, the operators and `_fold` all keep the layout. A folded call
+        hands the hook `None` as the other operand, since its one layout has nothing to be
+        compared with or filled from.
 
         Args:
             other: The second operand. Ignored as a *source* when `folded` is set — it
@@ -1502,7 +1504,9 @@ class Analysis(_Engine["Dataset"]):
         if not isinstance(other, RasterBase):
             raise TypeError(f"`other` must be a Dataset, got {type(other).__name__}")
         self._check_combinable(other, func, band)
-        layout_source = self._ds._combine_layout_source(other, band)
+        # A fold's second operand is this dataset, as the engine's proxy no identity test can
+        # match, so the hook is told there is no other layout rather than handed one to compare.
+        layout_source = self._ds._combine_layout_source(None if folded else other, band)
 
         left, left_sentinels, left_domain = self._operand_arrays(self._ds, band)
         right_sentinels: list[Any]

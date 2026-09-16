@@ -2264,7 +2264,8 @@ class Dataset(RasterBase):
         dimensions, so it checks nothing and names no source; `NetCDF` overrides it.
 
         Args:
-            other: The right operand.
+            other: The right operand, or `None` when `Analysis._fold` combines this raster with
+                itself.
             band: The single band being combined, or `None` for all of them.
 
         Returns:
