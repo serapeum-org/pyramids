@@ -15,7 +15,7 @@ import sys
 import threading
 import warnings
 import weakref
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, TextIO, Unpack, cast
 
@@ -54,6 +54,7 @@ from pyramids.dataset.dataset import (
     _invalidate_cached_accessors,
 )
 from pyramids.dataset.engines._read_window import resolve_read_window
+from pyramids.dataset.engines.analysis import _DERIVE_NO_DATA
 from pyramids.dataset.engines.io import _caller_stacklevel
 from pyramids.dataset.transform import GeoTransform
 from pyramids.netcdf._axis import detect_axis_indices
@@ -10424,6 +10425,222 @@ class NetCDF(Dataset):
             dst._band_dim_sizes,
             dst._band_count,
         )
+
+    def combine(
+        self,
+        other: Dataset,
+        func: Callable[[np.ndarray, np.ndarray], np.ndarray],
+        *,
+        band: int | None = None,
+        no_data_value: Any = _DERIVE_NO_DATA,
+    ) -> Dataset:
+        """Combine two rasters cell by cell, keeping the operands' band dimensions.
+
+        Delegates the arithmetic to `Dataset.combine`, then labels the result with the
+        band dimensions — names, sizes and coordinates — the operands describe, so a
+        combined `(time, pressure_level)` variable can still be passed to `sel`, `isel`
+        or anything else that reads that layout. Every binary operator between two
+        variables (`a + b`, `a > b`, ...) reaches this method, so they keep the labels too.
+
+        The labels come from whichever operand has them. When both do, they must describe
+        the same planes: two variables whose names, sizes or coordinate values differ are
+        refused rather than having the right operand's planes silently relabelled with
+        the left operand's stamps. A coordinate-less dimension on either side is not
+        compared, since there is nothing to disagree with.
+
+        Args:
+            other: The second operand, on this variable's grid.
+            func: Binary callable applied to the operands' matching cells.
+            band: Zero-based band to combine, or `None` for every band. A single band
+                cannot carry a multi-band layout, so passing one leaves the result
+                without band dimensions.
+            no_data_value: Sentinel for the result, as documented on
+                `Analysis.combine`. Left unset it is derived from the computed values.
+
+        Returns:
+            Dataset: The combined raster, on this variable's grid. It is the same class as
+            this operand, carrying the band dimensions when `band` is `None`.
+
+        Raises:
+            ValueError: Both operands carry band dimensions and they disagree in their
+                names, their sizes, or the coordinate values of a dimension both label.
+                Operands whose band counts differ are refused by `Dataset.combine`, with
+                its own message, before this check is reached.
+
+        Examples:
+            - The combined variable can still be selected by coordinate:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> nc = NetCDF.from_array(
+              ...     np.ones((2, 3, 4, 5)),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 4.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(dims=[("time", [0.0, 6.0]), ("level", [1, 2, 3])]),
+              ... )
+              >>> var = nc.get_variable("t")
+              >>> total = var.combine(var, np.add)
+              >>> total._band_dim_names, total._band_dim_sizes
+              (('time', 'level'), (2, 3))
+              >>> total.sel(time=6.0).band_count
+              3
+
+              ```
+            - Operands labelled with different time stamps are refused:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> geo = GeoReference(geo=(0.0, 1.0, 0.0, 4.0, 0.0, -1.0), epsg=4326)
+              >>> early = NetCDF.from_array(
+              ...     np.ones((2, 4, 5)), geo_ref=geo, variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+              ... ).get_variable("t")
+              >>> late = NetCDF.from_array(
+              ...     np.ones((2, 4, 5)), geo_ref=geo, variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> early.combine(late, np.add)  # doctest: +IGNORE_EXCEPTION_DETAIL
+              Traceback (most recent call last):
+                ...
+              ValueError: the operands' band dimensions do not line up
+
+              ```
+        """
+        source = self._band_layout_source(other) if band is None else None
+        result = super().combine(other, func, band=band, no_data_value=no_data_value)
+        NetCDF._label_result_bands(result, source)
+        return result
+
+    def _arithmetic(self, other: Any, op: Callable) -> Any:
+        """Apply a forward operator, keeping this variable's band dimensions on the result.
+
+        `Dataset._arithmetic` computes the values: a raster operand goes through
+        `combine` above, which checks and labels it; a scalar goes through
+        `Analysis._fold`, which does not know about band dimensions, so the labels are
+        put back here.
+
+        Args:
+            other: A scalar or a raster operand.
+            op: The binary operator, e.g. `operator.add`.
+
+        Returns:
+            Any: The result, labelled like this variable, or `NotImplemented` for an
+            operand the operators do not accept.
+        """
+        result = super()._arithmetic(other, op)
+        NetCDF._label_result_bands(result, self if self._band_dim_names else None)
+        return result
+
+    def _reflected_arithmetic(self, other: Any, op: Callable) -> Any:
+        """Apply a reflected operator (`2 - var`, `2 / var`), keeping the band dimensions.
+
+        Args:
+            other: The scalar on the left of the operator.
+            op: The binary operator, applied as `op(other, values)`.
+
+        Returns:
+            Any: The result, labelled like this variable, or `NotImplemented` for a
+            non-scalar left operand.
+        """
+        result = super()._reflected_arithmetic(other, op)
+        NetCDF._label_result_bands(result, self if self._band_dim_names else None)
+        return result
+
+    def _band_layout_source(self, other: Any) -> NetCDF | None:
+        """The operand whose band dimensions describe a combined result.
+
+        Args:
+            other: The second operand of `combine`.
+
+        Returns:
+            NetCDF | None: This variable when it carries band dimensions, else `other`
+            when it does, else `None`.
+
+        Raises:
+            ValueError: Both operands carry band dimensions, their band counts agree, and
+                their layouts do not. With differing band counts the check is skipped so
+                `Dataset.combine` reports the count, which is the more basic mismatch.
+        """
+        theirs = other if isinstance(other, NetCDF) and other._band_dim_names else None
+        mine = self if self._band_dim_names else None
+        if (
+            mine is not None
+            and theirs is not None
+            and self.band_count == other.band_count
+        ):
+            difference = NetCDF._band_layout_difference(self, other)
+            if difference is not None:
+                raise ValueError(
+                    f"the operands' band dimensions do not line up: {difference}. "
+                    f"Select or rearrange one operand so both describe the same planes "
+                    f"before combining them."
+                )
+        return mine if mine is not None else theirs
+
+    @staticmethod
+    def _band_layout_difference(left: NetCDF, right: NetCDF) -> str | None:
+        """Describe the first way two operands' band layouts disagree.
+
+        Args:
+            left: The left operand.
+            right: The right operand.
+
+        Returns:
+            str | None: A phrase naming the mismatch — the names, the sizes, or one
+            dimension's coordinate values — or `None` when the layouts agree. A dimension
+            without coordinates on either side is not compared.
+        """
+        left_names, right_names = (
+            tuple(left._band_dim_names),
+            tuple(right._band_dim_names),
+        )
+        left_sizes, right_sizes = (
+            tuple(left._band_dim_sizes),
+            tuple(right._band_dim_sizes),
+        )
+        difference = None
+        if left_names != right_names:
+            difference = f"{list(left_names)} against {list(right_names)}"
+        elif left_sizes != right_sizes:
+            difference = (
+                f"sizes {dict(zip(left_names, left_sizes))} against "
+                f"{dict(zip(right_names, right_sizes))}"
+            )
+        else:
+            for name in left_names:
+                left_values = left._band_dim_values_map.get(name)
+                right_values = right._band_dim_values_map.get(name)
+                if (
+                    left_values is not None
+                    and right_values is not None
+                    and not np.array_equal(
+                        np.asarray(left_values), np.asarray(right_values)
+                    )
+                ):
+                    difference = (
+                        f"the coordinates of {name!r} are {list(left_values)} against "
+                        f"{list(right_values)}"
+                    )
+                    break
+        return difference
+
+    @staticmethod
+    def _label_result_bands(result: Any, source: NetCDF | None) -> None:
+        """Copy `source`'s band dimensions onto an operator result that can carry them.
+
+        Args:
+            result: What the operator returned — a `NetCDF`, a plain `Dataset`, or
+                `NotImplemented`.
+            source: The operand whose layout describes the result, or `None`.
+        """
+        if (
+            source is not None
+            and isinstance(result, NetCDF)
+            and result.band_count == source.band_count
+        ):
+            NetCDF._copy_band_dim_metadata(result, source)
 
     def _replace_raster(self, new_raster: gdal.Dataset):
         """Replace the internal GDAL dataset, flushing the old one if different.
