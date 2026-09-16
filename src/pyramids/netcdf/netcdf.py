@@ -2263,9 +2263,9 @@ class NetCDF(Dataset):
         self._band_dim_values: list[Any] | None = None
         self._band_dim_names: tuple[str, ...] = ()
         self._band_dim_values_map: dict[str, list[Any] | None] = {}
-        # `(units, calendar)` of the band dimensions that declare units (CF time units on a time
-        # axis, but also `millibar` on a level), carried by a result computed in memory so its
-        # stamps still decode (see `_time_attr_candidates`).
+        # `(units, calendar)` of the band dimensions whose units are CF time units (not a level's
+        # `millibar`), carried by a result computed in memory so its stamps still decode (see
+        # `_time_attr_candidates`).
         self._band_dim_time_attrs: dict[str, tuple[str, str]] = {}
         self._band_dim_sizes: tuple[int, ...] = ()
         self._variable_attrs: dict[str, Any] = {}
@@ -8774,8 +8774,7 @@ class NetCDF(Dataset):
 
         Returns:
             dict[str, tuple[str, str]]: `{dimension: (units, calendar)}` for the band dimensions
-            that declare units — CF time units on a time axis, but any units, so a pressure
-            level's `millibar` is included.
+            whose units are CF time units; a pressure level in `millibar` is left out.
         """
         resolved: dict[str, tuple[str, str]] = {}
         for name in self._band_dim_names:
@@ -10867,14 +10866,13 @@ class NetCDF(Dataset):
         `isel(time=slice(1, None)) - isel(time=slice(None, -1))`) combine, and a dimension
         whose coordinates disagree keeps its name and length but comes back without
         coordinates, since neither operand's stamps describe the result. `isel` still reaches
-        it; `sel` by value on that dimension raises `ValueError`. Where both operands declare
-        units for a dimension and the units differ, the stamps are compared as decoded time
-        instants, to the microsecond — hours `[0, 6]` and days `[0, 0.25]` since the same
-        origin are one axis —
-        and units that do not decode as time (`millibar` against `hPa`) make the dimension
-        disagree; in every other case the raw values are compared. A coordinate-less
-        dimension on either side is not compared. The check runs only when `band` is `None`
-        and the two grids and band counts agree.
+        it; `sel` by value on that dimension raises `ValueError`. Where both operands carry CF
+        time units for a dimension and the units differ, the stamps are compared as decoded
+        time instants, to the microsecond — hours `[0, 6]` and days `[0, 0.25]` since the same
+        origin are one axis. Only CF time units count: levels in `millibar` against levels in
+        `hPa` compare their raw values, as every other case does. A coordinate-less dimension
+        on either side is not compared. The check runs only when `band` is `None` and the two
+        grids and band counts agree.
 
         Args:
             other: The second operand, on this variable's grid.
@@ -11151,13 +11149,14 @@ class NetCDF(Dataset):
         """The band dimensions whose coordinate values name different steps on the two operands.
 
         Expects the two layouts to agree in names and sizes. A dimension without coordinates on
-        either side is skipped. When both operands find units for a dimension (the nearest pair
-        `_time_attr_candidates` yields) and the `(units, calendar)` pairs differ, its stamps are
-        compared as decoded time instants, to the microsecond — hours `[0, 6]` and days `[0, 0.25]`
-        since one origin agree, the same raw hours since two origins do not. Units that do not
-        parse as time (`millibar` against `hPa`), or a stamp that will not decode, count as a
-        disagreement. Otherwise — units on one side or neither, or the same pair on both — the
-        raw values are compared with `_same_coordinates`.
+        either side is skipped. When both operands find CF time units for a dimension (the
+        nearest pair `_time_attr_candidates` yields) and the `(units, calendar)` pairs differ,
+        its stamps are compared as decoded time instants, to the microsecond — hours `[0, 6]`
+        and days `[0, 0.25]` since one origin agree, the same raw hours since two origins do
+        not — and a stamp that will not decode counts as a disagreement. Otherwise — units on one
+        side or neither, the same pair on both, or units that are not time units (`millibar`
+        against `hPa`), which are never candidates — the raw values are compared with
+        `_same_coordinates`.
 
         Args:
             left: The left operand.
