@@ -19,6 +19,7 @@ from numpy.testing import assert_array_equal
 from pyramids.base._errors import AlignmentError
 from pyramids.dataset import Dataset
 from pyramids.netcdf import ExtraDimensions, GeoReference
+from pyramids.netcdf._mdim import copy_band_values_map
 from pyramids.netcdf.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
@@ -29,6 +30,14 @@ CUBE_PATH = (
     / "netcdf"
     / "cf__5v__1d4-4d1__y-asc.nc"
 )
+ERA5_T2M = (
+    Path(__file__).resolve().parents[1]
+    / "data"
+    / "netcdf"
+    / "cf__5v__1d4-3d1__geog__y-desc.nc"
+)
+ERA5_UNITS = ("seconds since 1970-01-01", "proleptic_gregorian")
+HOURS_2000 = ("hours since 2000-01-01", "standard")
 TIMES = [0.0, 6.0, 12.0, 18.0]
 LEVELS = [1000.0, 850.0, 500.0]
 NT, NL, NY, NX = 4, 3, 5, 6
@@ -108,6 +117,24 @@ def _variable(dims: list[tuple[str, list]], name: str = "temperature") -> NetCDF
         dims=ExtraDimensions(dims=[(dim, list(values)) for dim, values in dims]),
     )
     return container.get_variable(name)
+
+
+def _variable_on_another_grid(dims: list[tuple[str, list]]) -> NetCDF:
+    """A variable like `_variable`'s, but on a grid shifted 100 degrees east of `GEO`.
+
+    Args:
+        dims: `(name, coordinate values)` for each band dimension, outermost first.
+
+    Returns:
+        NetCDF: The variable subset, filled with ones.
+    """
+    shape = tuple(len(values) for _, values in dims) + (NY, NX)
+    return NetCDF.from_array(
+        np.ones(shape),
+        geo_ref=GeoReference(geo=(100.0, 1.0, 0.0, 5.0, 0.0, -1.0), epsg=4326),
+        variable_name="temperature",
+        dims=ExtraDimensions(dims=[(dim, list(values)) for dim, values in dims]),
+    ).get_variable("temperature")
 
 
 def _label_less_twin(tmp_path: Path) -> NetCDF:
@@ -236,6 +263,9 @@ class TestEveryOperatorKeepsTheBandDimensions:
             pytest.param(lambda v: v * 2, id="operator"),
             pytest.param(lambda v: v.sel(time=[0.0, 6.0]), id="sel"),
             pytest.param(lambda v: v.isel(time=[1, 2]), id="isel"),
+            pytest.param(
+                lambda v: v.resample(abs(v.geotransform[1]) * 2), id="resample"
+            ),
         ],
     )
     def test_the_coordinate_lists_are_copies_not_shares(self, cube, derive):
@@ -565,6 +595,15 @@ class TestHowTheLayoutsAreCompared:
         difference = NetCDF._band_layout_difference(left, right)
         assert difference is None, difference
 
+    def test_coordinates_alone_are_not_a_layout_difference(self):
+        """Every stamp different, names and sizes equal: the layouts still pair plane for plane."""
+        left = _variable([("time", TIMES), ("pressure_level", LEVELS)])
+        right = _variable(
+            [("time", [24.0, 30.0, 36.0, 42.0]), ("pressure_level", [1.0, 2.0, 3.0])]
+        )
+        difference = NetCDF._band_layout_difference(left, right)
+        assert difference is None, difference
+
     def test_equal_coordinates_of_different_numeric_types_agree(self):
         """Integer stamps `[0, 6, 12, 18]` describe the same planes as `[0.0, 6.0, ...]`."""
         integers = _variable([("time", [0, 6, 12, 18]), ("pressure_level", LEVELS)])
@@ -874,23 +913,63 @@ class TestStepArithmeticOnOneVariable:
         with pytest.raises(ValueError, match="time"):
             result.sel(time=6.0)
 
+    @pytest.mark.xfail(
+        strict=True,
+        raises=AssertionError,
+        reason=(
+            "the reduce/coarsen rebuild hands a coordinate-less dimension to from_array, which "
+            "numbers it 0..n-1, so the unlabelled time axis comes back stamped [0, 1]"
+        ),
+    )
+    @pytest.mark.parametrize(
+        "collapse",
+        [
+            pytest.param(lambda v: v.reduce("pressure_level", "mean"), id="reduce"),
+            pytest.param(lambda v: v.coarsen("pressure_level", 3), id="coarsen"),
+        ],
+    )
+    def test_reducing_another_dimension_leaves_the_unlabelled_one_unlabelled(
+        self, cube, collapse
+    ):
+        """A step difference with its levels averaged away still has no `time` stamps.
+
+        Args:
+            cube: The on-disk 4x3 variable.
+            collapse: The reduction along `pressure_level`.
+
+        Test scenario:
+            `isel(time=[1, 2]) - isel(time=[0, 1])` drops `time`'s coordinates, and `sel(time=0)`
+            on it refuses. Reducing `pressure_level` must not invent stamps for `time`: measured,
+            the result holds `time == [0, 1]` and `sel(time=0)` then matches position 0 as if it
+            were a stamp.
+        """
+        change = cube.isel(time=[1, 2]) - cube.isel(time=[0, 1])
+        assert change._band_dim_values_map["time"] is None, change._band_dim_values_map
+        result = collapse(change)
+        assert result._band_dim_values_map["time"] is None, result._band_dim_values_map
+        with pytest.raises(ValueError, match="No coordinate values"):
+            result.sel(time=0)
+
 
 class TestTimeUnitsDecideAgreement:
     """With CF units on both sides, stamps agree when they name the same instants."""
 
     @staticmethod
-    def _with_units(dims: list[tuple[str, list]], units: str) -> NetCDF:
+    def _with_units(
+        dims: list[tuple[str, list]], units: str, calendar: str = "standard"
+    ) -> NetCDF:
         """A variable whose `time` stamps are read in `units`.
 
         Args:
             dims: The band dimensions, as `_variable` takes them.
             units: The CF units string for `time`.
+            calendar: The CF calendar for `time`.
 
         Returns:
             NetCDF: The variable, carrying `units` for its `time` dimension.
         """
         variable = _variable(dims)
-        variable._band_dim_time_attrs = {"time": (units, "standard")}
+        variable._band_dim_time_attrs = {"time": (units, calendar)}
         return variable
 
     def test_equal_raw_stamps_in_different_units_disagree(self):
@@ -933,3 +1012,428 @@ class TestTimeUnitsDecideAgreement:
         right = _variable([("time", TIMES), ("pressure_level", LEVELS)])
         result = left + right
         assert result._band_dim_values_map["time"] == TIMES, result._band_dim_values_map
+
+    def test_equal_units_compare_the_raw_stamps(self):
+        """Stamps 0.36 s apart in the same units disagree, although they decode to the same second.
+
+        Test scenario:
+            Decoded to whole seconds, `0.0` and `0.0001` hours are one instant. With the units
+            equal the raw numbers decide, so `time` loses its coordinates.
+        """
+        nudged = [0.0001, 6.0, 12.0, 18.0]
+        left = self._with_units(
+            [("time", TIMES), ("pressure_level", LEVELS)], HOURS_2000[0]
+        )
+        right = self._with_units(
+            [("time", nudged), ("pressure_level", LEVELS)], HOURS_2000[0]
+        )
+        instant = "%Y-%m-%d %H:%M:%S"
+        left_labels = left._decode_time_labels("time", TIMES, instant)
+        right_labels = right._decode_time_labels("time", nudged, instant)
+        assert left_labels == right_labels, (left_labels, right_labels)
+        disagreeing = NetCDF._disagreeing_coordinates(left, right)
+        assert disagreeing == ["time"], disagreeing
+
+    def test_the_same_day_an_hour_later_disagrees(self):
+        """Hours `[0, 6, 12, 18]` since midnight and since 01:00 fall on one day but are other instants."""
+        left = self._with_units(
+            [("time", TIMES), ("pressure_level", LEVELS)], "hours since 2000-01-01"
+        )
+        right = self._with_units(
+            [("time", TIMES), ("pressure_level", LEVELS)],
+            "hours since 2000-01-01 01:00:00",
+        )
+        result = left + right
+        assert result._band_dim_values_map["time"] is None, result._band_dim_values_map
+
+    def test_units_spelled_differently_for_one_origin_agree(self):
+        """`hours since 2000-01-01` and `hours since 2000-01-01 00:00:00` name the same instants."""
+        left = self._with_units(
+            [("time", TIMES), ("pressure_level", LEVELS)], "hours since 2000-01-01"
+        )
+        right = self._with_units(
+            [("time", TIMES), ("pressure_level", LEVELS)],
+            "hours since 2000-01-01 00:00:00",
+        )
+        disagreeing = NetCDF._disagreeing_coordinates(left, right)
+        assert disagreeing == [], disagreeing
+
+    def test_the_same_instants_on_equivalent_calendars_agree(self):
+        """`standard` and `proleptic_gregorian` name the same instants in 2000, so the stamps agree."""
+        left = self._with_units(
+            [("time", TIMES), ("pressure_level", LEVELS)],
+            "hours since 2000-01-01",
+            "standard",
+        )
+        right = self._with_units(
+            [("time", TIMES), ("pressure_level", LEVELS)],
+            "hours since 2000-01-01",
+            "proleptic_gregorian",
+        )
+        disagreeing = NetCDF._disagreeing_coordinates(left, right)
+        assert disagreeing == [], disagreeing
+
+    @pytest.mark.parametrize(
+        ("left_units", "right_units"),
+        [
+            pytest.param("gregorian", "days", id="neither-decodes"),
+            pytest.param("hours since 2000-01-01", "gregorian", id="right-fails"),
+            pytest.param("gregorian", "hours since 2000-01-01", id="left-fails"),
+        ],
+    )
+    def test_units_that_do_not_decode_disagree(self, left_units, right_units):
+        """Differing units that one or both sides cannot parse drop `time`, though the raw stamps match.
+
+        Args:
+            left_units: The left operand's `time` units.
+            right_units: The right operand's.
+
+        Test scenario:
+            The units differ, so the instants decide. A side that cannot be decoded names no
+            instant, and two sides that both name none must not count as agreeing.
+        """
+        left = self._with_units(
+            [("time", TIMES), ("pressure_level", LEVELS)], left_units
+        )
+        right = self._with_units(
+            [("time", TIMES), ("pressure_level", LEVELS)], right_units
+        )
+        disagreeing = NetCDF._disagreeing_coordinates(left, right)
+        assert disagreeing == ["time"], disagreeing
+
+    def test_a_stamp_that_does_not_decode_disagrees(self):
+        """A NaN stamp at one position, in hours on one side and days on the other, drops `time`.
+
+        Test scenario:
+            Compared raw, two NaN stamps at one position agree. Here the units differ, so both
+            axes are decoded, both decodes fail, and two failures are not an agreement.
+        """
+        left = self._with_units(
+            [("time", [0.0, np.nan, 12.0, 18.0]), ("pressure_level", LEVELS)],
+            "hours since 2000-01-01",
+        )
+        right = self._with_units(
+            [("time", [0.0, np.nan, 0.5, 0.75]), ("pressure_level", LEVELS)],
+            "days since 2000-01-01",
+        )
+        disagreeing = NetCDF._disagreeing_coordinates(left, right)
+        assert disagreeing == ["time"], disagreeing
+
+    def test_a_coordinate_less_dimension_is_skipped_whatever_its_units(self):
+        """With no stamps on the left there is nothing to decode, so `time` is not reported."""
+        left = self._with_units(
+            [("time", TIMES), ("pressure_level", LEVELS)], "hours since 2000-01-01"
+        )
+        left._band_dim_values_map["time"] = None
+        right = self._with_units(
+            [("time", [24.0, 30.0, 36.0, 42.0]), ("pressure_level", LEVELS)],
+            "days since 1990-01-01",
+        )
+        disagreeing = NetCDF._disagreeing_coordinates(left, right)
+        assert disagreeing == [], disagreeing
+
+    def test_a_dropped_dimension_loses_its_units(self):
+        """`isel(valid_time=[1]) - isel(valid_time=[0])` on ERA5 `t2m` holds no units for `valid_time`.
+
+        Test scenario:
+            Its stamps are gone, so units for them would decode nothing. The result has no
+            parent either, so no source of units is left for the dimension at all.
+        """
+        variable = NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m")
+        result = variable.isel(valid_time=[1]) - variable.isel(valid_time=[0])
+        assert result._band_dim_values_map == {"valid_time": None}, (
+            result._band_dim_values_map
+        )
+        assert result._band_dim_time_attrs == {}, result._band_dim_time_attrs
+        candidates = list(result._time_attr_candidates("valid_time"))
+        assert candidates == [], candidates
+
+    def test_an_agreeing_dimension_keeps_its_units(self):
+        """`t2m + t2m` carries `valid_time`'s units, resolved from the store, on the result."""
+        variable = NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m")
+        result = variable + variable
+        assert result._band_dim_time_attrs == {"valid_time": ERA5_UNITS}, (
+            result._band_dim_time_attrs
+        )
+
+
+class TestLabelCombined:
+    """`_label_combined` labels the raster `Analysis._combine` built, and unlabels what disagreed."""
+
+    @staticmethod
+    def _labelled() -> NetCDF:
+        """The 4x3 `_variable`, carrying hour units for `time`.
+
+        Returns:
+            NetCDF: The labelled variable.
+        """
+        variable = _variable([("time", TIMES), ("pressure_level", LEVELS)])
+        variable._band_dim_time_attrs = {"time": HOURS_2000}
+        return variable
+
+    def test_without_disagreement_the_whole_layout_is_copied(self, tmp_path):
+        """An unlabelled twelve-band result receives names, sizes, coordinates and units.
+
+        Args:
+            tmp_path: pytest temp directory.
+        """
+        source = self._labelled()
+        target = _label_less_twin(tmp_path)
+        source._label_combined(target, (source, []))
+        assert _layout(target) == _layout(source), _layout(target)
+        assert target._band_dim_time_attrs == {"time": HOURS_2000}, (
+            target._band_dim_time_attrs
+        )
+
+    def test_a_disagreeing_primary_dimension_is_unlabelled(self, tmp_path):
+        """`time` keeps its name and size, and loses its coordinates, units and primary view.
+
+        Args:
+            tmp_path: pytest temp directory.
+        """
+        source = self._labelled()
+        target = _label_less_twin(tmp_path)
+        source._label_combined(target, (source, ["time"]))
+        assert target._band_dim_values_map == {
+            "time": None,
+            "pressure_level": LEVELS,
+        }, target._band_dim_values_map
+        assert tuple(target._band_dim_sizes) == (NT, NL), target._band_dim_sizes
+        assert (target._band_dim_name, target._band_dim_values) == ("time", None), (
+            target._band_dim_name,
+            target._band_dim_values,
+        )
+        assert target._band_dim_time_attrs == {}, target._band_dim_time_attrs
+
+    def test_a_disagreeing_inner_dimension_leaves_the_primary_view(self, tmp_path):
+        """Only `pressure_level` loses its coordinates; `time` keeps its stamps, view and units.
+
+        Args:
+            tmp_path: pytest temp directory.
+        """
+        source = self._labelled()
+        target = _label_less_twin(tmp_path)
+        source._label_combined(target, (source, ["pressure_level"]))
+        assert target._band_dim_values_map == {
+            "time": TIMES,
+            "pressure_level": None,
+        }, target._band_dim_values_map
+        assert (target._band_dim_name, target._band_dim_values) == ("time", TIMES), (
+            target._band_dim_name,
+            target._band_dim_values,
+        )
+        assert target._band_dim_time_attrs == {"time": HOURS_2000}, (
+            target._band_dim_time_attrs
+        )
+
+    def test_the_source_keeps_its_own_labels(self, tmp_path):
+        """Unlabelling both dimensions on the result leaves the source operand's layout untouched.
+
+        Args:
+            tmp_path: pytest temp directory.
+        """
+        source = self._labelled()
+        target = _label_less_twin(tmp_path)
+        source._label_combined(target, (source, ["time", "pressure_level"]))
+        assert source._band_dim_values_map == {
+            "time": TIMES,
+            "pressure_level": LEVELS,
+        }, source._band_dim_values_map
+        assert source._band_dim_values == TIMES, source._band_dim_values
+        assert source._band_dim_time_attrs == {"time": HOURS_2000}, (
+            source._band_dim_time_attrs
+        )
+
+    def test_a_result_with_another_band_count_is_left_alone(self):
+        """A one-band result is neither labelled nor given an empty entry for the disagreeing dimension."""
+        source = self._labelled()
+        one_band = source.combine(source, np.add, band=0)
+        source._label_combined(one_band, (source, ["time"]))
+        assert tuple(one_band._band_dim_names) == (), one_band._band_dim_names
+        assert one_band._band_dim_values_map == {}, one_band._band_dim_values_map
+        assert (one_band._band_dim_name, one_band._band_dim_values) == (None, None)
+
+    @pytest.mark.parametrize(
+        "make_result",
+        [
+            pytest.param(lambda: NotImplemented, id="not-implemented"),
+            pytest.param(
+                lambda: Dataset.from_array(
+                    np.ones((NT * NL, NY, NX)), geo_ref=GeoReference(geo=GEO, epsg=4326)
+                ),
+                id="plain-dataset",
+            ),
+        ],
+    )
+    def test_a_result_that_is_not_a_netcdf_is_passed_over(self, make_result):
+        """`NotImplemented` and a plain `Dataset` come back without band-dimension bookkeeping.
+
+        Args:
+            make_result: Builds the non-`NetCDF` result.
+        """
+        source = self._labelled()
+        result = make_result()
+        assert source._label_combined(result, (source, ["time"])) is None
+        assert not hasattr(result, "_band_dim_values_map"), type(result).__name__
+
+    def test_no_source_leaves_an_unlabelled_result_unlabelled(self, tmp_path):
+        """`(None, [])` — what a one-band combine names — changes nothing on the result.
+
+        Args:
+            tmp_path: pytest temp directory.
+        """
+        target = _label_less_twin(tmp_path)
+        before = _layout(target)
+        self._labelled()._label_combined(target, (None, []))
+        assert _layout(target) == before, _layout(target)
+
+
+class TestCombineLayoutSource:
+    """`_combine_layout_source` is the hook `Analysis._combine` checks the layouts through."""
+
+    def test_one_band_skips_the_check(self):
+        """With `band=0` two layouts that could never pair name no source and do not refuse."""
+        left = _variable([("time", TIMES), ("pressure_level", LEVELS)])
+        right = _variable([("step", [0, 1, 2, 3]), ("pressure_level", LEVELS)])
+        assert left._combine_layout_source(right, 0) == (None, [])
+
+    def test_every_band_refuses_a_name_mismatch(self):
+        """With `band=None` the same two operands are refused."""
+        left = _variable([("time", TIMES), ("pressure_level", LEVELS)])
+        right = _variable([("step", [0, 1, 2, 3]), ("pressure_level", LEVELS)])
+        with pytest.raises(ValueError, match="band dimensions do not line up"):
+            left._combine_layout_source(right, None)
+
+    def test_every_band_names_the_source_and_the_disagreement(self):
+        """Shifted stamps name the left operand and `time`."""
+        left = _variable([("time", TIMES), ("pressure_level", LEVELS)])
+        right = _variable(
+            [("time", [24.0, 30.0, 36.0, 42.0]), ("pressure_level", LEVELS)]
+        )
+        source, disagreeing = left._combine_layout_source(right, None)
+        assert source is left, source
+        assert disagreeing == ["time"], disagreeing
+
+    def test_a_plain_dataset_names_nothing_and_labels_nothing(self):
+        """`Dataset`'s own hooks answer `None`, and `plain + labelled` stays a plain `Dataset`.
+
+        Test scenario:
+            The left operand decides the result's class, and a plain raster has no band
+            dimensions to carry, so the labelled right operand's layout is not looked at.
+        """
+        plain = Dataset.from_array(
+            np.ones((NT * NL, NY, NX)), geo_ref=GeoReference(geo=GEO, epsg=4326)
+        )
+        labelled = _variable([("time", TIMES), ("pressure_level", LEVELS)])
+        assert plain._combine_layout_source(labelled, None) is None
+        result = plain + labelled
+        assert plain._label_combined(result, None) is None
+        assert type(result) is Dataset, type(result).__name__
+        assert_array_equal(result.read_array(), np.asarray(labelled.read_array()) + 1)
+
+
+class TestBandLayoutSource:
+    """`_band_layout_source` names the labelling operand, and where the operands' stamps disagree."""
+
+    def test_two_agreeing_operands_name_the_left(self):
+        """Identical layouts name the left operand and no dimension."""
+        left = _variable([("time", TIMES), ("pressure_level", LEVELS)])
+        right = _variable([("time", TIMES), ("pressure_level", LEVELS)])
+        source, disagreeing = left._band_layout_source(right)
+        assert source is left, source
+        assert disagreeing == [], disagreeing
+
+    def test_only_the_right_operand_labelled_names_it(self, tmp_path):
+        """A classic-mode left operand names the labelled right one, with nothing compared.
+
+        Args:
+            tmp_path: pytest temp directory.
+        """
+        labelled = _variable([("time", TIMES), ("pressure_level", LEVELS)])
+        source, disagreeing = _label_less_twin(tmp_path)._band_layout_source(labelled)
+        assert source is labelled, source
+        assert disagreeing == [], disagreeing
+
+    def test_a_plain_raster_operand_names_the_left(self):
+        """A plain `Dataset` on the right carries no layout, so the left operand's describes the result."""
+        left = _variable([("time", TIMES), ("pressure_level", LEVELS)])
+        plain = Dataset.from_array(
+            np.ones((NT * NL, NY, NX)), geo_ref=GeoReference(geo=GEO, epsg=4326)
+        )
+        source, disagreeing = left._band_layout_source(plain)
+        assert source is left, source
+        assert disagreeing == [], disagreeing
+
+    def test_no_labelled_operand_names_nothing(self):
+        """Two single-band variables have no layout between them."""
+        assert _flat_variable(1.0)._band_layout_source(_flat_variable(2.0)) == (
+            None,
+            [],
+        )
+
+    @pytest.mark.parametrize(
+        "right",
+        [
+            pytest.param(
+                lambda: _variable([("step", [0, 1, 2]), ("pressure_level", LEVELS)]),
+                id="different-band-count",
+            ),
+            pytest.param(
+                lambda: _variable_on_another_grid(
+                    [("step", [0, 1, 2, 3]), ("pressure_level", LEVELS)]
+                ),
+                id="different-grid",
+            ),
+        ],
+    )
+    def test_a_more_basic_mismatch_skips_the_comparison(self, right):
+        """Another band count or grid names the left operand without refusing its dimension names.
+
+        Args:
+            right: Builds a right operand whose names differ and whose band count or grid does too.
+
+        Test scenario:
+            `Analysis._combine` reports those mismatches itself; the layout check must not
+            pre-empt them with a message about `step`.
+        """
+        left = _variable([("time", TIMES), ("pressure_level", LEVELS)])
+        source, disagreeing = left._band_layout_source(right())
+        assert source is left, source
+        assert disagreeing == [], disagreeing
+
+
+class TestCopyBandValuesMap:
+    """`copy_band_values_map` copies the map and every coordinate list inside it."""
+
+    def test_each_list_is_a_new_list_holding_the_same_values(self):
+        """The copy equals the original, and neither the map nor any list is shared."""
+        original = {"time": [0.0, 6.0], "pressure_level": [1000.0, 850.0]}
+        copied = copy_band_values_map(original)
+        assert copied == original, copied
+        assert copied is not original
+        shared = [name for name in original if copied[name] is original[name]]
+        assert shared == [], f"lists shared with the original: {shared}"
+
+    def test_none_stays_none_and_an_empty_list_stays_a_list(self):
+        """A coordinate-less dimension stays `None`; an empty coordinate list is not mistaken for one."""
+        original: dict = {"time": None, "step": []}
+        copied = copy_band_values_map(original)
+        assert copied == {"time": None, "step": []}, copied
+        assert copied["step"] is not original["step"]
+
+    def test_a_tuple_comes_back_as_a_list(self):
+        """Tuple coordinates are copied into a list, so the copy can be edited in place."""
+        copied = copy_band_values_map({"time": (0.0, 6.0)})
+        assert copied["time"] == [0.0, 6.0], copied
+        assert isinstance(copied["time"], list), type(copied["time"])
+
+    def test_the_dimension_order_is_kept(self):
+        """The copy lists its dimensions in the original's order."""
+        copied = copy_band_values_map({"z": [1], "a": None, "m": [2, 3]})
+        assert list(copied) == ["z", "a", "m"], list(copied)
+
+    def test_an_empty_map_copies_to_a_new_empty_map(self):
+        """A variable with no band dimensions copies to its own empty map."""
+        original: dict = {}
+        copied = copy_band_values_map(original)
+        assert copied == {} and copied is not original, copied

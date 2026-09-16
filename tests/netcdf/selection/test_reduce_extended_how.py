@@ -13,6 +13,7 @@ import warnings
 from decimal import Decimal
 from fractions import Fraction
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -20,6 +21,7 @@ from numpy.testing import assert_allclose, assert_array_equal
 from osgeo import gdal
 
 from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+from pyramids.netcdf.engines.selection import _read_no_data, _reduces_as_a_variable
 from pyramids.netcdf.netcdf import Container, Variable
 from tests._marks import requires_dask
 
@@ -53,6 +55,10 @@ FLOAT_REDUCERS = [
     pytest.param("median", np.nanmedian, np.median, id="median"),
     pytest.param("prod", np.nanprod, np.prod, id="prod"),
 ]
+ERA5_UNITS = ("seconds since 1970-01-01", "proleptic_gregorian")
+HOURS_2000 = ("hours since 2000-01-01", "standard")
+A_RASTER = object()
+ANOTHER_RASTER = object()
 
 
 def _values() -> np.ndarray:
@@ -143,6 +149,38 @@ def _float_container_without_sentinel(values: np.ndarray) -> Container:
         no_data_value=None,
         dims=ExtraDimensions(name="time", values=TIMES),
     )
+
+
+def _classic_container(tmp_path: Path) -> NetCDF:
+    """`_container()` written to disk and reopened in classic mode: four bands, no band dimensions.
+
+    Args:
+        tmp_path: pytest temp directory.
+
+    Returns:
+        NetCDF: The classic-mode store, a `Container` with `_band_dim_names == ()`.
+    """
+    path = str(tmp_path / "classic.nc")
+    _container().to_file(path)
+    return NetCDF.read_file(path, open_as_multi_dimensional=False)
+
+
+def _time_level_variable() -> NetCDF:
+    """A `(time, level)` variable of two steps and three levels, carrying hour units for `time`.
+
+    `from_array` writes no CF units, so they are set the way a derived result carries them.
+
+    Returns:
+        NetCDF: The variable subset.
+    """
+    variable = NetCDF.from_array(
+        np.arange(2 * 3 * NY * NX, dtype=np.float64).reshape(2, 3, NY, NX),
+        geo_ref=GEO,
+        variable_name="v",
+        dims=ExtraDimensions(dims=[("time", [0.0, 6.0]), ("level", [1.0, 2.0, 3.0])]),
+    ).get_variable("v")
+    variable._band_dim_time_attrs = {"time": HOURS_2000}
+    return variable
 
 
 def _with_gaps(expected: np.ndarray, fill: float) -> np.ndarray:
@@ -1068,6 +1106,89 @@ class TestWhichVariablesStream:
         array = NetCDF._materialize_variable_array(variable, lazy=True)
         assert isinstance(array, np.ndarray), type(array)
 
+    def test_a_reprojection_materialized_later_reduces_its_own_values(self):
+        """A `to_crs` result whose view a later `resample` copied still reduces its warped cells.
+
+        Test scenario:
+            The copy is made on the reprojected variable, which never read as its store, so the
+            copy must not start it streaming; a streamed read would rebuild the unprojected 5x5
+            source and hand back its mean on the 7x4 grid.
+        """
+        warped = NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m").to_crs(3035)
+        _ = warped.resample(abs(warped.geotransform[1]) * 2)
+        assert warped._md_view_materialized, "resample should have copied the view"
+        array = NetCDF._materialize_variable_array(warped, lazy=True)
+        assert isinstance(array, np.ndarray), type(array)
+        values = np.asarray(warped.reduce("valid_time", "mean").read_array())
+        expected = _eager_mean(warped, "valid_time")
+        assert values.shape == expected.shape, (values.shape, expected.shape)
+        assert_allclose(values, expected)
+
+
+class TestReadsAsItsStore:
+    """`_reads_as_its_store` holds only while a variable keeps the very raster `get_variable` recorded."""
+
+    @pytest.mark.parametrize(
+        ("attributes", "expected"),
+        [
+            pytest.param({"_raster": None}, False, id="no-raster-no-record"),
+            pytest.param(
+                {"_raster": None, "_store_raster": None}, False, id="no-raster-no-store"
+            ),
+            pytest.param({"_raster": A_RASTER}, False, id="no-record"),
+            pytest.param(
+                {"_raster": A_RASTER, "_store_raster": ANOTHER_RASTER},
+                False,
+                id="another-raster",
+            ),
+            pytest.param(
+                {"_raster": A_RASTER, "_store_raster": A_RASTER},
+                True,
+                id="the-recorded-raster",
+            ),
+        ],
+    )
+    def test_the_record_decides(self, attributes, expected):
+        """Only a record that is the variable's current raster object answers `True`.
+
+        Args:
+            attributes: The raster and, when present, the record on the stand-in variable.
+            expected: The answer.
+
+        Test scenario:
+            A variable with no raster and no record must not pass as reading from its store
+            because `None is None`.
+        """
+        answer = NetCDF._reads_as_its_store(SimpleNamespace(**attributes))
+        assert answer is expected, f"expected {expected} for {attributes}, got {answer}"
+
+    def test_get_variable_records_the_raster_it_returns(self):
+        """A fresh store variable holds its record, and its container holds none."""
+        container = NetCDF.read_file(str(ERA5_T2M))
+        variable = container.get_variable("t2m")
+        assert variable._store_raster is variable._raster, (
+            "the record should be the raster"
+        )
+        assert NetCDF._reads_as_its_store(variable) is True
+        assert NetCDF._reads_as_its_store(container) is False
+
+    def test_a_store_variable_keeps_its_record_across_materialization(self):
+        """Copying a store variable's view into memory moves the record onto the copy."""
+        variable = NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m")
+        view = variable._raster
+        variable._materialize_md_view()
+        assert variable._raster is not view, "the view should have been replaced"
+        assert variable._store_raster is variable._raster, "the record should follow"
+        assert NetCDF._reads_as_its_store(variable) is True
+
+    def test_a_reprojection_gains_no_record_when_materialized(self):
+        """A `to_crs` result copied into memory by a later `resample` still does not read as its store."""
+        warped = NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m").to_crs(3035)
+        _ = warped.resample(abs(warped.geotransform[1]) * 2)
+        assert warped._md_view_materialized, "resample should have copied the view"
+        assert getattr(warped, "_store_raster", None) is None, warped._store_raster
+        assert NetCDF._reads_as_its_store(warped) is False
+
 
 def _packed_tcw() -> tuple[np.ndarray, np.ndarray]:
     """The packed `tcw` variable's validity mask and physical values, from its stored counts.
@@ -1243,6 +1364,10 @@ class TestTimeUnitsSurviveDerivation:
                 2,
                 id="operator-then-coarsen",
             ),
+            pytest.param(lambda v: v.copy(), 4, id="copy"),
+            pytest.param(
+                lambda v: (v * 1.0).to_crs(3035), 4, id="operator-then-to_crs"
+            ),
         ],
     )
     def test_a_date_label_selects_on_the_result(self, derive, bands):
@@ -1263,3 +1388,411 @@ class TestTimeUnitsSurviveDerivation:
             coarsened = container.coarsen("valid_time", 2)
         variable = coarsened.get_variable("t2m")
         assert variable.sel(valid_time="2022-01-01").band_count == 2
+
+    @pytest.mark.parametrize(
+        ("dim", "carried"),
+        [
+            pytest.param("time", {}, id="reduce-time-away"),
+            pytest.param("level", {"time": HOURS_2000}, id="reduce-level-away"),
+        ],
+    )
+    def test_a_variable_reduced_along_a_dimension_carries_only_the_rest(
+        self, dim, carried
+    ):
+        """Units travel for the dimensions the reduced variable still has, and no others.
+
+        Args:
+            dim: The dimension reduced away.
+            carried: The units the result must carry.
+        """
+        result = _time_level_variable().reduce(dim, "mean")
+        assert result._band_dim_time_attrs == carried, result._band_dim_time_attrs
+
+    def test_a_variable_reduced_along_level_still_selects_by_date(self):
+        """After `level` is averaged away, `sel(time="2000-01-01")` picks both steps."""
+        result = _time_level_variable().reduce("level", "mean")
+        assert result.sel(time="2000-01-01").band_count == 2
+
+    @pytest.mark.parametrize(
+        ("call", "carried"),
+        [
+            pytest.param(lambda nc: nc.reduce("valid_time", "mean"), {}, id="reduce"),
+            pytest.param(
+                lambda nc: nc.coarsen("valid_time", 2),
+                {"valid_time": ERA5_UNITS},
+                id="coarsen",
+            ),
+        ],
+    )
+    def test_a_reduced_container_carries_the_units_of_what_is_left(self, call, carried):
+        """A container collapsed along `valid_time` carries none; one coarsened along it carries them.
+
+        Args:
+            call: The reduction on the ERA5 container.
+            carried: The units the rebuilt container must carry.
+        """
+        container = NetCDF.read_file(str(ERA5_T2M))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            result = call(container)
+        assert result._band_dim_time_attrs == carried, result._band_dim_time_attrs
+
+    @pytest.mark.xfail(
+        strict=True,
+        raises=ValueError,
+        reason=(
+            "_resolve_group_positions decodes a container's stamps through get_time_variable, "
+            "which reads the rebuilt store's unit-less coordinate and never the "
+            "_band_dim_time_attrs the container carries"
+        ),
+    )
+    def test_a_coarsened_container_groups_by_frequency_like_its_variable(self):
+        """`coarsen(...).reduce(..., groupby="1D")` on the container holds its variable's daily means.
+
+        Test scenario:
+            The coarsened container carries `valid_time`'s units, and a variable taken from it
+            groups the six twelve-hour windows into three days. The container itself must group
+            them the same way; measured, it raises "no decodable time coordinate found".
+        """
+        container = NetCDF.read_file(str(ERA5_T2M))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            coarsened = container.coarsen("valid_time", 2)
+            expected = coarsened.get_variable("t2m").reduce(
+                "valid_time", "mean", groupby="1D"
+            )
+            result = coarsened.reduce("valid_time", "mean", groupby="1D")
+        variable = result.get_variable("t2m")
+        assert variable.band_count == expected.band_count == 3, variable.band_count
+        assert_allclose(variable.read_array(), expected.read_array())
+
+
+class TestTimeAttrCandidates:
+    """`_time_attr_candidates` yields own metadata, parent metadata, then carried units, nearest first."""
+
+    @staticmethod
+    def _owner(
+        units: str | None = None,
+        calendar: str | None = None,
+        carried: tuple[str, str] | None = None,
+        parent: object | None = None,
+    ) -> SimpleNamespace:
+        """A stand-in with exactly what `_time_attr_candidates` reads, for dimension `time`.
+
+        Args:
+            units: The `units` attribute of `time` in its metadata, or `None` for none.
+            calendar: The `calendar` attribute, or `None` for none.
+            carried: The `(units, calendar)` carried for `time`, or `None` to carry nothing.
+            parent: The stand-in parent, or `None`.
+
+        Returns:
+            SimpleNamespace: The owner.
+        """
+        attrs = {} if units is None else {"units": units}
+        if calendar is not None:
+            attrs["calendar"] = calendar
+        dimension = SimpleNamespace(attrs=attrs)
+        owner = SimpleNamespace(
+            meta_data=SimpleNamespace(
+                get_dimension=lambda name: dimension if name == "time" else None
+            ),
+            _parent_nc=parent,
+        )
+        if carried is not None:
+            owner._band_dim_time_attrs = {"time": carried}
+        return owner
+
+    def test_the_four_sources_come_nearest_first(self):
+        """Own metadata, then the parent's, then own carried units, then the parent's carried units."""
+        parent = self._owner(
+            "days since 1990-01-01", "noleap", ("minutes since 1980-01-01", "julian")
+        )
+        child = self._owner(
+            "hours since 2000-01-01",
+            "standard",
+            ("seconds since 1970-01-01", "proleptic_gregorian"),
+            parent,
+        )
+        candidates = list(NetCDF._time_attr_candidates(child, "time"))
+        assert candidates == [
+            ("hours since 2000-01-01", "standard"),
+            ("days since 1990-01-01", "noleap"),
+            ("seconds since 1970-01-01", "proleptic_gregorian"),
+            ("minutes since 1980-01-01", "julian"),
+        ], candidates
+
+    def test_a_missing_calendar_defaults_to_standard(self):
+        """Metadata with `units` and no `calendar` yields the `standard` calendar."""
+        candidates = list(
+            NetCDF._time_attr_candidates(self._owner("hours since 2000-01-01"), "time")
+        )
+        assert candidates == [("hours since 2000-01-01", "standard")], candidates
+
+    def test_metadata_without_units_is_passed_over(self):
+        """A `time` dimension with a calendar but no units yields nothing; the carried units follow."""
+        owner = self._owner(None, "noleap", HOURS_2000)
+        candidates = list(NetCDF._time_attr_candidates(owner, "time"))
+        assert candidates == [HOURS_2000], candidates
+
+    def test_an_owner_carrying_nothing_is_passed_over(self):
+        """A parent with no carried-units attribute at all is skipped without error."""
+        child = self._owner(carried=HOURS_2000, parent=self._owner())
+        candidates = list(NetCDF._time_attr_candidates(child, "time"))
+        assert candidates == [HOURS_2000], candidates
+
+    def test_another_dimension_yields_nothing(self):
+        """Units recorded for `time` are not offered for `level`."""
+        child = self._owner(
+            "hours since 2000-01-01", carried=HOURS_2000, parent=self._owner()
+        )
+        candidates = list(NetCDF._time_attr_candidates(child, "level"))
+        assert candidates == [], candidates
+
+    def test_the_nearest_candidate_does_not_read_the_parent(self):
+        """Taking the first candidate never asks the parent's metadata for the dimension.
+
+        Test scenario:
+            The parent's metadata raises when read, so asking for the nearest candidate only
+            succeeds if the candidates are produced one at a time.
+        """
+
+        def unreadable(name: str) -> None:
+            """Metadata that cannot be read.
+
+            Args:
+                name: The dimension asked for.
+
+            Raises:
+                AssertionError: Always.
+            """
+            raise AssertionError(f"the parent's metadata was read for {name!r}")
+
+        parent = SimpleNamespace(meta_data=SimpleNamespace(get_dimension=unreadable))
+        child = self._owner("hours since 2000-01-01", parent=parent)
+        nearest = next(iter(NetCDF._time_attr_candidates(child, "time")))
+        assert nearest == ("hours since 2000-01-01", "standard"), nearest
+
+    def test_a_store_variable_offers_its_parents_units_before_carried_ones(self):
+        """ERA5 `t2m` finds the store's units on its parent first, then units carried on itself."""
+        variable = NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m")
+        variable._band_dim_time_attrs = {"valid_time": HOURS_2000}
+        candidates = list(variable._time_attr_candidates("valid_time"))
+        assert candidates == [ERA5_UNITS, HOURS_2000], candidates
+
+
+class TestResolvedBandDimTimeAttrs:
+    """`_resolved_band_dim_time_attrs` takes each band dimension's nearest units."""
+
+    def test_each_band_dimension_takes_its_nearest_units(self):
+        """`time` takes the units on the variable over its parent's; `level` has only the parent's."""
+        variable = _time_level_variable()
+        level_units = ("days since 1990-01-01", "noleap")
+        variable._parent_nc._band_dim_time_attrs = {
+            "time": ("minutes since 1980-01-01", "julian"),
+            "level": level_units,
+        }
+        resolved = variable._resolved_band_dim_time_attrs()
+        assert resolved == {"time": HOURS_2000, "level": level_units}, resolved
+
+    def test_a_store_variable_resolves_its_parents_metadata(self):
+        """ERA5 `t2m` resolves `valid_time` to the store's own CF units."""
+        variable = NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m")
+        resolved = variable._resolved_band_dim_time_attrs()
+        assert resolved == {"valid_time": ERA5_UNITS}, resolved
+
+    def test_a_dimension_without_units_is_left_out(self):
+        """An in-memory variable whose `time` has no CF units resolves to nothing."""
+        resolved = _container().get_variable("v")._resolved_band_dim_time_attrs()
+        assert resolved == {}, resolved
+
+    def test_units_for_a_dimension_the_variable_lacks_are_ignored(self):
+        """Carried units for a `step` the variable does not have are not resolved."""
+        variable = _container().get_variable("v")
+        variable._band_dim_time_attrs = {"time": HOURS_2000, "step": HOURS_2000}
+        resolved = variable._resolved_band_dim_time_attrs()
+        assert resolved == {"time": HOURS_2000}, resolved
+
+
+class TestDecodeTimeLabelsWalksTheCandidates:
+    """`_decode_time_labels` decodes with the first candidate it can parse."""
+
+    @staticmethod
+    def _decoding(candidates: list[tuple[str, str]]) -> SimpleNamespace:
+        """A stand-in offering `candidates` for every dimension.
+
+        Args:
+            candidates: The `(units, calendar)` pairs, nearest first.
+
+        Returns:
+            SimpleNamespace: The stand-in.
+        """
+        return SimpleNamespace(_time_attr_candidates=lambda name: iter(candidates))
+
+    def test_an_unparseable_candidate_gives_way_to_the_next(self):
+        """`gregorian` names no origin, so the hour units after it decode the stamps."""
+        owner = self._decoding([("gregorian", "standard"), HOURS_2000])
+        labels = NetCDF._decode_time_labels(owner, "time", [0.0, 6.0], "%Y-%m-%d %H:%M")
+        assert labels == ["2000-01-01 00:00", "2000-01-01 06:00"], labels
+
+    def test_only_the_first_parseable_candidate_is_used(self):
+        """Hours since 2000 decode the stamps; the days since 1990 behind them are never tried."""
+        owner = self._decoding([HOURS_2000, ("days since 1990-01-01", "standard")])
+        labels = NetCDF._decode_time_labels(owner, "time", [24.0], "%Y-%m-%d")
+        assert labels == ["2000-01-02"], labels
+
+    @pytest.mark.parametrize(
+        "candidates",
+        [
+            pytest.param([], id="no-candidate"),
+            pytest.param([("gregorian", "standard")], id="only-unparseable"),
+        ],
+    )
+    def test_no_parseable_candidate_is_none(self, candidates):
+        """With nothing to parse the stamps have no labels.
+
+        Args:
+            candidates: The candidates offered.
+        """
+        labels = NetCDF._decode_time_labels(self._decoding(candidates), "time", [0.0])
+        assert labels is None, labels
+
+
+class TestReducesAsAVariable:
+    """`_reduces_as_a_variable` sends a variable, or anything labelled, down the variable path."""
+
+    @pytest.mark.parametrize(
+        ("build", "expected"),
+        [
+            pytest.param(
+                lambda tmp: NetCDF.read_file(str(ERA5_T2M)),
+                False,
+                id="root-container-from-a-file",
+            ),
+            pytest.param(
+                lambda tmp: _container(), False, id="root-container-in-memory"
+            ),
+            pytest.param(_classic_container, False, id="classic-mode-container"),
+            pytest.param(
+                lambda tmp: _container().get_variable("v"), True, id="variable"
+            ),
+            pytest.param(
+                lambda tmp: NetCDF.from_array(
+                    np.ones((NY, NX)), geo_ref=GEO, variable_name="flat"
+                ).get_variable("flat"),
+                True,
+                id="variable-without-band-dimensions",
+            ),
+            pytest.param(
+                lambda tmp: _classic_container(tmp) + _container().get_variable("v"),
+                True,
+                id="labelled-container-class-result",
+            ),
+        ],
+    )
+    def test_which_path(self, tmp_path, build, expected):
+        """Containers of every kind take the container path; variables and labelled results do not.
+
+        Args:
+            tmp_path: pytest temp directory.
+            build: Builds the object `reduce` is called on.
+            expected: Whether it is reduced as a variable.
+        """
+        nc = build(tmp_path)
+        answer = _reduces_as_a_variable(nc)
+        assert answer is expected, (type(nc).__name__, nc._band_dim_names, answer)
+
+    def test_the_labelled_result_is_container_class(self, tmp_path):
+        """`classic + labelled` takes the classic operand's class, which is why the class cannot decide.
+
+        Args:
+            tmp_path: pytest temp directory.
+        """
+        result = _classic_container(tmp_path) + _container().get_variable("v")
+        assert type(result) is Container, type(result).__name__
+        assert tuple(result._band_dim_names) == ("time",), result._band_dim_names
+
+    @pytest.mark.parametrize(
+        "call",
+        [
+            pytest.param(lambda nc: nc.reduce("time"), id="reduce"),
+            pytest.param(lambda nc: nc.coarsen("time", 2), id="coarsen"),
+        ],
+    )
+    def test_a_classic_mode_container_still_refuses_as_empty(self, tmp_path, call):
+        """A classic-mode container lists no data variables and has no band dimensions to reduce.
+
+        Args:
+            tmp_path: pytest temp directory.
+            call: `reduce` or `coarsen`.
+        """
+        with pytest.raises(ValueError, match="empty container"):
+            call(_classic_container(tmp_path))
+
+
+class TestReadNoData:
+    """`_read_no_data` gives the sentinel in the units the reduce path reads the values in."""
+
+    def test_no_declared_sentinel_is_none(self):
+        """A float variable declaring no no-data value has no sentinel to mask."""
+        variable = _float_container_without_sentinel(_masked()).get_variable("v")
+        sentinel = _read_no_data(variable)
+        assert sentinel is None, sentinel
+
+    @pytest.mark.parametrize(
+        ("build", "expected"),
+        [
+            pytest.param(lambda: _container().get_variable("v"), NDV, id="float"),
+            pytest.param(
+                lambda: _integer_container("int16", -1)[0].get_variable("v"),
+                -1,
+                id="int16",
+            ),
+            pytest.param(
+                lambda: _integer_container("uint8", 255)[0].get_variable("v"),
+                255,
+                id="uint8",
+            ),
+        ],
+    )
+    def test_an_unpacked_sentinel_is_returned_as_declared(self, build, expected):
+        """Without scale or offset the sentinel is the declared value.
+
+        Args:
+            build: Builds the unpacked variable.
+            expected: Its declared no-data value.
+        """
+        sentinel = _read_no_data(build())
+        assert sentinel == expected, f"expected {expected}, got {sentinel}"
+
+    @pytest.mark.parametrize("name", ["moving", "still"])
+    def test_a_packed_sentinel_is_unpacked(self, tmp_path, name):
+        """`_FillValue` `-32767` at scale `0.5`, offset `100` reads as `-16283.5`.
+
+        Args:
+            tmp_path: pytest temp directory.
+            name: The packed variable, with and without `time`.
+        """
+        path = str(tmp_path / "packed.nc")
+        _write_packed_store(path)
+        variable = NetCDF.read_file(path).get_variable(name)
+        assert variable.no_data_value[0] == -32767, variable.no_data_value
+        sentinel = _read_no_data(variable)
+        assert sentinel == -32767 * 0.5 + 100.0, sentinel
+
+    def test_the_sentinel_is_what_a_fill_cell_reads_as(self):
+        """Every stored fill cell of ERA5 `tcw` reads back as exactly the unpacked sentinel.
+
+        Test scenario:
+            The mask compares for equality, so the sentinel must be the same number the read
+            produces, not merely a close one, at `tcw`'s non-dyadic scale and offset.
+        """
+        variable = NetCDF.read_file(str(PACKED)).get_variable("tcw")
+        stored = np.asarray(variable.read_array(unpack=False))
+        unpacked = np.asarray(variable.read_array())
+        fill = stored == variable.no_data_value[0]
+        sentinel = _read_no_data(variable)
+        assert fill.any(), "tcw should hold fill cells"
+        assert np.all(unpacked[fill] == sentinel), (np.unique(unpacked[fill]), sentinel)
+        assert not np.any(unpacked[~fill] == sentinel), (
+            "a valid cell reads as the sentinel"
+        )
