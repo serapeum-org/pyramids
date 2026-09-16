@@ -7370,32 +7370,7 @@ class NetCDF(Dataset):
         """
         positions: list[np.ndarray] | None = None
         if isinstance(groupby, str):
-            # Full-resolution timestamps: the default "%Y-%m-%d" truncates to
-            # whole days, which would collapse every sub-daily frequency
-            # ("1H"/"3H"/"6H") into a single per-day bucket.
-            own_values = self._band_dim_values_map.get(dim)
-            if own_values is None:
-                times = self.get_time_variable(
-                    var_name=dim, time_format="%Y-%m-%d %H:%M:%S"
-                )
-                if times is None and not self._band_dim_names:
-                    # A container rebuilt by reduce/coarsen stores its axis without units
-                    # and carries them in `_band_dim_time_attrs` instead; decode the stored
-                    # stamps with those. Only a container: a variable's own stamps are the
-                    # ones that describe it, and it has none here.
-                    stored = self.get_dimension_values(dim)
-                    if stored is not None:
-                        times = self._decode_time_labels(
-                            dim, list(stored), "%Y-%m-%d %H:%M:%S", strict=False
-                        )
-            else:
-                # A variable keeps its own (possibly selected) raw stamps but not the
-                # root group's units, so get_time_variable finds nothing on it; decode
-                # the stamps it holds with the units its store declares, or that a
-                # derived result carries (`_time_attr_candidates`), instead.
-                times = self._decode_time_labels(
-                    dim, list(own_values), "%Y-%m-%d %H:%M:%S", strict=False
-                )
+            times = self._group_stamps(dim)
             if times is None:
                 raise ValueError(
                     f"Cannot group dimension {dim!r} by frequency {groupby!r}: "
@@ -7419,6 +7394,47 @@ class NetCDF(Dataset):
                 members[label].append(i)
             positions = [np.array(members[label]) for label in order]
         return positions
+
+    def _group_stamps(self, dim: str) -> list[str] | None:
+        """The decoded stamps of `dim`, to the second, that a frequency groups by.
+
+        Full-resolution timestamps: the default `"%Y-%m-%d"` truncates to whole days, which would
+        collapse every sub-daily frequency (`"1H"`, `"3H"`, `"6H"`) into a single per-day bucket.
+
+        - Coordinates of its own for `dim` (a variable keeps its own, possibly selected, raw
+          stamps but not the root group's units) are decoded with the units its store declares,
+          or that a derived result carries (`_time_attr_candidates`).
+        - Otherwise `get_time_variable` reads and decodes the stored axis.
+        - A container rebuilt by `reduce` / `coarsen` stores its axis without units and carries
+          them in `_band_dim_time_attrs` instead, so its stored stamps are decoded with those.
+          Only a container: a variable's own stamps are the ones that describe it, and a
+          variable without them has nothing to decode.
+
+        Args:
+            dim: The band dimension.
+
+        Returns:
+            list[str] | None: One `"%Y-%m-%d %H:%M:%S"` stamp per step of `dim`, or `None` when
+            no time coordinate of `dim` decodes.
+        """
+        instant = "%Y-%m-%d %H:%M:%S"
+        own_values = self._band_dim_values_map.get(dim)
+        if own_values is not None:
+            times = self._decode_time_labels(
+                dim, list(own_values), instant, strict=False
+            )
+        else:
+            times = self.get_time_variable(var_name=dim, time_format=instant)
+            stored = (
+                self.get_dimension_values(dim)
+                if times is None and not self._band_dim_names
+                else None
+            )
+            if stored is not None:
+                times = self._decode_time_labels(
+                    dim, list(stored), instant, strict=False
+                )
+        return times
 
     def _reduce_variable_array(
         self,
