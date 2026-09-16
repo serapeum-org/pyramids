@@ -696,12 +696,14 @@ class RenderRequest:
 def _translate_facet_kwargs(
     facet_kwargs: dict[str, Any], panel_labels_cls: Any
 ) -> dict[str, Any]:
-    """Translate the loose NetCDF facet kwargs to cleopatra 0.30's facet names.
+    """Translate the loose NetCDF facet kwargs to cleopatra's current facet spelling.
 
-    cleopatra 0.30 renamed facet's ``figsize`` to ``figure_size`` and moved the
-    per-panel coordinate labels onto a ``PanelLabels`` group (``col`` / ``row``);
-    the NetCDF facet builder still emits the historical ``col_coords`` /
-    ``row_coords`` / ``figsize`` spelling, so translate it here.
+    cleopatra renamed facet's ``figsize`` to ``figure_size`` and moved the per-panel
+    coordinate labels onto a ``PanelLabels`` group (``col`` / ``row``); the NetCDF
+    facet builder still emits the historical ``col_coords`` / ``row_coords`` /
+    ``figsize`` spelling, so translate it here. The caller then lifts the layout
+    fields out of the result onto a ``FacetLayout`` (cleopatra >= 0.38) before the
+    render call.
 
     Args:
         facet_kwargs: The loose facet kwargs from the NetCDF facet path.
