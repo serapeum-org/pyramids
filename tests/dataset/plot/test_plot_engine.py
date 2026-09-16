@@ -319,9 +319,8 @@ class TestRenderArrayKwargRouting:
         # ``col`` is a layout field: cleopatra >= 0.38 takes it on the
         # ``FacetLayout`` passed as ``facet``'s first positional argument.
         layout = facet["layout"]
-        assert layout is not None and layout.col == "time", (
-            f"facet layout must reach cleo.facet via FacetLayout(col=...); got {layout!r}"
-        )
+        assert layout is not None, f"facet layout must reach cleo.facet via FacetLayout; got {layout!r}"
+        assert layout.col == "time", f"FacetLayout.col must be 'time'; got {layout.col!r}"
         assert "col" not in facet, (
             f"`col` must move onto FacetLayout, not the loose facet kwargs; facet={facet}"
         )
@@ -357,9 +356,8 @@ class TestRenderArrayKwargRouting:
         assert playback.frame_label is frame_label, (
             f"frame_label must ride on playback; got {playback.frame_label!r}"
         )
-        assert "data_getter" not in animate and "frame_label" not in animate, (
-            f"playback fields must not also pass loosely; animate kwargs={animate}"
-        )
+        assert "data_getter" not in animate, f"data_getter must not pass loosely; animate kwargs={animate}"
+        assert "frame_label" not in animate, f"frame_label must not pass loosely; animate kwargs={animate}"
 
     def test_animate_without_playback_fields_omits_playback(self):
         """No interval/frame_label/data_getter means ``playback=None``.
@@ -398,11 +396,13 @@ class TestRenderArrayKwargRouting:
                 kind="imshow",
             )
         layout = facet["layout"]
-        assert layout.col == "time" and layout.col_wrap == 2, (
-            f"col/col_wrap must reach FacetLayout; got col={layout.col!r}, col_wrap={layout.col_wrap!r}"
-        )
-        assert layout.labels is not None and list(layout.labels.col) == [0, 1, 2], (
+        assert layout.col == "time", f"FacetLayout.col must be 'time'; got {layout.col!r}"
+        assert layout.col_wrap == 2, f"FacetLayout.col_wrap must be 2; got {layout.col_wrap!r}"
+        assert layout.labels is not None, (
             f"col_coords must become FacetLayout.labels (PanelLabels); got {layout.labels!r}"
+        )
+        assert list(layout.labels.col) == [0, 1, 2], (
+            f"FacetLayout.labels.col must echo col_coords; got {layout.labels.col!r}"
         )
         for key in ("col", "col_wrap", "labels"):
             assert key not in facet, (
