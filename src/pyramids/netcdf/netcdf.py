@@ -2237,6 +2237,10 @@ class NetCDF(Dataset):
         # True once the AsClassicDataset view has been replaced by a window-readable MEM raster
         # (see _materialize_md_view). Tracks the raster, so _update_inplace carries it over.
         self._md_view_materialized: bool = False
+        # The raster `get_variable` built from the store, while this variable still holds it (see
+        # `_reads_as_its_store`). Dropped by `close()` and by any swap to another raster, so it
+        # neither keeps the source file open nor keeps a replaced copy of the values alive.
+        self._store_raster: gdal.Dataset | None = None
         # True once a geostationary scan-angle geotransform has been rescaled to
         # metres on this cube; tells the `geotransform` property to trust the
         # stored geotransform instead of re-deriving radian spacing from x/y.
@@ -2324,6 +2328,9 @@ class NetCDF(Dataset):
         self._view_source = None
         self._warp_source = None
         self._parent_nc = None
+        # The store's `AsClassicDataset` view `get_variable` recorded; its C++ side holds the MDArray
+        # and root group released above, so keeping it would keep the source file open.
+        self._store_raster = None
         self._cached_meta_data = None
         # Drop and close the reopened geolocation-source handle (a base Dataset over
         # NETCDF:"<file>":<var>, memoised by `_geolocation_source`). Left open it keeps the source
@@ -2382,6 +2389,9 @@ class NetCDF(Dataset):
             "_variable_attrs": self._variable_attrs,
             "_scale": self._scale,
             "_offset": self._offset,
+            # The record survives only a swap to the raster it names (the `epsg` setter's); any other
+            # raster holds different values, and the replaced one must not be kept alive.
+            "_store_raster": self._store_raster if src is self._store_raster else None,
         }
         # Rebuild via the concrete subclass (Container / Variable) so an
         # in-place update never downgrades the instance's type back to the base NetCDF.
@@ -11136,6 +11146,8 @@ class NetCDF(Dataset):
             old.FlushCache()
         # RasterBase state
         self._raster = new_raster
+        if new_raster is not self._store_raster:
+            self._store_raster = None
         self._derived_geotransform = None
         self._geotransform = new_raster.GetGeoTransform()
         self._cell_size = GeoTransform(*self._geotransform).cell_size

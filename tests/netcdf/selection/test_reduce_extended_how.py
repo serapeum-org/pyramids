@@ -1189,6 +1189,62 @@ class TestReadsAsItsStore:
         assert getattr(warped, "_store_raster", None) is None, warped._store_raster
         assert NetCDF._reads_as_its_store(warped) is False
 
+    @pytest.mark.parametrize(
+        "prepare",
+        [
+            pytest.param(lambda v: None, id="store-view"),
+            pytest.param(
+                lambda v: v.resample(abs(v.geotransform[1]) * 2), id="materialized"
+            ),
+        ],
+    )
+    def test_an_in_place_fill_drops_the_record(self, prepare):
+        """After `fill(inplace=True)` the variable holds no record of the raster it replaced.
+
+        Args:
+            prepare: What runs first; a `resample` copies the view into memory as a side effect.
+
+        Test scenario:
+            A record kept past the swap holds the replaced raster, and so a full copy of the
+            store's values, alive for as long as the variable lives.
+        """
+        variable = NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m")
+        prepare(variable)
+        variable.fill(1.0, inplace=True)
+        assert variable._store_raster is None, variable._store_raster
+
+    def test_a_geostationary_in_place_fill_drops_its_memory_copy(self):
+        """The geostationary `CMI`, copied into memory by `get_variable`, lets that copy go."""
+        variable = NetCDF.read_file(str(GEOS)).get_variable("CMI")
+        variable.fill(0.0, inplace=True)
+        assert variable._store_raster is None, variable._store_raster
+
+    def test_a_swap_to_the_same_raster_keeps_the_record(self):
+        """`_update_inplace` handed the raster the variable already holds, as the `epsg` setter does."""
+        variable = NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m")
+        variable._update_inplace(variable._raster)
+        assert variable._store_raster is variable._raster, variable._store_raster
+        assert NetCDF._reads_as_its_store(variable) is True
+
+    def test_replacing_the_raster_drops_the_record(self):
+        """`_replace_raster` with another raster leaves no record behind."""
+        variable = NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m")
+        copy = gdal.GetDriverByName("MEM").CreateCopy("", variable._raster)
+        variable._replace_raster(copy)
+        assert variable._store_raster is None, variable._store_raster
+
+    def test_replacing_the_raster_with_itself_keeps_the_record(self):
+        """`_replace_raster` handed the recorded raster keeps the record."""
+        variable = NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m")
+        variable._replace_raster(variable._raster)
+        assert variable._store_raster is variable._raster, variable._store_raster
+
+    def test_close_drops_the_record(self):
+        """A closed variable holds no record of its store's raster."""
+        variable = NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m")
+        variable.close()
+        assert variable._store_raster is None, variable._store_raster
+
 
 def _packed_tcw() -> tuple[np.ndarray, np.ndarray]:
     """The packed `tcw` variable's validity mask and physical values, from its stored counts.

@@ -79,3 +79,53 @@ class TestCloseHandleRelease:
 
         os.remove(target)
         assert not target.exists(), "source file must be removable after reduce+close"
+
+
+class TestAClosedVariableReleasesItsFile:
+    """A variable closed but still referenced does not keep its source file open (#564)."""
+
+    def test_remove_with_the_variable_closed_first(self, tmp_path):
+        """read -> get_variable -> read -> close the variable, then the container -> remove."""
+        target = tmp_path / "cube.nc"
+        shutil.copy(ERA5, target)
+
+        cube = NetCDF.read_file(str(target))
+        variable = cube.get_variable("t2m")
+        variable.read_array()
+        variable.close()
+        cube.close()
+
+        os.remove(
+            target
+        )  # locked on Windows while the variable kept its store's raster
+        assert not target.exists(), "source file must be removable after close()"
+
+    def test_remove_with_the_container_closed_first(self, tmp_path):
+        """The same, closing the container before the variable."""
+        target = tmp_path / "cube.nc"
+        shutil.copy(ERA5, target)
+
+        cube = NetCDF.read_file(str(target))
+        variable = cube.get_variable("t2m")
+        variable.read_array()
+        cube.close()
+        variable.close()
+
+        os.remove(target)
+        assert not target.exists(), "source file must be removable after close()"
+
+    def test_remove_after_coarsening_the_variable(self, tmp_path):
+        """A variable coarsened, then closed with its container, releases the file."""
+        target = tmp_path / "cube.nc"
+        shutil.copy(ERA5, target)
+
+        cube = NetCDF.read_file(str(target))
+        variable = cube.get_variable("t2m")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            variable.coarsen("valid_time", 2)
+        variable.close()
+        cube.close()
+
+        os.remove(target)
+        assert not target.exists(), "source file must be removable after close()"
