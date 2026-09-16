@@ -823,7 +823,9 @@ def _dispatch_facet(
     for key in layout_keys:
         if key in facet_call:
             layout_fields[key] = facet_call.pop(key)
-    result = cleo.facet(facet_layout_cls(**layout_fields), **facet_call, **render_kwargs)
+    result = cleo.facet(
+        facet_layout_cls(**layout_fields), **facet_call, **render_kwargs
+    )
     if basemap_plan.tile:
         # Every facet panel renders the same spatial domain, so each visible
         # panel gets the same tile layer underneath (one fetch per panel).

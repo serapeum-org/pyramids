@@ -319,8 +319,12 @@ class TestRenderArrayKwargRouting:
         # ``col`` is a layout field: cleopatra >= 0.38 takes it on the
         # ``FacetLayout`` passed as ``facet``'s first positional argument.
         layout = facet["layout"]
-        assert layout is not None, f"facet layout must reach cleo.facet via FacetLayout; got {layout!r}"
-        assert layout.col == "time", f"FacetLayout.col must be 'time'; got {layout.col!r}"
+        assert layout is not None, (
+            f"facet layout must reach cleo.facet via FacetLayout; got {layout!r}"
+        )
+        assert layout.col == "time", (
+            f"FacetLayout.col must be 'time'; got {layout.col!r}"
+        )
         assert "col" not in facet, (
             f"`col` must move onto FacetLayout, not the loose facet kwargs; facet={facet}"
         )
@@ -349,15 +353,21 @@ class TestRenderArrayKwargRouting:
                 frame_label=frame_label,
             )
         playback = animate["playback"]
-        assert playback is not None, "a playback Animation must be built when fields are set"
+        assert playback is not None, (
+            "a playback Animation must be built when fields are set"
+        )
         assert playback.data_getter is getter, (
             f"data_getter must ride on playback; got {playback.data_getter!r}"
         )
         assert playback.frame_label is frame_label, (
             f"frame_label must ride on playback; got {playback.frame_label!r}"
         )
-        assert "data_getter" not in animate, f"data_getter must not pass loosely; animate kwargs={animate}"
-        assert "frame_label" not in animate, f"frame_label must not pass loosely; animate kwargs={animate}"
+        assert "data_getter" not in animate, (
+            f"data_getter must not pass loosely; animate kwargs={animate}"
+        )
+        assert "frame_label" not in animate, (
+            f"frame_label must not pass loosely; animate kwargs={animate}"
+        )
 
     def test_animate_without_playback_fields_omits_playback(self):
         """No interval/frame_label/data_getter means ``playback=None``.
@@ -396,8 +406,12 @@ class TestRenderArrayKwargRouting:
                 kind="imshow",
             )
         layout = facet["layout"]
-        assert layout.col == "time", f"FacetLayout.col must be 'time'; got {layout.col!r}"
-        assert layout.col_wrap == 2, f"FacetLayout.col_wrap must be 2; got {layout.col_wrap!r}"
+        assert layout.col == "time", (
+            f"FacetLayout.col must be 'time'; got {layout.col!r}"
+        )
+        assert layout.col_wrap == 2, (
+            f"FacetLayout.col_wrap must be 2; got {layout.col_wrap!r}"
+        )
         assert layout.labels is not None, (
             f"col_coords must become FacetLayout.labels (PanelLabels); got {layout.labels!r}"
         )
@@ -446,7 +460,9 @@ class TestRenderArrayKwargRouting:
         """
         fake_cls, _, _, animate, _, _ = self._capture_calls()
         field_names = [
-            f.name for f in dataclasses.fields(_cleo_array.Animation) if f.name != "data_getter"
+            f.name
+            for f in dataclasses.fields(_cleo_array.Animation)
+            if f.name != "data_getter"
         ]
         extras = {name: f"<{name}>" for name in field_names}
         with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
@@ -604,7 +620,9 @@ class TestRenderArrayKwargRouting:
             assert ctor["rgb_bands"] is None, f"animate ctor={ctor}"
 
     @pytest.mark.parametrize("missing_symbol", ["RgbBands", "Animation", "FacetLayout"])
-    def test_too_old_cleopatra_raises_branded_upgrade_error(self, monkeypatch, missing_symbol):
+    def test_too_old_cleopatra_raises_branded_upgrade_error(
+        self, monkeypatch, missing_symbol
+    ):
         """A cleopatra missing any parameter-object class surfaces the branded [viz]-upgrade error.
 
         Test scenario:
