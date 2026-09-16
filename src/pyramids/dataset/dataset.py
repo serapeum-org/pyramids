@@ -2270,7 +2270,6 @@ class Dataset(RasterBase):
         Returns:
             Any: `None` for a plain raster.
         """
-        return None
 
     def _label_combined(self, result: Any, source: Any) -> None:
         """Label a combined result with its operands' band layout, after `Analysis._combine`.
@@ -2282,7 +2281,6 @@ class Dataset(RasterBase):
             result: The combined raster.
             source: What `_combine_layout_source` returned.
         """
-        return None
 
     def _arithmetic(self, other: Any, op: Callable) -> Any:
         """Route a binary operator to :meth:`combine`, or decline the operand.
