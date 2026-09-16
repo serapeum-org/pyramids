@@ -64,7 +64,7 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Callable, Collection
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -771,13 +771,15 @@ def _dispatch_render(
         # (``interval`` / ``frame_label`` / ``cell_value_text_colors`` and the
         # lazy ``data_getter`` frame source) onto an ``Animation`` playback
         # object, instead of the loose ``animate(..., frame_label=, data_getter=)``
-        # keywords they used to be. Lift them out of the styling kwargs (and the
-        # mode) into that object; everything else carries through verbatim.
-        playback_fields = {
-            key: animate_kwargs.pop(key)
-            for key in ("interval", "frame_label", "cell_value_text_colors")
-            if key in animate_kwargs
-        }
+        # keywords they used to be. Derive the field names from ``Animation``
+        # itself — rather than a hand-copied list that could drift from cleopatra
+        # — and lift them out of the styling kwargs; ``data_getter`` comes from the
+        # mode, not the kwargs, so it is excluded from the kwarg sweep.
+        playback_keys = {f.name for f in fields(animation_cls)} - {"data_getter"}
+        playback_fields: dict[str, Any] = {}
+        for key in playback_keys:
+            if key in animate_kwargs:
+                playback_fields[key] = animate_kwargs.pop(key)
         if mode.data_getter is not None:
             playback_fields["data_getter"] = mode.data_getter
         playback = animation_cls(**playback_fields) if playback_fields else None
@@ -810,19 +812,13 @@ def _dispatch_render(
         # (``col`` / ``row`` / ``col_wrap`` / ``labels`` / ``figure_size`` /
         # ``axes`` / ``extents``) onto a ``FacetLayout`` object passed as the
         # first argument; only the per-panel render options stay loose keywords.
-        layout_fields = {
-            key: facet_call.pop(key)
-            for key in (
-                "col",
-                "row",
-                "col_wrap",
-                "labels",
-                "figure_size",
-                "axes",
-                "extents",
-            )
-            if key in facet_call
-        }
+        # Derive the layout field names from ``FacetLayout`` itself so the split
+        # cannot drift when cleopatra adds or renames a layout field.
+        layout_keys = {f.name for f in fields(facet_layout_cls)}
+        layout_fields: dict[str, Any] = {}
+        for key in layout_keys:
+            if key in facet_call:
+                layout_fields[key] = facet_call.pop(key)
         result = cleo.facet(
             facet_layout_cls(**layout_fields), **facet_call, **render_kwargs
         )

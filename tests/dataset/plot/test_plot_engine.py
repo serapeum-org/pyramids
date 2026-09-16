@@ -1,5 +1,6 @@
 """Plot tests: the Analysis plot engine, render_array kwarg routing, and the mesh-render helper."""
 
+import dataclasses
 from unittest.mock import patch
 
 import numpy as np
@@ -406,6 +407,63 @@ class TestRenderArrayKwargRouting:
         for key in ("col", "col_wrap", "labels"):
             assert key not in facet, (
                 f"`{key}` is a layout field and must not pass as a loose facet kwarg; facet={facet}"
+            )
+
+    def test_facet_lifts_every_facetlayout_field_onto_the_layout(self):
+        """Every FacetLayout dataclass field is lifted onto the layout, none left loose.
+
+        Test scenario:
+            The facet lift derives its key set from cleopatra's FacetLayout, so a sentinel
+            for each dataclass field must land on the FacetLayout and leave none as a loose
+            facet kwarg — a drift guard against cleopatra adding/renaming a layout field.
+        """
+        fake_cls, _, _, _, facet, _ = self._capture_calls()
+        field_names = [f.name for f in dataclasses.fields(_cleo_array.FacetLayout)]
+        facet_kwargs = {name: f"<{name}>" for name in field_names}
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
+            render_array(
+                arr=np.zeros((3, 4, 4), dtype="float32"),
+                extent=[0.0, 0.0, 1.0, 1.0],
+                mode="facet",
+                facet_kwargs=facet_kwargs,
+            )
+        layout = facet["layout"]
+        for name in field_names:
+            assert getattr(layout, name) == f"<{name}>", (
+                f"FacetLayout.{name} must be lifted from facet_kwargs; got {getattr(layout, name)!r}"
+            )
+            assert name not in facet, (
+                f"layout field `{name}` must not remain a loose facet kwarg; facet={facet}"
+            )
+
+    def test_animate_lifts_every_animation_playback_field(self):
+        """Every Animation playback field (bar data_getter) is lifted onto playback.
+
+        Test scenario:
+            The animate lift derives its key set from cleopatra's Animation, so a sentinel for
+            each field except ``data_getter`` (sourced from the mode) must land on the playback
+            object and leave none loose — a drift guard that also covers ``cell_value_text_colors``.
+        """
+        fake_cls, _, _, animate, _, _ = self._capture_calls()
+        field_names = [
+            f.name for f in dataclasses.fields(_cleo_array.Animation) if f.name != "data_getter"
+        ]
+        extras = {name: f"<{name}>" for name in field_names}
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
+            render_array(
+                arr=np.zeros((3, 4, 4), dtype="float32"),
+                extent=[0.0, 0.0, 1.0, 1.0],
+                mode="animate",
+                animation_axis_values=[0, 1, 2],
+                **extras,
+            )
+        playback = animate["playback"]
+        for name in field_names:
+            assert getattr(playback, name) == f"<{name}>", (
+                f"Animation.{name} must be lifted onto playback; got {getattr(playback, name)!r}"
+            )
+            assert name not in animate, (
+                f"playback field `{name}` must not remain a loose animate kwarg; animate={animate}"
             )
 
     def test_split_is_driven_by_option_keys(self):
