@@ -250,12 +250,13 @@ class TestReduceErrors:
         """An unknown reduction op raises ValueError naming the valid set.
 
         Test scenario:
-            `how='median'` is rejected.
+            `how='mode'` is rejected. (`median` was the example until it became a
+            supported reduction.)
         """
         arr = np.ones((2, 2, 2), dtype="float32")
         nc = _make_time_nc(arr, [0, 1])
         with pytest.raises(ValueError, match="how must be one of"):
-            nc.reduce("time", "median")
+            nc.reduce("time", "mode")
 
     def test_unknown_dimension_raises(self):
         """Reducing a non-existent dimension raises ValueError.

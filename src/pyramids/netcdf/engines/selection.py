@@ -21,6 +21,7 @@ import math
 import operator
 import warnings
 from collections.abc import Callable
+from numbers import Real
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn, cast
 
@@ -1375,165 +1376,373 @@ class Selection(_Engine["NetCDF"]):
         *,
         groupby: list | tuple | str | None = None,
         skipna: bool = True,
+        q: float | None = None,
     ) -> NetCDF:
-        """Reduce every variable along a named dimension and return a new NetCDF.
+        """Reduce along a named dimension and return a new NetCDF.
 
-        Collapses or coarsens one non-spatial dimension (`time`,
-        `pressure_level`, `depth`, an ensemble member, …) of every variable
-        that has it, leaving variables without `dim` and all other dimensions,
-        coordinates, CRS, and the grid untouched. The result is a new
-        :class:`NetCDF` container — no third-party labeled-array library
-        involved. Only gridded variables
-        are reduced; non-spatial auxiliary variables (no ``y`` / ``x`` axes,
-        e.g. ERA5's ``number``) are carried through unchanged rather than
-        crashing the fan-out (#513) — except an auxiliary variable that itself
-        spans `dim`, which is dropped with a warning (carrying it verbatim would
-        leave an inconsistent `dim` length against the collapsed variables).
+        Collapses or coarsens one non-spatial dimension (`time`, `pressure_level`, `depth`,
+        an ensemble member, ...), leaving all other dimensions, coordinates, the CRS and the
+        grid untouched. No third-party labeled-array library is involved.
+
+        On a **container**, every variable that has `dim` is reduced and the result is a new
+        container. Only gridded variables are reduced; non-spatial auxiliary variables (no
+        `y` / `x` axes, e.g. ERA5's `number`) are carried through unchanged (#513) — except
+        an auxiliary variable that itself spans `dim`, which is dropped with a warning,
+        since carrying it verbatim would leave an inconsistent `dim` length.
+
+        On a **variable** — `nc.get_variable(name)`, a selection, or an operator result —
+        that variable alone is reduced and the result is a variable, so
+        `nc.get_variable("t").reduce("time")` holds the same cells as
+        `nc.reduce("time").get_variable("t")`. A variable with no name of its own (an
+        operator result) comes back named `"variable"`.
 
         Args:
-            dim: Name of the non-spatial dimension to reduce. Must be one of a
-                variable's band dimensions (as exposed by ``sel``); spatial
-                ``lat`` / ``lon`` dimensions are not reducible here.
-            how: Reduction operation — one of ``"mean"``, ``"sum"``, ``"min"``,
-                ``"max"``, ``"std"``, ``"var"``.
+            dim: Name of the non-spatial dimension to reduce. Must be one of a variable's
+                band dimensions (as exposed by `sel`); the spatial axes are not reducible
+                here.
+            how: The reduction. The float statistics are `"mean"`, `"sum"`, `"min"`,
+                `"max"`, `"std"`, `"var"`, `"median"`, `"prod"` and `"quantile"` (which
+                needs `q`). `"count"` answers the number of valid cells as `int64`, and
+                `"all"` / `"any"` answer a `uint8` 0/1 flag whether every / some valid cell
+                is non-zero — the band format the comparison operators produce.
             groupby: Controls collapse vs. windowed reduction:
 
-                - ``None`` (default): collapse `dim` entirely (it is removed
-                  from the output).
-                - a sequence of per-index labels (length = the size of `dim`):
-                  reduce each group of equal labels; `dim` is coarsened to one
-                  slice per distinct label, in first-appearance order.
-                - a pandas offset alias (e.g. ``"1MS"``, ``"1D"``, ``"YS"``):
-                  group `dim` by calendar window. Only valid when `dim` carries
-                  a decodable CF time coordinate.
-            skipna: When ``True`` (default), mask each variable's NoData value to
-                ``NaN`` and reduce with the ``nan``-aware operation, then refill
-                ``NaN`` results with NoData. The output is float64. When
-                ``False``, reduce the raw values with the plain operation.
+                - `None` (default): collapse `dim` entirely (it is removed from the output).
+                - a sequence of per-index labels (length = the size of `dim`): reduce each
+                  group of equal labels; `dim` is coarsened to one slice per distinct label,
+                  in first-appearance order.
+                - a pandas offset alias (e.g. `"1MS"`, `"1D"`, `"YS"`): group `dim` by
+                  calendar window. Only valid when `dim` carries a decodable CF time
+                  coordinate.
+            skipna: When `True` (default), gaps — the declared no-data value and NaN — are
+                skipped. For the float statistics the result is float64 and a slice with no
+                valid cell is no-data; `all` / `any` treat a gap as neutral and answer
+                `255`, their no-data value, for a slice with no valid cell. When `False`,
+                the raw stored values are reduced, sentinel included. `count` counts valid
+                cells either way.
+            q: The quantile for `how="quantile"`, one number in `[0, 1]`, using numpy's
+                default linear interpolation. Required for `"quantile"` and refused for
+                every other `how`.
 
         Returns:
-            NetCDF: A new container with `dim` removed (``groupby=None``) or
-            coarsened (windowed). When the windowed dimension keeps a numeric
-            coordinate, each output slice is labelled with the first source
-            coordinate value of its window.
+            NetCDF: A container for a container, a variable for a variable, with `dim`
+            removed (`groupby=None`) or coarsened (windowed). A windowed dimension with a
+            numeric coordinate labels each output slice with the first coordinate value of
+            its window. `count` declares no no-data value; `all` / `any` declare `255`.
 
         Raises:
-            ValueError: When `how` is unknown, the container has no data
-                variables, `dim` is not a non-spatial dimension of any variable,
-                a frequency `groupby` is given but `dim` has no decodable time
-                coordinate, or the grouping does not cover `dim` exactly.
+            ValueError: `how` is unknown; `q` is missing, not a single number in `[0, 1]`,
+                or given with a `how` other than `"quantile"`; the container has no data
+                variables; `dim` is not a non-spatial dimension of any variable (or of this
+                variable); a frequency `groupby` is given but `dim` has no decodable time
+                coordinate; or the grouping does not cover `dim` exactly.
 
         Examples:
-            - Monthly mean of an ERA5-style ``(time, lat, lon)`` file:
-                ```python
-                >>> from pyramids.netcdf import NetCDF  # doctest: +SKIP
-                >>> nc = NetCDF.read_file("era5_t2m_hourly.nc")  # doctest: +SKIP
-                >>> monthly = nc.reduce("time", "mean", groupby="1MS")  # doctest: +SKIP
-                >>> monthly.get_variable("t2m").band_count  # doctest: +SKIP
-                12
+            - The median and the number of valid steps, on a variable with one gap:
 
-                ```
-            - Collapse a pressure-level axis to its column mean:
-                ```python
-                >>> column = nc.reduce("pressure_level", "mean")  # doctest: +SKIP
-                >>> "pressure_level" in column.get_variable("t").dimensions  # doctest: +SKIP
-                False
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> values = np.array([1.0, 2.0, -9999.0, 10.0]).reshape(4, 1, 1)
+              >>> var = NetCDF.from_array(
+              ...     values,
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     no_data_value=-9999.0,
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> float(var.reduce("time", "median").read_array()[0, 0])
+              2.0
+              >>> int(var.reduce("time", "count").read_array()[0, 0])
+              3
 
-                ```
+              ```
+            - A quantile needs `q`, and nothing else accepts one:
+
+              ```python
+              >>> float(var.reduce("time", "quantile", q=0.5).read_array()[0, 0])
+              2.0
+              >>> var.reduce("time", "mean", q=0.5)  # doctest: +IGNORE_EXCEPTION_DETAIL
+              Traceback (most recent call last):
+                ...
+              ValueError: q= is only meaningful with how='quantile'
+
+              ```
+            - Monthly mean of an ERA5-style `(time, lat, lon)` file:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF  # doctest: +SKIP
+              >>> nc = NetCDF.read_file("era5_t2m_hourly.nc")  # doctest: +SKIP
+              >>> monthly = nc.reduce("time", "mean", groupby="1MS")  # doctest: +SKIP
+              >>> monthly.get_variable("t2m").band_count  # doctest: +SKIP
+              12
+
+              ```
         """
         # Local import breaks the netcdf.py <-> engines.selection import cycle
-        # (netcdf.py imports this module at top level for wiring); _REDUCERS is a
-        # module-level reducer registry there, shared with the reduce helpers.
-        from pyramids.netcdf.netcdf import _REDUCERS
+        # (netcdf.py imports this module at top level for wiring); the reducer registries
+        # are module-level there, shared with the reduce helpers.
+        from pyramids.netcdf.netcdf import _COUNTING_REDUCERS, _REDUCERS, Variable
 
         nc = self._ds
-        if how not in _REDUCERS:
-            raise ValueError(f"how must be one of {sorted(_REDUCERS)}; got {how!r}")
-        names = nc.variable_names
-        if not names:
-            raise ValueError("Cannot reduce an empty container (no data variables).")
-
-        group_positions = nc._resolve_group_positions(dim, groupby)
-
-        # Reduce only the gridded variables; non-spatial auxiliaries (no y/x axes)
-        # can't go through the raster reduce path, so they are carried through
-        # unchanged below — the same split crop / to_crs use (#513). Resolve the root
-        # group once and reuse it for the spanning-aux probe further down.
-        rg = nc._working_group()
-        spatial_vars = nc._spatial_variable_names(rg)
-        aux_vars = nc._carryable_aux_names(rg, spatial_vars)
-
-        result = None
-        found = False
-        for var_name in spatial_vars:
-            var = nc._require_raster_variable(var_name)
-            band_names = list(var._band_dim_names)
-            values_map = dict(var._band_dim_values_map)
-            ndv = scalar_no_data(var.no_data_value)
-
-            if dim in band_names:
-                found = True
-                axis = band_names.index(dim)
-                # Stream the reduction over a chunked (dask) read so a large (dim, y, x) cube is
-                # never fully held in RAM; only the small reduced result is computed (ARC-47). The
-                # `np.*`/`np.nan*` reducers dispatch to dask on a dask array, so `_reduce_variable_array`
-                # stays unchanged; `np.asarray` then computes the reduced result.
-                arr = nc._materialize_variable_array(var, lazy=True)
-                arr, band_names, values_map = nc._reduce_variable_array(
-                    arr,
-                    axis,
-                    dim,
-                    band_names,
-                    values_map,
-                    how,
-                    skipna,
-                    ndv,
-                    groupby,
-                    group_positions,
-                )
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore", RuntimeWarning)
-                    arr = np.asarray(arr)
-            else:
-                arr = nc._materialize_variable_array(var)
-
-            result = nc._stack_reduced_variable(
-                result,
-                var_name,
-                arr,
-                var.geotransform,
-                crs_spec(var.epsg, var.crs),
-                ndv,
-                band_names,
-                values_map,
+        known = sorted({*_REDUCERS, *_COUNTING_REDUCERS})
+        if how not in known:
+            raise ValueError(f"how must be one of {known}; got {how!r}")
+        _check_quantile(how, q)
+        if isinstance(nc, Variable):
+            result = _reduce_variable_subset(
+                nc, dim, how, groupby=groupby, skipna=skipna, q=q
             )
+        else:
+            result = _reduce_container(
+                nc, dim, how, groupby=groupby, skipna=skipna, q=q
+            )
+        return result
 
-        if not found:
+
+def _check_quantile(how: str, q: Any) -> None:
+    """Refuse a `q` that is missing for `"quantile"` or given to any other reducer.
+
+    NaN fails the range test by itself — every comparison with it is false — so it needs no
+    case of its own; `bool` is refused by name because `True` is a `Real` equal to 1.
+
+    Args:
+        how: The requested reduction.
+        q: The quantile argument as passed.
+
+    Raises:
+        ValueError: `how` is `"quantile"` and `q` is not one real number in `[0, 1]`, or
+            `how` is anything else and `q` is not `None`.
+    """
+    if how == "quantile":
+        usable = (
+            isinstance(q, Real)
+            and not isinstance(q, (bool, np.bool_))
+            and 0 <= float(q) <= 1
+        )
+        if not usable:
             raise ValueError(
-                f"Dimension {dim!r} is not a non-spatial dimension of any "
-                f"variable in this container."
+                f"how='quantile' needs q= set to one number in [0, 1], got {q!r}."
             )
-        # Auxiliary variables that span the reduced dimension cannot be carried
-        # verbatim — they would keep the full-length axis while the gridded
-        # variables collapse it, leaving an inconsistent dimension length. Drop
-        # those with a warning; carry the rest unchanged.
-        carry_aux: list[str] = []
-        spanning_aux: list[str] = []
-        for name in aux_vars:
-            var_dims = nc._variable_dim_names(rg, name)
-            (spanning_aux if dim in var_dims else carry_aux).append(name)
-        if spanning_aux:
-            warnings.warn(
-                f"reduce() dropped auxiliary variable(s) {spanning_aux} that span "
-                f"the reduced dimension {dim!r}; carrying them unchanged would "
-                f"leave an inconsistent {dim!r} length in the result.",
-                # stacklevel=3 (not 2): the user calls NetCDF.reduce, which forwards
-                # through the one-line façade to this engine method, so the user's
-                # call site is three frames up — keeping the original warning location.
-                stacklevel=3,
+    elif q is not None:
+        raise ValueError(
+            f"q= is only meaningful with how='quantile', got how={how!r} and q={q!r}."
+        )
+
+
+def _reduced_array(
+    nc: NetCDF,
+    var: NetCDF,
+    dim: str,
+    how: str,
+    *,
+    group_positions: list | None,
+    groupby: Any,
+    skipna: bool,
+    q: float | None,
+) -> tuple[np.ndarray, list[str], dict[str, Any], Any]:
+    """Reduce one raster variable along `dim`, the step a container and a variable share.
+
+    Streams a file-backed variable through dask so a large `(dim, y, x)` cube is never held
+    whole in memory; only the reduced result is computed (ARC-47). The `np.*` / `np.nan*`
+    reducers dispatch to dask on a dask array, so `_reduce_variable_array` stays unchanged.
+
+    Args:
+        nc: The object `reduce` was called on, which owns the reduce helpers.
+        var: The variable to reduce; `dim` must be one of its band dimensions.
+        dim: The dimension to reduce.
+        how: The reduction.
+        group_positions: The resolved groups, or `None` to collapse.
+        groupby: The grouping as the caller passed it.
+        skipna: Whether gaps are skipped.
+        q: The quantile, for `how="quantile"`.
+
+    Returns:
+        tuple: The reduced array, its band dimension names, its coordinate map, and the
+        no-data value the reduced band declares — `None` for a count, `255` for a flag,
+        the variable's own otherwise.
+    """
+    from pyramids.netcdf.netcdf import _COUNTING_REDUCERS, _FLAG_NO_DATA
+
+    band_names = list(var._band_dim_names)
+    values_map = dict(var._band_dim_values_map)
+    ndv = scalar_no_data(var.no_data_value)
+    arr = nc._materialize_variable_array(var, lazy=True)
+    arr, band_names, values_map = nc._reduce_variable_array(
+        arr,
+        band_names.index(dim),
+        dim,
+        band_names,
+        values_map,
+        how,
+        skipna,
+        ndv,
+        groupby,
+        group_positions,
+        q,
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        arr = np.asarray(arr)
+    result_ndv = ndv
+    if how == "count":
+        result_ndv = None
+    elif how in _COUNTING_REDUCERS:
+        result_ndv = _FLAG_NO_DATA
+    return arr, band_names, values_map, result_ndv
+
+
+def _reduce_variable_subset(
+    nc: NetCDF,
+    dim: str,
+    how: str,
+    *,
+    groupby: Any,
+    skipna: bool,
+    q: float | None,
+) -> NetCDF:
+    """Reduce a single variable and hand back a variable.
+
+    Args:
+        nc: The variable.
+        dim: The dimension to reduce.
+        how: The reduction.
+        groupby: The grouping, as `reduce` documents it.
+        skipna: Whether gaps are skipped.
+        q: The quantile, for `how="quantile"`.
+
+    Returns:
+        NetCDF: The reduced variable, named after `nc` or `"variable"` when `nc` has no
+        name of its own.
+
+    Raises:
+        ValueError: `nc` has no band dimensions, or `dim` is not one of them.
+    """
+    _assert_band_dimension(nc, dim, caller="reduce")
+    group_positions = nc._resolve_group_positions(dim, groupby)
+    arr, band_names, values_map, ndv = _reduced_array(
+        nc,
+        nc,
+        dim,
+        how,
+        group_positions=group_positions,
+        groupby=groupby,
+        skipna=skipna,
+        q=q,
+    )
+    name = nc._source_var_name or "variable"
+    container = nc._stack_reduced_variable(
+        None,
+        name,
+        arr,
+        nc.geotransform,
+        crs_spec(nc.epsg, nc.crs),
+        ndv,
+        band_names,
+        values_map,
+    )
+    return cast("NetCDF", container.get_variable(name))
+
+
+def _reduce_container(
+    nc: NetCDF,
+    dim: str,
+    how: str,
+    *,
+    groupby: Any,
+    skipna: bool,
+    q: float | None,
+) -> NetCDF:
+    """Reduce every variable of a container that has `dim`.
+
+    Args:
+        nc: The container.
+        dim: The dimension to reduce.
+        how: The reduction.
+        groupby: The grouping, as `reduce` documents it.
+        skipna: Whether gaps are skipped.
+        q: The quantile, for `how="quantile"`.
+
+    Returns:
+        NetCDF: The reduced container.
+
+    Raises:
+        ValueError: The container has no data variables, or no variable has `dim`.
+    """
+    names = nc.variable_names
+    if not names:
+        raise ValueError("Cannot reduce an empty container (no data variables).")
+
+    group_positions = nc._resolve_group_positions(dim, groupby)
+
+    # Reduce only the gridded variables; non-spatial auxiliaries (no y/x axes)
+    # can't go through the raster reduce path, so they are carried through
+    # unchanged below — the same split crop / to_crs use (#513). Resolve the root
+    # group once and reuse it for the spanning-aux probe further down.
+    rg = nc._working_group()
+    spatial_vars = nc._spatial_variable_names(rg)
+    aux_vars = nc._carryable_aux_names(rg, spatial_vars)
+
+    result = None
+    found = False
+    for var_name in spatial_vars:
+        var = nc._require_raster_variable(var_name)
+        band_names = list(var._band_dim_names)
+        values_map = dict(var._band_dim_values_map)
+        ndv = scalar_no_data(var.no_data_value)
+
+        if dim in band_names:
+            found = True
+            arr, band_names, values_map, ndv = _reduced_array(
+                nc,
+                var,
+                dim,
+                how,
+                group_positions=group_positions,
+                groupby=groupby,
+                skipna=skipna,
+                q=q,
             )
-        nc._carry_aux_variables(cast("NetCDF", result), carry_aux, "reduce")
-        return cast("NetCDF", result)
+        else:
+            arr = nc._materialize_variable_array(var)
+
+        result = nc._stack_reduced_variable(
+            result,
+            var_name,
+            arr,
+            var.geotransform,
+            crs_spec(var.epsg, var.crs),
+            ndv,
+            band_names,
+            values_map,
+        )
+
+    if not found:
+        raise ValueError(
+            f"Dimension {dim!r} is not a non-spatial dimension of any "
+            f"variable in this container."
+        )
+    # Auxiliary variables that span the reduced dimension cannot be carried
+    # verbatim — they would keep the full-length axis while the gridded
+    # variables collapse it, leaving an inconsistent dimension length. Drop
+    # those with a warning; carry the rest unchanged.
+    carry_aux: list[str] = []
+    spanning_aux: list[str] = []
+    for name in aux_vars:
+        var_dims = nc._variable_dim_names(rg, name)
+        (spanning_aux if dim in var_dims else carry_aux).append(name)
+    if spanning_aux:
+        warnings.warn(
+            f"reduce() dropped auxiliary variable(s) {spanning_aux} that span "
+            f"the reduced dimension {dim!r}; carrying them unchanged would "
+            f"leave an inconsistent {dim!r} length in the result.",
+            # stacklevel=4: the user calls NetCDF.reduce, which forwards through the
+            # one-line façade to Selection.reduce, which calls this helper, so the
+            # user's call site is four frames up.
+            stacklevel=4,
+        )
+    nc._carry_aux_variables(cast("NetCDF", result), carry_aux, "reduce")
+    return cast("NetCDF", result)
 
 
 def _curvilinear_coords_2d(

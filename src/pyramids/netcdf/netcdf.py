@@ -491,8 +491,22 @@ _REDUCERS: dict[str, tuple[Any, Any]] = {
     "max": (np.nanmax, np.max),
     "std": (np.nanstd, np.std),
     "var": (np.nanvar, np.var),
+    "median": (np.nanmedian, np.median),
+    "prod": (np.nanprod, np.prod),
+    "quantile": (np.nanquantile, np.quantile),
 }
-"""Per-operation `(skipna_func, plain_func)` pairs for :meth:`NetCDF.reduce`."""
+"""Per-operation `(skipna_func, plain_func)` pairs for the float-valued reductions of
+:meth:`NetCDF.reduce`. `quantile` is the one that takes an extra argument, `q`."""
+
+_COUNTING_REDUCERS: frozenset[str] = frozenset({"count", "all", "any"})
+"""Reductions answering a count or a truth flag rather than a float statistic.
+
+They cannot share the float rule in `NetCDF._reduce_axis` — cast to float64, turn gaps into
+NaN, restore the sentinel on an all-gap column — because a count is an integer that is never
+missing and a flag is a boolean GDAL has no band type for."""
+
+_FLAG_NO_DATA = 255
+"""The no-data value of a `uint8` 0/1 flag band: the value the comparison operators declare."""
 
 # GDAL's WKT ``PROJECTION`` node value for the CF geostationary projection
 # (set by ``osr.SpatialReference.SetGEOS`` / reconstructed from a
@@ -7106,9 +7120,17 @@ class NetCDF(Dataset):
         mem = self._apply_to_all_variables(operation, op_kwargs, warn_demoted=False)
         return cast("NetCDF", mem._persist_to(path))
 
-    def reduce(self, *args, **kwargs) -> NetCDF:
+    def reduce(
+        self,
+        dim: str,
+        how: str = "mean",
+        *,
+        groupby: list | tuple | str | None = None,
+        skipna: bool = True,
+        q: float | None = None,
+    ) -> NetCDF:
         """Facade — :meth:`Selection.reduce <pyramids.netcdf.engines.selection.Selection.reduce>`."""
-        return self.selection.reduce(*args, **kwargs)
+        return self.selection.reduce(dim, how, groupby=groupby, skipna=skipna, q=q)
 
     @staticmethod
     def _is_file_backed(var: NetCDF) -> bool:
@@ -7216,10 +7238,11 @@ class NetCDF(Dataset):
         ndv,
         groupby,
         group_positions,
+        q=None,
     ):
         """Reduce one variable's array along `axis`; return new array + dims."""
         if group_positions is None:
-            new_arr = self._reduce_axis(arr, axis, how, skipna, ndv)
+            new_arr = self._reduce_axis(arr, axis, how, skipna, ndv, q)
             new_band_names = [name for name in band_names if name != dim]
             new_values_map = {name: values_map.get(name) for name in new_band_names}
         else:
@@ -7231,7 +7254,7 @@ class NetCDF(Dataset):
                 )
             slices = [
                 self._reduce_axis(
-                    np.take(arr, positions, axis=axis), axis, how, skipna, ndv
+                    np.take(arr, positions, axis=axis), axis, how, skipna, ndv, q
                 )
                 for positions in group_positions
             ]
@@ -7247,25 +7270,72 @@ class NetCDF(Dataset):
         return new_arr, new_band_names, new_values_map
 
     @staticmethod
-    def _reduce_axis(arr, axis, how, skipna, ndv):
-        """Apply one reduction over `axis`, masking NoData when `skipna`."""
-        nan_func, plain_func = _REDUCERS[how]
-        if skipna:
-            data = arr.astype("float64")
-            if ndv is not None:
-                data = np.where(data == ndv, np.nan, data)
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", RuntimeWarning)
-                out = nan_func(data, axis=axis)
-            # nansum/nanstd/nanvar return 0 (not NaN) for an all-NoData slice,
-            # so detect fully-masked positions explicitly and restore NoData for
-            # every reducer rather than leaking a spurious 0.
-            all_masked = np.all(np.isnan(data), axis=axis)
-            fill = ndv if ndv is not None else np.nan
-            out = np.where(np.isnan(out) | all_masked, fill, out)
-            result = out
+    def _reduce_axis(arr, axis, how, skipna, ndv, q=None):
+        """Apply one reduction over `axis`, masking NoData when `skipna`.
+
+        `q` is passed through to the quantile functions and to nothing else.
+        """
+        if how in _COUNTING_REDUCERS:
+            result = NetCDF._count_axis(arr, axis, how, skipna, ndv)
         else:
-            result = plain_func(arr, axis=axis)
+            nan_func, plain_func = _REDUCERS[how]
+            extra = {} if q is None else {"q": q}
+            if skipna:
+                data = arr.astype("float64")
+                if ndv is not None:
+                    data = np.where(data == ndv, np.nan, data)
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", RuntimeWarning)
+                    out = nan_func(data, axis=axis, **extra)
+                # nansum/nanprod/nanstd/nanvar return a number (not NaN) for an
+                # all-NoData slice, so detect fully-masked positions explicitly and
+                # restore NoData for every reducer rather than leaking a spurious 0 or 1.
+                all_masked = np.all(np.isnan(data), axis=axis)
+                fill = ndv if ndv is not None else np.nan
+                out = np.where(np.isnan(out) | all_masked, fill, out)
+                result = out
+            else:
+                result = plain_func(arr, axis=axis, **extra)
+        return result
+
+    @staticmethod
+    def _count_axis(arr, axis, how, skipna, ndv):
+        """Count the valid cells along `axis`, or test them for truth.
+
+        A cell is valid when it is neither NaN nor the declared sentinel. `count` answers
+        an `int64` count of them — 0 for a column with none — whatever `skipna` says, since
+        a count has nothing to skip. `all` and `any` answer a `uint8` 0/1 flag: with `skipna`
+        a gap is neutral (true for `all`, false for `any`) and a column with no valid cell
+        answers `_FLAG_NO_DATA`; without it the raw values are tested, where a non-zero
+        sentinel and NaN are both true, as they are to numpy.
+
+        Args:
+            arr: The unflattened array, numpy or dask.
+            axis: The axis to reduce.
+            how: `"count"`, `"all"` or `"any"`.
+            skipna: Whether gaps are skipped, for `all`/`any`.
+            ndv: The declared sentinel, or `None`.
+
+        Returns:
+            The reduced array: `int64` for `count`, `uint8` for `all`/`any`.
+        """
+        valid = np.ones_like(arr, dtype=bool)
+        if np.issubdtype(arr.dtype, np.floating):
+            valid = ~np.isnan(arr)
+        if ndv is not None:
+            valid = valid & (arr != ndv)
+        if how == "count":
+            result = np.sum(valid, axis=axis, dtype=np.int64)
+        else:
+            test = np.all if how == "all" else np.any
+            if skipna:
+                gap = how == "all"
+                flags = test(np.where(valid, arr != 0, gap), axis=axis)
+                result = np.where(
+                    np.any(valid, axis=axis), flags.astype(np.uint8), _FLAG_NO_DATA
+                ).astype(np.uint8)
+            else:
+                result = test(arr != 0, axis=axis).astype(np.uint8)
         return result
 
     def _stack_reduced_variable(
