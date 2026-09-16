@@ -10818,8 +10818,12 @@ class NetCDF(Dataset):
         `2 - var`) reaches the same engine without passing through here, and keeps them as well.
 
         The labels come from this variable when it has them, and from `other` when only it
-        does. When both do, their dimension names and sizes must match, or the planes do not
-        pair up and the call is refused. Their coordinate values may differ: two cuts of one
+        does. What one operand lacks, the other supplies, so no label is lost to the order the
+        operands are written in: a dimension without coordinates on one side takes the other
+        side's coordinates with their time units, and agreeing coordinates without units take
+        the units the other side carries. When both carry band dimensions, their names and
+        sizes must match, or the planes do not pair up and the call is refused. Their
+        coordinate values may differ: two cuts of one
         variable at different steps (`sel(time=6.0) - sel(time=0.0)`, a tendency
         `isel(time=slice(1, None)) - isel(time=slice(None, -1))`) combine, and a dimension
         whose coordinates disagree keeps its name and length but comes back without
@@ -10919,7 +10923,7 @@ class NetCDF(Dataset):
 
     def _combine_layout_source(
         self, other: Any, band: int | None
-    ) -> tuple[NetCDF | None, list[str]]:
+    ) -> tuple[NetCDF | None, list[str], NetCDF | None]:
         """Check the operands' band layouts for `Analysis._combine` and name what to copy.
 
         Every route to a combined raster ends in `Analysis._combine` — the `combine` facade,
@@ -10931,38 +10935,60 @@ class NetCDF(Dataset):
             band: The single band being combined, or `None` for all of them.
 
         Returns:
-            tuple[NetCDF | None, list[str]]: The operand whose layout describes the result and
-            the dimensions whose coordinates the operands disagree on; `(None, [])` when a
-            single band is combined, since one band cannot carry a multi-band layout.
+            tuple[NetCDF | None, list[str], NetCDF | None]: The operand whose layout describes
+            the result, the dimensions whose coordinates the operands disagree on, and the
+            other operand when it carries band dimensions too, so the labels one operand lacks
+            can come from it; `(None, [], None)` when a single band is combined, since one band
+            cannot carry a multi-band layout.
 
         Raises:
             ValueError: As `_band_layout_source` raises.
         """
-        return (None, []) if band is not None else self._band_layout_source(other)
+        layout: tuple[NetCDF | None, list[str], NetCDF | None] = (None, [], None)
+        if band is None:
+            layout_source, disagreeing = self._band_layout_source(other)
+            paired = (
+                layout_source is self
+                and other is not self
+                and isinstance(other, NetCDF)
+                and bool(other._band_dim_names)
+            )
+            layout = (layout_source, disagreeing, other if paired else None)
+        return layout
 
     def _label_combined(self, result: Any, source: Any) -> None:
         """Copy the band layout onto the raster `Analysis._combine` built.
 
         Dimensions the operands disagree on keep their name and length and lose their
         coordinates, and the units carried for them in `_band_dim_time_attrs`, since neither
-        operand's stamps describe the result.
+        operand's stamps describe the result. Every other dimension takes its labels from
+        whichever operand has them, so the result does not depend on operand order: a
+        dimension without coordinates on the layout source takes the other operand's, with
+        that operand's units, and agreeing coordinates that carry no units take the other
+        operand's units (`_fill_band_label`).
 
         Args:
             result: The combined raster.
-            source: What `_combine_layout_source` returned: the source operand and the
-                disagreeing dimensions.
+            source: What `_combine_layout_source` returned: the source operand, the
+                disagreeing dimensions, and the other operand when it carries band dimensions.
         """
-        layout_source, disagreeing = source
+        layout_source, disagreeing, partner = source
         NetCDF._label_result_bands(result, layout_source)
         labelled = (
-            disagreeing
+            (disagreeing or partner is not None)
             and isinstance(result, NetCDF)
             and tuple(result._band_dim_names) == tuple(layout_source._band_dim_names)
         )
         if labelled:
-            for name in disagreeing:
-                result._band_dim_values_map[name] = None
-                result._band_dim_time_attrs.pop(name, None)
+            partner_units = (
+                {} if partner is None else partner._resolved_band_dim_time_attrs()
+            )
+            for name in result._band_dim_names:
+                if name in disagreeing:
+                    result._band_dim_values_map[name] = None
+                    result._band_dim_time_attrs.pop(name, None)
+                elif partner is not None:
+                    NetCDF._fill_band_label(result, partner, name, partner_units)
             result._band_dim_name, result._band_dim_values = (
                 NetCDF._derive_primary_band_view(
                     result._band_dim_names,
@@ -10971,6 +10997,43 @@ class NetCDF(Dataset):
                     result._band_count,
                 )
             )
+
+    @staticmethod
+    def _fill_band_label(
+        result: NetCDF,
+        partner: NetCDF,
+        name: str,
+        partner_units: dict[str, tuple[str, str]],
+    ) -> None:
+        """Give `result`'s dimension `name` the labels `partner` has and `result` lacks.
+
+        Coordinates and their units travel together, so one operand's units never describe the
+        other operand's stamps:
+
+        - `result` has no coordinates and `partner` has them: take `partner`'s coordinates and
+          `partner`'s units, or no units when `partner` carries none;
+        - both have coordinates (they agree, or `name` would have been unlabelled) and only
+          `partner` carries units: take those units;
+        - `partner` has no coordinates: leave `result` as it is, units included.
+
+        Args:
+            result: The labelled result, edited in place.
+            partner: The operand that did not label `result`.
+            name: The band dimension.
+            partner_units: `partner`'s resolved units, `{dimension: (units, calendar)}`.
+        """
+        theirs = partner._band_dim_values_map.get(name)
+        if theirs is not None and result._band_dim_values_map.get(name) is None:
+            result._band_dim_values_map[name] = list(theirs)
+            result._band_dim_time_attrs.pop(name, None)
+            if name in partner_units:
+                result._band_dim_time_attrs[name] = partner_units[name]
+        elif (
+            theirs is not None
+            and name not in result._band_dim_time_attrs
+            and name in partner_units
+        ):
+            result._band_dim_time_attrs[name] = partner_units[name]
 
     def _band_layout_source(self, other: Any) -> tuple[NetCDF | None, list[str]]:
         """The operand whose band dimensions describe a combined result, and where they disagree.

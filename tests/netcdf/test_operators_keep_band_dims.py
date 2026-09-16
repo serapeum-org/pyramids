@@ -10,6 +10,7 @@ that must come out exactly as before.
 
 from __future__ import annotations
 
+import operator
 from pathlib import Path
 
 import numpy as np
@@ -532,23 +533,22 @@ class TestHowTheLayoutsAreCompared:
 
     @pytest.mark.parametrize("side", ["left", "right"])
     def test_a_coordinate_less_dimension_is_not_compared(self, side):
-        """A dimension without coordinates on one side agrees with any coordinates.
+        """A dimension without coordinates on one side agrees with any coordinates, and takes them.
 
         Args:
             side: Which operand has lost the `time` coordinates.
 
         Test scenario:
-            The labels are taken from the left operand, so the result is coordinate-less
-            exactly when the left operand is.
+            Nothing disagrees, so the result is stamped with the coordinates the other operand
+            has, whichever side the coordinate-less operand is on.
         """
         labelled = _variable([("time", TIMES), ("pressure_level", LEVELS)])
         bare = labelled * 1
         bare._band_dim_values_map["time"] = None
         left, right = (bare, labelled) if side == "left" else (labelled, bare)
         result = left + right
-        expected = None if side == "left" else TIMES
-        assert result._band_dim_values_map["time"] == expected, (
-            f"expected time coordinates {expected}, "
+        assert result._band_dim_values_map["time"] == TIMES, (
+            f"expected time coordinates {TIMES}, "
             f"got {result._band_dim_values_map['time']}"
         )
 
@@ -1167,6 +1167,124 @@ class TestTimeUnitsDecideAgreement:
         )
 
 
+DAYS_1990 = ("days since 1990-01-01", "noleap")
+
+
+def _time_level(stamps: list | None, units: tuple[str, str] | None = None) -> NetCDF:
+    """A 4x3 `(time, pressure_level)` variable with `time` stamped `stamps` in `units`.
+
+    Args:
+        stamps: The `time` coordinates, or `None` for a `time` without coordinates.
+        units: The `(units, calendar)` carried for `time`, or `None` for none.
+
+    Returns:
+        NetCDF: The variable.
+    """
+    variable = _variable([("time", TIMES), ("pressure_level", LEVELS)])
+    variable._band_dim_values_map["time"] = None if stamps is None else list(stamps)
+    variable._band_dim_time_attrs = {} if units is None else {"time": units}
+    return variable
+
+
+def _time_label(nc: NetCDF) -> tuple:
+    """`time`'s coordinates and carried units on `nc`.
+
+    Args:
+        nc: A labelled variable.
+
+    Returns:
+        tuple: `(coordinates or None, (units, calendar) or None)`.
+    """
+    return nc._band_dim_values_map["time"], nc._band_dim_time_attrs.get("time")
+
+
+class TestLabelsDoNotDependOnOperandOrder:
+    """What one operand lacks — coordinates, or time units — the other supplies, in either order."""
+
+    @pytest.fixture
+    def cuts(self, cube):
+        """Two steps of the shared cube, and their difference, which has no `time` coordinates.
+
+        Args:
+            cube: The shared `(time, pressure_level)` variable.
+
+        Returns:
+            tuple[NetCDF, NetCDF, NetCDF]: `(early, late, change)`.
+        """
+        early = cube.isel(time=[0, 1])
+        late = cube.isel(time=[2, 3])
+        return early, late, late - early
+
+    @pytest.mark.parametrize("apply", [operator.add, operator.mul], ids=["add", "mul"])
+    def test_a_coordinate_less_operand_takes_the_other_s_stamps(self, cuts, apply):
+        """`change + late` and `late + change` are both stamped `[12, 18]`.
+
+        Args:
+            cuts: `(early, late, change)`.
+            apply: A commutative operator.
+
+        Test scenario:
+            `change` has no `time` coordinates, so nothing disagrees; the left operand used to
+            decide, and `change + late` came back without the stamps `late + change` kept.
+        """
+        _, late, change = cuts
+        forward = apply(change, late)
+        backward = apply(late, change)
+        assert forward._band_dim_values_map["time"] == [12.0, 18.0], (
+            forward._band_dim_values_map
+        )
+        assert backward._band_dim_values_map["time"] == [12.0, 18.0], (
+            backward._band_dim_values_map
+        )
+        assert forward._band_dim_values_map["pressure_level"] == LEVELS
+
+    def test_a_chain_labels_the_same_whichever_pair_runs_first(self, cuts):
+        """`(late + change) + early` and `late + (change + early)` both leave `time` unlabelled."""
+        early, late, change = cuts
+        first = (late + change) + early
+        second = late + (change + early)
+        assert first._band_dim_values_map["time"] is None, first._band_dim_values_map
+        assert second._band_dim_values_map["time"] is None, second._band_dim_values_map
+
+    def test_units_on_one_side_are_kept_in_either_order(self):
+        """Equal stamps, one side dated: both results carry the units and select by date.
+
+        Test scenario:
+            The stamps agree by value, so they are kept; the units only the right operand
+            carried used to be lost, and `sel(time="2000-01-01")` failed on that result.
+        """
+        plain = _time_level(TIMES)
+        dated = _time_level(TIMES, HOURS_2000)
+        for result in (plain + dated, dated + plain):
+            assert _time_label(result) == (TIMES, HOURS_2000), _time_label(result)
+            assert result.sel(time="2000-01-01").band_count == NT * NL
+
+    @pytest.mark.parametrize(
+        ("labelled_units", "bare_units", "expected_units"),
+        [
+            pytest.param(
+                HOURS_2000, DAYS_1990, HOURS_2000, id="each-side-its-own-units"
+            ),
+            pytest.param(None, DAYS_1990, None, id="units-only-without-stamps"),
+            pytest.param(HOURS_2000, None, HOURS_2000, id="units-with-the-stamps"),
+        ],
+    )
+    def test_the_stamps_bring_their_own_units(
+        self, labelled_units, bare_units, expected_units
+    ):
+        """A coordinate-less operand's units never label the other operand's stamps.
+
+        Args:
+            labelled_units: The units carried by the operand with `time` stamps.
+            bare_units: The units carried by the operand without them.
+            expected_units: The units the result carries, in both orders.
+        """
+        labelled = _time_level(TIMES, labelled_units)
+        bare = _time_level(None, bare_units)
+        for result in (labelled + bare, bare + labelled):
+            assert _time_label(result) == (TIMES, expected_units), _time_label(result)
+
+
 class TestLabelCombined:
     """`_label_combined` labels the raster `Analysis._combine` built, and unlabels what disagreed."""
 
@@ -1189,7 +1307,7 @@ class TestLabelCombined:
         """
         source = self._labelled()
         target = _label_less_twin(tmp_path)
-        source._label_combined(target, (source, []))
+        source._label_combined(target, (source, [], None))
         assert _layout(target) == _layout(source), _layout(target)
         assert target._band_dim_time_attrs == {"time": HOURS_2000}, (
             target._band_dim_time_attrs
@@ -1203,7 +1321,7 @@ class TestLabelCombined:
         """
         source = self._labelled()
         target = _label_less_twin(tmp_path)
-        source._label_combined(target, (source, ["time"]))
+        source._label_combined(target, (source, ["time"], None))
         assert target._band_dim_values_map == {
             "time": None,
             "pressure_level": LEVELS,
@@ -1223,7 +1341,7 @@ class TestLabelCombined:
         """
         source = self._labelled()
         target = _label_less_twin(tmp_path)
-        source._label_combined(target, (source, ["pressure_level"]))
+        source._label_combined(target, (source, ["pressure_level"], None))
         assert target._band_dim_values_map == {
             "time": TIMES,
             "pressure_level": None,
@@ -1244,7 +1362,7 @@ class TestLabelCombined:
         """
         source = self._labelled()
         target = _label_less_twin(tmp_path)
-        source._label_combined(target, (source, ["time", "pressure_level"]))
+        source._label_combined(target, (source, ["time", "pressure_level"], None))
         assert source._band_dim_values_map == {
             "time": TIMES,
             "pressure_level": LEVELS,
@@ -1258,7 +1376,7 @@ class TestLabelCombined:
         """A one-band result is neither labelled nor given an empty entry for the disagreeing dimension."""
         source = self._labelled()
         one_band = source.combine(source, np.add, band=0)
-        source._label_combined(one_band, (source, ["time"]))
+        source._label_combined(one_band, (source, ["time"], None))
         assert tuple(one_band._band_dim_names) == (), one_band._band_dim_names
         assert one_band._band_dim_values_map == {}, one_band._band_dim_values_map
         assert (one_band._band_dim_name, one_band._band_dim_values) == (None, None)
@@ -1283,8 +1401,36 @@ class TestLabelCombined:
         """
         source = self._labelled()
         result = make_result()
-        assert source._label_combined(result, (source, ["time"])) is None
+        assert source._label_combined(result, (source, ["time"], None)) is None
         assert not hasattr(result, "_band_dim_values_map"), type(result).__name__
+
+    def test_a_partner_fills_the_coordinates_the_source_lacks(self, tmp_path):
+        """A source without `time` stamps labels the result with its partner's stamps and units.
+
+        Args:
+            tmp_path: pytest temp directory.
+        """
+        source = _time_level(None)
+        partner = self._labelled()
+        target = _label_less_twin(tmp_path)
+        source._label_combined(target, (source, [], partner))
+        assert _time_label(target) == (TIMES, HOURS_2000), _time_label(target)
+        assert (target._band_dim_name, target._band_dim_values) == ("time", TIMES), (
+            target._band_dim_name,
+            target._band_dim_values,
+        )
+
+    def test_a_disagreeing_dimension_is_not_filled_from_the_partner(self, tmp_path):
+        """A dimension named as disagreeing stays unlabelled even though the partner has stamps.
+
+        Args:
+            tmp_path: pytest temp directory.
+        """
+        source = self._labelled()
+        partner = _time_level([24.0, 30.0, 36.0, 42.0], HOURS_2000)
+        target = _label_less_twin(tmp_path)
+        source._label_combined(target, (source, ["time"], partner))
+        assert _time_label(target) == (None, None), _time_label(target)
 
     def test_no_source_leaves_an_unlabelled_result_unlabelled(self, tmp_path):
         """`(None, [])` — what a one-band combine names — changes nothing on the result.
@@ -1294,8 +1440,79 @@ class TestLabelCombined:
         """
         target = _label_less_twin(tmp_path)
         before = _layout(target)
-        self._labelled()._label_combined(target, (None, []))
+        self._labelled()._label_combined(target, (None, [], None))
         assert _layout(target) == before, _layout(target)
+
+
+class TestFillBandLabel:
+    """`_fill_band_label` takes what the partner has and the result lacks, coordinates with units."""
+
+    @pytest.mark.parametrize(
+        ("result_label", "partner_label", "expected"),
+        [
+            pytest.param(
+                (None, None),
+                (TIMES, HOURS_2000),
+                (TIMES, HOURS_2000),
+                id="stamps-and-units",
+            ),
+            pytest.param((None, None), (TIMES, None), (TIMES, None), id="stamps-alone"),
+            pytest.param(
+                (None, DAYS_1990), (TIMES, None), (TIMES, None), id="bare-units-dropped"
+            ),
+            pytest.param(
+                (None, DAYS_1990),
+                (TIMES, HOURS_2000),
+                (TIMES, HOURS_2000),
+                id="bare-units-replaced",
+            ),
+            pytest.param(
+                (TIMES, None),
+                (TIMES, HOURS_2000),
+                (TIMES, HOURS_2000),
+                id="units-alone",
+            ),
+            pytest.param(
+                (TIMES, DAYS_1990),
+                (TIMES, HOURS_2000),
+                (TIMES, DAYS_1990),
+                id="own-units-kept",
+            ),
+            pytest.param(
+                (TIMES, None),
+                (None, HOURS_2000),
+                (TIMES, None),
+                id="partner-without-stamps",
+            ),
+            pytest.param(
+                (None, None), (None, HOURS_2000), (None, None), id="neither-stamped"
+            ),
+        ],
+    )
+    def test_each_case(self, result_label, partner_label, expected):
+        """The result's `time` coordinates and units after filling from the partner.
+
+        Args:
+            result_label: The result's `(coordinates, units)` for `time` before.
+            partner_label: The partner's `(coordinates, units)` for `time`.
+            expected: The result's `(coordinates, units)` after.
+        """
+        result = _time_level(*result_label)
+        partner = _time_level(*partner_label)
+        NetCDF._fill_band_label(
+            result, partner, "time", partner._resolved_band_dim_time_attrs()
+        )
+        assert _time_label(result) == expected, _time_label(result)
+
+    def test_the_coordinates_are_copied(self):
+        """Editing the result's filled stamps leaves the partner's alone."""
+        result = _time_level(None)
+        partner = _time_level(TIMES)
+        NetCDF._fill_band_label(result, partner, "time", {})
+        result._band_dim_values_map["time"][0] = -1.0
+        assert partner._band_dim_values_map["time"] == TIMES, (
+            partner._band_dim_values_map
+        )
 
 
 class TestCombineLayoutSource:
@@ -1305,7 +1522,7 @@ class TestCombineLayoutSource:
         """With `band=0` two layouts that could never pair name no source and do not refuse."""
         left = _variable([("time", TIMES), ("pressure_level", LEVELS)])
         right = _variable([("step", [0, 1, 2, 3]), ("pressure_level", LEVELS)])
-        assert left._combine_layout_source(right, 0) == (None, [])
+        assert left._combine_layout_source(right, 0) == (None, [], None)
 
     def test_every_band_refuses_a_name_mismatch(self):
         """With `band=None` the same two operands are refused."""
@@ -1320,9 +1537,27 @@ class TestCombineLayoutSource:
         right = _variable(
             [("time", [24.0, 30.0, 36.0, 42.0]), ("pressure_level", LEVELS)]
         )
-        source, disagreeing = left._combine_layout_source(right, None)
+        source, disagreeing, partner = left._combine_layout_source(right, None)
         assert source is left, source
         assert disagreeing == ["time"], disagreeing
+        assert partner is right, partner
+
+    def test_an_operand_combined_with_itself_names_no_partner(self):
+        """A scalar operator's self-comparison has nothing to take from the other side."""
+        variable = _variable([("time", TIMES), ("pressure_level", LEVELS)])
+        assert variable._combine_layout_source(variable, None) == (variable, [], None)
+
+    def test_a_left_operand_without_band_dimensions_names_no_partner(self):
+        """When the right operand labels the result, there is no second layout to draw on."""
+        flat = _flat_variable()
+        labelled = _variable([("time", TIMES), ("pressure_level", LEVELS)])
+        assert flat._combine_layout_source(labelled, None) == (labelled, [], None)
+
+    def test_a_right_operand_without_band_dimensions_is_no_partner(self):
+        """A flat right operand carries no labels to fill in."""
+        labelled = _variable([("time", TIMES), ("pressure_level", LEVELS)])
+        flat = _flat_variable()
+        assert labelled._combine_layout_source(flat, None) == (labelled, [], None)
 
     def test_a_plain_dataset_names_nothing_and_labels_nothing(self):
         """`Dataset`'s own hooks answer `None`, and `plain + labelled` stays a plain `Dataset`.
