@@ -6393,7 +6393,7 @@
 
 
 <h1 id="netcdf-public-api"><a class="toclink" href="#netcdf-public-api"><code>NetCDF</code> — public API</a><a class="headerlink" href="#netcdf-public-api" title="Permanent link">#</a></h1>
-<p>A one-line map of every public member the <code>NetCDF</code> class itself defines — 77 in all: 43 methods, 27 properties,
+<p>A one-line map of every public member the <code>NetCDF</code> class itself defines — 78 in all: 44 methods, 27 properties,
 6 classmethods and 1 staticmethod, plus the four mapping dunders (<code>__getitem__</code>, <code>__contains__</code>, <code>__iter__</code>,
 <code>__len__</code>). For the full signatures, arguments and examples, see the rendered
 <a href="../">NetCDF Class</a> reference; this page is the index you scan to find the member you want.</p>
@@ -6655,6 +6655,10 @@ A variable with no raster plane is the exception — see each member's docstring
 <tr>
 <td><code>sel()</code></td>
 <td>Selects bands by coordinate value, date label, or <code>method="nearest"</code>.</td>
+</tr>
+<tr>
+<td><code>isel()</code></td>
+<td>Selects bands by position along one or more band dims; works without coordinates.</td>
 </tr>
 <tr>
 <td><code>open_mfdataset()</code></td>
