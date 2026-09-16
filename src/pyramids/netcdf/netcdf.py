@@ -495,8 +495,11 @@ _REDUCERS: dict[str, tuple[Any, Any]] = {
     "prod": (np.nanprod, np.prod),
     "quantile": (np.nanquantile, np.quantile),
 }
-"""Per-operation `(skipna_func, plain_func)` pairs for the float-valued reductions of
-:meth:`NetCDF.reduce`. `quantile` is the one that takes an extra argument, `q`."""
+"""Per-operation `(skipna_func, plain_func)` pairs for the statistics `NetCDF.reduce` and
+`NetCDF.coarsen` compute. Under `skipna`, `NetCDF._reduce_axis` runs the first on float64, so
+the result is float64; without it, the second runs on the raw values in the dtype numpy gives
+that reduction — the `min` of an `int16` band stays `int16`. `quantile` is the one that takes
+an extra argument, `q`."""
 
 _COUNTING_REDUCERS: frozenset[str] = frozenset({"count", "all", "any"})
 """Reductions answering a count or a truth flag rather than a float statistic.
@@ -7286,9 +7289,32 @@ class NetCDF(Dataset):
 
     @staticmethod
     def _reduce_axis(arr, axis, how, skipna, ndv, q=None):
-        """Apply one reduction over `axis`, masking NoData when `skipna`.
+        """Apply one reduction over `axis`, masking no-data when `skipna`.
 
-        `q` is passed through to the quantile functions and to nothing else.
+        `count`, `all` and `any` go to `_count_axis`; every other `how` is looked up in
+        `_REDUCERS`. Under `skipna` the values are cast to float64 and the sentinel and NaN
+        are skipped, and a column with no valid cell, or whose statistic comes out NaN,
+        answers `ndv` (NaN when `ndv` is `None`). Without `skipna` numpy's plain function
+        reduces the raw values, sentinel and NaN included, in the dtype numpy gives it.
+
+        Args:
+            arr: The unflattened array, numpy or dask.
+            axis: The axis to reduce.
+            how: A key of `_REDUCERS`, or `"count"`, `"all"` or `"any"`.
+            skipna: Whether the sentinel and NaN are skipped.
+            ndv: The declared sentinel, or `None`.
+            q: Forwarded as `q=` to the `_REDUCERS` function whenever it is not `None`, so
+                it must stay `None` for every statistic but `quantile`; `Selection.reduce`
+                and `Selection.coarsen` refuse it before calling. The counting reductions
+                ignore it.
+
+        Returns:
+            The reduced array, a dask array when `arr` is one: float64 for a statistic
+            under `skipna`, `int64` for `count`, `uint8` for `all` / `any`.
+
+        Raises:
+            KeyError: `how` is in neither registry.
+            TypeError: `q` is given with a statistic whose numpy function takes no `q`.
         """
         if how in _COUNTING_REDUCERS:
             result = NetCDF._count_axis(arr, axis, how, skipna, ndv)
@@ -7302,7 +7328,7 @@ class NetCDF(Dataset):
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore", RuntimeWarning)
                     out = nan_func(data, axis=axis, **extra)
-                # nansum/nanprod/nanstd/nanvar return a number (not NaN) for an
+                # nansum and nanprod return a number (0 and 1), not NaN, for an
                 # all-NoData slice, so detect fully-masked positions explicitly and
                 # restore NoData for every reducer rather than leaking a spurious 0 or 1.
                 all_masked = np.all(np.isnan(data), axis=axis)
@@ -10524,33 +10550,41 @@ class NetCDF(Dataset):
         Delegates the arithmetic to `Dataset.combine`, then labels the result with the
         band dimensions — names, sizes and coordinates — the operands describe, so a
         combined `(time, pressure_level)` variable can still be passed to `sel`, `isel`
-        or anything else that reads that layout. Every binary operator between two
-        variables (`a + b`, `a > b`, ...) reaches this method, so they keep the labels too.
+        or anything else that reads that layout. The operators `+`, `-`, `*`, `/`, `<`,
+        `<=`, `>` and `>=` between two variables reach this method, so they keep the labels
+        too; `==` and `!=` stay Python's identity comparison and never get here.
 
-        The labels come from whichever operand has them. When both do, they must describe
-        the same planes: two variables whose names, sizes or coordinate values differ are
-        refused rather than having the right operand's planes silently relabelled with
-        the left operand's stamps. A coordinate-less dimension on either side is not
-        compared, since there is nothing to disagree with.
+        The labels come from this variable when it has them, and from `other` when only it
+        does. When both do, they must describe the same planes: two variables whose names,
+        sizes or coordinate values differ are refused rather than having the right
+        operand's planes silently relabelled with the left operand's stamps. A
+        coordinate-less dimension on either side is not compared, since there is nothing
+        to disagree with. The check runs before `Dataset.combine` is called, and only when
+        `band` is `None` and the two band counts agree.
 
         Args:
             other: The second operand, on this variable's grid.
             func: Binary callable applied to the operands' matching cells.
             band: Zero-based band to combine, or `None` for every band. A single band
-                cannot carry a multi-band layout, so passing one leaves the result
-                without band dimensions.
+                cannot carry a multi-band layout, so passing one skips the layout check and
+                leaves the result without band dimensions.
             no_data_value: Sentinel for the result, as documented on
-                `Analysis.combine`. Left unset it is derived from the computed values.
+                `Analysis.combine`. Left unset it is derived — NaN for a floating result,
+                none at all for an integer result that masked nothing.
 
         Returns:
-            Dataset: The combined raster, on this variable's grid. It is the same class as
-            this operand, carrying the band dimensions when `band` is `None`.
+            Dataset: The combined raster, on this variable's grid and of this variable's
+            class. When `band` is `None` it carries the band dimensions of whichever
+            operand supplied them.
 
         Raises:
-            ValueError: Both operands carry band dimensions and they disagree in their
-                names, their sizes, or the coordinate values of a dimension both label.
-                Operands whose band counts differ are refused by `Dataset.combine`, with
-                its own message, before this check is reached.
+            ValueError: `band` is `None`, both operands carry band dimensions, their band
+                counts agree, and they disagree in their names, their sizes, or the
+                coordinate values of a dimension both label. Being checked first, this is
+                the error raised even when the grids differ as well. Operands whose band
+                counts differ skip the check and are refused by `Dataset.combine`, with its
+                own message.
+            AlignmentError: The operands do not share a grid, raised by `Dataset.combine`.
 
         Examples:
             - The combined variable can still be selected by coordinate:
@@ -10599,20 +10633,26 @@ class NetCDF(Dataset):
         return result
 
     def _arithmetic(self, other: Any, op: Callable) -> Any:
-        """Apply a forward operator, keeping this variable's band dimensions on the result.
+        """Apply a forward operator, keeping the band dimensions on the result.
 
-        `Dataset._arithmetic` computes the values: a raster operand goes through
-        `combine` above, which checks and labels it; a scalar goes through
-        `Analysis._fold`, which does not know about band dimensions, so the labels are
-        put back here.
+        `Dataset._arithmetic` computes the values: a raster operand goes through `combine`
+        above, which checks the two layouts and labels the result; a scalar goes through
+        `Analysis._fold`, whose result carries no band dimensions. This variable's band
+        dimensions, when it has any, are then copied onto a result with the same band
+        count; when it has none, the labels `combine` took from a raster operand stay.
 
         Args:
-            other: A scalar or a raster operand.
+            other: A raster, or a real, non-boolean scalar. Anything else is declined.
             op: The binary operator, e.g. `operator.add`.
 
         Returns:
-            Any: The result, labelled like this variable, or `NotImplemented` for an
-            operand the operators do not accept.
+            Any: The labelled result, or `NotImplemented` for an operand the operators do
+            not accept, which makes Python raise its own `TypeError`.
+
+        Raises:
+            ValueError: A raster operand's band layout disagrees with this variable's, or
+                its band count differs — both raised through `combine`.
+            AlignmentError: A raster operand is on another grid, raised through `combine`.
         """
         result = super()._arithmetic(other, op)
         NetCDF._label_result_bands(result, self if self._band_dim_names else None)
@@ -10621,27 +10661,32 @@ class NetCDF(Dataset):
     def _reflected_arithmetic(self, other: Any, op: Callable) -> Any:
         """Apply a reflected operator (`2 - var`, `2 / var`), keeping the band dimensions.
 
+        `Dataset._reflected_arithmetic` computes the values through `Analysis._fold`, whose
+        result carries no band dimensions, so this variable's are copied back onto it.
+
         Args:
             other: The scalar on the left of the operator.
             op: The binary operator, applied as `op(other, values)`.
 
         Returns:
-            Any: The result, labelled like this variable, or `NotImplemented` for a
-            non-scalar left operand.
+            Any: The result, labelled like this variable, or `NotImplemented` when `other`
+            is not a real, non-boolean scalar, which makes Python raise its own
+            `TypeError`.
         """
         result = super()._reflected_arithmetic(other, op)
         NetCDF._label_result_bands(result, self if self._band_dim_names else None)
         return result
 
     def _band_layout_source(self, other: Any) -> NetCDF | None:
-        """The operand whose band dimensions describe a combined result.
+        """The operand whose band dimensions describe a combined result, once they agree.
 
         Args:
-            other: The second operand of `combine`.
+            other: The second operand of `combine`, any raster; only a `NetCDF` carries
+                band dimensions.
 
         Returns:
             NetCDF | None: This variable when it carries band dimensions, else `other`
-            when it does, else `None`.
+            when it is a `NetCDF` that does, else `None`.
 
         Raises:
             ValueError: Both operands carry band dimensions, their band counts agree, and
@@ -10673,9 +10718,9 @@ class NetCDF(Dataset):
             right: The right operand.
 
         Returns:
-            str | None: A phrase naming the mismatch — the names, the sizes, or one
-            dimension's coordinate values — or `None` when the layouts agree. A dimension
-            without coordinates on either side is not compared.
+            str | None: A phrase naming the first mismatch, checked in this order — the
+            names, the sizes, then each dimension's coordinate values — or `None` when the
+            layouts agree. A dimension without coordinates on either side is not compared.
         """
         left_names, right_names = (
             tuple(left._band_dim_names),
@@ -10715,9 +10760,12 @@ class NetCDF(Dataset):
     def _label_result_bands(result: Any, source: NetCDF | None) -> None:
         """Copy `source`'s band dimensions onto an operator result that can carry them.
 
+        Nothing is copied when `source` is `None`, when `result` is not a `NetCDF` (such as
+        `NotImplemented` or a plain `Dataset`), or when the two band counts differ, so a
+        single-band `combine(..., band=0)` result stays unlabelled.
+
         Args:
-            result: What the operator returned — a `NetCDF`, a plain `Dataset`, or
-                `NotImplemented`.
+            result: What the operator or `combine` returned.
             source: The operand whose layout describes the result, or `None`.
         """
         if (
