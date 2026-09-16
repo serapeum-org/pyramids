@@ -2,7 +2,8 @@
 
 Only a `<period> since <origin>` unit decodes stamps into instants. A `level` in `millibar`
 has units too, but they are not time units, so they neither decode nor decide whether two
-operands' levels agree.
+operands' levels agree. And a result that carries its operand's time units in memory has to
+keep them through an in-place change, or it stops selecting by date.
 """
 
 from __future__ import annotations
@@ -11,12 +12,14 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from numpy.testing import assert_array_equal
 
 from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
 
 pytestmark = pytest.mark.core
 
 DATA = Path(__file__).resolve().parents[2] / "data" / "netcdf"
+ERA5_T2M = DATA / "cf__5v__1d4-3d1__geog__y-desc.nc"
 COARDS = DATA / "coards__5v__1d4-4d1__y-desc.nc"
 LEVELS = [1000.0, 850.0, 500.0]
 
@@ -67,3 +70,23 @@ class TestOnlyTimeUnitsAreCandidates:
         right = _levelled("hPa")
         assert NetCDF._disagreeing_coordinates(left, right) == []
         assert (left + right)._band_dim_values_map["level"] == LEVELS
+
+
+class TestAnInPlaceChangeKeepsTheCarriedUnits:
+    """An in-place change rebuilds the object; the time units it carries come through."""
+
+    def test_an_operator_result_still_selects_by_date_after_an_in_place_fill(self):
+        """`(t2m * 1.0).fill(1.0, inplace=True)` still selects the first day by its date label.
+
+        Test scenario:
+            The operator result has no store of its own and decodes its stamps with the units
+            it carries. The in-place rebuild used to drop them, and the date label stopped
+            matching.
+        """
+        result = NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m") * 1.0
+        units = dict(result._band_dim_time_attrs)
+        result.fill(1.0, inplace=True)
+        assert result._band_dim_time_attrs == units, result._band_dim_time_attrs
+        day = result.sel(valid_time="2022-01-01")
+        assert day.band_count == 4
+        assert_array_equal(np.unique(np.asarray(day.read_array())), [1.0])

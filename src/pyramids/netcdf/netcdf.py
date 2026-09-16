@@ -2378,6 +2378,7 @@ class NetCDF(Dataset):
             "_band_dim_names": self._band_dim_names,
             "_band_dim_values_map": self._band_dim_values_map,
             "_band_dim_sizes": self._band_dim_sizes,
+            "_band_dim_time_attrs": self._band_dim_time_attrs,
             "_variable_attrs": self._variable_attrs,
             "_scale": self._scale,
             "_offset": self._offset,
