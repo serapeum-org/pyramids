@@ -17,6 +17,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
+from osgeo import gdal
 
 from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
 from pyramids.netcdf.netcdf import Container, Variable
@@ -41,6 +42,12 @@ GEOS = (
     / "data"
     / "netcdf"
     / "cf__9v__1d7-2d2__geos__y-desc.nc"
+)
+PACKED = (
+    Path(__file__).resolve().parents[2]
+    / "data"
+    / "netcdf"
+    / "cf__20v__1d3-3d17__y-desc.nc"
 )
 FLOAT_REDUCERS = [
     pytest.param("median", np.nanmedian, np.median, id="median"),
@@ -1001,3 +1008,159 @@ class TestWhichVariablesStream:
         variable = derive(NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m"))
         array = NetCDF._materialize_variable_array(variable, lazy=True)
         assert isinstance(array, np.ndarray), type(array)
+
+
+def _packed_tcw() -> tuple[np.ndarray, np.ndarray]:
+    """The packed `tcw` variable's validity mask and physical values, from its stored counts.
+
+    Returns:
+        tuple: The `(time, y, x)` boolean mask of cells that are not the stored `_FillValue`,
+        and the physical values with every fill cell as NaN.
+    """
+    variable = NetCDF.read_file(str(PACKED)).get_variable("tcw")
+    stored = np.asarray(variable.read_array(unpack=False))
+    scale, offset = variable._effective_packing(0)
+    valid = stored != variable.no_data_value[0]
+    physical = np.where(valid, stored * scale + offset, np.nan)
+    return valid, physical
+
+
+def _write_packed_store(path: str) -> None:
+    """Write a small CF-packed store: `moving(time, lat, lon)` and `still(lat, lon)`.
+
+    Both variables are `int16` with `scale_factor=0.5`, `add_offset=100` and a `_FillValue` of
+    `-32767` in some cells. `still` has no `time`, so reducing `time` carries it over unchanged.
+    Written with GDAL's multidimensional API, so no third-party writer is needed.
+
+    Args:
+        path: Where to write the file.
+    """
+    store = gdal.GetDriverByName("netCDF").CreateMultiDimensional(path)
+    root = store.GetRootGroup()
+    text = gdal.ExtendedDataType.CreateString()
+    dims = {}
+    for name, values, units in (
+        ("time", [0.0, 6.0, 12.0], "hours since 2000-01-01"),
+        ("lat", [10.5, 11.5], "degrees_north"),
+        ("lon", [20.5, 21.5, 22.5], "degrees_east"),
+    ):
+        dims[name] = root.CreateDimension(name, None, None, len(values))
+        coordinate = root.CreateMDArray(
+            name, [dims[name]], gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+        )
+        coordinate.Write(np.asarray(values, dtype=np.float64))
+        coordinate.CreateAttribute("units", [], text).WriteString(units)
+    fill = -32767
+    for name, axes, stored in (
+        (
+            "moving",
+            ["time", "lat", "lon"],
+            [
+                [[10, fill, 30], [40, 50, 60]],
+                [[fill, fill, 5], [6, 7, 8]],
+                [[1, fill, 3], [4, 5, fill]],
+            ],
+        ),
+        ("still", ["lat", "lon"], [[fill, 2, 3], [4, 5, fill]]),
+    ):
+        array = root.CreateMDArray(
+            name,
+            [dims[axis] for axis in axes],
+            gdal.ExtendedDataType.Create(gdal.GDT_Int16),
+        )
+        array.SetNoDataValueDouble(float(fill))
+        array.SetScale(0.5)
+        array.SetOffset(100.0)
+        array.Write(np.asarray(stored, dtype=np.int16))
+
+
+class TestPackedVariables:
+    """A CF-packed variable's `_FillValue` is a gap, whatever scale and offset do to it."""
+
+    @pytest.mark.parametrize("receiver", ["container", "variable"])
+    def test_count_skips_the_fill_cells(self, receiver):
+        """`count` over the ERA5 `tcw` store counts only cells that do not hold the fill value.
+
+        Args:
+            receiver: Reduce the container or the variable.
+
+        Test scenario:
+            The read unpacks the fill value to a physical number that never equals the stored
+            sentinel, so a mask built from the sentinel counts every fill cell as data.
+        """
+        valid, _ = _packed_tcw()
+        nc = NetCDF.read_file(str(PACKED))
+        if receiver == "container":
+            result = nc.reduce("time", "count").get_variable("tcw")
+        else:
+            result = nc.get_variable("tcw").reduce("time", "count")
+        assert_array_equal(result.read_array(), valid.sum(axis=0))
+
+    def test_mean_averages_only_the_valid_cells(self):
+        """The mean of the physical cells that are not fill, where fill is every other step."""
+        valid, physical = _packed_tcw()
+        result = (
+            NetCDF.read_file(str(PACKED)).get_variable("tcw").reduce("time", "mean")
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            expected = np.nanmean(physical, axis=0)
+        assert valid.any(axis=0).all(), "every column should hold some valid step"
+        assert_allclose(np.asarray(result.read_array(), dtype=np.float64), expected)
+
+    @pytest.mark.parametrize(
+        ("how", "gap"),
+        [("mean", None), ("any", 255), ("count", 0)],
+        ids=["mean", "any", "count"],
+    )
+    def test_a_cut_holding_only_fill_steps_is_all_gap(self, how, gap):
+        """Steps 1, 3 and 5 of `tcw` are fill everywhere, so every column is a gap.
+
+        Args:
+            how: The reducer.
+            gap: What each column must hold: `None` for the result's declared no-data value,
+                `255` for a flag, `0` for a count.
+        """
+        variable = NetCDF.read_file(str(PACKED)).get_variable("tcw")
+        valid, _ = _packed_tcw()
+        assert not valid[[1, 3, 5]].any(), "steps 1, 3 and 5 should be fill throughout"
+        result = variable.isel(time=[1, 3, 5]).reduce("time", how)
+        values = np.asarray(result.read_array())
+        expected = result.no_data_value[0] if gap is None else gap
+        assert values.size > 0 and np.all(values == expected), (
+            np.unique(values)[:5],
+            expected,
+        )
+
+    def test_a_carried_static_packed_variable_keeps_its_gaps(self, tmp_path):
+        """A packed variable without `time` is carried over with its fill cells still gaps.
+
+        Test scenario:
+            It is read unpacked, so its fill cells hold the unpacked fill value; declaring the
+            stored sentinel on the result would turn every one of them into data.
+        """
+        path = str(tmp_path / "packed.nc")
+        _write_packed_store(path)
+        source = NetCDF.read_file(path)
+        stored = np.asarray(source.get_variable("still").read_array(unpack=False))
+        physical = stored * 0.5 + 100.0
+        fill = stored == -32767
+        carried = source.reduce("time", "mean").get_variable("still")
+        values = np.asarray(carried.read_array(), dtype=np.float64)
+        assert fill.any() and (~fill).any(), fill
+        assert np.all(values[fill] == carried.no_data_value[0]), (
+            values,
+            carried.no_data_value,
+        )
+        assert_allclose(values[~fill], physical[~fill])
+
+    def test_coarsen_count_skips_the_fill_cells_per_window(self):
+        """Windows of four steps count each window's non-fill cells."""
+        valid, _ = _packed_tcw()
+        result = (
+            NetCDF.read_file(str(PACKED))
+            .get_variable("tcw")
+            .coarsen("time", 4, how="count")
+        )
+        expected = np.stack([valid[i : i + 4].sum(axis=0) for i in range(0, 12, 4)])
+        assert_array_equal(result.read_array(), expected)

@@ -7423,7 +7423,7 @@ class NetCDF(Dataset):
     def _count_axis(arr, axis, how, skipna, ndv):
         """Count the valid cells along `axis`, or test them for truth.
 
-        A cell is valid when it is neither NaN nor the declared sentinel. `count` answers
+        A cell is valid when it is neither NaN nor `ndv`. `count` answers
         an `int64` count of them — 0 for a column with none — whatever `skipna` says, since
         a count has nothing to skip. `all` and `any` answer a `uint8` 0/1 flag: with `skipna`
         a gap is neutral (true for `all`, false for `any`) and a column with no valid cell
@@ -7435,7 +7435,9 @@ class NetCDF(Dataset):
             axis: The axis to reduce.
             how: `"count"`, `"all"` or `"any"`.
             skipna: Whether gaps are skipped, for `all`/`any`.
-            ndv: The declared sentinel, or `None`.
+            ndv: The sentinel as it appears in `arr`, or `None`. For a CF-packed variable read
+                unpacked that is the unpacked `_FillValue`, not the stored one — the reduce
+                path passes it that way (`_read_no_data`).
 
         Returns:
             The reduced array: `int64` for `count`, `uint8` for `all`/`any`.

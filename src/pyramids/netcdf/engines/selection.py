@@ -1918,6 +1918,25 @@ def _check_quantile(how: str, q: Any) -> float | None:
     return checked
 
 
+def _read_no_data(var: NetCDF) -> Any:
+    """The no-data value as it appears in the values a reduction reads.
+
+    The reduce path reads a variable unpacked, so a CF-packed variable's fill cells hold
+    `_FillValue * scale_factor + add_offset`, never the stored `_FillValue` itself. Masking
+    against the stored value would count every fill cell as data. The sentinel is unpacked the
+    same way the read unpacks the data (`Analysis._physical_no_data`), so the two compare equal.
+    An unpacked variable's sentinel is returned unchanged.
+
+    Args:
+        var: The variable being reduced or carried over.
+
+    Returns:
+        Any: The sentinel in read units, or `None` when the variable declares none.
+    """
+    ndv = scalar_no_data(var.no_data_value)
+    return None if ndv is None else var.analysis._physical_no_data(0)
+
+
 def _reduced_array(
     nc: NetCDF,
     var: NetCDF,
@@ -1963,7 +1982,7 @@ def _reduced_array(
 
     band_names = list(var._band_dim_names)
     values_map = dict(var._band_dim_values_map)
-    ndv = scalar_no_data(var.no_data_value)
+    ndv = _read_no_data(var)
     axis = band_names.index(dim)
     coords = values_map.get(dim)
     arr = nc._materialize_variable_array(var, lazy=True)
@@ -2117,7 +2136,7 @@ def _reduce_container(
         var = nc._require_raster_variable(var_name)
         band_names = list(var._band_dim_names)
         values_map = dict(var._band_dim_values_map)
-        ndv = scalar_no_data(var.no_data_value)
+        ndv = _read_no_data(var)
 
         if dim in band_names:
             found = True
