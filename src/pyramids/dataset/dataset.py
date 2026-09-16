@@ -2256,6 +2256,34 @@ class Dataset(RasterBase):
     # arrays" -- unhelpful, but an error rather than a silent wrong answer.
     __array_ufunc__ = None
 
+    def _combine_layout_source(self, other: Any, band: int | None) -> Any:
+        """Check two operands' band layouts before `Analysis._combine` computes, and name the source.
+
+        A hook: `Analysis._combine` calls it on the left operand after the grid and band-count
+        checks, and hands what it returns to `_label_combined`. A plain raster has no band
+        dimensions, so it checks nothing and names no source; `NetCDF` overrides it.
+
+        Args:
+            other: The right operand.
+            band: The single band being combined, or `None` for all of them.
+
+        Returns:
+            Any: `None` for a plain raster.
+        """
+        return None
+
+    def _label_combined(self, result: Any, source: Any) -> None:
+        """Label a combined result with its operands' band layout, after `Analysis._combine`.
+
+        A hook, paired with `_combine_layout_source`. A plain raster has no layout to carry;
+        `NetCDF` overrides it.
+
+        Args:
+            result: The combined raster.
+            source: What `_combine_layout_source` returned.
+        """
+        return None
+
     def _arithmetic(self, other: Any, op: Callable) -> Any:
         """Route a binary operator to :meth:`combine`, or decline the operand.
 

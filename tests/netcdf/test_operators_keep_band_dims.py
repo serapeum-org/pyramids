@@ -729,3 +729,36 @@ class TestOperandKindsKeepTheLabels:
         assert_array_equal(
             result.sel(time=6.0).read_array(), np.asarray(variable.read_array()) * 2
         )
+
+
+class TestEveryRouteToCombineSharesTheLayout:
+    """The engine method, an unbound call and the fold path label and check like the facade."""
+
+    @pytest.mark.parametrize(
+        "route",
+        [
+            pytest.param(
+                lambda v: v.analysis.combine(v, np.add), id="analysis.combine"
+            ),
+            pytest.param(lambda v: Dataset.combine(v, v, np.add), id="Dataset.combine"),
+            pytest.param(
+                lambda v: v.analysis._fold(lambda values: values * 2), id="_fold"
+            ),
+        ],
+    )
+    def test_the_result_carries_the_operands_layout(self, cube, route):
+        """Each route returns the twelve bands labelled `(time, pressure_level)`.
+
+        Args:
+            cube: The on-disk 4x3 variable.
+            route: A way of reaching `Analysis._combine` other than the `NetCDF.combine` facade.
+        """
+        result = route(cube)
+        assert _layout(result) == _layout(cube), _layout(result)
+
+    def test_the_engine_route_refuses_disagreeing_layouts(self):
+        """`analysis.combine` refuses `(time, level)` against `(step, level)` as the facade does."""
+        left = _variable([("time", TIMES), ("pressure_level", LEVELS)])
+        right = _variable([("step", [0, 1, 2, 3]), ("pressure_level", LEVELS)])
+        with pytest.raises(ValueError, match="band dimensions"):
+            left.analysis.combine(right, np.add)

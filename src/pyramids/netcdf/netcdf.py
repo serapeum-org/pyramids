@@ -10717,55 +10717,36 @@ class NetCDF(Dataset):
 
               ```
         """
-        source = self._band_layout_source(other) if band is None else None
-        result = super().combine(other, func, band=band, no_data_value=no_data_value)
-        NetCDF._label_result_bands(result, source)
-        return result
+        return super().combine(other, func, band=band, no_data_value=no_data_value)
 
-    def _arithmetic(self, other: Any, op: Callable) -> Any:
-        """Apply a forward operator, keeping the band dimensions on the result.
+    def _combine_layout_source(self, other: Any, band: int | None) -> NetCDF | None:
+        """Check the operands' band layouts for `Analysis._combine` and name the one to copy.
 
-        `Dataset._arithmetic` computes the values: a raster operand goes through `combine`
-        above, which checks the two layouts and labels the result; a scalar goes through
-        `Analysis._fold`, whose result carries no band dimensions. This variable's band
-        dimensions, when it has any, are then copied onto a result with the same band
-        count; when it has none, the labels `combine` took from a raster operand stay.
+        Every route to a combined raster ends in `Analysis._combine` — the `combine` facade,
+        `analysis.combine` called directly, and every operator through `combine` or `_fold` — so
+        the check and the labelling live here and in `_label_combined`, not on any one door.
 
         Args:
-            other: A raster, or a real, non-boolean scalar. Anything else is declined.
-            op: The binary operator, e.g. `operator.add`.
+            other: The right operand.
+            band: The single band being combined, or `None` for all of them.
 
         Returns:
-            Any: The labelled result, or `NotImplemented` for an operand the operators do
-            not accept, which makes Python raise its own `TypeError`.
+            NetCDF | None: The operand whose layout describes the result, or `None` when a single
+            band is combined, since one band cannot carry a multi-band layout.
 
         Raises:
-            ValueError: A raster operand's band layout disagrees with this variable's, or
-                its band count differs — both raised through `combine`.
-            AlignmentError: A raster operand is on another grid, raised through `combine`.
+            ValueError: As `_band_layout_source` raises.
         """
-        result = super()._arithmetic(other, op)
-        NetCDF._label_result_bands(result, self if self._band_dim_names else None)
-        return result
+        return None if band is not None else self._band_layout_source(other)
 
-    def _reflected_arithmetic(self, other: Any, op: Callable) -> Any:
-        """Apply a reflected operator (`2 - var`, `2 / var`), keeping the band dimensions.
-
-        `Dataset._reflected_arithmetic` computes the values through `Analysis._fold`, whose
-        result carries no band dimensions, so this variable's are copied back onto it.
+    def _label_combined(self, result: Any, source: Any) -> None:
+        """Copy `source`'s band layout onto the raster `Analysis._combine` built.
 
         Args:
-            other: The scalar on the left of the operator.
-            op: The binary operator, applied as `op(other, values)`.
-
-        Returns:
-            Any: The result, labelled like this variable, or `NotImplemented` when `other`
-            is not a real, non-boolean scalar, which makes Python raise its own
-            `TypeError`.
+            result: The combined raster.
+            source: What `_combine_layout_source` returned.
         """
-        result = super()._reflected_arithmetic(other, op)
-        NetCDF._label_result_bands(result, self if self._band_dim_names else None)
-        return result
+        NetCDF._label_result_bands(result, source)
 
     def _band_layout_source(self, other: Any) -> NetCDF | None:
         """The operand whose band dimensions describe a combined result, once they agree.

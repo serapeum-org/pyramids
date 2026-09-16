@@ -1491,6 +1491,7 @@ class Analysis(_Engine["Dataset"]):
         if not isinstance(other, RasterBase):
             raise TypeError(f"`other` must be a Dataset, got {type(other).__name__}")
         self._check_combinable(other, func, band)
+        layout_source = self._ds._combine_layout_source(other, band)
 
         left, left_sentinels, left_domain = self._operand_arrays(self._ds, band)
         right_sentinels: list[Any]
@@ -1558,6 +1559,7 @@ class Analysis(_Engine["Dataset"]):
             if band is not None
             else list(self._ds.band_names)
         )
+        self._ds._label_combined(combined, layout_source)
         return combined
 
     def _check_combinable(self, other: Dataset, func: Any, band: int | None) -> None:
