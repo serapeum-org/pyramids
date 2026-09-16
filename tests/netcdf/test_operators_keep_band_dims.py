@@ -69,6 +69,22 @@ BINARY_OPERATORS = [
 ]
 
 
+class _ArrayOperand(np.ndarray):
+    """A numpy array that answers `combine` as a raster does, so an operator expression runs on it."""
+
+    def combine(self, other: np.ndarray, func) -> np.ndarray:
+        """Apply `func` to the two arrays, as `NetCDF.combine` applies it to two rasters.
+
+        Args:
+            other: The second operand.
+            func: The binary callable.
+
+        Returns:
+            np.ndarray: `func(self, other)` on plain arrays.
+        """
+        return func(np.asarray(self), np.asarray(other))
+
+
 def _variable(dims: list[tuple[str, list]], name: str = "temperature") -> NetCDF:
     """An in-memory variable over a 5x6 grid with the given band dimensions.
 
@@ -192,21 +208,25 @@ class TestEveryOperatorKeepsTheBandDimensions:
 
     @pytest.mark.parametrize("apply", OPERATORS)
     def test_two_inner_positions_come_back_row_major(self, cube, apply):
-        """`isel` keeping two levels reads the planes the declared layout puts there.
+        """`isel` keeping two levels reads what numpy computes on the operand's same two levels.
 
         Args:
             cube: The on-disk 4x3 variable.
             apply: The operator expression under test.
 
         Test scenario:
-            Two positions kept on the inner dimension is the one input on which a wrong
-            band order and the right one differ, so the expectation is cut out of the
-            full result with numpy rather than read back through `isel` itself.
+            The expectation is the same expression evaluated by numpy on the operand's array,
+            laid out `(time, pressure_level)` and cut to levels 0 and 2, so a result whose planes
+            are stored in any other order fails. Two positions kept on the inner dimension is the
+            input on which a wrong band order and the right one differ.
         """
-        result = apply(cube)
-        full = np.asarray(result.read_array()).reshape(NT, NL, NY, NX)
-        expected = full[:, [0, 2]].reshape(NT * 2, NY, NX)
-        selected = result.isel(pressure_level=[0, 2])
+        operand = np.asarray(cube.read_array(), dtype=np.float64).reshape(
+            NT, NL, NY, NX
+        )
+        with np.errstate(divide="ignore", invalid="ignore"):
+            computed = np.asarray(apply(operand.view(_ArrayOperand)))
+        expected = computed[:, [0, 2]].reshape(NT * 2, NY, NX)
+        selected = apply(cube).isel(pressure_level=[0, 2])
         assert tuple(selected._band_dim_sizes) == (NT, 2)
         assert_array_equal(selected.read_array(), expected)
 
