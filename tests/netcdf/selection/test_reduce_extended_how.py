@@ -641,6 +641,48 @@ class TestReduceOnAVariable:
             doubled.read_array()[1:, :], np.asarray(plain.read_array())[1:, :] * 2
         )
 
+    @pytest.mark.parametrize("call", ["reduce", "coarsen"])
+    def test_a_labelled_result_of_a_container_class_reduces_as_a_variable(
+        self, tmp_path, call
+    ):
+        """A classic-mode NetCDF on the left of a labelled variable still gives a reducible result.
+
+        Args:
+            tmp_path: pytest temp directory.
+            call: `reduce` or `coarsen`.
+
+        Test scenario:
+            An operator result takes its left operand's class, so the result is a `Container`
+            that holds twelve bands labelled `(time,)` from the right operand. Dispatching on
+            the class sent it down the container path, which refused it as empty.
+        """
+        path = str(tmp_path / "stack.nc")
+        _container().to_file(path)
+        classic = NetCDF.read_file(path, open_as_multi_dimensional=False)
+        labelled = _container().get_variable("v")
+        combined = classic + labelled
+        assert tuple(combined._band_dim_names) == ("time",), combined._band_dim_names
+        values = np.asarray(combined.read_array(), dtype=np.float64)
+        gaps = np.isnan(values)
+        if call == "reduce":
+            result = combined.reduce("time", "sum")
+            expected = np.where(gaps.all(axis=0), np.nan, np.nansum(values, axis=0))
+        else:
+            result = combined.coarsen("time", 2, how="max")
+            windows = [values[0:2], values[2:4]]
+            expected = np.stack(
+                [
+                    np.where(
+                        np.isnan(w).all(axis=0),
+                        np.nan,
+                        np.nanmax(np.nan_to_num(w, nan=-np.inf), axis=0),
+                    )
+                    for w in windows
+                ]
+            )
+        assert gaps.any(), "the combined raster should carry some gaps"
+        assert_allclose(np.asarray(result.read_array(), dtype=np.float64), expected)
+
     def test_an_unknown_dimension_names_the_variables_dimensions(self):
         """A dimension the variable does not have is refused with the ones it does."""
         variable = _container().get_variable("v")

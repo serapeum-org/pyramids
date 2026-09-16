@@ -1508,13 +1508,13 @@ class Selection(_Engine["NetCDF"]):
         # Local import breaks the netcdf.py <-> engines.selection import cycle
         # (netcdf.py imports this module at top level for wiring); the reducer registries
         # are module-level there, shared with the reduce helpers.
-        from pyramids.netcdf.netcdf import _COUNTING_REDUCERS, _REDUCERS, Variable
+        from pyramids.netcdf.netcdf import _COUNTING_REDUCERS, _REDUCERS
 
         nc = self._ds
         _check_how(how, {*_REDUCERS, *_COUNTING_REDUCERS})
         q = _check_quantile(how, q)
         groups = lambda: nc._resolve_group_positions(dim, groupby)  # noqa: E731
-        if isinstance(nc, Variable):
+        if _reduces_as_a_variable(nc):
             result = _reduce_variable_subset(
                 nc, dim, how, groups=groups, skipna=skipna, q=q
             )
@@ -1652,7 +1652,7 @@ class Selection(_Engine["NetCDF"]):
               ```
         """
         # Local import breaks the netcdf.py <-> engines.selection import cycle.
-        from pyramids.netcdf.netcdf import _COUNTING_REDUCERS, _REDUCERS, Variable
+        from pyramids.netcdf.netcdf import _COUNTING_REDUCERS, _REDUCERS
 
         nc = self._ds
         _check_how(how, {*_REDUCERS, *_COUNTING_REDUCERS})
@@ -1662,7 +1662,7 @@ class Selection(_Engine["NetCDF"]):
             raise ValueError(
                 f"boundary must be one of {list(_BOUNDARIES)}, got {boundary!r}."
             )
-        is_variable = isinstance(nc, Variable)
+        is_variable = _reduces_as_a_variable(nc)
         size = _band_dimension_size(nc, dim, is_variable=is_variable)
         resized, positions = _coarsen_windows(dim, size, length, boundary)
         groups = lambda: positions  # noqa: E731
@@ -1916,6 +1916,26 @@ def _check_quantile(how: str, q: Any) -> float | None:
     else:
         checked = None
     return checked
+
+
+def _reduces_as_a_variable(nc: NetCDF) -> bool:
+    """Whether `reduce` / `coarsen` treat `nc` as one variable rather than a container.
+
+    A `Variable` is one. So is anything that carries band dimensions: an operator result takes
+    its left operand's class, so a classic-mode NetCDF on the left of a labelled variable gives
+    a `Container`-class raster holding the right operand's layout. A container has no band
+    dimensions of its own, so this never sends one down the variable path.
+
+    Args:
+        nc: The object `reduce` or `coarsen` was called on.
+
+    Returns:
+        bool: `True` for a `Variable` or anything carrying band dimensions.
+    """
+    # Local import breaks the netcdf.py <-> engines.selection import cycle.
+    from pyramids.netcdf.netcdf import Variable
+
+    return isinstance(nc, Variable) or bool(nc._band_dim_names)
 
 
 def _read_no_data(var: NetCDF) -> Any:
