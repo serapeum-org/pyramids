@@ -1383,8 +1383,9 @@ class Selection(_Engine["NetCDF"]):
 
         Collapses or groups one non-spatial dimension (`time`, `pressure_level`, `depth`, an
         ensemble member, ...), leaving the other dimensions and their coordinates, the CRS
-        and the grid untouched. The work is done with numpy, through dask for a file-backed
-        variable when dask is installed; xarray is not needed.
+        and the grid untouched. The work is done with numpy, streamed through dask when dask is
+        installed and the variable is read straight from its file — not a cut, a reprojection or
+        an operator result, which are read whole; xarray is not needed.
 
         On a **container**, every gridded variable that has `dim` is reduced, the gridded
         variables without it are carried over, and the result is a new container.
@@ -1419,7 +1420,8 @@ class Selection(_Engine["NetCDF"]):
                   coordinate.
             skipna: When `True` (default), gaps — the declared no-data value and NaN — are
                 skipped. The statistics then answer float64, and a slice with no valid cell
-                holds the variable's no-data value (NaN when it declares none); `all` /
+                holds the variable's no-data value as the read holds it — unpacked, for a
+                CF-packed variable — or NaN when it declares none; `all` /
                 `any` treat a gap as neutral and answer `255`, their no-data value, for a
                 slice with no valid cell. When `False`, the raw stored values are reduced,
                 sentinel included, and a statistic keeps the dtype numpy gives it — the
@@ -1436,7 +1438,9 @@ class Selection(_Engine["NetCDF"]):
             NetCDF: A container for a container, a variable for a variable, with `dim`
             removed (`groupby=None`) or coarsened (windowed). A windowed dimension with a
             numeric coordinate labels each output slice with the first coordinate value of
-            its window. The result declares the variable's own no-data value, except that
+            its window. The result declares the variable's no-data value in the units the
+            reduction read — for a CF-packed variable the unpacked
+            `_FillValue * scale_factor + add_offset`, not the stored `_FillValue` — except that
             `count` declares none and `all` / `any` declare `255`.
 
         Raises:
@@ -1926,8 +1930,9 @@ def _reduces_as_a_variable(nc: NetCDF) -> bool:
 
     A `Variable` is one. So is anything that carries band dimensions: an operator result takes
     its left operand's class, so a classic-mode NetCDF on the left of a labelled variable gives
-    a `Container`-class raster holding the right operand's layout. A container has no band
-    dimensions of its own, so this never sends one down the variable path.
+    a `Container`-class raster holding the right operand's layout. A root container, opened
+    multidimensional or classic, has no band dimensions of its own, so this never sends one
+    down the variable path.
 
     Args:
         nc: The object `reduce` or `coarsen` was called on.
@@ -1974,10 +1979,11 @@ def _reduced_array(
 ) -> tuple[np.ndarray, list[str], dict[str, Any], Any]:
     """Reduce one raster variable along `dim`, the step a container and a variable share.
 
-    A file-backed variable is read as a chunked dask array when dask is installed, and the
-    `np.*` / `np.nan*` reducers dispatch to dask on it, so the reduction stays lazy until
-    `np.asarray` computes the reduced result (ARC-47); `_reduce_variable_array` needs no
-    dask-specific code. An in-memory variable, or any variable without dask, is read eagerly.
+    A file-backed variable that still reads as its store (`NetCDF._reads_as_its_store`) is read
+    as a chunked dask array when dask is installed, and the `np.*` / `np.nan*` reducers dispatch
+    to dask on it, so the reduction stays lazy until `np.asarray` computes the reduced result
+    (ARC-47); `_reduce_variable_array` needs no dask-specific code. Anything else — an in-memory
+    variable, a cut or other derived variable, or any variable without dask — is read eagerly.
 
     Args:
         nc: The object `reduce` was called on, which owns the reduce helpers.
@@ -1995,7 +2001,7 @@ def _reduced_array(
     Returns:
         tuple: The reduced numpy array, its band dimension names, its coordinate map, and
         the no-data value the reduced band declares — `None` for a count, `255` for a flag,
-        the variable's own otherwise.
+        otherwise the variable's sentinel in the units the reduction read (`_read_no_data`).
 
     Raises:
         ValueError: `group_positions` does not cover `dim`, after any `resize`, exactly.
@@ -2050,6 +2056,9 @@ def _reduce_variable_subset(
     window_mean_coords: bool = False,
 ) -> NetCDF:
     """Reduce a single variable and hand back a variable.
+
+    The result carries `nc`'s units for the band dimensions it keeps (`_band_dim_time_attrs`),
+    since the container it is rebuilt from has no store to read them from.
 
     Args:
         nc: The variable.
@@ -2119,7 +2128,9 @@ def _reduce_container(
     """Reduce every gridded variable of a container that has `dim`.
 
     Gridded variables without `dim` are carried over, as are auxiliary variables that do not
-    span it; an auxiliary variable that spans `dim` is dropped with a warning.
+    span it; an auxiliary variable that spans `dim` is dropped with a warning. The result
+    container carries the source variables' units for the band dimensions they keep
+    (`_band_dim_time_attrs`), which a variable taken from it finds through its parent.
 
     Args:
         nc: The container.

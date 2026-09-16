@@ -1458,6 +1458,12 @@ class Analysis(_Engine["Dataset"]):
     ) -> Dataset:
         """Shared body of :meth:`combine` and :meth:`_fold`.
 
+        After the refusal checks and before either operand is read, it asks the left operand's
+        `_combine_layout_source` hook about the band layouts, and hands the answer to that
+        operand's `_label_combined` once the result is built. A plain `Dataset` checks nothing
+        and labels nothing; a `NetCDF` refuses band dimensions that do not pair up and copies
+        its layout onto the result, so `combine`, the operators and `_fold` all keep it.
+
         Args:
             other: The second operand. Ignored as a *source* when `folded` is set — it
                 is this dataset, and reading it again would only cost.
@@ -1473,15 +1479,17 @@ class Analysis(_Engine["Dataset"]):
 
         Returns:
             Dataset: The combined raster, built with the **left** operand's class and
-            carrying this dataset's geotransform, CRS, metadata and band names.
+            carrying this dataset's geotransform, CRS, metadata and band names, plus the band
+            dimensions `_label_combined` copies onto a `NetCDF` result.
 
         Raises:
             TypeError: `other` is not a raster, or `func` is not callable.
             AlignmentError: The operands do not share a grid/CRS.
-            ValueError: The band counts differ; `band` is out of range; an explicit
-                `no_data_value` does not fit the result dtype, or no candidate sentinel
-                is both storable and absent from the result; `func` returned the wrong
-                shape, or a dtype GDAL has no band type for.
+            ValueError: The band counts differ; a `NetCDF` left operand's band dimensions do
+                not pair up with `other`'s (raised by `_combine_layout_source`); `band` is out
+                of range; an explicit `no_data_value` does not fit the result dtype, or no
+                candidate sentinel is both storable and absent from the result; `func` returned
+                the wrong shape, or a dtype GDAL has no band type for.
 
         Warns:
             NoDataCollisionWarning: An explicit `no_data_value` occurs among the values

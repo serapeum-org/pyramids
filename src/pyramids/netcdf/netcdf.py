@@ -2258,8 +2258,9 @@ class NetCDF(Dataset):
         self._band_dim_values: list[Any] | None = None
         self._band_dim_names: tuple[str, ...] = ()
         self._band_dim_values_map: dict[str, list[Any] | None] = {}
-        # CF time `(units, calendar)` of the band dimensions, carried by a result computed in
-        # memory so its stamps still decode (see `_time_attr_candidates`).
+        # `(units, calendar)` of the band dimensions that declare units (CF time units on a time
+        # axis, but also `millibar` on a level), carried by a result computed in memory so its
+        # stamps still decode (see `_time_attr_candidates`).
         self._band_dim_time_attrs: dict[str, tuple[str, str]] = {}
         self._band_dim_sizes: tuple[int, ...] = ()
         self._variable_attrs: dict[str, Any] = {}
@@ -5895,12 +5896,12 @@ class NetCDF(Dataset):
     def _preserve_netcdf_metadata(self, result: Dataset) -> NetCDF:
         """Wrap a Dataset result as a NetCDF, preserving variable-subset metadata.
 
-        When spatial operations (crop, to_crs, resample) are called on a
-        NetCDF variable subset, the parent `Dataset` mixin returns a
-        plain `Dataset`. This helper re-wraps the result as a `NetCDF`
-        and copies over the variable-specific attributes so that methods
-        like `sel()`, `read_array(unpack=True)`, and further spatial
-        operations continue to work with consistent return types.
+        Some operations on a variable subset build their result as a plain `Dataset` — a
+        crop, the `sel` / `isel` cut — and this helper re-wraps it as a `Variable`. Others
+        (`to_crs`, `resample`, `warped_view`) already return this class, and that object is
+        labelled in place and returned. Either way the variable-specific attributes are
+        copied over so that methods like `sel()`, `read_array(unpack=True)`, and further
+        spatial operations continue to work with consistent return types.
 
         The canonical multi-band-dim fields (`_band_dim_names`,
         `_band_dim_values_map`, `_band_dim_sizes`) are propagated, and the
@@ -5910,6 +5911,10 @@ class NetCDF(Dataset):
         staleness guard lives: it nullifies the primary coordinate values when
         they are provably stale for the new band count (e.g. after a
         band-shrinking operation outside `sel()`).
+
+        The coordinate lists are copied, not shared (`copy_band_values_map`), and the band
+        dimensions' units are resolved into `_band_dim_time_attrs`, so the result still
+        decodes its time stamps.
 
         Args:
             result: The `Dataset` (or `NetCDF`) returned by a parent
@@ -7219,12 +7224,12 @@ class NetCDF(Dataset):
     def _materialize_variable_array(var: NetCDF, lazy: bool = False) -> Any:
         """Read a variable as `(*band_dim_sizes, rows, cols)` (or `(rows, cols)`).
 
-        With `lazy=True` and dask installed, returns a chunked `dask.array` in that same layout
-        without ever holding the whole variable in RAM — `reduce` streams its reducer over it and
-        computes only the (small) reduced result (ARC-47). The chunked read already keeps each
-        non-spatial dim as its own leading axis, so no reshape is needed. Falls back to the eager
-        read (undoing `read_array`'s singleton-band squeeze and GDAL's row-major band flatten) when
-        `lazy` is False or dask (the `[lazy]` extra) is not installed.
+        With `lazy=True`, dask (the `[lazy]` extra) installed, and a file-backed variable that still
+        reads as its store, returns a chunked `dask.array` in that same layout without ever holding
+        the whole variable in RAM — `reduce` streams its reducer over it and computes only the
+        (small) reduced result (ARC-47). The chunked read already keeps each non-spatial dim as its
+        own leading axis, so no reshape is needed. Otherwise it reads eagerly, undoing
+        `read_array`'s singleton-band squeeze and GDAL's row-major band flatten.
 
         Because the streamed reduce tree-reduces per chunk via dask while the eager path reduces in a
         single pass, a file-backed `mean`/`sum`/`std`/`var` can differ from the same in-memory reduce
@@ -7232,8 +7237,17 @@ class NetCDF(Dataset):
 
         Only a variable that still reads as its store is streamed (`_reads_as_its_store`): the
         chunked read rebuilds the store's variable from the parent file, so anything derived from it
-        — a `sel` / `isel` cut, `to_crs`, `warped_view`, an in-place change, an operator result — is
-        read eagerly from its own raster instead.
+        — a `sel` / `isel` cut, a crop, `to_crs`, `resample`, `warped_view`, an operator result, an
+        in-place `apply` / `fill` / `change_no_data_value` — is read eagerly from its own raster
+        instead.
+
+        Args:
+            var: The variable to read.
+            lazy: Whether a streamed read may be returned.
+
+        Returns:
+            numpy.ndarray | dask.array.Array: The values, laid out `(*band_dim_sizes, rows, cols)`
+            for a variable with band dimensions.
         """
         if lazy and NetCDF._is_file_backed(var) and NetCDF._reads_as_its_store(var):
             # Only stream a genuinely file-backed variable: an in-memory container has no file for the
@@ -7262,15 +7276,17 @@ class NetCDF(Dataset):
 
         - every derivation returns a new object with no record — a `sel` / `isel` cut, `to_crs`,
           `warped_view`, `resample`, a crop, an operator result;
-        - an in-place change swaps the raster through `_update_inplace` or `_replace_raster`,
-          which do not carry the record;
-        - `_materialize_md_view` does carry it, because it copies the view's values unchanged.
-          That keeps a geostationary variable (copied while it is built) and a variable whose
-          view a `resample` or `to_crs` copied as a side effect streaming.
+        - an in-place `apply`, `fill` or `change_no_data_value` swaps a new raster in through
+          `_update_inplace`, and `_replace_raster` swaps one in directly; neither carries the
+          record. The `epsg` setter hands `_update_inplace` the same raster, so the record still
+          matches;
+        - `_materialize_md_view` does carry it, because it copies the view's values unchanged, so
+          a variable whose view a `resample`, `to_crs` or crop copied as a side effect keeps
+          streaming. A geostationary variable is copied by that method while `get_variable`
+          builds it, and streams because `get_variable` records the raster after that copy.
 
         The GDAL driver alone cannot tell these apart: a warped variable is a `VRT` over the
-        store and a materialized whole variable is `MEM`, which are the wrong answers in both
-        directions.
+        store and must not stream, while a materialized whole variable is `MEM` and may.
 
         Args:
             var: The variable about to be read.
@@ -7286,7 +7302,57 @@ class NetCDF(Dataset):
     ) -> list[np.typing.NDArray] | None:
         """Resolve `groupby` into ordered lists of source index positions.
 
-        Returns ``None`` for the collapse case (``groupby is None``).
+        A frequency groups the steps of `dim` by calendar window, skipping empty windows. The
+        stamps are decoded through `get_time_variable` when this object holds no coordinates of
+        its own for `dim`, and through `_decode_time_labels` when it does, which finds the units
+        its store declares or those a derived result carries. A sequence of labels groups equal
+        labels, in first-appearance order.
+
+        Args:
+            dim: The band dimension being grouped.
+            groupby: `None` to collapse `dim`, a pandas offset alias such as `"1D"`, or one label
+                per step of `dim`.
+
+        Returns:
+            list[numpy.ndarray] | None: One ascending array of positions per group, or `None`
+            when `groupby` is `None`.
+
+        Raises:
+            ValueError: `groupby` is a frequency and no time coordinate of `dim` decodes.
+
+        Examples:
+            - Labels group their steps in first-appearance order:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.arange(4.0).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 24.0, 30.0]),
+              ... ).get_variable("t")
+              >>> [p.tolist() for p in var._resolve_group_positions("time", ["b", "a", "b", "a"])]
+              [[0, 2], [1, 3]]
+
+              ```
+            - A frequency needs stamps with time units, which these raw hours lack:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.arange(2.0).reshape(2, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+              ... ).get_variable("t")
+              >>> var._resolve_group_positions("time", "1D")
+              Traceback (most recent call last):
+                ...
+              ValueError: Cannot group dimension 'time' by frequency '1D': no decodable time coordinate found.
+
+              ```
         """
         positions: list[np.ndarray] | None = None
         if isinstance(groupby, str):
@@ -7301,7 +7367,8 @@ class NetCDF(Dataset):
             else:
                 # A variable keeps its own (possibly selected) raw stamps but not the
                 # root group's units, so get_time_variable finds nothing on it; decode
-                # the stamps it holds with the units its store declares instead.
+                # the stamps it holds with the units its store declares, or that a
+                # derived result carries (`_time_attr_candidates`), instead.
                 times = self._decode_time_labels(
                     dim, list(own_values), "%Y-%m-%d %H:%M:%S", strict=False
                 )
@@ -7387,7 +7454,8 @@ class NetCDF(Dataset):
             axis: The axis to reduce.
             how: A key of `_REDUCERS`, or `"count"`, `"all"` or `"any"`.
             skipna: Whether the sentinel and NaN are skipped.
-            ndv: The declared sentinel, or `None`.
+            ndv: The sentinel as it appears in `arr`, or `None` — unpacked, for a CF-packed
+                variable read unpacked (`_read_no_data`).
             q: Forwarded as `q=` to the `_REDUCERS` function whenever it is not `None`, so
                 it must stay `None` for every statistic but `quantile`; `Selection.reduce`
                 and `Selection.coarsen` refuse it before calling. The counting reductions
@@ -8519,9 +8587,10 @@ class NetCDF(Dataset):
         """Decode already-read raw time values into formatted date strings.
 
         Unlike :meth:`get_time_variable`, which reads the *full* stored axis, this
-        decodes the specific ``raw_values`` handed to it, using the CF ``units`` /
-        ``calendar`` for ``var_name`` resolved from this cube's own dimension
-        metadata or, failing that, its parent container's. A variable subset built
+        decodes the specific ``raw_values`` handed to it, using the first `(units, calendar)`
+        pair for `var_name` whose units parse, in the order `_time_attr_candidates` yields
+        them: this cube's own dimension metadata, its parent container's, then the units a
+        result computed in memory carries. A variable subset built
         by :meth:`get_variable` keeps its (possibly subsetted) raw coordinate values
         in ``_band_dim_values_map`` but loses the root group's dimension attributes,
         so its own metadata is empty while the parent still carries the units —
@@ -8542,9 +8611,9 @@ class NetCDF(Dataset):
 
         Returns:
             list[str] or None: One formatted string per value, or ``None`` when no
-            parseable ``units`` attribute is available on this cube or its parent
-            (including a present-but-unparseable one — a non-CF ``units`` string
-            degrades to raw labels rather than raising out of a plot).
+            candidate's ``units`` parses (a present-but-unparseable one — a non-CF
+            ``units`` string — degrades to raw labels rather than raising out of a
+            plot), or, with `strict=False`, when a value does not convert.
         """
         labels: list[str] | None = None
         for units, calendar in self._time_attr_candidates(var_name):
@@ -8583,12 +8652,13 @@ class NetCDF(Dataset):
     def _time_attr_candidates(self, var_name: str) -> Iterator[tuple[str, str]]:
         """Every `(units, calendar)` this object can find for dimension `var_name`, nearest first.
 
-        The dimension's CF attributes come first from this object's metadata and then its
-        parent's, which is where a `get_variable` subset finds them. After those come the
-        attributes carried alongside the band labels (`_band_dim_time_attrs`), on this object
-        and then its parent: a result computed in memory — an operator result, a reduction, a
-        coarsening — has no store of its own, and carries its operand's units that way so its
-        stamps still decode.
+        The dimension's `units` / `calendar` attributes come first from this object's metadata
+        and then its parent's, which is where a `get_variable` subset finds them. After those
+        come the attributes carried alongside the band labels (`_band_dim_time_attrs`), on this
+        object and then its parent: a result computed in memory — an operator result, a
+        reduction, a coarsening — has no store of its own, and carries its operand's units that
+        way so its stamps still decode. Any `units` is yielded, time or not (`millibar` on a
+        pressure level); a caller finds out by decoding it.
 
         Args:
             var_name: The dimension.
@@ -8623,7 +8693,8 @@ class NetCDF(Dataset):
 
         Returns:
             dict[str, tuple[str, str]]: `{dimension: (units, calendar)}` for the band dimensions
-            with CF time units.
+            that declare units — CF time units on a time axis, but any units, so a pressure
+            level's `millibar` is included.
         """
         resolved: dict[str, tuple[str, str]] = {}
         for name in self._band_dim_names:
@@ -10661,8 +10732,14 @@ class NetCDF(Dataset):
         / ``_band_dim_sizes``) and re-derives the legacy single-band-dim view
         (``_band_dim_name`` / ``_band_dim_values``) from them via
         :meth:`_derive_primary_band_view`, so a derived view keeps the same non-spatial
-        axis layout. The values map is shallow-copied so the two objects don't share a
-        mutable dict.
+        axis layout. The values map is copied together with its coordinate lists
+        (`copy_band_values_map`), so editing one object's stamps leaves the other's alone, and
+        `src`'s band-dimension units are resolved into `dst._band_dim_time_attrs`, so `dst`
+        still decodes its stamps without a store of its own.
+
+        Args:
+            dst: The object to label, such as an operator result.
+            src: The object whose band layout describes `dst`.
         """
         dst._band_dim_names = src._band_dim_names
         dst._band_dim_values_map = copy_band_values_map(src._band_dim_values_map)
@@ -10685,12 +10762,15 @@ class NetCDF(Dataset):
     ) -> Dataset:
         """Combine two rasters cell by cell, keeping the operands' band dimensions.
 
-        Delegates the arithmetic to `Dataset.combine`, then labels the result with the
-        band dimensions — names, sizes and coordinates — the operands describe, so a
-        combined `(time, pressure_level)` variable can still be passed to `sel`, `isel`
-        or anything else that reads that layout. The operators `+`, `-`, `*`, `/`, `<`,
-        `<=`, `>` and `>=` between two variables reach this method, so they keep the labels
-        too; `==` and `!=` stay Python's identity comparison and never get here.
+        Delegates to `Dataset.combine`. Its engine, `Analysis._combine`, checks the band
+        layouts through `_combine_layout_source` once the grids and band counts are known to
+        agree and before any pixel is read, then labels the result with the band dimensions —
+        names, sizes and coordinates — through `_label_combined`, so a combined
+        `(time, pressure_level)` variable can still be passed to `sel`, `isel` or anything else
+        that reads that layout. The operators `+`, `-`, `*`, `/`, `<`, `<=`, `>` and `>=`
+        between two variables reach this method, so they keep the labels too; `==` and `!=`
+        stay Python's identity comparison and never get here. A scalar operand (`var * 2`,
+        `2 - var`) reaches the same engine without passing through here, and keeps them as well.
 
         The labels come from this variable when it has them, and from `other` when only it
         does. When both do, their dimension names and sizes must match, or the planes do not
@@ -10699,12 +10779,13 @@ class NetCDF(Dataset):
         `isel(time=slice(1, None)) - isel(time=slice(None, -1))`) combine, and a dimension
         whose coordinates disagree keeps its name and length but comes back without
         coordinates, since neither operand's stamps describe the result. `isel` still reaches
-        it; `sel` by value on that dimension has nothing to match. Where both operands carry CF
-        time units and the units differ, stamps agree when they name the same instants — hours
-        `[0, 6]` and days `[0, 0.25]` since the same origin are one axis — and otherwise the
-        raw values are compared. A coordinate-less dimension on either side is not compared.
-        The check runs before `Dataset.combine` is called, and only when `band` is `None` and
-        the two grids and band counts agree.
+        it; `sel` by value on that dimension raises `ValueError`. Where both operands declare
+        units for a dimension and the units differ, the stamps are compared as decoded time
+        instants — hours `[0, 6]` and days `[0, 0.25]` since the same origin are one axis —
+        and units that do not decode as time (`millibar` against `hPa`) make the dimension
+        disagree; in every other case the raw values are compared. A coordinate-less
+        dimension on either side is not compared. The check runs only when `band` is `None`
+        and the two grids and band counts agree.
 
         Args:
             other: The second operand, on this variable's grid.
@@ -10818,7 +10899,8 @@ class NetCDF(Dataset):
         """Copy the band layout onto the raster `Analysis._combine` built.
 
         Dimensions the operands disagree on keep their name and length and lose their
-        coordinates (and any CF time units), since neither operand's stamps describe the result.
+        coordinates, and the units carried for them in `_band_dim_time_attrs`, since neither
+        operand's stamps describe the result.
 
         Args:
             result: The combined raster.
@@ -10921,11 +11003,13 @@ class NetCDF(Dataset):
         """The band dimensions whose coordinate values name different steps on the two operands.
 
         Expects the two layouts to agree in names and sizes. A dimension without coordinates on
-        either side is skipped. When both operands carry CF time units for a dimension and the
-        units differ, its stamps are compared as decoded instants — hours `[0, 6]` and days
-        `[0, 0.25]` since one origin agree, the same raw hours since two origins do not; a stamp
-        that will not decode counts as a disagreement. Otherwise the raw values are compared
-        with `_same_coordinates`.
+        either side is skipped. When both operands find units for a dimension (the nearest pair
+        `_time_attr_candidates` yields) and the `(units, calendar)` pairs differ, its stamps are
+        compared as decoded time instants, to the second — hours `[0, 6]` and days `[0, 0.25]`
+        since one origin agree, the same raw hours since two origins do not. Units that do not
+        parse as time (`millibar` against `hPa`), or a stamp that will not decode, count as a
+        disagreement. Otherwise — units on one side or neither, or the same pair on both — the
+        raw values are compared with `_same_coordinates`.
 
         Args:
             left: The left operand.
@@ -10933,6 +11017,31 @@ class NetCDF(Dataset):
 
         Returns:
             list[str]: The disagreeing dimensions, in the operands' order.
+
+        Examples:
+            - Hours and days since one origin name the same instants; other hours do not:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> def variable(stamps, units):
+              ...     var = NetCDF.from_array(
+              ...         np.ones((2, 1, 1)),
+              ...         geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...         variable_name="t",
+              ...         dims=ExtraDimensions(name="time", values=stamps),
+              ...     ).get_variable("t")
+              ...     var._band_dim_time_attrs = {"time": (units, "standard")}
+              ...     return var
+              >>> hours = variable([0.0, 6.0], "hours since 2000-01-01")
+              >>> days = variable([0.0, 0.25], "days since 2000-01-01")
+              >>> NetCDF._disagreeing_coordinates(hours, days)
+              []
+              >>> later = variable([0.0, 12.0], "hours since 2000-01-01")
+              >>> NetCDF._disagreeing_coordinates(hours, later)
+              ['time']
+
+              ```
         """
         disagreeing: list[str] = []
         for name in left._band_dim_names:
