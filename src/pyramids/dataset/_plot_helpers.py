@@ -939,26 +939,31 @@ def render_array(request: RenderRequest, **kwargs: Any) -> ArrayGlyph:
     require_cleopatra()
     from cleopatra.basemap.geo import Basemap
     from cleopatra.glyphs.gridded.array_glyph import (
-        Animation,
         ArrayGlyph,
-        FacetLayout,
         PanelLabels,
         PointOverlay,
     )
 
-    # ``RgbBands`` landed in cleopatra 0.31 (serapeum-org/cleopatra#291), which this
-    # module now requires. ``require_cleopatra`` only checks presence, so a stale
-    # cleopatra <0.31 (RgbBands absent) would otherwise raise a bare
-    # ``ImportError: cannot import name 'RgbBands'``. Import it on its own — guarding
-    # only this name — so a genuine module-load failure keeps its real ImportError and
-    # only a truly-absent ``RgbBands`` is translated into the branded upgrade hint.
+    # This module's plotting needs cleopatra's parameter-object API: ``RgbBands``
+    # (0.31, serapeum-org/cleopatra#291) plus ``Animation`` / ``FacetLayout`` (0.38),
+    # matching the ``cleopatra[tiles]>=0.39`` floor in pyproject.toml.
+    # ``require_cleopatra`` only checks that cleopatra is present, so a stale cleopatra
+    # that predates any of these names would otherwise raise a bare
+    # ``ImportError: cannot import name 'Animation'``. Import them together — guarding
+    # only these names — so a genuine module-load failure keeps its real ImportError and
+    # only a truly-absent parameter-object class is translated into the branded hint.
     try:
-        from cleopatra.glyphs.gridded.array_glyph import RgbBands
+        from cleopatra.glyphs.gridded.array_glyph import (
+            Animation,
+            FacetLayout,
+            RgbBands,
+        )
     except ImportError as exc:
         raise OptionalPackageDoesNotExist(
             "pyramids's plotting needs a newer cleopatra than is installed "
-            "(missing RgbBands). Upgrade with `pip install -U 'pyramids-gis[viz]'` "
-            "to satisfy the version pinned in pyproject.toml."
+            "(missing the Animation/FacetLayout/RgbBands parameter-object API). "
+            "Upgrade with `pip install -U 'pyramids-gis[viz]'` to satisfy the "
+            "version pinned in pyproject.toml."
         ) from exc
 
     # Unpack the grouped request into the working locals the dispatch uses.

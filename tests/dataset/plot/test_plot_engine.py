@@ -545,21 +545,22 @@ class TestRenderArrayKwargRouting:
             )
             assert ctor["rgb_bands"] is None, f"animate ctor={ctor}"
 
-    def test_too_old_cleopatra_raises_branded_upgrade_error(self, monkeypatch):
-        """A cleopatra without RgbBands surfaces the branded [viz]-upgrade error.
+    @pytest.mark.parametrize("missing_symbol", ["RgbBands", "Animation", "FacetLayout"])
+    def test_too_old_cleopatra_raises_branded_upgrade_error(self, monkeypatch, missing_symbol):
+        """A cleopatra missing any parameter-object class surfaces the branded [viz]-upgrade error.
 
         Test scenario:
-            ``render_array`` requires cleopatra >= 0.31 for ``RgbBands``. Deleting the
-            symbol from the cleopatra module makes the in-function import raise
-            ``ImportError``; ``render_array`` must translate it into
-            ``OptionalPackageDoesNotExist`` naming the version and the ``[viz]`` upgrade
-            rather than leaking the raw "cannot import name 'RgbBands'".
+            ``render_array`` needs cleopatra's parameter-object plotting API — ``RgbBands``
+            (0.31) and ``Animation`` / ``FacetLayout`` (0.38). Deleting any one of them from
+            the cleopatra module makes the in-function import raise ``ImportError``;
+            ``render_array`` must translate it into ``OptionalPackageDoesNotExist`` naming the
+            ``[viz]`` upgrade rather than leaking a raw "cannot import name '<symbol>'".
         """
         import cleopatra.glyphs.gridded.array_glyph as cleo_mod
 
-        monkeypatch.delattr(cleo_mod, "RgbBands", raising=False)
+        monkeypatch.delattr(cleo_mod, missing_symbol, raising=False)
         arr = np.random.default_rng(204).random((4, 4)).astype("float32")
-        with pytest.raises(OptionalPackageDoesNotExist, match="missing RgbBands"):
+        with pytest.raises(OptionalPackageDoesNotExist, match="newer cleopatra"):
             render_array(arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot")
 
     @pytest.mark.plot
