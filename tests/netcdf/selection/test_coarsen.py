@@ -575,6 +575,21 @@ class TestLayoutAndLabels:
         assert result._source_var_name == "v", result._source_var_name
         assert result._band_dim_values_map["time"] == [6.0], result._band_dim_values_map
 
+    def test_the_dropped_aux_warning_names_coarsen(self):
+        """The warning a `coarsen` call raises names `coarsen()`, not `reduce()`.
+
+        Test scenario:
+            `coarsen` and `reduce` share the container loop that raises it, so the name has
+            to be passed down rather than written into the message.
+        """
+        container = NetCDF.read_file(str(ERA5_T2M))
+        with pytest.warns(UserWarning, match="span the reduced dimension") as record:
+            container.coarsen("valid_time", 4)
+        messages = [
+            str(w.message) for w in record if "span the reduced" in str(w.message)
+        ]
+        assert messages[0].startswith("coarsen() dropped"), messages[0]
+
     def test_the_dropped_aux_warning_points_at_the_caller(self):
         """Coarsening ERA5 drops `expver` and attributes the warning to this test.
 

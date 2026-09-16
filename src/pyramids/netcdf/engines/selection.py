@@ -1587,7 +1587,7 @@ class Selection(_Engine["NetCDF"]):
 
         Warns:
             UserWarning: A container's auxiliary variable spans `dim` and is dropped. The
-                message names `reduce()`.
+                message names `coarsen()`.
 
         Examples:
             - Six-hourly steps averaged into twelve-hourly ones, labelled at the midpoint:
@@ -1687,6 +1687,7 @@ class Selection(_Engine["NetCDF"]):
                 q=q,
                 resize=resized,
                 window_mean_coords=True,
+                caller="coarsen",
             )
         return result
 
@@ -2064,6 +2065,7 @@ def _reduce_container(
     q: float | None,
     resize: int | None = None,
     window_mean_coords: bool = False,
+    caller: str = "reduce",
 ) -> NetCDF:
     """Reduce every gridded variable of a container that has `dim`.
 
@@ -2080,6 +2082,8 @@ def _reduce_container(
         q: The quantile, for `how="quantile"`.
         resize: The length to cut or pad `dim` to first, for `coarsen`.
         window_mean_coords: Label windows with their mean coordinate, for `coarsen`.
+        caller: The member the user called, named in the warnings, so a `coarsen` call is
+            not reported as `reduce()`.
 
     Returns:
         NetCDF: The reduced container.
@@ -2090,8 +2094,8 @@ def _reduce_container(
             refused.
 
     Warns:
-        UserWarning: An auxiliary variable spans `dim` and is dropped. The message names
-            `reduce()` whether `reduce` or `coarsen` called.
+        UserWarning: An auxiliary variable spans `dim` and is dropped, or one that does not
+            span it cannot be carried over. Both messages name `caller`.
     """
     names = nc.variable_names
     if not names:
@@ -2158,7 +2162,7 @@ def _reduce_container(
         (spanning_aux if dim in var_dims else carry_aux).append(name)
     if spanning_aux:
         warnings.warn(
-            f"reduce() dropped auxiliary variable(s) {spanning_aux} that span "
+            f"{caller}() dropped auxiliary variable(s) {spanning_aux} that span "
             f"the reduced dimension {dim!r}; carrying them unchanged would "
             f"leave an inconsistent {dim!r} length in the result.",
             # stacklevel=4: the user calls NetCDF.reduce (or NetCDF.coarsen), which
@@ -2166,7 +2170,7 @@ def _reduce_container(
             # this helper, so the user's call site is four frames up.
             stacklevel=4,
         )
-    nc._carry_aux_variables(cast("NetCDF", result), carry_aux, "reduce")
+    nc._carry_aux_variables(cast("NetCDF", result), carry_aux, caller)
     return cast("NetCDF", result)
 
 
