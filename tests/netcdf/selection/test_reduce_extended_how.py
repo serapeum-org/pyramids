@@ -1476,6 +1476,7 @@ class TestTimeAttrCandidates:
         calendar: str | None = None,
         carried: tuple[str, str] | None = None,
         parent: object | None = None,
+        is_open: bool = True,
     ) -> SimpleNamespace:
         """A stand-in with exactly what `_time_attr_candidates` reads, for dimension `time`.
 
@@ -1484,6 +1485,7 @@ class TestTimeAttrCandidates:
             calendar: The `calendar` attribute, or `None` for none.
             carried: The `(units, calendar)` carried for `time`, or `None` to carry nothing.
             parent: The stand-in parent, or `None`.
+            is_open: Whether the owner still holds its raster; a closed owner holds `None`.
 
         Returns:
             SimpleNamespace: The owner.
@@ -1497,6 +1499,7 @@ class TestTimeAttrCandidates:
                 get_dimension=lambda name: dimension if name == "time" else None
             ),
             _parent_nc=parent,
+            _raster=object() if is_open else None,
         )
         if carried is not None:
             owner._band_dim_time_attrs = {"time": carried}
@@ -1567,10 +1570,53 @@ class TestTimeAttrCandidates:
             """
             raise AssertionError(f"the parent's metadata was read for {name!r}")
 
-        parent = SimpleNamespace(meta_data=SimpleNamespace(get_dimension=unreadable))
+        parent = SimpleNamespace(
+            meta_data=SimpleNamespace(get_dimension=unreadable), _raster=object()
+        )
         child = self._owner("hours since 2000-01-01", parent=parent)
         nearest = next(iter(NetCDF._time_attr_candidates(child, "time")))
         assert nearest == ("hours since 2000-01-01", "standard"), nearest
+
+    def test_a_closed_parent_s_metadata_is_not_read(self):
+        """A closed parent is passed over for its metadata; the units carried on it still count.
+
+        Test scenario:
+            A closed dataset refuses a metadata read, so reading it would raise out of every
+            derivation of a variable used after its container's `with` block.
+        """
+
+        def unreadable(name: str) -> None:
+            """Metadata that cannot be read.
+
+            Args:
+                name: The dimension asked for.
+
+            Raises:
+                AssertionError: Always.
+            """
+            raise AssertionError(f"the closed parent's metadata was read for {name!r}")
+
+        parent = SimpleNamespace(
+            meta_data=SimpleNamespace(get_dimension=unreadable),
+            _raster=None,
+            _band_dim_time_attrs={"time": HOURS_2000},
+        )
+        child = self._owner(parent=parent)
+        candidates = list(NetCDF._time_attr_candidates(child, "time"))
+        assert candidates == [HOURS_2000], candidates
+
+    def test_a_closed_owner_s_own_metadata_is_not_read(self):
+        """A closed owner yields only what it carries."""
+        owner = self._owner("days since 1990-01-01", carried=HOURS_2000, is_open=False)
+        candidates = list(NetCDF._time_attr_candidates(owner, "time"))
+        assert candidates == [HOURS_2000], candidates
+
+    def test_a_pair_found_twice_is_yielded_once(self):
+        """The same units in the parent's metadata and carried on the child are offered once."""
+        parent = self._owner("hours since 2000-01-01", carried=HOURS_2000)
+        child = self._owner(carried=HOURS_2000, parent=parent)
+        candidates = list(NetCDF._time_attr_candidates(child, "time"))
+        assert candidates == [HOURS_2000], candidates
 
     def test_a_store_variable_offers_its_parents_units_before_carried_ones(self):
         """ERA5 `t2m` finds the store's units on its parent first, then units carried on itself."""

@@ -8675,6 +8675,11 @@ class NetCDF(Dataset):
         `is_cf_time_units` decides) are yielded: a pressure level in `millibar` has units, but
         they neither decode a stamp nor say whether two operands' levels are the same axis.
 
+        A closed owner's metadata is skipped rather than read, since a closed dataset refuses
+        that read: a variable taken inside a `with` block carries the units `get_variable`
+        resolved while its container was open, and finds them that way. A pair already yielded
+        is not yielded again.
+
         Args:
             var_name: The dimension.
 
@@ -8682,22 +8687,34 @@ class NetCDF(Dataset):
             tuple[str, str]: `(units, calendar)`, the calendar defaulting to `"standard"`.
         """
         parent = getattr(self, "_parent_nc", None)
+        seen: set[tuple[str, str]] = set()
         for owner in (self, parent):
             time_dim = (
-                None if owner is None else owner.meta_data.get_dimension(var_name)
+                None
+                if owner is None or owner._raster is None
+                else owner.meta_data.get_dimension(var_name)
             )
-            if time_dim is not None and is_cf_time_units(time_dim.attrs.get("units")):
-                yield (
-                    time_dim.attrs["units"],
-                    time_dim.attrs.get("calendar", "standard"),
-                )
+            pair = (
+                (time_dim.attrs["units"], time_dim.attrs.get("calendar", "standard"))
+                if time_dim is not None
+                and is_cf_time_units(time_dim.attrs.get("units"))
+                else None
+            )
+            if pair is not None and pair not in seen:
+                seen.add(pair)
+                yield pair
         for owner in (self, parent):
             carried = (
                 None
                 if owner is None
                 else getattr(owner, "_band_dim_time_attrs", {}).get(var_name)
             )
-            if carried is not None and is_cf_time_units(carried[0]):
+            if (
+                carried is not None
+                and is_cf_time_units(carried[0])
+                and carried not in seen
+            ):
+                seen.add(carried)
                 yield carried
 
     def _resolved_band_dim_time_attrs(self) -> dict[str, tuple[str, str]]:
@@ -10118,6 +10135,9 @@ class NetCDF(Dataset):
             cube, md_arr_ref if rg is not None else None, spatial_dim_indices
         )
         cube = self._georeference_index_subset(cube)
+        # Take the band dimensions' time units now, while this container is open, so the variable
+        # still decodes its stamps, and derives from them, after the container is closed.
+        cube._band_dim_time_attrs = cube._resolved_band_dim_time_attrs()
         # Record the raster built from the store, after every step above that may replace it, so a
         # streamed read is used only while this variable still reads as its store.
         cube._store_raster = cube._raster
@@ -11059,7 +11079,8 @@ class NetCDF(Dataset):
               ```
         """
         disagreeing: list[str] = []
-        for name in left._band_dim_names:
+        # An operand agrees with itself, which every scalar operator asks through `_fold`.
+        for name in () if left is right else left._band_dim_names:
             left_values = left._band_dim_values_map.get(name)
             right_values = right._band_dim_values_map.get(name)
             if left_values is None or right_values is None:

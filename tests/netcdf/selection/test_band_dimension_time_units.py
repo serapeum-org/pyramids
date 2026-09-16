@@ -90,3 +90,95 @@ class TestAnInPlaceChangeKeepsTheCarriedUnits:
         day = result.sel(valid_time="2022-01-01")
         assert day.band_count == 4
         assert_array_equal(np.unique(np.asarray(day.read_array())), [1.0])
+
+
+@pytest.fixture
+def outlived():
+    """`t2m` taken inside a `with` block, returned after the block has closed its container.
+
+    Returns:
+        tuple[NetCDF, np.ndarray]: The variable and its values, read while the container was open.
+    """
+    with NetCDF.read_file(str(ERA5_T2M)) as nc:
+        variable = nc.get_variable("t2m")
+        values = np.asarray(variable.read_array(), dtype=np.float64)
+    return variable, values
+
+
+class TestAVariableOutlivesItsContainer:
+    """A variable keeps selecting, copying and combining after its container closes.
+
+    Resolving the time units used to read the parent container's metadata on every derivation,
+    and a closed container refuses that read.
+    """
+
+    @pytest.mark.parametrize(
+        ("derive", "expected"),
+        [
+            pytest.param(
+                lambda v: v.isel(valid_time=slice(0, 4)), lambda a: a[:4], id="isel"
+            ),
+            pytest.param(
+                lambda v: v.sel(valid_time=1640995200), lambda a: a[:1], id="sel-number"
+            ),
+            pytest.param(lambda v: v.copy(), lambda a: a, id="copy"),
+            pytest.param(lambda v: v * 2, lambda a: a * 2, id="scalar-operator"),
+            pytest.param(lambda v: v - v, lambda a: a - a, id="variable-operator"),
+        ],
+    )
+    def test_a_derivation_after_the_block(self, outlived, derive, expected):
+        """The derivation succeeds and reads the values it would have read inside the block.
+
+        Args:
+            outlived: The variable and its values.
+            derive: The derivation under test.
+            expected: The same derivation on the values.
+        """
+        variable, values = outlived
+        result = derive(variable)
+        read = np.asarray(result.read_array(), dtype=np.float64).reshape(
+            -1, *values.shape[-2:]
+        )
+        assert_array_equal(read, expected(values).reshape(-1, *values.shape[-2:]))
+
+    def test_a_reprojection_after_the_block(self, outlived):
+        """`to_crs` builds its warped copy from the variable alone."""
+        variable, values = outlived
+        assert variable.to_crs(3035).band_count == values.shape[0]
+
+    def test_a_date_label_after_the_block(self, outlived):
+        """The variable took its time units while the container was open, so a date still selects.
+
+        Test scenario:
+            The parent is closed, so its metadata cannot be read; the units `get_variable`
+            carried over decode the stamps instead.
+        """
+        variable, _ = outlived
+        assert variable._band_dim_time_attrs["valid_time"][0].startswith(
+            "seconds since"
+        )
+        assert variable.sel(valid_time="2022-01-01").band_count == 4
+
+    def test_an_operand_agrees_with_itself_without_looking_up_units(self, monkeypatch):
+        """A scalar operator compares a variable with itself, and that asks for no units at all."""
+        variable = NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m")
+
+        def refuse(name: str) -> None:
+            """A units lookup that must not happen.
+
+            Args:
+                name: The dimension asked for.
+
+            Raises:
+                AssertionError: Always.
+            """
+            raise AssertionError(f"units were looked up for {name!r}")
+
+        monkeypatch.setattr(variable, "_time_attr_candidates", refuse)
+        assert NetCDF._disagreeing_coordinates(variable, variable) == []
+
+    def test_candidates_are_not_repeated(self):
+        """The units the parent declares and the units the variable carries are yielded once."""
+        variable = NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m")
+        candidates = list(variable._time_attr_candidates("valid_time"))
+        assert len(candidates) == 1, candidates
