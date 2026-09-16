@@ -633,13 +633,28 @@ class TestReduceOnAVariable:
         assert_array_equal(result.read_array(), np.full((2, NY, NX), 3))
 
     def test_an_operator_result_can_be_reduced(self):
-        """`(var * 2).reduce("time", "sum")` is twice the variable's own sum."""
+        """`(var * 2).reduce("time", "sum")` is twice the variable's own sum, gaps included.
+
+        Test scenario:
+            The operator derives a NaN no-data value for its result, so the all-masked column
+            reduces to NaN there, where the plain reduction holds the declared `-9999`. Each
+            result's gap is checked against its own declared value, and every other cell is
+            twice the plain sum.
+        """
         variable = _container().get_variable("v")
         doubled = (variable * 2).reduce("time", "sum")
         plain = variable.reduce("time", "sum")
-        assert_allclose(
-            doubled.read_array()[1:, :], np.asarray(plain.read_array())[1:, :] * 2
+        doubled_values = np.asarray(doubled.read_array(), dtype=np.float64)
+        plain_values = np.asarray(plain.read_array(), dtype=np.float64)
+        assert np.isnan(doubled.no_data_value[0]), doubled.no_data_value
+        assert np.isnan(doubled_values[ALL_MASKED]), doubled_values[ALL_MASKED]
+        assert plain_values[ALL_MASKED] == plain.no_data_value[0] == NDV, (
+            plain_values[ALL_MASKED],
+            plain.no_data_value,
         )
+        has_data = np.ones(plain_values.shape, dtype=bool)
+        has_data[ALL_MASKED] = False
+        assert_allclose(doubled_values[has_data], plain_values[has_data] * 2)
 
     @pytest.mark.parametrize("call", ["reduce", "coarsen"])
     def test_a_labelled_result_of_a_container_class_reduces_as_a_variable(
