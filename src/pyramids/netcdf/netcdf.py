@@ -8712,36 +8712,59 @@ class NetCDF(Dataset):
         Yields:
             tuple[str, str]: `(units, calendar)`, the calendar defaulting to `"standard"`.
         """
-        parent = getattr(self, "_parent_nc", None)
+        owners = (self, getattr(self, "_parent_nc", None))
+        # Generators, so a caller taking only the nearest pair reads no further owner.
+        found = itertools.chain(
+            (NetCDF._declared_time_attrs(owner, var_name) for owner in owners),
+            (NetCDF._carried_time_attrs(owner, var_name) for owner in owners),
+        )
         seen: set[tuple[str, str]] = set()
-        for owner in (self, parent):
-            time_dim = (
-                None
-                if owner is None or owner._raster is None
-                else owner.meta_data.get_dimension(var_name)
-            )
-            pair = (
-                (time_dim.attrs["units"], time_dim.attrs.get("calendar", "standard"))
-                if time_dim is not None
-                and is_cf_time_units(time_dim.attrs.get("units"))
-                else None
-            )
+        for pair in found:
             if pair is not None and pair not in seen:
                 seen.add(pair)
                 yield pair
-        for owner in (self, parent):
-            carried = (
-                None
-                if owner is None
-                else getattr(owner, "_band_dim_time_attrs", {}).get(var_name)
-            )
-            if (
-                carried is not None
-                and is_cf_time_units(carried[0])
-                and carried not in seen
-            ):
-                seen.add(carried)
-                yield carried
+
+    @staticmethod
+    def _declared_time_attrs(owner: Any, var_name: str) -> tuple[str, str] | None:
+        """The CF time `(units, calendar)` `owner`'s metadata declares for `var_name`.
+
+        Args:
+            owner: The object whose metadata is read, or `None`.
+            var_name: The dimension.
+
+        Returns:
+            tuple[str, str] | None: The pair, the calendar defaulting to `"standard"`; `None`
+            when there is no owner, the owner is closed (its metadata cannot be read), it has no
+            such dimension, or the dimension's units are not CF time units.
+        """
+        time_dim = (
+            None
+            if owner is None or owner._raster is None
+            else owner.meta_data.get_dimension(var_name)
+        )
+        pair: tuple[str, str] | None = None
+        if time_dim is not None and is_cf_time_units(time_dim.attrs.get("units")):
+            pair = (time_dim.attrs["units"], time_dim.attrs.get("calendar", "standard"))
+        return pair
+
+    @staticmethod
+    def _carried_time_attrs(owner: Any, var_name: str) -> tuple[str, str] | None:
+        """The CF time `(units, calendar)` `owner` carries for `var_name` in `_band_dim_time_attrs`.
+
+        Args:
+            owner: The object whose carried units are read, or `None`.
+            var_name: The dimension.
+
+        Returns:
+            tuple[str, str] | None: The carried pair, or `None` when there is no owner, it
+            carries nothing for `var_name`, or what it carries is not CF time units.
+        """
+        carried = (
+            None
+            if owner is None
+            else getattr(owner, "_band_dim_time_attrs", {}).get(var_name)
+        )
+        return carried if carried is not None and is_cf_time_units(carried[0]) else None
 
     def _resolved_band_dim_time_attrs(self) -> dict[str, tuple[str, str]]:
         """The nearest `(units, calendar)` of each band dimension that has one.
