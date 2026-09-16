@@ -795,16 +795,18 @@ class TestReduceOnAVariable:
             np.stack([steps[0:4].mean(axis=0), steps[4:8].mean(axis=0)]),
         )
 
-    def test_a_frequency_groupby_on_an_operator_result_is_refused(self):
-        """An operator result has no store to read time units from, so it cannot be grouped.
+    def test_a_frequency_groupby_on_an_operator_result_uses_its_operands_units(self):
+        """`(var * 2.0).reduce(..., groupby="1D")` groups the three days its operand holds.
 
         Test scenario:
-            `var * 1.0` computes in memory and keeps the band labels but not the parent the
-            units live on; the refusal is the same one a container without a time axis gives.
+            The operator result computes in memory, with no parent to read the units from;
+            it carries them from its operand alongside the band labels.
         """
-        variable = NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m") * 2.0
-        with pytest.raises(ValueError, match="no decodable time coordinate"):
-            variable.reduce("valid_time", "mean", groupby="1D")
+        variable = NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m")
+        doubled = (variable * 2.0).reduce("valid_time", "mean", groupby="1D")
+        plain = variable.reduce("valid_time", "mean", groupby="1D")
+        assert doubled.band_count == 3, doubled.band_count
+        assert_allclose(doubled.read_array(), np.asarray(plain.read_array()) * 2.0)
 
 
 @requires_dask
@@ -1206,3 +1208,43 @@ class TestPackedVariables:
         )
         expected = np.stack([valid[i : i + 4].sum(axis=0) for i in range(0, 12, 4)])
         assert_array_equal(result.read_array(), expected)
+
+
+class TestTimeUnitsSurviveDerivation:
+    """A derived result still decodes its time stamps, so a date label selects on it."""
+
+    @pytest.mark.parametrize(
+        ("derive", "bands"),
+        [
+            pytest.param(lambda v: v * 1.0, 4, id="operator"),
+            pytest.param(lambda v: v.coarsen("valid_time", 2), 2, id="coarsen"),
+            pytest.param(
+                lambda v: (v * 1.0).isel(valid_time=[0, 1, 2, 3, 4]),
+                4,
+                id="operator-then-isel",
+            ),
+            pytest.param(
+                lambda v: (v + v).coarsen("valid_time", 2),
+                2,
+                id="operator-then-coarsen",
+            ),
+        ],
+    )
+    def test_a_date_label_selects_on_the_result(self, derive, bands):
+        """`sel(valid_time="2022-01-01")` picks the first day's steps of the derived result.
+
+        Args:
+            derive: How the result is derived from ERA5 `t2m`.
+            bands: How many of its steps fall on 2022-01-01 — four six-hourly steps, or two
+                windows of two.
+        """
+        result = derive(NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m"))
+        assert result.sel(valid_time="2022-01-01").band_count == bands
+
+    def test_a_coarsened_container_s_variable_selects_by_date(self):
+        """A variable taken from a coarsened container decodes its window-mean stamps."""
+        container = NetCDF.read_file(str(ERA5_T2M))
+        with pytest.warns(UserWarning, match="span the reduced dimension"):
+            coarsened = container.coarsen("valid_time", 2)
+        variable = coarsened.get_variable("t2m")
+        assert variable.sel(valid_time="2022-01-01").band_count == 2

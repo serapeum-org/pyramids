@@ -2257,6 +2257,9 @@ class NetCDF(Dataset):
         self._band_dim_values: list[Any] | None = None
         self._band_dim_names: tuple[str, ...] = ()
         self._band_dim_values_map: dict[str, list[Any] | None] = {}
+        # CF time `(units, calendar)` of the band dimensions, carried by a result computed in
+        # memory so its stamps still decode (see `_time_attr_candidates`).
+        self._band_dim_time_attrs: dict[str, tuple[str, str]] = {}
         self._band_dim_sizes: tuple[int, ...] = ()
         self._variable_attrs: dict[str, Any] = {}
         self._scale: float | None = None
@@ -5950,6 +5953,7 @@ class NetCDF(Dataset):
         wrapped._offset = self._offset
         wrapped._parent_nc = self._parent_nc
         wrapped._source_var_name = self._source_var_name
+        wrapped._band_dim_time_attrs = self._resolved_band_dim_time_attrs()
         # A wrapped subset reopens the parent file on unpickle, so it must carry
         # the parent's captured GDAL open options too (#1025).
         wrapped._open_options = self._open_options
@@ -8542,16 +8546,7 @@ class NetCDF(Dataset):
             degrades to raw labels rather than raising out of a plot).
         """
         labels: list[str] | None = None
-        for owner in (self, getattr(self, "_parent_nc", None)):
-            if owner is None:
-                continue
-            time_dim = owner.meta_data.get_dimension(var_name)
-            if time_dim is None:
-                continue
-            units = time_dim.attrs.get("units")
-            if units is None:
-                continue
-            calendar = time_dim.attrs.get("calendar", "standard")
+        for units, calendar in self._time_attr_candidates(var_name):
             try:
                 func = create_time_conversion_func(
                     units, time_format, calendar=calendar
@@ -8583,6 +8578,58 @@ class NetCDF(Dataset):
                     labels = None
             break
         return labels
+
+    def _time_attr_candidates(self, var_name: str) -> Iterator[tuple[str, str]]:
+        """Every `(units, calendar)` this object can find for dimension `var_name`, nearest first.
+
+        The dimension's CF attributes come first from this object's metadata and then its
+        parent's, which is where a `get_variable` subset finds them. After those come the
+        attributes carried alongside the band labels (`_band_dim_time_attrs`), on this object
+        and then its parent: a result computed in memory — an operator result, a reduction, a
+        coarsening — has no store of its own, and carries its operand's units that way so its
+        stamps still decode.
+
+        Args:
+            var_name: The dimension.
+
+        Yields:
+            tuple[str, str]: `(units, calendar)`, the calendar defaulting to `"standard"`.
+        """
+        parent = getattr(self, "_parent_nc", None)
+        for owner in (self, parent):
+            time_dim = (
+                None if owner is None else owner.meta_data.get_dimension(var_name)
+            )
+            if time_dim is not None and time_dim.attrs.get("units") is not None:
+                yield (
+                    time_dim.attrs["units"],
+                    time_dim.attrs.get("calendar", "standard"),
+                )
+        for owner in (self, parent):
+            carried = (
+                None
+                if owner is None
+                else getattr(owner, "_band_dim_time_attrs", {}).get(var_name)
+            )
+            if carried is not None:
+                yield carried
+
+    def _resolved_band_dim_time_attrs(self) -> dict[str, tuple[str, str]]:
+        """The nearest `(units, calendar)` of each band dimension that has one.
+
+        What a derived result carries in `_band_dim_time_attrs`, resolved here from wherever this
+        object finds it, so the result does not depend on this object or its parent staying alive.
+
+        Returns:
+            dict[str, tuple[str, str]]: `{dimension: (units, calendar)}` for the band dimensions
+            with CF time units.
+        """
+        resolved: dict[str, tuple[str, str]] = {}
+        for name in self._band_dim_names:
+            nearest = next(iter(self._time_attr_candidates(name)), None)
+            if nearest is not None:
+                resolved[name] = nearest
+        return resolved
 
     @property
     def dimension_sizes(self) -> dict[str, int]:
@@ -10619,6 +10666,7 @@ class NetCDF(Dataset):
         dst._band_dim_names = src._band_dim_names
         dst._band_dim_values_map = dict(src._band_dim_values_map)
         dst._band_dim_sizes = src._band_dim_sizes
+        dst._band_dim_time_attrs = src._resolved_band_dim_time_attrs()
         dst._band_dim_name, dst._band_dim_values = NetCDF._derive_primary_band_view(
             dst._band_dim_names,
             dst._band_dim_values_map,

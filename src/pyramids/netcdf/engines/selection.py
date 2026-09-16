@@ -2091,7 +2091,14 @@ def _reduce_variable_subset(
         band_names,
         values_map,
     )
-    return cast("NetCDF", container.get_variable(name))
+    variable = cast("NetCDF", container.get_variable(name))
+    # The rebuilt container has no store to read time units from, so carry the operand's.
+    variable._band_dim_time_attrs = {
+        dim_name: attrs
+        for dim_name, attrs in nc._resolved_band_dim_time_attrs().items()
+        if dim_name in variable._band_dim_names
+    }
+    return variable
 
 
 def _reduce_container(
@@ -2152,6 +2159,7 @@ def _reduce_container(
 
     result = None
     found = False
+    time_attrs: dict[str, tuple[str, str]] = {}
     for var_name in spatial_vars:
         var = nc._require_raster_variable(var_name)
         band_names = list(var._band_dim_names)
@@ -2184,6 +2192,15 @@ def _reduce_container(
             band_names,
             values_map,
         )
+        # The rebuilt container has no store to read time units from; carry the source
+        # variables' so a variable taken from it still decodes its stamps.
+        time_attrs.update(
+            {
+                name: attrs
+                for name, attrs in var._resolved_band_dim_time_attrs().items()
+                if name in band_names
+            }
+        )
 
     if not found:
         raise ValueError(
@@ -2209,6 +2226,7 @@ def _reduce_container(
             # this helper, so the user's call site is four frames up.
             stacklevel=4,
         )
+    cast("NetCDF", result)._band_dim_time_attrs = time_attrs
     nc._carry_aux_variables(cast("NetCDF", result), carry_aux, caller)
     return cast("NetCDF", result)
 
