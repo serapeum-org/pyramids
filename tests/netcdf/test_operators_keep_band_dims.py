@@ -313,6 +313,33 @@ class TestTwoVariablesMustAgreeOnTheirDimensions:
             apply(left, right)
         assert "24.0" in str(error.value), str(error.value)
 
+    def test_a_long_mismatch_is_summarised_at_its_first_difference(self):
+        """Two 2000-step axes differing only at the end give a short message naming position 1999.
+
+        Test scenario:
+            Printing both coordinate lists in full made a 30,000-character exception out of a
+            one-stamp difference; the message names where they first differ instead.
+        """
+        stamps = [float(step) for step in range(2000)]
+        shifted = stamps[:-1] + [5000.0]
+        left = NetCDF.from_array(
+            np.ones((2000, 1, 1)),
+            geo_ref=GeoReference(geo=GEO, epsg=4326),
+            variable_name="t",
+            dims=ExtraDimensions(name="time", values=stamps),
+        ).get_variable("t")
+        right = NetCDF.from_array(
+            np.ones((2000, 1, 1)),
+            geo_ref=GeoReference(geo=GEO, epsg=4326),
+            variable_name="t",
+            dims=ExtraDimensions(name="time", values=shifted),
+        ).get_variable("t")
+        with pytest.raises(ValueError, match="band dimensions") as error:
+            _ = left + right
+        message = str(error.value)
+        assert len(message) < 600, len(message)
+        assert "1999" in message and "5000.0" in message, message
+
     def test_identical_layouts_combine(self):
         """Two variables with the same names, sizes and coordinates add cell by cell."""
         left = _variable([("time", TIMES), ("pressure_level", LEVELS)])

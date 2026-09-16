@@ -59,6 +59,7 @@ from pyramids.dataset.engines.io import _caller_stacklevel
 from pyramids.dataset.transform import GeoTransform
 from pyramids.netcdf._axis import detect_axis_indices
 from pyramids.netcdf._kerchunk_facade import combine_kerchunk, to_kerchunk
+from pyramids.netcdf._label_select import summarise_values
 from pyramids.netcdf._lazy import apply_unpack, build_lazy_array
 from pyramids.netcdf._mdim import (
     GEOSTATIONARY_PROJECTION,
@@ -10869,9 +10870,18 @@ class NetCDF(Dataset):
                     and right_values is not None
                     and not _same_coordinates(left_values, right_values)
                 ):
+                    position = next(
+                        index
+                        for index, (left_value, right_value) in enumerate(
+                            zip(left_values, right_values)
+                        )
+                        if not _same_value(left_value, right_value)
+                    )
                     difference = (
-                        f"the coordinates of {name!r} are {list(left_values)} against "
-                        f"{list(right_values)}"
+                        f"the coordinates of {name!r} first differ at position "
+                        f"{position}: {left_values[position]!r} against "
+                        f"{right_values[position]!r} ({summarise_values(list(left_values))} "
+                        f"against {summarise_values(list(right_values))})"
                     )
                     break
         return difference
