@@ -10846,7 +10846,8 @@ class NetCDF(Dataset):
         coordinates, since neither operand's stamps describe the result. `isel` still reaches
         it; `sel` by value on that dimension raises `ValueError`. Where both operands declare
         units for a dimension and the units differ, the stamps are compared as decoded time
-        instants — hours `[0, 6]` and days `[0, 0.25]` since the same origin are one axis —
+        instants, to the microsecond — hours `[0, 6]` and days `[0, 0.25]` since the same
+        origin are one axis —
         and units that do not decode as time (`millibar` against `hPa`) make the dimension
         disagree; in every other case the raw values are compared. A coordinate-less
         dimension on either side is not compared. The check runs only when `band` is `None`
@@ -11129,7 +11130,7 @@ class NetCDF(Dataset):
         Expects the two layouts to agree in names and sizes. A dimension without coordinates on
         either side is skipped. When both operands find units for a dimension (the nearest pair
         `_time_attr_candidates` yields) and the `(units, calendar)` pairs differ, its stamps are
-        compared as decoded time instants, to the second — hours `[0, 6]` and days `[0, 0.25]`
+        compared as decoded time instants, to the microsecond — hours `[0, 6]` and days `[0, 0.25]`
         since one origin agree, the same raw hours since two origins do not. Units that do not
         parse as time (`millibar` against `hPa`), or a stamp that will not decode, count as a
         disagreement. Otherwise — units on one side or neither, or the same pair on both — the
@@ -11179,7 +11180,9 @@ class NetCDF(Dataset):
             if left_units is None or right_units is None or left_units == right_units:
                 agree = _same_coordinates(left_values, right_values)
             else:
-                instant = "%Y-%m-%d %H:%M:%S"
+                # To the microsecond, the finest step the converters resolve: sub-second axes are
+                # real (a nanoseconds axis is decoded at microsecond resolution).
+                instant = "%Y-%m-%d %H:%M:%S.%f"
                 left_labels = left._decode_time_labels(
                     name, list(left_values), instant, strict=False
                 )

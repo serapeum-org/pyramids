@@ -1005,6 +1005,38 @@ class TestTimeUnitsDecideAgreement:
         result = left + right
         assert result._band_dim_values_map["time"] == TIMES, result._band_dim_values_map
 
+    @pytest.mark.parametrize(
+        ("seconds", "agree"),
+        [
+            pytest.param([0.0, 0.5, 0.6, 0.7], False, id="other-sub-second-steps"),
+            pytest.param([0.0, 0.1, 0.2, 0.3], True, id="the-same-instants"),
+        ],
+    )
+    def test_different_units_compare_instants_below_the_second(self, seconds, agree):
+        """Milliseconds `[0, 100, 200, 300]` against seconds: equal instants agree, others do not.
+
+        Args:
+            seconds: The right operand's stamps, in seconds since the same origin.
+            agree: Whether they name the left operand's instants.
+
+        Test scenario:
+            Every step falls within the first second. Decoded to whole seconds, 100 ms and 0.5 s
+            were one instant, and the right operand's steps were relabelled with the left
+            operand's milliseconds.
+        """
+        left = self._with_units(
+            [("time", [0.0, 100.0, 200.0, 300.0]), ("pressure_level", LEVELS)],
+            "milliseconds since 2000-01-01",
+        )
+        right = self._with_units(
+            [("time", seconds), ("pressure_level", LEVELS)], "seconds since 2000-01-01"
+        )
+        expected = [0.0, 100.0, 200.0, 300.0] if agree else None
+        result = left + right
+        assert result._band_dim_values_map["time"] == expected, (
+            result._band_dim_values_map
+        )
+
     def test_equal_units_compare_the_raw_stamps(self):
         """Stamps 0.36 s apart in the same units disagree, although they decode to the same second.
 
