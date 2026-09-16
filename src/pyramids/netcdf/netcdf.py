@@ -63,6 +63,7 @@ from pyramids.netcdf._lazy import apply_unpack, build_lazy_array
 from pyramids.netcdf._mdim import (
     GEOSTATIONARY_PROJECTION,
     axis_flips,
+    copy_band_values_map,
     dataset_is_geostationary,
     needs_x_flip,
     needs_y_flip,
@@ -5935,7 +5936,7 @@ class NetCDF(Dataset):
         wrapped._is_subset = self._is_subset
         wrapped._band_dim_names = self._band_dim_names
         wrapped._band_dim_sizes = self._band_dim_sizes
-        wrapped._band_dim_values_map = dict(self._band_dim_values_map)
+        wrapped._band_dim_values_map = copy_band_values_map(self._band_dim_values_map)
         # Re-derive the legacy primary-dim view from the canonical fields against the
         # wrapped result's live band count: a band-shrinking spatial op may have
         # diverged the band count from the cached coords, so the staleness guard lives
@@ -10664,7 +10665,7 @@ class NetCDF(Dataset):
         mutable dict.
         """
         dst._band_dim_names = src._band_dim_names
-        dst._band_dim_values_map = dict(src._band_dim_values_map)
+        dst._band_dim_values_map = copy_band_values_map(src._band_dim_values_map)
         dst._band_dim_sizes = src._band_dim_sizes
         dst._band_dim_time_attrs = src._resolved_band_dim_time_attrs()
         dst._band_dim_name, dst._band_dim_values = NetCDF._derive_primary_band_view(

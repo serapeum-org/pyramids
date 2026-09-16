@@ -210,6 +210,32 @@ class TestEveryOperatorKeepsTheBandDimensions:
         assert tuple(selected._band_dim_sizes) == (NT, 2)
         assert_array_equal(selected.read_array(), expected)
 
+    @pytest.mark.parametrize(
+        "derive",
+        [
+            pytest.param(lambda v: v * 2, id="operator"),
+            pytest.param(lambda v: v.sel(time=[0.0, 6.0]), id="sel"),
+            pytest.param(lambda v: v.isel(time=[1, 2]), id="isel"),
+        ],
+    )
+    def test_the_coordinate_lists_are_copies_not_shares(self, cube, derive):
+        """Appending to a derived result's `pressure_level` list leaves the operand's as it was.
+
+        Args:
+            cube: The on-disk 4x3 variable.
+            derive: How the result is derived from it.
+
+        Test scenario:
+            Copying the map alone still shares each list inside it, so an in-place edit of one
+            result's stamps would rewrite its operand's. `pressure_level` is the dimension none
+            of the derivations narrow, so its list is the one a shallow copy would share.
+        """
+        result = derive(cube)
+        result._band_dim_values_map["pressure_level"].append(99.0)
+        assert cube._band_dim_values_map["pressure_level"] == LEVELS, (
+            cube._band_dim_values_map["pressure_level"]
+        )
+
     def test_the_coordinate_map_is_a_copy_not_a_share(self, cube):
         """Editing a result's coordinate map leaves the operand's untouched."""
         result = cube * 2

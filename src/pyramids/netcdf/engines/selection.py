@@ -51,7 +51,7 @@ from pyramids.netcdf._label_select import (
     probe_format,
     summarise_values,
 )
-from pyramids.netcdf._mdim import open_mdarray, scalar_no_data
+from pyramids.netcdf._mdim import copy_band_values_map, open_mdarray, scalar_no_data
 from pyramids.netcdf._plot import NetCDFPlot
 from pyramids.netcdf.array_options import GeoReference
 
@@ -3061,7 +3061,7 @@ def _subset_along_dim(nc: NetCDF, dim_name: str, dim_indices: list[int]) -> NetC
         len(dim_indices) if i == dim_axis else s for i, s in enumerate(sizes)
     )
     result._band_dim_sizes = new_sizes
-    result._band_dim_values_map = dict(nc._band_dim_values_map)
+    result._band_dim_values_map = copy_band_values_map(nc._band_dim_values_map)
     result._band_dim_values_map[dim_name] = selected_coords
     # Re-derive the legacy primary-dim view from the (now updated) canonical
     # fields so it tracks the pinned selection — single source of truth in

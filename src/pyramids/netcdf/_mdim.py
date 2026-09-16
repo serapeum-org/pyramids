@@ -118,6 +118,39 @@ def open_mdarray(rg: gdal.Group, name: str) -> gdal.MDArray | None:
         return None
 
 
+def copy_band_values_map(
+    values_map: dict[str, list[Any] | None],
+) -> dict[str, list[Any] | None]:
+    """Copy a band-dimension coordinate map together with the lists inside it.
+
+    A derived variable (an operator result, a selection, a reprojection) starts from its
+    operand's map. `dict(values_map)` copies only the outer map, so both objects would share
+    each dimension's list and an in-place edit of one's stamps would rewrite the other's.
+
+    Args:
+        values_map: `{dimension: coordinate values or None}`.
+
+    Returns:
+        dict[str, list[Any] | None]: A copy whose lists are new lists; `None` stays `None`.
+
+    Examples:
+        - The copy's lists are independent of the original's:
+            ```python
+            >>> from pyramids.netcdf._mdim import copy_band_values_map
+            >>> original = {"time": [0.0, 6.0], "bottom_top": None}
+            >>> copied = copy_band_values_map(original)
+            >>> copied["time"].append(12.0)
+            >>> original["time"], copied["bottom_top"]
+            ([0.0, 6.0], None)
+
+            ```
+    """
+    return {
+        name: None if values is None else list(values)
+        for name, values in values_map.items()
+    }
+
+
 def scalar_no_data(no_data_value: Any) -> Any:
     """Reduce a per-band NoData list/tuple to its first (scalar) value.
 
