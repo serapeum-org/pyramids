@@ -1140,8 +1140,10 @@ class TestTheTwoTimeDecodersAgree:
         )
         assert stamps[0] == first, f"got {stamps[0]}"
 
+    @pytest.mark.interop
     def test_it_agrees_with_the_interop_decoder(self):
         """The two paths return the same instants for the axis that used to split them."""
+        pytest.importorskip("xarray")
         nc = NetCDF.read_file("tests/data/netcdf/cf__20v__1d3-3d17__y-desc.nc")
         stamps = nc.get_time_variable("time", "%Y-%m-%d %H:%M:%S")
         exported = nc.to_xarray().coords["time"].values
@@ -1244,6 +1246,7 @@ class TestTheCoardsAxisDecodesCorrectly:
             "%Y-%m-%d %H:%M:%S"
         )
 
+    @pytest.mark.interop
     def test_the_bridge_declines_the_same_axis_deliberately(self):
         """`to_xarray` leaves it as offsets because it could not write the result back.
 
@@ -1252,6 +1255,7 @@ class TestTheCoardsAxisDecodesCorrectly:
             origin decodes to `cftime` objects GDAL has no band type for — and is not the same
             thing as disagreeing about the dates, which is what #1140 was.
         """
+        pytest.importorskip("xarray")
         nc = NetCDF.read_file("tests/data/netcdf/coards__5v__1d4-4d1__y-desc.nc")
         exported = nc.to_xarray().coords["time"]
         assert not np.issubdtype(exported.dtype, np.datetime64), (

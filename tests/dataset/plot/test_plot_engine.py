@@ -1,5 +1,6 @@
 """Plot tests: the Analysis plot engine, render_array kwarg routing, and the mesh-render helper."""
 
+import dataclasses
 from unittest.mock import patch
 
 import numpy as np
@@ -167,9 +168,12 @@ class TestRenderArrayKwargRouting:
                 animate_seen.update(kwargs)
                 return self
 
-            def facet(self, **kwargs):
+            def facet(self, layout=None, **kwargs):
                 facet_seen.clear()
                 facet_seen.update(kwargs)
+                # cleopatra >= 0.38 takes the layout as the first positional
+                # argument (a ``FacetLayout``); capture it under its param name.
+                facet_seen["layout"] = layout
                 return self
 
         return _FakeGlyph, ctor_seen, plot_seen, animate_seen, facet_seen, animate_args
@@ -240,14 +244,17 @@ class TestRenderArrayKwargRouting:
             )
 
     def test_animate_mode_merges_both_buckets_into_animate_call(self):
-        """``mode='animate'`` — every kwarg flows into ``cleo.animate(...)``.
+        """``mode='animate'`` — styling kwargs flow into ``cleo.animate(...)``.
 
         Test scenario:
             cleopatra's ``ArrayGlyph.animate`` re-validates every kwarg
             against ``DEFAULT_OPTIONS``, so the D-4 documentation calls
             out the animate path as the exception: both render-call-only
             and constructor buckets merge into a single ``animate_kwargs``
-            dict, and the constructor receives nothing.
+            dict, and the constructor receives nothing. The one carve-out is
+            the ``Animation`` playback fields (cleopatra >= 0.38) — ``interval``
+            here — which are lifted onto the ``playback=`` object rather than
+            passed loosely.
         """
         fake_cls, ctor, _, animate, _, anim_args = self._capture_calls()
         rng = np.random.default_rng(303)
@@ -262,7 +269,7 @@ class TestRenderArrayKwargRouting:
                 kind="imshow",
                 interval=50,
             )
-        for key in ("cmap", "kind", "interval"):
+        for key in ("cmap", "kind"):
             assert key in animate, (
                 f"In animate mode, `{key}` must reach cleo.animate; "
                 f"animate kwargs={animate}"
@@ -270,6 +277,16 @@ class TestRenderArrayKwargRouting:
             assert key not in ctor, (
                 f"In animate mode, `{key}` must NOT be on the constructor; ctor={ctor}"
             )
+        # ``interval`` is an ``Animation`` playback field, so it rides on the
+        # ``playback=`` object instead of the loose animate kwargs.
+        assert "interval" not in animate, (
+            f"`interval` must move onto the Animation playback object; "
+            f"animate kwargs={animate}"
+        )
+        assert animate["playback"].interval == 50, (
+            f"`interval` must land on playback=Animation(interval=...); "
+            f"got playback={animate.get('playback')!r}"
+        )
         assert anim_args == [[0, 1, 2]], (
             f"animation_axis_values must be positional; got {anim_args}"
         )
@@ -279,10 +296,11 @@ class TestRenderArrayKwargRouting:
 
         Test scenario:
             The facet branch in ``render_array`` calls
-            ``cleo.facet(**facet_kwargs, **render_kwargs)``. ``kind`` is
-            a render-call-only kwarg, so it must surface inside the
-            facet call's kwargs while ``cmap`` (constructor bucket)
-            lands on ``__init__``.
+            ``cleo.facet(FacetLayout(...), **render_kwargs)``. ``kind`` is
+            a render-call-only kwarg, so it must surface inside the facet
+            call's loose kwargs, the layout field ``col`` must ride on the
+            ``FacetLayout`` positional argument (cleopatra >= 0.38), and
+            ``cmap`` (constructor bucket) lands on ``__init__``.
         """
         fake_cls, ctor, _, _, facet, _ = self._capture_calls()
         rng = np.random.default_rng(404)
@@ -298,9 +316,171 @@ class TestRenderArrayKwargRouting:
             )
         assert "kind" in facet, f"`kind` should reach cleo.facet; facet kwargs={facet}"
         assert "cmap" in ctor, f"`cmap` should remain on the constructor; ctor={ctor}"
-        assert facet.get("col") == "time", (
-            f"facet_kwargs must reach cleo.facet via merge; got {facet}"
+        # ``col`` is a layout field: cleopatra >= 0.38 takes it on the
+        # ``FacetLayout`` passed as ``facet``'s first positional argument.
+        layout = facet["layout"]
+        assert layout is not None, (
+            f"facet layout must reach cleo.facet via FacetLayout; got {layout!r}"
         )
+        assert layout.col == "time", (
+            f"FacetLayout.col must be 'time'; got {layout.col!r}"
+        )
+        assert "col" not in facet, (
+            f"`col` must move onto FacetLayout, not the loose facet kwargs; facet={facet}"
+        )
+
+    def test_animate_lifts_data_getter_and_frame_label_onto_playback(self):
+        """``data_getter`` (mode) and ``frame_label`` (kwarg) ride on the playback object.
+
+        Test scenario:
+            cleopatra >= 0.38 takes the lazy frame source and the per-frame label on
+            an ``Animation`` passed as ``playback=``; both must land there and not
+            also pass as loose ``animate`` keywords.
+        """
+        fake_cls, _, _, animate, _, _ = self._capture_calls()
+
+        def getter(i):
+            return np.zeros((4, 4), dtype="float32")
+
+        frame_label = FrameLabel(color="white")
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
+            render_array(
+                arr=np.zeros((3, 4, 4), dtype="float32"),
+                extent=[0.0, 0.0, 1.0, 1.0],
+                mode="animate",
+                animation_axis_values=[0, 1, 2],
+                data_getter=getter,
+                frame_label=frame_label,
+            )
+        playback = animate["playback"]
+        assert playback is not None, (
+            "a playback Animation must be built when fields are set"
+        )
+        assert playback.data_getter is getter, (
+            f"data_getter must ride on playback; got {playback.data_getter!r}"
+        )
+        assert playback.frame_label is frame_label, (
+            f"frame_label must ride on playback; got {playback.frame_label!r}"
+        )
+        assert "data_getter" not in animate, (
+            f"data_getter must not pass loosely; animate kwargs={animate}"
+        )
+        assert "frame_label" not in animate, (
+            f"frame_label must not pass loosely; animate kwargs={animate}"
+        )
+
+    def test_animate_without_playback_fields_omits_playback(self):
+        """No interval/frame_label/data_getter means ``playback=None``.
+
+        Test scenario:
+            When none of the ``Animation`` fields are set, the dispatch passes
+            ``playback=None`` so cleopatra applies its own per-frame defaults.
+        """
+        fake_cls, _, _, animate, _, _ = self._capture_calls()
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
+            render_array(
+                arr=np.zeros((3, 4, 4), dtype="float32"),
+                extent=[0.0, 0.0, 1.0, 1.0],
+                mode="animate",
+                animation_axis_values=[0, 1, 2],
+                cmap="viridis",
+            )
+        assert animate["playback"] is None, (
+            f"playback must be None when no Animation fields are set; got {animate['playback']!r}"
+        )
+
+    def test_facet_lifts_col_wrap_and_labels_onto_layout(self):
+        """``col_wrap`` and ``col_coords`` (→ ``PanelLabels``) ride on the ``FacetLayout``.
+
+        Test scenario:
+            The layout fields must reach cleopatra on the ``FacetLayout`` positional
+            argument, not as loose ``facet`` keywords.
+        """
+        fake_cls, _, _, _, facet, _ = self._capture_calls()
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
+            render_array(
+                arr=np.zeros((3, 4, 4), dtype="float32"),
+                extent=[0.0, 0.0, 1.0, 1.0],
+                mode="facet",
+                facet_kwargs={"col": "time", "col_wrap": 2, "col_coords": [0, 1, 2]},
+                kind="imshow",
+            )
+        layout = facet["layout"]
+        assert layout.col == "time", (
+            f"FacetLayout.col must be 'time'; got {layout.col!r}"
+        )
+        assert layout.col_wrap == 2, (
+            f"FacetLayout.col_wrap must be 2; got {layout.col_wrap!r}"
+        )
+        assert layout.labels is not None, (
+            f"col_coords must become FacetLayout.labels (PanelLabels); got {layout.labels!r}"
+        )
+        assert list(layout.labels.col) == [0, 1, 2], (
+            f"FacetLayout.labels.col must echo col_coords; got {layout.labels.col!r}"
+        )
+        for key in ("col", "col_wrap", "labels"):
+            assert key not in facet, (
+                f"`{key}` is a layout field and must not pass as a loose facet kwarg; facet={facet}"
+            )
+
+    def test_facet_lifts_every_facetlayout_field_onto_the_layout(self):
+        """Every FacetLayout dataclass field is lifted onto the layout, none left loose.
+
+        Test scenario:
+            The facet lift derives its key set from cleopatra's FacetLayout, so a sentinel
+            for each dataclass field must land on the FacetLayout and leave none as a loose
+            facet kwarg — a drift guard against cleopatra adding/renaming a layout field.
+        """
+        fake_cls, _, _, _, facet, _ = self._capture_calls()
+        field_names = [f.name for f in dataclasses.fields(_cleo_array.FacetLayout)]
+        facet_kwargs = {name: f"<{name}>" for name in field_names}
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
+            render_array(
+                arr=np.zeros((3, 4, 4), dtype="float32"),
+                extent=[0.0, 0.0, 1.0, 1.0],
+                mode="facet",
+                facet_kwargs=facet_kwargs,
+            )
+        layout = facet["layout"]
+        for name in field_names:
+            assert getattr(layout, name) == f"<{name}>", (
+                f"FacetLayout.{name} must be lifted from facet_kwargs; got {getattr(layout, name)!r}"
+            )
+            assert name not in facet, (
+                f"layout field `{name}` must not remain a loose facet kwarg; facet={facet}"
+            )
+
+    def test_animate_lifts_every_animation_playback_field(self):
+        """Every Animation playback field (bar data_getter) is lifted onto playback.
+
+        Test scenario:
+            The animate lift derives its key set from cleopatra's Animation, so a sentinel for
+            each field except ``data_getter`` (sourced from the mode) must land on the playback
+            object and leave none loose — a drift guard that also covers ``cell_value_text_colors``.
+        """
+        fake_cls, _, _, animate, _, _ = self._capture_calls()
+        field_names = [
+            f.name
+            for f in dataclasses.fields(_cleo_array.Animation)
+            if f.name != "data_getter"
+        ]
+        extras = {name: f"<{name}>" for name in field_names}
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
+            render_array(
+                arr=np.zeros((3, 4, 4), dtype="float32"),
+                extent=[0.0, 0.0, 1.0, 1.0],
+                mode="animate",
+                animation_axis_values=[0, 1, 2],
+                **extras,
+            )
+        playback = animate["playback"]
+        for name in field_names:
+            assert getattr(playback, name) == f"<{name}>", (
+                f"Animation.{name} must be lifted onto playback; got {getattr(playback, name)!r}"
+            )
+            assert name not in animate, (
+                f"playback field `{name}` must not remain a loose animate kwarg; animate={animate}"
+            )
 
     def test_split_is_driven_by_option_keys(self):
         """The ctor/render split comes from ``ArrayGlyph.option_keys()``.
@@ -439,21 +619,24 @@ class TestRenderArrayKwargRouting:
             )
             assert ctor["rgb_bands"] is None, f"animate ctor={ctor}"
 
-    def test_too_old_cleopatra_raises_branded_upgrade_error(self, monkeypatch):
-        """A cleopatra without RgbBands surfaces the branded [viz]-upgrade error.
+    @pytest.mark.parametrize("missing_symbol", ["RgbBands", "Animation", "FacetLayout"])
+    def test_too_old_cleopatra_raises_branded_upgrade_error(
+        self, monkeypatch, missing_symbol
+    ):
+        """A cleopatra missing any parameter-object class surfaces the branded [viz]-upgrade error.
 
         Test scenario:
-            ``render_array`` requires cleopatra >= 0.31 for ``RgbBands``. Deleting the
-            symbol from the cleopatra module makes the in-function import raise
-            ``ImportError``; ``render_array`` must translate it into
-            ``OptionalPackageDoesNotExist`` naming the version and the ``[viz]`` upgrade
-            rather than leaking the raw "cannot import name 'RgbBands'".
+            ``render_array`` needs cleopatra's parameter-object plotting API — ``RgbBands``
+            (0.31) and ``Animation`` / ``FacetLayout`` (0.38). Deleting any one of them from
+            the cleopatra module makes the in-function import raise ``ImportError``;
+            ``render_array`` must translate it into ``OptionalPackageDoesNotExist`` naming the
+            ``[viz]`` upgrade rather than leaking a raw "cannot import name '<symbol>'".
         """
         import cleopatra.glyphs.gridded.array_glyph as cleo_mod
 
-        monkeypatch.delattr(cleo_mod, "RgbBands", raising=False)
+        monkeypatch.delattr(cleo_mod, missing_symbol, raising=False)
         arr = np.random.default_rng(204).random((4, 4)).astype("float32")
-        with pytest.raises(OptionalPackageDoesNotExist, match="missing RgbBands"):
+        with pytest.raises(OptionalPackageDoesNotExist, match="newer cleopatra"):
             render_array(arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot")
 
     @pytest.mark.plot
