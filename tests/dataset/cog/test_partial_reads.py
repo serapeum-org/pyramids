@@ -297,6 +297,137 @@ class TestReadPart:
         )
 
 
+class TestReadPartReturnTransform:
+    """`read_part(return_transform=True)` reports the window it actually read."""
+
+    @staticmethod
+    def _col_index_grid() -> Dataset:
+        """An 8x8 EPSG:3857 grid, top-left (0, 8), cell 1, value == column index.
+
+        Returns:
+            Dataset: A grid whose value at a cell equals the source column, so a
+            returned value reveals the source-x it was sampled from.
+        """
+        cols = np.tile(np.arange(8, dtype="float64"), (8, 1))
+        return Dataset.from_array(
+            cols,
+            geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0, epsg=3857),
+        )
+
+    def test_default_still_returns_the_bare_array(self):
+        """Omitting the flag keeps the original return type.
+
+        Test scenario:
+            The existing contract is a bare ndarray; a caller that never asks for
+            the transform must not start receiving a tuple.
+        """
+        grid = self._col_index_grid()
+
+        result = grid.read_part((1.5, 1.5, 4.5, 4.5), dst_width=3, dst_height=3, band=0)
+
+        assert isinstance(result, np.ndarray), (
+            f"expected a bare array, got {type(result)}"
+        )
+
+    def test_the_transform_places_the_cells_where_the_data_is(self):
+        """The transform labels the snapped window, not the requested bbox.
+
+        Test scenario:
+            bbox (1.5, 1.5, 4.5, 4.5) snaps outward to source x-pixels [1, 5], read
+            to width 3, so the cells sit at world-x centres 1.667 / 3.0 / 4.333 --
+            not the 2.0 / 3.0 / 4.0 a caller labelling from the requested bbox would
+            get. Because value == column index, each returned value names the
+            source column its cell was sampled from, so `value + 0.5` is the
+            world-x the transform must reproduce.
+        """
+        grid = self._col_index_grid()
+
+        array, gt = grid.read_part(
+            (1.5, 1.5, 4.5, 4.5),
+            dst_width=3,
+            dst_height=3,
+            band=0,
+            return_transform=True,
+        )
+
+        assert gt == pytest.approx((1.0, 4 / 3, 0.0, 5.0, 0.0, -4 / 3))
+        transform_x = [gt[0] + (i + 0.5) * gt[1] for i in range(3)]
+        sampled_x = [value + 0.5 for value in array[0].tolist()]
+        assert transform_x == pytest.approx(sampled_x, abs=0.05), (
+            f"transform {transform_x} must match the data at {sampled_x}"
+        )
+
+    def test_the_transform_round_trips_through_a_dataset(self):
+        """Building a Dataset from `(array, transform)` reproduces the window.
+
+        Test scenario:
+            The whole point is to place the result without redoing the snap, so
+            the transform must be a valid geotransform: a Dataset built from it
+            carries the snapped origin and the decimated cell size.
+        """
+        grid = self._col_index_grid()
+
+        array, gt = grid.read_part(
+            (1.5, 1.5, 4.5, 4.5),
+            dst_width=3,
+            dst_height=3,
+            band=0,
+            return_transform=True,
+        )
+        placed = Dataset.from_array(array, geo_ref=GeoReference(geo=gt, epsg=3857))
+
+        assert placed.top_left_corner == pytest.approx((1.0, 5.0))
+        assert placed.cell_size == pytest.approx(4 / 3)
+
+    def test_a_partial_overlap_transform_covers_the_padded_buffer(self):
+        """The transform describes the full buffer, padding included.
+
+        Test scenario:
+            A window straddling the left edge is padded with NoData on the outside,
+            and the returned buffer -- padding and all -- is aligned to the snapped
+            window. So the transform's origin is the snapped left edge (x = -2, the
+            floor of the requested -1.5), out to the raster and beyond, not the
+            raster's own edge at x = 0.
+        """
+        grid = self._col_index_grid()
+
+        array, gt = grid.read_part(
+            (-1.5, 1.5, 1.5, 4.5),
+            dst_width=3,
+            dst_height=3,
+            band=0,
+            return_transform=True,
+        )
+
+        assert array.shape == (3, 3)
+        assert gt[0] == pytest.approx(-2.0), f"origin must snap to -2, got {gt[0]}"
+        assert gt[1] == pytest.approx(4 / 3), "four source pixels read to width three"
+
+    def test_a_south_up_source_keeps_its_pixel_step_sign(self):
+        """A positive y-step source is not forced north-up.
+
+        Test scenario:
+            `_output_geotransform` composes the source affine rather than assuming
+            a north-up grid, so a south-up source (positive `y_size`) comes back
+            with a positive `y_size`, and a caller placing the cells does not flip
+            the raster.
+        """
+        cols = np.tile(np.arange(8, dtype="float64"), (8, 1))
+        south_up = Dataset.from_array(
+            cols, geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 0.0, 0.0, 1.0), epsg=3857)
+        )
+
+        _, gt = south_up.read_part(
+            (1.5, 1.5, 4.5, 4.5),
+            dst_width=3,
+            dst_height=3,
+            band=0,
+            return_transform=True,
+        )
+
+        assert gt[5] == pytest.approx(4 / 3), f"y-step must stay positive, got {gt[5]}"
+
+
 class TestPreview:
     """Tests for COG.preview."""
 
