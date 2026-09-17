@@ -827,7 +827,8 @@ class COG(_Engine["Dataset"]):
                 to transform into. Omit it to read in the raster's own
                 coordinates (ARC-26).
             TypeError: `resampling` is not a string.
-            ValueError: Unknown `resampling`.
+            ValueError: Unknown `resampling`, or `dst_width` / `dst_height` is
+                given as a non-positive pixel count.
             OutOfBoundsError: The window does not intersect the raster at all.
 
         Note:
@@ -911,6 +912,13 @@ class COG(_Engine["Dataset"]):
                 ```
         """
         alg = _resolve_read_resampling(resampling)
+        # Rejected before the read, and before the output geotransform divides by
+        # the size: a zero or negative `dst_*` otherwise surfaced as a bare
+        # `ZeroDivisionError`, and did so on the plain-array path too once the
+        # transform became unconditional.
+        for name, value in (("dst_width", dst_width), ("dst_height", dst_height)):
+            if value is not None and value <= 0:
+                raise ValueError(f"{name} must be a positive pixel count, not {value}")
         # This serves a decimated window from the source; a NetCDF multidim view can't be window-read
         # by GDAL >= 3.13, so materialise it first (no-op for an ordinary raster).
         self._ds._materialize_md_view()

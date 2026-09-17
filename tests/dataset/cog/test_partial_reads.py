@@ -296,6 +296,25 @@ class TestReadPart:
             f"expected NoData -1 in padded region, got {out[10, 10]}"
         )
 
+    @pytest.mark.parametrize(
+        "bad", [{"dst_width": 0}, {"dst_height": 0}, {"dst_width": -3}]
+    )
+    def test_a_non_positive_output_size_is_a_clear_error(self, ramp_4326, bad):
+        """A zero or negative dst size is rejected with a message, not a ZeroDivisionError.
+
+        Args:
+            ramp_4326: Fixture ramp Dataset.
+            bad: A single non-positive output dimension.
+
+        Test scenario:
+            The output geotransform divides by the output size, so a zero or
+            negative `dst_*` used to surface as a bare `ZeroDivisionError` -- and,
+            once the transform was computed unconditionally, on the plain-array
+            path too. It must name the offending argument instead.
+        """
+        with pytest.raises(ValueError, match="must be a positive pixel count"):
+            ramp_4326.read_part(tuple(ramp_4326.bbox), bbox_crs=4326, band=0, **bad)
+
 
 class TestReadPartReturnTransform:
     """`read_part(return_transform=True)` reports the window it actually read."""
