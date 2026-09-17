@@ -826,18 +826,18 @@ class COG(_Engine["Dataset"]):
                 pixel coordinates to the **dataset's** CRS, over the window
                 actually read (the requested bbox snapped outward to whole
                 source pixels). Its origin, cell size and orientation place the
-                whole buffer exactly -- the buffer's outer extent always matches
-                the snapped window -- and each cell's data matches its own
-                transform centre for a window that lies fully inside the raster,
-                and for any window read at native resolution. The one inexact
-                case is a window that *both* straddles the raster edge *and* is
-                decimated: the out-of-raster remainder is padded to whole output
-                cells before the decimation, which shifts the sampled cells
-                within the buffer -- most at the padded edge (up to about one
-                output cell) and less toward the interior. The outer extent
-                still matches exactly. Read such a window at native resolution
-                for cell-exact data. Defaults to `False`, which keeps the
-                bare-array return unchanged.
+                buffer's outer extent exactly, and that extent always matches the
+                snapped window. Per-cell placement -- each cell's data sitting on
+                its own transform centre -- is exact only for a read at native
+                resolution (`dst_width`/`dst_height` omitted, so the output keeps
+                the snapped window's size). A resampled read can shift a cell's
+                data off its transform centre: by a fraction of a cell in the
+                interior, and by more near the raster edge, where a window that
+                overruns the edge has its out-of-raster remainder padded before
+                resampling -- reaching several output cells when such a window is
+                upsampled. The outer extent stays exact in every case; read at
+                native resolution when you need cell-exact data. Defaults to
+                `False`, which keeps the bare-array return unchanged.
 
         Returns:
             numpy.ndarray: `(rows, cols)` for a single band, or

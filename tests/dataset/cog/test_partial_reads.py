@@ -445,15 +445,13 @@ class TestReadPartReturnTransform:
             worst = max(worst, abs(centre - (value + 0.5)))
         return worst
 
-    def test_a_partial_read_at_native_resolution_is_cell_exact(self):
-        """Without decimation, even a straddling window places every data cell exactly.
+    def test_a_native_resolution_read_places_every_cell_exactly(self):
+        """Native resolution is the only regime the docstring promises is cell-exact.
 
         Test scenario:
-            The docstring promises cell-exact placement for any window read at
-            native resolution, straddling ones included -- the escape hatch for
-            the one inexact case. A window off the left edge, read at native
-            resolution (no `dst_*`), must land every data cell on its transform
-            centre.
+            A window off the left edge, read at native resolution (no `dst_*`),
+            must land every data cell on its transform centre -- this is the
+            cell-exact escape hatch the docstring points callers at.
         """
         grid = self._col_index_grid()
 
@@ -461,17 +459,17 @@ class TestReadPartReturnTransform:
 
         assert self._worst_cell_offset(array, gt) == pytest.approx(0.0, abs=1e-9)
 
-    def test_a_decimated_partial_edge_drift_is_bounded_but_extent_is_exact(self):
-        """The one inexact case drifts within one output cell, yet the extent is exact.
+    def test_a_decimated_straddle_drifts_within_one_cell_and_keeps_its_extent(self):
+        """A decimated straddle stays under one output cell; the extent is exact.
 
         Test scenario:
-            A window that both straddles the edge and is decimated pads the
+            A window that both straddles the edge and is *decimated* pads the
             out-of-raster remainder to whole output cells before decimating, so
-            the sampled cells shift within the buffer -- worst at the padded edge
-            (up to about one output cell), and not exact even at the interior.
-            The docstring bounds the drift there and promises the buffer's outer
-            extent still matches the snapped window; this pins both so neither can
-            silently regress.
+            the sampled cells shift within the buffer -- worst at the padded edge,
+            but still under one output cell for the decimation regime. The outer
+            extent matches the snapped window exactly. This is the milder of the
+            two resampled-straddle regimes; the upsampling one drifts far more
+            (see `test_an_upsampled_straddle_can_drift_several_cells`).
         """
         grid = self._col_index_grid()
 
@@ -490,6 +488,37 @@ class TestReadPartReturnTransform:
         right = gt[0] + array.shape[-1] * gt[1]
         assert left == pytest.approx(-1.0), "left extent must match the snapped window"
         assert right == pytest.approx(5.0), "right extent must match the snapped window"
+
+    def test_an_upsampled_straddle_can_drift_several_cells(self):
+        """The transform's outer extent stays exact even where per-cell drift is large.
+
+        Test scenario:
+            Upsampling a window that overruns the raster edge is the regime an
+            earlier draft's "at most about one output cell" bound got wrong: the
+            padded remainder, stretched across many output cells, pushes data
+            several cells off its transform centre. This pins the true contract --
+            per-cell placement is *not* bounded to one cell here (it is measured
+            well above one output cell), yet the buffer's outer extent still
+            matches the snapped window exactly, which is the guarantee callers can
+            rely on for any resampled read.
+        """
+        grid = self._col_index_grid()
+
+        array, gt = grid.read_part(
+            (-0.6, 1.5, 0.4, 6.5),
+            dst_width=13,
+            dst_height=13,
+            band=0,
+            return_transform=True,
+        )
+
+        assert self._worst_cell_offset(array, gt) > abs(gt[1]), (
+            "an upsampled straddle should breach the one-cell bound the old wording claimed"
+        )
+        left = gt[0]
+        right = gt[0] + array.shape[-1] * gt[1]
+        assert left == pytest.approx(-1.0), "left extent must match the snapped window"
+        assert right == pytest.approx(1.0), "right extent must match the snapped window"
 
     def test_a_south_up_source_keeps_its_pixel_step_sign(self):
         """A positive y-step source is not forced north-up.
