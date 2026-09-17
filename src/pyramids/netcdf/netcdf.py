@@ -2288,13 +2288,13 @@ class NetCDF(Dataset):
         """Release every GDAL handle this container holds, then close the base.
 
         A NetCDF container keeps more open GDAL references than the single
-        ``self._raster`` that :meth:`Dataset.close` drops:
+        `self._raster` that :meth:`Dataset.close` drops:
 
         * cached per-variable child objects (:attr:`_cached_variables`), each
-          with its own ``_raster`` and SWIG MDArray / root-group references;
-        * the ``_gdal_md_arr_ref`` / ``_gdal_rg_ref`` views that keep an
+          with its own `_raster` and SWIG MDArray / root-group references;
+        * the `_gdal_md_arr_ref` / `_gdal_rg_ref` views that keep an
           extracted variable's C++ backing alive;
-        * the ``_parent_nc`` back-reference forming a refcount cycle with the
+        * the `_parent_nc` back-reference forming a refcount cycle with the
           parent's variable cache;
         * a variable's `_store_raster`, the record of the raster `get_variable` built, which
           (unless copied into memory) reads the store and so holds a file-backed store's file
@@ -2302,13 +2302,13 @@ class NetCDF(Dataset):
 
         This override closes the cached children and drops every extra reference
         before deferring to :meth:`Dataset.close`. It then runs a single
-        :func:`gc.collect`: a spatial op (``crop`` / ``to_crs`` / ``reduce``)
-        extracts variables whose ``AsClassicDataset`` view, MDArray and root
+        :func:`gc.collect`: a spatial op (`crop` / `to_crs` / `reduce`)
+        extracts variables whose `AsClassicDataset` view, MDArray and root
         group form a **reference cycle among the GDAL SWIG wrappers** that plain
         refcounting cannot reclaim. Without the collect those wrappers keep the
-        source file open, so on Windows a later ``os.replace`` / ``os.remove``
-        fails with ``PermissionError`` until the caller forces a GC themselves
-        (#564). Doing it here makes ``close()`` honour its contract — the file is
+        source file open, so on Windows a later `os.replace` / `os.remove`
+        fails with `PermissionError` until the caller forces a GC themselves
+        (#564). Doing it here makes `close()` honour its contract — the file is
         unlocked immediately. Safe to call more than once.
         """
         # Release handles parked by this container's lazy reads (#727): a lazy dask array can be held
@@ -8640,12 +8640,12 @@ class NetCDF(Dataset):
         """Decode already-read raw time values into formatted date strings.
 
         Unlike :meth:`get_time_variable`, which reads the *full* stored axis, this
-        decodes the specific ``raw_values`` handed to it, using the first `(units, calendar)`
+        decodes the specific `raw_values` handed to it, using the first `(units, calendar)`
         pair for `var_name` whose units parse, in the order `_time_attr_candidates` yields
         them: this cube's own dimension metadata, its parent container's, then the units a
         result computed in memory carries. A variable subset built
         by :meth:`get_variable` keeps its (possibly subsetted) raw coordinate values
-        in ``_band_dim_values_map`` but loses the root group's dimension attributes,
+        in `_band_dim_values_map` but loses the root group's dimension attributes,
         so its own metadata is empty while the parent still carries the units —
         which is why the animate frame labels came back as raw integers (#1013).
         Decoding the passed values (not the parent's full axis) keeps the labels
@@ -8655,17 +8655,17 @@ class NetCDF(Dataset):
             var_name: Name of the time coordinate / dimension.
             raw_values: The raw coordinate values to decode (one per frame).
             time_format: strftime format for the output strings. Defaults to
-                ``"%Y-%m-%d"``.
-            strict: When ``True`` (the default) a coordinate value the converter
+                `"%Y-%m-%d"`.
+            strict: When `True` (the default) a coordinate value the converter
                 cannot handle propagates, so a malformed axis is not hidden behind
-                raw labels. When ``False`` it returns ``None`` instead, which is what
+                raw labels. When `False` it returns `None` instead, which is what
                 a selection needs: an axis that cannot be decoded simply has no labels
                 and the stored-value path still answers.
 
         Returns:
-            list[str] or None: One formatted string per value, or ``None`` when no
-            candidate's ``units`` parses (a present-but-unparseable one — a non-CF
-            ``units`` string — degrades to raw labels rather than raising out of a
+            list[str] or None: One formatted string per value, or `None` when no
+            candidate's `units` parses (a present-but-unparseable one — a non-CF
+            `units` string — degrades to raw labels rather than raising out of a
             plot), or, with `strict=False`, when a value does not convert.
         """
         labels: list[str] | None = None
@@ -10841,11 +10841,11 @@ class NetCDF(Dataset):
 
     @staticmethod
     def _copy_band_dim_metadata(dst: Any, src: Any) -> None:
-        """Copy the band-dimension bookkeeping from ``src`` onto ``dst``.
+        """Copy the band-dimension bookkeeping from `src` onto `dst`.
 
-        Carries the multi-band-dim fields (``_band_dim_names`` / ``_band_dim_values_map``
-        / ``_band_dim_sizes``) and re-derives the legacy single-band-dim view
-        (``_band_dim_name`` / ``_band_dim_values``) from them via
+        Carries the multi-band-dim fields (`_band_dim_names` / `_band_dim_values_map`
+        / `_band_dim_sizes`) and re-derives the legacy single-band-dim view
+        (`_band_dim_name` / `_band_dim_values`) from them via
         :meth:`_derive_primary_band_view`, so a derived view keeps the same non-spatial
         axis layout. The values map is copied together with its coordinate lists
         (`copy_band_values_map`), so editing one object's stamps leaves the other's alone, and
