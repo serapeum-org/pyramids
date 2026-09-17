@@ -735,6 +735,28 @@ class COG(_Engine["Dataset"]):
             return None
         return fn
 
+    @staticmethod
+    def _reject_nonpositive_output_sizes(
+        dst_width: int | None, dst_height: int | None
+    ) -> None:
+        """Reject a zero or negative explicit output size before any read.
+
+        Guards `read_part` up front: a non-positive `dst_width`/`dst_height`
+        otherwise surfaced as a bare `ZeroDivisionError` -- both when the output
+        geotransform divides by the size and, once that transform became
+        unconditional, on the plain-array path too.
+
+        Args:
+            dst_width: Requested output width in pixels, or `None` for native.
+            dst_height: Requested output height in pixels, or `None` for native.
+
+        Raises:
+            ValueError: Either size is given (not `None`) and is `<= 0`.
+        """
+        for name, value in (("dst_width", dst_width), ("dst_height", dst_height)):
+            if value is not None and value <= 0:
+                raise ValueError(f"{name} must be a positive pixel count, not {value}")
+
     @overload
     def read_part(
         self,
@@ -938,13 +960,7 @@ class COG(_Engine["Dataset"]):
                 ```
         """
         alg = _resolve_read_resampling(resampling)
-        # Rejected before the read, and before the output geotransform divides by
-        # the size: a zero or negative `dst_*` otherwise surfaced as a bare
-        # `ZeroDivisionError`, and did so on the plain-array path too once the
-        # transform became unconditional.
-        for name, value in (("dst_width", dst_width), ("dst_height", dst_height)):
-            if value is not None and value <= 0:
-                raise ValueError(f"{name} must be a positive pixel count, not {value}")
+        self._reject_nonpositive_output_sizes(dst_width, dst_height)
         # This serves a decimated window from the source; a NetCDF multidim view can't be window-read
         # by GDAL >= 3.13, so materialise it first (no-op for an ordinary raster).
         self._ds._materialize_md_view()
@@ -985,11 +1001,11 @@ class COG(_Engine["Dataset"]):
         )
         source = ds if band is None else ds.GetRasterBand(band + 1)
 
-        fully_inside = (
-            ix0 == req_xoff
-            and iy0 == req_yoff
-            and ix1 == req_xoff + req_xsize
-            and iy1 == req_yoff + req_ysize
+        fully_inside = (ix0, iy0, ix1, iy1) == (
+            req_xoff,
+            req_yoff,
+            req_xoff + req_xsize,
+            req_yoff + req_ysize,
         )
         if fully_inside:
             # Physical units, like `read_array`. These are overview-decimated reads
