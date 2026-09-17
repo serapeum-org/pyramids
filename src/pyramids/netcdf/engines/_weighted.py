@@ -3,9 +3,12 @@
 `reduce`, `coarsen`, `rolling` and the rest work along one band dimension and leave the grid
 alone, so they share `_along_dim`'s loop. A weighted mean over latitude and longitude instead
 collapses the grid itself — the answer has no cells to sit in — so it runs here, rebuilding the
-result on a grid of one cell spanning the source extent. That keeps it a `NetCDF`: it still
-carries its band dimensions and their stamps, and `sel`, `isel`, `reduce` and `to_file` all
-still work on it.
+result on a grid of one cell. That keeps it a `NetCDF`: it still carries its band dimensions and
+their stamps, and `sel`, `isel`, `reduce` and `to_file` all still work on it.
+
+`_weighted_geotransform` hands the rebuild a cell spanning the source extent, but a rebuilt store
+whose row or column axis is one cell long has no spacing to derive a geotransform from, so the
+footprint does not survive — see `Selection.weighted` for what the result reports instead.
 """
 
 from __future__ import annotations
@@ -29,9 +32,10 @@ if TYPE_CHECKING:
     from pyramids.netcdf.netcdf import NetCDF
 
 _WEIGHTED_HOWS = ("mean", "sum", "sum_of_weights", "std", "var")
-"""The statistics `weighted` computes. A weighted quantile is not among them: it needs the
-values sorted per cell against a running weight, which is a different algorithm from these
-sums, so `reduce(how="quantile")` remains the unweighted answer."""
+"""The statistics `weighted` computes. A weighted quantile is not among them, although xarray's
+`weighted().quantile()` offers one: it needs the values sorted per cell against a running weight,
+which is a different algorithm from these sums, so `reduce(how="quantile")` remains the
+unweighted answer."""
 
 _ROW_ALIAS = "y"
 """The name `from_array` gives the row axis, accepted for any store's row dimension."""
@@ -97,9 +101,10 @@ def _weighted_container(
 ) -> NetCDF:
     """Weight every gridded variable of a container.
 
-    Every gridded variable takes part when a spatial axis is weighted, since every one has the
-    grid. When a band dimension is weighted, a gridded variable without it is carried over
-    unchanged, as `reduce` carries it.
+    Every gridded variable takes part. A spatial axis is one they all have, so weighting the grid
+    always reduces all of them. A band dimension is not: unlike `reduce`, which carries a variable
+    without `dim` over unchanged, weighting a band dimension one gridded variable lacks makes
+    `_weighted_axes` refuse the name for that variable, so the whole call raises.
 
     Args:
         nc: The container.
@@ -205,11 +210,17 @@ def _weighted_applied(
 
 
 def _spatial_names(var: NetCDF) -> tuple[str, str]:
-    """The names of the variable's row and column axes.
+    """The names of the variable's row and column axes, as its store declares them.
 
-    A store variable reports them as its last two dimensions (`latitude` / `longitude`,
-    `y` / `x`, ...). A variable built in memory, or derived by an operator, may report none, and
-    answers the `y` / `x` a rebuild gives it.
+    The last two of `_md_array_dims` (`latitude` / `longitude`, `y` / `x`, ...). A variable built
+    in memory, or derived by an operator, may declare none, and answers the `y` / `x` a rebuild
+    gives it.
+
+    A store that declares a band dimension *between* its spatial axes — CAM's
+    `(time, lat, lev, lon)` — puts something other than the row axis second-to-last, so this
+    answers that name instead of the real row axis. `_ROW_ALIAS` / `_COLUMN_ALIAS` are accepted
+    beside whatever comes back, so `dims=("y", "x")` still reaches the grid on such a variable
+    while the `dims=None` default does not.
 
     Args:
         var: The variable.
@@ -298,10 +309,14 @@ def _weighted_axes(var: NetCDF, dims: Any) -> tuple[tuple[int, ...], tuple[str, 
 def _weights_for(var: NetCDF, weights: Any, shape: tuple, axes: tuple[int, ...]) -> Any:
     """The weights as an array broadcastable to the variable's own shape.
 
+    Only a NaN counts as a missing weight. A weights raster is read as plain numbers, so its own
+    no-data sentinel is not recognised and would be weighted as an ordinary value — pass zero
+    for the cells to leave out.
+
     Args:
         var: The variable being weighted.
         weights: `"area"` for cos-latitude weights, an array broadcastable to the weighted
-            axes' shape, or a `NetCDF` on the same grid.
+            axes' shape, or a `NetCDF` on the same grid, of which the first band is read.
         shape: The unflattened shape of the variable, `(*band_dim_sizes, rows, columns)`.
         axes: The axes being weighted.
 
@@ -310,8 +325,8 @@ def _weights_for(var: NetCDF, weights: Any, shape: tuple, axes: tuple[int, ...])
 
     Raises:
         ValueError: `"area"` on a grid that is not geographic; an unknown name; a `NetCDF` on
-            another grid; weights holding a gap; or weights that do not broadcast onto the
-            weighted axes.
+            another grid; weights holding a NaN; or weights that broadcast onto neither the
+            weighted axes nor the variable's own shape.
     """
     if isinstance(weights, str):
         if weights != "area":
@@ -414,7 +429,13 @@ def _weighted_statistic(
 
     A gap leaves both sums, so a weighted mean is the mean of the cells there are. A slice with
     no valid cell, or whose weights total zero, has no statistic and comes back NaN — the
-    `sum_of_weights` of a slice with valid cells is still its total, zero included.
+    `sum_of_weights` of a slice with valid cells is still its total, zero included, where xarray
+    answers NaN for a zero total.
+
+    A NaN is left out of both sums whatever `skipna` says, since the sums are masked on
+    `~isnan` either way; `skipna` only decides whether the declared sentinel becomes a NaN
+    first. So `skipna=False` weights the sentinel as an ordinary value but still skips NaN,
+    where xarray's `skipna=False` makes the whole answer NaN.
 
     Args:
         arr: The unflattened values, numpy or dask.
@@ -422,7 +443,7 @@ def _weighted_statistic(
         axes: The axes to reduce.
         how: One of `_WEIGHTED_HOWS`.
         ndv: The sentinel as it appears in `arr`, or `None`.
-        skipna: Whether gaps are skipped.
+        skipna: Whether the declared sentinel counts as a gap.
 
     Returns:
         The statistic, float64.
@@ -465,8 +486,11 @@ def _weighted_statistic(
 def _weighted_geotransform(var: NetCDF, rows: bool, columns: bool) -> tuple:
     """The geotransform of a result whose spatial axes were reduced.
 
-    A reduced axis becomes one cell spanning the source's whole extent along it, so the result
-    covers exactly the bounding box the source covered.
+    A reduced axis becomes one cell spanning the source's whole extent along it, so this describes
+    exactly the bounding box the source covered. The rebuild the caller hands it to does not keep
+    it when either axis comes out one cell long: the store carries no spacing to derive it from,
+    and the result reports a unit cell at the axis origin instead (`Selection.weighted` documents
+    what survives).
 
     Args:
         var: The source variable.

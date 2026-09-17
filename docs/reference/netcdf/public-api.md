@@ -103,14 +103,14 @@ A variable with no raster plane is the exception — see each member's docstring
 | `reduce()`         | Reduces a container or a variable along `dim` — `how`, `q`, `groupby`, `skipna`.     |
 | `coarsen()`        | Reduces fixed-size windows along `dim` — `window`, `boundary`, `how`.                |
 | `rolling()`        | Reduces a moving window along `dim`, keeping its length — `center`, `min_periods`.   |
-| `diff()`           | Differences neighbouring steps along `dim` — `n`, `label`.                          |
-| `cumsum()`         | Totals the values along `dim`, step by step — `skipna`.                             |
-| `shift()`          | Moves the values along `dim`, filling the vacated steps — `periods`, `fill_value`.  |
-| `argmin()`         | The position along `dim` of the smallest value; `-1` where there is none.           |
-| `argmax()`         | The position along `dim` of the largest value; `-1` where there is none.            |
-| `idxmin()`         | The coordinate along `dim` of the smallest value; NaN where there is none.          |
-| `idxmax()`         | The coordinate along `dim` of the largest value; NaN where there is none.           |
-| `weighted()`       | Weighted statistics over the spatial axes or a band dim — `"area"`, `how`.          |
+| `diff()`           | Differences neighbouring steps along `dim` — `n`, `label`.                           |
+| `cumsum()`         | Totals the values along `dim`, step by step — `skipna`.                              |
+| `shift()`          | Moves the values along `dim`, filling the vacated steps — `periods`, `fill_value`.   |
+| `argmin()`         | The position along `dim` of the smallest value; `-1` where there is none.            |
+| `argmax()`         | The position along `dim` of the largest value; `-1` where there is none.             |
+| `idxmin()`         | The coordinate along `dim` of the smallest value; NaN where there is none.           |
+| `idxmax()`         | The coordinate along `dim` of the largest value; NaN where there is none.            |
+| `weighted()`       | Weighted statistics over the spatial axes or a band dim — `"area"`, `how`.           |
 
 ## Spatial operations
 

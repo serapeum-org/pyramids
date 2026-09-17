@@ -88,7 +88,11 @@ class Selection(_Engine["NetCDF"]):
     helpers folded in), :meth:`sel` (band selection by coordinate value),
     :meth:`isel` (the same cut by position), :meth:`subset` (windowed
     `(variable, time, bbox)` read), :meth:`reduce` (collapse or group a
-    non-spatial dimension) and :meth:`coarsen` (fixed-size windows along one).
+    non-spatial dimension), :meth:`coarsen` (fixed-size windows along one),
+    :meth:`rolling` (a moving window that keeps the dimension's length),
+    :meth:`diff`, :meth:`cumsum`, :meth:`shift`, the four extremum locators
+    :meth:`argmin` / :meth:`argmax` / :meth:`idxmin` / :meth:`idxmax`, and
+    :meth:`weighted` (the one member that can reduce the spatial axes).
     `NetCDF` wires one instance per container as
     `nc.selection` and exposes thin façades, so `nc.crop(...)` and
     `nc.selection.crop(...)` are equivalent.
@@ -1747,12 +1751,18 @@ class Selection(_Engine["NetCDF"]):
 
         Each step of `dim` becomes the reduction of the `window` steps that end at it, or, with
         `center=True`, that are centred on it — an even window reaching one step further back
-        than forward. A window is cut where it would run off the axis, so the first and last
-        steps own fewer cells. Gaps (the declared no-data value and NaN) are always skipped,
-        and a step whose window holds fewer than `min_periods` valid cells is no-data, which
-        is what makes the edges no-data under the default `min_periods` of a whole window. The
-        dimension keeps its length and coordinates, so the result selects exactly as the source
-        does.
+        than forward. A window is cut where it would run off the axis, so the steps at the start
+        of `dim` own fewer cells, and with `center=True` those at its end do too. Gaps (the
+        declared no-data value and NaN) are always skipped, and a step whose window holds fewer
+        than `min_periods` valid cells is no-data, which is what makes those short-window steps
+        no-data under the default `min_periods` of a whole window. The dimension keeps its length
+        and coordinates, so the result selects exactly as the source does.
+
+        Every step holds exactly what a `reduce` over its own window holds, for every `how`. The
+        window placement, the short edges and `min_periods` follow xarray's
+        `rolling(...).mean()` value for value — a centred even window, and a window longer than
+        the axis included; what differs is only how a short window is *marked*, since a band
+        declares one no-data value rather than carrying NaN (see `how` below).
 
         Works on a container, rolling every variable that has `dim`, and on a single variable,
         returning a variable. A container's auxiliary variables are carried over, those that
@@ -1871,12 +1881,20 @@ class Selection(_Engine["NetCDF"]):
         dropped with a warning, since the dimension gets shorter — except for `n=0`, the
         identity, which keeps everything.
 
+        The values match xarray's `diff` for every `n`, and so do the stamps under
+        `label="upper"`. Under `label="lower"` they match at `n=1` only: xarray passes `label`
+        to the first of its `n` passes and lets the rest fall back to `"upper"`, so its
+        `n=2, label="lower"` axis is the second-to-second-last stamp, while here each difference
+        keeps the first of the `n + 1` steps it is built from.
+
         Args:
             dim: The non-spatial dimension to difference along.
             n: The order, an integer of at least 0 and below the length of `dim`. `0` is the
-                identity.
-            label: `"upper"` (default) labels each difference with the later of its two steps,
-                `"lower"` with the earlier.
+                identity. An `n` equal to the length is refused, where xarray returns an empty
+                result — a variable with no bands cannot be built.
+            label: `"upper"` (default) labels each difference with the last of the `n + 1` steps
+                it is built from, `"lower"` with the first. At `n=1` those are the later and the
+                earlier of its pair.
 
         Returns:
             NetCDF: A container for a container, a variable for a variable, `dim` shorter by
@@ -1925,6 +1943,28 @@ class Selection(_Engine["NetCDF"]):
               [2.0, 2.0]
               >>> var.diff("time", label="lower")._band_dim_values_map["time"]
               [0.0, 6.0, 12.0]
+
+              ```
+            - An integer band that declares no no-data value keeps its own type, and a
+              second-order `"lower"` label keeps the earliest step behind each difference:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([1, 4, 9, 16], dtype="int16").reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     no_data_value=None,
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> change = var.diff("time")
+              >>> change.read_array().ravel().tolist(), change.read_array().dtype.name
+              ([3, 5, 7], 'int16')
+              >>> change.no_data_value
+              (None, None, None)
+              >>> var.diff("time", 2, label="lower")._band_dim_values_map["time"]
+              [0.0, 6.0]
 
               ```
         """
@@ -2002,6 +2042,26 @@ class Selection(_Engine["NetCDF"]):
               [nan, 2.0, 2.0, 6.0]
 
               ```
+            - Without skipping, the stored sentinel is added like any other value, and an
+              integer band totals in the wider type numpy gives a cumulative sum:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([1, 2, 3, -1], dtype="int16").reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     no_data_value=-1,
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> raw = var.cumsum("time", skipna=False)
+              >>> raw.read_array().ravel().tolist(), raw.read_array().dtype.name
+              ([1, 3, 6, 5], 'int64')
+              >>> var.cumsum("time").read_array().ravel().tolist()
+              [1.0, 3.0, 6.0, 6.0]
+
+              ```
         """
         nc = self._ds
         op = _CumSum(skipna=bool(skipna))
@@ -2028,14 +2088,18 @@ class Selection(_Engine["NetCDF"]):
             periods: Steps to move, any integer. A shift of at least the length of `dim` leaves
                 every step vacated.
             fill_value: What a vacated step holds; `None` (default) asks for the variable's
-                no-data value, or NaN when it declares none.
+                no-data value, or NaN when it declares none. A plain Python integer never widens
+                an integer band — under NEP 50 it is a weak type — so one the band cannot hold is
+                refused rather than promoted; a fractional fill, NaN, or a numpy scalar widens it
+                as `numpy.result_type` says.
 
         Returns:
             NetCDF: A container for a container, a variable for a variable, with every dimension
             unchanged. With no `fill_value`, a band declaring a no-data value keeps its own type
-            and fills with that value, while one declaring none answers float64 and declares
-            NaN. A `fill_value` is held in the narrowest type that fits it and the band, and
-            leaves the declared no-data value alone.
+            and fills with that value, while one declaring none fills with NaN and declares it —
+            keeping a float band's own floating type, and widening an integer band to float64. A
+            `fill_value` is held in `numpy.result_type` of the band and the fill, and leaves the
+            declared no-data value alone.
 
         Raises:
             TypeError: `periods` is not an integer, or is a boolean; `fill_value` is neither
@@ -2080,6 +2144,29 @@ class Selection(_Engine["NetCDF"]):
               [0.0, 6.0, 12.0, 18.0]
               >>> (var - shifted).read_array().ravel().tolist()
               [nan, 1.0, 2.0, 4.0]
+
+              ```
+            - An explicit fill leaves the declared no-data value alone, and only a fractional
+              one widens an integer band:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([1, 2, 3, 4], dtype="int16").reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     no_data_value=-1,
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> zeros = var.shift("time", 1, fill_value=0)
+              >>> zeros.read_array().ravel().tolist(), zeros.read_array().dtype.name
+              ([0, 1, 2, 3], 'int16')
+              >>> zeros.no_data_value[0]
+              -1.0
+              >>> halves = var.shift("time", 1, fill_value=0.5)
+              >>> halves.read_array().ravel().tolist(), halves.read_array().dtype.name
+              ([0.5, 1.0, 2.0, 3.0], 'float64')
 
               ```
         """
@@ -2135,6 +2222,24 @@ class Selection(_Engine["NetCDF"]):
               >>> coldest = var.argmin("time")
               >>> coldest.read_array().ravel().tolist(), coldest.no_data_value[0]
               ([1, -1], -1)
+
+              ```
+            - Without skipping, the search is numpy's own, where a NaN wins the comparison:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([3.0, np.nan, 2.0]).reshape(3, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     no_data_value=np.nan,
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0]),
+              ... ).get_variable("t")
+              >>> var.argmin("time").read_array().ravel().tolist()
+              [2]
+              >>> var.argmin("time", skipna=False).read_array().ravel().tolist()
+              [1]
 
               ```
         """
@@ -2234,6 +2339,29 @@ class Selection(_Engine["NetCDF"]):
               [6.0, nan]
 
               ```
+            - A dimension whose stamps were dropped — an operator result's — has no coordinate
+              to answer with, so `argmin` is the member to reach for:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.arange(4.0).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> change = var.isel(time=slice(2, 4)) - var.isel(time=slice(0, 2))
+              >>> change._band_dim_values_map["time"] is None
+              True
+              >>> change.idxmin("time")  # doctest: +IGNORE_EXCEPTION_DETAIL
+              Traceback (most recent call last):
+                ...
+              ValueError: idxmin() needs the stamps of 'time'
+              >>> change.argmin("time").read_array().ravel().tolist()
+              [0]
+
+              ```
         """
         nc = self._ds
         op = _Extremum(
@@ -2316,32 +2444,44 @@ class Selection(_Engine["NetCDF"]):
 
         A gap (the declared no-data value or NaN) leaves both sums, so the answer is the
         statistic of the cells there are. A slice with no valid cell, or whose weights total
-        zero, has no statistic and comes back NaN, the declared no-data value.
+        zero, has no statistic and comes back NaN, the declared no-data value — except
+        `how="sum_of_weights"`, which answers the total it found, `0.0` included, for any slice
+        that has a valid cell at all, where xarray answers NaN for a zero total.
 
-        **The single cell's footprint.** The result's cell is centred on the extent it covers,
-        but a spatial axis of one cell carries no spacing in the rebuilt store, so the cell size
-        reads back as one index unit and `lat` / `lon` cannot be told apart on it — the same
-        limit a one-column `reduce` result has. The values, the band dimensions and the CRS are
-        exact; only the cell's reported width is not.
+        **The single cell's footprint.** The values, the band dimensions, their stamps and the
+        CRS are exact, but the grid the answer sits on is not. `weighted` hands the rebuild a
+        cell spanning the source's extent, and a rebuilt store whose row or column axis is one
+        cell long carries no spacing to derive a geotransform from, so the result reports a unit
+        cell at the axis origin instead: `cell_size` reads back as `1.0`, `geotransform` and
+        `bounds` describe that unit cell rather than the extent that was reduced, and `lat` /
+        `lon` cannot be told apart on it. Any one-cell-wide raster built in memory has the same
+        limit — `reduce` is not affected, since it never touches the grid. Read the numbers off
+        the result; keep the source (or `source.bounds`) if the extent has to stay on record.
 
         Args:
             weights: `"area"` for `cos(latitude)` per row, which needs a geographic CRS; an
                 array broadcastable to the weighted axes — `(rows, 1)`, `(1, columns)` or
                 `(rows, columns)` for the grid, one weight per step for a band dimension; or a
                 `NetCDF` on the same grid, whose first band is read as the weights. Weights may
-                be negative, as xarray allows, but may not hold a gap: replace one with zero to
-                leave that cell out.
+                be negative, as xarray allows, but may not hold a NaN: replace one with zero to
+                leave that cell out. Only a NaN is refused — a weights raster is read as plain
+                numbers, so its own no-data sentinel would be weighted as an ordinary value.
             dims: The dimensions to weight over: `None` (default) for both spatial axes, one
                 name, or a sequence of names. A spatial axis is named as the store names it
                 (`latitude` / `longitude`) or as `y` / `x`. Spatial axes and band dimensions
                 cannot be mixed in one call, since a container cannot hold variables on two
-                grids.
+                grids. The spatial pair is read off the last two dimensions the store declares,
+                so a store that declares a band dimension between them — CAM's
+                `(time, lat, lev, lon)` — needs `dims=("y", "x")`; the `None` default picks the
+                wrong second-to-last name there and is refused as a mixed call.
             how: `"mean"` (default), `"sum"`, `"sum_of_weights"`, `"std"` or `"var"`. The
                 variance is the weighted `sum(w * (x - mean) ** 2) / sum(w)`, as xarray computes
                 it. A weighted quantile is not offered; `reduce(how="quantile")` is the
                 unweighted one.
-            skipna: When `True` (default) gaps are skipped, as described above. When `False`
-                the stored values are weighted as they are, so a gap makes the answer NaN.
+            skipna: Whether the declared no-data value counts as a gap. A NaN is left out of
+                both sums either way, so `skipna=False` weights the sentinel as an ordinary
+                value but still skips NaN — where xarray's `skipna=False` makes the whole answer
+                NaN.
 
         Returns:
             NetCDF: A container for a container, a variable for a variable, float64 and
@@ -2349,10 +2489,12 @@ class Selection(_Engine["NetCDF"]):
 
         Raises:
             ValueError: `how` is unknown; `dims` is empty, names a dimension the variable does
-                not have, names one twice, or mixes spatial axes with band dimensions;
-                `weights` is an unknown name, holds a gap, does not broadcast onto the weighted
-                axes, or is a raster on another grid; `"area"` is asked of a grid that is not
-                geographic; or the container has no data variables.
+                not have, names one twice, or mixes spatial axes with band dimensions; `weights`
+                is an unknown name, holds a NaN, broadcasts onto neither the weighted axes nor
+                the variable's own shape, or is a raster on another grid; `"area"` is asked of a
+                grid that is not geographic; or the container has no data variables. A container
+                whose gridded variables do not all carry the band dimension being weighted is
+                refused too, where `reduce` would carry the odd one over unchanged.
 
         Examples:
             - The area-weighted mean of each step, on a grid of one cell:
@@ -2373,6 +2515,8 @@ class Selection(_Engine["NetCDF"]):
               [2.515, 6.515]
               >>> mean._band_dim_values_map["time"]
               [0.0, 6.0]
+              >>> float(mean.cell_size)  # a unit cell, not the 2-degree span it reduced
+              1.0
 
               ```
             - Equal weights give the plain mean, and the totals are available too:
@@ -2424,11 +2568,15 @@ _BOUNDARIES = ("exact", "trim", "pad")
 
 
 def _check_how(how: str, known: set[str]) -> None:
-    """Refuse a reduction name `reduce` and `coarsen` do not know.
+    """Refuse a reduction name the caller does not know.
+
+    Shared by `reduce`, `coarsen`, `rolling` and `weighted`, which do not all offer the same
+    set — `weighted` passes its own `_WEIGHTED_HOWS` — so the known names come in as an argument
+    rather than being looked up here.
 
     Args:
         how: The requested reduction.
-        known: Every reduction name there is.
+        known: Every reduction name the caller accepts.
 
     Raises:
         ValueError: `how` is not in `known`; the message lists them sorted.

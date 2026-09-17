@@ -1,11 +1,16 @@
 """The loop every operation along a non-spatial dimension runs through, and those operations.
 
-`reduce` and `coarsen` transform each variable's values along one of its band dimensions and
-rebuild the result. What differs between them is the per-variable step; what they share is
-everything around it — the receiver's checks, which variables of a container take part, how
-the auxiliary variables are carried or dropped, how a coordinate-less dimension and the CF time
-units a result carries survive the rebuild. That shared part is `_apply_to_variable` and
-`_apply_to_container`, and each member hands it an `_AlongDim` describing its own step.
+`reduce`, `coarsen`, `rolling`, `diff`, `cumsum`, `shift` and `argmin` / `argmax` / `idxmin` /
+`idxmax` all transform each variable's values along one of its band dimensions and rebuild the
+result. What differs between them is the per-variable step; what they share is everything around
+it — the receiver's checks, which variables of a container take part, how the auxiliary variables
+are carried or dropped, how a coordinate-less dimension and the CF time units a result carries
+survive the rebuild. That shared part is `_apply_to_variable` and `_apply_to_container`, and each
+member hands it an `_AlongDim` describing its own step: `_Reduction`, `_Rolling`, `_Diff`,
+`_CumSum`, `_Shift` or `_Extremum`.
+
+`weighted` is the one member that does not come through here, since it can collapse the grid
+rather than a band dimension; it lives in `_weighted`, which reuses this module's rebuild helpers.
 """
 
 from __future__ import annotations
@@ -141,9 +146,10 @@ class _Reduction(_AlongDim):
 class _Rolling(_AlongDim):
     """`rolling`: each step becomes a statistic of the window of steps it owns.
 
-    A window ends at its step, or is centred on it, and is cut where it would run off the axis.
-    Gaps are always skipped, and a step whose window holds fewer than `min_periods` valid cells
-    is no-data. The dimension keeps its length and coordinates.
+    A window ends at its step, or is centred on it, and is cut where it would run off the axis,
+    so the steps at the start of the axis own fewer cells, and with `center=True` those at its
+    end do too. Gaps are always skipped, and a step whose window holds fewer than `min_periods`
+    valid cells is no-data. The dimension keeps its length and coordinates.
 
     Attributes:
         window: Steps per window.
@@ -219,8 +225,10 @@ class _Diff(_AlongDim):
 
     Attributes:
         n: The order — how many times the difference is taken.
-        label: `"upper"` to label each difference with the later of its two steps, `"lower"`
-            with the earlier.
+        label: `"upper"` to label each difference with the last of the `n + 1` steps it is built
+            from, `"lower"` with the first. At `n=1` those are the later and the earlier of its
+            pair, which is how xarray labels them; at `n>1` only `"upper"` still agrees with
+            xarray (see `Selection.diff`).
     """
 
     n: int
@@ -339,7 +347,10 @@ class _Shift(_AlongDim):
         periods: Steps to move; a positive number moves the values towards the end of the
             dimension, a negative one towards its start.
         fill_value: What a vacated step holds; `None` asks for the variable's no-data value, or
-            NaN when it declares none.
+            NaN when it declares none. Under NEP 50 a plain Python integer is weak, so an
+            integer band is never widened to hold one: a fill it cannot hold is refused rather
+            than promoted. A fractional fill, NaN, or a numpy scalar widens the band as
+            `numpy.result_type` says.
     """
 
     periods: int
@@ -358,10 +369,10 @@ class _Shift(_AlongDim):
 
         Returns:
             _Applied: The shifted values, the band layout unchanged. With no `fill_value` a band
-            declaring a no-data value keeps its own type and fills with that value, and one
-            declaring none answers float64 and declares NaN. A `fill_value` is held in the
-            narrowest type that fits it and the band, and leaves the declared no-data value
-            alone.
+            declaring a no-data value keeps its own type and fills with that value; one declaring
+            none fills with NaN, which keeps a float band's own floating type and widens an
+            integer band to float64. A `fill_value` is held in `numpy.result_type` of the band and
+            the fill, and leaves the declared no-data value alone.
 
         Raises:
             ValueError: The band cannot hold `fill_value`.
@@ -615,7 +626,7 @@ def _reduced_array(
     resize: int | None = None,
     window_mean_coords: bool = False,
 ) -> tuple[np.ndarray, list[str], dict[str, Any], Any]:
-    """Reduce one raster variable along `dim`, the step a container and a variable share.
+    """Reduce one raster variable along `dim`: the per-variable step of `reduce` and `coarsen`.
 
     A file-backed variable that still reads as its store (`NetCDF._reads_as_its_store`) is read
     as a chunked dask array when dask is installed, and the `np.*` / `np.nan*` reducers dispatch
@@ -624,7 +635,7 @@ def _reduced_array(
     variable, a cut or other derived variable, or any variable without dask — is read eagerly.
 
     Args:
-        nc: The object `reduce` was called on, which owns the reduce helpers.
+        nc: The object `reduce` or `coarsen` was called on, which owns the reduce helpers.
         var: The variable to reduce; `dim` must be one of its band dimensions.
         dim: The dimension to reduce.
         how: The reduction.
@@ -902,7 +913,11 @@ def _carry_auxiliaries(
 
 
 def _reduces_as_a_variable(nc: NetCDF) -> bool:
-    """Whether `reduce` / `coarsen` treat `nc` as one variable rather than a container.
+    """Whether an operation treats `nc` as one variable rather than a container.
+
+    Every member that runs along a band dimension asks this, and so does `weighted`, so that
+    `nc.get_variable("t").rolling("time", 3)` holds the same cells as
+    `nc.rolling("time", 3).get_variable("t")`.
 
     A `Variable` is one. So is anything that carries band dimensions: an operator result takes
     its left operand's class, so a classic-mode NetCDF on the left of a labelled variable gives
@@ -911,7 +926,7 @@ def _reduces_as_a_variable(nc: NetCDF) -> bool:
     down the variable path.
 
     Args:
-        nc: The object `reduce` or `coarsen` was called on.
+        nc: The object the member was called on.
 
     Returns:
         bool: `True` for a `Variable` or anything carrying band dimensions.
@@ -925,15 +940,17 @@ def _reduces_as_a_variable(nc: NetCDF) -> bool:
 def _assert_band_dimension(nc: NetCDF, dim_name: str, *, caller: str) -> None:
     """Refuse a name that is not one of this variable's band dimensions.
 
-    Shared by `sel`, `isel`, `reduce` and `coarsen` so they report an unknown dimension
+    Shared by `sel`, `isel` and every operation along a band dimension (`reduce`, `coarsen`,
+    `rolling`, `diff`, `cumsum`, `shift` and `argmin` / `argmax` / `idxmin` / `idxmax`, all of
+    which reach it through `_apply_to_variable`) so they report an unknown dimension
     identically — the plan for `isel` asks for exactly the `ValueError` `sel` already
     raises, and the only way to keep that true is to raise it in one place.
 
     Args:
-        nc: The variable subset being selected from or reduced.
+        nc: The variable subset being selected from or transformed.
         dim_name: The dimension the caller named.
-        caller: `"sel"`, `"isel"`, `"reduce"` or `"coarsen"`, named in the message about a
-            variable with no band dimensions.
+        caller: The member the user called — `"sel"`, `"isel"`, `"reduce"`, `"rolling"`, ... —
+            named in the message about a variable with no band dimensions.
 
     Raises:
         ValueError: The variable tracks no band dimensions, or `dim_name` is not one.
@@ -951,16 +968,16 @@ def _assert_band_dimension(nc: NetCDF, dim_name: str, *, caller: str) -> None:
 
 
 def _read_no_data(var: NetCDF) -> Any:
-    """The no-data value as it appears in the values a reduction reads.
+    """The no-data value as it appears in the values an operation reads.
 
-    The reduce path reads a variable unpacked, so a CF-packed variable's fill cells hold
+    Every operation here reads a variable unpacked, so a CF-packed variable's fill cells hold
     `_FillValue * scale_factor + add_offset`, never the stored `_FillValue` itself. Masking
     against the stored value would count every fill cell as data. The sentinel is unpacked the
     same way the read unpacks the data (`Analysis._physical_no_data`), so the two compare equal.
     An unpacked variable's sentinel is returned unchanged.
 
     Args:
-        var: The variable being reduced or carried over.
+        var: The variable being transformed or carried over.
 
     Returns:
         Any: The sentinel in read units, or `None` when the variable declares none.

@@ -7302,10 +7302,12 @@ class NetCDF(Dataset):
 
         With `lazy=True`, dask (the `[lazy]` extra) installed, and a file-backed variable that still
         reads as its store, returns a chunked `dask.array` in that same layout without ever holding
-        the whole variable in RAM — `reduce` streams its reducer over it and computes only the
-        (small) reduced result (ARC-47). The chunked read already keeps each non-spatial dim as its
-        own leading axis, so no reshape is needed. Otherwise it reads eagerly, undoing
-        `read_array`'s singleton-band squeeze and GDAL's row-major band flatten.
+        the whole variable in RAM — every operation along a band dimension (`reduce`, `coarsen`,
+        `rolling`, `diff`, `cumsum`, `shift`, the extremum locators) and `weighted` stream their
+        numpy calls over it and compute only the (small) result (ARC-47). The chunked read already
+        keeps each non-spatial dim as its own leading axis, so no reshape is needed. Otherwise it
+        reads eagerly, undoing `read_array`'s singleton-band squeeze and GDAL's row-major band
+        flatten.
 
         Because the streamed reduce tree-reduces per chunk via dask while the eager path reduces in a
         single pass, a file-backed `mean`/`sum`/`std`/`var` can differ from the same in-memory reduce
@@ -7383,9 +7385,10 @@ class NetCDF(Dataset):
         stamps `_group_stamps` decodes. They are decoded through `get_time_variable` when this
         object holds no coordinates of its own for `dim`, and through `_decode_time_labels` when
         it does, which finds the units its store declares or those a derived result carries. A
-        container whose stored axis has no units of its own — one rebuilt by `reduce` or
-        `coarsen` — falls back to decoding its dimension's values with the units it carries. A
-        sequence of labels groups equal labels, in first-appearance order.
+        container whose stored axis has no units of its own — one rebuilt by any operation along
+        a band dimension, `reduce` and `coarsen` included — falls back to decoding its
+        dimension's values with the units it carries. A sequence of labels groups equal labels,
+        in first-appearance order.
 
         Args:
             dim: The band dimension being grouped.
@@ -7470,8 +7473,9 @@ class NetCDF(Dataset):
           stamps but not the root group's units) are decoded with the units its store declares,
           or that a derived result carries (`_time_attr_candidates`).
         - A container decodes its stored axis the same way: with the units its own metadata
-          declares, or, for one rebuilt by `reduce` / `coarsen` that stores its axis without
-          units, with the units it carries in `_band_dim_time_attrs`.
+          declares, or, for one rebuilt by an operation along a band dimension (`reduce`,
+          `coarsen`, `rolling`, ...) that stores its axis without units, with the units it
+          carries in `_band_dim_time_attrs`.
         - A variable without coordinates of its own falls back to `get_time_variable`, which
           reads its own metadata.
 
@@ -7616,8 +7620,8 @@ class NetCDF(Dataset):
             how: `"count"`, `"all"` or `"any"`.
             skipna: Whether gaps are skipped, for `all`/`any`.
             ndv: The sentinel as it appears in `arr`, or `None`. For a CF-packed variable read
-                unpacked that is the unpacked `_FillValue`, not the stored one — the reduce
-                path passes it that way (`_read_no_data`).
+                unpacked that is the unpacked `_FillValue`, not the stored one — every caller
+                passes it that way (`_read_no_data`).
 
         Returns:
             The reduced array: `int64` for `count`, `uint8` for `all`/`any`.
