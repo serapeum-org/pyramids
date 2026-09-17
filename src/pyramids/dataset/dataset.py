@@ -15,7 +15,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import replace
 from numbers import Number, Real
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Unpack, cast
+from typing import TYPE_CHECKING, Any, Literal, Unpack, cast, overload
 
 import geopandas as gpd
 import numpy as np
@@ -775,8 +775,56 @@ class Dataset(RasterBase):
         """Facade — delegates to :meth:`COG.to_cog_bytes <pyramids.dataset.engines.COG.to_cog_bytes>`."""
         return self.cog.to_cog_bytes(*args, **kwargs)
 
+    @overload
+    def read_part(
+        self,
+        bbox: tuple[float, float, float, float],
+        *,
+        dst_width: int | None = ...,
+        dst_height: int | None = ...,
+        bbox_crs: int | str | None = ...,
+        resampling: str = ...,
+        band: int | None = ...,
+        return_transform: Literal[False] = ...,
+    ) -> np.typing.NDArray: ...
+
+    @overload
+    def read_part(
+        self,
+        bbox: tuple[float, float, float, float],
+        *,
+        dst_width: int | None = ...,
+        dst_height: int | None = ...,
+        bbox_crs: int | str | None = ...,
+        resampling: str = ...,
+        band: int | None = ...,
+        return_transform: Literal[True],
+    ) -> tuple[np.typing.NDArray, tuple[float, float, float, float, float, float]]: ...
+
+    @overload
+    def read_part(
+        self,
+        bbox: tuple[float, float, float, float],
+        *,
+        dst_width: int | None = ...,
+        dst_height: int | None = ...,
+        bbox_crs: int | str | None = ...,
+        resampling: str = ...,
+        band: int | None = ...,
+        return_transform: bool,
+    ) -> (
+        np.typing.NDArray
+        | tuple[np.typing.NDArray, tuple[float, float, float, float, float, float]]
+    ): ...
+
     def read_part(self, *args, **kwargs):
-        """Facade — delegates to :meth:`COG.read_part <pyramids.dataset.engines.COG.read_part>`."""
+        """Facade — delegates to :meth:`COG.read_part <pyramids.dataset.engines.COG.read_part>`.
+
+        The overloads above mirror the engine's, so `Dataset.read_part` -- the
+        public entry point -- narrows to a bare array by default and to an
+        `(array, geotransform)` tuple under `return_transform=True`, rather than
+        erasing to `Any` through the `*args, **kwargs` passthrough.
+        """
         return self.cog.read_part(*args, **kwargs)
 
     def preview(self, *args, **kwargs):
